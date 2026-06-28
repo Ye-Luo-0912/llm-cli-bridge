@@ -36,3 +36,6 @@ Thumbs.db
 .obsidian/workspace*
 .obsidian/cache
 .obsidian/plugins/*/data.json
+
+# Release 打包产物（不入库，仅本地生成）
+release/
