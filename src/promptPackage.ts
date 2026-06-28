@@ -26,7 +26,7 @@ export function truncateText(text: string, maxChars: number): string {
  * 构建 Prompt Package
  * - 输入 user message + state snapshot + settings
  * - 输出给 CLI 的最终 prompt
- * - 明确要求长输出写入 90_AI整理待确认/
+ * - 输出位置由 settings.outputDir 驱动；未配置则按 AGENTS.md / 项目规则
  * - 明确要求不要在聊天窗口打印完整长文档
  */
 export function buildPromptPackage(
@@ -62,12 +62,18 @@ ${truncated}
 `);
   }
 
-  // 4. 输出规则
+  // 4. 输出规则（配置驱动 / 项目约定驱动，不硬编码目录名）
+  const configuredDir = settings.outputDir && settings.outputDir.trim().length > 0
+    ? settings.outputDir.trim()
+    : "";
+  const outputLocation = configuredDir
+    ? `配置目录 \`${configuredDir}/\``
+    : "按 AGENTS.md 或 Vault 项目规则选择输出位置";
   parts.push(`
 ========== 输出规则 ==========
-- 长输出（>500 字）必须写入 \`${settings.outputDir}/\` 目录，不要直接在聊天窗口打印
-- 如果必须输出长内容，写入文件并告知路径
-- 不要在聊天输出里打印完整长文件`);
+- 长输出不要直接刷屏（不要在聊天窗口打印完整长文件）
+- 按配置或项目规则写入文件（输出位置：${outputLocation}）
+- 如果必须输出长内容，写入文件并告知路径`);
 
   // 5. 用户请求
   parts.push(`

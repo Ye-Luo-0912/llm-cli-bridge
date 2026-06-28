@@ -246,8 +246,8 @@ try {
   });
   const { truncateText, buildPromptPackage } = await import(pathToFileURL(promptPackageBundle).href);
 
-  // 辅助 settings
-  function makePromptSettings(includeActiveNote, includeSelection) {
+  // 辅助 settings（outputDir 用中性配置值，证明是配置驱动而非硬编码）
+  function makePromptSettings(includeActiveNote, includeSelection, outputDir) {
     return {
       agentType: "claude",
       claudeCommand: "claude",
@@ -260,7 +260,7 @@ try {
       includeSelection,
       maxActiveNoteChars: 100,
       maxSelectionChars: 50,
-      outputDir: "90_AI整理待确认",
+      outputDir: outputDir !== undefined ? outputDir : "my-test-output-dir",
       showStderr: true,
       saveLogs: false,
       sessionMode: "fresh",
@@ -347,7 +347,7 @@ try {
       ok ? "" : `hasNote=${hasNote}, hasSelection=${hasSelection}`);
   }
 
-  // Test 6: buildPromptPackage 包含输出规则
+  // Test 6: buildPromptPackage 输出规则（配置驱动）
   {
     const settings = makePromptSettings(false, false);
     const snapshot = {
@@ -358,12 +358,32 @@ try {
       timestamp: "2026-06-28T12:00:00Z",
     };
     const prompt = buildPromptPackage("用户请求", snapshot, settings);
-    const hasOutputRule = prompt.includes("输出规则") &&
-                          prompt.includes("90_AI整理待确认") &&
-                          prompt.includes("不要在聊天输出里打印完整长文件");
-    const ok = hasOutputRule;
-    addTest("Prompt Package: 包含输出规则", ok ? "pass" : "fail",
-      ok ? "" : `hasOutputRule=${hasOutputRule}`);
+    const hasNoScreen = prompt.includes("长输出不要直接刷屏");
+    const hasConfigRule = prompt.includes("按配置或项目规则写入文件");
+    const hasConfiguredDir = prompt.includes("my-test-output-dir");
+    const ok = hasNoScreen && hasConfigRule && hasConfiguredDir;
+    addTest("Prompt Package: 输出规则配置驱动（含配置值）", ok ? "pass" : "fail",
+      ok ? "" : `hasNoScreen=${hasNoScreen}, hasConfigRule=${hasConfigRule}, hasConfiguredDir=${hasConfiguredDir}`);
+  }
+
+  // Test 6b: outputDir 为空时不出现固定目录，改为项目规则驱动
+  {
+    const settings = makePromptSettings(false, false, "");
+    const snapshot = {
+      vaultPath: "/test/vault",
+      activeFilePath: null,
+      activeFileContent: null,
+      selection: null,
+      timestamp: "2026-06-28T12:00:00Z",
+    };
+    const prompt = buildPromptPackage("用户请求", snapshot, settings);
+    const hasNoScreen = prompt.includes("长输出不要直接刷屏");
+    const hasConfigRule = prompt.includes("按配置或项目规则写入文件");
+    const hasProjectRule = prompt.includes("AGENTS.md");
+    const noFixedDir = !prompt.includes("90_AI整理待确认") && !prompt.includes("my-test-output-dir");
+    const ok = hasNoScreen && hasConfigRule && hasProjectRule && noFixedDir;
+    addTest("Prompt Package: outputDir 为空时项目规则驱动（无固定目录）", ok ? "pass" : "fail",
+      ok ? "" : `hasNoScreen=${hasNoScreen}, hasConfigRule=${hasConfigRule}, hasProjectRule=${hasProjectRule}, noFixedDir=${noFixedDir}`);
   }
 
   // Test 7: buildPromptPackage 包含用户请求
