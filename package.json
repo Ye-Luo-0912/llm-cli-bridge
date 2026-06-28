@@ -9,6 +9,7 @@
     "test": "node scripts/run-tests.mjs",
     "test:unit": "node scripts/run-tests.mjs --unit",
     "test:process": "node scripts/run-tests.mjs --process",
+    "test:claude": "node scripts/run-tests.mjs --claude",
     "test:integration": "node scripts/run-tests.mjs --integration"
   },
   "keywords": [

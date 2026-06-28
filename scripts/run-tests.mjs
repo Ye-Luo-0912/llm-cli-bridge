@@ -23,9 +23,10 @@ const results = {
   skipped: 0,
 };
 
-// 测试模式：--unit（仅单元测试）/ --process（仅子进程 fixture 测试）/ --integration（仅集成测试）/ 默认 all
+// 测试模式：--unit / --process / --claude / --integration / 默认 all
 const runMode = process.argv.includes("--unit") ? "unit"
   : process.argv.includes("--process") ? "process"
+  : process.argv.includes("--claude") ? "claude"
   : process.argv.includes("--integration") ? "integration"
   : "all";
 
@@ -1199,6 +1200,100 @@ if (!runUnit) {
 }
 
 // ============================================================
+// 8.5 AgentProfile 解析测试（unit，纯函数，不依赖 Obsidian 和子进程）
+// ============================================================
+console.log("\n=== AgentProfile 解析测试 ===");
+
+if (!runUnit) {
+  addTest("Profile 解析测试段", "skip", "当前为 process/integration 模式，跳过 unit 测试");
+} else {
+  try {
+    const esbuild = (await import("esbuild")).default;
+    const tempProfileBundle = join(PROJECT_ROOT, ".test-profile-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "agentProfile.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: tempProfileBundle,
+    });
+    const { resolveProfile } = await import(pathToFileURL(tempProfileBundle).href);
+
+    const baseSettings = {
+      agentType: "claude",
+      claudeCommand: "claude",
+      claudeArgs: "-p",
+      codexCommand: "codex",
+      codexArgs: "exec -",
+      customCommand: "",
+      customArgs: "",
+      includeActiveNote: false,
+      includeSelection: false,
+      maxActiveNoteChars: 6000,
+      maxSelectionChars: 3000,
+      outputDir: "",
+      showStderr: true,
+      saveLogs: false,
+      sessionMode: "fresh",
+      model: "",
+      effortLevel: "",
+      devTestMode: false,
+      backendMode: "auto",
+    };
+
+    // Claude profile 解析
+    {
+      const p = resolveProfile({ ...baseSettings, agentType: "claude", claudeCommand: "claude", claudeArgs: "-p --foo" });
+      const nameOk = p.name === "claude";
+      const cmdOk = p.command === "claude";
+      const argsOk = p.args.length === 2 && p.args[0] === "-p" && p.args[1] === "--foo";
+      const versionOk = p.versionArgs.length === 1 && p.versionArgs[0] === "--version";
+      addTest("Profile: claude 解析 command/args", (nameOk && cmdOk && argsOk && versionOk) ? "pass" : "fail",
+        `name=${nameOk}, cmd=${cmdOk}, args=${argsOk}, version=${versionOk}; got cmd=${p.command} args=${JSON.stringify(p.args)}`);
+    }
+
+    // Codex profile 解析
+    {
+      const p = resolveProfile({ ...baseSettings, agentType: "codex", codexCommand: "codex", codexArgs: "exec -" });
+      const nameOk = p.name === "codex";
+      const cmdOk = p.command === "codex";
+      const argsOk = p.args.length === 2 && p.args[1] === "-";
+      const versionOk = p.versionArgs[0] === "--version";
+      addTest("Profile: codex 解析 command/args", (nameOk && cmdOk && argsOk && versionOk) ? "pass" : "fail",
+        `name=${nameOk}, cmd=${cmdOk}, args=${argsOk}, version=${versionOk}; got cmd=${p.command} args=${JSON.stringify(p.args)}`);
+    }
+
+    // Custom profile trim command 保留 args
+    {
+      const p = resolveProfile({ ...baseSettings, agentType: "custom", customCommand: "  mycmd  ", customArgs: "  a  b  c  " });
+      const cmdTrimmed = p.command === "mycmd";
+      const argsOk = p.args.length === 3 && p.args[0] === "a" && p.args[2] === "c";
+      addTest("Profile: custom trim command 保留 args", (cmdTrimmed && argsOk) ? "pass" : "fail",
+        `cmdTrimmed=${cmdTrimmed}, argsOk=${argsOk}; got cmd="${p.command}" args=${JSON.stringify(p.args)}`);
+    }
+
+    // 空 args → []
+    {
+      const p = resolveProfile({ ...baseSettings, agentType: "claude", claudeCommand: "claude", claudeArgs: "   " });
+      addTest("Profile: 空 args → []", p.args.length === 0 ? "pass" : "fail",
+        `got args=${JSON.stringify(p.args)}`);
+    }
+
+    // 空 command → trim 后空字符串
+    {
+      const p = resolveProfile({ ...baseSettings, agentType: "custom", customCommand: "   ", customArgs: "" });
+      addTest("Profile: 空 command trim 后为空串", p.command === "" ? "pass" : "fail",
+        `got cmd="${p.command}"`);
+    }
+
+    rmSync(tempProfileBundle, { force: true });
+  } catch (e) {
+    addTest("AgentProfile 解析测试", "fail", e?.stack || e?.message || String(e));
+    try { rmSync(join(PROJECT_ROOT, ".test-profile-temp.mjs"), { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");
@@ -1419,10 +1514,314 @@ if (!runProcess) {
         ok ? "" : `completed=${hasCompleted}, logClean=${logClean}, logPath=${logPath || listDebugLogs(VAULT_PATH)}`);
     }
 
+    // ---- Preflight tests（V0.5）----
+    // 用 agentProfile 的 runPreflight，不发真实 prompt，只调 --version
+    {
+      // 单独 bundle agentProfile.ts（它 import 自 claudeCliBackend，esbuild 会一起打包）
+      const tempPreflightBundle = join(PROJECT_ROOT, ".test-preflight-temp.mjs");
+      await esbuild.build({
+        entryPoints: [join(PROJECT_ROOT, "src", "agentProfile.ts")],
+        bundle: true,
+        format: "esm",
+        platform: "node",
+        outfile: tempPreflightBundle,
+      });
+      const { runPreflight } = await import(pathToFileURL(tempPreflightBundle).href);
+
+      // 辅助 settings：custom profile 便于指向任意命令
+      function makePreflightSettings(command, args) {
+        return {
+          agentType: "custom",
+          claudeCommand: "claude",
+          claudeArgs: "-p",
+          codexCommand: "codex",
+          codexArgs: "exec -",
+          customCommand: command,
+          customArgs: args || "",
+          includeActiveNote: false,
+          includeSelection: false,
+          maxActiveNoteChars: 6000,
+          maxSelectionChars: 3000,
+          outputDir: "",
+          showStderr: true,
+          saveLogs: false,
+          sessionMode: "fresh",
+          model: "secret-model-value",
+          effortLevel: "secret-effort-value",
+          devTestMode: false,
+          backendMode: "auto",
+        };
+      }
+
+      // Preflight Test 1: cwd 不存在 → failed diagnostic
+      {
+        const badCwd = "Z:\\non_existent_preflight_dir_xyz";
+        const result = await runPreflight(makePreflightSettings("node", ""), badCwd, 5000);
+        const cwdMissing = result.cwdExists === false;
+        const unavailable = result.available === false;
+        const hasDiag = result.diagnostics.includes("unavailable") && result.diagnostics.includes("cwd");
+        const ok = cwdMissing && unavailable && hasDiag;
+        addTest("Preflight: cwd 不存在 → failed diagnostic", ok ? "pass" : "fail",
+          ok ? "" : `cwdExists=${result.cwdExists}, available=${result.available}, diag="${result.diagnostics}"`);
+      }
+
+      // Preflight Test 2: command 不存在 → unavailable
+      {
+        const result = await runPreflight(
+          makePreflightSettings("non_existent_command_xyz_123", ""),
+          VAULT_PATH,
+          5000,
+        );
+        const notFound = result.commandFound === false;
+        const unavailable = result.available === false;
+        const ok = notFound && unavailable;
+        addTest("Preflight: command 不存在 → unavailable", ok ? "pass" : "fail",
+          ok ? "" : `commandFound=${result.commandFound}, available=${result.available}, exitCode=${result.versionExitCode}`);
+      }
+
+      // Preflight Test 3: version 命令成功 → available（用 node --version）
+      {
+        const result = await runPreflight(makePreflightSettings("node", ""), VAULT_PATH, 10000);
+        const found = result.commandFound === true;
+        const available = result.available === true;
+        const hasVersion = result.versionStdout.trim().length > 0;
+        const ok = found && available && hasVersion;
+        addTest("Preflight: version 成功 → available", ok ? "pass" : "fail",
+          ok ? "" : `found=${found}, available=${available}, stdout="${result.versionStdout.slice(0, 60)}", exitCode=${result.versionExitCode}`);
+      }
+
+      // Preflight Test 4: command 为空 → unavailable（skipReason = command 为空）
+      {
+        const result = await runPreflight(makePreflightSettings("   ", ""), VAULT_PATH, 5000);
+        const unavailable = result.available === false;
+        const hasSkipReason = result.skipReason === "command 为空";
+        const ok = unavailable && hasSkipReason;
+        addTest("Preflight: command 为空 → unavailable", ok ? "pass" : "fail",
+          ok ? "" : `available=${result.available}, skipReason=${result.skipReason}`);
+      }
+
+      // Preflight Test 5: debug log 不含 secret
+      // 即使 settings.model/effortLevel 含 "secret-..." 值，debug log 只记录 key 名不记录值
+      {
+        const result = await runPreflight(makePreflightSettings("node", ""), VAULT_PATH, 10000);
+        let logClean = true;
+        let logContent = "";
+        if (result.debugLogPath && existsSync(result.debugLogPath)) {
+          logContent = readFileSync(result.debugLogPath, "utf8");
+          if (logContent.includes("secret-model-value") || logContent.includes("secret-effort-value")) {
+            logClean = false;
+          }
+        }
+        // env keys 应记录 ANTHROPIC_MODEL / CLAUDE_CODE_EFFORT_LEVEL（custom 不注入，但 key 名记录逻辑只对 claude 生效；
+        // 这里 custom 不注入，所以 log 里应不含这些 key 名也不含值）
+        const ok = logClean;
+        addTest("Preflight: debug log 不含 secret", ok ? "pass" : "fail",
+          ok ? "" : `logClean=${logClean}, logPath=${result.debugLogPath}`);
+      }
+
+      // Preflight Test 6: 路径带空格时 preflight 可运行
+      {
+        const spaceCwd = mkdtempSync(join(tmpdir(), "preflight space-"));
+        try {
+          const result = await runPreflight(makePreflightSettings("node", ""), spaceCwd, 10000);
+          const ok = result.cwdExists === true && result.available === true && result.commandFound === true;
+          addTest("Preflight: 路径带空格可运行", ok ? "pass" : "fail",
+            ok ? "" : `cwdExists=${result.cwdExists}, available=${result.available}, found=${result.commandFound}; diag="${result.diagnostics}"`);
+        } finally {
+          try { rmSync(spaceCwd, { recursive: true, force: true }); } catch {}
+        }
+      }
+
+      // Preflight Test 7: claude/codex 真实命令探测（未安装则 skip，不 fail）
+      // 先探测 claude --version，成功才断言 available
+      {
+        const claudeResult = await runPreflight(
+          {
+            ...makePreflightSettings("claude", "-p"),
+            agentType: "claude",
+          },
+          VAULT_PATH,
+          10000,
+        );
+        if (claudeResult.commandFound) {
+          addTest("Preflight: claude 真实命令探测", claudeResult.available ? "pass" : "fail",
+            `available=${claudeResult.available}, stdout="${claudeResult.versionStdout.slice(0, 60)}"`);
+        } else {
+          addTest("Preflight: claude 真实命令探测", "skip",
+            `claude 未安装或不可用 (exitCode=${claudeResult.versionExitCode})`);
+        }
+      }
+      {
+        const codexResult = await runPreflight(
+          {
+            ...makePreflightSettings("codex", "exec -"),
+            agentType: "codex",
+          },
+          VAULT_PATH,
+          10000,
+        );
+        if (codexResult.commandFound) {
+          addTest("Preflight: codex 真实命令探测", codexResult.available ? "pass" : "fail",
+            `available=${codexResult.available}, stdout="${codexResult.versionStdout.slice(0, 60)}"`);
+        } else {
+          addTest("Preflight: codex 真实命令探测", "skip",
+            `codex 未安装或不可用 (exitCode=${codexResult.versionExitCode})`);
+        }
+      }
+
+      rmSync(tempPreflightBundle, { force: true });
+    }
+
     rmSync(tempProcessBundle, { force: true });
   } catch (e) {
     addTest("Process integration tests", "fail", e?.stack || e?.message || String(e));
     try { rmSync(join(PROJECT_ROOT, ".test-process-backend-temp.mjs"), { force: true }); } catch {}
+    try { rmSync(join(PROJECT_ROOT, ".test-preflight-temp.mjs"), { force: true }); } catch {}
+  }
+}
+
+// ============================================================
+// 9.5 Claude CLI Real Smoke（真实 claude -p，缺 claude 时 skip）
+// ============================================================
+console.log("\n=== Claude CLI Real Smoke ===");
+
+const runClaudeSmoke = runMode === "all" || runMode === "claude";
+
+if (!runClaudeSmoke) {
+  addTest("Claude Smoke 段", "skip", "当前模式不运行 claude smoke");
+} else {
+  let claudeSmokeBundle = null;
+  let claudePreflightBundle = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    claudeSmokeBundle = join(PROJECT_ROOT, ".test-claude-smoke-temp.mjs");
+    claudePreflightBundle = join(PROJECT_ROOT, ".test-claude-preflight-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: claudeSmokeBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "agentProfile.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: claudePreflightBundle,
+    });
+    const { ClaudeCliBackend } = await import(pathToFileURL(claudeSmokeBundle).href);
+    const { runPreflight } = await import(pathToFileURL(claudePreflightBundle).href);
+
+    // 本地 debug log 路径列出（不输出内容，不泄露 secret）
+    function listSmokeLogs(cwd) {
+      try {
+        const logDir = join(cwd, ".llm-bridge", "logs");
+        if (!existsSync(logDir)) return "(无 logs 目录)";
+        const files = readdirSync(logDir).filter(f => f.startsWith("debug-"));
+        if (files.length === 0) return "(无 debug log)";
+        return files.map(f => join(logDir, f)).join("; ");
+      } catch (e) {
+        return `(列出日志出错: ${e?.message || e})`;
+      }
+    }
+
+    // 先 preflight 探测 claude 是否可用，不可用则整体 skip，不调 API
+    const claudeSettings = {
+      agentType: "claude",
+      claudeCommand: "claude",
+      claudeArgs: "-p",
+      codexCommand: "codex",
+      codexArgs: "exec -",
+      customCommand: "",
+      customArgs: "",
+      includeActiveNote: false,
+      includeSelection: false,
+      maxActiveNoteChars: 6000,
+      maxSelectionChars: 3000,
+      outputDir: "",
+      showStderr: true,
+      saveLogs: false,
+      sessionMode: "fresh",
+      model: "",
+      effortLevel: "",
+      devTestMode: false,
+      backendMode: "auto",
+    };
+
+    const preflight = await runPreflight(claudeSettings, VAULT_PATH, 15000);
+
+    if (!preflight.available) {
+      addTest("Claude Smoke: claude 可用性", "skip",
+        `claude 不可用 (exitCode=${preflight.versionExitCode})；diag: ${preflight.diagnostics.split("\n").pop()}`);
+    } else {
+      addTest("Claude Smoke: claude 可用性", "pass",
+        `version: ${preflight.versionStdout.trim().split("\n")[0]}`);
+
+      const backend = new ClaudeCliBackend();
+
+      // 极短 prompt，避免消耗过多 API
+      const smokeTask = {
+        id: `claude-smoke-${Date.now()}`,
+        userMessage: "只回复 OK",
+        prompt: "只回复 OK",
+        cwd: VAULT_PATH,
+        createdAt: new Date().toISOString(),
+        includeActiveNote: false,
+        includeSelection: false,
+      };
+
+      // 只跑一次真实 claude -p，收集全部事件后做多断言（最小化 API 消耗）
+      const events = await new Promise((resolve) => {
+        const evs = [];
+        backend.run(smokeTask, claudeSettings, (event) => {
+          evs.push(event);
+          if (event.type === "completed" || event.type === "failed" || event.type === "stopped") {
+            resolve(evs);
+          }
+        });
+        // claude -p 首次调用可能较慢，给 120s
+        setTimeout(() => resolve(evs), 120000);
+      });
+
+      // Smoke Test 1: started 必须先发出
+      {
+        const firstStarted = events[0]?.type === "started";
+        addTest("Claude Smoke: started 先发出", firstStarted ? "pass" : "fail",
+          firstStarted ? "" : `首个事件: ${events[0]?.type || "none"}; debug logs: ${listSmokeLogs(VAULT_PATH)}`);
+      }
+
+      // Smoke Test 2: 接收 stdout_delta
+      {
+        const hasStdout = events.some(e => e.type === "stdout_delta" && typeof e.data === "string" && e.data.length > 0);
+        addTest("Claude Smoke: 接收 stdout_delta", hasStdout ? "pass" : "fail",
+          hasStdout ? "" : `未收到 stdout_delta; 事件类型: ${events.map(e => e.type).join(",")}`);
+      }
+
+      // Smoke Test 3: completed 且 exitCode 0
+      {
+        const completed = events.find(e => e.type === "completed");
+        const ok = completed && completed.exitCode === 0;
+        addTest("Claude Smoke: completed exitCode 0", ok ? "pass" : "fail",
+          ok ? "" : `completed=${!!completed}, exitCode=${completed?.exitCode}; debug logs: ${listSmokeLogs(VAULT_PATH)}`);
+      }
+
+      // Smoke Test 4: stdout 含 OK（容忍大小写和周边文本）
+      {
+        const completed = events.find(e => e.type === "completed");
+        const stdout = completed?.stdout || events.filter(e => e.type === "stdout_delta").map(e => e.data).join("");
+        const hasOK = /ok/i.test(stdout);
+        addTest("Claude Smoke: stdout 含 OK", hasOK ? "pass" : "fail",
+          hasOK ? "" : `stdout 末尾: "${stdout.slice(-120)}"; debug logs: ${listSmokeLogs(VAULT_PATH)}`);
+      }
+    }
+
+    rmSync(claudeSmokeBundle, { force: true });
+    rmSync(claudePreflightBundle, { force: true });
+  } catch (e) {
+    addTest("Claude Smoke", "fail", e?.stack || e?.message || String(e));
+    try { if (claudeSmokeBundle) rmSync(claudeSmokeBundle, { force: true }); } catch {}
+    try { if (claudePreflightBundle) rmSync(claudePreflightBundle, { force: true }); } catch {}
   }
 }
 

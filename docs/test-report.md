@@ -1,6 +1,6 @@
 # LLM CLI Bridge 测试报告
 
-- **测试时间**: 2026-06-28T04:42:10.586Z
+- **测试时间**: 2026-06-28T04:56:32.196Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 0.1.0
 - **main.js 大小**: 115.1 KB
@@ -10,11 +10,11 @@
 
 ## 测试汇总
 
-- ✅ **通过**: 44
+- ✅ **通过**: 40
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 21
+- ⏭️ **跳过**: 23
 - ⚪ **需人工验证**: 0
-- **总计**: 65
+- **总计**: 63
 
 ## 详细结果
 
@@ -139,19 +139,27 @@
 |------|--------|------|
 | ⏭️ | UI 映射测试段 | 当前为 integration 模式，跳过 unit 测试 |
 
-### Process
+### Profile 解析测试段
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 启动 fixture success | - |
-| ✅ | 接收多段 stdout_delta | - |
-| ✅ | 接收 stderr_delta | - |
-| ✅ | exit 0 → completed | - |
-| ✅ | exit 1 → failed | - |
-| ✅ | stop() 终止 slow fixture | - |
-| ✅ | cwd 路径带空格可运行 | - |
-| ✅ | cwd 指向临时目录可运行 | - |
-| ✅ | large-output 不污染诊断日志 | - |
+| ⏭️ | Profile 解析测试段 | 当前为 process/integration 模式，跳过 unit 测试 |
+
+### Process 测试段
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ⏭️ | Process 测试段 | 当前为 unit/integration 模式，跳过 process 测试 |
+
+### Claude Smoke
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | claude 可用性 | version: 2.1.195 (Claude Code) |
+| ✅ | started 先发出 | - |
+| ✅ | 接收 stdout_delta | - |
+| ✅ | completed exitCode 0 | - |
+| ✅ | stdout 含 OK | - |
 
 ## 失败项详情
 
