@@ -86,3 +86,4 @@
 | v1.7.0 | 2026-06-28 | d07f4de | Real SDK Workflow Enhancement，接入真实 Claude Agent SDK 事件流（双包名兼容）+ SDKMessage→WorkflowEvent 纯函数映射 + SDK diagnostics，SDK 不可用时 fallback mock，CLI 主线不变 |
 | v1.8.0 | 2026-06-28 | d1e6267 | Real User Flow Consolidation，3 核心用户流收敛 + workflow trace/timeline/sdk workflow 默认折叠 + onboarding 简化为 3 步用户导向 + README 3 步使用法，不新增功能 |
 | v2.0.0 | 2026-06-28 | 0276352 | Agent State / Session / Workflow UX + SDK Workflow Deepening，会话概念(title/new/clear) + 会话状态区(4面板) + 运行流程区(6步) + Skills 入口(.llm-bridge/skills.md) + thinking/completed/failed WorkflowEvent + tool durationMs + 按阶段分组 UI + error 复制按钮 + diagnostics errorSummary，不修改 AgentEvent v0.1，CLI 主线不变 |
+| v2.1.0 | 2026-06-28 | (pending) | Skills Pack / Workflow Preset as Data，5 个默认 skill(总结/解释/整理/提取待办/改写) 数据驱动从 .llm-bridge/skills.md 读取 + 启用/禁用(disabledSkills 持久化) + {{outputDir}} 占位符替换 + seed 初始化按钮(不覆盖) + secret 脱敏(redactSkillForLog)，不修改 AgentEvent v0.1，CLI 主线不变，sdk-experimental 仍默认关闭 |

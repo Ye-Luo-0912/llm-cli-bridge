@@ -4062,14 +4062,15 @@ prompt 内容
         `count=${skills.length} name=${skills[0]?.name}`);
     }
 
-    // 12. buildSkillsTemplate: 返回有效内容（含 ## 标题）
+    // 12. buildSkillsTemplate: 返回有效内容（V2.1 默认 5 skill 包）
     {
       const template = buildSkillsTemplate();
-      const ok = template.includes("# Skills") && template.includes("## 总结笔记") &&
-        template.includes("## 解释选区") && template.includes("## 自由提问");
-      addTest("V2.0 buildSkillsTemplate: 返回含 3 个 skill 的模板",
+      const ok = template.includes("# Skills") && template.includes("## 总结当前笔记") &&
+        template.includes("## 解释选区") && template.includes("## 整理为结构化笔记") &&
+        template.includes("## 提取待办/行动项") && template.includes("## 改写润色");
+      addTest("V2.1 buildSkillsTemplate: 返回含 5 个默认 skill 的模板",
         ok ? "pass" : "fail",
-        `len=${template.length} hasSkills=${template.includes("## 总结笔记")}`);
+        `len=${template.length} hasSkills=${template.includes("## 总结当前笔记")}`);
     }
 
     // 13. SKILLS_FILE_REL: 路径常量
@@ -4105,6 +4106,198 @@ prompt 内容
     try { if (sessionBundleV20) rmSync(sessionBundleV20, { force: true }); } catch {}
     try { if (skillsBundleV20) rmSync(skillsBundleV20, { force: true }); } catch {}
     try { if (cliBackendBundleV20S) rmSync(cliBackendBundleV20S, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
+// 8.11 V2.1 Skills Pack / Workflow Preset as Data 单元测试
+//     覆盖：5 默认 skill 解析、启用/禁用过滤、prompt 占位符替换、
+//           seed 写入（不覆盖）、缺失配置 fallback、secret 脱敏、CLI 不回归
+// ============================================================
+console.log("\n=== Skills Pack 单元测试（V2.1）===");
+
+const runV21SkillsUnit = runMode === "all" || runMode === "unit";
+
+if (!runV21SkillsUnit) {
+  addTest("V2.1 Skills Pack 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let skillsBundleV21 = null;
+  let cliBackendBundleV21 = null;
+  let tempSkillsDir = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    skillsBundleV21 = join(PROJECT_ROOT, ".test-skills-v21-temp.mjs");
+    cliBackendBundleV21 = join(PROJECT_ROOT, ".test-cli-backend-v21-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "skills.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: skillsBundleV21,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV21,
+    });
+
+    const {
+      parseSkillsMarkdown,
+      buildSkillsTemplate,
+      seedDefaultSkills,
+      filterEnabledSkills,
+      expandSkillPrompt,
+      redactSkillForLog,
+      loadSkills,
+      SKILLS_FILE_REL,
+    } = await import(pathToFileURL(skillsBundleV21).href);
+
+    // 1. parseSkillsMarkdown(buildSkillsTemplate()) → 5 skills，名称顺序正确
+    {
+      const skills = parseSkillsMarkdown(buildSkillsTemplate());
+      const ok = skills.length === 5 &&
+        skills[0].name === "总结当前笔记" &&
+        skills[1].name === "解释选区" &&
+        skills[2].name === "整理为结构化笔记" &&
+        skills[3].name === "提取待办/行动项" &&
+        skills[4].name === "改写润色";
+      addTest("V2.1 默认包解析: 5 个 skill 名称顺序正确",
+        ok ? "pass" : "fail",
+        `count=${skills.length} names=${skills.map(s => s.name).join("|")}`);
+    }
+
+    // 2. filterEnabledSkills: 过滤禁用项，保留顺序
+    {
+      const skills = parseSkillsMarkdown(buildSkillsTemplate());
+      const enabled = filterEnabledSkills(skills, ["解释选区", "改写润色"]);
+      const ok = enabled.length === 3 &&
+        enabled[0].name === "总结当前笔记" &&
+        enabled[1].name === "整理为结构化笔记" &&
+        enabled[2].name === "提取待办/行动项";
+      addTest("V2.1 filterEnabledSkills: 过滤禁用项保留顺序",
+        ok ? "pass" : "fail",
+        `enabled=${enabled.length} names=${enabled.map(s => s.name).join("|")}`);
+    }
+
+    // 3. filterEnabledSkills: 空 disabled 返回全部（副本，非原引用）
+    {
+      const skills = parseSkillsMarkdown(buildSkillsTemplate());
+      const enabled = filterEnabledSkills(skills, []);
+      const ok = enabled.length === 5 && enabled !== skills;
+      addTest("V2.1 filterEnabledSkills: 空 disabled 返回全部副本",
+        ok ? "pass" : "fail",
+        `enabled=${enabled.length} isCopy=${enabled !== skills}`);
+    }
+
+    // 4. filterEnabledSkills: 未知禁用名返回全部
+    {
+      const skills = parseSkillsMarkdown(buildSkillsTemplate());
+      const enabled = filterEnabledSkills(skills, ["不存在的 skill"]);
+      const ok = enabled.length === 5;
+      addTest("V2.1 filterEnabledSkills: 未知禁用名返回全部",
+        ok ? "pass" : "fail",
+        `enabled=${enabled.length}`);
+    }
+
+    // 5. expandSkillPrompt: 替换 {{outputDir}}（多次出现）
+    {
+      const out = expandSkillPrompt("写入 {{outputDir}} 下，再 {{outputDir}} 一次", "90_AI整理");
+      const ok = out === "写入 90_AI整理 下，再 90_AI整理 一次";
+      addTest("V2.1 expandSkillPrompt: 替换 {{outputDir}} 占位符",
+        ok ? "pass" : "fail",
+        `out=${out}`);
+    }
+
+    // 6. expandSkillPrompt: 无占位符返回原串
+    {
+      const out = expandSkillPrompt("无占位符的 prompt", "90_AI整理");
+      const ok = out === "无占位符的 prompt";
+      addTest("V2.1 expandSkillPrompt: 无占位符返回原串",
+        ok ? "pass" : "fail",
+        `out=${out}`);
+    }
+
+    // 7. redactSkillForLog: 脱敏 sk-ant-api03，保留 name/description
+    // 使用 redactSecrets 实际识别的真实 API key 格式（sk-ant-api03- + 20+ 字符）
+    {
+      const secret = "sk-ant-api03-abcdef1234567890ABCDEF1234567890";
+      const skill = { name: "测试", description: "desc", prompt: `key=${secret} 勿泄露` };
+      const redacted = redactSkillForLog(skill);
+      const ok = !redacted.promptRedacted.includes(secret) &&
+        redacted.name === "测试" && redacted.description === "desc";
+      addTest("V2.1 redactSkillForLog: 脱敏 sk-ant-api03 且保留 name/desc",
+        ok ? "pass" : "fail",
+        `promptRedacted=${redacted.promptRedacted}`);
+    }
+
+    // 8. redactSkillForLog: 无 secret 时 prompt 原样
+    {
+      const skill = { name: "总结", description: "摘要", prompt: "请总结当前笔记" };
+      const redacted = redactSkillForLog(skill);
+      const ok = redacted.promptRedacted === "请总结当前笔记";
+      addTest("V2.1 redactSkillForLog: 无 secret 时 prompt 原样",
+        ok ? "pass" : "fail",
+        `promptRedacted=${redacted.promptRedacted}`);
+    }
+
+    // 9. seedDefaultSkills: 文件不存在时写入 5 skill 并返回 true
+    {
+      tempSkillsDir = mkdtempSync(join(tmpdir(), "llm-bridge-skills-v21-"));
+      const seeded = await seedDefaultSkills(tempSkillsDir);
+      const filePath = join(tempSkillsDir, SKILLS_FILE_REL);
+      const fileExists = existsSync(filePath);
+      const parsed = fileExists ? parseSkillsMarkdown(readFileSync(filePath, "utf8")) : [];
+      const ok = seeded === true && fileExists && parsed.length === 5;
+      addTest("V2.1 seedDefaultSkills: 不存在时写入 5 skill 并返回 true",
+        ok ? "pass" : "fail",
+        `seeded=${seeded} exists=${fileExists} parsed=${parsed.length}`);
+    }
+
+    // 10. seedDefaultSkills: 文件已存在时不覆盖，返回 false
+    {
+      const filePath = join(tempSkillsDir, SKILLS_FILE_REL);
+      writeFileSync(filePath, "## 自定义 skill\n描述\n\nprompt\n", "utf8");
+      const seeded = await seedDefaultSkills(tempSkillsDir);
+      const after = readFileSync(filePath, "utf8");
+      const ok = seeded === false && after.startsWith("## 自定义 skill");
+      addTest("V2.1 seedDefaultSkills: 已存在不覆盖返回 false",
+        ok ? "pass" : "fail",
+        `seeded=${seeded} preserved=${after.startsWith("## 自定义 skill")}`);
+    }
+
+    // 11. loadSkills: 缺失配置文件返回 [] fallback
+    {
+      const missingDir = mkdtempSync(join(tmpdir(), "llm-bridge-skills-missing-"));
+      const skills = await loadSkills(missingDir);
+      const ok = Array.isArray(skills) && skills.length === 0;
+      addTest("V2.1 loadSkills: 缺失配置文件返回 [] fallback",
+        ok ? "pass" : "fail",
+        `count=${skills.length}`);
+      try { rmSync(missingDir, { recursive: true, force: true }); } catch {}
+    }
+
+    // 12. prompt 注入: 默认 skill prompt 经 expand 后含实际目录、无残留占位符
+    {
+      const skills = parseSkillsMarkdown(buildSkillsTemplate());
+      const summarize = skills.find(s => s.name === "总结当前笔记");
+      const expanded = expandSkillPrompt(summarize.prompt, "my-output-dir");
+      const ok = expanded.includes("my-output-dir") && !expanded.includes("{{outputDir}}");
+      addTest("V2.1 prompt 注入: expand 后含实际目录无占位符",
+        ok ? "pass" : "fail",
+        `hasDir=${expanded.includes("my-output-dir")} noPlaceholder=${!expanded.includes("{{outputDir}}")}`);
+    }
+
+    // 13. CLI 不回归: ClaudeCliBackend 可加载
+    {
+      const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV21).href);
+      const ok = typeof ClaudeCliBackend === "function";
+      addTest("V2.1 CLI 不回归: ClaudeCliBackend 可加载",
+        ok ? "pass" : "fail",
+        `ClaudeCliBackend=${typeof ClaudeCliBackend}`);
+    }
+
+  } catch (e) {
+    addTest("V2.1 Skills Pack 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (skillsBundleV21) rmSync(skillsBundleV21, { force: true }); } catch {}
+    try { if (cliBackendBundleV21) rmSync(cliBackendBundleV21, { force: true }); } catch {}
+    try { if (tempSkillsDir) rmSync(tempSkillsDir, { recursive: true, force: true }); } catch {}
   }
 }
 

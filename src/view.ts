@@ -23,7 +23,7 @@ import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalW
 import { SdkBackend } from "./sdkBackend";
 import { WorkflowEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
-import { Skill, loadSkills } from "./skills";
+import { Skill, loadSkills, seedDefaultSkills, filterEnabledSkills, expandSkillPrompt } from "./skills";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -98,6 +98,8 @@ export class LLMBridgeView extends ItemView {
   // V2.0: Skills 列表
   private skills: Skill[] = [];
   private skillsListEl!: HTMLElement;
+  // V2.1: Skills 面板折叠开关（用于更新标题计数）
+  private skillsToggleEl!: HTMLElement;
 
   // DOM
   private statusDotEl!: HTMLElement;
@@ -1279,19 +1281,18 @@ export class LLMBridgeView extends ItemView {
   private renderSkillsPanel(parent: HTMLElement): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-skills-panel" });
     const head = wrap.createDiv({ cls: "llm-bridge-skills-head" });
-    const toggle = head.createEl("span", { cls: "llm-bridge-skills-toggle", text: "▶ Skills" });
+    this.skillsToggleEl = head.createEl("span", { cls: "llm-bridge-skills-toggle", text: "▶ Skills" });
     const body = wrap.createDiv({ cls: "llm-bridge-skills-body" });
     body.setAttribute("hidden", "");
     this.skillsListEl = body;
-    toggle.addEventListener("click", () => {
+    this.skillsToggleEl.addEventListener("click", () => {
       const hidden = body.hasAttribute("hidden");
       if (hidden) {
         body.removeAttribute("hidden");
-        toggle.textContent = "▼ Skills";
       } else {
         body.setAttribute("hidden", "");
-        toggle.textContent = "▶ Skills";
       }
+      this.updateSkillsToggle();
     });
   }
 
@@ -1302,41 +1303,87 @@ export class LLMBridgeView extends ItemView {
     this.renderSkillsList();
   }
 
-  // V2.0: 渲染 skills 列表（空则显示提示）
+  // V2.1: 更新 Skills 折叠标题（含启用/总数计数）
+  private updateSkillsToggle(): void {
+    if (!this.skillsToggleEl) return;
+    const enabled = filterEnabledSkills(this.skills, this.plugin.settings.disabledSkills).length;
+    const total = this.skills.length;
+    const hidden = this.skillsListEl.hasAttribute("hidden");
+    this.skillsToggleEl.textContent = `${hidden ? "▶" : "▼"} Skills (${enabled}/${total})`;
+  }
+
+  // V2.1: 渲染 skills 列表（空则显示提示 + 初始化按钮；每项含启用/禁用开关）
   private renderSkillsList(): void {
     if (!this.skillsListEl) return;
     this.skillsListEl.empty();
     if (this.skills.length === 0) {
-      this.skillsListEl.createEl("div", {
-        cls: "llm-bridge-skills-empty",
-        text: "无 skills。在 .llm-bridge/skills.md 中用 ## 标题定义 skill。",
+      const empty = this.skillsListEl.createDiv({ cls: "llm-bridge-skills-empty" });
+      empty.createEl("span", { text: "无 skills。在 .llm-bridge/skills.md 中用 ## 标题定义 skill。" });
+      const seedBtn = empty.createEl("button", {
+        cls: "llm-bridge-skills-seed-btn",
+        text: "初始化默认 Skills",
+        attr: { title: "写入 5 个默认 skill 到 .llm-bridge/skills.md（不覆盖已存在文件）" },
       });
+      seedBtn.addEventListener("click", () => void this.seedDefaults());
+      this.updateSkillsToggle();
       return;
     }
+    const disabled = new Set(this.plugin.settings.disabledSkills);
     const list = this.skillsListEl.createDiv({ cls: "llm-bridge-skills-list" });
     for (const skill of this.skills) {
-      const item = list.createEl("button", {
-        cls: "llm-bridge-skill-item",
+      const isDisabled = disabled.has(skill.name);
+      const item = list.createDiv({
+        cls: `llm-bridge-skill-item${isDisabled ? " is-disabled" : ""}`,
         attr: { title: skill.description || skill.name },
       });
-      item.createEl("span", { cls: "llm-bridge-skill-name", text: skill.name });
+      // 启用/禁用开关
+      const checkLabel = item.createEl("label", { cls: "llm-bridge-skill-check", attr: { title: "启用/禁用此 skill" } });
+      const check = checkLabel.createEl("input", { type: "checkbox" }) as HTMLInputElement;
+      check.checked = !isDisabled;
+      check.addEventListener("change", () => void this.toggleSkillEnabled(skill.name, check.checked));
+      // 名称 + 描述（点击插入 prompt；禁用时不响应）
+      const main = item.createEl("button", { cls: "llm-bridge-skill-main" });
+      main.createEl("span", { cls: "llm-bridge-skill-name", text: skill.name });
       if (skill.description) {
-        item.createEl("span", { cls: "llm-bridge-skill-desc", text: skill.description });
+        main.createEl("span", { cls: "llm-bridge-skill-desc", text: skill.description });
       }
-      item.addEventListener("click", () => this.applySkill(skill));
+      main.addEventListener("click", () => {
+        if (isDisabled) return;
+        this.applySkill(skill);
+      });
     }
+    this.updateSkillsToggle();
   }
 
   // V2.0: 应用 skill（只做 prompt 增强，插入到输入框，不执行危险操作）
+  // V2.1: expandSkillPrompt 替换 {{outputDir}} 占位符
   private applySkill(skill: Skill): void {
     if (this.runHandle) return;
-    if (skill.prompt.length > 0) {
-      this.setInput(skill.prompt);
+    const expanded = expandSkillPrompt(skill.prompt, this.plugin.settings.outputDir);
+    if (expanded.length > 0) {
+      this.setInput(expanded);
     } else {
-      // 无 prompt 的 skill（如"自由提问"）：清空输入框并聚焦
+      // 无 prompt 的 skill：清空输入框并聚焦
       this.inputEl.value = "";
       this.inputEl.focus();
     }
+  }
+
+  // V2.1: 切换 skill 启用/禁用状态（持久化到 settings.disabledSkills）
+  private async toggleSkillEnabled(name: string, enabled: boolean): Promise<void> {
+    const set = new Set(this.plugin.settings.disabledSkills);
+    if (enabled) set.delete(name);
+    else set.add(name);
+    this.plugin.settings.disabledSkills = Array.from(set);
+    await this.plugin.saveSettings();
+    this.renderSkillsList();
+  }
+
+  // V2.1: 写入默认 skills 模板（不覆盖已存在文件）并刷新
+  private async seedDefaults(): Promise<void> {
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    await seedDefaultSkills(vaultPath);
+    await this.refreshSkills();
   }
 
   // V2.0: 渲染运行流程区面板（展示最新一次运行的 6 步流程）

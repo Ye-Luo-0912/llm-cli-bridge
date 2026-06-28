@@ -5,6 +5,7 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { redactSecrets } from "./workflowEvent";
 
 /** Skills 配置文件相对 Vault 根的路径 */
 export const SKILLS_FILE_REL = ".llm-bridge/skills.md";
@@ -107,24 +108,89 @@ export async function loadSkills(vaultPath: string): Promise<Skill[]> {
 }
 
 /**
- * 构造 skills 配置文件模板内容（用于首次创建）
- * 不自动创建文件；仅提供模板供用户参考
+ * 构造 skills 配置文件模板内容（V2.1 默认 5 skill 包）
+ * 不自动创建文件；由 seedDefaultSkills 或 UI 按钮触发写入
+ * prompt 中的 {{outputDir}} 占位符在应用时由 expandSkillPrompt 替换为实际输出目录，
+ * 保持 skills 数据驱动且不绑定具体 Vault 目录
  */
 export function buildSkillsTemplate(): string {
   return `# Skills
 
-## 总结笔记
+## 总结当前笔记
 生成当前笔记的摘要
 
-请总结当前笔记的核心内容，生成一份摘要笔记到输出目录下，文件名用原笔记名加 -summary 后缀，包含适当的 frontmatter。
+请总结当前笔记的核心内容，生成一份摘要笔记到 {{outputDir}} 目录下，文件名用原笔记名加 -summary 后缀，包含适当的 frontmatter。
 
 ## 解释选区
 解释选中文本的含义
 
 请解释以上选中文本的含义、背景和关键概念。如有可能，给出相关的延伸阅读建议。
 
-## 自由提问
-清空输入框并聚焦
+## 整理为结构化笔记
+把零散内容整理为结构化笔记
+
+请把当前笔记（或选区）的内容整理为结构化笔记，包含清晰的标题层级、要点列表和必要的总结段落。整理结果写入 {{outputDir}} 目录下的新笔记。
+
+## 提取待办/行动项
+从笔记中提取待办与行动项
+
+请从当前笔记中提取所有待办事项与行动项，按优先级分组列出，并生成一份行动清单笔记到 {{outputDir}} 目录下。
+
+## 改写润色
+改写润色选中文本
+
+请改写并润色以上选中文本，使其更清晰、连贯、专业，保持原意不变。改写结果请通过 replace_selection action 写回原选区位置。
 
 `;
+}
+
+/**
+ * 把默认 skills 模板写入 Vault（仅当文件不存在时；不覆盖已有文件）
+ * @returns true 表示已写入（之前不存在），false 表示已存在或写入失败
+ */
+export async function seedDefaultSkills(vaultPath: string): Promise<boolean> {
+  const filePath = path.join(vaultPath, SKILLS_FILE_REL);
+  try {
+    await fs.promises.access(filePath);
+    return false; // 已存在，不覆盖
+  } catch {
+    // 文件不存在，写入默认模板
+    try {
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, buildSkillsTemplate(), "utf8");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/**
+ * 过滤掉被禁用的 skills（纯函数，保留原顺序）
+ * @param skills 全部 skills
+ * @param disabledNames 被禁用的 skill 名称列表
+ */
+export function filterEnabledSkills(skills: Skill[], disabledNames: string[]): Skill[] {
+  if (!disabledNames || disabledNames.length === 0) return skills.slice();
+  const disabled = new Set(disabledNames);
+  return skills.filter((s) => !disabled.has(s.name));
+}
+
+/**
+ * 替换 skill prompt 中的占位符（如 {{outputDir}}）
+ * 保持 skills 数据驱动且不绑定具体 Vault 目录
+ */
+export function expandSkillPrompt(prompt: string, outputDir: string): string {
+  return prompt.replace(/\{\{outputDir\}\}/g, outputDir);
+}
+
+/**
+ * 构造用于日志的 skill 表示（脱敏 prompt，防止 secret 泄露到日志）
+ */
+export function redactSkillForLog(skill: Skill): { name: string; description: string; promptRedacted: string } {
+  return {
+    name: skill.name,
+    description: skill.description,
+    promptRedacted: redactSecrets(skill.prompt),
+  };
 }

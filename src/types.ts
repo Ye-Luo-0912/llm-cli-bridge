@@ -72,6 +72,8 @@ export interface LLMBridgeSettings {
   claudeResumeSessionId: string;
   claudePermissionMode: ClaudePermissionMode;
   claudeExtraArgs: string;
+  // V2.1: 被禁用的 skill 名称列表（数据驱动，skills 从 .llm-bridge/skills.md 读取）
+  disabledSkills: string[];
 }
 
 export const DEFAULT_SETTINGS: LLMBridgeSettings = {
@@ -99,6 +101,8 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   claudeResumeSessionId: "",
   claudePermissionMode: "default",
   claudeExtraArgs: "",
+  // V2.1: 默认所有 skill 启用
+  disabledSkills: [],
 };
 
 // 写入到 .llm-bridge/state/current.json 的内容
