@@ -19,13 +19,15 @@ export const MAX_SKILL_PROMPT_LENGTH = 8000;
 /**
  * 单个 Skill 定义
  * - name: 显示名（来自 ## 标题）
- * - description: 简短描述（标题后第一段非空文本）
+ * - description: 简短描述（标题后第一段非空文本，V2.6 去除 #标签部分）
  * - prompt: 插入到输入框的 prompt 模板（描述后的正文）
+ * - tags: V2.6 分组标签（从 description 行末 #标签 提取，如 #翻译 #常用）
  */
 export interface Skill {
   readonly name: string;
   readonly description: string;
   readonly prompt: string;
+  readonly tags: string[];
 }
 
 /**
@@ -76,6 +78,10 @@ export function parseSkillsMarkdown(content: string): Skill[] {
       break;
     }
 
+    // V2.6: 从 description 行末提取 #标签（如 "将选区翻译为英文 #翻译 #常用" → desc="将选区翻译为英文", tags=["翻译","常用"]）
+    const { description: cleanDesc, tags } = extractTags(description);
+    description = cleanDesc;
+
     // 收集 prompt 正文（直到下一个 ## 或文件末尾）
     const promptLines: string[] = [];
     // 跳过描述与正文之间的空行
@@ -90,10 +96,33 @@ export function parseSkillsMarkdown(content: string): Skill[] {
     }
 
     const prompt = promptLines.join("\n").trimEnd();
-    skills.push({ name, description, prompt });
+    skills.push({ name, description, prompt, tags });
   }
 
   return skills;
+}
+
+/**
+ * V2.6: 从文本中提取 #标签（行末 #词 形式）
+ * - 标签格式：#后跟非空白字符（中文/英文/数字/下划线/连字符）
+ * - 标签必须前面是空格或行首（避免匹配 URL 中的 #）
+ * - 返回去除标签后的描述文本与标签数组
+ * - 无标签时返回原文本与空数组
+ */
+export function extractTags(text: string): { description: string; tags: string[] } {
+  const tags: string[] = [];
+  // 匹配 (空格或行首)#标签词（标签词：1-30 个非空白字符）
+  const tagRegex = /(?:^|\s)#([^\s#]{1,30})/g;
+  let match: RegExpExecArray | null;
+  while ((match = tagRegex.exec(text)) !== null) {
+    tags.push(match[1]);
+  }
+  if (tags.length === 0) {
+    return { description: text, tags: [] };
+  }
+  // 去除标签部分，保留描述
+  const desc = text.replace(/(?:^|\s)#[^\s#]{1,30}/g, "").trim();
+  return { description: desc, tags };
 }
 
 /**
@@ -241,13 +270,20 @@ export function redactSkillForLog(skill: Skill): { name: string; description: st
 
 /**
  * 将单个 skill 序列化为 Markdown 文件内容（用于写入 .llm-bridge/skills/ 目录）
- * 格式与主文件一致：## 标题 + 描述 + prompt 正文
+ * 格式与主文件一致：## 标题 + 描述(+ #标签) + prompt 正文
+ * V2.6: 描述后追加 #标签（如有）
  */
 export function serializeSkillToMarkdown(skill: Skill): string {
   const lines: string[] = [`## ${skill.name}`];
-  if (skill.description) {
+  // V2.6: 描述 + #标签 拼接（标签追加在描述行末）
+  let descLine = skill.description || "";
+  if (skill.tags && skill.tags.length > 0) {
+    const tagStr = skill.tags.map((t) => `#${t}`).join(" ");
+    descLine = descLine ? `${descLine} ${tagStr}` : tagStr;
+  }
+  if (descLine) {
     lines.push("");
-    lines.push(skill.description);
+    lines.push(descLine);
   }
   if (skill.prompt) {
     lines.push("");
@@ -290,7 +326,7 @@ export async function importSkillFromText(
     } catch {
       // 不存在，继续写入
     }
-    const skill: Skill = { name, description, prompt };
+    const skill: Skill = { name, description, prompt, tags: [] };
     await fs.promises.writeFile(filePath, serializeSkillToMarkdown(skill), "utf8");
     return true;
   } catch {
@@ -449,7 +485,7 @@ export async function updateImportedSkill(
         // 新名称不冲突，继续
       }
       // 写入新文件
-      const updatedSkill: Skill = { name: newName, description: newDescription, prompt: newPrompt };
+      const updatedSkill: Skill = { name: newName, description: newDescription, prompt: newPrompt, tags: [] };
       await fs.promises.writeFile(newFilePath, serializeSkillToMarkdown(updatedSkill), "utf8");
       // 删除旧文件
       try {
@@ -460,7 +496,7 @@ export async function updateImportedSkill(
       return true;
     }
     // 名称未变：直接覆盖原文件
-    const updatedSkill: Skill = { name: newName, description: newDescription, prompt: newPrompt };
+    const updatedSkill: Skill = { name: newName, description: newDescription, prompt: newPrompt, tags: [] };
     await fs.promises.writeFile(oldFilePath, serializeSkillToMarkdown(updatedSkill), "utf8");
     return true;
   } catch {
@@ -469,15 +505,21 @@ export async function updateImportedSkill(
 }
 
 /**
- * 按名称/描述过滤 skills（不区分大小写，空 query 返回全部副本）
- * - 匹配 name 或 description 中任一包含 query 子串
+ * 按名称/描述/标签过滤 skills（不区分大小写，空 query 返回全部副本）
+ * - V2.6: 增加 tags 匹配（#标签 或纯关键词均可匹配）
  */
 export function searchSkills(skills: Skill[], query: string): Skill[] {
   const q = query.trim().toLowerCase();
   if (q.length === 0) return skills.slice();
-  return skills.filter(
-    (s) => s.name.toLowerCase().includes(q) || (s.description && s.description.toLowerCase().includes(q)),
-  );
+  // 支持 #标签 语法（输入 #翻译 只匹配标签）
+  const isTagQuery = q.startsWith("#");
+  const tagQuery = isTagQuery ? q.slice(1) : q;
+  return skills.filter((s) => {
+    const nameMatch = s.name.toLowerCase().includes(q);
+    const descMatch = s.description && s.description.toLowerCase().includes(q);
+    const tagMatch = (s.tags || []).some((t) => t.toLowerCase().includes(tagQuery));
+    return isTagQuery ? tagMatch : (nameMatch || descMatch || tagMatch);
+  });
 }
 
 /**

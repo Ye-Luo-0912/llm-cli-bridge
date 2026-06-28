@@ -24,7 +24,8 @@ import { SdkBackend } from "./sdkBackend";
 import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
 import { PersistedSession, SessionListItem, saveSession, listSessions, loadSession, deleteSession } from "./sessions";
-import { Skill, loadSkills, seedDefaultSkills, filterEnabledSkills, expandSkillPrompt, importSkillFromText, deleteSkill, isImportedSkill, scanSkillPrompt, truncateSkillPrompt, MAX_SKILL_PROMPT_LENGTH, updateImportedSkill, searchSkills, checkImportConflict } from "./skills";
+import { Skill, loadSkills, seedDefaultSkills, filterEnabledSkills, expandSkillPrompt, importSkillFromText, deleteSkill, isImportedSkill, scanSkillPrompt, truncateSkillPrompt, MAX_SKILL_PROMPT_LENGTH, updateImportedSkill, searchSkills, checkImportConflict, extractTags } from "./skills";
+import { SkillsState, SkillMeta, loadSkillsState, saveSkillsState, getSkillMeta, recordSkillApplied, setSkillPinned, recordCombo, formatRelativeTime, createEmptySkillsState } from "./skillsState";
 import { getPermissionModeInfo, type PermissionChoice } from "./sdkPermission";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
@@ -107,6 +108,13 @@ export class LLMBridgeView extends ItemView {
   // V2.5: Skills 搜索框 + 当前过滤 query
   private skillsSearchEl!: HTMLInputElement;
   private skillsSearchQuery = "";
+  // V2.6: Skills 分组/排序下拉 + state 持久化 + 组合勾选
+  private skillsGroupEl!: HTMLSelectElement;
+  private skillsSortEl!: HTMLSelectElement;
+  private skillsState: SkillsState = createEmptySkillsState();
+  private skillsGroupFilter = "all"; // all | ungrouped | <tag>
+  private skillsSortBy = "name"; // name | recent | popular
+  private skillsComboSet: Set<string> = new Set(); // 勾选组合的 skill 名称（按插入顺序）
   // V2.5: 历史会话列表
   private historyListEl!: HTMLElement;
   private historyToggleEl!: HTMLElement;
@@ -1734,12 +1742,38 @@ export class LLMBridgeView extends ItemView {
     this.skillsSearchEl = searchBar.createEl("input", {
       type: "text",
       cls: "llm-bridge-skills-search-input",
-      attr: { placeholder: "搜索 skill 名称或描述…", title: "按名称/描述过滤 skills" },
+      attr: { placeholder: "搜索 skill 名称/描述/#标签…", title: "按名称/描述/标签过滤 skills" },
     }) as HTMLInputElement;
     this.skillsSearchEl.addEventListener("input", () => {
       this.skillsSearchQuery = this.skillsSearchEl.value;
       this.renderSkillsList();
     });
+    // V2.6: 分组 + 排序下拉 + 组合应用按钮
+    const controlsBar = body.createDiv({ cls: "llm-bridge-skills-controls" });
+    const groupLabel = controlsBar.createEl("span", { cls: "llm-bridge-skills-ctrl-label", text: "分组" });
+    this.skillsGroupEl = controlsBar.createEl("select", { cls: "llm-bridge-skills-group-select" }) as HTMLSelectElement;
+    this.skillsGroupEl.createEl("option", { value: "all", text: "全部" });
+    this.skillsGroupEl.createEl("option", { value: "ungrouped", text: "未分组" });
+    // 标签选项在 refreshSkills 后动态填充
+    this.skillsGroupEl.addEventListener("change", () => {
+      this.skillsGroupFilter = this.skillsGroupEl.value;
+      this.renderSkillsList();
+    });
+    const sortLabel = controlsBar.createEl("span", { cls: "llm-bridge-skills-ctrl-label", text: "排序" });
+    this.skillsSortEl = controlsBar.createEl("select", { cls: "llm-bridge-skills-sort-select" }) as HTMLSelectElement;
+    this.skillsSortEl.createEl("option", { value: "name", text: "名称" });
+    this.skillsSortEl.createEl("option", { value: "recent", text: "最近使用" });
+    this.skillsSortEl.createEl("option", { value: "popular", text: "最常用" });
+    this.skillsSortEl.addEventListener("change", () => {
+      this.skillsSortBy = this.skillsSortEl.value;
+      this.renderSkillsList();
+    });
+    const comboBtn = controlsBar.createEl("button", {
+      cls: "llm-bridge-skills-combo-btn",
+      text: "组合应用 (0)",
+      attr: { title: "按勾选顺序拼接所选 skill 的 prompt，一次性插入光标位置" },
+    });
+    comboBtn.addEventListener("click", () => void this.applyCombo());
     const listContainer = body.createDiv({ cls: "llm-bridge-skills-list-container" });
     // skillsListEl 重新指向 listContainer（搜索框单独一行，不随空状态被清空）
     this.skillsListEl = listContainer;
@@ -1942,16 +1976,46 @@ export class LLMBridgeView extends ItemView {
 
   // V2.0: 从 Vault 读取 skills 列表并渲染
   // V2.3: 预加载导入状态（用于 UI 显示删除按钮）
+  // V2.6: 同时加载 skills-state（置顶/统计/最近组合），并填充分组下拉标签选项
   private async refreshSkills(): Promise<void> {
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     this.skills = await loadSkills(vaultPath);
+    this.skillsState = await loadSkillsState(vaultPath);
     this.importedSkillNames = new Set();
     for (const skill of this.skills) {
       if (await isImportedSkill(vaultPath, skill.name)) {
         this.importedSkillNames.add(skill.name);
       }
     }
+    // V2.6: 填充分组下拉的标签选项（保留 all/ungrouped，追加所有 tags）
+    this.populateGroupOptions();
     this.renderSkillsList();
+  }
+
+  // V2.6: 填充分组下拉标签选项（从当前 skills 收集所有 tags）
+  private populateGroupOptions(): void {
+    if (!this.skillsGroupEl) return;
+    const currentValue = this.skillsGroupEl.value;
+    // 保留前两个固定选项（all/ungrouped），清除其余
+    while (this.skillsGroupEl.options.length > 2) {
+      this.skillsGroupEl.remove(2);
+    }
+    const allTags = new Set<string>();
+    for (const skill of this.skills) {
+      for (const tag of skill.tags || []) {
+        allTags.add(tag);
+      }
+    }
+    for (const tag of Array.from(allTags).sort()) {
+      this.skillsGroupEl.createEl("option", { value: tag, text: `#${tag}` });
+    }
+    // 恢复之前选择（若仍存在）
+    if (Array.from(this.skillsGroupEl.options).some(o => o.value === currentValue)) {
+      this.skillsGroupEl.value = currentValue;
+    } else {
+      this.skillsGroupEl.value = "all";
+      this.skillsGroupFilter = "all";
+    }
   }
 
   // V2.1: 更新 Skills 折叠标题（含启用/总数计数）
@@ -1965,6 +2029,7 @@ export class LLMBridgeView extends ItemView {
 
   // V2.1: 渲染 skills 列表（空则显示提示 + 初始化按钮；每项含启用/禁用开关）
   // V2.5: 应用搜索过滤；导入的 skill 增加"查看"和"编辑"按钮
+  // V2.6: 分组/排序/置顶/组合勾选/使用统计
   private renderSkillsList(): void {
     if (!this.skillsListEl) return;
     this.skillsListEl.empty();
@@ -1978,41 +2043,102 @@ export class LLMBridgeView extends ItemView {
       });
       seedBtn.addEventListener("click", () => void this.seedDefaults());
       this.updateSkillsToggle();
+      this.updateComboButton();
       return;
     }
     // V2.5: 应用搜索过滤
-    const filtered = searchSkills(this.skills, this.skillsSearchQuery);
+    let filtered = searchSkills(this.skills, this.skillsSearchQuery);
+    // V2.6: 应用分组过滤
+    if (this.skillsGroupFilter === "ungrouped") {
+      filtered = filtered.filter((s) => (s.tags || []).length === 0);
+    } else if (this.skillsGroupFilter !== "all") {
+      filtered = filtered.filter((s) => (s.tags || []).includes(this.skillsGroupFilter));
+    }
     if (filtered.length === 0) {
       const empty = this.skillsListEl.createDiv({ cls: "llm-bridge-skills-empty" });
-      empty.createEl("span", { text: `无匹配「${this.skillsSearchQuery}」的 skill` });
+      empty.createEl("span", { text: `无匹配当前过滤条件的 skill` });
       this.updateSkillsToggle();
+      this.updateComboButton();
       return;
     }
+    // V2.6: 排序（置顶始终最前，组内按 sortBy 排序）
+    const sorted = this.sortSkills(filtered);
     const disabled = new Set(this.plugin.settings.disabledSkills);
     const list = this.skillsListEl.createDiv({ cls: "llm-bridge-skills-list" });
-    for (const skill of filtered) {
+    for (const skill of sorted) {
       const isDisabled = disabled.has(skill.name);
+      const meta = getSkillMeta(this.skillsState, skill.name);
+      const isPinned = !!meta.pinned;
       const item = list.createDiv({
-        cls: `llm-bridge-skill-item${isDisabled ? " is-disabled" : ""}`,
+        cls: `llm-bridge-skill-item${isDisabled ? " is-disabled" : ""}${isPinned ? " is-pinned" : ""}`,
         attr: { title: skill.description || skill.name },
+      });
+      // V2.6: 组合勾选框（与启用开关区分：启用是永久，勾选是本次组合）
+      const comboLabel = item.createEl("label", { cls: "llm-bridge-skill-combo", attr: { title: "勾选加入组合应用" } });
+      const comboCheck = comboLabel.createEl("input", { type: "checkbox" }) as HTMLInputElement;
+      comboCheck.checked = this.skillsComboSet.has(skill.name);
+      comboCheck.addEventListener("change", () => {
+        if (comboCheck.checked) {
+          this.skillsComboSet.add(skill.name);
+        } else {
+          this.skillsComboSet.delete(skill.name);
+        }
+        this.updateComboButton();
       });
       // 启用/禁用开关
       const checkLabel = item.createEl("label", { cls: "llm-bridge-skill-check", attr: { title: "启用/禁用此 skill" } });
       const check = checkLabel.createEl("input", { type: "checkbox" }) as HTMLInputElement;
       check.checked = !isDisabled;
       check.addEventListener("change", () => void this.toggleSkillEnabled(skill.name, check.checked));
-      // 名称 + 描述（点击插入 prompt；禁用时不响应）
+      // V2.6: 置顶按钮
+      const pinBtn = item.createEl("button", {
+        cls: "llm-bridge-skill-pin-btn",
+        text: isPinned ? "📌" : "📍",
+        attr: { title: isPinned ? "取消置顶" : "置顶（排在分组最前）" },
+      });
+      pinBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void this.toggleSkillPinned(skill.name, !isPinned);
+      });
+      // 名称 + 描述 + 标签（点击插入 prompt 到光标位置；禁用时不响应）
       const main = item.createEl("button", { cls: "llm-bridge-skill-main" });
       main.createEl("span", { cls: "llm-bridge-skill-name", text: skill.name });
       if (skill.description) {
         main.createEl("span", { cls: "llm-bridge-skill-desc", text: skill.description });
+      }
+      // V2.6: 标签展示
+      if (skill.tags && skill.tags.length > 0) {
+        const tagsEl = main.createEl("span", { cls: "llm-bridge-skill-tags" });
+        for (const tag of skill.tags) {
+          tagsEl.createEl("span", { cls: "llm-bridge-skill-tag", text: `#${tag}` });
+        }
+      }
+      // V2.6: 使用统计（应用次数 + 最近使用时间）
+      if (meta.applyCount > 0) {
+        const statsEl = main.createEl("span", { cls: "llm-bridge-skill-stats" });
+        statsEl.createEl("span", { cls: "llm-bridge-skill-count", text: `×${meta.applyCount}`, attr: { title: `应用 ${meta.applyCount} 次` } });
+        statsEl.createEl("span", { cls: "llm-bridge-skill-last", text: formatRelativeTime(meta.lastUsedAt), attr: { title: `最近使用：${meta.lastUsedAt || "未使用"}` } });
       }
       main.addEventListener("click", () => {
         if (isDisabled) {
           new Notice("该 skill 已禁用，请在 Skills 面板勾选启用");
           return;
         }
-        this.applySkill(skill);
+        this.insertSkillAtCursor(skill);
+      });
+      // V2.6: 追加按钮（追加 prompt 到输入框末尾，与点击插入光标位置区分）
+      const appendBtn = item.createEl("button", {
+        cls: "llm-bridge-skill-append-btn",
+        text: "+",
+        attr: { title: "追加 prompt 到输入框末尾" },
+      });
+      appendBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (isDisabled) {
+          new Notice("该 skill 已禁用");
+          return;
+        }
+        this.appendSkillToInput(skill);
       });
       // V2.5: 查看完整 prompt 按钮（所有 skill 可查看）
       const viewBtn = item.createEl("button", {
@@ -2047,6 +2173,159 @@ export class LLMBridgeView extends ItemView {
       }
     }
     this.updateSkillsToggle();
+    this.updateComboButton();
+  }
+
+  // V2.6: 排序 skills（置顶最前，组内按 sortBy 排序）
+  private sortSkills(skills: Skill[]): Skill[] {
+    const withMeta = skills.map((s) => ({ skill: s, meta: getSkillMeta(this.skillsState, s.name) }));
+    withMeta.sort((a, b) => {
+      // 置顶最前
+      const aPinned = a.meta.pinned ? 1 : 0;
+      const bPinned = b.meta.pinned ? 1 : 0;
+      if (aPinned !== bPinned) return bPinned - aPinned;
+      // 组内排序
+      if (this.skillsSortBy === "recent") {
+        const aT = a.meta.lastUsedAt ? new Date(a.meta.lastUsedAt).getTime() : 0;
+        const bT = b.meta.lastUsedAt ? new Date(b.meta.lastUsedAt).getTime() : 0;
+        if (aT !== bT) return bT - aT; // 最近使用在前
+      } else if (this.skillsSortBy === "popular") {
+        if (a.meta.applyCount !== b.meta.applyCount) return b.meta.applyCount - a.meta.applyCount;
+      }
+      // 默认按名称（name）
+      return a.skill.name.localeCompare(b.skill.name, "zh");
+    });
+    return withMeta.map((x) => x.skill);
+  }
+
+  // V2.6: 切换置顶状态并持久化
+  private async toggleSkillPinned(skillName: string, pinned: boolean): Promise<void> {
+    this.skillsState = setSkillPinned(this.skillsState, skillName, pinned);
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    await saveSkillsState(vaultPath, this.skillsState);
+    this.renderSkillsList();
+  }
+
+  // V2.6: 更新组合应用按钮文案（显示当前勾选数）
+  private updateComboButton(): void {
+    const btn = this.contentEl.querySelector(".llm-bridge-skills-combo-btn") as HTMLButtonElement | null;
+    if (btn) {
+      btn.textContent = `组合应用 (${this.skillsComboSet.size})`;
+      btn.disabled = this.skillsComboSet.size === 0;
+    }
+  }
+
+  // V2.6: 插入 skill prompt 到输入框光标位置（替换选区或插入光标处）
+  private insertSkillAtCursor(skill: Skill): void {
+    if (this.runHandle) return;
+    const expanded = expandSkillPrompt(skill.prompt, this.plugin.settings.outputDir);
+    if (expanded.length === 0) {
+      this.inputEl.focus();
+      return;
+    }
+    const scan = scanSkillPrompt(expanded);
+    if (scan.warnings.length > 0) {
+      new Notice(`Skill 包含可疑内容：${scan.warnings.join("；")}\n已脱敏后填入，请检查`, 6000);
+    }
+    const truncated = truncateSkillPrompt(scan.redacted);
+    if (truncated.length < scan.redacted.length) {
+      new Notice(`Skill prompt 超过 ${MAX_SKILL_PROMPT_LENGTH} 字符，已截断`, 4000);
+    }
+    // 插入光标位置（替换选区）
+    const start = this.inputEl.selectionStart ?? this.inputEl.value.length;
+    const end = this.inputEl.selectionEnd ?? this.inputEl.value.length;
+    const before = this.inputEl.value.slice(0, start);
+    const after = this.inputEl.value.slice(end);
+    this.inputEl.value = before + truncated + after;
+    // 光标移到插入内容末尾
+    const newPos = start + truncated.length;
+    this.inputEl.setSelectionRange(newPos, newPos);
+    this.inputEl.focus();
+    this.trackAppliedSkill(skill.name);
+    void this.recordSkillUse(skill.name);
+  }
+
+  // V2.6: 追加 skill prompt 到输入框末尾
+  private appendSkillToInput(skill: Skill): void {
+    if (this.runHandle) return;
+    const expanded = expandSkillPrompt(skill.prompt, this.plugin.settings.outputDir);
+    if (expanded.length === 0) return;
+    const scan = scanSkillPrompt(expanded);
+    if (scan.warnings.length > 0) {
+      new Notice(`Skill 包含可疑内容：${scan.warnings.join("；")}\n已脱敏后追加，请检查`, 6000);
+    }
+    const truncated = truncateSkillPrompt(scan.redacted);
+    if (truncated.length < scan.redacted.length) {
+      new Notice(`Skill prompt 超过 ${MAX_SKILL_PROMPT_LENGTH} 字符，已截断`, 4000);
+    }
+    const sep = this.inputEl.value.length > 0 && !this.inputEl.value.endsWith("\n") ? "\n\n" : "";
+    this.inputEl.value = this.inputEl.value + sep + truncated;
+    this.inputEl.scrollTop = this.inputEl.scrollHeight;
+    this.inputEl.focus();
+    this.trackAppliedSkill(skill.name);
+    void this.recordSkillUse(skill.name);
+  }
+
+  // V2.6: 应用组合（按勾选顺序拼接 prompt，插入光标位置）
+  private async applyCombo(): Promise<void> {
+    if (this.runHandle) return;
+    if (this.skillsComboSet.size === 0) {
+      new Notice("请先勾选要组合的 skill");
+      return;
+    }
+    // 按勾选顺序（skills 列表中的出现顺序）收集
+    const orderedNames: string[] = [];
+    for (const skill of this.skills) {
+      if (this.skillsComboSet.has(skill.name)) {
+        orderedNames.push(skill.name);
+      }
+    }
+    // 拼接 prompt
+    const parts: string[] = [];
+    for (const name of orderedNames) {
+      const skill = this.skills.find((s) => s.name === name);
+      if (!skill) continue;
+      if (this.plugin.settings.disabledSkills.includes(name)) continue;
+      const expanded = expandSkillPrompt(skill.prompt, this.plugin.settings.outputDir);
+      const scan = scanSkillPrompt(expanded);
+      const truncated = truncateSkillPrompt(scan.redacted);
+      if (truncated.length > 0) {
+        parts.push(truncated);
+      }
+    }
+    if (parts.length === 0) {
+      new Notice("勾选的 skill 无可用 prompt（可能已禁用或为空）");
+      return;
+    }
+    const combined = parts.join("\n\n---\n\n");
+    // 插入光标位置
+    const start = this.inputEl.selectionStart ?? this.inputEl.value.length;
+    const end = this.inputEl.selectionEnd ?? this.inputEl.value.length;
+    const before = this.inputEl.value.slice(0, start);
+    const after = this.inputEl.value.slice(end);
+    this.inputEl.value = before + combined + after;
+    const newPos = start + combined.length;
+    this.inputEl.setSelectionRange(newPos, newPos);
+    this.inputEl.focus();
+    // 记录组合 + 各 skill 使用
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    this.skillsState = recordCombo(this.skillsState, orderedNames);
+    for (const name of orderedNames) {
+      this.skillsState = recordSkillApplied(this.skillsState, name);
+      this.trackAppliedSkill(name);
+    }
+    await saveSkillsState(vaultPath, this.skillsState);
+    // 清空勾选
+    this.skillsComboSet.clear();
+    this.renderSkillsList();
+    new Notice(`已组合应用 ${orderedNames.length} 个 skill`);
+  }
+
+  // V2.6: 记录单个 skill 使用（更新 applyCount + lastUsedAt 并持久化）
+  private async recordSkillUse(skillName: string): Promise<void> {
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    this.skillsState = recordSkillApplied(this.skillsState, skillName);
+    await saveSkillsState(vaultPath, this.skillsState);
   }
 
   // V2.5: 查看完整 skill prompt（弹窗只读展示）

@@ -5681,6 +5681,430 @@ if (!runV25Unit) {
 }
 
 // ============================================================
+// 8.13 V2.6 Skills 体验深化 单元测试
+//     覆盖：extractTags / parse-serialize tags 往返 /
+//           searchSkills tags 匹配 /
+//           skillsState load/save/record/pinned/groupOverride/combo /
+//           formatRelativeTime / 不可变性 / 原子写 / 失败不阻断 /
+//           CLI 不回归 + sdk-experimental 默认关闭
+// ============================================================
+console.log("\n=== V2.6 Skills 体验深化 单元测试 ===");
+
+const runV26Unit = runMode === "all" || runMode === "unit";
+
+if (!runV26Unit) {
+  addTest("V2.6 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let skillsBundleV26 = null;
+  let skillsStateBundleV26 = null;
+  let cliBackendBundleV26 = null;
+  let typesBundleV26 = null;
+  let tempStateV26Dir = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    skillsBundleV26 = join(PROJECT_ROOT, ".test-skills-v26-temp.mjs");
+    skillsStateBundleV26 = join(PROJECT_ROOT, ".test-skills-state-v26-temp.mjs");
+    cliBackendBundleV26 = join(PROJECT_ROOT, ".test-cli-backend-v26-temp.mjs");
+    typesBundleV26 = join(PROJECT_ROOT, ".test-types-v26-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "skills.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: skillsBundleV26,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "skillsState.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: skillsStateBundleV26,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV26,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "types.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: typesBundleV26,
+    });
+
+    const { extractTags, parseSkillsMarkdown, serializeSkillToMarkdown, searchSkills } =
+      await import(pathToFileURL(skillsBundleV26).href);
+    const {
+      createEmptySkillsState, loadSkillsState, saveSkillsState,
+      getSkillMeta, recordSkillApplied, setSkillPinned, setSkillGroupOverride,
+      recordCombo, formatRelativeTime, SKILLS_STATE_VERSION, SKILLS_STATE_FILE_REL,
+    } = await import(pathToFileURL(skillsStateBundleV26).href);
+    const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV26).href);
+    const { DEFAULT_SETTINGS } = await import(pathToFileURL(typesBundleV26).href);
+
+    // ===== extractTags =====
+
+    // ---- Test 1: extractTags 提取多个标签 ----
+    {
+      const { description, tags } = extractTags("将选区翻译为英文 #翻译 #常用");
+      addTest("V2.6 extractTags: 提取多个标签",
+        tags.length === 2 && tags.includes("翻译") && tags.includes("常用") && description === "将选区翻译为英文" ? "pass" : "fail",
+        `desc="${description}" tags=${JSON.stringify(tags)}`);
+    }
+
+    // ---- Test 2: extractTags 无标签返回原文本 ----
+    {
+      const { description, tags } = extractTags("纯描述没有标签");
+      addTest("V2.6 extractTags: 无标签返回原文本",
+        tags.length === 0 && description === "纯描述没有标签" ? "pass" : "fail",
+        `desc="${description}" tags=${JSON.stringify(tags)}`);
+    }
+
+    // ---- Test 3: extractTags URL 中的 # 不被匹配 ----
+    {
+      const { description, tags } = extractTags("访问 https://example.com/page#section 详情");
+      addTest("V2.6 extractTags: URL 中的 # 不被匹配",
+        tags.length === 0 ? "pass" : "fail",
+        `desc="${description}" tags=${JSON.stringify(tags)}`);
+    }
+
+    // ---- Test 4: extractTags 空字符串 ----
+    {
+      const { description, tags } = extractTags("");
+      addTest("V2.6 extractTags: 空字符串",
+        tags.length === 0 && description === "" ? "pass" : "fail",
+        `desc="${description}" tags=${JSON.stringify(tags)}`);
+    }
+
+    // ===== parse / serialize tags 往返 =====
+
+    // ---- Test 5: parseSkillsMarkdown 提取 tags ----
+    {
+      const md = `## 翻译\n将选区翻译为英文 #翻译 #常用\n\n请将选中文本翻译为英文。`;
+      const skills = parseSkillsMarkdown(md);
+      const s = skills[0];
+      addTest("V2.6 parseSkillsMarkdown: 提取 tags",
+        s && s.tags.length === 2 && s.tags.includes("翻译") && s.tags.includes("常用") && s.description === "将选区翻译为英文" ? "pass" : "fail",
+        `name=${s?.name} desc="${s?.description}" tags=${JSON.stringify(s?.tags)}`);
+    }
+
+    // ---- Test 6: serializeSkillToMarkdown 保留 tags（往返一致）----
+    {
+      const skill = { name: "翻译", description: "将选区翻译为英文", prompt: "请将选中文本翻译为英文。", tags: ["翻译", "常用"] };
+      const md = serializeSkillToMarkdown(skill);
+      const reparsed = parseSkillsMarkdown(md);
+      const s = reparsed[0];
+      addTest("V2.6 serializeSkillToMarkdown: 保留 tags（往返一致）",
+        s && s.name === "翻译" && s.description === "将选区翻译为英文" &&
+        s.tags.length === 2 && s.tags.includes("翻译") && s.tags.includes("常用") &&
+        s.prompt === "请将选中文本翻译为英文。" ? "pass" : "fail",
+        `name=${s?.name} desc="${s?.description}" tags=${JSON.stringify(s?.tags)} prompt="${s?.prompt}"`);
+    }
+
+    // ---- Test 7: parseSkillsMarkdown 无标签 skill tags 为空数组 ----
+    {
+      const md = `## 普通skill\n普通描述\n\nprompt 正文`;
+      const skills = parseSkillsMarkdown(md);
+      const s = skills[0];
+      addTest("V2.6 parseSkillsMarkdown: 无标签 skill tags 为空数组",
+        s && Array.isArray(s.tags) && s.tags.length === 0 ? "pass" : "fail",
+        `tags=${JSON.stringify(s?.tags)}`);
+    }
+
+    // ===== searchSkills tags 匹配 =====
+
+    // ---- Test 8: searchSkills #标签语法匹配 ----
+    {
+      const skills = [
+        { name: "翻译", description: "翻译选区", prompt: "p1", tags: ["翻译", "常用"] },
+        { name: "总结", description: "总结笔记", prompt: "p2", tags: ["常用"] },
+        { name: "其他", description: "其他", prompt: "p3", tags: [] },
+      ];
+      const result = searchSkills(skills, "#翻译");
+      addTest("V2.6 searchSkills: #标签语法匹配",
+        result.length === 1 && result[0].name === "翻译" ? "pass" : "fail",
+        `count=${result.length} names=${result.map(s => s.name).join(",")}`);
+    }
+
+    // ---- Test 9: searchSkills 普通查询匹配 tags ----
+    {
+      const skills = [
+        { name: "A", description: "x", prompt: "p", tags: ["翻译"] },
+        { name: "B", description: "y", prompt: "p", tags: ["常用"] },
+      ];
+      const result = searchSkills(skills, "翻译");
+      addTest("V2.6 searchSkills: 普通查询匹配 tags",
+        result.length === 1 && result[0].name === "A" ? "pass" : "fail",
+        `count=${result.length} names=${result.map(s => s.name).join(",")}`);
+    }
+
+    // ---- Test 10: searchSkills tags 无匹配返回空 ----
+    {
+      const skills = [
+        { name: "A", description: "x", prompt: "p", tags: ["翻译"] },
+      ];
+      const result = searchSkills(skills, "#不存在的标签");
+      addTest("V2.6 searchSkills: tags 无匹配返回空",
+        result.length === 0 ? "pass" : "fail",
+        `count=${result.length}`);
+    }
+
+    // ===== skillsState load/save =====
+
+    // ---- Test 11: createEmptySkillsState version=1 ----
+    {
+      const state = createEmptySkillsState();
+      addTest("V2.6 createEmptySkillsState: version=1 skills={} lastCombo=[]",
+        state.version === 1 && Object.keys(state.skills).length === 0 && Array.isArray(state.lastCombo) && state.lastCombo.length === 0 ? "pass" : "fail",
+        `version=${state.version} skills=${Object.keys(state.skills).length} combo=${state.lastCombo.length}`);
+    }
+
+    // ---- Test 12: SKILLS_STATE_VERSION = 1 ----
+    {
+      addTest("V2.6 SKILLS_STATE_VERSION = 1",
+        SKILLS_STATE_VERSION === 1 ? "pass" : "fail",
+        `version=${SKILLS_STATE_VERSION}`);
+    }
+
+    // ---- Test 13: SKILLS_STATE_FILE_REL 正确路径 ----
+    {
+      addTest("V2.6 SKILLS_STATE_FILE_REL = .llm-bridge/skills-state.json",
+        SKILLS_STATE_FILE_REL === ".llm-bridge/skills-state.json" ? "pass" : "fail",
+        `rel=${SKILLS_STATE_FILE_REL}`);
+    }
+
+    // ---- Test 14: loadSkillsState 文件不存在返回空 state ----
+    {
+      tempStateV26Dir = mkdtempSync(join(tmpdir(), "llm-bridge-v26-state-"));
+      const state = await loadSkillsState(tempStateV26Dir);
+      addTest("V2.6 loadSkillsState: 文件不存在返回空 state",
+        state.version === 1 && Object.keys(state.skills).length === 0 ? "pass" : "fail",
+        `version=${state.version} skills=${Object.keys(state.skills).length}`);
+    }
+
+    // ---- Test 15: saveSkillsState + loadSkillsState 往返 ----
+    {
+      let state = createEmptySkillsState();
+      state = recordSkillApplied(state, "翻译");
+      state = setSkillPinned(state, "翻译", true);
+      state = recordCombo(state, ["翻译", "总结"]);
+      const ok = await saveSkillsState(tempStateV26Dir, state);
+      const loaded = await loadSkillsState(tempStateV26Dir);
+      const meta = getSkillMeta(loaded, "翻译");
+      addTest("V2.6 saveSkillsState + loadSkillsState: 往返一致",
+        ok && loaded.version === 1 &&
+        meta.applyCount === 1 && meta.pinned === true && meta.lastUsedAt !== null &&
+        loaded.lastCombo.length === 2 && loaded.lastCombo[0] === "翻译" && loaded.lastCombo[1] === "总结" ? "pass" : "fail",
+        `ok=${ok} version=${loaded.version} count=${meta.applyCount} pinned=${meta.pinned} combo=${JSON.stringify(loaded.lastCombo)}`);
+    }
+
+    // ---- Test 16: saveSkillsState 原子写（tmp 文件不留残留）----
+    {
+      const state = createEmptySkillsState();
+      const ok = await saveSkillsState(tempStateV26Dir, state);
+      const tmpExists = existsSync(join(tempStateV26Dir, ".llm-bridge", "skills-state.json.tmp"));
+      const mainExists = existsSync(join(tempStateV26Dir, ".llm-bridge", "skills-state.json"));
+      addTest("V2.6 saveSkillsState: 原子写（tmp 无残留，主文件存在）",
+        ok && !tmpExists && mainExists ? "pass" : "fail",
+        `ok=${ok} tmp=${tmpExists} main=${mainExists}`);
+    }
+
+    // ---- Test 17: saveSkillsState 失败不抛异常（只读目录）----
+    {
+      // 用一个不存在的盘符路径触发写入失败（Windows 下 Z: 通常不存在）
+      const ok = await saveSkillsState("Z:\\nonexistent-path-v26-test", createEmptySkillsState());
+      addTest("V2.6 saveSkillsState: 失败不抛异常返回 false",
+        ok === false ? "pass" : "fail",
+        `ok=${ok}`);
+    }
+
+    // ---- Test 18: loadSkillsState 损坏 JSON 返回空 state ----
+    {
+      const dirPath = join(tempStateV26Dir, ".llm-bridge");
+      mkdirSync(dirPath, { recursive: true });
+      writeFileSync(join(dirPath, "skills-state.json"), "{not valid json", "utf8");
+      const state = await loadSkillsState(tempStateV26Dir);
+      addTest("V2.6 loadSkillsState: 损坏 JSON 返回空 state",
+        state.version === 1 && Object.keys(state.skills).length === 0 ? "pass" : "fail",
+        `version=${state.version} skills=${Object.keys(state.skills).length}`);
+    }
+
+    // ===== recordSkillApplied =====
+
+    // ---- Test 19: recordSkillApplied applyCount+1 且 lastUsedAt 更新 ----
+    {
+      const before = createEmptySkillsState();
+      const after = recordSkillApplied(before, "翻译");
+      const metaBefore = getSkillMeta(before, "翻译");
+      const metaAfter = getSkillMeta(after, "翻译");
+      addTest("V2.6 recordSkillApplied: applyCount+1 且 lastUsedAt 更新",
+        metaBefore.applyCount === 0 && metaAfter.applyCount === 1 && metaAfter.lastUsedAt !== null ? "pass" : "fail",
+        `before=${metaBefore.applyCount} after=${metaAfter.applyCount} lastUsedAt=${metaAfter.lastUsedAt}`);
+    }
+
+    // ---- Test 20: recordSkillApplied 累计 applyCount ----
+    {
+      let state = createEmptySkillsState();
+      state = recordSkillApplied(state, "翻译");
+      state = recordSkillApplied(state, "翻译");
+      state = recordSkillApplied(state, "翻译");
+      const meta = getSkillMeta(state, "翻译");
+      addTest("V2.6 recordSkillApplied: 累计 applyCount=3",
+        meta.applyCount === 3 ? "pass" : "fail",
+        `count=${meta.applyCount}`);
+    }
+
+    // ===== setSkillPinned / setSkillGroupOverride / recordCombo =====
+
+    // ---- Test 21: setSkillPinned true/false ----
+    {
+      let state = createEmptySkillsState();
+      state = setSkillPinned(state, "翻译", true);
+      const pinned = getSkillMeta(state, "翻译").pinned;
+      state = setSkillPinned(state, "翻译", false);
+      const unpinned = getSkillMeta(state, "翻译").pinned;
+      addTest("V2.6 setSkillPinned: true/false 切换",
+        pinned === true && unpinned === false ? "pass" : "fail",
+        `pinned=${pinned} unpinned=${unpinned}`);
+    }
+
+    // ---- Test 22: setSkillGroupOverride 设置与清除 ----
+    {
+      let state = createEmptySkillsState();
+      state = setSkillGroupOverride(state, "翻译", "自定义分组");
+      const g1 = getSkillMeta(state, "翻译").groupOverride;
+      state = setSkillGroupOverride(state, "翻译", undefined);
+      const g2 = getSkillMeta(state, "翻译").groupOverride;
+      addTest("V2.6 setSkillGroupOverride: 设置与清除",
+        g1 === "自定义分组" && g2 === undefined ? "pass" : "fail",
+        `g1=${g1} g2=${g2}`);
+    }
+
+    // ---- Test 23: recordCombo 更新 lastCombo（且为副本）----
+    {
+      const state = createEmptySkillsState();
+      const input = ["A", "B", "C"];
+      const after = recordCombo(state, input);
+      // 修改原数组不影响 state
+      input.push("D");
+      addTest("V2.6 recordCombo: 更新 lastCombo 且为副本",
+        after.lastCombo.length === 3 && after.lastCombo[0] === "A" && after.lastCombo[2] === "C" ? "pass" : "fail",
+        `combo=${JSON.stringify(after.lastCombo)}`);
+    }
+
+    // ===== getSkillMeta 默认值 =====
+
+    // ---- Test 24: getSkillMeta 不存在返回默认值 ----
+    {
+      const state = createEmptySkillsState();
+      const meta = getSkillMeta(state, "不存在");
+      addTest("V2.6 getSkillMeta: 不存在返回默认值",
+        meta.applyCount === 0 && meta.lastUsedAt === null && meta.pinned === undefined ? "pass" : "fail",
+        `count=${meta.applyCount} lastUsedAt=${meta.lastUsedAt} pinned=${meta.pinned}`);
+    }
+
+    // ===== formatRelativeTime =====
+
+    // ---- Test 25: formatRelativeTime null 返回"未使用" ----
+    {
+      const label = formatRelativeTime(null);
+      addTest("V2.6 formatRelativeTime: null 返回未使用",
+        label === "未使用" ? "pass" : "fail",
+        `label=${label}`);
+    }
+
+    // ---- Test 26: formatRelativeTime 刚刚（当前时间）----
+    {
+      const label = formatRelativeTime(new Date().toISOString());
+      addTest("V2.6 formatRelativeTime: 刚刚",
+        label === "刚刚" ? "pass" : "fail",
+        `label=${label}`);
+    }
+
+    // ---- Test 27: formatRelativeTime 损坏 ISO 返回未使用 ----
+    {
+      const label = formatRelativeTime("not-a-date");
+      addTest("V2.6 formatRelativeTime: 损坏 ISO 返回未使用",
+        label === "未使用" ? "pass" : "fail",
+        `label=${label}`);
+    }
+
+    // ===== 不可变性 =====
+
+    // ---- Test 28: recordSkillApplied 不修改原 state（不可变）----
+    {
+      const before = createEmptySkillsState();
+      const beforeJson = JSON.stringify(before);
+      const after = recordSkillApplied(before, "翻译");
+      const beforeJsonAfter = JSON.stringify(before);
+      addTest("V2.6 不可变性: recordSkillApplied 不修改原 state",
+        beforeJson === beforeJsonAfter && after !== before ? "pass" : "fail",
+        `sameRef=${after === before}`);
+    }
+
+    // ---- Test 29: setSkillPinned 不修改原 state（不可变）----
+    {
+      const before = createEmptySkillsState();
+      const beforeJson = JSON.stringify(before);
+      const after = setSkillPinned(before, "A", true);
+      const beforeJsonAfter = JSON.stringify(before);
+      addTest("V2.6 不可变性: setSkillPinned 不修改原 state",
+        beforeJson === beforeJsonAfter ? "pass" : "fail",
+        `sameRef=${after === before}`);
+    }
+
+    // ===== 文件版本字段 =====
+
+    // ---- Test 30: 保存的文件含 version 字段 ----
+    {
+      // 清空目录重新写
+      tempStateV26Dir = mkdtempSync(join(tmpdir(), "llm-bridge-v26-state-"));
+      const ok = await saveSkillsState(tempStateV26Dir, createEmptySkillsState());
+      const raw = readFileSync(join(tempStateV26Dir, ".llm-bridge", "skills-state.json"), "utf8");
+      const parsed = JSON.parse(raw);
+      addTest("V2.6 文件版本: 保存的文件含 version=1 字段",
+        ok && parsed.version === 1 ? "pass" : "fail",
+        `ok=${ok} version=${parsed.version}`);
+    }
+
+    // ===== 不保存 secret 明文（state 文件不应含 prompt）=====
+
+    // ---- Test 31: state 文件不含 prompt 正文 ----
+    {
+      const raw = readFileSync(join(tempStateV26Dir, ".llm-bridge", "skills-state.json"), "utf8");
+      const hasPrompt = /prompt/i.test(raw);
+      addTest("V2.6 state 安全: 文件不含 prompt 正文",
+        !hasPrompt ? "pass" : "fail",
+        `hasPrompt=${hasPrompt}`);
+    }
+
+    // ===== CLI 不回归 + sdk-experimental 默认关闭 =====
+
+    // ---- Test 32: CLI 不回归: ClaudeCliBackend 可实例化 ----
+    {
+      const backend = new ClaudeCliBackend();
+      addTest("V2.6 CLI 不回归: ClaudeCliBackend 可实例化",
+        backend && typeof backend.run === "function" ? "pass" : "fail",
+        `type=${typeof backend} run=${typeof backend?.run}`);
+    }
+
+    // ---- Test 33: sdk-experimental 默认关闭 ----
+    {
+      addTest("V2.6 SDK 默认关闭: DEFAULT_SETTINGS.backendMode = auto",
+        DEFAULT_SETTINGS.backendMode === "auto" ? "pass" : "fail",
+        `mode=${DEFAULT_SETTINGS.backendMode}`);
+    }
+
+    // ---- Test 34: DEFAULT_SETTINGS.disabledSkills 为空数组（不回归）----
+    {
+      addTest("V2.6 默认设置: disabledSkills 为空数组",
+        Array.isArray(DEFAULT_SETTINGS.disabledSkills) && DEFAULT_SETTINGS.disabledSkills.length === 0 ? "pass" : "fail",
+        `disabled=${DEFAULT_SETTINGS.disabledSkills?.length}`);
+    }
+
+  } catch (e) {
+    addTest("V2.6 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (skillsBundleV26) rmSync(skillsBundleV26, { force: true }); } catch {}
+    try { if (skillsStateBundleV26) rmSync(skillsStateBundleV26, { force: true }); } catch {}
+    try { if (cliBackendBundleV26) rmSync(cliBackendBundleV26, { force: true }); } catch {}
+    try { if (typesBundleV26) rmSync(typesBundleV26, { force: true }); } catch {}
+    try { if (tempStateV26Dir) rmSync(tempStateV26Dir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");
