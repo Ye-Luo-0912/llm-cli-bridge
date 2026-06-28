@@ -18,3 +18,21 @@ Thumbs.db
 
 # Test temp bundles
 .test-*-temp.mjs
+.git-commit-msg.txt
+
+# Runtime state（包含 token / bridge.json / 日志 / 状态 / outbox）
+.llm-bridge/
+
+# 本地敏感文件（env / token / key / secret / credential）
+*.env
+.env.*
+**/*token*
+**/*secret*
+**/*credential*
+**/credentials.json
+**/.bridge-token
+
+# Obsidian workspace 临时状态（仅当仓库内含 vault 时生效）
+.obsidian/workspace*
+.obsidian/cache
+.obsidian/plugins/*/data.json
