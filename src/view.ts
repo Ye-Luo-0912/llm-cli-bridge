@@ -18,6 +18,8 @@ import { mapPreflightToStatus, buildErrorSummary } from "./preflightStatus";
 import { buildPresetPrompt, PRESETS, PresetType, requiresActiveNote, requiresSelection } from "./presetPrompts";
 import { buildFirstUseGuide, shouldShowFirstUseGuide } from "./firstUseGuide";
 import { buildTimeline, isTerminalTimelineType, timelineTypeClass, timelineTypeLabel, TimelineEventType } from "./runTimeline";
+import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, previewToRows, CommandPreview } from "./commandProfile";
+import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -717,10 +719,10 @@ export class LLMBridgeView extends ItemView {
   }
 
   private commandLine(): string {
-    const s = this.plugin.settings;
-    if (s.agentType === "claude") return `${s.claudeCommand} ${s.claudeArgs}`.trim();
-    if (s.agentType === "codex") return `${s.codexCommand} ${s.codexArgs}`.trim();
-    return `${s.customCommand} ${s.customArgs}`.trim();
+    // V1.5: 使用 commandProfile.buildCommandLine 统一构造（含 Claude 动态参数）
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const { command, args } = buildCommandLine(this.plugin.settings, vaultPath);
+    return [command, ...args].join(" ").trim();
   }
 
   // ---------- 消息渲染 ----------
@@ -823,15 +825,24 @@ export class LLMBridgeView extends ItemView {
     const details = block.createDiv({ cls: "llm-bridge-msg-details" });
     const failed = msg.status === "failed";
 
-    // V1.2: 运行过程时间线（assistant 消息且有时展示）
-    if (msg.role === "assistant" && msg.timeline && msg.timeline.length > 0) {
+    // V1.5: 命令预览区（UI-only，展示本次实际执行的 command/args/cwd/上下文）
+    if (msg.role === "assistant" && msg.commandPreview && msg.commandPreview.length > 0) {
+      this.appendCommandPreview(details, msg.commandPreview);
+    }
+
+    // V1.5: Workflow Trace 区域（UI-only，比 V1.2 timeline 更细粒度）
+    // 优先显示 workflowTrace；若不存在则回退到 V1.2 timeline
+    if (msg.role === "assistant" && msg.workflowTrace && msg.workflowTrace.length > 0) {
+      this.appendWorkflowTrace(details, msg.workflowTrace);
+    } else if (msg.role === "assistant" && msg.timeline && msg.timeline.length > 0) {
+      // V1.2: 运行过程时间线（向后兼容）
       this.appendTimeline(details, msg.timeline);
     }
 
     if (msg.stderr) {
       const startOpen = failed;
       this.appendCollapsible(details, "stderr", msg.stderr, "llm-bridge-stderr-text", startOpen, failed);
-      // V1.2: 失败时提取 debug log 路径，提供可点击/复制按钮
+      // V1.2/V1.5: 失败时提取 debug log 路径，提供可点击/复制/打开按钮
       if (failed) {
         const logPathMatch = msg.stderr.match(/Debug log:\s*(.+)/);
         if (logPathMatch && logPathMatch[1]) {
@@ -854,6 +865,85 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
+  // V1.5: 渲染命令预览区（command / args / cwd / model / stdin / selection / note / env）
+  private appendCommandPreview(
+    parent: HTMLElement,
+    rows: ReadonlyArray<{ label: string; value: string }>,
+  ): void {
+    const wrap = parent.createDiv({ cls: "llm-bridge-cmd-preview" });
+    const head = wrap.createDiv({ cls: "llm-bridge-cmd-preview-head" });
+    head.createEl("span", { cls: "llm-bridge-cmd-preview-toggle", text: "▼ Command" });
+    // 复制命令按钮
+    const copyCmdBtn = head.createEl("button", {
+      cls: "llm-bridge-cmd-preview-copy",
+      text: "复制命令",
+      attr: { title: "复制脱敏命令行（不含 secret / prompt 内容）" },
+    });
+    copyCmdBtn.addEventListener("click", async () => {
+      try {
+        const line = this.buildRedactedCommandLineFromRows(rows);
+        await navigator.clipboard.writeText(line);
+        new Notice("已复制命令行");
+      } catch {
+        new Notice("复制失败");
+      }
+    });
+
+    const body = wrap.createDiv({ cls: "llm-bridge-cmd-preview-body" });
+    for (const row of rows) {
+      const rowEl = body.createDiv({ cls: "llm-bridge-cmd-preview-row" });
+      rowEl.createEl("span", { cls: "llm-bridge-cmd-preview-label", text: row.label });
+      rowEl.createEl("code", { cls: "llm-bridge-cmd-preview-value", text: row.value });
+    }
+    // 折叠交互
+    const toggle = head.querySelector(".llm-bridge-cmd-preview-toggle")!;
+    toggle.addEventListener("click", () => {
+      const hidden = body.hasAttribute("hidden");
+      if (hidden) {
+        body.removeAttribute("hidden");
+        toggle.textContent = "▼ Command";
+      } else {
+        body.setAttribute("hidden", "");
+        toggle.textContent = "▶ Command";
+      }
+    });
+  }
+
+  // V1.5: 从 preview rows 构造脱敏命令行字符串（用于复制）
+  private buildRedactedCommandLineFromRows(rows: ReadonlyArray<{ label: string; value: string }>): string {
+    const get = (label: string) => rows.find((r) => r.label === label)?.value ?? "";
+    const command = get("command");
+    const args = get("args");
+    const cwd = get("cwd");
+    const model = get("model");
+    const stdin = get("stdin");
+    const parts = [command, args === "(none)" ? "" : args].filter((s) => s.length > 0);
+    return `${parts.join(" ")}  # cwd: ${cwd} | model: ${model} | stdin: ${stdin}`;
+  }
+
+  // V1.5: 渲染 Workflow Trace 区域（preflight → build_prompt → spawn → stdout/stderr → file_diff_scan → 终态）
+  private appendWorkflowTrace(
+    parent: HTMLElement,
+    trace: ReadonlyArray<{ stage: string; timestamp: string; detail: string; status: string }>,
+  ): void {
+    const wrap = parent.createDiv({ cls: "llm-bridge-workflow-trace" });
+    wrap.createEl("div", { cls: "llm-bridge-workflow-trace-title", text: "Workflow Trace" });
+    for (const entry of trace) {
+      const stage = entry.stage as WorkflowTraceStage;
+      const item = wrap.createDiv({
+        cls: `llm-bridge-workflow-trace-item ${workflowStageClass(stage)} is-${entry.status}`,
+      });
+      item.createEl("span", { cls: "llm-bridge-workflow-trace-dot" });
+      const text = item.createDiv({ cls: "llm-bridge-workflow-trace-text" });
+      text.createEl("span", { cls: "llm-bridge-workflow-trace-label", text: workflowStageLabel(stage) });
+      if (entry.detail) {
+        text.createEl("span", { cls: "llm-bridge-workflow-trace-detail", text: entry.detail });
+      }
+      const time = new Date(entry.timestamp).toLocaleTimeString();
+      text.createEl("span", { cls: "llm-bridge-workflow-trace-time", text: time });
+    }
+  }
+
   // V1.2: 渲染运行过程时间线
   private appendTimeline(parent: HTMLElement, timeline: ReadonlyArray<{ type: string; timestamp: string; detail: string }>): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline" });
@@ -872,7 +962,7 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  // V1.2: 渲染 debug log 路径（可点击打开文件夹 / 可复制）
+  // V1.2/V1.5: 渲染 debug log 路径（可点击复制 / 复制按钮 / 打开按钮）
   private appendDebugLogPath(parent: HTMLElement, logPath: string): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-debug-path" });
     wrap.createEl("span", { cls: "llm-bridge-debug-path-label", text: "Debug log:" });
@@ -895,6 +985,28 @@ export class LLMBridgeView extends ItemView {
         new Notice("已复制");
       } catch {
         new Notice("复制失败");
+      }
+    });
+    // V1.5: 打开按钮（在系统文件管理器中打开 debug log 所在目录）
+    const openBtn = wrap.createEl("button", { cls: "llm-bridge-debug-path-open", text: "打开", attr: { title: "在文件管理器中打开" } });
+    openBtn.addEventListener("click", () => {
+      try {
+        // 优先使用 electron shell 在系统文件管理器中打开
+        // electron 在 Obsidian 运行时可用
+        const electron = require("electron");
+        if (electron?.shell?.openPath) {
+          electron.shell.openPath(logPath).then((err: string) => {
+            if (err) new Notice(`打开失败: ${err}`);
+          });
+          return;
+        }
+        if (electron?.shell?.showItemInFolder) {
+          electron.shell.showItemInFolder(logPath);
+          return;
+        }
+        new Notice("当前环境不支持打开文件管理器，请手动复制路径");
+      } catch (e) {
+        new Notice(`打开失败: ${(e as Error).message}`);
       }
     });
   }
@@ -1032,6 +1144,15 @@ export class LLMBridgeView extends ItemView {
     // 使用 prompt package builder（V0.7）
     const prompt = buildPromptPackage(userInput, snapshot, settings);
 
+    // V1.5: 构造命令预览（UI-only，展示本次实际执行的 command/args/cwd/上下文）
+    const commandPreviewRows = previewToRows(buildCommandPreview(settings, vaultPath, {
+      hasSelection: !!selection,
+      selectionLength: selection?.length ?? 0,
+      hasActiveNote: settings.includeActiveNote && !!activeFile,
+      activeFileName: activeFile?.path ?? null,
+      promptLength: prompt.length,
+    }));
+
     // 渲染用户消息 + assistant 占位
     this.appendUserMessage(userInput);
     const assistantId = this.appendAssistantPlaceholder();
@@ -1041,10 +1162,13 @@ export class LLMBridgeView extends ItemView {
     // V1.2: 运行过程时间线 —— 收集中间事件（首次 stdout/stderr 各记录一条，保持简洁）
     const startedAt = new Date().toISOString();
     const timelineEvents: Array<{ type: TimelineEventType; detail: string; timestamp: string }> = [];
+    // V1.5: Workflow Trace —— 收集中间事件（与 timeline 共享首次 stdout/stderr 记录）
+    const workflowEvents: WorkflowTraceEvent[] = [];
     let sawStdout = false;
     let sawStderr = false;
     this.updateAssistantMessage(assistantId, {
       log: `$ ${this.commandLine()}\ncwd: ${vaultPath}\nprompt 通过 stdin 传入（${prompt.length} 字符）`,
+      commandPreview: commandPreviewRows,
     });
 
     // 构造 AgentTask 并通过 AgentBackend 启动
@@ -1066,7 +1190,11 @@ export class LLMBridgeView extends ItemView {
         case "stdout_delta": {
           if (!sawStdout) {
             sawStdout = true;
-            timelineEvents.push({ type: "stdout", detail: event.data.replace(/\s+/g, " ").trim().slice(0, 60), timestamp: new Date().toISOString() });
+            const detail = event.data.replace(/\s+/g, " ").trim().slice(0, 60);
+            const ts = new Date().toISOString();
+            timelineEvents.push({ type: "stdout", detail, timestamp: ts });
+            // V1.5: 同步记录到 workflowEvents
+            workflowEvents.push({ stage: "stdout", detail, timestamp: ts });
           }
           const msg = this.messages.find((m) => m.id === assistantId);
           if (msg) {
@@ -1077,7 +1205,11 @@ export class LLMBridgeView extends ItemView {
         case "stderr_delta": {
           if (!sawStderr) {
             sawStderr = true;
-            timelineEvents.push({ type: "stderr", detail: event.data.replace(/\s+/g, " ").trim().slice(0, 60), timestamp: new Date().toISOString() });
+            const detail = event.data.replace(/\s+/g, " ").trim().slice(0, 60);
+            const ts = new Date().toISOString();
+            timelineEvents.push({ type: "stderr", detail, timestamp: ts });
+            // V1.5: 同步记录到 workflowEvents
+            workflowEvents.push({ stage: "stderr", detail, timestamp: ts });
           }
           if (!this.plugin.settings.showStderr) return;
           const msg = this.messages.find((m) => m.id === assistantId);
@@ -1099,7 +1231,7 @@ export class LLMBridgeView extends ItemView {
             command: event.command,
             args: event.args,
           };
-          void this.onRunFinished(result, vaultPath, assistantId, event.type, startedAt, timelineEvents);
+          void this.onRunFinished(result, vaultPath, assistantId, event.type, startedAt, timelineEvents, workflowEvents, prompt.length);
           break;
         }
       }
@@ -1125,6 +1257,8 @@ export class LLMBridgeView extends ItemView {
     status: RunStatus,
     startedAt: string,
     timelineEvents: ReadonlyArray<{ type: TimelineEventType; detail: string; timestamp: string }>,
+    workflowEvents: ReadonlyArray<WorkflowTraceEvent>,
+    promptLength: number,
   ): Promise<void> {
     this.runHandle = null;
 
@@ -1177,6 +1311,21 @@ export class LLMBridgeView extends ItemView {
     if (newFiles.length > 0) {
       this.updateAssistantMessage(assistantId, { generatedFiles: newFiles });
     }
+
+    // V1.5: 构造 Workflow Trace（UI-only，含 preflight/build_prompt/spawn/stdout/stderr/file_diff_scan/终态）
+    // preflight 状态：null 表示未执行（mock 模式 / 未点 Preflight）；用 lastPreflightResult 推断
+    const preflightOk = this.lastPreflightResult ? this.lastPreflightResult.available : null;
+    const workflowFinalDetail = finalDetail;
+    const workflowTrace = buildWorkflowTrace(
+      startedAt,
+      preflightOk,
+      promptLength,
+      workflowEvents,
+      newFiles.length,
+      status,
+      workflowFinalDetail,
+    );
+    this.updateAssistantMessage(assistantId, { workflowTrace });
   }
 
   // ---------- 日志保存 ----------

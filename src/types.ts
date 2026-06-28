@@ -8,6 +8,9 @@ export type SessionMode = "fresh" | "continue" | "resume";
 
 export type RunStatus = "idle" | "running" | "completed" | "failed" | "stopped";
 
+// V1.5: Claude Code permission 模式（--permission-mode 参数）
+export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
+
 /**
  * Backend 选择（V0.2 UI Mock Wiring / Demo Mode）
  * - auto: 默认生产行为，使用 ClaudeCliBackend
@@ -32,6 +35,12 @@ export interface ChatMessage {
   timeline?: ReadonlyArray<{ type: string; timestamp: string; detail: string }>;
   // V1.2: 运行过程中收集的中间事件（stdout/stderr 片段），用于构造时间线
   timelineEvents?: Array<{ type: string; detail: string; timestamp: string }>;
+  // V1.5: 命令预览（UI-only，不进 AgentEvent；展示本次实际执行的 command/args/cwd/上下文）
+  commandPreview?: ReadonlyArray<{ label: string; value: string }>;
+  // V1.5: Workflow Trace（UI-only，不进 AgentEvent；展示 preflight → build_prompt → spawn → stdout/stderr → file_diff_scan → 终态）
+  workflowTrace?: ReadonlyArray<{ stage: string; timestamp: string; detail: string; status: string }>;
+  // V1.5: 运行过程中收集的 workflow 事件，用于构造 workflowTrace
+  workflowEvents?: Array<{ stage: string; detail: string; timestamp: string }>;
 }
 
 export interface LLMBridgeSettings {
@@ -54,6 +63,11 @@ export interface LLMBridgeSettings {
   effortLevel: string;
   devTestMode: boolean;
   backendMode: BackendMode;
+  // V1.5: Claude Code command profile（continue/resume/permission/extra args）
+  claudeContinueSession: boolean;
+  claudeResumeSessionId: string;
+  claudePermissionMode: ClaudePermissionMode;
+  claudeExtraArgs: string;
 }
 
 export const DEFAULT_SETTINGS: LLMBridgeSettings = {
@@ -76,6 +90,11 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   effortLevel: "high",
   devTestMode: false,
   backendMode: "auto",
+  // V1.5: Claude Code command profile 默认值（普通用户无需修改）
+  claudeContinueSession: false,
+  claudeResumeSessionId: "",
+  claudePermissionMode: "default",
+  claudeExtraArgs: "",
 };
 
 // 写入到 .llm-bridge/state/current.json 的内容

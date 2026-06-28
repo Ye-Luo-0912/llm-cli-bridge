@@ -72,3 +72,4 @@
 |---|---|---|---|
 | v1.0.1-rc.1 | 2026-06-28 | d281628 | 首个 release zip，36.9 KB |
 | v1.3.0 | 2026-06-28 | b9b87e4 | Handoff Ready Polish，含 USER_GUIDE / BACKLOG / 统一 release 脚本，GitHub Release 已创建 |
+| v1.5.0 | 2026-06-28 | (本次) | Claude Code Command Support / Workflow Trace Foundation，新增命令预览区 + Workflow Trace |

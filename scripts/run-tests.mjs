@@ -1021,6 +1021,11 @@ if (!runUnit) {
       model: "",
       effortLevel: "",
       devTestMode: false,
+      backendMode: "auto",
+      claudeContinueSession: false,
+      claudeResumeSessionId: "",
+      claudePermissionMode: "default",
+      claudeExtraArgs: "",
     };
 
     const baseTask = {
@@ -1445,6 +1450,10 @@ if (!runUnit) {
       effortLevel: "",
       devTestMode: false,
       backendMode: "auto",
+      claudeContinueSession: false,
+      claudeResumeSessionId: "",
+      claudePermissionMode: "default",
+      claudeExtraArgs: "",
     };
 
     // Claude profile 解析
@@ -2311,6 +2320,358 @@ if (!runV11Unit) {
 }
 
 // ============================================================
+// 8.8 Command Profile & Workflow Trace 单元测试（V1.5）
+// ============================================================
+console.log("\n=== Command Profile & Workflow Trace 单元测试（V1.5）===");
+
+const runV15Unit = runMode === "all" || runMode === "unit";
+
+if (!runV15Unit) {
+  addTest("V1.5 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let commandProfileBundle = null;
+  let workflowTraceBundle = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    commandProfileBundle = join(PROJECT_ROOT, ".test-command-profile-temp.mjs");
+    workflowTraceBundle = join(PROJECT_ROOT, ".test-workflow-trace-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "commandProfile.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: commandProfileBundle,
+      external: ["./types"],
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "workflowTrace.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: workflowTraceBundle,
+      external: ["./types"],
+    });
+    const {
+      resolveProfile, buildClaudeDynamicArgs, buildCommandLine,
+      buildCommandPreview, buildRedactedCommandDisplay, previewToRows,
+    } = await import(pathToFileURL(commandProfileBundle).href);
+    const {
+      mapStatusToWorkflowStage, workflowStageLabel, workflowStageClass,
+      isTerminalWorkflowStage, buildWorkflowTrace,
+    } = await import(pathToFileURL(workflowTraceBundle).href);
+
+    // 构造完整测试 settings（含 V1.5 字段）
+    function makeSettings(overrides = {}) {
+      return {
+        agentType: "claude",
+        claudeCommand: "claude",
+        claudeArgs: "-p",
+        codexCommand: "codex",
+        codexArgs: "exec -",
+        customCommand: "",
+        customArgs: "",
+        includeActiveNote: false,
+        includeSelection: true,
+        maxActiveNoteChars: 6000,
+        maxSelectionChars: 3000,
+        outputDir: "out",
+        showStderr: true,
+        saveLogs: true,
+        sessionMode: "fresh",
+        model: "gpt-5.5",
+        effortLevel: "high",
+        devTestMode: false,
+        backendMode: "auto",
+        claudeContinueSession: false,
+        claudeResumeSessionId: "",
+        claudePermissionMode: "default",
+        claudeExtraArgs: "",
+        ...overrides,
+      };
+    }
+
+    // --- Test 1: buildCommandLine 基础 claude 命令（-p，无动态参数） ---
+    {
+      const { command, args } = buildCommandLine(makeSettings(), "/vault");
+      const ok = command === "claude" && args.length === 1 && args[0] === "-p";
+      addTest("CommandProfile: buildCommandLine 基础 claude = [claude -p]",
+        ok ? "pass" : "fail", ok ? "" : `command=${command}, args=${JSON.stringify(args)}`);
+    }
+
+    // --- Test 2: buildCommandLine codex agent ---
+    {
+      const { command, args } = buildCommandLine(makeSettings({ agentType: "codex" }), "/vault");
+      const ok = command === "codex" && args.length === 2 && args[0] === "exec" && args[1] === "-";
+      addTest("CommandProfile: buildCommandLine codex = [codex exec -]",
+        ok ? "pass" : "fail", ok ? "" : `command=${command}, args=${JSON.stringify(args)}`);
+    }
+
+    // --- Test 3: buildClaudeDynamicArgs continue 参数 ---
+    {
+      const args = buildClaudeDynamicArgs(makeSettings({ claudeContinueSession: true }));
+      const ok = args.length === 1 && args[0] === "--continue";
+      addTest("CommandProfile: continue=true 追加 --continue",
+        ok ? "pass" : "fail", ok ? "" : `args=${JSON.stringify(args)}`);
+    }
+
+    // --- Test 4: buildClaudeDynamicArgs resume 参数（continue 优先，resume 被忽略） ---
+    {
+      const args = buildClaudeDynamicArgs(makeSettings({
+        claudeContinueSession: true,
+        claudeResumeSessionId: "sess-123",
+      }));
+      const ok = args.length === 1 && args[0] === "--continue" && !args.includes("--resume");
+      addTest("CommandProfile: continue 优先于 resume（resume 被忽略）",
+        ok ? "pass" : "fail", ok ? "" : `args=${JSON.stringify(args)}`);
+    }
+
+    // --- Test 5: buildClaudeDynamicArgs resume 单独使用 ---
+    {
+      const args = buildClaudeDynamicArgs(makeSettings({
+        claudeResumeSessionId: "sess-abc",
+      }));
+      const ok = args.length === 2 && args[0] === "--resume" && args[1] === "sess-abc";
+      addTest("CommandProfile: resume 单独使用追加 --resume <id>",
+        ok ? "pass" : "fail", ok ? "" : `args=${JSON.stringify(args)}`);
+    }
+
+    // --- Test 6: buildClaudeDynamicArgs permission-mode ---
+    {
+      const args = buildClaudeDynamicArgs(makeSettings({ claudePermissionMode: "acceptEdits" }));
+      const ok = args.length === 2 && args[0] === "--permission-mode" && args[1] === "acceptEdits";
+      addTest("CommandProfile: permissionMode=acceptEdits 追加 --permission-mode acceptEdits",
+        ok ? "pass" : "fail", ok ? "" : `args=${JSON.stringify(args)}`);
+    }
+
+    // --- Test 7: buildClaudeDynamicArgs default permission 不加 flag ---
+    {
+      const args = buildClaudeDynamicArgs(makeSettings({ claudePermissionMode: "default" }));
+      const ok = args.length === 0;
+      addTest("CommandProfile: permissionMode=default 不追加 flag",
+        ok ? "pass" : "fail", ok ? "" : `args=${JSON.stringify(args)}`);
+    }
+
+    // --- Test 8: buildClaudeDynamicArgs extra args 拆分 ---
+    {
+      const args = buildClaudeDynamicArgs(makeSettings({ claudeExtraArgs: "--no-cache --verbose" }));
+      const ok = args.length === 2 && args[0] === "--no-cache" && args[1] === "--verbose";
+      addTest("CommandProfile: extraArgs 按空白拆分",
+        ok ? "pass" : "fail", ok ? "" : `args=${JSON.stringify(args)}`);
+    }
+
+    // --- Test 9: buildClaudeDynamicArgs codex/custom 返回空 ---
+    {
+      const args1 = buildClaudeDynamicArgs(makeSettings({ agentType: "codex", claudeContinueSession: true }));
+      const args2 = buildClaudeDynamicArgs(makeSettings({ agentType: "custom", claudeContinueSession: true }));
+      const ok = args1.length === 0 && args2.length === 0;
+      addTest("CommandProfile: codex/custom 不应用 Claude 动态参数",
+        ok ? "pass" : "fail", ok ? "" : `codex=${JSON.stringify(args1)}, custom=${JSON.stringify(args2)}`);
+    }
+
+    // --- Test 10: buildCommandLine 组合所有动态参数 ---
+    {
+      const { command, args } = buildCommandLine(makeSettings({
+        claudeContinueSession: true,
+        claudePermissionMode: "plan",
+        claudeExtraArgs: "--no-cache",
+      }), "/vault");
+      // 期望: -p --continue --permission-mode plan --no-cache
+      const ok = command === "claude" &&
+                 args.length === 5 &&
+                 args[0] === "-p" &&
+                 args[1] === "--continue" &&
+                 args[2] === "--permission-mode" &&
+                 args[3] === "plan" &&
+                 args[4] === "--no-cache";
+      addTest("CommandProfile: buildCommandLine 组合 continue+permission+extra",
+        ok ? "pass" : "fail", ok ? "" : `args=${JSON.stringify(args)}`);
+    }
+
+    // --- Test 11: buildRedactedCommandDisplay 不含 secret / prompt 内容 ---
+    {
+      const preview = buildCommandPreview(makeSettings(), "/secret/vault", {
+        hasSelection: true,
+        selectionLength: 42,
+        hasActiveNote: true,
+        activeFileName: "note.md",
+        promptLength: 9999,
+      }, ["ANTHROPIC_MODEL", "PATH(enhanced)"]);
+      const display = buildRedactedCommandDisplay(preview);
+      const hasNoSecret = !display.includes("sk-ant") && !display.includes("Bearer");
+      const hasNoPromptContent = !display.includes("prompt content");
+      const hasCwd = display.includes("/secret/vault");
+      const hasModel = display.includes("gpt-5.5");
+      const hasStdinLen = display.includes("9999 chars");
+      const ok = hasNoSecret && hasNoPromptContent && hasCwd && hasModel && hasStdinLen;
+      addTest("CommandProfile: buildRedactedCommandDisplay 脱敏（无 secret/prompt 内容，含 cwd/model/stdin）",
+        ok ? "pass" : "fail", ok ? "" : `display=${display}`);
+    }
+
+    // --- Test 12: previewToRows 结构正确 ---
+    {
+      const preview = buildCommandPreview(makeSettings({ claudeContinueSession: true, claudePermissionMode: "plan" }), "/v", {
+        hasSelection: false,
+        selectionLength: 0,
+        hasActiveNote: false,
+        activeFileName: null,
+        promptLength: 100,
+      });
+      const rows = previewToRows(preview);
+      const labels = rows.map((r) => r.label);
+      const hasCommand = labels.includes("command");
+      const hasArgs = labels.includes("args");
+      const hasCwd = labels.includes("cwd");
+      const hasSession = labels.includes("session");
+      const hasPermission = labels.includes("permission");
+      const sessionRow = rows.find((r) => r.label === "session");
+      const ok = hasCommand && hasArgs && hasCwd && hasSession && hasPermission &&
+                 sessionRow?.value === "--continue";
+      addTest("CommandProfile: previewToRows 含 command/args/cwd/session/permission 行",
+        ok ? "pass" : "fail", ok ? "" : `labels=${JSON.stringify(labels)}, session=${sessionRow?.value}`);
+    }
+
+    // --- Test 13: previewToRows default 模式不显示 session/permission 行 ---
+    {
+      const preview = buildCommandPreview(makeSettings(), "/v", {
+        hasSelection: false, selectionLength: 0, hasActiveNote: false, activeFileName: null, promptLength: 10,
+      });
+      const rows = previewToRows(preview);
+      const labels = rows.map((r) => r.label);
+      const ok = !labels.includes("session") && !labels.includes("permission");
+      addTest("CommandProfile: default 模式 previewToRows 不含 session/permission 行",
+        ok ? "pass" : "fail", ok ? "" : `labels=${JSON.stringify(labels)}`);
+    }
+
+    // --- Test 14: resolveProfile 兼容旧接口（name/command/args/versionArgs） ---
+    {
+      const profile = resolveProfile(makeSettings());
+      const ok = profile.name === "claude" && profile.command === "claude" &&
+                 profile.args.length === 1 && profile.args[0] === "-p" &&
+                 profile.versionArgs.length === 1 && profile.versionArgs[0] === "--version";
+      addTest("CommandProfile: resolveProfile 兼容旧接口结构",
+        ok ? "pass" : "fail", ok ? "" : `profile=${JSON.stringify(profile)}`);
+    }
+
+    // --- Test 15: mapStatusToWorkflowStage 终态映射 ---
+    {
+      const ok = mapStatusToWorkflowStage("completed") === "completed" &&
+                 mapStatusToWorkflowStage("failed") === "failed" &&
+                 mapStatusToWorkflowStage("stopped") === "stopped" &&
+                 mapStatusToWorkflowStage("running") === null &&
+                 mapStatusToWorkflowStage("idle") === null;
+      addTest("WorkflowTrace: mapStatusToWorkflowStage 终态映射正确",
+        ok ? "pass" : "fail", ok ? "" : "映射错误");
+    }
+
+    // --- Test 16: isTerminalWorkflowStage ---
+    {
+      const ok = isTerminalWorkflowStage("completed") && isTerminalWorkflowStage("failed") &&
+                 isTerminalWorkflowStage("stopped") &&
+                 !isTerminalWorkflowStage("preflight") && !isTerminalWorkflowStage("spawn") &&
+                 !isTerminalWorkflowStage("stdout");
+      addTest("WorkflowTrace: isTerminalWorkflowStage 判断终态",
+        ok ? "pass" : "fail", ok ? "" : "判断错误");
+    }
+
+    // --- Test 17: buildWorkflowTrace 阶段顺序（completed） ---
+    {
+      const trace = buildWorkflowTrace(
+        "2026-06-28T10:00:00.000Z", true, 500,
+        [{ stage: "stdout", detail: "first chunk", timestamp: "2026-06-28T10:00:01.000Z" }],
+        2, "completed", "exit 0 · 1500ms",
+      );
+      const stages = trace.map((t) => t.stage);
+      const ok = stages.length === 6 &&
+                 stages[0] === "preflight" &&
+                 stages[1] === "build_prompt" &&
+                 stages[2] === "spawn" &&
+                 stages[3] === "stdout" &&
+                 stages[4] === "file_diff_scan" &&
+                 stages[5] === "completed";
+      addTest("WorkflowTrace: buildWorkflowTrace 阶段顺序 preflight→build→spawn→stdout→diff→completed",
+        ok ? "pass" : "fail", ok ? "" : `stages=${JSON.stringify(stages)}`);
+    }
+
+    // --- Test 18: buildWorkflowTrace 失败状态追加 failed ---
+    {
+      const trace = buildWorkflowTrace(
+        "2026-06-28T10:00:00.000Z", false, 300,
+        [{ stage: "stderr", detail: "error", timestamp: "2026-06-28T10:00:01.000Z" }],
+        null, "failed", "exit 1",
+      );
+      const last = trace[trace.length - 1];
+      const hasFailed = trace.some((t) => t.stage === "failed");
+      const fileDiffSkipped = trace.some((t) => t.stage === "file_diff_scan" && t.status === "skipped");
+      const ok = hasFailed && last.stage === "failed" && fileDiffSkipped;
+      addTest("WorkflowTrace: failed 状态追加 failed 终态，file_diff_scan 标记 skipped",
+        ok ? "pass" : "fail", ok ? "" : `last=${last.stage}, hasFailed=${hasFailed}, diffSkipped=${fileDiffSkipped}`);
+    }
+
+    // --- Test 19: buildWorkflowTrace stopped 终态 ---
+    {
+      const trace = buildWorkflowTrace(
+        "2026-06-28T10:00:00.000Z", null, 100, [], 0, "stopped", "stopped by user",
+      );
+      const last = trace[trace.length - 1];
+      const preflightSkipped = trace[0].stage === "preflight" && trace[0].status === "skipped";
+      const ok = last.stage === "stopped" && preflightSkipped;
+      addTest("WorkflowTrace: stopped 终态 + preflight=null 标记 skipped",
+        ok ? "pass" : "fail", ok ? "" : `last=${last.stage}, preflight=${trace[0].status}`);
+    }
+
+    // --- Test 20: buildWorkflowTrace running/idle 不追加终态 ---
+    {
+      const trace = buildWorkflowTrace("2026-06-28T10:00:00.000Z", true, 100, [], 0, "running", "");
+      const hasTerminal = trace.some((t) => isTerminalWorkflowStage(t.stage));
+      // running 无终态：preflight + build_prompt + spawn + file_diff_scan = 4 条
+      const ok = !hasTerminal && trace.length === 4;
+      addTest("WorkflowTrace: running 不追加终态条目",
+        ok ? "pass" : "fail", ok ? "" : `len=${trace.length}, hasTerminal=${hasTerminal}`);
+    }
+
+    // --- Test 21: buildWorkflowTrace file_diff_scan 详情含文件数 ---
+    {
+      const trace = buildWorkflowTrace(
+        "2026-06-28T10:00:00.000Z", true, 100, [], 3, "completed", "exit 0",
+      );
+      const diffEntry = trace.find((t) => t.stage === "file_diff_scan");
+      const ok = diffEntry?.detail.includes("3 file") || diffEntry?.detail.includes("3");
+      addTest("WorkflowTrace: file_diff_scan 详情含变更文件数",
+        ok ? "pass" : "fail", ok ? "" : `detail=${diffEntry?.detail}`);
+    }
+
+    // --- Test 22: workflowStageLabel / workflowStageClass 非空 ---
+    {
+      const stages = ["preflight", "build_prompt", "spawn", "stdout", "stderr", "file_diff_scan", "completed", "failed", "stopped"];
+      const allLabels = stages.every((s) => workflowStageLabel(s).length > 0);
+      const allClasses = stages.every((s) => workflowStageClass(s).startsWith("is-"));
+      const ok = allLabels && allClasses;
+      addTest("WorkflowTrace: workflowStageLabel / workflowStageClass 覆盖所有阶段",
+        ok ? "pass" : "fail", ok ? "" : `labels=${allLabels}, classes=${allClasses}`);
+    }
+
+    // --- Test 23: 命令预览脱敏不含 prompt 文本（即使 promptLength 很大） ---
+    {
+      const preview = buildCommandPreview(makeSettings(), "/v", {
+        hasSelection: false, selectionLength: 0, hasActiveNote: false, activeFileName: null,
+        promptLength: 100000,
+      });
+      const rows = previewToRows(preview);
+      const stdinRow = rows.find((r) => r.label === "stdin");
+      const ok = stdinRow?.value === "100000 chars";
+      addTest("CommandProfile: stdin 行只显示长度，不显示 prompt 内容",
+        ok ? "pass" : "fail", ok ? "" : `stdin=${stdinRow?.value}`);
+    }
+
+  } catch (e) {
+    addTest("V1.5 单元测试段", "fail", `加载/执行异常: ${e?.message || e}`);
+  } finally {
+    try { if (commandProfileBundle) rmSync(commandProfileBundle, { force: true }); } catch {}
+    try { if (workflowTraceBundle) rmSync(workflowTraceBundle, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");
@@ -2356,6 +2717,11 @@ if (!runProcess) {
         model: "",
         effortLevel: "",
         devTestMode: false,
+        backendMode: "auto",
+        claudeContinueSession: false,
+        claudeResumeSessionId: "",
+        claudePermissionMode: "default",
+        claudeExtraArgs: "",
       };
     }
 
@@ -2864,6 +3230,10 @@ if (!runClaudeSmoke) {
       effortLevel: "",
       devTestMode: false,
       backendMode: "auto",
+      claudeContinueSession: false,
+      claudeResumeSessionId: "",
+      claudePermissionMode: "default",
+      claudeExtraArgs: "",
     };
 
     const preflight = await runPreflight(claudeSettings, VAULT_PATH, 15000);
@@ -3025,10 +3395,14 @@ if (!runNoteSummarizeSmoke) {
       effortLevel: "",
       devTestMode: false,
       backendMode: "auto",
+      claudeContinueSession: false,
+      claudeResumeSessionId: "",
+      claudePermissionMode: "default",
+      claudeExtraArgs: "",
     };
-    
+
     const preflight = await runPreflight(claudeSettings, VAULT_PATH, 15000);
-    
+
     if (!preflight.available) {
       addTest("Claude Note Summarize: claude 可用性", "skip",
         `claude 不可用 (exitCode=${preflight.versionExitCode})；diag: ${preflight.diagnostics.split("\n").pop()}`);

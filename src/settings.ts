@@ -2,7 +2,7 @@
 
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type LLMBridgePlugin from "../main";
-import { AgentType, BackendMode } from "./types";
+import { AgentType, BackendMode, ClaudePermissionMode } from "./types";
 
 export class LLMBridgeSettingTab extends PluginSettingTab {
   plugin: LLMBridgePlugin;
@@ -86,6 +86,59 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       .addText((t) =>
         t.setValue(s.claudeArgs).onChange(async (v) => {
           s.claudeArgs = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    // V1.5: Claude Code command profile（continue / resume / permission / extra args）
+    containerEl.createEl("p", {
+      cls: "llm-bridge-setting-hint",
+      text: "Claude Code 会话与权限参数。普通用户保持默认即可；需要在自动接受编辑或继续上次会话时再调整。",
+    });
+
+    new Setting(containerEl)
+      .setName("继续上次会话 (--continue)")
+      .setDesc("开启后每次运行追加 --continue，继续最近一次 Claude Code 会话。与下方 resume 互斥。默认关闭。")
+      .addToggle((t) =>
+        t.setValue(s.claudeContinueSession).onChange(async (v) => {
+          s.claudeContinueSession = v;
+          if (v) s.claudeResumeSessionId = ""; // 互斥：清空 resume
+          await this.plugin.saveSettings();
+          this.display();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("恢复指定会话 (--resume <id>)")
+      .setDesc("填写会话 ID 后追加 --resume <id>。留空则不添加。开启「继续上次会话」时此项被忽略。")
+      .addText((t) =>
+        t.setValue(s.claudeResumeSessionId).onChange(async (v) => {
+          s.claudeResumeSessionId = v.trim();
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("权限模式 (--permission-mode)")
+      .setDesc("default=默认询问；acceptEdits=自动接受文件编辑；plan=只读规划模式；bypassPermissions=跳过所有权限检查（危险）。默认 default。")
+      .addDropdown((d) => {
+        d.addOption("default", "default（询问）");
+        d.addOption("acceptEdits", "acceptEdits（自动接受编辑）");
+        d.addOption("plan", "plan（只读规划）");
+        d.addOption("bypassPermissions", "bypassPermissions（跳过权限，危险）");
+        d.setValue(s.claudePermissionMode);
+        d.onChange(async (v) => {
+          s.claudePermissionMode = v as ClaudePermissionMode;
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("额外参数 (extra args)")
+      .setDesc("追加到 claude 命令末尾的自定义参数（按空白拆分）。例如 --no-cache。留空则不添加。")
+      .addText((t) =>
+        t.setValue(s.claudeExtraArgs).onChange(async (v) => {
+          s.claudeExtraArgs = v;
           await this.plugin.saveSettings();
         }),
       );

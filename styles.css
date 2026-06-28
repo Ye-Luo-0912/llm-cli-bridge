@@ -743,6 +743,175 @@
 }
 .llm-bridge-debug-path-copy:hover { background: var(--interactive-hover); }
 
+.llm-bridge-debug-path-open {
+  padding: 2px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.llm-bridge-debug-path-open:hover { background: var(--interactive-hover); }
+
+/* === V1.5: Command Preview 命令预览区 === */
+
+.llm-bridge-cmd-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 2px;
+  border-left: 2px solid var(--interactive-accent);
+  margin-left: 2px;
+  padding-left: 10px;
+}
+
+.llm-bridge-cmd-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.llm-bridge-cmd-preview-toggle {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  user-select: none;
+  flex: 1;
+}
+.llm-bridge-cmd-preview-toggle:hover { color: var(--text-normal); }
+
+.llm-bridge-cmd-preview-copy {
+  padding: 1px 7px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.llm-bridge-cmd-preview-copy:hover { background: var(--interactive-hover); }
+
+.llm-bridge-cmd-preview-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 3px;
+}
+.llm-bridge-cmd-preview-body[hidden] { display: none; }
+
+.llm-bridge-cmd-preview-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 1px 0;
+}
+
+.llm-bridge-cmd-preview-label {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-weight: 600;
+  flex: 0 0 80px;
+  text-transform: lowercase;
+}
+
+.llm-bridge-cmd-preview-value {
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+  color: var(--text-normal);
+  word-break: break-all;
+  flex: 1;
+  min-width: 0;
+}
+
+/* === V1.5: Workflow Trace === */
+
+.llm-bridge-workflow-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 2px;
+  border-left: 2px solid var(--background-modifier-border);
+  margin-left: 2px;
+  padding-left: 10px;
+}
+
+.llm-bridge-workflow-trace-title {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+
+.llm-bridge-workflow-trace-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.llm-bridge-workflow-trace-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: 0 0 auto;
+}
+.llm-bridge-workflow-trace-item.is-preflight .llm-bridge-workflow-trace-dot { background: var(--text-muted); }
+.llm-bridge-workflow-trace-item.is-build .llm-bridge-workflow-trace-dot { background: var(--interactive-accent); }
+.llm-bridge-workflow-trace-item.is-spawn .llm-bridge-workflow-trace-dot { background: var(--interactive-accent); }
+.llm-bridge-workflow-trace-item.is-stdout .llm-bridge-workflow-trace-dot { background: var(--interactive-accent); }
+.llm-bridge-workflow-trace-item.is-stderr .llm-bridge-workflow-trace-dot { background: #e53935; }
+.llm-bridge-workflow-trace-item.is-diff .llm-bridge-workflow-trace-dot { background: var(--text-muted); }
+.llm-bridge-workflow-trace-item.is-completed .llm-bridge-workflow-trace-dot { background: #4caf50; }
+.llm-bridge-workflow-trace-item.is-failed .llm-bridge-workflow-trace-dot { background: #e53935; }
+.llm-bridge-workflow-trace-item.is-stopped .llm-bridge-workflow-trace-dot { background: #fb8c00; }
+
+/* skipped 阶段淡化 */
+.llm-bridge-workflow-trace-item.is-skipped .llm-bridge-workflow-trace-dot { opacity: 0.4; }
+.llm-bridge-workflow-trace-item.is-skipped .llm-bridge-workflow-trace-label { opacity: 0.5; }
+
+.llm-bridge-workflow-trace-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.llm-bridge-workflow-trace-label {
+  font-size: var(--font-smallest);
+  font-weight: 600;
+  color: var(--text-normal);
+  flex: 0 0 auto;
+}
+.llm-bridge-workflow-trace-item.is-completed .llm-bridge-workflow-trace-label { color: #4caf50; }
+.llm-bridge-workflow-trace-item.is-failed .llm-bridge-workflow-trace-label { color: #e53935; }
+.llm-bridge-workflow-trace-item.is-stopped .llm-bridge-workflow-trace-label { color: #fb8c00; }
+
+.llm-bridge-workflow-trace-detail {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.llm-bridge-workflow-trace-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
 /* === V1.3: 设置页提示 + 空状态引导 === */
 
 .llm-bridge-setting-hint {

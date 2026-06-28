@@ -7,6 +7,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { AgentBackend, AgentEvent, AgentEventHandler, AgentRunHandle, AgentTask } from "./agentBackend";
 import { AgentType, LLMBridgeSettings } from "./types";
+import { buildCommandLine } from "./commandProfile";
 
 // ---------- PATH 增强工具函数（从 runner.ts 迁移） ----------
 
@@ -230,28 +231,19 @@ function buildFailureSummary(
   return lines.join("\n") + "\n";
 }
 
-// ---------- 命令解析（从 runner.ts 迁移） ----------
+// ---------- 命令解析（V1.5: 委托给 commandProfile.ts 统一构造） ----------
 
 export interface ResolvedCommand {
   command: string;
   args: string[];
 }
 
+/**
+ * 解析命令（V1.5: 委托给 commandProfile.buildCommandLine，含 Claude 动态参数）
+ * 保留导出以兼容现有测试与外部引用
+ */
 export function resolveCommand(settings: LLMBridgeSettings): ResolvedCommand {
-  const type: AgentType = settings.agentType;
-  let command: string;
-  let argsStr: string;
-  if (type === "claude") {
-    command = settings.claudeCommand;
-    argsStr = settings.claudeArgs;
-  } else if (type === "codex") {
-    command = settings.codexCommand;
-    argsStr = settings.codexArgs;
-  } else {
-    command = settings.customCommand;
-    argsStr = settings.customArgs;
-  }
-  const args = argsStr.trim().length > 0 ? argsStr.trim().split(/\s+/) : [];
+  const { command, args } = buildCommandLine(settings, "");
   return { command, args };
 }
 
@@ -272,7 +264,8 @@ export class ClaudeCliBackend implements AgentBackend {
   readonly name = "claude-cli";
 
   run(task: AgentTask, settings: LLMBridgeSettings, onEvent: AgentEventHandler): AgentRunHandle {
-    const { command, args } = resolveCommand(settings);
+    // V1.5: 使用 commandProfile.buildCommandLine 统一构造（含 Claude 动态参数）
+    const { command, args } = buildCommandLine(settings, task.cwd);
     const startTime = new Date();
     const startedAt = Date.now();
     let stdout = "";

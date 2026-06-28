@@ -1,59 +1,19 @@
 // LLM CLI Bridge — Agent Profile / Preflight
 // V0.5: profile 只负责命令解析和预检，不维护会话、不发真实 prompt、不调模型
 // 不引入 SDK / ACP / MCP，不新增 npm 依赖
+// V1.5: resolveProfile / CommandProfile 统一到 commandProfile.ts
 
 import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-import { AgentType, LLMBridgeSettings } from "./types";
+import { LLMBridgeSettings } from "./types";
 import { buildEnhancedPath, buildRunEnv } from "./claudeCliBackend";
+// V1.5: 复用 commandProfile.ts 的 resolveProfile / CommandProfile（单一数据源）
+import { resolveProfile, CommandProfile } from "./commandProfile";
 
-// ---------- Profile 抽象 ----------
-
-/**
- * 命令 profile：描述如何调用某个 agent 的命令
- * 只负责命令解析和预检，不直接维护会话
- */
-export interface CommandProfile {
-  /** profile 名：claude / codex / custom */
-  readonly name: AgentType;
-  /** 实际可执行命令（已 trim） */
-  readonly command: string;
-  /** 运行参数（已 trim + 按空白拆分） */
-  readonly args: string[];
-  /** version 探测参数，默认 ["--version"] */
-  readonly versionArgs: string[];
-}
-
-/**
- * 根据 settings 解析出对应 agentType 的 CommandProfile
- * - claude: claudeCommand / claudeArgs
- * - codex:  codexCommand / codexArgs
- * - custom: customCommand / customArgs（trim command，保留 args 拆分）
- */
-export function resolveProfile(settings: LLMBridgeSettings): CommandProfile {
-  const type: AgentType = settings.agentType;
-  let command: string;
-  let argsStr: string;
-  if (type === "claude") {
-    command = settings.claudeCommand;
-    argsStr = settings.claudeArgs;
-  } else if (type === "codex") {
-    command = settings.codexCommand;
-    argsStr = settings.codexArgs;
-  } else {
-    command = settings.customCommand;
-    argsStr = settings.customArgs;
-  }
-  const trimmedCommand = command.trim();
-  const args = argsStr.trim().length > 0 ? argsStr.trim().split(/\s+/) : [];
-  return {
-    name: type,
-    command: trimmedCommand,
-    args,
-    versionArgs: ["--version"],
-  };
-}
+// re-export 保持向后兼容（外部引用来自 agentProfile 的 CommandProfile / resolveProfile）
+export { resolveProfile };
+export type { CommandProfile };
 
 // ---------- Preflight 结果 ----------
 
