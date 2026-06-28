@@ -5327,6 +5327,360 @@ if (!runV24Unit) {
 }
 
 // ============================================================
+// 8.12 V2.5 Daily Use UX Foundation 单元测试
+//     覆盖：skill 编辑/搜索/冲突/禁用/注入/脱敏 +
+//           session 保存/加载/恢复/删除/版本字段 +
+//           CLI 不回归 + sdk-experimental 默认关闭
+// ============================================================
+console.log("\n=== V2.5 Daily Use UX Foundation 单元测试 ===");
+
+const runV25Unit = runMode === "all" || runMode === "unit";
+
+if (!runV25Unit) {
+  addTest("V2.5 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let skillsBundleV25 = null;
+  let sessionsBundleV25 = null;
+  let cliBackendBundleV25 = null;
+  let typesBundleV25 = null;
+  let tempSkillsV25Dir = null;
+  let tempSessionsV25Dir = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    skillsBundleV25 = join(PROJECT_ROOT, ".test-skills-v25-temp.mjs");
+    sessionsBundleV25 = join(PROJECT_ROOT, ".test-sessions-v25-temp.mjs");
+    cliBackendBundleV25 = join(PROJECT_ROOT, ".test-cli-backend-v25-temp.mjs");
+    typesBundleV25 = join(PROJECT_ROOT, ".test-types-v25-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "skills.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: skillsBundleV25,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sessions.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sessionsBundleV25,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV25,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "types.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: typesBundleV25,
+    });
+
+    const { updateImportedSkill, searchSkills, checkImportConflict, importSkillFromText, deleteSkill, isImportedSkill, loadSkills, scanSkillPrompt, truncateSkillPrompt } =
+      await import(pathToFileURL(skillsBundleV25).href);
+    const { saveSession, listSessions, loadSession, deleteSession, SESSION_SCHEMA_VERSION, MAX_SESSIONS_KEPT, generateSessionId, redactSessionMessages } =
+      await import(pathToFileURL(sessionsBundleV25).href);
+    const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV25).href);
+    const { DEFAULT_SETTINGS } = await import(pathToFileURL(typesBundleV25).href);
+
+    // ===== Skills 编辑 =====
+
+    // ---- Test 1: updateImportedSkill 更新描述与 prompt（名称不变）----
+    {
+      tempSkillsV25Dir = mkdtempSync(join(tmpdir(), "llm-bridge-v25-skills-"));
+      await importSkillFromText(tempSkillsV25Dir, "编辑测试", "原描述", "原 prompt");
+      const ok = await updateImportedSkill(tempSkillsV25Dir, "编辑测试", "编辑测试", "新描述", "新 prompt 内容");
+      const skills = await loadSkills(tempSkillsV25Dir);
+      const updated = skills.find(s => s.name === "编辑测试");
+      addTest("V2.5 Skills 编辑: 更新描述与 prompt（名称不变）",
+        ok && updated && updated.description === "新描述" && updated.prompt === "新 prompt 内容" ? "pass" : "fail",
+        `ok=${ok} desc=${updated?.description} prompt=${updated?.prompt}`);
+    }
+
+    // ---- Test 2: updateImportedSkill 重命名（旧文件删除，新文件写入）----
+    {
+      const ok = await updateImportedSkill(tempSkillsV25Dir, "编辑测试", "重命名后", "描述", "prompt");
+      const skills = await loadSkills(tempSkillsV25Dir);
+      const hasNew = skills.some(s => s.name === "重命名后");
+      const hasOld = skills.some(s => s.name === "编辑测试");
+      addTest("V2.5 Skills 编辑: 重命名（旧删除新写入）",
+        ok && hasNew && !hasOld ? "pass" : "fail",
+        `ok=${ok} hasNew=${hasNew} hasOld=${hasOld}`);
+    }
+
+    // ---- Test 3: updateImportedSkill 重命名冲突时返回 false ----
+    {
+      await importSkillFromText(tempSkillsV25Dir, "冲突目标", "目标", "prompt");
+      const ok = await updateImportedSkill(tempSkillsV25Dir, "重命名后", "冲突目标", "描述", "prompt");
+      addTest("V2.5 Skills 编辑: 重命名冲突返回 false",
+        ok === false ? "pass" : "fail",
+        `ok=${ok}`);
+    }
+
+    // ---- Test 4: updateImportedSkill 对主文件中的 skill 返回 false ----
+    {
+      const ok = await updateImportedSkill(tempSkillsV25Dir, "不存在", "新名", "描述", "prompt");
+      addTest("V2.5 Skills 编辑: 不存在的 skill 返回 false",
+        ok === false ? "pass" : "fail",
+        `ok=${ok}`);
+    }
+
+    // ===== Skills 搜索 =====
+
+    // ---- Test 5: searchSkills 空 query 返回全部副本 ----
+    {
+      const skills = await loadSkills(tempSkillsV25Dir);
+      const filtered = searchSkills(skills, "");
+      addTest("V2.5 Skills 搜索: 空 query 返回全部",
+        filtered.length === skills.length ? "pass" : "fail",
+        `filtered=${filtered.length} total=${skills.length}`);
+    }
+
+    // ---- Test 6: searchSkills 按名称子串过滤（不区分大小写）----
+    {
+      const skills = await loadSkills(tempSkillsV25Dir);
+      const filtered = searchSkills(skills, "重命名");
+      addTest("V2.5 Skills 搜索: 按名称子串过滤",
+        filtered.length === 1 && filtered[0].name === "重命名后" ? "pass" : "fail",
+        `filtered=${filtered.length} name=${filtered[0]?.name}`);
+    }
+
+    // ---- Test 7: searchSkills 按描述子串过滤 ----
+    {
+      const skills = await loadSkills(tempSkillsV25Dir);
+      const filtered = searchSkills(skills, "目标");
+      addTest("V2.5 Skills 搜索: 按描述子串过滤",
+        filtered.length >= 1 && filtered.some(s => s.name === "冲突目标") ? "pass" : "fail",
+        `filtered=${filtered.length}`);
+    }
+
+    // ---- Test 8: searchSkills 无匹配返回空数组 ----
+    {
+      const skills = await loadSkills(tempSkillsV25Dir);
+      const filtered = searchSkills(skills, "不存在的关键词xyz");
+      addTest("V2.5 Skills 搜索: 无匹配返回空",
+        filtered.length === 0 ? "pass" : "fail",
+        `filtered=${filtered.length}`);
+    }
+
+    // ===== Skills 冲突检测 =====
+
+    // ---- Test 9: checkImportConflict 已存在返回 true ----
+    {
+      const conflict = await checkImportConflict(tempSkillsV25Dir, "重命名后");
+      addTest("V2.5 Skills 冲突: 已存在返回 true",
+        conflict === true ? "pass" : "fail",
+        `conflict=${conflict}`);
+    }
+
+    // ---- Test 10: checkImportConflict 不存在返回 false ----
+    {
+      const conflict = await checkImportConflict(tempSkillsV25Dir, "不存在的 skill");
+      addTest("V2.5 Skills 冲突: 不存在返回 false",
+        conflict === false ? "pass" : "fail",
+        `conflict=${conflict}`);
+    }
+
+    // ===== Skills 禁用 / 注入 / 脱敏（复用 V2.3 逻辑，验证不回归）=====
+
+    // ---- Test 11: scanSkillPrompt 检测 API key（脱敏不回归）----
+    {
+      const scan = scanSkillPrompt("key=sk-ant-api03-abcdefghijklmnopqrstuvwx");
+      addTest("V2.5 Skills 注入脱敏: API key 检测不回归",
+        scan.warnings.length > 0 && !scan.redacted.includes("abcdefghijklmnopqrstuvwx") ? "pass" : "fail",
+        `warnings=${scan.warnings.length}`);
+    }
+
+    // ---- Test 12: truncateSkillPrompt 超长截断（不回归）----
+    {
+      const long = "x".repeat(10000);
+      const truncated = truncateSkillPrompt(long);
+      addTest("V2.5 Skills 注入截断: 超长截断不回归",
+        truncated.length < long.length && truncated.includes("已截断") ? "pass" : "fail",
+        `orig=${long.length} trunc=${truncated.length}`);
+    }
+
+    // ===== Session 保存 / 加载 / 版本字段 =====
+
+    // ---- Test 13: saveSession 写入文件并返回 id ----
+    {
+      tempSessionsV25Dir = mkdtempSync(join(tmpdir(), "llm-bridge-v25-sessions-"));
+      const state = { title: "测试会话", status: "completed", messageCount: 2, startedAt: "2026-06-28T10:00:00.000Z" };
+      const messages = [
+        { id: "m1", role: "user", content: "你好", status: "completed", stderr: "", log: "", generatedFiles: [], exitCode: 0, durationMs: 100, timestamp: "2026-06-28T10:00:00.000Z" },
+        { id: "m2", role: "assistant", content: "你好，有什么可以帮你？", status: "completed", stderr: "", log: "", generatedFiles: [], exitCode: 0, durationMs: 200, timestamp: "2026-06-28T10:00:01.000Z" },
+      ];
+      const id = await saveSession(tempSessionsV25Dir, state, messages, "claude");
+      addTest("V2.5 Session 保存: 返回非空 id",
+        id && id.length > 0 ? "pass" : "fail",
+        `id=${id}`);
+    }
+
+    // ---- Test 14: loadSession 返回完整会话含 version 字段 ----
+    {
+      const state = { title: "版本测试", status: "idle", messageCount: 0, startedAt: null };
+      const id = await saveSession(tempSessionsV25Dir, state, [], "claude");
+      const session = await loadSession(tempSessionsV25Dir, id);
+      addTest("V2.5 Session 版本: loadSession 返回 version=1",
+        session && session.version === SESSION_SCHEMA_VERSION && session.version === 1 ? "pass" : "fail",
+        `version=${session?.version} expected=${SESSION_SCHEMA_VERSION}`);
+    }
+
+    // ---- Test 15: loadSession 返回完整消息列表 ----
+    {
+      const state = { title: "消息测试", status: "completed", messageCount: 2, startedAt: "2026-06-28T10:00:00.000Z" };
+      const messages = [
+        { id: "m1", role: "user", content: "用户消息", status: "completed", stderr: "", log: "", generatedFiles: ["test.md"], exitCode: 0, durationMs: 100, timestamp: "2026-06-28T10:00:00.000Z" },
+      ];
+      const id = await saveSession(tempSessionsV25Dir, state, messages, "claude");
+      const session = await loadSession(tempSessionsV25Dir, id);
+      addTest("V2.5 Session 加载: 返回完整消息与 generatedFiles",
+        session && session.messages.length === 1 && session.messages[0].generatedFiles.length === 1 ? "pass" : "fail",
+        `msgs=${session?.messages?.length} files=${session?.messages?.[0]?.generatedFiles?.length}`);
+    }
+
+    // ===== Session 列表 =====
+
+    // ---- Test 16: listSessions 返回按 savedAt 降序排列 ----
+    {
+      const state = { title: "列表测试", status: "idle", messageCount: 0, startedAt: null };
+      const id1 = await saveSession(tempSessionsV25Dir, state, [], "claude");
+      await new Promise(r => setTimeout(r, 50)); // 确保 savedAt 不同
+      const id2 = await saveSession(tempSessionsV25Dir, state, [], "claude");
+      const list = await listSessions(tempSessionsV25Dir);
+      // id2 后保存，应排在前面
+      addTest("V2.5 Session 列表: 按 savedAt 降序（最新在前）",
+        list.length >= 2 && list[0].id === id2 && list[1].id === id1 ? "pass" : "fail",
+        `len=${list.length} first=${list[0]?.id} second=${list[1]?.id}`);
+    }
+
+    // ---- Test 17: listSessions 空目录返回空数组 ----
+    {
+      const emptyDir = mkdtempSync(join(tmpdir(), "llm-bridge-v25-empty-"));
+      const list = await listSessions(emptyDir);
+      addTest("V2.5 Session 列表: 空目录返回空数组",
+        list.length === 0 ? "pass" : "fail",
+        `len=${list.length}`);
+      rmSync(emptyDir, { recursive: true, force: true });
+    }
+
+    // ===== Session 删除 =====
+
+    // ---- Test 18: deleteSession 删除后 listSessions 不再包含 ----
+    {
+      const state = { title: "删除测试", status: "idle", messageCount: 0, startedAt: null };
+      const id = await saveSession(tempSessionsV25Dir, state, [], "claude");
+      const ok = await deleteSession(tempSessionsV25Dir, id);
+      const session = await loadSession(tempSessionsV25Dir, id);
+      addTest("V2.5 Session 删除: 删除后 loadSession 返回 null",
+        ok && session === null ? "pass" : "fail",
+        `ok=${ok} session=${session}`);
+    }
+
+    // ---- Test 19: deleteSession 不存在返回 false ----
+    {
+      const ok = await deleteSession(tempSessionsV25Dir, "nonexistent-id");
+      addTest("V2.5 Session 删除: 不存在返回 false",
+        ok === false ? "pass" : "fail",
+        `ok=${ok}`);
+    }
+
+    // ===== Session 安全写入 / secret 脱敏 =====
+
+    // ---- Test 20: saveSession 失败不抛异常（只读目录）----
+    {
+      const state = { title: "失败测试", status: "idle", messageCount: 0, startedAt: null };
+      // 使用一个不存在的根路径触发 mkdir 失败（路径含非法字符）
+      const id = await saveSession("Z:\\nonexistent-root-xyz\\deep", state, [], "claude");
+      addTest("V2.5 Session 安全写入: 失败返回 null 不抛异常",
+        id === null ? "pass" : "fail",
+        `id=${id}`);
+    }
+
+    // ---- Test 21: redactSessionMessages 脱敏消息中的 API key ----
+    {
+      const messages = [
+        { id: "m1", role: "user", content: "key=sk-ant-api03-abcdefghijklmnopqrstuvwx", status: "completed", stderr: "stderr sk-ant-api03-abcdefghijklmnopqrstuvwx", log: "log sk-ant-api03-abcdefghijklmnopqrstuvwx", generatedFiles: [], exitCode: 0, durationMs: 0, timestamp: "2026-06-28T10:00:00.000Z" },
+      ];
+      const redacted = redactSessionMessages(messages);
+      const noLeak = !redacted[0].content.includes("abcdefghijklmnopqrstuvwx") &&
+        !redacted[0].stderr.includes("abcdefghijklmnopqrstuvwx") &&
+        !redacted[0].log.includes("abcdefghijklmnopqrstuvwx");
+      addTest("V2.5 Session 脱敏: redactSessionMessages 脱敏 content/stderr/log",
+        noLeak ? "pass" : "fail",
+        `contentLeak=${redacted[0].content.includes("abcdefghijklmnopqrstuvwx")}`);
+    }
+
+    // ---- Test 22: saveSession 写入的文件不含 secret 明文 ----
+    {
+      const state = { title: "脱敏写入测试", status: "completed", messageCount: 1, startedAt: "2026-06-28T10:00:00.000Z" };
+      const secret = "sk-ant-api03-abcdefghijklmnopqrstuvwx";
+      const messages = [
+        { id: "m1", role: "user", content: `key=${secret}`, status: "completed", stderr: `err ${secret}`, log: `log ${secret}`, generatedFiles: [], exitCode: 0, durationMs: 0, timestamp: "2026-06-28T10:00:00.000Z" },
+      ];
+      const id = await saveSession(tempSessionsV25Dir, state, messages, "claude");
+      const sessionsDir = join(tempSessionsV25Dir, ".llm-bridge", "sessions");
+      const files = readdirSync(sessionsDir).filter(f => f.startsWith(`${id}.`));
+      const fileContent = readFileSync(join(sessionsDir, files[0]), "utf8");
+      addTest("V2.5 Session 脱敏: 写入文件不含 secret 明文",
+        !fileContent.includes(secret) ? "pass" : "fail",
+        `leak=${fileContent.includes(secret)}`);
+    }
+
+    // ===== Session schema 版本字段 =====
+
+    // ---- Test 23: SESSION_SCHEMA_VERSION = 1 ----
+    {
+      addTest("V2.5 Session 版本: SESSION_SCHEMA_VERSION = 1",
+        SESSION_SCHEMA_VERSION === 1 ? "pass" : "fail",
+        `version=${SESSION_SCHEMA_VERSION}`);
+    }
+
+    // ---- Test 24: generateSessionId 返回 s- 前缀的唯一 id ----
+    {
+      const id1 = generateSessionId();
+      const id2 = generateSessionId();
+      addTest("V2.5 Session id: 生成 s- 前缀且唯一",
+        id1.startsWith("s-") && id2.startsWith("s-") && id1 !== id2 ? "pass" : "fail",
+        `id1=${id1} id2=${id2}`);
+    }
+
+    // ---- Test 25: MAX_SESSIONS_KEPT 为合理上限 ----
+    {
+      addTest("V2.5 Session 上限: MAX_SESSIONS_KEPT 在 10-200 之间",
+        MAX_SESSIONS_KEPT >= 10 && MAX_SESSIONS_KEPT <= 200 ? "pass" : "fail",
+        `max=${MAX_SESSIONS_KEPT}`);
+    }
+
+    // ===== CLI 不回归 + sdk-experimental 默认关闭 =====
+
+    // ---- Test 26: ClaudeCliBackend 可实例化（CLI 主线不回归）----
+    {
+      const backend = new ClaudeCliBackend();
+      addTest("V2.5 CLI 不回归: ClaudeCliBackend 可实例化",
+        backend && typeof backend.run === "function" && backend.name === "claude-cli" ? "pass" : "fail",
+        `name=${backend?.name}`);
+    }
+
+    // ---- Test 27: DEFAULT_SETTINGS.backendMode = "auto"（sdk 默认关闭）----
+    {
+      addTest("V2.5 SDK 默认关闭: DEFAULT_SETTINGS.backendMode = auto",
+        DEFAULT_SETTINGS.backendMode === "auto" ? "pass" : "fail",
+        `mode=${DEFAULT_SETTINGS.backendMode}`);
+    }
+
+    // ---- Test 28: DEFAULT_SETTINGS.disabledSkills 为空数组（不回归）----
+    {
+      addTest("V2.5 默认设置: disabledSkills 为空数组",
+        Array.isArray(DEFAULT_SETTINGS.disabledSkills) && DEFAULT_SETTINGS.disabledSkills.length === 0 ? "pass" : "fail",
+        `disabled=${DEFAULT_SETTINGS.disabledSkills?.length}`);
+    }
+
+  } catch (e) {
+    addTest("V2.5 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (skillsBundleV25) rmSync(skillsBundleV25, { force: true }); } catch {}
+    try { if (sessionsBundleV25) rmSync(sessionsBundleV25, { force: true }); } catch {}
+    try { if (cliBackendBundleV25) rmSync(cliBackendBundleV25, { force: true }); } catch {}
+    try { if (typesBundleV25) rmSync(typesBundleV25, { force: true }); } catch {}
+    try { if (tempSkillsV25Dir) rmSync(tempSkillsV25Dir, { recursive: true, force: true }); } catch {}
+    try { if (tempSessionsV25Dir) rmSync(tempSessionsV25Dir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");

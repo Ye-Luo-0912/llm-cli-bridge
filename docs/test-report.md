@@ -1,20 +1,20 @@
 # LLM CLI Bridge 测试报告
 
-- **测试时间**: 2026-06-28T16:39:43.602Z
+- **测试时间**: 2026-06-28T17:04:04.469Z
 - **测试环境**: win32 / Node.js v24.14.0
-- **插件版本**: 2.4.0
-- **main.js 大小**: 254.0 KB
+- **插件版本**: 2.5.0
+- **main.js 大小**: 274.6 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 49742
 
 ## 测试汇总
 
-- ✅ **通过**: 313
+- ✅ **通过**: 341
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 22
 - ⚪ **需人工验证**: 0
-- **总计**: 335
+- **总计**: 363
 
 ## 详细结果
 
@@ -1024,6 +1024,119 @@
 |------|--------|------|
 | ✅ | Anthropic API key 替换为 *** | redacted=key=sk-ant-api03-*** |
 | ✅ | redactWorkflowEvent 脱敏 tool_start toolInput | toolInput=command="export ANTHROPIC_API_KEY=******" |
+
+### V2.5 Skills 编辑
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 更新描述与 prompt（名称不变） | ok=true desc=新描述 prompt=新 prompt 内容 |
+| ✅ | 重命名（旧删除新写入） | ok=true hasNew=true hasOld=false |
+| ✅ | 重命名冲突返回 false | ok=false |
+| ✅ | 不存在的 skill 返回 false | ok=false |
+
+### V2.5 Skills 搜索
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 空 query 返回全部 | filtered=2 total=2 |
+| ✅ | 按名称子串过滤 | filtered=1 name=重命名后 |
+| ✅ | 按描述子串过滤 | filtered=1 |
+| ✅ | 无匹配返回空 | filtered=0 |
+
+### V2.5 Skills 冲突
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 已存在返回 true | conflict=true |
+| ✅ | 不存在返回 false | conflict=false |
+
+### V2.5 Skills 注入脱敏
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | API key 检测不回归 | warnings=1 |
+
+### V2.5 Skills 注入截断
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 超长截断不回归 | orig=10000 trunc=8020 |
+
+### V2.5 Session 保存
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 返回非空 id | id=s-2026-06-28T17-04-32-453Z-7urdf5 |
+
+### V2.5 Session 版本
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | loadSession 返回 version=1 | version=1 expected=1 |
+| ✅ | SESSION_SCHEMA_VERSION = 1 | version=1 |
+
+### V2.5 Session 加载
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 返回完整消息与 generatedFiles | msgs=1 files=1 |
+
+### V2.5 Session 列表
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-06-28T17-04-32-536Z-h3t6sm second=s-2026-06-28T17-04-32-478Z-y0roat |
+| ✅ | 空目录返回空数组 | len=0 |
+
+### V2.5 Session 删除
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 删除后 loadSession 返回 null | ok=true session=null |
+| ✅ | 不存在返回 false | ok=false |
+
+### V2.5 Session 安全写入
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 失败返回 null 不抛异常 | id=null |
+
+### V2.5 Session 脱敏
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | redactSessionMessages 脱敏 content/stderr/log | contentLeak=false |
+| ✅ | 写入文件不含 secret 明文 | leak=false |
+
+### V2.5 Session id
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-06-28T17-04-32-559Z-av3ueb id2=s-2026-06-28T17-04-32-559Z-rzisad |
+
+### V2.5 Session 上限
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | MAX_SESSIONS_KEPT 在 10-200 之间 | max=50 |
+
+### V2.5 CLI 不回归
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | ClaudeCliBackend 可实例化 | name=claude-cli |
+
+### V2.5 SDK 默认关闭
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | DEFAULT_SETTINGS.backendMode = auto | mode=auto |
+
+### V2.5 默认设置
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | disabledSkills 为空数组 | disabled=0 |
 
 ### Process 测试段
 

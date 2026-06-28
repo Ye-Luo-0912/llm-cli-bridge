@@ -23,7 +23,8 @@ import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalW
 import { SdkBackend } from "./sdkBackend";
 import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
-import { Skill, loadSkills, seedDefaultSkills, filterEnabledSkills, expandSkillPrompt, importSkillFromText, deleteSkill, isImportedSkill, scanSkillPrompt, truncateSkillPrompt, MAX_SKILL_PROMPT_LENGTH } from "./skills";
+import { PersistedSession, SessionListItem, saveSession, listSessions, loadSession, deleteSession } from "./sessions";
+import { Skill, loadSkills, seedDefaultSkills, filterEnabledSkills, expandSkillPrompt, importSkillFromText, deleteSkill, isImportedSkill, scanSkillPrompt, truncateSkillPrompt, MAX_SKILL_PROMPT_LENGTH, updateImportedSkill, searchSkills, checkImportConflict } from "./skills";
 import { getPermissionModeInfo, type PermissionChoice } from "./sdkPermission";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
@@ -103,6 +104,15 @@ export class LLMBridgeView extends ItemView {
   private skillsToggleEl!: HTMLElement;
   // V2.3: 从 .llm-bridge/skills/ 导入的 skill 名称集合（用于 UI 显示删除按钮）
   private importedSkillNames: Set<string> = new Set();
+  // V2.5: Skills 搜索框 + 当前过滤 query
+  private skillsSearchEl!: HTMLInputElement;
+  private skillsSearchQuery = "";
+  // V2.5: 历史会话列表
+  private historyListEl!: HTMLElement;
+  private historyToggleEl!: HTMLElement;
+  private historyItems: SessionListItem[] = [];
+  // V2.5: 当前活动会话 id（保存后赋值；用于后续运行更新同一会话文件）
+  private currentSessionId: string | null = null;
 
   // DOM
   private statusDotEl!: HTMLElement;
@@ -311,6 +321,9 @@ export class LLMBridgeView extends ItemView {
     // ===== V2.0: Skills 入口（上下文选择区，可折叠，从 .llm-bridge/skills.md 读取） =====
     this.renderSkillsPanel(root);
 
+    // ===== V2.5: 历史会话入口（可折叠，默认折叠） =====
+    this.renderHistoryPanel(root);
+
     // ===== V1.2: 首次使用提示（可关闭，关闭后不再显示） =====
     this.renderFirstUseGuide(root);
 
@@ -408,6 +421,7 @@ export class LLMBridgeView extends ItemView {
     this.refreshStatusBar();
     this.refreshSessionState();
     void this.refreshSkills();
+    void this.refreshHistory();
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
       this.updateContextDisplay();
@@ -1649,13 +1663,30 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V2.0: 新建会话（清空消息 + 重置会话状态 + 清空运行流程区）
+  // V2.5: 若当前有消息，先确认；重置 currentSessionId（新会话不绑定旧 id）
   private newSession(): void {
     if (this.runHandle) {
       new Notice("运行中无法新建会话");
       return;
     }
+    // V2.5: 有消息时确认（避免误清空）
+    if (this.messages.length > 0) {
+      void this.confirmDialog(
+        "新建会话",
+        `确认新建会话？当前 ${this.messages.length} 条消息将被清空（已保存到历史则不影响历史记录）。`,
+      ).then((ok) => {
+        if (ok) this.doNewSession();
+      });
+      return;
+    }
+    this.doNewSession();
+  }
+
+  // V2.5: 实际执行新建会话（剥离确认逻辑）
+  private doNewSession(): void {
     this.messages = [];
     this.currentAssistantId = null;
+    this.currentSessionId = null; // 新会话不绑定旧 id，下次运行将生成新 id
     this.sessionState = createNewSession();
     this.renderEmptyState();
     this.refreshSessionState();
@@ -1683,6 +1714,7 @@ export class LLMBridgeView extends ItemView {
 
   // V2.0: 渲染 Skills 面板（可折叠，从 .llm-bridge/skills.md 读取）
   // V2.3: head 添加"导入"按钮
+  // V2.5: body 顶部添加搜索框
   private renderSkillsPanel(parent: HTMLElement): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-skills-panel" });
     const head = wrap.createDiv({ cls: "llm-bridge-skills-head" });
@@ -1697,6 +1729,20 @@ export class LLMBridgeView extends ItemView {
     const body = wrap.createDiv({ cls: "llm-bridge-skills-body" });
     body.setAttribute("hidden", "");
     this.skillsListEl = body;
+    // V2.5: 搜索框（仅展开时可见，过滤 skills 列表）
+    const searchBar = body.createDiv({ cls: "llm-bridge-skills-search" });
+    this.skillsSearchEl = searchBar.createEl("input", {
+      type: "text",
+      cls: "llm-bridge-skills-search-input",
+      attr: { placeholder: "搜索 skill 名称或描述…", title: "按名称/描述过滤 skills" },
+    }) as HTMLInputElement;
+    this.skillsSearchEl.addEventListener("input", () => {
+      this.skillsSearchQuery = this.skillsSearchEl.value;
+      this.renderSkillsList();
+    });
+    const listContainer = body.createDiv({ cls: "llm-bridge-skills-list-container" });
+    // skillsListEl 重新指向 listContainer（搜索框单独一行，不随空状态被清空）
+    this.skillsListEl = listContainer;
     this.skillsToggleEl.addEventListener("click", () => {
       const hidden = body.hasAttribute("hidden");
       if (hidden) {
@@ -1705,6 +1751,192 @@ export class LLMBridgeView extends ItemView {
         body.setAttribute("hidden", "");
       }
       this.updateSkillsToggle();
+    });
+  }
+
+  // V2.5: 渲染历史会话面板（可折叠，默认折叠）
+  private renderHistoryPanel(parent: HTMLElement): void {
+    const wrap = parent.createDiv({ cls: "llm-bridge-history-panel" });
+    const head = wrap.createDiv({ cls: "llm-bridge-history-head" });
+    this.historyToggleEl = head.createEl("span", {
+      cls: "llm-bridge-history-toggle",
+      text: "▶ History",
+      attr: { title: "展开历史会话列表（从 .llm-bridge/sessions/ 读取）" },
+    });
+    const refreshHistBtn = head.createEl("button", {
+      cls: "llm-bridge-history-refresh-btn",
+      text: "↻",
+      attr: { title: "刷新历史会话列表" },
+    });
+    refreshHistBtn.addEventListener("click", () => void this.refreshHistory());
+    const body = wrap.createDiv({ cls: "llm-bridge-history-body" });
+    body.setAttribute("hidden", "");
+    this.historyListEl = body;
+    this.historyToggleEl.addEventListener("click", () => {
+      const hidden = body.hasAttribute("hidden");
+      if (hidden) {
+        body.removeAttribute("hidden");
+        this.historyToggleEl.textContent = "▼ History";
+        void this.refreshHistory();
+      } else {
+        body.setAttribute("hidden", "");
+        this.historyToggleEl.textContent = "▶ History";
+      }
+    });
+    // 初始空状态
+    body.createDiv({ cls: "llm-bridge-history-empty", text: "暂无历史会话" });
+  }
+
+  // V2.5: 从 .llm-bridge/sessions/ 加载历史会话列表并渲染
+  private async refreshHistory(): Promise<void> {
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    try {
+      this.historyItems = await listSessions(vaultPath);
+    } catch {
+      this.historyItems = [];
+    }
+    this.renderHistoryList();
+  }
+
+  // V2.5: 渲染历史会话列表
+  private renderHistoryList(): void {
+    if (!this.historyListEl) return;
+    this.historyListEl.empty();
+    if (this.historyItems.length === 0) {
+      this.historyListEl.createDiv({ cls: "llm-bridge-history-empty", text: "暂无历史会话" });
+      this.historyToggleEl.textContent = `${this.historyListEl.hasAttribute("hidden") ? "▶" : "▼"} History (0)`;
+      return;
+    }
+    const list = this.historyListEl.createDiv({ cls: "llm-bridge-history-list" });
+    for (const item of this.historyItems) {
+      const row = list.createDiv({
+        cls: `llm-bridge-history-item is-${item.status}`,
+        attr: { title: `${item.title} · ${item.messageCount} 条消息 · ${item.savedAt}` },
+      });
+      // 主信息（点击恢复）
+      const main = row.createEl("button", { cls: "llm-bridge-history-main" });
+      main.createEl("span", { cls: "llm-bridge-history-title", text: item.title });
+      const meta = `${item.messageCount} 条 · ${item.agentType} · ${this.formatHistoryTime(item.savedAt)}`;
+      main.createEl("span", { cls: "llm-bridge-history-meta", text: meta });
+      main.addEventListener("click", () => void this.restoreSession(item.id));
+      // 删除按钮
+      const delBtn = row.createEl("button", {
+        cls: "llm-bridge-history-del-btn",
+        text: "×",
+        attr: { title: "删除此历史会话" },
+      });
+      delBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void this.deleteHistorySession(item.id, item.title);
+      });
+    }
+    this.historyToggleEl.textContent = `${this.historyListEl.hasAttribute("hidden") ? "▶" : "▼"} History (${this.historyItems.length})`;
+  }
+
+  // V2.5: 格式化历史会话时间（简化展示）
+  private formatHistoryTime(iso: string): string {
+    try {
+      const d = new Date(iso);
+      const now = new Date();
+      const sameDay = d.toDateString() === now.toDateString();
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      if (sameDay) return `今天 ${hh}:${mm}`;
+      const mo = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${mo}-${dd} ${hh}:${mm}`;
+    } catch {
+      return iso;
+    }
+  }
+
+  // V2.5: 恢复历史会话（确认后加载消息 + 状态 + workflow trace）
+  private async restoreSession(sessionId: string): Promise<void> {
+    if (this.runHandle) {
+      new Notice("运行中无法恢复历史会话");
+      return;
+    }
+    // 确认对话框（若当前有消息，提示将清空）
+    if (this.messages.length > 0) {
+      const confirmed = await this.confirmDialog(
+        "恢复历史会话",
+        `恢复会话将清空当前 ${this.messages.length} 条消息，是否继续？`,
+      );
+      if (!confirmed) return;
+    }
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const session = await loadSession(vaultPath, sessionId);
+    if (!session) {
+      new Notice("恢复失败：会话文件不存在或版本不兼容");
+      return;
+    }
+    // 恢复消息、状态、当前会话 id
+    this.messages = session.messages.slice();
+    this.currentAssistantId = null;
+    this.currentSessionId = session.id;
+    this.sessionState = {
+      title: session.title,
+      status: session.status,
+      messageCount: session.messageCount,
+      startedAt: session.startedAt,
+    };
+    this.renderMessagesFromHistory();
+    this.refreshSessionState();
+    this.clearRunFlow();
+    this.resetAppliedSkills();
+    this.lastSdkToolCount = 0;
+    this.lastSdkAgentCount = 0;
+    this.clearPendingPermissions();
+    this.refreshStatusBar();
+    new Notice(`已恢复会话：${session.title}`);
+  }
+
+  // V2.5: 从历史会话渲染消息列表（复用 renderMessage 渲染逻辑）
+  private renderMessagesFromHistory(): void {
+    this.messagesEl.empty();
+    if (this.messages.length === 0) {
+      this.renderEmptyState();
+      return;
+    }
+    for (const msg of this.messages) {
+      this.renderMessage(msg);
+    }
+  }
+
+  // V2.5: 删除历史会话（确认后删除 + 刷新列表）
+  private async deleteHistorySession(sessionId: string, title: string): Promise<void> {
+    const confirmed = await this.confirmDialog(
+      "删除历史会话",
+      `确认删除历史会话「${title}」？此操作不可恢复。`,
+    );
+    if (!confirmed) return;
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const ok = await deleteSession(vaultPath, sessionId);
+    if (ok) {
+      new Notice(`已删除历史会话：${title}`);
+      // 若删除的是当前活动会话，清空 currentSessionId
+      if (this.currentSessionId === sessionId) {
+        this.currentSessionId = null;
+      }
+      await this.refreshHistory();
+    } else {
+      new Notice("删除失败：会话文件不存在");
+    }
+  }
+
+  // V2.5: 通用确认对话框（返回 true=确认 / false=取消）
+  private confirmDialog(title: string, message: string): Promise<boolean> {
+    return new Promise((resolve) => {
+      const modal = new Modal(this.app);
+      modal.titleEl.setText(title);
+      modal.contentEl.empty();
+      modal.contentEl.createEl("p", { text: message, cls: "llm-bridge-confirm-msg" });
+      const btns = modal.contentEl.createDiv({ cls: "modal-button-container" });
+      const cancel = btns.createEl("button", { text: "取消" });
+      cancel.addEventListener("click", () => { resolve(false); modal.close(); });
+      const confirm = btns.createEl("button", { text: "确认", cls: "mod-warning" });
+      confirm.addEventListener("click", () => { resolve(true); modal.close(); });
+      modal.open();
     });
   }
 
@@ -1732,6 +1964,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V2.1: 渲染 skills 列表（空则显示提示 + 初始化按钮；每项含启用/禁用开关）
+  // V2.5: 应用搜索过滤；导入的 skill 增加"查看"和"编辑"按钮
   private renderSkillsList(): void {
     if (!this.skillsListEl) return;
     this.skillsListEl.empty();
@@ -1747,9 +1980,17 @@ export class LLMBridgeView extends ItemView {
       this.updateSkillsToggle();
       return;
     }
+    // V2.5: 应用搜索过滤
+    const filtered = searchSkills(this.skills, this.skillsSearchQuery);
+    if (filtered.length === 0) {
+      const empty = this.skillsListEl.createDiv({ cls: "llm-bridge-skills-empty" });
+      empty.createEl("span", { text: `无匹配「${this.skillsSearchQuery}」的 skill` });
+      this.updateSkillsToggle();
+      return;
+    }
     const disabled = new Set(this.plugin.settings.disabledSkills);
     const list = this.skillsListEl.createDiv({ cls: "llm-bridge-skills-list" });
-    for (const skill of this.skills) {
+    for (const skill of filtered) {
       const isDisabled = disabled.has(skill.name);
       const item = list.createDiv({
         cls: `llm-bridge-skill-item${isDisabled ? " is-disabled" : ""}`,
@@ -1773,29 +2014,101 @@ export class LLMBridgeView extends ItemView {
         }
         this.applySkill(skill);
       });
-      // V2.3: 导入的 skill 显示删除按钮（主文件中的 skill 不可删除）
+      // V2.5: 查看完整 prompt 按钮（所有 skill 可查看）
+      const viewBtn = item.createEl("button", {
+        cls: "llm-bridge-skill-view-btn",
+        text: "👁",
+        attr: { title: "查看完整 skill prompt" },
+      });
+      viewBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.viewSkillPrompt(skill);
+      });
+      // V2.5: 导入的 skill 显示编辑 + 删除按钮（主文件中的 skill 不可编辑/删除）
       if (this.importedSkillNames.has(skill.name)) {
+        const editBtn = item.createEl("button", {
+          cls: "llm-bridge-skill-edit-btn",
+          text: "✎",
+          attr: { title: "编辑此导入的 skill（名称/描述/prompt）" },
+        });
+        editBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void this.openEditSkillDialog(skill);
+        });
         const delBtn = item.createEl("button", {
           cls: "llm-bridge-skill-del-btn",
           text: "×",
           attr: { title: "删除此导入的 skill（仅删除 .llm-bridge/skills/ 下的文件，不影响主文件）" },
         });
-        delBtn.addEventListener("click", () => void this.deleteSkillFromVault(skill.name));
+        delBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          void this.deleteSkillFromVault(skill.name);
+        });
       }
     }
     this.updateSkillsToggle();
   }
 
+  // V2.5: 查看完整 skill prompt（弹窗只读展示）
+  private viewSkillPrompt(skill: Skill): void {
+    const modal = new Modal(this.app);
+    modal.titleEl.setText(`Skill：${skill.name}`);
+    modal.contentEl.empty();
+    if (skill.description) {
+      modal.contentEl.createEl("p", { text: skill.description, cls: "llm-bridge-skill-view-desc" });
+    }
+    const pre = modal.contentEl.createEl("pre", { cls: "llm-bridge-skill-view-prompt" });
+    pre.textContent = skill.prompt || "(无 prompt 内容)";
+    const btns = modal.contentEl.createDiv({ cls: "modal-button-container" });
+    btns.createEl("button", { text: "关闭" }).addEventListener("click", () => modal.close());
+    modal.open();
+  }
+
+  // V2.5: 打开编辑 skill 对话框（仅导入的 skill 可编辑）
+  private async openEditSkillDialog(skill: Skill): Promise<void> {
+    const modal = new EditSkillModal(this.app, skill, async (newName, newDesc, newPrompt) => {
+      const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      // 若改名，检查新名称是否冲突
+      if (newName !== skill.name) {
+        const conflict = await checkImportConflict(vaultPath, newName);
+        if (conflict) {
+          new Notice(`编辑失败：名称「${newName}」已存在，请换一个名称`);
+          return;
+        }
+      }
+      const ok = await updateImportedSkill(vaultPath, skill.name, newName, newDesc, newPrompt);
+      if (ok) {
+        new Notice(`Skill 已更新`);
+        await this.refreshSkills();
+      } else {
+        new Notice("编辑失败：skill 不在导入目录中或名称冲突");
+      }
+    });
+    modal.open();
+  }
+
   // V2.3: 打开导入 skill 对话框（简单 modal：name / description / prompt）
+  // V2.5: 导入前检测冲突，冲突时提示重命名
   private openImportSkillDialog(): void {
     const modal = new ImportSkillModal(this.app, async (name, description, prompt) => {
       const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      // V2.5: 冲突检测
+      const conflict = await checkImportConflict(vaultPath, name);
+      if (conflict) {
+        const renameConfirmed = await this.confirmDialog(
+          "Skill 名称冲突",
+          `名为「${name}」的导入 skill 已存在。是否仍要导入？\n点击确认将覆盖现有 skill，取消请修改名称后重试。`,
+        );
+        if (!renameConfirmed) return;
+        // 用户确认覆盖：先删除旧的，再导入
+        await deleteSkill(vaultPath, name);
+      }
       const ok = await importSkillFromText(vaultPath, name, description, prompt);
       if (ok) {
         new Notice(`Skill "${name}" 已导入`);
         await this.refreshSkills();
       } else {
-        new Notice(`导入失败：同名 skill 可能已存在`);
+        new Notice(`导入失败：写入文件失败`);
       }
     });
     modal.open();
@@ -2241,6 +2554,24 @@ export class LLMBridgeView extends ItemView {
     this.updateAssistantMessage(assistantId, { workflowTrace });
     // V2.0: 运行流程区展示完整 6 步流程
     this.showRunFlowTrace(workflowTrace, status);
+
+    // V2.5: 运行结束后保存会话到历史（失败不阻断；同一会话 id 复用）
+    try {
+      const savedId = await saveSession(
+        vaultPath,
+        this.sessionState,
+        this.messages,
+        this.plugin.settings.agentType,
+        this.currentSessionId || undefined,
+      );
+      if (savedId) {
+        this.currentSessionId = savedId;
+        // 静默刷新历史列表（若已展开）
+        void this.refreshHistory();
+      }
+    } catch {
+      // 保存失败不阻断主流程
+    }
   }
 
   // ---------- 日志保存 ----------
@@ -2330,6 +2661,75 @@ class ImportSkillModal extends Modal {
       const name = nameInput?.value.trim() || "";
       const description = descInput?.value.trim() || "";
       const prompt = promptArea?.value || "";
+      void this.onConfirm(name, description, prompt);
+    }
+    this.close();
+  }
+}
+
+// V2.5: 编辑导入的 skill 对话框（预填充原 name/description/prompt）
+class EditSkillModal extends Modal {
+  private resolved = false;
+  private nameInput!: HTMLInputElement;
+  private descInput!: HTMLInputElement;
+  private promptArea!: HTMLTextAreaElement;
+
+  constructor(
+    app: import("obsidian").App,
+    private skill: Skill,
+    private onConfirm: (name: string, description: string, prompt: string) => Promise<void>,
+  ) {
+    super(app);
+  }
+  onOpen(): void {
+    this.titleEl.setText(`编辑 Skill：${this.skill.name}`);
+    this.contentEl.empty();
+    const form = this.contentEl.createEl("div", { cls: "llm-bridge-import-skill-form" });
+    form.createEl("label", { text: "Skill 名称（修改即重命名）", cls: "llm-bridge-import-label" });
+    this.nameInput = form.createEl("input", {
+      type: "text",
+      cls: "llm-bridge-import-input",
+      attr: { placeholder: "如：翻译选区" },
+    }) as HTMLInputElement;
+    this.nameInput.value = this.skill.name;
+    form.createEl("label", { text: "简短描述", cls: "llm-bridge-import-label" });
+    this.descInput = form.createEl("input", {
+      type: "text",
+      cls: "llm-bridge-import-input",
+      attr: { placeholder: "如：将选中文本翻译为英文" },
+    }) as HTMLInputElement;
+    this.descInput.value = this.skill.description || "";
+    form.createEl("label", { text: "Prompt 模板（支持 {{outputDir}} 占位符）", cls: "llm-bridge-import-label" });
+    this.promptArea = form.createEl("textarea", {
+      cls: "llm-bridge-import-textarea",
+      attr: { rows: "8", placeholder: "请将以上选中文本翻译为英文..." },
+    }) as HTMLTextAreaElement;
+    this.promptArea.value = this.skill.prompt || "";
+    const btns = form.createDiv({ cls: "modal-button-container" });
+    const cancel = btns.createEl("button", { text: "取消" });
+    cancel.addEventListener("click", () => this.done(false));
+    const confirm = btns.createEl("button", { text: "保存", cls: "mod-warning" });
+    confirm.addEventListener("click", () => {
+      const name = this.nameInput.value.trim();
+      if (!name) {
+        new Notice("请输入 skill 名称");
+        return;
+      }
+      this.done(true);
+    });
+    this.nameInput.focus();
+  }
+  onClose(): void {
+    if (!this.resolved) this.done(false);
+    this.contentEl.empty();
+  }
+  private done(ok: boolean): void {
+    if (this.resolved) return;
+    this.resolved = true;
+    if (ok) {
+      const name = this.nameInput.value.trim();
+      const description = this.descInput.value.trim();
+      const prompt = this.promptArea.value;
       void this.onConfirm(name, description, prompt);
     }
     this.close();

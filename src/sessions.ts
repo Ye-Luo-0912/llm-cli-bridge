@@ -1,0 +1,228 @@
+// LLM CLI Bridge — Session Persistence (V2.5)
+// 将会话状态与消息持久化到 .llm-bridge/sessions/，支持历史会话列表与恢复
+// 安全写入（tmp+rename）；失败不阻断主流程；不保存 secret 明文
+//
+// 设计原则：
+// - 不改 AgentEvent v0.1，不新增 tool event
+// - CLI/auto 主线不受影响（仅在 view 层调用，运行后/手动触发时保存）
+// - session 文件含 version 字段，便于后续迁移
+// - 不与 Claude SDK/CLI 会话直连；Continue/Resume 仅作为 UI 本地历史恢复
+
+import * as fs from "fs";
+import * as path from "path";
+import type { ChatMessage, RunStatus } from "./types";
+import { redactSecrets } from "./workflowEvent";
+import { SessionState } from "./session";
+
+/** sessions 目录相对 Vault 根的路径 */
+export const SESSIONS_DIR_REL = ".llm-bridge/sessions";
+
+/** session 文件 schema 版本（升级时递增，配合迁移逻辑） */
+export const SESSION_SCHEMA_VERSION = 1;
+
+/** 历史会话列表上限（超过时按 savedAt 升序淘汰最旧；防止目录膨胀） */
+export const MAX_SESSIONS_KEPT = 50;
+
+/**
+ * 持久化的会话（写入 .llm-bridge/sessions/<id>.json）
+ * - version: schema 版本，便于后续迁移
+ * - id: 会话唯一 id（与文件名一致，不含扩展名）
+ * - messages: 完整消息列表（含 workflow trace / sdk events / generated files）
+ * - 不保存 secret 明文（content/stderr/log 走 redactSecrets）
+ */
+export interface PersistedSession {
+  version: number;
+  id: string;
+  title: string;
+  status: RunStatus;
+  messageCount: number;
+  startedAt: string | null;
+  savedAt: string;
+  agentType: string;
+  messages: ChatMessage[];
+}
+
+/**
+ * 会话列表项（轻量，不含 messages，用于历史列表展示）
+ */
+export interface SessionListItem {
+  id: string;
+  title: string;
+  status: RunStatus;
+  messageCount: number;
+  startedAt: string | null;
+  savedAt: string;
+  agentType: string;
+  /** 文件大小（字节，用于 UI 提示） */
+  sizeBytes: number;
+}
+
+/**
+ * 生成会话 id（时间戳 + 短随机，文件名安全）
+ */
+export function generateSessionId(): string {
+  const ts = new Date().toISOString().replace(/[:.]/g, "-");
+  const rand = Math.random().toString(36).slice(2, 8);
+  return `s-${ts}-${rand}`;
+}
+
+/**
+ * 脱敏会话消息（content / stderr / log 走 redactSecrets）
+ * 返回新数组，原消息不变
+ */
+export function redactSessionMessages(messages: ReadonlyArray<ChatMessage>): ChatMessage[] {
+  return messages.map((m) => ({
+    ...m,
+    content: redactSecrets(m.content),
+    stderr: redactSecrets(m.stderr),
+    log: redactSecrets(m.log),
+  }));
+}
+
+/**
+ * 保存会话到 .llm-bridge/sessions/<id>.json
+ * - 使用 tmp + rename 原子写入（避免半写入文件）
+ * - 失败不抛异常，返回 false
+ * - 超过 MAX_SESSIONS_KEPT 时按 savedAt 升序淘汰最旧会话
+ * @returns true 表示保存成功
+ */
+export async function saveSession(
+  vaultPath: string,
+  state: SessionState,
+  messages: ReadonlyArray<ChatMessage>,
+  agentType: string,
+  sessionId?: string,
+): Promise<string | null> {
+  try {
+    const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
+    await fs.promises.mkdir(dirPath, { recursive: true });
+    const id = sessionId || generateSessionId();
+    const fileName = `${id}.json`;
+    const filePath = path.join(dirPath, fileName);
+    const tmpPath = path.join(dirPath, `${fileName}.tmp`);
+
+    const session: PersistedSession = {
+      version: SESSION_SCHEMA_VERSION,
+      id,
+      title: state.title,
+      status: state.status,
+      messageCount: state.messageCount,
+      startedAt: state.startedAt,
+      savedAt: new Date().toISOString(),
+      agentType,
+      messages: redactSessionMessages(messages),
+    };
+
+    // 原子写：tmp + rename
+    await fs.promises.writeFile(tmpPath, JSON.stringify(session, null, 2), "utf8");
+    await fs.promises.rename(tmpPath, filePath);
+
+    // 淘汰过旧会话（保持目录不超过 MAX_SESSIONS_KEPT）
+    try {
+      await pruneOldSessions(vaultPath);
+    } catch {
+      // 淘汰失败不阻断保存
+    }
+    return id;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 列出所有历史会话（按 savedAt 降序，最新在前）
+ * - 只读取元数据（不解析 messages）
+ * - 解析失败的文件跳过（不影响其他会话展示）
+ */
+export async function listSessions(vaultPath: string): Promise<SessionListItem[]> {
+  const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
+  let files: string[];
+  try {
+    files = await fs.promises.readdir(dirPath);
+  } catch {
+    return []; // 目录不存在
+  }
+  const items: SessionListItem[] = [];
+  for (const file of files) {
+    if (!file.endsWith(".json")) continue;
+    const filePath = path.join(dirPath, file);
+    try {
+      const stat = await fs.promises.stat(filePath);
+      const content = await fs.promises.readFile(filePath, "utf8");
+      const parsed = JSON.parse(content) as Partial<PersistedSession>;
+      // 基本字段校验
+      if (!parsed.id || typeof parsed.messageCount !== "number") continue;
+      items.push({
+        id: parsed.id,
+        title: parsed.title || "新会话",
+        status: parsed.status || "idle",
+        messageCount: parsed.messageCount,
+        startedAt: parsed.startedAt || null,
+        savedAt: parsed.savedAt || new Date(stat.mtimeMs).toISOString(),
+        agentType: parsed.agentType || "claude",
+        sizeBytes: stat.size,
+      });
+    } catch {
+      // 单个文件解析失败，跳过
+    }
+  }
+  // 按 savedAt 降序（最新在前）
+  items.sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
+  return items;
+}
+
+/**
+ * 加载单个会话完整内容
+ * @returns 会话对象，不存在或解析失败返回 null
+ */
+export async function loadSession(vaultPath: string, sessionId: string): Promise<PersistedSession | null> {
+  try {
+    const filePath = path.join(vaultPath, SESSIONS_DIR_REL, `${sessionId}.json`);
+    const content = await fs.promises.readFile(filePath, "utf8");
+    const parsed = JSON.parse(content) as PersistedSession;
+    // 基本字段校验
+    if (!parsed.id || typeof parsed.version !== "number" || !Array.isArray(parsed.messages)) {
+      return null;
+    }
+    // 版本迁移占位（当前只有 v1，未来升级在此分支处理）
+    if (parsed.version > SESSION_SCHEMA_VERSION) {
+      // 高版本文件：保守返回 null（不强行降级）
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 删除单个历史会话
+ * @returns true 表示删除成功
+ */
+export async function deleteSession(vaultPath: string, sessionId: string): Promise<boolean> {
+  try {
+    const filePath = path.join(vaultPath, SESSIONS_DIR_REL, `${sessionId}.json`);
+    await fs.promises.unlink(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 内部：淘汰最旧会话，保持目录不超过 MAX_SESSIONS_KEPT
+ * 按 savedAt 升序删除最旧的若干个
+ */
+async function pruneOldSessions(vaultPath: string): Promise<void> {
+  const items = await listSessions(vaultPath);
+  if (items.length <= MAX_SESSIONS_KEPT) return;
+  // items 已按 savedAt 降序，最旧的在末尾
+  const toRemove = items.slice(MAX_SESSIONS_KEPT);
+  for (const item of toRemove) {
+    try {
+      await fs.promises.unlink(path.join(vaultPath, SESSIONS_DIR_REL, `${item.id}.json`));
+    } catch {
+      // 单个删除失败不阻断
+    }
+  }
+}

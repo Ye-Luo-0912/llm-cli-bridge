@@ -409,3 +409,81 @@ export function truncateSkillPrompt(prompt: string, maxLen: number = MAX_SKILL_P
   if (prompt.length <= maxLen) return prompt;
   return prompt.slice(0, maxLen) + "\n…(skill prompt 已截断)";
 }
+
+// ─── V2.5: Skills 编辑 / 搜索 / 冲突处理 ──────────────────────────────────
+
+/**
+ * 编辑导入的 skill（重命名 + 更新 description/prompt）
+ * - 仅作用于 .llm-bridge/skills/ 目录下的文件
+ * - 若 newName 与 originalName 不同，删除旧文件并写入新文件（保持 skillNameToFileName 一致性）
+ * - 若 newName 与 originalName 相同，直接覆盖原文件内容
+ * - 主文件（skills.md）中的 skill 不可编辑，需返回 false
+ * @returns true 表示编辑成功
+ */
+export async function updateImportedSkill(
+  vaultPath: string,
+  originalName: string,
+  newName: string,
+  newDescription: string,
+  newPrompt: string,
+): Promise<boolean> {
+  try {
+    const dirPath = path.join(vaultPath, SKILLS_DIR_REL);
+    const oldFileName = `${skillNameToFileName(originalName)}.md`;
+    const oldFilePath = path.join(dirPath, oldFileName);
+    // 检查原文件是否存在（仅导入的 skill 可编辑）
+    try {
+      await fs.promises.access(oldFilePath);
+    } catch {
+      return false; // 原文件不存在或为主文件中的 skill
+    }
+    await fs.promises.mkdir(dirPath, { recursive: true });
+    // 若名称改变：检查新名称是否冲突（已存在同文件名的另一文件）
+    if (newName !== originalName) {
+      const newFileName = `${skillNameToFileName(newName)}.md`;
+      const newFilePath = path.join(dirPath, newFileName);
+      try {
+        await fs.promises.access(newFilePath);
+        return false; // 新名称已存在，冲突
+      } catch {
+        // 新名称不冲突，继续
+      }
+      // 写入新文件
+      const updatedSkill: Skill = { name: newName, description: newDescription, prompt: newPrompt };
+      await fs.promises.writeFile(newFilePath, serializeSkillToMarkdown(updatedSkill), "utf8");
+      // 删除旧文件
+      try {
+        await fs.promises.unlink(oldFilePath);
+      } catch {
+        // 旧文件删除失败不阻断（新文件已写入）
+      }
+      return true;
+    }
+    // 名称未变：直接覆盖原文件
+    const updatedSkill: Skill = { name: newName, description: newDescription, prompt: newPrompt };
+    await fs.promises.writeFile(oldFilePath, serializeSkillToMarkdown(updatedSkill), "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 按名称/描述过滤 skills（不区分大小写，空 query 返回全部副本）
+ * - 匹配 name 或 description 中任一包含 query 子串
+ */
+export function searchSkills(skills: Skill[], query: string): Skill[] {
+  const q = query.trim().toLowerCase();
+  if (q.length === 0) return skills.slice();
+  return skills.filter(
+    (s) => s.name.toLowerCase().includes(q) || (s.description && s.description.toLowerCase().includes(q)),
+  );
+}
+
+/**
+ * 检查导入目录中是否已存在同名 skill（用于导入时冲突提示）
+ * @returns true 表示已存在同名 skill（冲突）
+ */
+export async function checkImportConflict(vaultPath: string, name: string): Promise<boolean> {
+  return isImportedSkill(vaultPath, name);
+}
