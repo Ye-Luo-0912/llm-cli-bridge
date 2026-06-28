@@ -84,3 +84,4 @@
 | v1.5.0 | 2026-06-28 | d0c489d | Claude Code Command Support / Workflow Trace Foundation，新增命令预览区 + Workflow Trace |
 | v1.6.0 | 2026-06-28 | 282b911 | SDK Workflow Event Prototype (experimental)，新增 sdk-experimental backend + UI-only WorkflowEvent 模型，默认关闭，CLI 主线不变 |
 | v1.7.0 | 2026-06-28 | d07f4de | Real SDK Workflow Enhancement，接入真实 Claude Agent SDK 事件流（双包名兼容）+ SDKMessage→WorkflowEvent 纯函数映射 + SDK diagnostics，SDK 不可用时 fallback mock，CLI 主线不变 |
+| v1.8.0 | 2026-06-28 | (pending) | Real User Flow Consolidation，3 核心用户流收敛 + workflow trace/timeline/sdk workflow 默认折叠 + onboarding 简化为 3 步用户导向 + README 3 步使用法，不新增功能 |

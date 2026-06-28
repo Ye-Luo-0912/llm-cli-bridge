@@ -183,6 +183,23 @@
 }
 .llm-bridge-collapse-body[hidden] { display: none; }
 
+/* V1.8: 可折叠区域（workflow trace / timeline / sdk workflow 默认折叠，减少噪音） */
+.llm-bridge-collapse-section {
+  border-left: 2px solid var(--background-modifier-border);
+  padding-left: 8px;
+  margin-top: 4px;
+}
+.llm-bridge-collapse-section-head { cursor: pointer; user-select: none; }
+.llm-bridge-collapse-section-toggle {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.llm-bridge-collapse-section-toggle:hover { color: var(--text-normal); }
+.llm-bridge-collapse-section-body { margin-top: 4px; }
+.llm-bridge-collapse-section-body[hidden] { display: none; }
+
 .llm-bridge-collapse-text {
   margin: 0;
   padding: 5px 7px;

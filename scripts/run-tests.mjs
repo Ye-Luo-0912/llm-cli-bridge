@@ -2199,23 +2199,23 @@ if (!runV11Unit) {
 
     // === V1.2 新增测试：首次使用提示 + 运行过程时间线 ===
 
-    // --- Test 22: buildFirstUseGuide 返回 5 个步骤 ---
+    // --- Test 22: buildFirstUseGuide 返回 3 个步骤（V1.8: 从 5 步简化为 3 步） ---
     {
       const guide = buildFirstUseGuide();
-      const ok = guide.steps.length === 5 && guide.title === "首次使用提示";
-      addTest("Guide V1.2: buildFirstUseGuide 返回 5 个步骤",
+      const ok = guide.steps.length === 3 && guide.title === "3 步开始使用";
+      addTest("Guide V1.8: buildFirstUseGuide 返回 3 个步骤",
         ok ? "pass" : "fail", ok ? "" : `steps: ${guide.steps.length}, title: ${guide.title}`);
     }
 
-    // --- Test 27: 首次使用提示步骤含 Backend / Preflight / Selection / Note / 运行 ---
+    // --- Test 27: 首次使用提示步骤覆盖用户导向 3 步（V1.8: 不再提 Backend/Preflight） ---
     {
       const guide = buildFirstUseGuide();
       const titles = guide.steps.map((s) => s.title).join("|");
-      const ok = titles.includes("Backend") && titles.includes("Preflight") &&
-                 titles.includes("选区") && titles.includes("当前笔记") &&
-                 titles.includes("运行");
-      addTest("Guide V1.2: 步骤覆盖 Backend / Preflight / 选区 / 当前笔记 / 运行",
-        ok ? "pass" : "fail", ok ? "" : `titles: ${titles}`);
+      const ok = titles.includes("Claude Code") && titles.includes("打开笔记") &&
+                 titles.includes("总结当前笔记");
+      const noBackend = !titles.includes("Backend") && !titles.includes("Preflight");
+      addTest("Guide V1.8: 步骤用户导向（含 Claude Code/打开笔记/总结当前笔记，不含 Backend/Preflight）",
+        ok && noBackend ? "pass" : "fail", ok ? "" : `titles: ${titles}`);
     }
 
     // --- Test 28: shouldShowFirstUseGuide(true) 返回 false ---
@@ -2225,13 +2225,13 @@ if (!runV11Unit) {
         ok ? "pass" : "fail", ok ? "" : "映射错误");
     }
 
-    // --- Test 29: 首次使用提示步骤 index 连续从 1 开始 ---
+    // --- Test 29: 首次使用提示步骤 index 连续从 1 开始（V1.8: 3 步） ---
     {
       const guide = buildFirstUseGuide();
       const indices = guide.steps.map((s) => s.index);
-      const ok = indices[0] === 1 && indices.length === 5 &&
+      const ok = indices[0] === 1 && indices.length === 3 &&
                  indices.every((v, i) => v === i + 1);
-      addTest("Guide V1.2: 步骤 index 连续从 1 开始",
+      addTest("Guide V1.8: 步骤 index 连续从 1 开始（3 步）",
         ok ? "pass" : "fail", ok ? "" : `indices: ${indices.join(",")}`);
     }
 
@@ -3401,6 +3401,196 @@ if (!runV17Unit) {
     try { if (mapperBundle) rmSync(mapperBundle, { force: true }); } catch {}
     try { if (sdkBackendBundleV17) rmSync(sdkBackendBundleV17, { force: true }); } catch {}
     try { if (cliBackendBundleV17) rmSync(cliBackendBundleV17, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
+// 8.8 V1.8 Real User Flow Consolidation 单元测试
+//     覆盖：3 核心用户流 prompt 构造、默认 UI 折叠、SDK fallback 不影响主流程
+// ============================================================
+console.log("\n=== Real User Flow Consolidation 单元测试（V1.8）===");
+
+const runV18Unit = runMode === "all" || runMode === "unit";
+
+if (!runV18Unit) {
+  addTest("V1.8 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let presetBundleV18 = null;
+  let guideBundleV18 = null;
+  let sdkBackendBundleV18 = null;
+  let cliBackendBundleV18 = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    presetBundleV18 = join(PROJECT_ROOT, ".test-preset-v18-temp.mjs");
+    guideBundleV18 = join(PROJECT_ROOT, ".test-guide-v18-temp.mjs");
+    sdkBackendBundleV18 = join(PROJECT_ROOT, ".test-sdk-backend-v18-temp.mjs");
+    cliBackendBundleV18 = join(PROJECT_ROOT, ".test-cli-backend-v18-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "presetPrompts.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: presetBundleV18,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "firstUseGuide.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: guideBundleV18,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sdkBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sdkBackendBundleV18,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV18,
+    });
+
+    const { buildPresetPrompt, requiresActiveNote, requiresSelection, PRESETS } =
+      await import(pathToFileURL(presetBundleV18).href);
+    const { buildFirstUseGuide, shouldShowFirstUseGuide } =
+      await import(pathToFileURL(guideBundleV18).href);
+    const { SdkBackend } = await import(pathToFileURL(sdkBackendBundleV18).href);
+    const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV18).href);
+
+    // ---- Test 1: 3 核心用户流 prompt 构造：summarize ----
+    {
+      const prompt = buildPresetPrompt("summarize", { activeFilePath: "notes/test.md", outputDir: "" });
+      const hasSummarize = prompt.includes("总结");
+      const hasFilePath = prompt.includes("notes/test.md");
+      const hasOutputDir = prompt.includes("90_AI整理待确认"); // 默认 outputDir
+      const hasSummarySuffix = prompt.includes("-summary");
+      addTest("V1.8 核心流 summarize: prompt 含总结/文件路径/输出目录/-summary 后缀",
+        hasSummarize && hasFilePath && hasOutputDir && hasSummarySuffix ? "pass" : "fail",
+        `hasSummarize=${hasSummarize} hasFilePath=${hasFilePath} hasOutputDir=${hasOutputDir} hasSummarySuffix=${hasSummarySuffix}`);
+    }
+
+    // ---- Test 2: 3 核心用户流 prompt 构造：explain ----
+    {
+      const prompt = buildPresetPrompt("explain", { activeFilePath: null, outputDir: "" });
+      const hasExplain = prompt.includes("解释");
+      const hasContext = prompt.includes("选中文本");
+      // explain 不依赖 activeFilePath
+      const noFilePath = !prompt.includes(".md");
+      addTest("V1.8 核心流 explain: prompt 含解释/选中文本，不依赖文件路径",
+        hasExplain && hasContext && noFilePath ? "pass" : "fail",
+        `hasExplain=${hasExplain} hasContext=${hasContext} noFilePath=${noFilePath}`);
+    }
+
+    // ---- Test 3: 3 核心用户流 prompt 构造：freeform 返回空字符串 ----
+    {
+      const prompt = buildPresetPrompt("freeform", { activeFilePath: "x.md", outputDir: "out" });
+      addTest("V1.8 核心流 freeform: 返回空字符串（仅聚焦输入框）",
+        prompt === "" ? "pass" : "fail",
+        `prompt=${JSON.stringify(prompt)}`);
+    }
+
+    // ---- Test 4: PRESETS 恰好 3 个主入口（主路径不膨胀）----
+    {
+      const types = PRESETS.map((p) => p.type);
+      const has3 = types.length === 3;
+      const hasAll = types.includes("freeform") && types.includes("explain") && types.includes("summarize");
+      addTest("V1.8 PRESETS: 恰好 3 个主入口（freeform/explain/summarize）",
+        has3 && hasAll ? "pass" : "fail",
+        `types=${types.join(",")}`);
+    }
+
+    // ---- Test 5: requiresActiveNote / requiresSelection 3 流映射正确 ----
+    {
+      const ok = requiresActiveNote("summarize") && !requiresActiveNote("explain") && !requiresActiveNote("freeform") &&
+                 requiresSelection("explain") && !requiresSelection("summarize") && !requiresSelection("freeform");
+      addTest("V1.8 requiresActiveNote/requiresSelection: 3 流映射正确",
+        ok ? "pass" : "fail", ok ? "" : "映射错误");
+    }
+
+    // ---- Test 6: buildFirstUseGuide 3 步用户导向（不含 backend/sdk/mock 技术词）----
+    {
+      const guide = buildFirstUseGuide();
+      const is3Steps = guide.steps.length === 3;
+      const titleOk = guide.title === "3 步开始使用";
+      const allText = guide.steps.map((s) => s.title + " " + s.detail).join(" ") + " " + guide.footer;
+      // 不应包含技术细节词（footer 除外，footer 明确说"无需理解 backend/SDK/mock"）
+      const bodyText = guide.steps.map((s) => s.title + " " + s.detail).join(" ");
+      const noTechInBody = !bodyText.includes("mock-success") && !bodyText.includes("mock-failure") &&
+                           !bodyText.includes("sdk-experimental") && !bodyText.includes("Backend 模式");
+      addTest("V1.8 onboarding: 3 步用户导向，步骤正文不含 mock/sdk-experimental/Backend 技术词",
+        is3Steps && titleOk && noTechInBody ? "pass" : "fail",
+        `is3Steps=${is3Steps} titleOk=${titleOk} noTechInBody=${noTechInBody}`);
+    }
+
+    // ---- Test 7: shouldShowFirstUseGuide 逻辑不变 ----
+    {
+      const ok = shouldShowFirstUseGuide(true) === false && shouldShowFirstUseGuide(false) === true;
+      addTest("V1.8 shouldShowFirstUseGuide: dismissed 逻辑不变",
+        ok ? "pass" : "fail", ok ? "" : "逻辑错误");
+    }
+
+    // ---- Test 8: SdkBackend fallback 不影响主流程（仍产出 completed + mock workflow）----
+    {
+      const backend = new SdkBackend();
+      const task = {
+        id: "v18-fb", userMessage: "主流程测试", prompt: "p", cwd: VAULT_PATH,
+        createdAt: new Date().toISOString(), includeActiveNote: false, includeSelection: false,
+      };
+      const settings = {
+        agentType: "claude", claudeCommand: "claude", claudeArgs: "-p",
+        codexCommand: "codex", codexArgs: "exec -", customCommand: "", customArgs: "",
+        includeActiveNote: false, includeSelection: false, maxActiveNoteChars: 6000,
+        maxSelectionChars: 3000, outputDir: "", showStderr: true, saveLogs: false,
+        sessionMode: "fresh", model: "", effortLevel: "", devTestMode: false,
+        backendMode: "sdk-experimental", claudeContinueSession: false, claudeResumeSessionId: "",
+        claudePermissionMode: "default", claudeExtraArgs: "",
+      };
+      const agentEvents = [];
+      const handle = backend.run(task, settings, (e) => agentEvents.push(e), () => {});
+      await new Promise((r) => setTimeout(r, 2000));
+      const hasCompleted = agentEvents.some((e) => e.type === "completed" && e.exitCode === 0);
+      const notRunning = !handle.running;
+      addTest("V1.8 SDK fallback 不影响主流程: completed + handle 翻转",
+        hasCompleted && notRunning ? "pass" : "fail",
+        `hasCompleted=${hasCompleted} notRunning=${notRunning}`);
+    }
+
+    // ---- Test 9: CLI 主线不回归（auto 模式 ClaudeCliBackend 不产生 workflow 事件）----
+    {
+      const backend = new ClaudeCliBackend();
+      const task = {
+        id: "v18-cli", userMessage: "cli", prompt: "p", cwd: VAULT_PATH,
+        createdAt: new Date().toISOString(), includeActiveNote: false, includeSelection: false,
+      };
+      const settings = {
+        agentType: "custom", claudeCommand: "claude", claudeArgs: "-p",
+        codexCommand: "codex", codexArgs: "exec -",
+        customCommand: "cmd", customArgs: "/c echo hello_v18",
+        includeActiveNote: false, includeSelection: false, maxActiveNoteChars: 6000,
+        maxSelectionChars: 3000, outputDir: "", showStderr: true, saveLogs: false,
+        sessionMode: "fresh", model: "", effortLevel: "", devTestMode: false,
+        backendMode: "auto", claudeContinueSession: false, claudeResumeSessionId: "",
+        claudePermissionMode: "default", claudeExtraArgs: "",
+      };
+      const agentEvents = [];
+      backend.run(task, settings, (e) => agentEvents.push(e));
+      await new Promise((r) => setTimeout(r, 3000));
+      const hasStdout = agentEvents.some((e) => e.type === "stdout_delta" && e.data.includes("hello_v18"));
+      addTest("V1.8 CLI 主线不回归: auto 模式正常产出 stdout",
+        hasStdout ? "pass" : "fail",
+        `hasStdout=${hasStdout}`);
+    }
+
+    // ---- Test 10: summarize prompt 无 activeFilePath 也能构造（零配置可用）----
+    {
+      const prompt = buildPresetPrompt("summarize", { activeFilePath: null, outputDir: "" });
+      const hasSummarize = prompt.includes("总结");
+      const hasOutputDir = prompt.includes("90_AI整理待确认");
+      const noNullPath = !prompt.includes("null");
+      addTest("V1.8 零配置可用: summarize 无 activeFilePath 仍可构造 prompt",
+        hasSummarize && hasOutputDir && noNullPath ? "pass" : "fail",
+        `hasSummarize=${hasSummarize} hasOutputDir=${hasOutputDir} noNullPath=${noNullPath}`);
+    }
+
+  } catch (e) {
+    addTest("V1.8 单元测试段", "fail", `加载/执行异常: ${e?.message || e}`);
+  } finally {
+    try { if (presetBundleV18) rmSync(presetBundleV18, { force: true }); } catch {}
+    try { if (guideBundleV18) rmSync(guideBundleV18, { force: true }); } catch {}
+    try { if (sdkBackendBundleV18) rmSync(sdkBackendBundleV18, { force: true }); } catch {}
+    try { if (cliBackendBundleV18) rmSync(cliBackendBundleV18, { force: true }); } catch {}
   }
 }
 

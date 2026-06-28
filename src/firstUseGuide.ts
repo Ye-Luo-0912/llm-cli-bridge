@@ -1,6 +1,6 @@
 // LLM CLI Bridge — First Use Guide
-// V1.2: 首次使用提示（纯函数，便于单元测试）
-// 指导用户：如何选择 backend / 如何点 Preflight / 如何使用选区/当前笔记
+// V1.8: 简化为 3 步用户导向（打开 → 选文字/打开笔记 → 点总结/解释）
+// 不再提及 backend / sdk / mock 等技术细节，普通用户零配置可用
 
 /**
  * 首次使用提示步骤
@@ -22,40 +22,30 @@ export interface GuideContent {
 
 /**
  * 构造首次使用提示内容（纯函数）
- * - 不依赖 Obsidian，便于单元测试
- * - 内容面向普通用户，不展开开发细节
+ * - V1.8: 3 步用户导向，不展开技术细节
+ * - 默认 auto 模式即最佳路径，无需理解 backend
  */
 export function buildFirstUseGuide(): GuideContent {
   return {
-    title: "首次使用提示",
+    title: "3 步开始使用",
     steps: [
       {
         index: 1,
-        title: "选择 Backend 模式",
-        detail: "在设置中选择 backend 模式：auto（默认，使用本地 Claude Code CLI）/ mock-success（测试用，不调用真实模型）/ mock-failure（测试失败显示）。日常使用保持 auto 即可。",
+        title: "确认 Claude Code 已安装",
+        detail: "在终端执行 `claude --version` 能看到版本号即可。若未安装，参考 Claude Code 官方文档。安装后无需任何配置，插件默认使用 auto 模式。",
       },
       {
         index: 2,
-        title: "点 Preflight 检测 agent 可用性",
-        detail: "点击顶部 Preflight 按钮，插件会执行 `claude --version`（不调用真实模型），显示 available / unavailable。状态栏会显示最近一次检测结果。如果 unavailable，请确认本地已安装 Claude Code CLI 且 PATH 可用。",
+        title: "打开笔记或选中文字",
+        detail: "在 Obsidian 中打开一篇笔记，或选中一段文字作为上下文。插件会自动识别当前笔记和选区（底部 chips 显示状态）。",
       },
       {
         index: 3,
-        title: "使用选区作为上下文",
-        detail: "在编辑器中选中文本，底部 chips 行的 Selection 会显示选区字符数。点击 Selection chip 可开关是否将选区注入 prompt。常见用法：选中代码/概念 → 点「解释/改写选区」按钮。",
-      },
-      {
-        index: 4,
-        title: "使用当前笔记作为上下文",
-        detail: "打开一个笔记后，底部 chips 行的 Note 会显示文件名。点击 Note chip 可开关是否将当前笔记内容注入 prompt。常见用法：打开笔记 → 点「总结当前笔记」按钮。",
-      },
-      {
-        index: 5,
-        title: "运行与停止",
-        detail: "在底部输入框输入请求，点 ↑ 发送（或 Ctrl/Cmd+Enter）。运行中显示 Running 状态，可点 ■ 停止。运行结束后，新增/修改的 Markdown 文件会显示在消息下方，可点击打开。",
+        title: "点「总结当前笔记」或「解释选区」",
+        detail: "底部有 3 个按钮：自由提问（清空输入框）、解释选区（解释选中文字）、总结当前笔记（生成摘要笔记）。点击后自动填充 prompt，再点 ↑ 或 Ctrl/Cmd+Enter 发送。",
       },
     ],
-    footer: "提示：预设按钮只生成 prompt 文本，不自动发送。你可以在发送前编辑输入框内容。点 × 关闭此提示后不再显示。",
+    footer: "提示：日常使用只需 auto 模式，无需理解 backend / SDK / mock。点 × 关闭此提示后不再显示。",
   };
 }
 

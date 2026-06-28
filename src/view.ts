@@ -932,16 +932,45 @@ export class LLMBridgeView extends ItemView {
     return `${parts.join(" ")}  # cwd: ${cwd} | model: ${model} | stdin: ${stdin}`;
   }
 
+  // V1.8: 创建默认折叠的可展开区域（减少噪音，AI 最终答案已在 content 优先显示）
+  // 用于 workflow trace / timeline / sdk workflow，默认 startOpen=false
+  private createCollapsibleSection(
+    parent: HTMLElement,
+    title: string,
+    cls: string,
+    startOpen = false,
+  ): HTMLElement {
+    const wrap = parent.createDiv({ cls: `llm-bridge-collapse-section ${cls}` });
+    const head = wrap.createDiv({ cls: "llm-bridge-collapse-section-head" });
+    const toggle = head.createEl("span", {
+      cls: "llm-bridge-collapse-section-toggle",
+      text: `${startOpen ? "▼" : "▶"} ${title}`,
+    });
+    const body = wrap.createDiv({ cls: "llm-bridge-collapse-section-body" });
+    if (!startOpen) body.setAttribute("hidden", "");
+    toggle.addEventListener("click", () => {
+      const hidden = body.hasAttribute("hidden");
+      if (hidden) {
+        body.removeAttribute("hidden");
+        toggle.textContent = `▼ ${title}`;
+      } else {
+        body.setAttribute("hidden", "");
+        toggle.textContent = `▶ ${title}`;
+      }
+    });
+    return body;
+  }
+
   // V1.5: 渲染 Workflow Trace 区域（preflight → build_prompt → spawn → stdout/stderr → file_diff_scan → 终态）
+  // V1.8: 默认折叠（减少噪音），点击 ▶ 展开
   private appendWorkflowTrace(
     parent: HTMLElement,
     trace: ReadonlyArray<{ stage: string; timestamp: string; detail: string; status: string }>,
   ): void {
-    const wrap = parent.createDiv({ cls: "llm-bridge-workflow-trace" });
-    wrap.createEl("div", { cls: "llm-bridge-workflow-trace-title", text: "Workflow Trace" });
+    const body = this.createCollapsibleSection(parent, "Workflow Trace", "llm-bridge-workflow-trace");
     for (const entry of trace) {
       const stage = entry.stage as WorkflowTraceStage;
-      const item = wrap.createDiv({
+      const item = body.createDiv({
         cls: `llm-bridge-workflow-trace-item ${workflowStageClass(stage)} is-${entry.status}`,
       });
       item.createEl("span", { cls: "llm-bridge-workflow-trace-dot" });
@@ -956,14 +985,14 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V1.6: 渲染 SDK 工作流事件（工具级：tool_start/tool_result/file_change/permission/error/message）
+  // V1.8: 默认折叠（SDK experimental 为开发者功能，减少主 UI 噪音）
   private appendSdkWorkflow(parent: HTMLElement, events: ReadonlyArray<WorkflowEvent>): void {
-    const wrap = parent.createDiv({ cls: "llm-bridge-sdk-workflow" });
-    wrap.createEl("div", { cls: "llm-bridge-sdk-workflow-title", text: "SDK Workflow" });
+    const body = this.createCollapsibleSection(parent, "SDK Workflow", "llm-bridge-sdk-workflow");
 
     // 工具调用时间线（tool_start + tool_result 配对）
     const toolTimeline = buildToolTimeline(events);
     if (toolTimeline.length > 0) {
-      const toolList = wrap.createDiv({ cls: "llm-bridge-sdk-tool-list" });
+      const toolList = body.createDiv({ cls: "llm-bridge-sdk-tool-list" });
       for (const tool of toolTimeline) {
         const item = toolList.createDiv({ cls: `llm-bridge-sdk-tool-item is-${tool.status}` });
         item.createEl("span", { cls: "llm-bridge-sdk-tool-icon", text: tool.status === "error" ? "✗" : tool.status === "done" ? "✓" : "…" });
@@ -981,7 +1010,7 @@ export class LLMBridgeView extends ItemView {
     // 非工具事件（message / file_change / permission / error）按时间顺序渲染
     const nonToolEvents = events.filter((e) => e.type !== "tool_start" && e.type !== "tool_result");
     if (nonToolEvents.length > 0) {
-      const eventList = wrap.createDiv({ cls: "llm-bridge-sdk-event-list" });
+      const eventList = body.createDiv({ cls: "llm-bridge-sdk-event-list" });
       for (const event of nonToolEvents) {
         const item = eventList.createDiv({ cls: `llm-bridge-sdk-event-item ${workflowEventClass(event)}` });
         item.createEl("span", { cls: "llm-bridge-sdk-event-icon", text: workflowEventIcon(event) });
@@ -1003,12 +1032,12 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V1.2: 渲染运行过程时间线
+  // V1.8: 默认折叠（减少噪音，AI 最终答案已在 content 优先显示）
   private appendTimeline(parent: HTMLElement, timeline: ReadonlyArray<{ type: string; timestamp: string; detail: string }>): void {
-    const wrap = parent.createDiv({ cls: "llm-bridge-timeline" });
-    wrap.createEl("div", { cls: "llm-bridge-timeline-title", text: "运行过程" });
+    const body = this.createCollapsibleSection(parent, "运行过程", "llm-bridge-timeline");
     for (const entry of timeline) {
       const type = entry.type as TimelineEventType;
-      const item = wrap.createDiv({ cls: `llm-bridge-timeline-item ${timelineTypeClass(type)}` });
+      const item = body.createDiv({ cls: `llm-bridge-timeline-item ${timelineTypeClass(type)}` });
       item.createEl("span", { cls: "llm-bridge-timeline-dot" });
       const text = item.createDiv({ cls: "llm-bridge-timeline-text" });
       text.createEl("span", { cls: "llm-bridge-timeline-label", text: timelineTypeLabel(type) });
