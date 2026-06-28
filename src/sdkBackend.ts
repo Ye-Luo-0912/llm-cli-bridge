@@ -10,6 +10,7 @@
 // 5. 权限：canUseTool 回调发出 permission 事件，默认 allow（仅展示，不自动批准危险操作由 permissionMode 控制）
 // 6. partial：stream_event 标记 partial 不产出事件，不伪造工具过程
 
+import * as path from "path";
 import { AgentBackend, AgentEventHandler, AgentRunHandle, AgentTask } from "./agentBackend";
 import { LLMBridgeSettings } from "./types";
 import {
@@ -64,27 +65,43 @@ export interface SdkLoadResult {
 }
 
 /**
+ * 候选运行时根目录（V2.4 修正：支持 vault 内 + sibling 两种布局）
+ * 1. <vault>/LLM-AgentRuntime — vault 内子目录（原有布局）
+ * 2. <vault>/../LLM-AgentRuntime — vault 同级 sibling 目录（多 vault 共享运行时）
+ * @returns 候选运行时根目录数组（按优先级）
+ */
+export function resolveRuntimeDirs(cwd: string): string[] {
+  return [
+    path.join(cwd, "LLM-AgentRuntime"),
+    path.join(cwd, "..", "LLM-AgentRuntime"),
+  ];
+}
+
+/**
  * 尝试加载 Claude Agent SDK
- * 优先从 Vault 局部 LLM-AgentRuntime/node_modules 加载，再尝试全局 require
+ * 优先从候选运行时目录（vault 内 + sibling）的 node_modules 加载，再尝试全局 require
  * @returns 加载结果（含包名与版本），不可用时返回 null
  */
 export function tryLoadSdk(cwd: string): SdkLoadResult | null {
+  const runtimeDirs = resolveRuntimeDirs(cwd);
   for (const pkgName of SDK_PACKAGE_CANDIDATES) {
-    // 1. 尝试 Vault 局部 node_modules
-    try {
-      const localPath = `${cwd}/LLM-AgentRuntime/node_modules/${pkgName}`;
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const mod = require(localPath);
-      const version = extractSdkVersion(mod, pkgName, cwd);
-      return { mod, packageName: pkgName, version };
-    } catch {
-      // 局部加载失败，继续尝试全局
+    // 1. 候选运行时目录（vault 内 + sibling）
+    for (const runtimeDir of runtimeDirs) {
+      try {
+        const localPath = path.join(runtimeDir, "node_modules", pkgName);
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require(localPath);
+        const version = extractSdkVersion(pkgName, runtimeDir);
+        return { mod, packageName: pkgName, version };
+      } catch {
+        // 该运行时目录加载失败，继续下一个
+      }
     }
     // 2. 尝试全局 require
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const mod = require(pkgName);
-      const version = extractSdkVersion(mod, pkgName, cwd);
+      const version = extractSdkVersion(pkgName, null);
       return { mod, packageName: pkgName, version };
     } catch {
       // 全局也失败，尝试下一个候选包名
@@ -95,15 +112,18 @@ export function tryLoadSdk(cwd: string): SdkLoadResult | null {
 
 /**
  * 提取 SDK 版本（从 package.json，不含 secret）
+ * @param pkgName SDK 包名
+ * @param runtimeDir 运行时根目录（null 表示全局 require）
  */
-function extractSdkVersion(mod: unknown, pkgName: string, cwd: string): string | null {
+function extractSdkVersion(pkgName: string, runtimeDir: string | null): string | null {
   try {
     const fs = require("fs");
-    const path = require("path");
-    const pkgJsonPath = path.join(cwd, "LLM-AgentRuntime", "node_modules", pkgName, "package.json");
-    if (fs.existsSync(pkgJsonPath)) {
-      const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8"));
-      return pkg.version ?? null;
+    if (runtimeDir) {
+      const pkgJsonPath = path.join(runtimeDir, "node_modules", pkgName, "package.json");
+      if (fs.existsSync(pkgJsonPath)) {
+        const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf8"));
+        return pkg.version ?? null;
+      }
     }
     // 尝试全局 node_modules
     const globalPkgPath = require.resolve(`${pkgName}/package.json`);

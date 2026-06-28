@@ -313,10 +313,11 @@ export async function importSkillFromFile(
     const parsed = parseSkillsMarkdown(content);
     if (parsed.length === 0) return false;
     const skill = parsed[0];
-    // 用源文件名作为目标文件名（保留可识别性）
-    const baseName = path.basename(srcFilePath, ".md");
+    // V2.4 修正：用 skillNameToFileName(skill.name) 作为文件名，保持与 deleteSkill/isImportedSkill 一致
+    // （原实现用源文件 basename，导致导入后无法按 skill 名称删除）
+    const fileName = `${skillNameToFileName(skill.name)}.md`;
     const dirPath = path.join(vaultPath, SKILLS_DIR_REL);
-    const filePath = path.join(dirPath, `${baseName}.md`);
+    const filePath = path.join(dirPath, fileName);
     await fs.promises.mkdir(dirPath, { recursive: true });
     try {
       await fs.promises.access(filePath);

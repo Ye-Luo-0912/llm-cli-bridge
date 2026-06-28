@@ -46,9 +46,9 @@ const PERMISSION_MODE_INFO: Readonly<Record<ClaudePermissionMode, PermissionMode
   plan: {
     mode: "plan",
     label: "只读规划",
-    risk: "仅允许只读操作（读文件/列目录/查询状态），不执行任何修改；适合规划与调研。",
+    risk: "低风险只读操作（读文件/列目录/查询状态）自动允许；中/高风险（编辑/删除/Shell/网络）拒绝；适合规划与调研。",
     level: "safe",
-    interactive: false,
+    interactive: true,
   },
   auto: {
     mode: "auto",
@@ -318,13 +318,21 @@ export function decideByMode(
     };
   }
 
-  // 只读模式：全部拒绝
+  // plan：low 只读自动允许，medium/high 拒绝（V2.4 修正：与文案一致）
   if (mode === "plan") {
+    if (risk.level === "low") {
+      return {
+        behavior: "allow",
+        source: "mode",
+        risk,
+        reason: `${info.label}：低风险只读操作自动允许`,
+      };
+    }
     return {
       behavior: "deny",
       source: "mode",
       risk,
-      reason: `${info.label}：只读模式不允许工具执行`,
+      reason: `${info.label}：${risk.level} 风险操作拒绝（只读模式不允许修改/删除/Shell/网络）`,
     };
   }
 

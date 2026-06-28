@@ -4747,11 +4747,11 @@ if (!runV23sUnit) {
         `behavior=${d.behavior} source=${d.source}`);
     }
 
-    // ---- Test 8: decideByMode plan → deny ----
+    // ---- Test 8: decideByMode plan+medium → deny（V2.4: plan+low 改为 allow，此处用 Edit 验证 medium 仍 deny）----
     {
-      const risk = assessToolRisk("Read", { file_path: "test.md" });
+      const risk = assessToolRisk("Edit", { file_path: "test.md" });
       const d = decideByMode("plan", risk);
-      addTest("V2.3s decideByMode: plan → deny (mode)",
+      addTest("V2.3s decideByMode: plan+medium → deny (mode)",
         d.behavior === "deny" && d.source === "mode" ? "pass" : "fail",
         `behavior=${d.behavior} source=${d.source}`);
     }
@@ -5014,11 +5014,11 @@ if (!runV23sUnit) {
         `behavior=${d.behavior}`);
     }
 
-    // ---- Test 35: decideByMode plan+any → deny ----
+    // ---- Test 35: decideByMode plan+low → allow（V2.4 修正：只读允许） ----
     {
       const d = decideByMode("plan", riskLowV232);
-      addTest("V2.3.2 decideByMode: plan+low → deny",
-        d.behavior === "deny" ? "pass" : "fail",
+      addTest("V2.4 decideByMode: plan+low → allow（只读操作允许）",
+        d.behavior === "allow" ? "pass" : "fail",
         `behavior=${d.behavior}`);
     }
 
@@ -5065,6 +5065,264 @@ if (!runV23sUnit) {
     try { if (sdkBackendBundleV23s) rmSync(sdkBackendBundleV23s, { force: true }); } catch {}
     try { if (workflowEventBundleV23s) rmSync(workflowEventBundleV23s, { force: true }); } catch {}
     try { if (cliBackendBundleV23s) rmSync(cliBackendBundleV23s, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
+// 8.11 V2.4 Core UX Consolidation / SDK Runtime Fix 单元测试
+//     覆盖：SDK sibling runtime 候选目录、plan 权限新语义（low allow / medium+high deny）、
+//           Skills 导入删除一致性（importSkillFromFile 用 skillNameToFileName）、
+//           UI 默认折叠（Advanced + Command Preview）、Preflight 缓存失效、
+//           Mode chip 移除、CLI 不回归、PATH sibling 布局、secret 脱敏
+// ============================================================
+console.log("\n=== V2.4 Core UX / SDK Runtime Fix 单元测试 ===");
+
+const runV24Unit = runMode === "all" || runMode === "unit";
+
+if (!runV24Unit) {
+  addTest("V2.4 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let sdkBackendBundleV24 = null;
+  let sdkPermBundleV24 = null;
+  let skillsBundleV24 = null;
+  let cliBackendBundleV24 = null;
+  let workflowEventBundleV24 = null;
+  let tempSkillsV24Dir = null;
+  let tempSkillSrcFile = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    sdkBackendBundleV24 = join(PROJECT_ROOT, ".test-sdk-backend-v24-temp.mjs");
+    sdkPermBundleV24 = join(PROJECT_ROOT, ".test-sdk-perm-v24-temp.mjs");
+    skillsBundleV24 = join(PROJECT_ROOT, ".test-skills-v24-temp.mjs");
+    cliBackendBundleV24 = join(PROJECT_ROOT, ".test-cli-backend-v24-temp.mjs");
+    workflowEventBundleV24 = join(PROJECT_ROOT, ".test-workflow-event-v24-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sdkBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sdkBackendBundleV24,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sdkPermission.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sdkPermBundleV24,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "skills.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: skillsBundleV24,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV24,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "workflowEvent.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: workflowEventBundleV24,
+    });
+
+    const { resolveRuntimeDirs } = await import(pathToFileURL(sdkBackendBundleV24).href);
+    const { decideByMode, assessToolRisk, getPermissionModeInfo } = await import(pathToFileURL(sdkPermBundleV24).href);
+    const { importSkillFromFile, isImportedSkill, deleteSkill } = await import(pathToFileURL(skillsBundleV24).href);
+    const { ClaudeCliBackend, buildEnhancedPath } = await import(pathToFileURL(cliBackendBundleV24).href);
+    const { redactSecrets, redactWorkflowEvent } = await import(pathToFileURL(workflowEventBundleV24).href);
+
+    // ===== SDK sibling runtime 候选目录 =====
+
+    // ---- Test 1: resolveRuntimeDirs 返回 2 个候选路径 ----
+    {
+      const dirs = resolveRuntimeDirs("/vault/test");
+      addTest("V2.4 SDK sibling runtime: 返回 2 个候选目录",
+        Array.isArray(dirs) && dirs.length === 2 ? "pass" : "fail",
+        `length=${dirs?.length}`);
+    }
+
+    // ---- Test 2: resolveRuntimeDirs 候选顺序（vault 内优先，sibling 次之）----
+    {
+      const cwd = join("C:", "vault", "mywiki");
+      const dirs = resolveRuntimeDirs(cwd);
+      // path.join 会把 ".." 解析掉，所以 sibling 实际是父目录下的 LLM-AgentRuntime
+      const insideExpected = join(cwd, "LLM-AgentRuntime");
+      const siblingExpected = join("C:", "vault", "LLM-AgentRuntime");
+      const hasInside = dirs[0] === insideExpected;
+      const hasSibling = dirs[1] === siblingExpected;
+      addTest("V2.4 SDK sibling runtime: vault 内优先 + sibling 次之",
+        hasInside && hasSibling ? "pass" : "fail",
+        `dirs=${dirs.join(" | ")}`);
+    }
+
+    // ===== plan 权限新语义（V2.4 修正）=====
+
+    // ---- Test 3: plan + low（Read）→ allow ----
+    {
+      const risk = assessToolRisk("Read", { file_path: "notes/test.md" });
+      const d = decideByMode("plan", risk);
+      addTest("V2.4 plan 权限: low 只读操作自动允许",
+        d.behavior === "allow" ? "pass" : "fail",
+        `behavior=${d.behavior} reason=${d.reason.slice(0, 40)}`);
+    }
+
+    // ---- Test 4: plan + medium（Edit）→ deny ----
+    {
+      const risk = assessToolRisk("Edit", { file_path: "notes/test.md" });
+      const d = decideByMode("plan", risk);
+      addTest("V2.4 plan 权限: medium 编辑操作拒绝",
+        d.behavior === "deny" ? "pass" : "fail",
+        `behavior=${d.behavior} reason=${d.reason.slice(0, 40)}`);
+    }
+
+    // ---- Test 5: plan + high（Bash）→ deny ----
+    {
+      const risk = assessToolRisk("Bash", { command: "ls" });
+      const d = decideByMode("plan", risk);
+      addTest("V2.4 plan 权限: high Shell 操作拒绝",
+        d.behavior === "deny" ? "pass" : "fail",
+        `behavior=${d.behavior} reason=${d.reason.slice(0, 40)}`);
+    }
+
+    // ---- Test 6: plan + low reason 含"低风险只读"说明 ----
+    {
+      const risk = assessToolRisk("Read", { file_path: "notes/test.md" });
+      const d = decideByMode("plan", risk);
+      addTest("V2.4 plan 权限: low reason 含低风险只读说明",
+        d.reason.includes("低风险") && d.reason.includes("只读") ? "pass" : "fail",
+        `reason=${d.reason}`);
+    }
+
+    // ---- Test 7: plan 文案与语义一致（含"自动允许"与"拒绝"）----
+    {
+      const info = getPermissionModeInfo("plan");
+      const hasAllow = info.risk.includes("自动允许");
+      const hasDeny = info.risk.includes("拒绝");
+      addTest("V2.4 plan 文案: 含低风险自动允许与中/高拒绝说明",
+        hasAllow && hasDeny ? "pass" : "fail",
+        `risk=${info.risk.slice(0, 60)}`);
+    }
+
+    // ===== Skills 导入/删除一致性（V2.4 修正）=====
+
+    // ---- Test 8: importSkillFromFile 用 skill 名称（非源文件 basename）作为存储文件名 ----
+    {
+      tempSkillsV24Dir = mkdtempSync(join(tmpdir(), "llm-bridge-v24-skills-"));
+      // 源文件名与 skill 名称不同：源文件 external-name.md，skill 名称 "实际技能名"
+      tempSkillSrcFile = join(tempSkillsV24Dir, "external-source-name.md");
+      writeFileSync(tempSkillSrcFile, "## 实际技能名\n描述文本\n\n请执行实际技能操作\n", "utf8");
+      const ok = await importSkillFromFile(tempSkillsV24Dir, tempSkillSrcFile);
+      // 用 skill 名称（非源文件 basename）应能识别为已导入
+      const importedBySkillName = await isImportedSkill(tempSkillsV24Dir, "实际技能名");
+      addTest("V2.4 Skills 导入一致性: importSkillFromFile 用 skill 名称存储",
+        ok && importedBySkillName ? "pass" : "fail",
+        `ok=${ok} importedBySkillName=${importedBySkillName}`);
+    }
+
+    // ---- Test 9: 导入后可用 skill 名称删除（一致性核心验证）----
+    {
+      const deleted = await deleteSkill(tempSkillsV24Dir, "实际技能名");
+      const stillImported = await isImportedSkill(tempSkillsV24Dir, "实际技能名");
+      addTest("V2.4 Skills 删除一致性: 用 skill 名称可删除导入文件",
+        deleted && !stillImported ? "pass" : "fail",
+        `deleted=${deleted} stillImported=${stillImported}`);
+    }
+
+    // ===== UI 默认折叠（源码字符串检查）=====
+
+    // ---- Test 10: 状态栏 Advanced 区默认折叠（hidden + ▶ Advanced）----
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const hasAdvancedToggle = viewSrc.includes("▶ Advanced");
+      const hasHiddenAttr = viewSrc.includes('llm-bridge-sb-advanced-items',) && viewSrc.includes('attr: { hidden: "" }');
+      const hasToggleHandler = viewSrc.includes("sbAdvancedToggle") && viewSrc.includes("▼ Advanced");
+      addTest("V2.4 UI 默认折叠: Advanced 区默认 hidden + 可展开",
+        hasAdvancedToggle && hasHiddenAttr && hasToggleHandler ? "pass" : "fail",
+        `toggle=${hasAdvancedToggle} hidden=${hasHiddenAttr} handler=${hasToggleHandler}`);
+    }
+
+    // ---- Test 11: Command Preview 默认折叠（body hidden）----
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const hasCmdPreviewBody = viewSrc.includes("llm-bridge-cmd-preview-body");
+      const hasCmdHidden = /cmd-preview-body[^]*hidden/.test(viewSrc);
+      addTest("V2.4 UI 默认折叠: Command Preview body 默认 hidden",
+        hasCmdPreviewBody && hasCmdHidden ? "pass" : "fail",
+        `body=${hasCmdPreviewBody} hidden=${hasCmdHidden}`);
+    }
+
+    // ===== Preflight 缓存失效（源码字符串检查）=====
+
+    // ---- Test 12: agent 切换 + 手动刷新时重置 lastPreflightResult ----
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const agentChangeResets = /agentSelect\.addEventListener\([\s\S]*?lastPreflightResult = null/.test(viewSrc);
+      const refreshResets = /refreshBtn\.addEventListener\([\s\S]*?lastPreflightResult = null/.test(viewSrc);
+      addTest("V2.4 Preflight 缓存失效: agent 切换 + 手动刷新均重置",
+        agentChangeResets && refreshResets ? "pass" : "fail",
+        `agentChange=${agentChangeResets} refresh=${refreshResets}`);
+    }
+
+    // ===== Mode chip 移除 + New 按钮去重（源码字符串检查）=====
+
+    // ---- Test 13: Mode chip 已移除（无 modeChipGroup 字段与 refreshCycleChip 调用）----
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const hasModeChipField = /private\s+modeChipGroup/.test(viewSrc);
+      const hasModeChipRefresh = /refreshCycleChip\(this\.modeChipGroup/.test(viewSrc);
+      addTest("V2.4 Mode chip 移除: 无 modeChipGroup 字段与 refresh 调用",
+        !hasModeChipField && !hasModeChipRefresh ? "pass" : "fail",
+        `field=${hasModeChipField} refresh=${hasModeChipRefresh}`);
+    }
+
+    // ===== CLI 不回归 + PATH sibling 布局 =====
+
+    // ---- Test 14: ClaudeCliBackend 可实例化（CLI 主线不回归）----
+    {
+      const backend = new ClaudeCliBackend();
+      addTest("V2.4 CLI 不回归: ClaudeCliBackend 可实例化",
+        backend && typeof backend.run === "function" && backend.name === "claude-cli" ? "pass" : "fail",
+        `name=${backend?.name}`);
+    }
+
+    // ---- Test 15: buildEnhancedPath 包含 sibling 布局（path.join 已解析 ".."，验证 LLM-AgentRuntime 出现 >=2 次）----
+    {
+      const enhancedPath = buildEnhancedPath(join("C:", "vault", "mywiki"));
+      // path.join 会把 cwd/../LLM-AgentRuntime 解析为父目录下的 LLM-AgentRuntime
+      // 所以 vault 内 + sibling 两种布局都存在时，LLM-AgentRuntime 应出现 >= 2 次
+      const matches = enhancedPath.match(/LLM-AgentRuntime/gi) || [];
+      addTest("V2.4 PATH sibling: buildEnhancedPath 含 vault 内 + sibling 两种布局",
+        matches.length >= 2 ? "pass" : "fail",
+        `count=${matches.length}`);
+    }
+
+    // ===== secret 脱敏 =====
+
+    // ---- Test 16: redactSecrets 脱敏 Anthropic API key ----
+    {
+      const input = "key=sk-ant-api03-abcdefghijklmnopqrstuvwx";
+      const redacted = redactSecrets(input);
+      addTest("V2.4 secret 脱敏: Anthropic API key 替换为 ***",
+        !redacted.includes("abcdefghijklmnopqrstuvwx") && redacted.includes("***") ? "pass" : "fail",
+        `redacted=${redacted}`);
+    }
+
+    // ---- Test 17: redactWorkflowEvent 脱敏 tool_start 中的 API key ----
+    {
+      const event = {
+        type: "tool_start",
+        timestamp: "2026-06-28T00:00:00.000Z",
+        toolName: "Bash",
+        toolInput: 'command="export ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwx"',
+        callId: "call_test_v24",
+      };
+      const redacted = redactWorkflowEvent(event);
+      addTest("V2.4 secret 脱敏: redactWorkflowEvent 脱敏 tool_start toolInput",
+        !redacted.toolInput.includes("abcdefghijklmnopqrstuvwx") ? "pass" : "fail",
+        `toolInput=${redacted.toolInput.slice(0, 60)}`);
+    }
+
+  } catch (e) {
+    addTest("V2.4 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (sdkBackendBundleV24) rmSync(sdkBackendBundleV24, { force: true }); } catch {}
+    try { if (sdkPermBundleV24) rmSync(sdkPermBundleV24, { force: true }); } catch {}
+    try { if (skillsBundleV24) rmSync(skillsBundleV24, { force: true }); } catch {}
+    try { if (cliBackendBundleV24) rmSync(cliBackendBundleV24, { force: true }); } catch {}
+    try { if (workflowEventBundleV24) rmSync(workflowEventBundleV24, { force: true }); } catch {}
+    try { if (tempSkillsV24Dir) rmSync(tempSkillsV24Dir, { recursive: true, force: true }); } catch {}
   }
 }
 

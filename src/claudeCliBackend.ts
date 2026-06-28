@@ -42,6 +42,7 @@ export function buildEnhancedPath(cwd: string): string {
 
   // 1. Vault 局部路径（便携版优先级最高，相对 cwd 健壮）
   paths.push(path.join(cwd, "LLM-AgentRuntime", "node_modules", ".bin"));
+  paths.push(path.join(cwd, "..", "LLM-AgentRuntime", "node_modules", ".bin")); // V2.4: sibling 布局
   paths.push(path.join(cwd, "node_modules", ".bin"));
 
   if (win) {

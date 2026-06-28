@@ -111,7 +111,6 @@ export class LLMBridgeView extends ItemView {
   private selectionLabelEl!: HTMLElement;
   private agentChipGroup!: HTMLElement;
   private agentChipTextEl!: HTMLElement;
-  private modeChipGroup!: HTMLElement;
   private modelChipGroup!: HTMLElement;
   private effortChipGroup!: HTMLElement;
   private includeNoteCheckEl!: HTMLInputElement;
@@ -181,6 +180,7 @@ export class LLMBridgeView extends ItemView {
       if (this.runHandle) return;
       this.plugin.settings.agentType = agentSelect.value as AgentType;
       await this.plugin.saveSettings();
+      this.lastPreflightResult = null; // V2.4: 切换 agent 后失效 preflight 缓存
       this.refreshModeOptions();
       this.refreshAllChips();
     });
@@ -199,6 +199,7 @@ export class LLMBridgeView extends ItemView {
     const refreshBtn = headerRight.createEl("button", { cls: "llm-bridge-icon-btn", attr: { title: "刷新" } });
     refreshBtn.createEl("span", { cls: "llm-bridge-icon", text: "↻" });
     refreshBtn.addEventListener("click", () => {
+      this.lastPreflightResult = null; // V2.4: 手动刷新时失效 preflight 缓存
       this.updateContextDisplay();
       this.syncControlsFromSettings();
     });
@@ -233,12 +234,13 @@ export class LLMBridgeView extends ItemView {
     // 会话标题行（左侧标题 + 右侧 New Session 按钮）
     const sbTitleRow = this.statusBarEl.createDiv({ cls: "llm-bridge-sb-title-row" });
     this.sessionTitleEl = sbTitleRow.createEl("span", { cls: "llm-bridge-sb-session-title", text: this.sessionState.title, attr: { title: "当前会话" } });
-    const newSessionBtn = sbTitleRow.createEl("button", {
+    // V2.4: 状态栏 New 按钮复用 clearBtn 字段（移除 chips 行重复按钮）
+    this.clearBtn = sbTitleRow.createEl("button", {
       cls: "llm-bridge-sb-new-session",
       text: "New",
       attr: { title: "新建会话（清空消息）" },
     });
-    newSessionBtn.addEventListener("click", () => this.newSession());
+    this.clearBtn.addEventListener("click", () => this.newSession());
     const sbItems = this.statusBarEl.createDiv({ cls: "llm-bridge-sb-items" });
     this.statusBackendEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item", attr: { title: "Backend 模式" } });
     this.statusBackendEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Backend" });
@@ -249,24 +251,41 @@ export class LLMBridgeView extends ItemView {
     this.statusCwdEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-cwd", attr: { title: "当前 Vault / cwd" } });
     this.statusCwdEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Cwd" });
     this.statusCwdEl.createEl("span", { cls: "llm-bridge-sb-value" });
-    this.statusPreflightEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-preflight", attr: { title: "最近一次 preflight 状态" } });
+    // V2.4: 高级指标折叠区（减少首屏噪音，默认折叠；运行中可展开查看 SDK 调试指标）
+    const sbAdvancedToggle = sbItems.createEl("button", {
+      cls: "llm-bridge-sb-advanced-toggle",
+      text: "▶ Advanced",
+      attr: { title: "展开高级指标（Preflight/权限/Skills/工具/Agents/模式）" },
+    });
+    const sbAdvancedItems = sbItems.createDiv({ cls: "llm-bridge-sb-advanced-items", attr: { hidden: "" } });
+    sbAdvancedToggle.addEventListener("click", () => {
+      const hidden = sbAdvancedItems.hasAttribute("hidden");
+      if (hidden) {
+        sbAdvancedItems.removeAttribute("hidden");
+        sbAdvancedToggle.textContent = "▼ Advanced";
+      } else {
+        sbAdvancedItems.setAttribute("hidden", "");
+        sbAdvancedToggle.textContent = "▶ Advanced";
+      }
+    });
+    this.statusPreflightEl = sbAdvancedItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-preflight", attr: { title: "最近一次 preflight 状态" } });
     this.statusPreflightEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Preflight" });
     this.statusPreflightEl.createEl("span", { cls: "llm-bridge-sb-value", text: "未检测" });
     // V2.3: 权限策略 / 已应用 Skills / 工具步骤 / agent 计数
-    this.statusPermissionEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-permission", attr: { title: "当前权限策略" } });
+    this.statusPermissionEl = sbAdvancedItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-permission", attr: { title: "当前权限策略" } });
     this.statusPermissionEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Perm" });
     this.statusPermissionEl.createEl("span", { cls: "llm-bridge-sb-value", text: "medium" });
-    this.statusSkillsEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-skills", attr: { title: "已应用到当前输入的 Skills" } });
+    this.statusSkillsEl = sbAdvancedItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-skills", attr: { title: "已应用到当前输入的 Skills" } });
     this.statusSkillsEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Skills" });
     this.statusSkillsEl.createEl("span", { cls: "llm-bridge-sb-value", text: "0" });
-    this.statusToolsEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-tools", attr: { title: "最近一次 SDK 运行的工具步骤数" } });
+    this.statusToolsEl = sbAdvancedItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-tools", attr: { title: "最近一次 SDK 运行的工具步骤数" } });
     this.statusToolsEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Tools" });
     this.statusToolsEl.createEl("span", { cls: "llm-bridge-sb-value", text: "0" });
-    this.statusAgentsEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-agents", attr: { title: "最近一次 SDK 运行的 agent 实例数" } });
+    this.statusAgentsEl = sbAdvancedItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-agents", attr: { title: "最近一次 SDK 运行的 agent 实例数" } });
     this.statusAgentsEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Agents" });
     this.statusAgentsEl.createEl("span", { cls: "llm-bridge-sb-value", text: "0" });
     // V2.3s: 权限模式（SDK permissionMode + 中文风险解释）
-    this.statusPermModeEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-perm-mode", attr: { title: "SDK 权限模式" } });
+    this.statusPermModeEl = sbAdvancedItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-perm-mode", attr: { title: "SDK 权限模式" } });
     this.statusPermModeEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Mode" });
     this.statusPermModeEl.createEl("span", { cls: "llm-bridge-sb-value", text: "默认询问" });
 
@@ -365,15 +384,7 @@ export class LLMBridgeView extends ItemView {
       this.plugin.settings.effortLevel = v;
       await this.plugin.saveSettings();
     });
-    this.modeChipGroup = this.buildChipGroup(chipsRow, MODE_OPTIONS, () => this.plugin.settings.sessionMode, async (v) => {
-      if (v !== "fresh") {
-        new Notice("本轮只启用 Fresh 模式");
-        this.refreshAllChips();
-        return;
-      }
-      this.plugin.settings.sessionMode = v as SessionMode;
-      await this.plugin.saveSettings();
-    });
+    // V2.4: 移除 Mode chip（仅 Fresh 可用，Continue/Resume 永久 disabled，点击 no-op 易误导）
 
     // Note / Selection 上下文 chips（可点击切换，带勾选态）
     this.includeNoteCheckEl = this.buildContextChip(chipsRow, "Note", () => this.plugin.settings.includeActiveNote, async (on) => {
@@ -388,13 +399,7 @@ export class LLMBridgeView extends ItemView {
     });
     this.selectionLabelEl = this.includeSelectionCheckEl.parentElement!.createEl("span", { cls: "llm-bridge-chip-file", text: "" });
 
-    // 清空按钮放最右（V2.0: 重命名为 New，与 session 概念一致）
-    this.clearBtn = chipsRow.createEl("button", {
-      cls: "llm-bridge-chip-ghost",
-      text: "New",
-      attr: { title: "新建会话（清空消息）" },
-    });
-    this.clearBtn.addEventListener("click", () => this.newSession());
+    // V2.4: 移除 chips 行重复的 New 按钮（状态栏已有，避免误导）
 
     // 初始化
     this.syncControlsFromSettings();
@@ -623,7 +628,7 @@ export class LLMBridgeView extends ItemView {
     // cycle chips：显示当前选中标签
     this.refreshCycleChip(this.modelChipGroup, MODEL_OPTIONS, this.plugin.settings.model);
     this.refreshCycleChip(this.effortChipGroup, EFFORT_OPTIONS, this.plugin.settings.effortLevel);
-    this.refreshCycleChip(this.modeChipGroup, MODE_OPTIONS, this.plugin.settings.sessionMode);
+    // V2.4: Mode chip 已移除（仅 Fresh 可用，无需 refresh）
 
     // 上下文 chip 勾选态
     const noteChip = this.includeNoteCheckEl.parentElement?.querySelector(".llm-bridge-chip-toggle");
@@ -1173,7 +1178,7 @@ export class LLMBridgeView extends ItemView {
   ): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-cmd-preview" });
     const head = wrap.createDiv({ cls: "llm-bridge-cmd-preview-head" });
-    head.createEl("span", { cls: "llm-bridge-cmd-preview-toggle", text: "▼ Command" });
+    head.createEl("span", { cls: "llm-bridge-cmd-preview-toggle", text: "▶ Command" });
     // 复制命令按钮
     const copyCmdBtn = head.createEl("button", {
       cls: "llm-bridge-cmd-preview-copy",
@@ -1190,7 +1195,8 @@ export class LLMBridgeView extends ItemView {
       }
     });
 
-    const body = wrap.createDiv({ cls: "llm-bridge-cmd-preview-body" });
+    // V2.4: Command Preview 默认折叠（与 Workflow Trace / SDK Workflow 一致，减少首屏噪音）
+    const body = wrap.createDiv({ cls: "llm-bridge-cmd-preview-body", attr: { hidden: "" } });
     for (const row of rows) {
       const rowEl = body.createDiv({ cls: "llm-bridge-cmd-preview-row" });
       rowEl.createEl("span", { cls: "llm-bridge-cmd-preview-label", text: row.label });
@@ -2171,6 +2177,16 @@ export class LLMBridgeView extends ItemView {
       `\nexit code: ${result.exitCode ?? "null"}  signal: ${result.signal ?? "-"}\nduration: ${result.durationMs} ms`;
     // V0.3: backend 终态 stderr 已是用户可见摘要，直接覆盖（不再增量拼接）
     // 详细诊断日志已写入 .llm-bridge/logs/debug-*.log
+    // V2.4: 先保存日志，拿到具体文件路径用于 debug log 提示（而非目录）
+    let debugLogPath = "";
+    if (this.plugin.settings.saveLogs) {
+      try {
+        debugLogPath = await this.saveLogFile(result, vaultPath);
+      } catch {
+        /* 忽略 */
+      }
+    }
+
     let newStderr = this.plugin.settings.showStderr ? (result.stderr || "") : "";
     // V1.1: 失败时构造简短错误摘要（脱敏，不含 secret），并在 stderr 末尾追加 debug log 路径
     const errorSummary = status === "failed" ? buildErrorSummary(result.stderr, result.exitCode) : "";
@@ -2178,9 +2194,9 @@ export class LLMBridgeView extends ItemView {
       if (errorSummary) {
         newStderr = newStderr ? `${newStderr}\n---\n摘要: ${errorSummary}` : `摘要: ${errorSummary}`;
       }
-      // 追加 debug log 路径提示
-      const logsDir = path.join(vaultPath, ".llm-bridge", "logs");
-      newStderr = `${newStderr}\nDebug log: ${logsDir}`;
+      // V2.4: 追加具体 debug log 文件路径（而非目录），便于用户直接定位
+      const logPath = debugLogPath || path.join(vaultPath, ".llm-bridge", "logs");
+      newStderr = `${newStderr}\nDebug log: ${logPath}`;
     }
 
     // V1.2: 构造运行过程时间线（started / stdout / stderr / 终态）
@@ -2201,14 +2217,6 @@ export class LLMBridgeView extends ItemView {
       timeline,
       sdkEvents: sdkEvents.length > 0 ? sdkEvents : undefined,
     });
-
-    if (this.plugin.settings.saveLogs) {
-      try {
-        await this.saveLogFile(result, vaultPath);
-      } catch {
-        /* 忽略 */
-      }
-    }
 
     await new Promise((r) => setTimeout(r, 300));
     const afterFiles = await snapshotVaultMarkdownFiles(vaultPath);
@@ -2237,7 +2245,7 @@ export class LLMBridgeView extends ItemView {
 
   // ---------- 日志保存 ----------
 
-  private async saveLogFile(result: RunResult, vaultPath: string): Promise<void> {
+  private async saveLogFile(result: RunResult, vaultPath: string): Promise<string> {
     const logsDir = path.join(vaultPath, ".llm-bridge", "logs");
     await fs.promises.mkdir(logsDir, { recursive: true });
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
@@ -2254,6 +2262,7 @@ export class LLMBridgeView extends ItemView {
       `\n---- stdout ----\n${result.stdout}\n` +
       `\n---- stderr ----\n${result.stderr}\n`;
     await fs.promises.writeFile(file, content, "utf8");
+    return file; // V2.4: 返回具体文件路径，用于 debug log 提示
   }
 
   // ---------- 文件检测 ----------
