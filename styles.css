@@ -1,0 +1,456 @@
+/* LLM CLI Bridge — Codex / Claude Code 风格紧凑工作台 */
+
+.llm-bridge-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 0;
+  font-size: var(--font-ui-small);
+  overflow: hidden;
+  background: var(--background-primary);
+}
+
+/* ===== header ===== */
+.llm-bridge-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex: 0 0 auto;
+}
+
+.llm-bridge-title {
+  font-weight: 600;
+  font-size: var(--font-small);
+  color: var(--text-normal);
+  letter-spacing: 0.3px;
+  flex: 0 0 auto;
+}
+
+.llm-bridge-agent-select {
+  font-size: var(--font-smaller);
+  padding: 2px 6px;
+  height: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  flex: 0 0 auto;
+}
+.llm-bridge-agent-select:focus { outline: none; border-color: var(--interactive-accent); }
+
+.llm-bridge-header-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+/* 状态点 */
+.llm-bridge-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: 0 0 auto;
+}
+.llm-bridge-status-dot-idle { background: var(--text-muted); }
+.llm-bridge-status-dot-running { background: var(--interactive-accent); animation: llm-bridge-pulse 1.2s infinite; }
+.llm-bridge-status-dot-completed { background: #4caf50; }
+.llm-bridge-status-dot-failed { background: #e53935; }
+.llm-bridge-status-dot-stopped { background: #fb8c00; }
+
+@keyframes llm-bridge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.llm-bridge-status-text {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  min-width: 50px;
+}
+
+.llm-bridge-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 5px;
+}
+.llm-bridge-icon-btn:hover { background: var(--background-secondary); color: var(--text-normal); }
+.llm-bridge-icon { font-size: 13px; line-height: 1; }
+
+/* ===== 消息流 ===== */
+.llm-bridge-messages {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.llm-bridge-empty {
+  color: var(--text-muted);
+  font-size: var(--font-small);
+  text-align: center;
+  margin-top: 40%;
+  font-style: italic;
+}
+
+.llm-bridge-msg {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 100%;
+  word-break: break-word;
+}
+
+.llm-bridge-msg-user { align-self: flex-end; max-width: 85%; }
+.llm-bridge-msg-assistant { align-self: stretch; max-width: 100%; }
+
+.llm-bridge-msg-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--font-smallest);
+}
+.llm-bridge-msg-role { font-weight: 600; color: var(--text-muted); }
+.llm-bridge-msg-time { color: var(--text-muted); opacity: 0.7; margin-left: auto; }
+
+.llm-bridge-msg-status { font-weight: 500; color: var(--text-muted); }
+.llm-bridge-msg-status.is-running { color: var(--interactive-accent); }
+.llm-bridge-msg-status.is-completed { color: #4caf50; }
+.llm-bridge-msg-status.is-failed { color: #e53935; }
+.llm-bridge-msg-status.is-stopped { color: #fb8c00; }
+
+/* user 消息：浅背景块 */
+.llm-bridge-msg-user .llm-bridge-msg-content {
+  background: var(--background-secondary);
+  padding: 8px 11px;
+  border-radius: 10px;
+  font-size: var(--font-small);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+}
+
+/* assistant 输出：直接展示，无标题块 */
+.llm-bridge-msg-assistant .llm-bridge-msg-content {
+  font-family: var(--font-monospace);
+  font-size: var(--font-smaller);
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.5;
+  min-height: 14px;
+}
+
+/* ===== 折叠区（stderr / log） ===== */
+.llm-bridge-msg-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.llm-bridge-collapse {
+  border-left: 2px solid var(--background-modifier-border);
+  padding-left: 8px;
+}
+.llm-bridge-collapse.is-emphasized { border-left-color: #e53935; }
+
+.llm-bridge-collapse-head { cursor: pointer; user-select: none; }
+.llm-bridge-collapse-toggle {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+}
+.llm-bridge-collapse.is-emphasized .llm-bridge-collapse-toggle { color: #e53935; font-weight: 600; }
+.llm-bridge-collapse-toggle:hover { color: var(--text-normal); }
+
+.llm-bridge-collapse-body {
+  max-height: 200px;
+  overflow: auto;
+  margin-top: 3px;
+}
+.llm-bridge-collapse-body[hidden] { display: none; }
+
+.llm-bridge-collapse-text {
+  margin: 0;
+  padding: 5px 7px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--background-secondary);
+  border-radius: 4px;
+}
+.llm-bridge-stderr-text { color: #e53935; }
+
+/* 生成文件 */
+.llm-bridge-gen-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-top: 4px;
+}
+.llm-bridge-gen-title {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  padding: 2px 10px 2px;
+}
+.llm-bridge-gen-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.llm-bridge-gen-item {
+  display: flex;
+  align-items: center;
+  padding: 3px 7px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: var(--font-smaller);
+  color: var(--interactive-accent);
+}
+.llm-bridge-gen-item:hover { background: var(--background-secondary); }
+.llm-bridge-gen-name { font-family: var(--font-monospace); word-break: break-all; }
+
+/* ===== composer（底部固定） ===== */
+.llm-bridge-composer {
+  flex: 0 0 auto;
+  padding: 8px 12px 10px 12px;
+  border-top: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.llm-bridge-input-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  padding: 6px 6px 6px 12px;
+  transition: border-color 0.15s;
+}
+.llm-bridge-input-row:focus-within { border-color: var(--interactive-accent); }
+
+.llm-bridge-input {
+  flex: 1 1 auto;
+  resize: none;
+  min-height: 40px;
+  max-height: 160px;
+  font-family: var(--font-ui);
+  font-size: var(--font-small);
+  border: none;
+  background: transparent;
+  color: var(--text-normal);
+  padding: 6px 0;
+  line-height: 1.4;
+}
+.llm-bridge-input:focus { outline: none; box-shadow: none; }
+
+.llm-bridge-action-col { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+
+.llm-bridge-send-btn,
+.llm-bridge-stop-btn {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex: 0 0 auto;
+}
+.llm-bridge-send-btn {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+.llm-bridge-send-btn:hover:not(:disabled) { filter: brightness(1.1); }
+.llm-bridge-send-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.llm-bridge-send-icon { font-size: 15px; font-weight: 700; line-height: 1; }
+
+.llm-bridge-stop-btn {
+  background: var(--background-modifier-border);
+  color: #e53935;
+}
+.llm-bridge-stop-btn:hover:not(:disabled) { background: rgba(229,57,53,0.2); }
+.llm-bridge-stop-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+.llm-bridge-stop-icon { font-size: 10px; line-height: 1; }
+
+/* ===== compact chips 行 ===== */
+.llm-bridge-chips-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.llm-bridge-chip-wrap { display: inline-flex; align-items: center; gap: 4px; }
+.llm-bridge-chip-check { display: none; }
+
+.llm-bridge-chip {
+  padding: 2px 9px;
+  font-size: var(--font-smallest);
+  font-weight: 500;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: all 0.1s;
+}
+.llm-bridge-chip:hover:not(:disabled) {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+}
+.llm-bridge-chip:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* toggle chip 激活态 */
+.llm-bridge-chip-toggle.is-active {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  border-color: var(--interactive-accent);
+}
+
+/* agent chip 只读显示 */
+.llm-bridge-chip-readonly {
+  padding: 2px 9px;
+  font-size: var(--font-smallest);
+  font-weight: 500;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.llm-bridge-chip-readonly:hover { border-color: var(--interactive-accent); }
+
+/* 文件名标注（Note/Selection 旁） */
+.llm-bridge-chip-file {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-chip-file:empty { display: none; }
+
+/* Clear 按钮 */
+.llm-bridge-chip-ghost {
+  margin-left: auto;
+  padding: 2px 9px;
+  font-size: var(--font-smallest);
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 6px;
+}
+.llm-bridge-chip-ghost:hover:not(:disabled) { color: var(--text-normal); background: var(--background-secondary); }
+.llm-bridge-chip-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* ===== Pending Actions 区域 ===== */
+.llm-bridge-pending-wrap {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+.llm-bridge-pending-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  cursor: pointer;
+  user-select: none;
+}
+.llm-bridge-pending-head:hover { background: var(--background-modifier-hover); }
+.llm-bridge-pending-toggle {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+}
+.llm-bridge-pending-count {
+  font-size: var(--font-smallest);
+  color: var(--interactive-accent);
+  font-weight: 600;
+}
+.llm-bridge-pending-body {
+  padding: 4px 8px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.llm-bridge-pending-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 5px 8px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 5px;
+  font-size: var(--font-smallest);
+}
+.llm-bridge-pending-row1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.llm-bridge-pending-type {
+  font-weight: 600;
+  color: var(--interactive-accent);
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+}
+.llm-bridge-pending-id {
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: 10px;
+}
+.llm-bridge-pending-row2 { color: var(--text-normal); word-break: break-all; }
+.llm-bridge-pending-row3 { display: flex; gap: 8px; }
+.llm-bridge-pending-meta { color: var(--text-muted); font-size: 10px; }
+.llm-bridge-pending-btns {
+  display: flex;
+  gap: 6px;
+  margin-top: 2px;
+}
+.llm-bridge-pending-btn-approve,
+.llm-bridge-pending-btn-reject {
+  flex: 1;
+  padding: 3px 0;
+  font-size: var(--font-smallest);
+  font-weight: 500;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.llm-bridge-pending-btn-approve {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+.llm-bridge-pending-btn-approve:hover { filter: brightness(1.15); }
+.llm-bridge-pending-btn-reject {
+  background: var(--background-modifier-border);
+  color: var(--text-normal);
+}
+.llm-bridge-pending-btn-reject:hover { background: rgba(229,57,53,0.2); color: #e53935; }

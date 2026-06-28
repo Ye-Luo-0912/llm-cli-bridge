@@ -1,0 +1,31 @@
+{
+  "name": "obsidian-llm-cli-bridge",
+  "version": "0.1.0",
+  "description": "Bridge Obsidian to local Claude Code / Codex CLI agents.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production",
+    "test": "node scripts/run-tests.mjs",
+    "test:unit": "node scripts/run-tests.mjs --unit",
+    "test:process": "node scripts/run-tests.mjs --process",
+    "test:integration": "node scripts/run-tests.mjs --integration"
+  },
+  "keywords": [
+    "obsidian",
+    "claude-code",
+    "codex",
+    "cli",
+    "bridge"
+  ],
+  "author": "Ye_Luo",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "builtin-modules": "^4.0.0",
+    "esbuild": "^0.20.2",
+    "obsidian": "^1.4.16",
+    "tslib": "^2.6.2",
+    "typescript": "^5.4.5"
+  }
+}
