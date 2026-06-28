@@ -2012,6 +2012,204 @@ if (!runClaudeSmoke) {
 }
 
 // ============================================================
+// 9.6 Claude Real Note Summarize Smoke（V0.8：验证 buildPromptPackage 注入内容）
+// ============================================================
+console.log("\n=== Claude Real Note Summarize Smoke ===");
+
+const runNoteSummarizeSmoke = runMode === "all" || runMode === "claude";
+
+if (!runNoteSummarizeSmoke) {
+  addTest("Claude Note Summarize Smoke 段", "skip", "当前模式不运行 note summarize smoke");
+} else {
+  let noteSummarizeBundle = null;
+  let noteSummarizePreflightBundle = null;
+  let noteSummarizePromptPackageBundle = null;
+  
+  try {
+    const esbuild = (await import("esbuild")).default;
+    
+    noteSummarizeBundle = join(PROJECT_ROOT, ".test-note-summarize-temp.mjs");
+    noteSummarizePreflightBundle = join(PROJECT_ROOT, ".test-note-summarize-preflight-temp.mjs");
+    noteSummarizePromptPackageBundle = join(PROJECT_ROOT, ".test-note-summarize-promptpackage-temp.mjs");
+    
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: noteSummarizeBundle,
+    });
+    
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "agentProfile.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: noteSummarizePreflightBundle,
+    });
+    
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "promptPackage.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: noteSummarizePromptPackageBundle,
+    });
+    
+    const { ClaudeCliBackend } = await import(pathToFileURL(noteSummarizeBundle).href);
+    const { runPreflight } = await import(pathToFileURL(noteSummarizePreflightBundle).href);
+    const { buildPromptPackage } = await import(pathToFileURL(noteSummarizePromptPackageBundle).href);
+    
+    // 本地 debug log 路径列出
+    function listNoteSummarizeLogs(cwd) {
+      try {
+        const logDir = join(cwd, ".llm-bridge", "logs");
+        if (!existsSync(logDir)) return "(无 logs 目录)";
+        const files = readdirSync(logDir).filter(f => f.startsWith("debug-"));
+        if (files.length === 0) return "(无 debug log)";
+        return files.map(f => join(logDir, f)).join("; ");
+      } catch (e) {
+        return `(列出日志出错: ${e?.message || e})`;
+      }
+    }
+    
+    // 先 preflight 探测 claude 是否可用
+    const claudeSettings = {
+      agentType: "claude",
+      claudeCommand: "claude",
+      claudeArgs: "-p",
+      codexCommand: "codex",
+      codexArgs: "exec -",
+      customCommand: "",
+      customArgs: "",
+      includeActiveNote: true,  // V0.8: 启用 activeFile 注入
+      includeSelection: true,   // V0.8: 启用 selection 注入
+      maxActiveNoteChars: 6000,
+      maxSelectionChars: 3000,
+      outputDir: "90_AI整理待确认",
+      showStderr: true,
+      saveLogs: false,
+      sessionMode: "fresh",
+      model: "",
+      effortLevel: "",
+      devTestMode: false,
+      backendMode: "auto",
+    };
+    
+    const preflight = await runPreflight(claudeSettings, VAULT_PATH, 15000);
+    
+    if (!preflight.available) {
+      addTest("Claude Note Summarize: claude 可用性", "skip",
+        `claude 不可用 (exitCode=${preflight.versionExitCode})；diag: ${preflight.diagnostics.split("\n").pop()}`);
+    } else {
+      addTest("Claude Note Summarize: claude 可用性", "pass",
+        `version: ${preflight.versionStdout.trim().split("\n")[0]}`);
+      
+      const backend = new ClaudeCliBackend();
+      
+      // V0.8: 构造包含唯一标记词的 fixture markdown
+      const uniqueMarker = "V08_UNIQUE_MARKER_XYZ123";
+      const fixtureNoteContent = `# 测试笔记
+
+这是一个用于 V0.8 测试的笔记。
+
+## 关键内容
+
+本笔记包含唯一标记词：${uniqueMarker}
+
+## 总结
+
+这个笔记的主要目的是验证 buildPromptPackage 能否正确注入 activeFile 和 selection 内容到真实 Claude prompt 中。
+`;
+      
+      const selectionContent = `选中的关键段落：${uniqueMarker} 是测试标记`;
+      
+      // V0.8: 使用 buildPromptPackage 构造最终 prompt
+      const snapshot = {
+        vaultPath: VAULT_PATH,
+        activeFilePath: "test-note-v08.md",
+        activeFileContent: fixtureNoteContent,
+        selection: selectionContent,
+        timestamp: new Date().toISOString(),
+      };
+      
+      const userMessage = "请总结这个笔记的关键内容，并提到标记词";
+      const finalPrompt = buildPromptPackage(userMessage, snapshot, claudeSettings);
+      
+      // 验证 prompt 包含标记词
+      const promptHasMarker = finalPrompt.includes(uniqueMarker);
+      addTest("Claude Note Summarize: prompt 包含标记词", promptHasMarker ? "pass" : "fail",
+        promptHasMarker ? "" : `prompt 长度: ${finalPrompt.length}, 包含标记词: ${promptHasMarker}`);
+      
+      // 构造 AgentTask
+      const summarizeTask = {
+        id: `claude-note-summarize-${Date.now()}`,
+        userMessage: userMessage,
+        prompt: finalPrompt,
+        cwd: VAULT_PATH,
+        createdAt: new Date().toISOString(),
+        includeActiveNote: true,
+        includeSelection: true,
+      };
+      
+      // 调用 claude -p，收集事件
+      const events = await new Promise((resolve) => {
+        const evs = [];
+        backend.run(summarizeTask, claudeSettings, (event) => {
+          evs.push(event);
+          if (event.type === "completed" || event.type === "failed" || event.type === "stopped") {
+            resolve(evs);
+          }
+        });
+        setTimeout(() => resolve(evs), 120000);
+      });
+      
+      // Test 1: started 必须先发出
+      {
+        const firstStarted = events[0]?.type === "started";
+        addTest("Claude Note Summarize: started 先发出", firstStarted ? "pass" : "fail",
+          firstStarted ? "" : `首个事件: ${events[0]?.type || "none"}; debug logs: ${listNoteSummarizeLogs(VAULT_PATH)}`);
+      }
+      
+      // Test 2: completed 且 exitCode 0
+      {
+        const completed = events.find(e => e.type === "completed");
+        const ok = completed && completed.exitCode === 0;
+        addTest("Claude Note Summarize: completed exitCode 0", ok ? "pass" : "fail",
+          ok ? "" : `completed=${!!completed}, exitCode=${completed?.exitCode}; debug logs: ${listNoteSummarizeLogs(VAULT_PATH)}`);
+      }
+      
+      // Test 3: stdout 包含标记词（证明 activeFile/selection 内容进入了真实 prompt）
+      {
+        const completed = events.find(e => e.type === "completed");
+        const stdout = completed?.stdout || events.filter(e => e.type === "stdout_delta").map(e => e.data).join("");
+        const stdoutHasMarker = stdout.includes(uniqueMarker);
+        addTest("Claude Note Summarize: stdout 包含标记词", stdoutHasMarker ? "pass" : "fail",
+          stdoutHasMarker ? "" : `stdout 长度: ${stdout.length}, 包含标记词: ${stdoutHasMarker}; stdout 末尾: "${stdout.slice(-200)}"`);
+      }
+      
+      // Test 4: stdout 提到"总结"或"关键"（证明 Claude 理解了任务）
+      {
+        const completed = events.find(e => e.type === "completed");
+        const stdout = completed?.stdout || events.filter(e => e.type === "stdout_delta").map(e => e.data).join("");
+        const stdoutHasSummary = /总结|关键|内容|笔记/.test(stdout);
+        addTest("Claude Note Summarize: stdout 提到总结/关键", stdoutHasSummary ? "pass" : "fail",
+          stdoutHasSummary ? "" : `stdout 长度: ${stdout.length}; stdout 末尾: "${stdout.slice(-200)}"`);
+      }
+    }
+    
+    rmSync(noteSummarizeBundle, { force: true });
+    rmSync(noteSummarizePreflightBundle, { force: true });
+    rmSync(noteSummarizePromptPackageBundle, { force: true });
+  } catch (e) {
+    addTest("Claude Note Summarize Smoke", "fail", e?.stack || e?.message || String(e));
+    try { if (noteSummarizeBundle) rmSync(noteSummarizeBundle, { force: true }); } catch {}
+    try { if (noteSummarizePreflightBundle) rmSync(noteSummarizePreflightBundle, { force: true }); } catch {}
+    try { if (noteSummarizePromptPackageBundle) rmSync(noteSummarizePromptPackageBundle, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 10. 生成测试报告
 // ============================================================
 console.log("\n=== 生成测试报告 ===");
