@@ -71,4 +71,4 @@
 | 版本 | 日期 | Commit | 备注 |
 |---|---|---|---|
 | v1.0.1-rc.1 | 2026-06-28 | d281628 | 首个 release zip，36.9 KB |
-| v1.3.0 | 2026-06-28 | (待填) | Handoff Ready Polish，含 USER_GUIDE / BACKLOG / 统一 release 脚本 |
+| v1.3.0 | 2026-06-28 | b9b87e4 | Handoff Ready Polish，含 USER_GUIDE / BACKLOG / 统一 release 脚本 |
