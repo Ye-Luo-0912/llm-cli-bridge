@@ -9,9 +9,13 @@
 //   mixed         — stdout + stderr，exit 0
 //   slow          — 延迟输出，用于 stop 测试（运行约 30s）
 //   large-output  — 较长 stdout，用于确认不污染诊断日志
+//   write-file    — 向 cwd 写入一个 .md 文件后 exit 0（用于 V0.9 文件检测测试）
 //
 // 所有模式均从 stdin 读取 prompt（claudeCliBackend 会 write prompt 到 stdin），
 // 但 fixture 不必处理 prompt 内容，只读空以避免 stdin 阻塞。
+
+import { writeFileSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
 
 const mode = process.argv[2];
 
@@ -69,6 +73,21 @@ async function main() {
       for (let i = 0; i < 1000; i++) {
         process.stdout.write(`line ${i}: ${"x".repeat(80)}\n`);
       }
+      process.exit(0);
+    }
+    case "write-file": {
+      // V0.9: 向 cwd 写入一个 .md 文件，模拟 agent 生成笔记
+      const targetDir = join(process.cwd(), "generated");
+      try {
+        mkdirSync(targetDir, { recursive: true });
+      } catch { /* 已存在忽略 */ }
+      const fileName = `fixture-output-${Date.now()}.md`;
+      writeFileSync(join(targetDir, fileName), `# Fixture 生成笔记
+
+本文件由 fixture-cli write-file 模式生成，用于验证 V0.9 文件检测逻辑。
+生成时间：${new Date().toISOString()}
+`);
+      process.stdout.write(`已写入 ${fileName}\n`);
       process.exit(0);
     }
     default: {

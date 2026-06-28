@@ -10,16 +10,13 @@ import { ClaudeCliBackend } from "./claudeCliBackend";
 import { MockAgentBackend } from "./mockAgentBackend";
 import { AgentBackend, AgentRunHandle, AgentTask } from "./agentBackend";
 import { exportState } from "./state";
+import { diffSnapshots, extractRelPath, FileSnapshot, snapshotVaultMarkdownFiles } from "./fileDiff";
 import { AgentType, BackendMode, ChatMessage, RunResult, RunStatus, SessionMode } from "./types";
 import type { PendingActionEntry } from "./httpServer";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
-interface FileSnapshot {
-  path: string;
-  mtime: number;
-  size: number;
-}
+// V0.9: FileSnapshot / snapshotVaultMarkdownFiles / diffSnapshots 已抽取到 fileDiff.ts
 
 const STATUS_LABEL: Record<RunStatus, string> = {
   idle: "Idle",
@@ -745,7 +742,7 @@ export class LLMBridgeView extends ItemView {
       return;
     }
 
-    this.beforeFiles = await this.snapshotVaultMarkdownFiles(vaultPath);
+    this.beforeFiles = await snapshotVaultMarkdownFiles(vaultPath);
 
     // 构建 State Snapshot（用于 prompt package）
     const snapshot: StateSnapshot = {
@@ -875,7 +872,8 @@ export class LLMBridgeView extends ItemView {
     }
 
     await new Promise((r) => setTimeout(r, 300));
-    const newFiles = await this.diffVaultMarkdownFiles(vaultPath);
+    const afterFiles = await snapshotVaultMarkdownFiles(vaultPath);
+    const newFiles = diffSnapshots(this.beforeFiles, afterFiles);
     if (newFiles.length > 0) {
       this.updateAssistantMessage(assistantId, { generatedFiles: newFiles });
     }
@@ -903,56 +901,10 @@ export class LLMBridgeView extends ItemView {
   }
 
   // ---------- 文件检测 ----------
-
-  // 运行前快照：排除 .obsidian/.llm-bridge/node_modules/.git/LLM-AgentRuntime/dist/build 等目录
-  private async snapshotVaultMarkdownFiles(vaultPath: string): Promise<Map<string, FileSnapshot>> {
-    const excludeDirs = [".obsidian", ".llm-bridge", "node_modules", ".git", "LLM-AgentRuntime", "dist", "build"];
-    const out = new Map<string, FileSnapshot>();
-    const stack: string[] = [vaultPath];
-    while (stack.length > 0) {
-      const current = stack.pop()!;
-      try {
-        const entries = await fs.promises.readdir(current, { withFileTypes: true });
-        for (const e of entries) {
-          const fullPath = path.join(current, e.name);
-          const rel = path.relative(vaultPath, fullPath).replace(/\\/g, "/");
-          if (e.isDirectory()) {
-            const name = e.name.toLowerCase();
-            if (!excludeDirs.includes(name)) {
-              stack.push(fullPath);
-            }
-          } else if (e.isFile() && e.name.toLowerCase().endsWith(".md")) {
-            try {
-              const stat = await fs.promises.stat(fullPath);
-              out.set(rel, { path: rel, mtime: stat.mtimeMs, size: stat.size });
-            } catch {
-              /* stat 失败跳过 */
-            }
-          }
-        }
-      } catch {
-        /* 目录不存在或无权限 */
-      }
-    }
-    return out;
-  }
-
-  private async diffVaultMarkdownFiles(vaultPath: string): Promise<string[]> {
-    const after = await this.snapshotVaultMarkdownFiles(vaultPath);
-    const result: string[] = [];
-    for (const [rel, snap] of after) {
-      const beforeSnap = this.beforeFiles.get(rel);
-      if (!beforeSnap) {
-        result.push(rel + "  [NEW]");
-      } else if (snap.mtime !== beforeSnap.mtime || snap.size !== beforeSnap.size) {
-          result.push(rel + "  [MODIFIED]");
-        }
-    }
-    return result.sort((a, b) => a.localeCompare(b));
-  }
+  // V0.9: snapshotVaultMarkdownFiles / diffSnapshots 已抽取到 fileDiff.ts
 
   private async openGeneratedFile(displayPath: string): Promise<void> {
-    const relPath = displayPath.replace(/\s+\[(NEW|MODIFIED)\]$/, "");
+    const relPath = extractRelPath(displayPath);
     const file = this.app.vault.getAbstractFileByPath(relPath);
     if (file instanceof TFile) {
       await this.app.workspace.getLeaf().openFile(file);

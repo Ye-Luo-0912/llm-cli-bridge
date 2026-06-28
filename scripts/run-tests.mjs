@@ -1500,6 +1500,218 @@ if (!runUnit) {
 }
 
 // ============================================================
+// 8.5 File Diff 单元测试（V0.9：纯函数，不依赖 Obsidian）
+// ============================================================
+console.log("\n=== File Diff 单元测试 ===");
+
+const runFileDiffUnit = runMode === "all" || runMode === "unit";
+
+if (!runFileDiffUnit) {
+  addTest("File Diff 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let fileDiffBundle = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    fileDiffBundle = join(PROJECT_ROOT, ".test-filediff-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "fileDiff.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: fileDiffBundle,
+    });
+    const {
+      shouldExclude,
+      isMarkdownFile,
+      diffSnapshots,
+      extractRelPath,
+      EXCLUDE_DIRS,
+      snapshotVaultMarkdownFiles,
+    } = await import(pathToFileURL(fileDiffBundle).href);
+
+    // Test 1: shouldExclude 排除目录
+    {
+      const cases = [
+        { path: ".obsidian/app.json", expect: true, desc: ".obsidian 应排除" },
+        { path: ".llm-bridge/logs/debug.log", expect: true, desc: ".llm-bridge 应排除" },
+        { path: "node_modules/lib/index.js", expect: true, desc: "node_modules 应排除" },
+        { path: ".git/config", expect: true, desc: ".git 应排除" },
+        { path: "LLM-AgentRuntime/bin/claude", expect: true, desc: "LLM-AgentRuntime 应排除" },
+        { path: "dist/main.js", expect: true, desc: "dist 应排除" },
+        { path: "build/index.js", expect: true, desc: "build 应排除" },
+        { path: "notes/daily.md", expect: false, desc: "notes 目录不应排除" },
+        { path: "90_AI整理待确认/summary.md", expect: false, desc: "用户输出目录不应排除" },
+        { path: ".obsidian/backup/notes.md", expect: true, desc: "嵌套 .obsidian 应排除" },
+      ];
+      let allPass = true;
+      const fails = [];
+      for (const c of cases) {
+        const got = shouldExclude(c.path);
+        if (got !== c.expect) {
+          allPass = false;
+          fails.push(`${c.desc}: 期望 ${c.expect}, 实际 ${got}`);
+        }
+      }
+      addTest("File Diff: shouldExclude 排除目录", allPass ? "pass" : "fail",
+        allPass ? "" : fails.join("; "));
+    }
+
+    // Test 2: isMarkdownFile 只识别 .md
+    {
+      const cases = [
+        { name: "note.md", expect: true, desc: ".md 应识别" },
+        { name: "NOTE.MD", expect: true, desc: ".MD 大写应识别" },
+        { name: "note.Md", expect: true, desc: ".Md 混合大小写应识别" },
+        { name: "note.txt", expect: false, desc: ".txt 不应识别" },
+        { name: "note.markdown", expect: false, desc: ".markdown 不应识别" },
+        { name: "readme", expect: false, desc: "无扩展名不应识别" },
+        { name: "readme.md.tmp", expect: false, desc: ".md.tmp 不应识别" },
+      ];
+      let allPass = true;
+      const fails = [];
+      for (const c of cases) {
+        const got = isMarkdownFile(c.name);
+        if (got !== c.expect) {
+          allPass = false;
+          fails.push(`${c.desc}: 期望 ${c.expect}, 实际 ${got}`);
+        }
+      }
+      addTest("File Diff: isMarkdownFile 只识别 .md", allPass ? "pass" : "fail",
+        allPass ? "" : fails.join("; "));
+    }
+
+    // Test 3: diffSnapshots 检测新增/修改/未变化
+    {
+      const before = new Map();
+      before.set("unchanged.md", { path: "unchanged.md", mtime: 1000, size: 100 });
+      before.set("modified.md", { path: "modified.md", mtime: 1000, size: 100 });
+      before.set("deleted.md", { path: "deleted.md", mtime: 1000, size: 100 });
+
+      const after = new Map();
+      after.set("unchanged.md", { path: "unchanged.md", mtime: 1000, size: 100 });
+      after.set("modified.md", { path: "modified.md", mtime: 2000, size: 150 });
+      after.set("new.md", { path: "new.md", mtime: 3000, size: 50 });
+
+      const result = diffSnapshots(before, after);
+      const hasNew = result.includes("new.md  [NEW]");
+      const hasModified = result.includes("modified.md  [MODIFIED]");
+      const noUnchanged = !result.includes("unchanged.md");
+      const noDeleted = !result.includes("deleted.md");
+      const sorted = result.every((v, i) => i === 0 || result[i - 1].localeCompare(v) <= 0);
+      const ok = hasNew && hasModified && noUnchanged && noDeleted && sorted;
+      addTest("File Diff: diffSnapshots 检测新增/修改/未变化", ok ? "pass" : "fail",
+        ok ? "" : `hasNew=${hasNew}, hasModified=${hasModified}, noUnchanged=${noUnchanged}, noDeleted=${noDeleted}, sorted=${sorted}; result=${JSON.stringify(result)}`);
+    }
+
+    // Test 4: diffSnapshots mtime 变化但 size 不变 → MODIFIED
+    {
+      const before = new Map();
+      before.set("a.md", { path: "a.md", mtime: 1000, size: 100 });
+      const after = new Map();
+      after.set("a.md", { path: "a.md", mtime: 2000, size: 100 });
+      const result = diffSnapshots(before, after);
+      const ok = result.length === 1 && result[0] === "a.md  [MODIFIED]";
+      addTest("File Diff: mtime 变化→MODIFIED", ok ? "pass" : "fail",
+        ok ? "" : `result=${JSON.stringify(result)}`);
+    }
+
+    // Test 5: extractRelPath 去掉后缀
+    {
+      const cases = [
+        { input: "notes/a.md  [NEW]", expect: "notes/a.md" },
+        { input: "b.md  [MODIFIED]", expect: "b.md" },
+        { input: "c.md", expect: "c.md" },
+      ];
+      let allPass = true;
+      const fails = [];
+      for (const c of cases) {
+        const got = extractRelPath(c.input);
+        if (got !== c.expect) {
+          allPass = false;
+          fails.push(`${c.input}: 期望 ${c.expect}, 实际 ${got}`);
+        }
+      }
+      addTest("File Diff: extractRelPath 去掉后缀", allPass ? "pass" : "fail",
+        allPass ? "" : fails.join("; "));
+    }
+
+    // Test 6: snapshotVaultMarkdownFiles 真实目录扫描（含排除目录 + 路径带空格）
+    {
+      // 构造临时 Vault 结构
+      const tempVault = join(PROJECT_ROOT, ".test-filediff-vault");
+      try {
+        rmSync(tempVault, { recursive: true, force: true });
+        mkdirSync(join(tempVault, "notes"), { recursive: true });
+        mkdirSync(join(tempVault, ".obsidian"), { recursive: true });
+        mkdirSync(join(tempVault, ".llm-bridge"), { recursive: true });
+        mkdirSync(join(tempVault, "sub dir with spaces"), { recursive: true });
+        writeFileSync(join(tempVault, "notes", "note1.md"), "# note1");
+        writeFileSync(join(tempVault, "notes", "note2.md"), "# note2");
+        writeFileSync(join(tempVault, ".obsidian", "app.json"), "{}");
+        writeFileSync(join(tempVault, ".obsidian", "ignored.md"), "# should be ignored");
+        writeFileSync(join(tempVault, ".llm-bridge", "ignored.md"), "# should be ignored");
+        writeFileSync(join(tempVault, "sub dir with spaces", "spaced.md"), "# spaced");
+        writeFileSync(join(tempVault, "readme.txt"), "not md");
+
+        const snap = await snapshotVaultMarkdownFiles(tempVault);
+        const hasNote1 = snap.has("notes/note1.md");
+        const hasNote2 = snap.has("notes/note2.md");
+        const hasSpaced = snap.has("sub dir with spaces/spaced.md");
+        const noObsidian = !snap.has(".obsidian/ignored.md");
+        const noBridge = !snap.has(".llm-bridge/ignored.md");
+        const correctCount = snap.size === 3;
+        const ok = hasNote1 && hasNote2 && hasSpaced && noObsidian && noBridge && correctCount;
+        addTest("File Diff: snapshotVaultMarkdownFiles 真实扫描（排除+空格路径）", ok ? "pass" : "fail",
+          ok ? "" : `hasNote1=${hasNote1}, hasNote2=${hasNote2}, hasSpaced=${hasSpaced}, noObsidian=${noObsidian}, noBridge=${noBridge}, size=${snap.size}, keys=${JSON.stringify([...snap.keys()])}`);
+      } finally {
+        rmSync(tempVault, { recursive: true, force: true });
+      }
+    }
+
+    // Test 7: snapshot + diff 端到端（写入新 .md 后能检测到）
+    {
+      const tempVault = join(PROJECT_ROOT, ".test-filediff-e2e");
+      try {
+        rmSync(tempVault, { recursive: true, force: true });
+        mkdirSync(tempVault, { recursive: true });
+        writeFileSync(join(tempVault, "existing.md"), "# existing");
+
+        const before = await snapshotVaultMarkdownFiles(tempVault);
+        // 模拟 backend 运行期间写入新文件
+        await new Promise((r) => setTimeout(r, 50));
+        writeFileSync(join(tempVault, "new.md"), "# new file");
+        const existingPath = join(tempVault, "existing.md");
+        await new Promise((r) => setTimeout(r, 50));
+        writeFileSync(existingPath, "# existing modified");
+
+        const after = await snapshotVaultMarkdownFiles(tempVault);
+        const result = diffSnapshots(before, after);
+        const hasNew = result.includes("new.md  [NEW]");
+        const hasModified = result.includes("existing.md  [MODIFIED]");
+        const ok = hasNew && hasModified;
+        addTest("File Diff: snapshot+diff 端到端（新增+修改）", ok ? "pass" : "fail",
+          ok ? "" : `hasNew=${hasNew}, hasModified=${hasModified}; result=${JSON.stringify(result)}`);
+      } finally {
+        rmSync(tempVault, { recursive: true, force: true });
+      }
+    }
+
+    // Test 8: EXCLUDE_DIRS 完整性
+    {
+      const expected = [".obsidian", ".llm-bridge", "node_modules", ".git", "LLM-AgentRuntime", "dist", "build"];
+      const ok = expected.every(d => EXCLUDE_DIRS.includes(d)) && EXCLUDE_DIRS.length === expected.length;
+      addTest("File Diff: EXCLUDE_DIRS 完整性", ok ? "pass" : "fail",
+        ok ? "" : `expected=${JSON.stringify(expected)}, actual=${JSON.stringify(EXCLUDE_DIRS)}`);
+    }
+
+    rmSync(fileDiffBundle, { force: true });
+  } catch (e) {
+    addTest("File Diff 单元测试", "fail", e?.stack || e?.message || String(e));
+    try { if (fileDiffBundle) rmSync(fileDiffBundle, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");
@@ -1878,11 +2090,111 @@ if (!runProcess) {
       rmSync(tempPreflightBundle, { force: true });
     }
 
+    // ============================================================
+    // V0.9: Process fixture 文件检测测试
+    // fixture write-file 模式写入 .md，backend 结束后用 fileDiff 检测
+    // ============================================================
+    const tempFileDiffBundle = join(PROJECT_ROOT, ".test-filediff-process-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "fileDiff.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: tempFileDiffBundle,
+    });
+    const { snapshotVaultMarkdownFiles, diffSnapshots } = await import(pathToFileURL(tempFileDiffBundle).href);
+
+    // Test: fixture 写入 .md → backend completed → diff 检测到新文件
+    {
+      const tempVault = join(PROJECT_ROOT, ".test-process-filediff-vault");
+      try {
+        rmSync(tempVault, { recursive: true, force: true });
+        mkdirSync(tempVault, { recursive: true });
+        // 预置一个已存在的文件，验证不会误报
+        writeFileSync(join(tempVault, "preexisting.md"), "# preexisting");
+
+        const before = await snapshotVaultMarkdownFiles(tempVault);
+
+        // 用 fixture-cli write-file 模式作为 command
+        const fixtureCmd = `node "${join(PROJECT_ROOT, "scripts", "fixtures", "fixture-cli.mjs")}"`;
+        const writeFileTask = {
+          id: `fixture-write-${Date.now()}`,
+          userMessage: "write a file",
+          prompt: "test prompt",
+          cwd: tempVault,
+          createdAt: new Date().toISOString(),
+          includeActiveNote: false,
+          includeSelection: false,
+        };
+        const writeFileSettings = {
+          agentType: "custom",
+          claudeCommand: "claude",
+          claudeArgs: "-p",
+          codexCommand: "codex",
+          codexArgs: "exec -",
+          customCommand: fixtureCmd,
+          customArgs: "write-file",
+          includeActiveNote: false,
+          includeSelection: false,
+          maxActiveNoteChars: 6000,
+          maxSelectionChars: 3000,
+          outputDir: "generated",
+          showStderr: true,
+          saveLogs: false,
+          sessionMode: "fresh",
+          model: "",
+          effortLevel: "",
+          devTestMode: false,
+          backendMode: "auto",
+        };
+
+        const writeFileBackend = new ClaudeCliBackend();
+        const writeFileEvents = await new Promise((resolve) => {
+          const evs = [];
+          writeFileBackend.run(writeFileTask, writeFileSettings, (event) => {
+            evs.push(event);
+            if (event.type === "completed" || event.type === "failed" || event.type === "stopped") {
+              resolve(evs);
+            }
+          });
+          setTimeout(() => resolve(evs), 15000);
+        });
+
+        const completed = writeFileEvents.find(e => e.type === "completed");
+        const completedOk = completed && completed.exitCode === 0;
+        // 内联列出 debug log 路径（不输出内容，避免泄露 secret）
+        let logPathHint = "(无 logs)";
+        try {
+          const logDir = join(tempVault, ".llm-bridge", "logs");
+          if (existsSync(logDir)) {
+            const files = readdirSync(logDir).filter(f => f.startsWith("debug-"));
+            if (files.length > 0) logPathHint = join(logDir, files[files.length - 1]);
+          }
+        } catch {}
+        addTest("Process File Diff: fixture write-file completed", completedOk ? "pass" : "fail",
+          completedOk ? "" : `events=${JSON.stringify(writeFileEvents.map(e => e.type))}; debug log: ${logPathHint}`);
+
+        // backend 结束后扫描文件
+        await new Promise((r) => setTimeout(r, 200));
+        const after = await snapshotVaultMarkdownFiles(tempVault);
+        const diff = diffSnapshots(before, after);
+        const hasNewFile = diff.some(d => d.includes("[NEW]") && d.includes("fixture-output-"));
+        const noPreexistingFalse = !diff.some(d => d.includes("preexisting.md"));
+        const ok = completedOk && hasNewFile && noPreexistingFalse;
+        addTest("Process File Diff: diff 检测到 fixture 写入的新文件", ok ? "pass" : "fail",
+          ok ? "" : `completedOk=${completedOk}, hasNewFile=${hasNewFile}, noPreexistingFalse=${noPreexistingFalse}; diff=${JSON.stringify(diff)}`);
+      } finally {
+        rmSync(tempVault, { recursive: true, force: true });
+      }
+    }
+
+    rmSync(tempFileDiffBundle, { force: true });
     rmSync(tempProcessBundle, { force: true });
   } catch (e) {
     addTest("Process integration tests", "fail", e?.stack || e?.message || String(e));
     try { rmSync(join(PROJECT_ROOT, ".test-process-backend-temp.mjs"), { force: true }); } catch {}
     try { rmSync(join(PROJECT_ROOT, ".test-preflight-temp.mjs"), { force: true }); } catch {}
+    try { rmSync(join(PROJECT_ROOT, ".test-filediff-process-temp.mjs"), { force: true }); } catch {}
   }
 }
 
