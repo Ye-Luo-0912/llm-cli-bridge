@@ -1139,50 +1139,12 @@
   text-align: center;
   margin-bottom: 2px;
 }
-.llm-bridge-empty-step {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  padding: 6px 8px;
-  background: var(--background-secondary);
-  border-radius: 6px;
-}
-.llm-bridge-empty-step-num {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  font-size: 11px;
-  font-weight: 600;
-  flex-shrink: 0;
-}
-.llm-bridge-empty-step-text {
-  flex: 1;
+.llm-bridge-empty-subtitle {
+  font-size: var(--font-smaller);
+  color: var(--text-muted);
+  text-align: center;
   line-height: 1.4;
 }
-.llm-bridge-empty-step-text strong {
-  color: var(--text-normal);
-  font-weight: 600;
-}
-.llm-bridge-empty-action {
-  margin-top: 4px;
-  text-align: center;
-}
-.llm-bridge-empty-btn {
-  padding: 5px 14px;
-  border: 1px solid var(--interactive-accent);
-  border-radius: 5px;
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
-  font-size: var(--font-ui-smaller);
-  font-weight: 500;
-  cursor: pointer;
-}
-.llm-bridge-empty-btn:hover { filter: brightness(1.1); }
 
 /* === V2.0: 会话状态区（Session State） === */
 
