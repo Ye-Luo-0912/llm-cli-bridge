@@ -41,6 +41,21 @@
 - 影响：不影响测试结果，仅影响终端可读性。
 - 根因：PowerShell 默认编码非 UTF-8。
 
+### B-010 scan-sensitive.mjs 误报测试假数据与二进制
+
+- 现象：扫描项目根目录时，`scripts/run-tests.mjs` 中的假 API key（`sk-ant-api03-abcdef...` 等测试用例）和 `node_modules` 中的二进制（esbuild.exe）被误报为敏感信息。
+- 影响：不影响 release zip 扫描（stage 目录只有 6 个交付文件），仅影响全项目扫描。
+- 期望：扫描脚本跳过 `node_modules/` 和测试文件中的已知假数据，或提供 `--strict` 模式区分。
+- 约束：不改测试用例（假数据是必要的，用于验证 redactSecret 函数）。
+
+### B-011 test:process 偶发 1 failed（flaky）
+
+- 现象：`npm run test:process` 偶尔出现 1 failed，重跑即通过。
+- 复现：无法稳定复现，约每 3-5 次出现一次。
+- 影响：不影响 release zip 交付，CI 重跑即可。
+- 根因：疑似 fixture CLI 子进程退出时序竞争，或文件系统快照延迟。
+- 期望：排查具体 flaky 测试项，增加重试或等待逻辑。
+
 ---
 
 ## P3（增强项，非 bug）
