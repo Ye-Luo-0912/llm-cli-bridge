@@ -1929,10 +1929,12 @@ if (!runV11Unit) {
 } else {
   let presetBundle = null;
   let preflightStatusBundle = null;
+  let guideBundle = null;
   try {
     const esbuild = (await import("esbuild")).default;
     presetBundle = join(PROJECT_ROOT, ".test-preset-temp.mjs");
     preflightStatusBundle = join(PROJECT_ROOT, ".test-preflight-status-temp.mjs");
+    guideBundle = join(PROJECT_ROOT, ".test-guide-temp.mjs");
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "presetPrompts.ts")],
       bundle: true,
@@ -1948,8 +1950,16 @@ if (!runV11Unit) {
       outfile: preflightStatusBundle,
       external: ["./agentProfile"],
     });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "firstUseGuide.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: guideBundle,
+    });
     const { buildPresetPrompt, requiresActiveNote, requiresSelection, PRESETS } = await import(pathToFileURL(presetBundle).href);
     const { mapPreflightToStatus, buildErrorSummary, redactSecret } = await import(pathToFileURL(preflightStatusBundle).href);
+    const { buildFirstUseGuide, shouldShowFirstUseGuide } = await import(pathToFileURL(guideBundle).href);
 
     // --- Test 1: summarize 预设 prompt 包含 outputDir 和文件名 ---
     {
@@ -2012,21 +2022,21 @@ if (!runV11Unit) {
 
     // --- Test 6: requiresActiveNote / requiresSelection 正确映射 ---
     {
-      const ok = requiresActiveNote("summarize") && requiresActiveNote("organize") &&
+      const ok = requiresActiveNote("summarize") && requiresActiveNote("organize") && requiresActiveNote("review") &&
                  !requiresActiveNote("explain") && !requiresActiveNote("freeform") &&
                  requiresSelection("explain") && !requiresSelection("summarize") &&
-                 !requiresSelection("organize") && !requiresSelection("freeform");
+                 !requiresSelection("organize") && !requiresSelection("review") && !requiresSelection("freeform");
       addTest("Preset: requiresActiveNote / requiresSelection 正确映射",
         ok ? "pass" : "fail", ok ? "" : "映射错误");
     }
 
-    // --- Test 7: PRESETS 含 4 种类型 ---
+    // --- Test 7: PRESETS 含 5 种类型 ---
     {
       const types = PRESETS.map((p) => p.type);
-      const ok = types.length === 4 &&
+      const ok = types.length === 5 &&
                  types.includes("summarize") && types.includes("explain") &&
-                 types.includes("organize") && types.includes("freeform");
-      addTest("Preset: PRESETS 含 4 种类型",
+                 types.includes("organize") && types.includes("review") && types.includes("freeform");
+      addTest("Preset: PRESETS 含 5 种类型",
         ok ? "pass" : "fail", ok ? "" : `types: ${types.join(",")}`);
     }
 
@@ -2176,11 +2186,102 @@ if (!runV11Unit) {
         ok ? "pass" : "fail", ok ? "" : `prompt 含正文: ${prompt}`);
     }
 
+    // === V1.2 新增测试：复习提纲预设 + 首次使用提示 ===
+
+    // --- Test 22: review 预设包含 Q&A 和 -review 后缀 ---
+    {
+      const prompt = buildPresetPrompt("review", {
+        activeFilePath: "notes/cs101.md",
+        outputDir: "out",
+      });
+      const ok = prompt.includes("notes/cs101.md") && prompt.includes("Q&A") && prompt.includes("-review");
+      addTest("Preset V1.2: review 包含文件路径 / Q&A / -review 后缀",
+        ok ? "pass" : "fail", ok ? "" : `prompt: ${prompt}`);
+    }
+
+    // --- Test 23: review 无活动笔记时使用通用 prompt ---
+    {
+      const prompt = buildPresetPrompt("review", {
+        activeFilePath: null,
+        outputDir: "out",
+      });
+      const ok = prompt.includes("复习提纲") && !prompt.includes("null") && prompt.includes("out");
+      addTest("Preset V1.2: review 无活动笔记时使用通用 prompt（不含 null）",
+        ok ? "pass" : "fail", ok ? "" : `prompt: ${prompt}`);
+    }
+
+    // --- Test 24: review 不自动注入笔记全文 ---
+    {
+      const prompt = buildPresetPrompt("review", {
+        activeFilePath: "a.md",
+        outputDir: "out",
+      });
+      const ok = !prompt.includes("笔记内容") && !prompt.includes("==========");
+      addTest("Preset V1.2: review 不自动注入笔记全文",
+        ok ? "pass" : "fail", ok ? "" : `prompt 含正文: ${prompt}`);
+    }
+
+    // --- Test 25: review 遵循 outputDir 配置 ---
+    {
+      const prompt = buildPresetPrompt("review", {
+        activeFilePath: "a.md",
+        outputDir: "my-custom-dir",
+      });
+      const ok = prompt.includes("my-custom-dir") && !prompt.includes("90_AI整理待确认");
+      addTest("Preset V1.2: review 遵循 outputDir 配置（不硬编码目录）",
+        ok ? "pass" : "fail", ok ? "" : `prompt: ${prompt}`);
+    }
+
+    // --- Test 26: buildFirstUseGuide 返回 5 个步骤 ---
+    {
+      const guide = buildFirstUseGuide();
+      const ok = guide.steps.length === 5 && guide.title === "首次使用提示";
+      addTest("Guide V1.2: buildFirstUseGuide 返回 5 个步骤",
+        ok ? "pass" : "fail", ok ? "" : `steps: ${guide.steps.length}, title: ${guide.title}`);
+    }
+
+    // --- Test 27: 首次使用提示步骤含 Backend / Preflight / Selection / Note / 运行 ---
+    {
+      const guide = buildFirstUseGuide();
+      const titles = guide.steps.map((s) => s.title).join("|");
+      const ok = titles.includes("Backend") && titles.includes("Preflight") &&
+                 titles.includes("选区") && titles.includes("当前笔记") &&
+                 titles.includes("运行");
+      addTest("Guide V1.2: 步骤覆盖 Backend / Preflight / 选区 / 当前笔记 / 运行",
+        ok ? "pass" : "fail", ok ? "" : `titles: ${titles}`);
+    }
+
+    // --- Test 28: shouldShowFirstUseGuide(true) 返回 false ---
+    {
+      const ok = shouldShowFirstUseGuide(true) === false && shouldShowFirstUseGuide(false) === true;
+      addTest("Guide V1.2: shouldShowFirstUseGuide 正确映射 dismissed 标志",
+        ok ? "pass" : "fail", ok ? "" : "映射错误");
+    }
+
+    // --- Test 29: 首次使用提示步骤 index 连续从 1 开始 ---
+    {
+      const guide = buildFirstUseGuide();
+      const indices = guide.steps.map((s) => s.index);
+      const ok = indices[0] === 1 && indices.length === 5 &&
+                 indices.every((v, i) => v === i + 1);
+      addTest("Guide V1.2: 步骤 index 连续从 1 开始",
+        ok ? "pass" : "fail", ok ? "" : `indices: ${indices.join(",")}`);
+    }
+
+    // --- Test 30: 首次使用提示含 footer ---
+    {
+      const guide = buildFirstUseGuide();
+      const ok = guide.footer.length > 0 && guide.footer.includes("关闭");
+      addTest("Guide V1.2: 含 footer 文本",
+        ok ? "pass" : "fail", ok ? "" : `footer: ${guide.footer}`);
+    }
+
   } catch (e) {
-    addTest("V1.1 单元测试段", "fail", `加载/执行异常: ${e?.message || e}`);
+    addTest("V1.1/V1.2 单元测试段", "fail", `加载/执行异常: ${e?.message || e}`);
   } finally {
     try { if (presetBundle) rmSync(presetBundle, { force: true }); } catch {}
     try { if (preflightStatusBundle) rmSync(preflightStatusBundle, { force: true }); } catch {}
+    try { if (guideBundle) rmSync(guideBundle, { force: true }); } catch {}
   }
 }
 

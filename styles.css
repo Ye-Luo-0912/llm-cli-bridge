@@ -535,3 +535,87 @@
 
 .llm-bridge-preset-btn:hover:not(:disabled) { background: var(--interactive-hover); }
 .llm-bridge-preset-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* === V1.2: First Use Guide === */
+
+.llm-bridge-guide {
+  margin: 8px 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  font-size: var(--font-ui-smaller);
+}
+
+.llm-bridge-guide-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.llm-bridge-guide-title {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.llm-bridge-guide-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.llm-bridge-guide-close:hover { color: var(--text-normal); }
+
+.llm-bridge-guide-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.llm-bridge-guide-step {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.llm-bridge-guide-step-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: 11px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.llm-bridge-guide-step-text {
+  flex: 1;
+}
+
+.llm-bridge-guide-step-title {
+  font-weight: 500;
+  color: var(--text-normal);
+  margin-bottom: 2px;
+}
+
+.llm-bridge-guide-step-detail {
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.llm-bridge-guide-footer {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-style: italic;
+}

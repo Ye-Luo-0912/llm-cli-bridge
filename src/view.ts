@@ -16,6 +16,7 @@ import type { PendingActionEntry } from "./httpServer";
 import { runPreflight, PreflightResult } from "./agentProfile";
 import { mapPreflightToStatus, buildErrorSummary } from "./preflightStatus";
 import { buildPresetPrompt, PRESETS, PresetType, requiresActiveNote, requiresSelection } from "./presetPrompts";
+import { buildFirstUseGuide, shouldShowFirstUseGuide } from "./firstUseGuide";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -76,6 +77,8 @@ export class LLMBridgeView extends ItemView {
 
   // V1.1: preflight 结果缓存
   private lastPreflightResult: PreflightResult | null = null;
+  // V1.2: 首次使用提示 DOM
+  private guideEl: HTMLElement | null = null;
 
   // DOM
   private statusDotEl!: HTMLElement;
@@ -219,6 +222,9 @@ export class LLMBridgeView extends ItemView {
       });
       btn.addEventListener("click", () => void this.applyPreset(preset.type));
     }
+
+    // ===== V1.2: 首次使用提示（可关闭，关闭后不再显示） =====
+    this.renderFirstUseGuide(root);
 
     // ===== 消息流 =====
     this.messagesEl = root.createDiv({ cls: "llm-bridge-messages" });
@@ -662,6 +668,38 @@ export class LLMBridgeView extends ItemView {
     }
 
     this.setInput(prompt);
+  }
+
+  // V1.2: 渲染首次使用提示（可关闭）
+  private renderFirstUseGuide(parent: HTMLElement): void {
+    // 读取本地存储的关闭标志
+    const dismissed = localStorage.getItem("llm-bridge-guide-dismissed") === "1";
+    if (!shouldShowFirstUseGuide(dismissed)) return;
+
+    const guide = buildFirstUseGuide();
+    this.guideEl = parent.createDiv({ cls: "llm-bridge-guide" });
+    // 标题行 + 关闭按钮
+    const head = this.guideEl.createDiv({ cls: "llm-bridge-guide-head" });
+    head.createEl("span", { cls: "llm-bridge-guide-title", text: guide.title });
+    const closeBtn = head.createEl("button", { cls: "llm-bridge-guide-close", text: "×", attr: { title: "关闭，不再显示" } });
+    closeBtn.addEventListener("click", () => {
+      localStorage.setItem("llm-bridge-guide-dismissed", "1");
+      if (this.guideEl) {
+        this.guideEl.remove();
+        this.guideEl = null;
+      }
+    });
+    // 步骤列表
+    const body = this.guideEl.createDiv({ cls: "llm-bridge-guide-body" });
+    for (const step of guide.steps) {
+      const item = body.createDiv({ cls: "llm-bridge-guide-step" });
+      item.createEl("span", { cls: "llm-bridge-guide-step-index", text: String(step.index) });
+      const text = item.createDiv({ cls: "llm-bridge-guide-step-text" });
+      text.createEl("div", { cls: "llm-bridge-guide-step-title", text: step.title });
+      text.createEl("div", { cls: "llm-bridge-guide-step-detail", text: step.detail });
+    }
+    // footer
+    this.guideEl.createDiv({ cls: "llm-bridge-guide-footer", text: guide.footer });
   }
 
   // ---------- Obsidian 状态 ----------
