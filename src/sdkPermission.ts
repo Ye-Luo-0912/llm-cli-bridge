@@ -53,7 +53,7 @@ const PERMISSION_MODE_INFO: Readonly<Record<ClaudePermissionMode, PermissionMode
   auto: {
     mode: "auto",
     label: "自动决策",
-    risk: "由 SDK 自行判断风险等级并决策；低风险自动允许，高风险仍可能询问。",
+    risk: "低风险自动允许；中/高风险必须用户确认，不自动放行（V2.3.2 Safety Gate）。",
     level: "caution",
     interactive: true,
   },
@@ -67,7 +67,7 @@ const PERMISSION_MODE_INFO: Readonly<Record<ClaudePermissionMode, PermissionMode
   bypassPermissions: {
     mode: "bypassPermissions",
     label: "跳过权限（危险）",
-    risk: "跳过所有权限检查，包括删除/Shell/网络；仅在完全可信的隔离环境使用。",
+    risk: "跳过所有权限检查（含删除/Shell/网络）；仅开发者显式选择时放行，非默认。",
     level: "danger",
     interactive: false,
   },
@@ -222,8 +222,8 @@ export interface SessionPermissionDeny {
  * canUseTool 决策结果
  */
 export interface CanUseToolDecision {
-  /** allow=允许执行；deny=拒绝执行 */
-  readonly behavior: "allow" | "deny";
+  /** allow=允许执行；deny=拒绝执行；ask=需用户确认（由 canUseTool 走交互流程） */
+  readonly behavior: "allow" | "deny" | "ask";
   /** 决策来源：user=用户本次选择；session_allow=会话级允许缓存命中；session_deny=会话级拒绝缓存命中；mode=permissionMode 自动决策 */
   readonly source: "user" | "session_allow" | "session_deny" | "mode";
   /** 风险评估 */
@@ -289,14 +289,18 @@ export function checkSessionDeny(
 }
 
 /**
- * 根据 permissionMode 与风险评估给出自动决策（无用户交互时）
+ * 根据 permissionMode 与风险评估给出决策（唯一真相源）
  *
- * 决策规则：
- * - bypassPermissions / dontAsk：全部 allow（mode 决策）
- * - plan：全部 deny（mode 决策，只读模式不允许任何工具）
- * - acceptEdits：medium 自动 allow，high 需用户确认，low 自动 allow
- * - auto：low/medium 自动 allow，high 需用户确认
- * - default：low 自动 allow，medium/high 需用户确认
+ * V2.3.2 Safety Gate 修正：
+ * - bypassPermissions：全部 allow（仅开发者显式选择时放行，危险）
+ * - dontAsk：全部 allow（静默放行，canUseTool 仍观测记录）
+ * - plan：全部 deny（只读模式不允许任何工具）
+ * - acceptEdits：low/medium 自动 allow，high 需用户确认（ask）
+ * - auto：low 自动 allow，medium/high 需用户确认（ask）—— high 不自动允许
+ * - default：low 自动 allow，medium/high 需用户确认（ask）
+ *
+ * 返回 ask 时，由 canUseTool 走用户交互流程（pending + resolvePermission）。
+ * high-risk 在任何交互模式下都不会被静默放行。
  */
 export function decideByMode(
   mode: ClaudePermissionMode,
@@ -304,7 +308,7 @@ export function decideByMode(
 ): CanUseToolDecision {
   const info = getPermissionModeInfo(mode);
 
-  // 危险模式：全部允许
+  // 危险模式：全部允许（仅显式选择时）
   if (mode === "bypassPermissions" || mode === "dontAsk") {
     return {
       behavior: "allow",
@@ -324,14 +328,14 @@ export function decideByMode(
     };
   }
 
-  // acceptEdits / auto：low/medium 自动允许，high 需用户确认
-  if (mode === "acceptEdits" || mode === "auto") {
+  // acceptEdits：low/medium 自动允许，high 需用户确认
+  if (mode === "acceptEdits") {
     if (risk.level === "high") {
       return {
-        behavior: "allow", // 返回 allow 但 source=mode，UI 仍应展示风险让用户知晓
+        behavior: "ask",
         source: "mode",
         risk,
-        reason: `${info.label}：高风险操作已自动允许（建议复核）`,
+        reason: `${info.label}：高风险操作需用户确认（${risk.reason}）`,
       };
     }
     return {
@@ -339,6 +343,24 @@ export function decideByMode(
       source: "mode",
       risk,
       reason: `${info.label}：${risk.level} 风险自动允许`,
+    };
+  }
+
+  // auto：low 自动允许，medium/high 需用户确认（high 不自动允许）
+  if (mode === "auto") {
+    if (risk.level === "low") {
+      return {
+        behavior: "allow",
+        source: "mode",
+        risk,
+        reason: `${info.label}：低风险自动允许`,
+      };
+    }
+    return {
+      behavior: "ask",
+      source: "mode",
+      risk,
+      reason: `${info.label}：${risk.level} 风险需用户确认（${risk.reason}）`,
     };
   }
 
@@ -351,14 +373,11 @@ export function decideByMode(
       reason: "默认模式：低风险自动允许",
     };
   }
-
-  // medium/high：需用户确认，返回 allow 但 reason 提示需确认
-  // 实际拦截由 canUseTool 回调中的 UI 流程处理
   return {
-    behavior: "allow",
+    behavior: "ask",
     source: "mode",
     risk,
-    reason: `默认模式：${risk.level} 风险，需用户确认`,
+    reason: `默认模式：${risk.level} 风险需用户确认（${risk.reason}）`,
   };
 }
 

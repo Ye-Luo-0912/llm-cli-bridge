@@ -4925,6 +4925,139 @@ if (!runV23sUnit) {
         `name=${backend.name}`);
     }
 
+    // ===== V2.3.2 Permission Safety Gate =====
+    // 修正：auto 模式 high 不自动允许（返回 ask）；bypassPermissions 仅显式放行
+    // 高风险文案明确提示；CLI 不回归
+
+    // 构造三种风险等级
+    const riskLowV232 = assessToolRisk("Read", { file_path: "notes/test.md" });
+    const riskMedV232 = assessToolRisk("Edit", { file_path: "notes/test.md" });
+    const riskHighV232 = assessToolRisk("Bash", { command: "rm -rf /tmp/x" });
+
+    // ---- Test 25: decideByMode auto+high → ask（不自动允许）★核心----
+    {
+      const d = decideByMode("auto", riskHighV232);
+      addTest("V2.3.2 decideByMode: auto+high → ask（不自动允许）",
+        d.behavior === "ask" && d.source === "mode" ? "pass" : "fail",
+        `behavior=${d.behavior} source=${d.source}`);
+    }
+
+    // ---- Test 26: decideByMode auto+medium → ask ----
+    {
+      const d = decideByMode("auto", riskMedV232);
+      addTest("V2.3.2 decideByMode: auto+medium → ask",
+        d.behavior === "ask" ? "pass" : "fail",
+        `behavior=${d.behavior}`);
+    }
+
+    // ---- Test 27: decideByMode auto+low → allow ----
+    {
+      const d = decideByMode("auto", riskLowV232);
+      addTest("V2.3.2 decideByMode: auto+low → allow",
+        d.behavior === "allow" ? "pass" : "fail",
+        `behavior=${d.behavior}`);
+    }
+
+    // ---- Test 28: decideByMode acceptEdits+high → ask ----
+    {
+      const d = decideByMode("acceptEdits", riskHighV232);
+      addTest("V2.3.2 decideByMode: acceptEdits+high → ask",
+        d.behavior === "ask" ? "pass" : "fail",
+        `behavior=${d.behavior}`);
+    }
+
+    // ---- Test 29: decideByMode acceptEdits+medium → allow ----
+    {
+      const d = decideByMode("acceptEdits", riskMedV232);
+      addTest("V2.3.2 decideByMode: acceptEdits+medium → allow",
+        d.behavior === "allow" ? "pass" : "fail",
+        `behavior=${d.behavior}`);
+    }
+
+    // ---- Test 30: decideByMode default+high → ask ----
+    {
+      const d = decideByMode("default", riskHighV232);
+      addTest("V2.3.2 decideByMode: default+high → ask",
+        d.behavior === "ask" ? "pass" : "fail",
+        `behavior=${d.behavior}`);
+    }
+
+    // ---- Test 31: decideByMode default+medium → ask ----
+    {
+      const d = decideByMode("default", riskMedV232);
+      addTest("V2.3.2 decideByMode: default+medium → ask",
+        d.behavior === "ask" ? "pass" : "fail",
+        `behavior=${d.behavior}`);
+    }
+
+    // ---- Test 32: decideByMode default+low → allow ----
+    {
+      const d = decideByMode("default", riskLowV232);
+      addTest("V2.3.2 decideByMode: default+low → allow",
+        d.behavior === "allow" ? "pass" : "fail",
+        `behavior=${d.behavior}`);
+    }
+
+    // ---- Test 33: decideByMode bypassPermissions+high → allow（显式放行）★----
+    {
+      const d = decideByMode("bypassPermissions", riskHighV232);
+      addTest("V2.3.2 decideByMode: bypassPermissions+high → allow（显式放行）",
+        d.behavior === "allow" && d.source === "mode" ? "pass" : "fail",
+        `behavior=${d.behavior} source=${d.source}`);
+    }
+
+    // ---- Test 34: decideByMode dontAsk+high → allow ----
+    {
+      const d = decideByMode("dontAsk", riskHighV232);
+      addTest("V2.3.2 decideByMode: dontAsk+high → allow",
+        d.behavior === "allow" ? "pass" : "fail",
+        `behavior=${d.behavior}`);
+    }
+
+    // ---- Test 35: decideByMode plan+any → deny ----
+    {
+      const d = decideByMode("plan", riskLowV232);
+      addTest("V2.3.2 decideByMode: plan+low → deny",
+        d.behavior === "deny" ? "pass" : "fail",
+        `behavior=${d.behavior}`);
+    }
+
+    // ---- Test 36: PERMISSION_MODE_INFO auto 文案含 Safety Gate 提示 ----
+    {
+      const info = getPermissionModeInfo("auto");
+      const hasSafetyHint = info.risk.includes("不自动放行") || info.risk.includes("Safety Gate");
+      addTest("V2.3.2 文案: auto 模式风险说明含 Safety Gate 提示",
+        hasSafetyHint ? "pass" : "fail",
+        `risk=${info.risk.slice(0, 40)}`);
+    }
+
+    // ---- Test 37: PERMISSION_MODE_INFO bypassPermissions 文案含显式选择提示 ----
+    {
+      const info = getPermissionModeInfo("bypassPermissions");
+      const hasExplicitHint = info.risk.includes("显式选择") || info.risk.includes("非默认");
+      addTest("V2.3.2 文案: bypassPermissions 风险说明含显式选择提示",
+        hasExplicitHint ? "pass" : "fail",
+        `risk=${info.risk.slice(0, 40)}`);
+    }
+
+    // ---- Test 38: high-risk reason 文案含风险说明 ----
+    {
+      const r = riskHighV232;
+      const hasHighFlag = r.level === "high" && r.highRiskFlags.length > 0 && r.reason.length > 0;
+      addTest("V2.3.2 high-risk: assessToolRisk Bash+rm → high 含 highRiskFlags 与 reason",
+        hasHighFlag ? "pass" : "fail",
+        `level=${r.level} flags=${r.highRiskFlags.length} reason=${r.reason.slice(0, 30)}`);
+    }
+
+    // ---- Test 39: decideByMode ask 返回的 reason 含风险说明 ----
+    {
+      const d = decideByMode("auto", riskHighV232);
+      const reasonHasRisk = d.reason.includes("高风险") || d.reason.includes("需用户确认");
+      addTest("V2.3.2 decideByMode: ask 返回 reason 含高风险/需用户确认提示",
+        d.behavior === "ask" && reasonHasRisk ? "pass" : "fail",
+        `reason=${d.reason.slice(0, 40)}`);
+    }
+
   } catch (e) {
     addTest("V2.3s 单元测试段", "fail", e?.stack || e?.message || String(e));
   } finally {

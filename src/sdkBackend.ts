@@ -44,7 +44,6 @@ import {
   createSessionDeny,
   buildRequestMergeKey,
   assessSubagentPermissionRisk,
-  getPermissionModeInfo,
   type PermissionChoice,
   type SessionPermissionAllow,
   type SessionPermissionDeny,
@@ -446,12 +445,11 @@ async function runRealSdkQuery(
   let terminalExitCode = 0;
 
   try {
-    // V2.3s: canUseTool 回调 —— 基于 SDK 原生 permissionMode 做 UI 封装
+    // V2.3.2: canUseTool 回调 —— decideByMode 为唯一真相源
     // 1. 评估工具风险（assessToolRisk）
     // 2. 检查会话级允许/拒绝缓存
-    // 3. 非交互模式由 decideByMode 自动决策
-    // 4. 交互模式下 low 风险自动允许，medium/high 风险等待用户决策
-    // 5. 用户决策（allow_once/allow_session/deny_session）通过 resolvePermission 注入
+    // 3. 调用 decideByMode 统一决策：allow=允许 / deny=拒绝 / ask=等待用户确认
+    // 4. ask 时发出 pending 权限事件，用户决策（allow_once/allow_session/deny_session）通过 resolvePermission 注入
     const canUseTool = async (
       toolName: string,
       input: Record<string, unknown>,
@@ -510,24 +508,18 @@ async function runRealSdkQuery(
         return { behavior: "deny", message: `会话已拒绝：${toolName}（${risk.reason}）` };
       }
 
-      // 3. 非交互模式由 decideByMode 自动决策
-      const modeInfo = getPermissionModeInfo(mode);
-      if (!modeInfo.interactive) {
-        const decision = decideByMode(mode, risk);
-        emitPerm(decision.behavior === "allow", "mode");
-        if (decision.behavior === "deny") {
-          return { behavior: "deny", message: decision.reason };
-        }
-        return { behavior: "allow", updatedInput: input };
-      }
-
-      // 4. 交互模式下 low 风险自动允许
-      if (risk.level === "low") {
+      // 3. 调用 decideByMode 统一决策（唯一真相源）
+      const decision = decideByMode(mode, risk);
+      if (decision.behavior === "allow") {
         emitPerm(true, "mode");
         return { behavior: "allow", updatedInput: input };
       }
+      if (decision.behavior === "deny") {
+        emitPerm(false, "mode");
+        return { behavior: "deny", message: decision.reason };
+      }
 
-      // 5. 交互模式下 medium/high 风险：等待用户决策
+      // 4. decision.behavior === "ask"：等待用户决策
       const requestId = `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       emitPerm(true, "user", true, requestId); // pending=true
 
