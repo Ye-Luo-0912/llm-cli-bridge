@@ -1,13 +1,14 @@
-// LLM CLI Bridge — SDK Backend (V1.7 Real SDK Workflow Enhancement)
+// LLM CLI Bridge — SDK Backend (V2.0 SDK Workflow Deepening)
 // 实验性 Claude Agent SDK 接入：尝试加载真实 SDK，不可用时 fallback mock workflow
 // 不破坏 AgentEvent v0.1；工具级事件通过 onWorkflowEvent 传递（UI-only）
 //
-// V1.7 策略：
+// V2.0 策略：
 // 1. 尝试加载 @anthropic-ai/claude-agent-sdk（新包名）或 @anthropic-ai/claude-code（旧包名）
-// 2. 若可用：调用真实 SDK query()，用 mapSdkMessageToWorkflowEvents 映射事件流
-// 3. 若不可用：fallback 到 mock workflow（模拟工具调用序列），UI 仍可展示流程
-// 4. 收集 SDK diagnostics（可用性/包名/版本/事件数/fallback 原因），日志脱敏
+// 2. 若可用：调用真实 SDK query()，用 mapSdkMessageToWorkflowEvents 映射事件流（含 thinking/completed/failed）
+// 3. 若不可用：fallback 到 mock workflow（模拟工具调用序列 + thinking + 终态），UI 仍可展示流程
+// 4. 收集 SDK diagnostics（可用性/包名/版本/事件数/partialCount/fallback 原因/错误摘要），日志脱敏
 // 5. 权限：canUseTool 回调发出 permission 事件，默认 allow（仅展示，不自动批准危险操作由 permissionMode 控制）
+// 6. partial：stream_event 标记 partial 不产出事件，不伪造工具过程
 
 import { AgentBackend, AgentEventHandler, AgentRunHandle, AgentTask } from "./agentBackend";
 import { LLMBridgeSettings } from "./types";
@@ -18,9 +19,13 @@ import {
   FileChangeEvent,
   PermissionEvent,
   ErrorEvent,
+  ThinkingEvent,
+  CompletedEvent,
+  FailedEvent,
   WorkflowEvent,
   WorkflowEventHandler,
   redactWorkflowEvent,
+  redactSecrets,
 } from "./workflowEvent";
 import {
   SdkMessage,
@@ -109,10 +114,10 @@ export function isSdkAvailable(cwd: string): boolean {
  * 生成 mock workflow 事件序列（模拟真实工具调用流程）
  * 用于无真实 SDK 时测试 UI 渲染
  *
- * 序列：
- *   message(assistant) → tool_start(Read) → tool_result(Read)
+ * V2.0 序列（覆盖 thinking/tool/file/permission/completed）：
+ *   thinking → message(assistant) → tool_start(Read) → tool_result(Read)
  *   → tool_start(Write) → permission(Write) → tool_result(Write)
- *   → file_change(create) → message(assistant)
+ *   → file_change(create) → message(assistant) → completed
  */
 export function generateMockWorkflowEvents(
   task: AgentTask,
@@ -129,7 +134,17 @@ export function generateMockWorkflowEvents(
     delay += 150;
   };
 
-  // 1. assistant 消息
+  // 1. V2.0 thinking（模型思考过程摘要）
+  schedule(() => {
+    const ev: ThinkingEvent = {
+      type: "thinking",
+      timestamp: now(),
+      text: `分析请求：${task.userMessage.slice(0, 30)}，需要先读取笔记再生成摘要`,
+    };
+    onWorkflowEvent(redactWorkflowEvent(ev));
+  });
+
+  // 2. assistant 消息
   schedule(() => {
     const ev: MessageEvent = {
       type: "message",
@@ -140,7 +155,7 @@ export function generateMockWorkflowEvents(
     onWorkflowEvent(redactWorkflowEvent(ev));
   });
 
-  // 2. tool_start: Read
+  // 3. tool_start: Read
   const readCallId = `call_read_${startedAt}`;
   schedule(() => {
     const ev: ToolStartEvent = {
@@ -153,7 +168,7 @@ export function generateMockWorkflowEvents(
     onWorkflowEvent(redactWorkflowEvent(ev));
   });
 
-  // 3. tool_result: Read
+  // 4. tool_result: Read
   schedule(() => {
     const ev: ToolResultEvent = {
       type: "tool_result",
@@ -166,7 +181,7 @@ export function generateMockWorkflowEvents(
     onWorkflowEvent(redactWorkflowEvent(ev));
   });
 
-  // 4. tool_start: Write
+  // 5. tool_start: Write
   const writeCallId = `call_write_${startedAt}`;
   schedule(() => {
     const ev: ToolStartEvent = {
@@ -179,7 +194,7 @@ export function generateMockWorkflowEvents(
     onWorkflowEvent(redactWorkflowEvent(ev));
   });
 
-  // 5. permission: Write
+  // 6. permission: Write
   schedule(() => {
     const ev: PermissionEvent = {
       type: "permission",
@@ -191,7 +206,7 @@ export function generateMockWorkflowEvents(
     onWorkflowEvent(redactWorkflowEvent(ev));
   });
 
-  // 6. tool_result: Write
+  // 7. tool_result: Write
   schedule(() => {
     const ev: ToolResultEvent = {
       type: "tool_result",
@@ -204,7 +219,7 @@ export function generateMockWorkflowEvents(
     onWorkflowEvent(redactWorkflowEvent(ev));
   });
 
-  // 7. file_change: create
+  // 8. file_change: create
   schedule(() => {
     const ev: FileChangeEvent = {
       type: "file_change",
@@ -215,7 +230,7 @@ export function generateMockWorkflowEvents(
     onWorkflowEvent(redactWorkflowEvent(ev));
   });
 
-  // 8. assistant 最终消息
+  // 9. assistant 最终消息
   schedule(() => {
     const ev: MessageEvent = {
       type: "message",
@@ -225,10 +240,20 @@ export function generateMockWorkflowEvents(
     };
     onWorkflowEvent(redactWorkflowEvent(ev));
   });
+
+  // 10. V2.0 completed 终态事件（UI-only）
+  schedule(() => {
+    const ev: CompletedEvent = {
+      type: "completed",
+      timestamp: now(),
+      text: "mock workflow 完成（SDK 不可用，演示用）",
+    };
+    onWorkflowEvent(redactWorkflowEvent(ev));
+  });
 }
 
 /**
- * 生成 mock 失败 workflow 事件序列
+ * 生成 mock 失败 workflow 事件序列（V2.0：覆盖 error + failed 终态）
  */
 export function generateMockFailureWorkflowEvents(
   task: AgentTask,
@@ -283,6 +308,17 @@ export function generateMockFailureWorkflowEvents(
       type: "error",
       timestamp: now(),
       message: "无法读取所需文件，任务终止",
+      recoverable: false,
+    };
+    onWorkflowEvent(redactWorkflowEvent(ev));
+  });
+
+  // V2.0: failed 终态事件（UI-only）
+  schedule(() => {
+    const ev: FailedEvent = {
+      type: "failed",
+      timestamp: now(),
+      message: "mock workflow 失败（读取文件失败，演示用）",
       recoverable: false,
     };
     onWorkflowEvent(redactWorkflowEvent(ev));
@@ -409,6 +445,8 @@ async function runRealSdkQuery(
       messageCount: msgCount,
       workflowEventCount: wfEventCount,
       partialCount,
+      // V2.0: 失败时记录错误摘要（脱敏）
+      errorSummary: terminalStatus === "failed" ? redactSecrets(terminalText.slice(0, 200)) : null,
     });
 
     return {
@@ -420,12 +458,15 @@ async function runRealSdkQuery(
   } catch (e) {
     // SDK 调用异常 → failed
     const errMsg = e instanceof Error ? e.message : String(e);
+    const redactedErr = redactSecrets(errMsg);
     const finalDiagnostics = updateDiagnostics(diagnostics, {
       available: true,
       messageCount: msgCount,
       workflowEventCount: wfEventCount,
       partialCount,
-      fallbackReason: `SDK query error: ${errMsg.slice(0, 100)}`,
+      fallbackReason: `SDK query error: ${redactedErr.slice(0, 100)}`,
+      // V2.0: 错误摘要（脱敏，不含 secret）
+      errorSummary: redactedErr.slice(0, 200),
     });
 
     // 发出 error workflow 事件
@@ -433,15 +474,23 @@ async function runRealSdkQuery(
       const errEv: ErrorEvent = {
         type: "error",
         timestamp: new Date().toISOString(),
-        message: `SDK query failed: ${errMsg}`,
+        message: `SDK query failed: ${redactedErr}`,
         recoverable: false,
       };
       onWorkflowEvent(redactWorkflowEvent(errEv));
+      // V2.0: failed 终态事件（UI-only）
+      const failedEv: FailedEvent = {
+        type: "failed",
+        timestamp: new Date().toISOString(),
+        message: `SDK query failed: ${redactedErr}`,
+        recoverable: false,
+      };
+      onWorkflowEvent(redactWorkflowEvent(failedEv));
     }
 
     return {
       status: "failed",
-      text: `[sdk] query error: ${errMsg}`,
+      text: `[sdk] query error: ${redactedErr}`,
       exitCode: 1,
       diagnostics: finalDiagnostics,
     };

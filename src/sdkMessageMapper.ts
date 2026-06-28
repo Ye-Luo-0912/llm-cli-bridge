@@ -1,15 +1,16 @@
-// LLM CLI Bridge — SDK Message Mapper (V1.7)
+// LLM CLI Bridge — SDK Message Mapper (V2.0 SDK Workflow Deepening)
 // 纯函数：将 Claude Agent SDK 的 SDKMessage 映射为 UI-only WorkflowEvent
 // 不依赖真实 SDK 安装：使用最小鸭子类型接口，测试可用 mock 对象验证
 //
 // 映射规则：
 // - SDKSystemMessage(init)     → message(system) + 可选 permission/info
-// - SDKAssistantMessage        → message(assistant, text blocks) + tool_start(tool_use blocks)
+// - SDKAssistantMessage        → thinking(thinking blocks) + message(assistant, text blocks) + tool_start(tool_use blocks)
 // - SDKUserMessage(tool_result)→ tool_result(配对 tool_use_id)
-// - SDKResultMessage(success)  → 标记完成（由调用方发 AgentEvent completed）+ message(assistant, result text)
-// - SDKResultMessage(error)    → 标记失败（由调用方发 AgentEvent failed）+ error(fatal)
+// - SDKResultMessage(success)  → message(assistant, result text) + completed(UI-only 终态)；调用方另发 AgentEvent completed
+// - SDKResultMessage(error)    → error(fatal) + failed(UI-only 终态)；调用方另发 AgentEvent failed
 // - SDKPermissionDeniedMessage → permission(denied)
 // - 文件变更：从 tool_use 的 Edit/Write/MultiEdit/NotebookEdit 检测 → file_change
+// - SDKPartialAssistantMessage → 标记 partial，不产出事件（不伪造工具过程）
 //
 // 不改 AgentEvent v0.1；所有映射结果为 WorkflowEvent（UI-only）
 
@@ -20,6 +21,9 @@ import {
   FileChangeEvent,
   PermissionEvent,
   ErrorEvent,
+  ThinkingEvent,
+  CompletedEvent,
+  FailedEvent,
   WorkflowEvent,
 } from "./workflowEvent";
 
@@ -47,7 +51,13 @@ export interface SdkTextBlock {
   readonly text: string;
 }
 
-export type SdkContentBlock = SdkToolUseBlock | SdkToolResultBlock | SdkTextBlock | { readonly type: string };
+/** SDK content block: thinking（V2.0：模型思考过程） */
+export interface SdkThinkingBlock {
+  readonly type: "thinking";
+  readonly thinking: string;
+}
+
+export type SdkContentBlock = SdkToolUseBlock | SdkToolResultBlock | SdkTextBlock | SdkThinkingBlock | { readonly type: string };
 
 /** SDKAssistantMessage：模型响应（含 text/tool_use/thinking blocks） */
 export interface SdkAssistantMessage {
@@ -228,7 +238,17 @@ export function mapSdkMessageToWorkflowEvents(
     const content = am.message?.content;
     if (Array.isArray(content)) {
       for (const block of content) {
-        if (block.type === "text" && typeof (block as SdkTextBlock).text === "string") {
+        if (block.type === "thinking" && typeof (block as SdkThinkingBlock).thinking === "string") {
+          // V2.0: thinking block → ThinkingEvent（UI-only，不进 AgentEvent）
+          const thinkingBlock = block as SdkThinkingBlock;
+          if (thinkingBlock.thinking.length > 0) {
+            events.push({
+              type: "thinking",
+              timestamp,
+              text: thinkingBlock.thinking,
+            });
+          }
+        } else if (block.type === "text" && typeof (block as SdkTextBlock).text === "string") {
           const textBlock = block as SdkTextBlock;
           if (textBlock.text.length > 0) {
             events.push({
@@ -252,7 +272,6 @@ export function mapSdkMessageToWorkflowEvents(
           const fc = detectFileChangeFromToolUse(toolBlock.name, toolBlock.input, timestamp);
           if (fc) events.push(fc);
         }
-        // thinking blocks 暂不映射（V1.7 不展示思考过程，避免噪音）
       }
     }
 
@@ -323,6 +342,14 @@ export function mapSdkMessageToWorkflowEvents(
           text: resultText,
         });
       }
+      // V2.0: UI-only 终态事件（AgentEvent completed 由调用方另发）
+      const completedEv: CompletedEvent = {
+        type: "completed",
+        timestamp,
+        text: resultText || "SDK 任务完成",
+        durationMs: typeof rm.duration_ms === "number" ? rm.duration_ms : undefined,
+      };
+      events.push(completedEv);
       return {
         events,
         terminal: "completed",
@@ -339,6 +366,14 @@ export function mapSdkMessageToWorkflowEvents(
         message: errorMsg,
         recoverable: false,
       });
+      // V2.0: UI-only 终态事件（AgentEvent failed 由调用方另发）
+      const failedEv: FailedEvent = {
+        type: "failed",
+        timestamp,
+        message: errorMsg,
+        recoverable: false,
+      };
+      events.push(failedEv);
       return {
         events,
         terminal: "failed",
@@ -384,6 +419,8 @@ export interface SdkDiagnostics {
   readonly partialCount: number;
   /** fallback 原因（SDK 不可用时） */
   readonly fallbackReason: string | null;
+  /** V2.0: 错误摘要（最后一次错误，已脱敏，不含 secret） */
+  readonly errorSummary: string | null;
 }
 
 /**
@@ -401,6 +438,7 @@ export function createInitialDiagnostics(cwd: string, model: string | null, perm
     workflowEventCount: 0,
     partialCount: 0,
     fallbackReason: null,
+    errorSummary: null,
   };
 }
 
@@ -425,5 +463,6 @@ export function formatDiagnosticsForLog(diagnostics: SdkDiagnostics): string {
     `workflowEvents=${diagnostics.workflowEventCount}`,
     `partial=${diagnostics.partialCount}`,
     `fallbackReason=${diagnostics.fallbackReason ?? "null"}`,
+    `errorSummary=${diagnostics.errorSummary ?? "null"}`,
   ].join(" ");
 }

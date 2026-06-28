@@ -1,25 +1,31 @@
-// LLM CLI Bridge — Workflow Event (V1.6 SDK Experimental)
+// LLM CLI Bridge — Workflow Event (V2.0 SDK Workflow Deepening)
 // UI-only 工具级事件模型，不混入 AgentEvent v0.1
 // 用于 sdk-experimental backend 展示结构化工具调用流程
 //
 // 事件类型：
+// - thinking:      模型思考过程摘要（V2.0 新增）
 // - message:       模型思考摘要 / 系统消息
 // - tool_start:    工具调用开始（工具名 + 输入）
 // - tool_result:   工具调用结束（输出 + 是否出错）
 // - file_change:   文件创建/修改/删除
 // - permission:    权限请求（只展示，不自动批准）
 // - error:         错误（可恢复 / 不可恢复）
+// - completed:     工作流成功完成（V2.0 新增 UI-only 终态）
+// - failed:        工作流失败终止（V2.0 新增 UI-only 终态）
 
 /**
  * 工作流事件类型判别符
  */
 export type WorkflowEventType =
+  | "thinking"
   | "message"
   | "tool_start"
   | "tool_result"
   | "file_change"
   | "permission"
-  | "error";
+  | "error"
+  | "completed"
+  | "failed";
 
 /**
  * 事件公共字段
@@ -27,6 +33,12 @@ export type WorkflowEventType =
 export interface WorkflowEventBase {
   readonly type: WorkflowEventType;
   readonly timestamp: string;
+}
+
+/** 模型思考过程摘要（V2.0：thinking block 映射，UI-only，不混入 AgentEvent） */
+export interface ThinkingEvent extends WorkflowEventBase {
+  readonly type: "thinking";
+  readonly text: string;
 }
 
 /** 模型思考摘要 / 系统消息 */
@@ -78,16 +90,33 @@ export interface ErrorEvent extends WorkflowEventBase {
   readonly recoverable: boolean;
 }
 
+/** 工作流成功完成（V2.0 UI-only 终态；AgentEvent completed 由调用方单独发） */
+export interface CompletedEvent extends WorkflowEventBase {
+  readonly type: "completed";
+  readonly text: string;
+  readonly durationMs?: number;
+}
+
+/** 工作流失败终止（V2.0 UI-only 终态；AgentEvent failed 由调用方单独发） */
+export interface FailedEvent extends WorkflowEventBase {
+  readonly type: "failed";
+  readonly message: string;
+  readonly recoverable: boolean;
+}
+
 /**
  * 工作流事件判别联合（UI-only，不进 AgentEvent v0.1）
  */
 export type WorkflowEvent =
+  | ThinkingEvent
   | MessageEvent
   | ToolStartEvent
   | ToolResultEvent
   | FileChangeEvent
   | PermissionEvent
-  | ErrorEvent;
+  | ErrorEvent
+  | CompletedEvent
+  | FailedEvent;
 
 /**
  * 工作流事件回调
@@ -120,6 +149,8 @@ export function redactSecrets(input: string): string {
  */
 export function redactWorkflowEvent(event: WorkflowEvent): WorkflowEvent {
   switch (event.type) {
+    case "thinking":
+      return { ...event, text: redactSecrets(event.text) };
     case "message":
       return { ...event, text: redactSecrets(event.text) };
     case "tool_start":
@@ -127,6 +158,10 @@ export function redactWorkflowEvent(event: WorkflowEvent): WorkflowEvent {
     case "tool_result":
       return { ...event, output: redactSecrets(event.output) };
     case "error":
+      return { ...event, message: redactSecrets(event.message) };
+    case "completed":
+      return { ...event, text: redactSecrets(event.text) };
+    case "failed":
       return { ...event, message: redactSecrets(event.message) };
     default:
       // file_change / permission 无敏感字段
@@ -141,6 +176,8 @@ export function redactWorkflowEvent(event: WorkflowEvent): WorkflowEvent {
  */
 export function workflowEventLabel(event: WorkflowEvent): string {
   switch (event.type) {
+    case "thinking":
+      return "Thinking";
     case "message":
       return event.role === "assistant" ? "Assistant" : "System";
     case "tool_start":
@@ -155,6 +192,10 @@ export function workflowEventLabel(event: WorkflowEvent): string {
       return event.granted ? `Permission granted: ${event.toolName}` : `Permission denied: ${event.toolName}`;
     case "error":
       return event.recoverable ? "Recoverable error" : "Fatal error";
+    case "completed":
+      return "Workflow completed";
+    case "failed":
+      return event.recoverable ? "Workflow failed (recoverable)" : "Workflow failed";
   }
 }
 
@@ -163,6 +204,8 @@ export function workflowEventLabel(event: WorkflowEvent): string {
  */
 export function workflowEventIcon(event: WorkflowEvent): string {
   switch (event.type) {
+    case "thinking":
+      return "💭";
     case "message":
       return event.role === "assistant" ? "💬" : "ℹ";
     case "tool_start":
@@ -175,6 +218,10 @@ export function workflowEventIcon(event: WorkflowEvent): string {
       return event.granted ? "🔓" : "🔒";
     case "error":
       return event.recoverable ? "⚠" : "✗";
+    case "completed":
+      return "✓";
+    case "failed":
+      return "✗";
   }
 }
 
@@ -183,6 +230,8 @@ export function workflowEventIcon(event: WorkflowEvent): string {
  */
 export function workflowEventClass(event: WorkflowEvent): string {
   switch (event.type) {
+    case "thinking":
+      return "is-thinking";
     case "message":
       return "is-message";
     case "tool_start":
@@ -195,6 +244,10 @@ export function workflowEventClass(event: WorkflowEvent): string {
       return event.granted ? "is-perm-granted" : "is-perm-denied";
     case "error":
       return event.recoverable ? "is-error-recoverable" : "is-error-fatal";
+    case "completed":
+      return "is-completed";
+    case "failed":
+      return event.recoverable ? "is-failed-recoverable" : "is-failed-fatal";
   }
 }
 
@@ -208,6 +261,8 @@ export interface ToolTimelineEntry {
   readonly callId: string;
   readonly startedAt: string;
   readonly finishedAt: string | null;
+  /** V2.0: 工具耗时（ms），未配对时为 null */
+  readonly durationMs: number | null;
   readonly input: string;
   readonly output: string | null;
   readonly isError: boolean;
@@ -217,8 +272,8 @@ export interface ToolTimelineEntry {
 /**
  * 将 WorkflowEvent 列表构造为工具调用时间线
  * - tool_start 创建条目（status=running）
- * - tool_result 配对更新条目（status=done/error）
- * - 未配对的 tool_start 保持 running 状态
+ * - tool_result 配对更新条目（status=done/error），计算 durationMs
+ * - 未配对的 tool_start 保持 running 状态（durationMs=null）
  *
  * @param events 工作流事件列表（按时间顺序）
  * @returns 工具调用时间线
@@ -234,6 +289,7 @@ export function buildToolTimeline(events: ReadonlyArray<WorkflowEvent>): ToolTim
         callId: event.callId,
         startedAt: event.timestamp,
         finishedAt: null,
+        durationMs: null,
         input: event.toolInput,
         output: null,
         isError: false,
@@ -244,9 +300,15 @@ export function buildToolTimeline(events: ReadonlyArray<WorkflowEvent>): ToolTim
     } else if (event.type === "tool_result") {
       const idx = byCallId.get(event.callId);
       if (idx !== undefined) {
+        const startedMs = new Date(entries[idx].startedAt).getTime();
+        const finishedMs = new Date(event.timestamp).getTime();
+        const durationMs = Number.isFinite(startedMs) && Number.isFinite(finishedMs) && finishedMs >= startedMs
+          ? finishedMs - startedMs
+          : null;
         entries[idx] = {
           ...entries[idx],
           finishedAt: event.timestamp,
+          durationMs,
           output: event.output,
           isError: event.isError,
           status: event.isError ? "error" : "done",

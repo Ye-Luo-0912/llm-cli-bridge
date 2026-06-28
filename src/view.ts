@@ -22,6 +22,8 @@ import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, pre
 import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
 import { SdkBackend } from "./sdkBackend";
 import { WorkflowEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
+import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
+import { Skill, loadSkills } from "./skills";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -84,6 +86,18 @@ export class LLMBridgeView extends ItemView {
   private lastPreflightResult: PreflightResult | null = null;
   // V1.2: 首次使用提示 DOM
   private guideEl: HTMLElement | null = null;
+
+  // V2.0: 会话状态（UI-only，不持久化）
+  private sessionState: SessionState = createNewSession();
+  // V2.0: 运行流程区（最新一次运行的 workflow trace）
+  private runFlowEl!: HTMLElement;
+  private runFlowBody!: HTMLElement;
+  private runFlowToggle!: HTMLElement;
+  // V2.0: 会话标题展示
+  private sessionTitleEl!: HTMLElement;
+  // V2.0: Skills 列表
+  private skills: Skill[] = [];
+  private skillsListEl!: HTMLElement;
 
   // DOM
   private statusDotEl!: HTMLElement;
@@ -193,8 +207,18 @@ export class LLMBridgeView extends ItemView {
     // 注册 pending action 回调
     this.registerPendingActionCallback();
 
-    // ===== V1.1: 状态栏（Backend 模式 / Agent / cwd / Preflight 状态） =====
+    // ===== V2.0: 会话状态区（Session State） =====
+    // 会话标题 + 运行状态 + Backend/Agent/上下文指标
     this.statusBarEl = root.createDiv({ cls: "llm-bridge-status-bar" });
+    // 会话标题行（左侧标题 + 右侧 New Session 按钮）
+    const sbTitleRow = this.statusBarEl.createDiv({ cls: "llm-bridge-sb-title-row" });
+    this.sessionTitleEl = sbTitleRow.createEl("span", { cls: "llm-bridge-sb-session-title", text: this.sessionState.title, attr: { title: "当前会话" } });
+    const newSessionBtn = sbTitleRow.createEl("button", {
+      cls: "llm-bridge-sb-new-session",
+      text: "New",
+      attr: { title: "新建会话（清空消息）" },
+    });
+    newSessionBtn.addEventListener("click", () => this.newSession());
     const sbItems = this.statusBarEl.createDiv({ cls: "llm-bridge-sb-items" });
     this.statusBackendEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item", attr: { title: "Backend 模式" } });
     this.statusBackendEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Backend" });
@@ -217,7 +241,7 @@ export class LLMBridgeView extends ItemView {
     });
     this.preflightBtn.addEventListener("click", () => void this.runPreflightCheck());
 
-    // ===== V1.1: 常用操作按钮行 =====
+    // ===== V1.1: 常用操作按钮行（上下文选择区一部分） =====
     this.presetBtnsEl = root.createDiv({ cls: "llm-bridge-presets" });
     for (const preset of PRESETS) {
       const btn = this.presetBtnsEl.createEl("button", {
@@ -228,10 +252,16 @@ export class LLMBridgeView extends ItemView {
       btn.addEventListener("click", () => void this.applyPreset(preset.type));
     }
 
+    // ===== V2.0: Skills 入口（上下文选择区，可折叠，从 .llm-bridge/skills.md 读取） =====
+    this.renderSkillsPanel(root);
+
     // ===== V1.2: 首次使用提示（可关闭，关闭后不再显示） =====
     this.renderFirstUseGuide(root);
 
-    // ===== 消息流 =====
+    // ===== V2.0: 运行流程区（Run Flow，展示最新一次运行的 6 步流程） =====
+    this.renderRunFlowPanel(root);
+
+    // ===== 消息流（对话区） =====
     this.messagesEl = root.createDiv({ cls: "llm-bridge-messages" });
     this.renderEmptyState();
 
@@ -317,19 +347,21 @@ export class LLMBridgeView extends ItemView {
     });
     this.selectionLabelEl = this.includeSelectionCheckEl.parentElement!.createEl("span", { cls: "llm-bridge-chip-file", text: "" });
 
-    // 清空按钮放最右
+    // 清空按钮放最右（V2.0: 重命名为 New，与 session 概念一致）
     this.clearBtn = chipsRow.createEl("button", {
       cls: "llm-bridge-chip-ghost",
-      text: "Clear",
-      attr: { title: "清空消息" },
+      text: "New",
+      attr: { title: "新建会话（清空消息）" },
     });
-    this.clearBtn.addEventListener("click", () => this.clearMessages());
+    this.clearBtn.addEventListener("click", () => this.newSession());
 
     // 初始化
     this.syncControlsFromSettings();
     this.updateContextDisplay();
     this.setGlobalStatus("idle");
     this.refreshStatusBar();
+    this.refreshSessionState();
+    void this.refreshSkills();
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
       this.updateContextDisplay();
@@ -583,6 +615,9 @@ export class LLMBridgeView extends ItemView {
     (this.presetBtnsEl.querySelectorAll(".llm-bridge-preset-btn") as NodeListOf<HTMLButtonElement>).forEach((b) => {
       b.disabled = running;
     });
+    // V2.0: 同步会话状态
+    this.sessionState = updateSession(this.sessionState, { status });
+    this.refreshSessionState();
   }
 
   // V1.1: 刷新状态栏（Backend 模式 / Agent / cwd / Preflight 状态）
@@ -984,20 +1019,29 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  // V1.6: 渲染 SDK 工作流事件（工具级：tool_start/tool_result/file_change/permission/error/message）
+  // V2.0: 渲染 SDK 工作流事件（按阶段分组：thinking/message/tool/file/permission/error/terminal）
   // V1.8: 默认折叠（SDK experimental 为开发者功能，减少主 UI 噪音）
   private appendSdkWorkflow(parent: HTMLElement, events: ReadonlyArray<WorkflowEvent>): void {
     const body = this.createCollapsibleSection(parent, "SDK Workflow", "llm-bridge-sdk-workflow");
 
-    // 工具调用时间线（tool_start + tool_result 配对）
+    // V2.0: 按阶段顺序分组渲染（空分组跳过）
+    this.appendSdkEventGroup(body, "Thinking", events.filter((e) => e.type === "thinking"));
+    this.appendSdkEventGroup(body, "Messages", events.filter((e) => e.type === "message"));
+
+    // Tools 分组（tool timeline，含 durationMs / 结果状态 / 长内容截断）
     const toolTimeline = buildToolTimeline(events);
     if (toolTimeline.length > 0) {
-      const toolList = body.createDiv({ cls: "llm-bridge-sdk-tool-list" });
+      const groupBody = this.createSdkGroup(body, "Tools", toolTimeline.length);
+      const toolList = groupBody.createDiv({ cls: "llm-bridge-sdk-tool-list" });
       for (const tool of toolTimeline) {
         const item = toolList.createDiv({ cls: `llm-bridge-sdk-tool-item is-${tool.status}` });
         item.createEl("span", { cls: "llm-bridge-sdk-tool-icon", text: tool.status === "error" ? "✗" : tool.status === "done" ? "✓" : "…" });
         const text = item.createDiv({ cls: "llm-bridge-sdk-tool-text" });
         text.createEl("span", { cls: "llm-bridge-sdk-tool-name", text: tool.toolName });
+        // V2.0: 显示耗时（未配对 tool_result 时为 null，不显示）
+        if (tool.durationMs !== null) {
+          text.createEl("span", { cls: "llm-bridge-sdk-tool-duration", text: this.formatDurationMs(tool.durationMs) });
+        }
         if (tool.input) {
           text.createEl("span", { cls: "llm-bridge-sdk-tool-input", text: truncateText(tool.input, 80), attr: { title: tool.input } });
         }
@@ -1007,28 +1051,67 @@ export class LLMBridgeView extends ItemView {
       }
     }
 
-    // 非工具事件（message / file_change / permission / error）按时间顺序渲染
-    const nonToolEvents = events.filter((e) => e.type !== "tool_start" && e.type !== "tool_result");
-    if (nonToolEvents.length > 0) {
-      const eventList = body.createDiv({ cls: "llm-bridge-sdk-event-list" });
-      for (const event of nonToolEvents) {
-        const item = eventList.createDiv({ cls: `llm-bridge-sdk-event-item ${workflowEventClass(event)}` });
-        item.createEl("span", { cls: "llm-bridge-sdk-event-icon", text: workflowEventIcon(event) });
-        const text = item.createDiv({ cls: "llm-bridge-sdk-event-text" });
-        text.createEl("span", { cls: "llm-bridge-sdk-event-label", text: workflowEventLabel(event) });
-        // 事件详情
-        let detail = "";
-        if (event.type === "message") detail = truncateText(event.text, 120);
-        else if (event.type === "file_change") detail = `${event.action}: ${event.path}`;
-        else if (event.type === "permission") detail = event.description;
-        else if (event.type === "error") detail = event.message;
-        if (detail) {
-          text.createEl("span", { cls: "llm-bridge-sdk-event-detail", text: detail, attr: { title: detail } });
-        }
-        const time = new Date(event.timestamp).toLocaleTimeString();
-        text.createEl("span", { cls: "llm-bridge-sdk-event-time", text: time });
-      }
+    this.appendSdkEventGroup(body, "File changes", events.filter((e) => e.type === "file_change"));
+    this.appendSdkEventGroup(body, "Permissions", events.filter((e) => e.type === "permission"));
+    this.appendSdkEventGroup(body, "Errors", events.filter((e) => e.type === "error"));
+    this.appendSdkEventGroup(body, "Terminal", events.filter((e) => e.type === "completed" || e.type === "failed"));
+  }
+
+  // V2.0: 创建 SDK workflow 分组容器（带标题 + 计数）
+  private createSdkGroup(body: HTMLElement, title: string, count: number): HTMLElement {
+    const group = body.createDiv({ cls: "llm-bridge-sdk-group" });
+    group.createEl("div", { cls: "llm-bridge-sdk-group-title", text: `${title} (${count})` });
+    return group.createDiv({ cls: "llm-bridge-sdk-group-items" });
+  }
+
+  // V2.0: 渲染一个事件分组（空则跳过）
+  private appendSdkEventGroup(body: HTMLElement, title: string, groupEvents: ReadonlyArray<WorkflowEvent>): void {
+    if (groupEvents.length === 0) return;
+    const groupBody = this.createSdkGroup(body, title, groupEvents.length);
+    for (const event of groupEvents) {
+      this.appendSdkEventItem(groupBody, event);
     }
+  }
+
+  // V2.0: 渲染单个 SDK workflow 事件项（error/failed 含复制按钮）
+  private appendSdkEventItem(parent: HTMLElement, event: WorkflowEvent): void {
+    const item = parent.createDiv({ cls: `llm-bridge-sdk-event-item ${workflowEventClass(event)}` });
+    item.createEl("span", { cls: "llm-bridge-sdk-event-icon", text: workflowEventIcon(event) });
+    const text = item.createDiv({ cls: "llm-bridge-sdk-event-text" });
+    text.createEl("span", { cls: "llm-bridge-sdk-event-label", text: workflowEventLabel(event) });
+    // 事件详情
+    let detail = "";
+    if (event.type === "thinking") detail = truncateText(event.text, 120);
+    else if (event.type === "message") detail = truncateText(event.text, 120);
+    else if (event.type === "file_change") detail = `${event.action}: ${event.path}`;
+    else if (event.type === "permission") detail = event.description;
+    else if (event.type === "error") detail = event.message;
+    else if (event.type === "completed") detail = event.text;
+    else if (event.type === "failed") detail = event.message;
+    if (detail) {
+      text.createEl("span", { cls: "llm-bridge-sdk-event-detail", text: detail, attr: { title: detail } });
+    }
+    const time = new Date(event.timestamp).toLocaleTimeString();
+    text.createEl("span", { cls: "llm-bridge-sdk-event-time", text: time });
+    // V2.0: error / failed 事件加复制按钮（便于复制错误信息用于诊断）
+    if (event.type === "error" || event.type === "failed") {
+      const copyText = event.message;
+      const copyBtn = item.createEl("button", { cls: "llm-bridge-sdk-event-copy", text: "复制", attr: { title: "复制错误信息" } });
+      copyBtn.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(copyText);
+          new Notice("已复制错误信息");
+        } catch {
+          new Notice("复制失败");
+        }
+      });
+    }
+  }
+
+  // V2.0: 格式化耗时（ms → 可读字符串）
+  private formatDurationMs(ms: number): string {
+    if (ms < 1000) return `${ms}ms`;
+    return `${(ms / 1000).toFixed(1)}s`;
   }
 
   // V1.2: 渲染运行过程时间线
@@ -1166,6 +1249,190 @@ export class LLMBridgeView extends ItemView {
     this.renderEmptyState();
   }
 
+  // V2.0: 新建会话（清空消息 + 重置会话状态 + 清空运行流程区）
+  private newSession(): void {
+    if (this.runHandle) {
+      new Notice("运行中无法新建会话");
+      return;
+    }
+    this.messages = [];
+    this.currentAssistantId = null;
+    this.sessionState = createNewSession();
+    this.renderEmptyState();
+    this.refreshSessionState();
+    this.clearRunFlow();
+  }
+
+  // V2.0: 刷新会话状态展示（标题 + 状态 + 消息数 + 上下文指标）
+  private refreshSessionState(): void {
+    if (this.sessionTitleEl) {
+      this.sessionTitleEl.textContent = this.sessionState.title;
+    }
+    // 会话标题行着色（按状态）
+    const titleRow = this.statusBarEl.querySelector(".llm-bridge-sb-title-row");
+    if (titleRow) {
+      titleRow.className = `llm-bridge-sb-title-row ${sessionStatusClass(this.sessionState.status)}`;
+    }
+  }
+
+  // V2.0: 渲染 Skills 面板（可折叠，从 .llm-bridge/skills.md 读取）
+  private renderSkillsPanel(parent: HTMLElement): void {
+    const wrap = parent.createDiv({ cls: "llm-bridge-skills-panel" });
+    const head = wrap.createDiv({ cls: "llm-bridge-skills-head" });
+    const toggle = head.createEl("span", { cls: "llm-bridge-skills-toggle", text: "▶ Skills" });
+    const body = wrap.createDiv({ cls: "llm-bridge-skills-body" });
+    body.setAttribute("hidden", "");
+    this.skillsListEl = body;
+    toggle.addEventListener("click", () => {
+      const hidden = body.hasAttribute("hidden");
+      if (hidden) {
+        body.removeAttribute("hidden");
+        toggle.textContent = "▼ Skills";
+      } else {
+        body.setAttribute("hidden", "");
+        toggle.textContent = "▶ Skills";
+      }
+    });
+  }
+
+  // V2.0: 从 Vault 读取 skills 列表并渲染
+  private async refreshSkills(): Promise<void> {
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    this.skills = await loadSkills(vaultPath);
+    this.renderSkillsList();
+  }
+
+  // V2.0: 渲染 skills 列表（空则显示提示）
+  private renderSkillsList(): void {
+    if (!this.skillsListEl) return;
+    this.skillsListEl.empty();
+    if (this.skills.length === 0) {
+      this.skillsListEl.createEl("div", {
+        cls: "llm-bridge-skills-empty",
+        text: "无 skills。在 .llm-bridge/skills.md 中用 ## 标题定义 skill。",
+      });
+      return;
+    }
+    const list = this.skillsListEl.createDiv({ cls: "llm-bridge-skills-list" });
+    for (const skill of this.skills) {
+      const item = list.createEl("button", {
+        cls: "llm-bridge-skill-item",
+        attr: { title: skill.description || skill.name },
+      });
+      item.createEl("span", { cls: "llm-bridge-skill-name", text: skill.name });
+      if (skill.description) {
+        item.createEl("span", { cls: "llm-bridge-skill-desc", text: skill.description });
+      }
+      item.addEventListener("click", () => this.applySkill(skill));
+    }
+  }
+
+  // V2.0: 应用 skill（只做 prompt 增强，插入到输入框，不执行危险操作）
+  private applySkill(skill: Skill): void {
+    if (this.runHandle) return;
+    if (skill.prompt.length > 0) {
+      this.setInput(skill.prompt);
+    } else {
+      // 无 prompt 的 skill（如"自由提问"）：清空输入框并聚焦
+      this.inputEl.value = "";
+      this.inputEl.focus();
+    }
+  }
+
+  // V2.0: 渲染运行流程区面板（展示最新一次运行的 6 步流程）
+  private renderRunFlowPanel(parent: HTMLElement): void {
+    this.runFlowEl = parent.createDiv({ cls: "llm-bridge-run-flow" });
+    const head = this.runFlowEl.createDiv({ cls: "llm-bridge-run-flow-head" });
+    this.runFlowToggle = head.createEl("span", { cls: "llm-bridge-run-flow-toggle", text: "▶ 运行流程" });
+    this.runFlowBody = this.runFlowEl.createDiv({ cls: "llm-bridge-run-flow-body" });
+    this.runFlowBody.setAttribute("hidden", "");
+    this.runFlowToggle.addEventListener("click", () => {
+      const hidden = this.runFlowBody.hasAttribute("hidden");
+      if (hidden) {
+        this.runFlowBody.removeAttribute("hidden");
+        this.runFlowToggle.textContent = "▼ 运行流程";
+      } else {
+        this.runFlowBody.setAttribute("hidden", "");
+        this.runFlowToggle.textContent = "▶ 运行流程";
+      }
+    });
+    this.clearRunFlow();
+  }
+
+  // V2.0: 清空运行流程区
+  private clearRunFlow(): void {
+    if (!this.runFlowBody) return;
+    this.runFlowBody.empty();
+    this.runFlowBody.createEl("div", { cls: "llm-bridge-run-flow-empty", text: "暂无运行" });
+    this.runFlowEl.classList.remove("is-running", "is-completed", "is-failed", "is-stopped");
+  }
+
+  // V2.0: 运行开始时展示前 3 步（准备上下文 → 构建 prompt → 启动 agent）
+  private showRunFlowStarted(promptLength: number): void {
+    if (!this.runFlowBody) return;
+    this.runFlowBody.empty();
+    this.runFlowEl.classList.remove("is-completed", "is-failed", "is-stopped");
+    this.runFlowEl.classList.add("is-running");
+    // 自动展开运行流程区
+    this.runFlowBody.removeAttribute("hidden");
+    this.runFlowToggle.textContent = "▼ 运行流程";
+
+    const steps = [
+      { label: "准备上下文", detail: "已导出 Obsidian 状态", status: "done" },
+      { label: "构建 prompt", detail: `${promptLength} chars via stdin`, status: "done" },
+      { label: "启动 agent", detail: "process started", status: "running" },
+    ];
+    for (const step of steps) {
+      const item = this.runFlowBody.createDiv({ cls: `llm-bridge-run-flow-item is-${step.status}` });
+      item.createEl("span", { cls: "llm-bridge-run-flow-dot" });
+      const text = item.createDiv({ cls: "llm-bridge-run-flow-text" });
+      text.createEl("span", { cls: "llm-bridge-run-flow-label", text: step.label });
+      if (step.detail) {
+        text.createEl("span", { cls: "llm-bridge-run-flow-detail", text: step.detail });
+      }
+    }
+  }
+
+  // V2.0: 运行完成后展示完整 6 步流程（复用 workflowTrace 渲染逻辑）
+  private showRunFlowTrace(trace: ReadonlyArray<{ stage: string; timestamp: string; detail: string; status: string }>, finalStatus: RunStatus): void {
+    if (!this.runFlowBody) return;
+    this.runFlowBody.empty();
+    this.runFlowEl.classList.remove("is-running");
+    this.runFlowEl.classList.add(`is-${finalStatus}`);
+    // 自动展开
+    this.runFlowBody.removeAttribute("hidden");
+    this.runFlowToggle.textContent = "▼ 运行流程";
+
+    // 6 步流程标签映射（workflowTrace stage → 用户可读步骤名）
+    const stepLabels: Record<string, string> = {
+      preflight: "准备上下文",
+      build_prompt: "构建 prompt",
+      spawn: "启动 agent",
+      stdout: "读取输出",
+      stderr: "读取输出",
+      file_diff_scan: "检测文件变化",
+      completed: "完成",
+      failed: "失败",
+      stopped: "停止",
+    };
+
+    for (const entry of trace) {
+      const stage = entry.stage as WorkflowTraceStage;
+      const label = stepLabels[stage] || workflowStageLabel(stage);
+      const item = this.runFlowBody.createDiv({
+        cls: `llm-bridge-run-flow-item ${workflowStageClass(stage)} is-${entry.status}`,
+      });
+      item.createEl("span", { cls: "llm-bridge-run-flow-dot" });
+      const text = item.createDiv({ cls: "llm-bridge-run-flow-text" });
+      text.createEl("span", { cls: "llm-bridge-run-flow-label", text: label });
+      if (entry.detail) {
+        text.createEl("span", { cls: "llm-bridge-run-flow-detail", text: entry.detail });
+      }
+      const time = new Date(entry.timestamp).toLocaleTimeString();
+      text.createEl("span", { cls: "llm-bridge-run-flow-time", text: time });
+    }
+  }
+
   // ---------- 运行流程 ----------
 
   // 供外部 command 调用：填充输入框
@@ -1245,7 +1512,20 @@ export class LLMBridgeView extends ItemView {
     const assistantId = this.appendAssistantPlaceholder();
     this.inputEl.value = "";
 
+    // V2.0: 首条用户消息生成会话标题 + 更新消息数
+    if (this.sessionState.messageCount === 0) {
+      this.sessionState = updateSession(this.sessionState, {
+        title: generateSessionTitle(userInput),
+        startedAt: new Date().toISOString(),
+      });
+    }
+    this.sessionState = updateSession(this.sessionState, {
+      messageCount: this.sessionState.messageCount + 1,
+    });
+
     this.setGlobalStatus("running");
+    // V2.0: 运行流程区展示前 3 步
+    this.showRunFlowStarted(prompt.length);
     // V1.2: 运行过程时间线 —— 收集中间事件（首次 stdout/stderr 各记录一条，保持简洁）
     const startedAt = new Date().toISOString();
     const timelineEvents: Array<{ type: TimelineEventType; detail: string; timestamp: string }> = [];
@@ -1420,6 +1700,8 @@ export class LLMBridgeView extends ItemView {
       workflowFinalDetail,
     );
     this.updateAssistantMessage(assistantId, { workflowTrace });
+    // V2.0: 运行流程区展示完整 6 步流程
+    this.showRunFlowTrace(workflowTrace, status);
   }
 
   // ---------- 日志保存 ----------

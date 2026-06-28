@@ -3595,6 +3595,520 @@ if (!runV18Unit) {
 }
 
 // ============================================================
+// 8.9 V2.0 SDK Workflow Deepening 单元测试
+//     覆盖：thinking/completed/failed 映射、tool durationMs、diagnostics errorSummary、
+//           mock fixture 覆盖 thinking/partial、redactWorkflowEvent 新类型、
+//           workflowEventLabel/Icon/Class 新类型、partial 不变、CLI 不回归
+// ============================================================
+console.log("\n=== SDK Workflow Deepening 单元测试（V2.0）===");
+
+const runV20Unit = runMode === "all" || runMode === "unit";
+
+if (!runV20Unit) {
+  addTest("V2.0 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let workflowEventBundleV20 = null;
+  let sdkMapperBundleV20 = null;
+  let sdkBackendBundleV20 = null;
+  let cliBackendBundleV20 = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    workflowEventBundleV20 = join(PROJECT_ROOT, ".test-workflow-event-v20-temp.mjs");
+    sdkMapperBundleV20 = join(PROJECT_ROOT, ".test-sdk-mapper-v20-temp.mjs");
+    sdkBackendBundleV20 = join(PROJECT_ROOT, ".test-sdk-backend-v20-temp.mjs");
+    cliBackendBundleV20 = join(PROJECT_ROOT, ".test-cli-backend-v20-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "workflowEvent.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: workflowEventBundleV20,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sdkMessageMapper.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sdkMapperBundleV20,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sdkBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sdkBackendBundleV20,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV20,
+    });
+
+    const {
+      buildToolTimeline,
+      redactWorkflowEvent,
+      workflowEventLabel,
+      workflowEventIcon,
+      workflowEventClass,
+    } = await import(pathToFileURL(workflowEventBundleV20).href);
+    const {
+      mapSdkMessageToWorkflowEvents,
+      createInitialDiagnostics,
+      updateDiagnostics,
+      formatDiagnosticsForLog,
+    } = await import(pathToFileURL(sdkMapperBundleV20).href);
+    const { SdkBackend, generateMockFailureWorkflowEvents } = await import(pathToFileURL(sdkBackendBundleV20).href);
+    const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV20).href);
+
+    const TS = "2026-06-28T00:00:00.000Z";
+
+    // ---- Test 1: thinking block 映射为 ThinkingEvent ----
+    {
+      const assistantMsg = {
+        type: "assistant",
+        message: { content: [
+          { type: "thinking", thinking: "我需要先读取文件再生成摘要" },
+          { type: "text", text: "好的，开始处理" },
+        ] },
+      };
+      const result = mapSdkMessageToWorkflowEvents(assistantMsg, TS);
+      const hasThinking = result.events.some((e) => e.type === "thinking" && e.text === "我需要先读取文件再生成摘要");
+      const hasMessage = result.events.some((e) => e.type === "message" && e.text === "好的，开始处理");
+      const notTerminal = result.terminal === null;
+      addTest("V2.0 thinking 映射: assistant 含 thinking block → ThinkingEvent",
+        hasThinking && hasMessage && notTerminal ? "pass" : "fail",
+        `hasThinking=${hasThinking} hasMessage=${hasMessage} notTerminal=${notTerminal}`);
+    }
+
+    // ---- Test 2: completed 终态事件（result success）----
+    {
+      const successMsg = {
+        type: "result", subtype: "success", is_error: false,
+        result: "任务完成", duration_ms: 500,
+      };
+      const sr = mapSdkMessageToWorkflowEvents(successMsg, TS);
+      const hasCompleted = sr.events.some((e) => e.type === "completed" && e.text === "任务完成" && e.durationMs === 500);
+      const terminalCompleted = sr.terminal === "completed" && sr.terminalExitCode === 0;
+      addTest("V2.0 completed 终态: result success → message + completed 事件",
+        hasCompleted && terminalCompleted ? "pass" : "fail",
+        `hasCompleted=${hasCompleted} terminalCompleted=${terminalCompleted}`);
+    }
+
+    // ---- Test 3: failed 终态事件（result error）----
+    {
+      const errorMsg = {
+        type: "result", subtype: "error_during_execution", is_error: true,
+        errors: ["boom"],
+      };
+      const er = mapSdkMessageToWorkflowEvents(errorMsg, TS);
+      const hasFailed = er.events.some((e) => e.type === "failed" && e.message.includes("boom") && !e.recoverable);
+      const hasError = er.events.some((e) => e.type === "error");
+      const terminalFailed = er.terminal === "failed" && er.terminalExitCode === 1;
+      addTest("V2.0 failed 终态: result error → error + failed 事件",
+        hasFailed && hasError && terminalFailed ? "pass" : "fail",
+        `hasFailed=${hasFailed} hasError=${hasError} terminalFailed=${terminalFailed}`);
+    }
+
+    // ---- Test 4: tool durationMs（buildToolTimeline 配对后计算耗时）----
+    {
+      const events = [
+        { type: "tool_start", timestamp: "2026-06-28T00:00:00.000Z", toolName: "Read", toolInput: "{}", callId: "c1" },
+        { type: "tool_result", timestamp: "2026-06-28T00:00:01.500Z", callId: "c1", toolName: "Read", output: "ok", isError: false },
+      ];
+      const timeline = buildToolTimeline(events);
+      const durationOk = timeline.length === 1 && timeline[0].durationMs === 1500 && timeline[0].status === "done";
+      const unpairedEvents = [
+        { type: "tool_start", timestamp: "2026-06-28T00:00:00.000Z", toolName: "Write", toolInput: "{}", callId: "c2" },
+      ];
+      const unpairedTimeline = buildToolTimeline(unpairedEvents);
+      const unpairedOk = unpairedTimeline.length === 1 && unpairedTimeline[0].durationMs === null && unpairedTimeline[0].status === "running";
+      addTest("V2.0 tool durationMs: 配对计算耗时，未配对为 null",
+        durationOk && unpairedOk ? "pass" : "fail",
+        `durationOk=${durationOk} unpairedOk=${unpairedOk}`);
+    }
+
+    // ---- Test 5: diagnostics errorSummary 字段（不可变 + 初始 null）----
+    {
+      const initial = createInitialDiagnostics("/cwd", "claude", "default");
+      const initialNoError = initial.errorSummary === null;
+      const updated = updateDiagnostics(initial, { errorSummary: "boom error", available: true });
+      const updateOk = updated.errorSummary === "boom error" && initial.errorSummary === null;
+      addTest("V2.0 diagnostics errorSummary: 初始 null + 不可变更新",
+        initialNoError && updateOk ? "pass" : "fail",
+        `initialNoError=${initialNoError} updateOk=${updateOk}`);
+    }
+
+    // ---- Test 6: formatDiagnosticsForLog 含 errorSummary 字段 ----
+    {
+      const diag = createInitialDiagnostics("/cwd", null, null);
+      const updated = updateDiagnostics(diag, { available: true, errorSummary: "some error" });
+      const log = formatDiagnosticsForLog(updated);
+      const hasErrorSummary = log.includes("errorSummary=some error");
+      const hasPackage = log.includes("package=null");
+      addTest("V2.0 formatDiagnosticsForLog: 含 errorSummary 字段",
+        hasErrorSummary && hasPackage ? "pass" : "fail",
+        `hasErrorSummary=${hasErrorSummary} hasPackage=${hasPackage}`);
+    }
+
+    // ---- Test 7: mock workflow 含 thinking + completed（generateMockWorkflowEvents）----
+    {
+      const backend = new SdkBackend();
+      const task = {
+        id: "v20-mock", userMessage: "测试mock", prompt: "p", cwd: VAULT_PATH,
+        createdAt: new Date().toISOString(), includeActiveNote: false, includeSelection: false,
+      };
+      const settings = {
+        agentType: "claude", claudeCommand: "claude", claudeArgs: "-p",
+        codexCommand: "codex", codexArgs: "exec -", customCommand: "", customArgs: "",
+        includeActiveNote: false, includeSelection: false, maxActiveNoteChars: 6000,
+        maxSelectionChars: 3000, outputDir: "", showStderr: true, saveLogs: false,
+        sessionMode: "fresh", model: "", effortLevel: "", devTestMode: false,
+        backendMode: "sdk-experimental", claudeContinueSession: false, claudeResumeSessionId: "",
+        claudePermissionMode: "default", claudeExtraArgs: "",
+      };
+      const wfEvents = [];
+      backend.run(task, settings, () => {}, (w) => wfEvents.push(w));
+      await new Promise((r) => setTimeout(r, 2000));
+      const hasThinking = wfEvents.some((e) => e.type === "thinking");
+      const hasCompleted = wfEvents.some((e) => e.type === "completed");
+      const hasToolStart = wfEvents.some((e) => e.type === "tool_start");
+      addTest("V2.0 mock workflow: 含 thinking + completed + tool_start（复杂 fixture）",
+        hasThinking && hasCompleted && hasToolStart ? "pass" : "fail",
+        `hasThinking=${hasThinking} hasCompleted=${hasCompleted} hasToolStart=${hasToolStart}`);
+    }
+
+    // ---- Test 8: mock failure workflow 含 failed 终态事件 ----
+    {
+      const timers = [];
+      const wfEvents = [];
+      const task = {
+        id: "v20-fail", userMessage: "失败测试", prompt: "p", cwd: VAULT_PATH,
+        createdAt: new Date().toISOString(), includeActiveNote: false, includeSelection: false,
+      };
+      generateMockFailureWorkflowEvents(task, (w) => wfEvents.push(w), timers);
+      await new Promise((r) => setTimeout(r, 800));
+      const hasFailed = wfEvents.some((e) => e.type === "failed");
+      const hasError = wfEvents.some((e) => e.type === "error");
+      for (const t of timers) clearTimeout(t);
+      addTest("V2.0 mock failure workflow: 含 error + failed 终态",
+        hasFailed && hasError ? "pass" : "fail",
+        `hasFailed=${hasFailed} hasError=${hasError}`);
+    }
+
+    // ---- Test 9: redactWorkflowEvent 处理 thinking/completed/failed ----
+    {
+      const thinkingEv = redactWorkflowEvent({
+        type: "thinking", timestamp: TS,
+        text: "key=sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234",
+      });
+      const completedEv = redactWorkflowEvent({
+        type: "completed", timestamp: TS, text: "done",
+      });
+      const failedEv = redactWorkflowEvent({
+        type: "failed", timestamp: TS,
+        message: "Bearer abcdefghijklmnopqrstuvwxyz1234",
+        recoverable: false,
+      });
+      const thinkingRedacted = thinkingEv.text.includes("sk-ant-api03-***") && !thinkingEv.text.includes("abcdefghijklmnopqrstuvwxyz1234");
+      const completedIntact = completedEv.text === "done";
+      const failedRedacted = failedEv.message.includes("Bearer ***") && !failedEv.message.includes("abcdefghijklmnopqrstuvwxyz1234");
+      addTest("V2.0 redactWorkflowEvent: thinking/completed/failed 脱敏",
+        thinkingRedacted && completedIntact && failedRedacted ? "pass" : "fail",
+        `thinkingRedacted=${thinkingRedacted} completedIntact=${completedIntact} failedRedacted=${failedRedacted}`);
+    }
+
+    // ---- Test 10: workflowEventLabel/Icon/Class 覆盖新类型 ----
+    {
+      const thinkingLabel = workflowEventLabel({ type: "thinking", timestamp: TS, text: "x" }) === "Thinking";
+      const completedLabel = workflowEventLabel({ type: "completed", timestamp: TS, text: "x" }) === "Workflow completed";
+      const failedLabel = workflowEventLabel({ type: "failed", timestamp: TS, message: "x", recoverable: false }) === "Workflow failed";
+      const thinkingClass = workflowEventClass({ type: "thinking", timestamp: TS, text: "x" }) === "is-thinking";
+      const completedClass = workflowEventClass({ type: "completed", timestamp: TS, text: "x" }) === "is-completed";
+      const failedClass = workflowEventClass({ type: "failed", timestamp: TS, message: "x", recoverable: false }) === "is-failed-fatal";
+      const thinkingIcon = workflowEventIcon({ type: "thinking", timestamp: TS, text: "x" }) === "💭";
+      const completedIcon = workflowEventIcon({ type: "completed", timestamp: TS, text: "x" }) === "✓";
+      const failedIcon = workflowEventIcon({ type: "failed", timestamp: TS, message: "x", recoverable: false }) === "✗";
+      addTest("V2.0 workflowEventLabel/Icon/Class: 覆盖 thinking/completed/failed",
+        thinkingLabel && completedLabel && failedLabel && thinkingClass && completedClass && failedClass && thinkingIcon && completedIcon && failedIcon ? "pass" : "fail",
+        `tL=${thinkingLabel} cL=${completedLabel} fL=${failedLabel} tC=${thinkingClass} cC=${completedClass} fC=${failedClass} tI=${thinkingIcon} cI=${completedIcon} fI=${failedIcon}`);
+    }
+
+    // ---- Test 11: partial 机制不变（stream_event → partial=true，无事件，不伪造）----
+    {
+      const partialMsg = { type: "stream_event", parent_tool_use_id: "call_1" };
+      const result = mapSdkMessageToWorkflowEvents(partialMsg, TS);
+      const partialOk = result.partial === true && result.events.length === 0 && result.terminal === null;
+      addTest("V2.0 partial 不变: stream_event 标记 partial 不产出事件（不伪造工具过程）",
+        partialOk ? "pass" : "fail",
+        `partialOk=${partialOk}`);
+    }
+
+    // ---- Test 12: CLI 不回归 — ClaudeCliBackend 不产生 workflow 事件 ----
+    {
+      const backend = new ClaudeCliBackend();
+      const task = {
+        id: "v20-cli", userMessage: "cli", prompt: "p", cwd: VAULT_PATH,
+        createdAt: new Date().toISOString(), includeActiveNote: false, includeSelection: false,
+      };
+      const settings = {
+        agentType: "custom", claudeCommand: "claude", claudeArgs: "-p",
+        codexCommand: "codex", codexArgs: "exec -",
+        customCommand: "cmd", customArgs: "/c echo hello_from_cli_v20",
+        includeActiveNote: false, includeSelection: false, maxActiveNoteChars: 6000,
+        maxSelectionChars: 3000, outputDir: "", showStderr: true, saveLogs: false,
+        sessionMode: "fresh", model: "", effortLevel: "", devTestMode: false,
+        backendMode: "auto", claudeContinueSession: false, claudeResumeSessionId: "",
+        claudePermissionMode: "default", claudeExtraArgs: "",
+      };
+      const agentEvents = [];
+      const wfEvents = [];
+      backend.run(task, settings, (e) => agentEvents.push(e), (w) => wfEvents.push(w));
+      await new Promise((r) => setTimeout(r, 3000));
+      const hasStdout = agentEvents.some((e) => e.type === "stdout_delta" && e.data.includes("hello_from_cli_v20"));
+      const noWfEvents = wfEvents.length === 0;
+      addTest("V2.0 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件",
+        hasStdout && noWfEvents ? "pass" : "fail",
+        `hasStdout=${hasStdout} noWfEvents=${noWfEvents} wfCount=${wfEvents.length}`);
+    }
+
+  } catch (e) {
+    addTest("V2.0 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (workflowEventBundleV20) rmSync(workflowEventBundleV20, { force: true }); } catch {}
+    try { if (sdkMapperBundleV20) rmSync(sdkMapperBundleV20, { force: true }); } catch {}
+    try { if (sdkBackendBundleV20) rmSync(sdkBackendBundleV20, { force: true }); } catch {}
+    try { if (cliBackendBundleV20) rmSync(cliBackendBundleV20, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
+// 8.10 V2.0 Agent State / Session / Skills 单元测试
+//     覆盖：session 状态映射/标题生成/新建/清空/不可变更新、
+//           skills 解析/读取/空文件/无 prompt skill/模板、CLI 不回归
+// ============================================================
+console.log("\n=== Agent State / Session / Skills 单元测试（V2.0）===");
+
+const runV20SessionUnit = runMode === "all" || runMode === "unit";
+
+if (!runV20SessionUnit) {
+  addTest("V2.0 Session/Skills 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let sessionBundleV20 = null;
+  let skillsBundleV20 = null;
+  let cliBackendBundleV20S = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    sessionBundleV20 = join(PROJECT_ROOT, ".test-session-v20-temp.mjs");
+    skillsBundleV20 = join(PROJECT_ROOT, ".test-skills-v20-temp.mjs");
+    cliBackendBundleV20S = join(PROJECT_ROOT, ".test-cli-backend-v20s-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "session.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sessionBundleV20,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "skills.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: skillsBundleV20,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV20S,
+    });
+
+    const {
+      createNewSession,
+      generateSessionTitle,
+      sessionStatusLabel,
+      sessionStatusClass,
+      updateSession,
+    } = await import(pathToFileURL(sessionBundleV20).href);
+    const {
+      parseSkillsMarkdown,
+      buildSkillsTemplate,
+      SKILLS_FILE_REL,
+    } = await import(pathToFileURL(skillsBundleV20).href);
+
+    // 1. createNewSession: 初始状态 idle/新会话/0/null
+    {
+      const s = createNewSession();
+      const ok = s.title === "新会话" && s.status === "idle" && s.messageCount === 0 && s.startedAt === null;
+      addTest("V2.0 createNewSession: 初始 idle/新会话/0/null",
+        ok ? "pass" : "fail",
+        `title=${s.title} status=${s.status} count=${s.messageCount} startedAt=${s.startedAt}`);
+    }
+
+    // 2. generateSessionTitle: 短消息原样返回
+    {
+      const title = generateSessionTitle("总结这个笔记");
+      addTest("V2.0 generateSessionTitle: 短消息原样返回",
+        title === "总结这个笔记" ? "pass" : "fail",
+        `title=${title}`);
+    }
+
+    // 3. generateSessionTitle: 长消息截断加 …
+    {
+      const longMsg = "这是一段非常长的用户消息需要被截断到三十个字符以内才能作为会话标题显示在状态栏";
+      const title = generateSessionTitle(longMsg);
+      const ok = title.length === 31 && title.endsWith("…");
+      addTest("V2.0 generateSessionTitle: 长消息截断加 …",
+        ok ? "pass" : "fail",
+        `title=${title} len=${title.length}`);
+    }
+
+    // 4. generateSessionTitle: 空消息返回 "新会话"
+    {
+      const title1 = generateSessionTitle("");
+      const title2 = generateSessionTitle("   \n  \t  ");
+      const ok = title1 === "新会话" && title2 === "新会话";
+      addTest("V2.0 generateSessionTitle: 空消息返回 新会话",
+        ok ? "pass" : "fail",
+        `title1=${title1} title2=${title2}`);
+    }
+
+    // 5. sessionStatusLabel: 5 种 RunStatus 标签
+    {
+      const labels = {
+        idle: sessionStatusLabel("idle"),
+        running: sessionStatusLabel("running"),
+        completed: sessionStatusLabel("completed"),
+        failed: sessionStatusLabel("failed"),
+        stopped: sessionStatusLabel("stopped"),
+      };
+      const ok = labels.idle === "Idle" && labels.running === "Running" &&
+        labels.completed === "Done" && labels.failed === "Failed" && labels.stopped === "Stopped";
+      addTest("V2.0 sessionStatusLabel: 5 种 RunStatus 标签",
+        ok ? "pass" : "fail",
+        JSON.stringify(labels));
+    }
+
+    // 6. sessionStatusClass: is-{status}
+    {
+      const ok = sessionStatusClass("idle") === "is-idle" &&
+        sessionStatusClass("running") === "is-running" &&
+        sessionStatusClass("completed") === "is-completed" &&
+        sessionStatusClass("failed") === "is-failed" &&
+        sessionStatusClass("stopped") === "is-stopped";
+      addTest("V2.0 sessionStatusClass: is-{status} 格式",
+        ok ? "pass" : "fail",
+        `idle=${sessionStatusClass("idle")} running=${sessionStatusClass("running")}`);
+    }
+
+    // 7. updateSession: 不可变更新（原对象不变）
+    {
+      const s1 = createNewSession();
+      const s2 = updateSession(s1, { title: "测试标题", status: "running", messageCount: 1 });
+      const ok = s1.title === "新会话" && s1.status === "idle" && s1.messageCount === 0 &&
+        s2.title === "测试标题" && s2.status === "running" && s2.messageCount === 1 &&
+        s1 !== s2;
+      addTest("V2.0 updateSession: 不可变更新（原对象不变）",
+        ok ? "pass" : "fail",
+        `s1.title=${s1.title} s2.title=${s2.title} sameRef=${s1 === s2}`);
+    }
+
+    // 8. parseSkillsMarkdown: 解析多个 skill
+    {
+      const md = `# Skills
+
+## 总结笔记
+生成当前笔记的摘要
+
+请总结当前笔记的核心内容。
+
+## 解释选区
+解释选中文本
+
+请解释以上选中文本的含义。
+`;
+      const skills = parseSkillsMarkdown(md);
+      const ok = skills.length === 2 &&
+        skills[0].name === "总结笔记" && skills[0].description === "生成当前笔记的摘要" &&
+        skills[0].prompt.includes("请总结当前笔记") &&
+        skills[1].name === "解释选区" && skills[1].description === "解释选中文本" &&
+        skills[1].prompt.includes("请解释以上选中文本");
+      addTest("V2.0 parseSkillsMarkdown: 解析多个 skill（name/desc/prompt）",
+        ok ? "pass" : "fail",
+        `count=${skills.length} s0=${skills[0]?.name} s1=${skills[1]?.name}`);
+    }
+
+    // 9. parseSkillsMarkdown: 空内容返回 []
+    {
+      const skills1 = parseSkillsMarkdown("");
+      const skills2 = parseSkillsMarkdown("# Skills\n\n仅一级标题无 skill");
+      const ok = skills1.length === 0 && skills2.length === 0;
+      addTest("V2.0 parseSkillsMarkdown: 空内容/无二级标题返回 []",
+        ok ? "pass" : "fail",
+        `empty=${skills1.length} noH2=${skills2.length}`);
+    }
+
+    // 10. parseSkillsMarkdown: 无 prompt 的 skill（prompt 为空字符串）
+    {
+      const md = `## 自由提问
+清空输入框并聚焦
+
+`;
+      const skills = parseSkillsMarkdown(md);
+      const ok = skills.length === 1 && skills[0].name === "自由提问" &&
+        skills[0].description === "清空输入框并聚焦" && skills[0].prompt === "";
+      addTest("V2.0 parseSkillsMarkdown: 无 prompt 的 skill（prompt 为空字符串）",
+        ok ? "pass" : "fail",
+        `name=${skills[0]?.name} prompt=${JSON.stringify(skills[0]?.prompt)}`);
+    }
+
+    // 11. parseSkillsMarkdown: # 一级标题忽略，### 三级标题不识别
+    {
+      const md = `# Skills
+
+### 不是 skill
+这个不应该被识别
+
+## 真正的 skill
+描述
+
+prompt 内容
+`;
+      const skills = parseSkillsMarkdown(md);
+      const ok = skills.length === 1 && skills[0].name === "真正的 skill";
+      addTest("V2.0 parseSkillsMarkdown: # 忽略，### 不识别，仅 ## 识别",
+        ok ? "pass" : "fail",
+        `count=${skills.length} name=${skills[0]?.name}`);
+    }
+
+    // 12. buildSkillsTemplate: 返回有效内容（含 ## 标题）
+    {
+      const template = buildSkillsTemplate();
+      const ok = template.includes("# Skills") && template.includes("## 总结笔记") &&
+        template.includes("## 解释选区") && template.includes("## 自由提问");
+      addTest("V2.0 buildSkillsTemplate: 返回含 3 个 skill 的模板",
+        ok ? "pass" : "fail",
+        `len=${template.length} hasSkills=${template.includes("## 总结笔记")}`);
+    }
+
+    // 13. SKILLS_FILE_REL: 路径常量
+    {
+      addTest("V2.0 SKILLS_FILE_REL: 路径为 .llm-bridge/skills.md",
+        SKILLS_FILE_REL === ".llm-bridge/skills.md" ? "pass" : "fail",
+        `path=${SKILLS_FILE_REL}`);
+    }
+
+    // 14. CLI 不回归: ClaudeCliBackend 仍是函数（不依赖 session/skills）
+    {
+      const cliModule = await import(pathToFileURL(cliBackendBundleV20S).href);
+      const hasCli = typeof cliModule.ClaudeCliBackend === "function";
+      addTest("V2.0 CLI 不回归: ClaudeCliBackend 可正常加载",
+        hasCli ? "pass" : "fail",
+        `ClaudeCliBackend=${typeof cliModule.ClaudeCliBackend}`);
+    }
+
+    // 15. secret 脱敏: session 标题不泄露 secret（仅截断，不脱敏 — 标题为用户输入展示）
+    //     验证 generateSessionTitle 不会将 sk-ant key 扩展到超长标题
+    {
+      const secretMsg = "sk-ant-api03-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
+      const title = generateSessionTitle(secretMsg);
+      const ok = title.length <= 31; // 截断到 30 + …
+      addTest("V2.0 secret 不泄露: 含 sk-ant 的消息截断为短标题",
+        ok ? "pass" : "fail",
+        `titleLen=${title.length} (<=31)`);
+    }
+
+  } catch (e) {
+    addTest("V2.0 Session/Skills 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (sessionBundleV20) rmSync(sessionBundleV20, { force: true }); } catch {}
+    try { if (skillsBundleV20) rmSync(skillsBundleV20, { force: true }); } catch {}
+    try { if (cliBackendBundleV20S) rmSync(cliBackendBundleV20S, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");

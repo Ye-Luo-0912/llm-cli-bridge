@@ -1056,6 +1056,56 @@
   flex: 0 0 auto;
 }
 
+/* V2.0: SDK workflow 按阶段分组 */
+.llm-bridge-sdk-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 4px;
+}
+.llm-bridge-sdk-group:first-child { margin-top: 0; }
+.llm-bridge-sdk-group-title {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  font-weight: 600;
+  margin-bottom: 1px;
+}
+.llm-bridge-sdk-group-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* V2.0: 工具耗时 */
+.llm-bridge-sdk-tool-duration {
+  font-size: 10px;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  margin-left: 4px;
+}
+
+/* V2.0: error/failed 复制按钮（便于复制错误信息用于诊断） */
+.llm-bridge-sdk-event-copy {
+  font-size: var(--font-smallest);
+  padding: 1px 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  align-self: center;
+}
+.llm-bridge-sdk-event-copy:hover { color: var(--text-normal); border-color: var(--interactive-accent); }
+
+/* V2.0: 新事件类型颜色（thinking/completed/failed） */
+.llm-bridge-sdk-event-item.is-thinking .llm-bridge-sdk-event-label { color: var(--text-muted); font-style: italic; }
+.llm-bridge-sdk-event-item.is-completed .llm-bridge-sdk-event-label { color: #4caf50; }
+.llm-bridge-sdk-event-item.is-failed-fatal .llm-bridge-sdk-event-label { color: #e53935; }
+.llm-bridge-sdk-event-item.is-failed-recoverable .llm-bridge-sdk-event-label { color: #fb8c00; }
+
 /* === V1.3: 设置页提示 + 空状态引导 === */
 
 .llm-bridge-setting-hint {
@@ -1133,3 +1183,191 @@
   cursor: pointer;
 }
 .llm-bridge-empty-btn:hover { filter: brightness(1.1); }
+
+/* === V2.0: 会话状态区（Session State） === */
+
+.llm-bridge-sb-title-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px 2px;
+}
+.llm-bridge-sb-session-title {
+  font-size: var(--font-small);
+  font-weight: 600;
+  color: var(--text-normal);
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-sb-title-row.is-running .llm-bridge-sb-session-title { color: var(--interactive-accent); }
+.llm-bridge-sb-title-row.is-completed .llm-bridge-sb-session-title { color: #4caf50; }
+.llm-bridge-sb-title-row.is-failed .llm-bridge-sb-session-title { color: #e53935; }
+.llm-bridge-sb-title-row.is-stopped .llm-bridge-sb-session-title { color: #fb8c00; }
+
+.llm-bridge-sb-new-session {
+  flex: 0 0 auto;
+  padding: 2px 8px;
+  font-size: var(--font-smallest);
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.llm-bridge-sb-new-session:hover:not(:disabled) { color: var(--text-normal); border-color: var(--interactive-accent); }
+.llm-bridge-sb-new-session:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* === V2.0: Skills 面板 === */
+
+.llm-bridge-skills-panel {
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+.llm-bridge-skills-head {
+  padding: 4px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.llm-bridge-skills-head:hover { background: var(--background-modifier-hover); }
+.llm-bridge-skills-toggle {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.llm-bridge-skills-toggle:hover { color: var(--text-normal); }
+.llm-bridge-skills-body {
+  padding: 4px 10px 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.llm-bridge-skills-body[hidden] { display: none; }
+.llm-bridge-skills-empty {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 4px 0;
+}
+.llm-bridge-skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.llm-bridge-skill-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 4px 8px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  border-radius: 5px;
+  cursor: pointer;
+  text-align: left;
+  transition: border-color 0.1s;
+}
+.llm-bridge-skill-item:hover:not(:disabled) { border-color: var(--interactive-accent); }
+.llm-bridge-skill-item:disabled { opacity: 0.4; cursor: not-allowed; }
+.llm-bridge-skill-name {
+  font-size: var(--font-smaller);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.llm-bridge-skill-desc {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+}
+
+/* === V2.0: 运行流程区（Run Flow） === */
+
+.llm-bridge-run-flow {
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+.llm-bridge-run-flow-head {
+  padding: 4px 10px;
+  cursor: pointer;
+  user-select: none;
+}
+.llm-bridge-run-flow-head:hover { background: var(--background-modifier-hover); }
+.llm-bridge-run-flow-toggle {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.llm-bridge-run-flow-toggle:hover { color: var(--text-normal); }
+.llm-bridge-run-flow.is-running .llm-bridge-run-flow-toggle { color: var(--interactive-accent); }
+.llm-bridge-run-flow.is-completed .llm-bridge-run-flow-toggle { color: #4caf50; }
+.llm-bridge-run-flow.is-failed .llm-bridge-run-flow-toggle { color: #e53935; }
+.llm-bridge-run-flow.is-stopped .llm-bridge-run-flow-toggle { color: #fb8c00; }
+
+.llm-bridge-run-flow-body {
+  padding: 4px 10px 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.llm-bridge-run-flow-body[hidden] { display: none; }
+.llm-bridge-run-flow-empty {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 2px 0;
+}
+.llm-bridge-run-flow-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+}
+.llm-bridge-run-flow-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: 0 0 auto;
+}
+.llm-bridge-run-flow-item.is-done .llm-bridge-run-flow-dot { background: #4caf50; }
+.llm-bridge-run-flow-item.is-running .llm-bridge-run-flow-dot { background: var(--interactive-accent); animation: llm-bridge-pulse 1.2s infinite; }
+.llm-bridge-run-flow-item.is-skipped .llm-bridge-run-flow-dot { background: var(--text-muted); opacity: 0.4; }
+.llm-bridge-run-flow-item.is-preflight .llm-bridge-run-flow-dot { background: var(--text-muted); }
+.llm-bridge-run-flow-item.is-build .llm-bridge-run-flow-dot { background: var(--text-muted); }
+.llm-bridge-run-flow-item.is-spawn .llm-bridge-run-flow-dot { background: var(--interactive-accent); }
+.llm-bridge-run-flow-item.is-stdout .llm-bridge-run-flow-dot { background: #4caf50; }
+.llm-bridge-run-flow-item.is-stderr .llm-bridge-run-flow-dot { background: #e53935; }
+.llm-bridge-run-flow-item.is-diff .llm-bridge-run-flow-dot { background: #fb8c00; }
+.llm-bridge-run-flow-item.is-completed .llm-bridge-run-flow-dot { background: #4caf50; }
+.llm-bridge-run-flow-item.is-failed .llm-bridge-run-flow-dot { background: #e53935; }
+.llm-bridge-run-flow-item.is-stopped .llm-bridge-run-flow-dot { background: #fb8c00; }
+
+.llm-bridge-run-flow-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.llm-bridge-run-flow-label {
+  font-size: var(--font-smallest);
+  font-weight: 500;
+  color: var(--text-normal);
+  flex: 0 0 auto;
+}
+.llm-bridge-run-flow-detail {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.llm-bridge-run-flow-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  flex: 0 0 auto;
+}
