@@ -16,8 +16,9 @@ export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "bypassP
  * - auto: 默认生产行为，使用 ClaudeCliBackend
  * - mock-success: 开发/测试用，使用 MockAgentBackend(success)
  * - mock-failure: 开发/测试用，使用 MockAgentBackend(failure)
+ * - sdk-experimental: V1.6 实验性，使用 SdkBackend（尝试真实 SDK，不可用时 fallback mock workflow）
  */
-export type BackendMode = "auto" | "mock-success" | "mock-failure";
+export type BackendMode = "auto" | "mock-success" | "mock-failure" | "sdk-experimental";
 
 // 单条聊天消息
 export interface ChatMessage {
@@ -41,6 +42,9 @@ export interface ChatMessage {
   workflowTrace?: ReadonlyArray<{ stage: string; timestamp: string; detail: string; status: string }>;
   // V1.5: 运行过程中收集的 workflow 事件，用于构造 workflowTrace
   workflowEvents?: Array<{ stage: string; detail: string; timestamp: string }>;
+  // V1.6: SDK 工作流事件（UI-only，工具级：tool_start/tool_result/file_change/permission/error/message）
+  // 仅 sdk-experimental backend 产生；CLI/mock backend 不产生
+  sdkEvents?: ReadonlyArray<import("./workflowEvent").WorkflowEvent>;
 }
 
 export interface LLMBridgeSettings {

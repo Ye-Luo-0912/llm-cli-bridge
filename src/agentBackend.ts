@@ -3,6 +3,7 @@
 // 当前仅实现 ClaudeCliBackend，UI 层通过此接口与 agent 交互
 
 import { LLMBridgeSettings } from "./types";
+import type { WorkflowEventHandler } from "./workflowEvent";
 
 /**
  * 一次 agent 任务的定义
@@ -95,10 +96,17 @@ export interface AgentBackend {
    * 启动一次 agent 任务
    * @param task 任务定义
    * @param settings 插件设置
-   * @param onEvent 事件回调
+   * @param onEvent AgentEvent v0.1 事件回调（started/stdout_delta/stderr_delta/completed/failed/stopped）
+   * @param onWorkflowEvent 可选：V1.6 SDK 工作流事件回调（message/tool_start/tool_result/file_change/permission/error）
+   *        CLI backend 忽略此参数；SDK backend 调用以传递结构化工具调用信息
    * @returns 任务句柄
    */
-  run(task: AgentTask, settings: LLMBridgeSettings, onEvent: AgentEventHandler): AgentRunHandle;
+  run(
+    task: AgentTask,
+    settings: LLMBridgeSettings,
+    onEvent: AgentEventHandler,
+    onWorkflowEvent?: WorkflowEventHandler,
+  ): AgentRunHandle;
 }
 
 /**

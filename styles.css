@@ -912,6 +912,133 @@
   flex: 0 0 auto;
 }
 
+/* === V1.6: SDK Workflow（实验性，仅 sdk-experimental backend 产生） === */
+
+.llm-bridge-sdk-workflow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 4px 0 2px;
+  border-left: 2px solid var(--background-modifier-border);
+  margin-left: 2px;
+  padding-left: 10px;
+}
+
+.llm-bridge-sdk-workflow-title {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+
+/* 工具调用时间线 */
+.llm-bridge-sdk-tool-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.llm-bridge-sdk-tool-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.llm-bridge-sdk-tool-icon {
+  font-size: var(--font-smallest);
+  flex: 0 0 auto;
+  width: 12px;
+  text-align: center;
+}
+.llm-bridge-sdk-tool-item.is-done .llm-bridge-sdk-tool-icon { color: #4caf50; }
+.llm-bridge-sdk-tool-item.is-error .llm-bridge-sdk-tool-icon { color: #e53935; }
+.llm-bridge-sdk-tool-item.is-running .llm-bridge-sdk-tool-icon { color: var(--text-muted); }
+
+.llm-bridge-sdk-tool-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  flex: 1;
+  min-width: 0;
+}
+
+.llm-bridge-sdk-tool-name {
+  font-size: var(--font-smallest);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.llm-bridge-sdk-tool-item.is-error .llm-bridge-sdk-tool-name { color: #e53935; }
+
+.llm-bridge-sdk-tool-input,
+.llm-bridge-sdk-tool-output {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  word-break: break-all;
+}
+
+/* 非工具事件列表 */
+.llm-bridge-sdk-event-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.llm-bridge-sdk-event-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.llm-bridge-sdk-event-icon {
+  font-size: var(--font-smallest);
+  flex: 0 0 auto;
+  width: 12px;
+  text-align: center;
+}
+
+.llm-bridge-sdk-event-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.llm-bridge-sdk-event-label {
+  font-size: var(--font-smallest);
+  font-weight: 600;
+  color: var(--text-normal);
+  flex: 0 0 auto;
+}
+
+.llm-bridge-sdk-event-item.is-tool-error .llm-bridge-sdk-event-label,
+.llm-bridge-sdk-event-item.is-error-fatal .llm-bridge-sdk-event-label { color: #e53935; }
+.llm-bridge-sdk-event-item.is-tool-done .llm-bridge-sdk-event-label,
+.llm-bridge-sdk-event-item.is-perm-granted .llm-bridge-sdk-event-label { color: #4caf50; }
+.llm-bridge-sdk-event-item.is-error-recoverable .llm-bridge-sdk-event-label,
+.llm-bridge-sdk-event-item.is-perm-denied .llm-bridge-sdk-event-label { color: #fb8c00; }
+
+.llm-bridge-sdk-event-detail {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.llm-bridge-sdk-event-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
 /* === V1.3: 设置页提示 + 空状态引导 === */
 
 .llm-bridge-setting-hint {

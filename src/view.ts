@@ -20,6 +20,8 @@ import { buildFirstUseGuide, shouldShowFirstUseGuide } from "./firstUseGuide";
 import { buildTimeline, isTerminalTimelineType, timelineTypeClass, timelineTypeLabel, TimelineEventType } from "./runTimeline";
 import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, previewToRows, CommandPreview } from "./commandProfile";
 import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
+import { SdkBackend } from "./sdkBackend";
+import { WorkflowEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -538,6 +540,7 @@ export class LLMBridgeView extends ItemView {
   // 按 settings.backendMode 获取 backend 实例（带缓存）
   // - auto: 真实 ClaudeCliBackend（默认生产行为）
   // - mock-success / mock-failure: MockAgentBackend（开发/测试用）
+  // - sdk-experimental: V1.6 SdkBackend（尝试真实 SDK，不可用时 fallback mock workflow）
   private getBackend(): AgentBackend {
     const mode = this.plugin.settings.backendMode;
     if (this.cachedBackend && this.cachedBackendMode === mode) {
@@ -548,6 +551,8 @@ export class LLMBridgeView extends ItemView {
       backend = new MockAgentBackend("success");
     } else if (mode === "mock-failure") {
       backend = new MockAgentBackend("failure");
+    } else if (mode === "sdk-experimental") {
+      backend = new SdkBackend();
     } else {
       backend = new ClaudeCliBackend();
     }
@@ -839,6 +844,12 @@ export class LLMBridgeView extends ItemView {
       this.appendTimeline(details, msg.timeline);
     }
 
+    // V1.6: SDK 工作流事件（工具级：tool_start/tool_result/file_change/permission/error/message）
+    // 仅 sdk-experimental backend 产生；CLI/mock backend 无此数据
+    if (msg.role === "assistant" && msg.sdkEvents && msg.sdkEvents.length > 0) {
+      this.appendSdkWorkflow(details, msg.sdkEvents);
+    }
+
     if (msg.stderr) {
       const startOpen = failed;
       this.appendCollapsible(details, "stderr", msg.stderr, "llm-bridge-stderr-text", startOpen, failed);
@@ -941,6 +952,53 @@ export class LLMBridgeView extends ItemView {
       }
       const time = new Date(entry.timestamp).toLocaleTimeString();
       text.createEl("span", { cls: "llm-bridge-workflow-trace-time", text: time });
+    }
+  }
+
+  // V1.6: 渲染 SDK 工作流事件（工具级：tool_start/tool_result/file_change/permission/error/message）
+  private appendSdkWorkflow(parent: HTMLElement, events: ReadonlyArray<WorkflowEvent>): void {
+    const wrap = parent.createDiv({ cls: "llm-bridge-sdk-workflow" });
+    wrap.createEl("div", { cls: "llm-bridge-sdk-workflow-title", text: "SDK Workflow" });
+
+    // 工具调用时间线（tool_start + tool_result 配对）
+    const toolTimeline = buildToolTimeline(events);
+    if (toolTimeline.length > 0) {
+      const toolList = wrap.createDiv({ cls: "llm-bridge-sdk-tool-list" });
+      for (const tool of toolTimeline) {
+        const item = toolList.createDiv({ cls: `llm-bridge-sdk-tool-item is-${tool.status}` });
+        item.createEl("span", { cls: "llm-bridge-sdk-tool-icon", text: tool.status === "error" ? "✗" : tool.status === "done" ? "✓" : "…" });
+        const text = item.createDiv({ cls: "llm-bridge-sdk-tool-text" });
+        text.createEl("span", { cls: "llm-bridge-sdk-tool-name", text: tool.toolName });
+        if (tool.input) {
+          text.createEl("span", { cls: "llm-bridge-sdk-tool-input", text: truncateText(tool.input, 80), attr: { title: tool.input } });
+        }
+        if (tool.output) {
+          text.createEl("span", { cls: "llm-bridge-sdk-tool-output", text: truncateText(tool.output, 80), attr: { title: tool.output } });
+        }
+      }
+    }
+
+    // 非工具事件（message / file_change / permission / error）按时间顺序渲染
+    const nonToolEvents = events.filter((e) => e.type !== "tool_start" && e.type !== "tool_result");
+    if (nonToolEvents.length > 0) {
+      const eventList = wrap.createDiv({ cls: "llm-bridge-sdk-event-list" });
+      for (const event of nonToolEvents) {
+        const item = eventList.createDiv({ cls: `llm-bridge-sdk-event-item ${workflowEventClass(event)}` });
+        item.createEl("span", { cls: "llm-bridge-sdk-event-icon", text: workflowEventIcon(event) });
+        const text = item.createDiv({ cls: "llm-bridge-sdk-event-text" });
+        text.createEl("span", { cls: "llm-bridge-sdk-event-label", text: workflowEventLabel(event) });
+        // 事件详情
+        let detail = "";
+        if (event.type === "message") detail = truncateText(event.text, 120);
+        else if (event.type === "file_change") detail = `${event.action}: ${event.path}`;
+        else if (event.type === "permission") detail = event.description;
+        else if (event.type === "error") detail = event.message;
+        if (detail) {
+          text.createEl("span", { cls: "llm-bridge-sdk-event-detail", text: detail, attr: { title: detail } });
+        }
+        const time = new Date(event.timestamp).toLocaleTimeString();
+        text.createEl("span", { cls: "llm-bridge-sdk-event-time", text: time });
+      }
     }
   }
 
@@ -1164,6 +1222,8 @@ export class LLMBridgeView extends ItemView {
     const timelineEvents: Array<{ type: TimelineEventType; detail: string; timestamp: string }> = [];
     // V1.5: Workflow Trace —— 收集中间事件（与 timeline 共享首次 stdout/stderr 记录）
     const workflowEvents: WorkflowTraceEvent[] = [];
+    // V1.6: SDK 工作流事件（工具级：tool_start/tool_result/file_change/permission/error/message）
+    const sdkEvents: WorkflowEvent[] = [];
     let sawStdout = false;
     let sawStderr = false;
     this.updateAssistantMessage(assistantId, {
@@ -1231,10 +1291,13 @@ export class LLMBridgeView extends ItemView {
             command: event.command,
             args: event.args,
           };
-          void this.onRunFinished(result, vaultPath, assistantId, event.type, startedAt, timelineEvents, workflowEvents, prompt.length);
+          void this.onRunFinished(result, vaultPath, assistantId, event.type, startedAt, timelineEvents, workflowEvents, prompt.length, sdkEvents);
           break;
         }
       }
+    }, (wfEvent: WorkflowEvent) => {
+      // V1.6: 收集 SDK 工作流事件（工具级），用于 UI 渲染
+      sdkEvents.push(wfEvent);
     });
   }
 
@@ -1259,6 +1322,7 @@ export class LLMBridgeView extends ItemView {
     timelineEvents: ReadonlyArray<{ type: TimelineEventType; detail: string; timestamp: string }>,
     workflowEvents: ReadonlyArray<WorkflowTraceEvent>,
     promptLength: number,
+    sdkEvents: ReadonlyArray<WorkflowEvent>,
   ): Promise<void> {
     this.runHandle = null;
 
@@ -1295,6 +1359,7 @@ export class LLMBridgeView extends ItemView {
       exitCode: result.exitCode,
       durationMs: result.durationMs,
       timeline,
+      sdkEvents: sdkEvents.length > 0 ? sdkEvents : undefined,
     });
 
     if (this.plugin.settings.saveLogs) {

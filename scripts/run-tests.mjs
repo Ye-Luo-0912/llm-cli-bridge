@@ -2672,6 +2672,333 @@ if (!runV15Unit) {
 }
 
 // ============================================================
+// 8.6 V1.6 SDK Workflow Event 单元测试
+//    覆盖：event 映射、tool timeline、fallback、secret 脱敏、CLI 不回归
+// ============================================================
+console.log("\n=== SDK Workflow Event 单元测试（V1.6）===");
+
+const runV16Unit = runMode === "all" || runMode === "unit";
+
+if (!runV16Unit) {
+  addTest("V1.6 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let workflowEventBundle = null;
+  let sdkBackendBundle = null;
+  let cliBackendBundleV16 = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    workflowEventBundle = join(PROJECT_ROOT, ".test-workflow-event-temp.mjs");
+    sdkBackendBundle = join(PROJECT_ROOT, ".test-sdk-backend-temp.mjs");
+    cliBackendBundleV16 = join(PROJECT_ROOT, ".test-cli-backend-v16-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "workflowEvent.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: workflowEventBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sdkBackend.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: sdkBackendBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: cliBackendBundleV16,
+    });
+
+    const {
+      redactSecrets, redactWorkflowEvent,
+      workflowEventLabel, workflowEventIcon, workflowEventClass,
+      buildToolTimeline, extractFileChanges, isFatalError, truncateText,
+    } = await import(pathToFileURL(workflowEventBundle).href);
+    const { SdkBackend, generateMockWorkflowEvents, generateMockFailureWorkflowEvents, isSdkAvailable } =
+      await import(pathToFileURL(sdkBackendBundle).href);
+    const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV16).href);
+
+    // ---- Test 1: redactSecrets 脱敏 API key / token / Bearer / password ----
+    {
+      const cases = [
+        { input: "key=sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234", expect: "sk-ant-api03-***" },
+        { input: "token=sk-abcdefghijklmnopqrstuvwxyz1234", expect: "sk-***" },
+        { input: "Authorization: Bearer abcdefghijklmnopqrstuvwxyz1234", expect: "Bearer ***" },
+        { input: "password=secretvalue123", expect: "password=***" },
+        { input: "api_key=mykey12345678", expect: "api_key=***" },
+        { input: "普通文本无敏感信息", expect: "普通文本无敏感信息" },
+      ];
+      let allOk = true;
+      const details = [];
+      for (const c of cases) {
+        const out = redactSecrets(c.input);
+        const ok = out.includes(c.expect);
+        if (!ok) { allOk = false; details.push(`[${c.input}] → [${out}] 期望含 [${c.expect}]`); }
+      }
+      addTest("V1.6 redactSecrets: 脱敏 sk-ant/sk-/Bearer/password/api_key", allOk ? "pass" : "fail",
+        allOk ? "" : details.join("; "));
+    }
+
+    // ---- Test 2: redactWorkflowEvent 返回新事件，不修改原事件 ----
+    {
+      const original = {
+        type: "message", timestamp: "2026-01-01T00:00:00Z",
+        role: "assistant", text: "key=sk-abcdefghijklmnopqrstuvwxyz1234",
+      };
+      const redacted = redactWorkflowEvent(original);
+      const originalIntact = original.text.includes("sk-abcdefghijklmnopqrstuvwxyz1234");
+      const redactedOk = !redacted.text.includes("sk-abcdefghijklmnopqrstuvwxyz1234") && redacted.text.includes("sk-***");
+      const typePreserved = redacted.type === "message" && redacted.role === "assistant";
+      addTest("V1.6 redactWorkflowEvent: 返回新事件，原事件不变",
+        originalIntact && redactedOk && typePreserved ? "pass" : "fail",
+        `originalIntact=${originalIntact} redactedOk=${redactedOk} typePreserved=${typePreserved}`);
+    }
+
+    // ---- Test 3: redactWorkflowEvent 对 tool_start/tool_result/error 脱敏 ----
+    {
+      const toolStart = {
+        type: "tool_start", timestamp: "t", toolName: "Write",
+        toolInput: 'token=sk-abcdefghijklmnopqrstuvwxyz1234', callId: "c1",
+      };
+      const toolResult = {
+        type: "tool_result", timestamp: "t", callId: "c1", toolName: "Write",
+        output: "Bearer abcdefghijklmnopqrstuvwxyz1234", isError: false,
+      };
+      const errEvt = {
+        type: "error", timestamp: "t", message: "password=secretvalue123", recoverable: false,
+      };
+      const r1 = redactWorkflowEvent(toolStart);
+      const r2 = redactWorkflowEvent(toolResult);
+      const r3 = redactWorkflowEvent(errEvt);
+      const ok = !r1.toolInput.includes("sk-abcdefghijklmnopqrstuvwxyz") &&
+                 !r2.output.includes("abcdefghijklmnopqrstuvwxyz") &&
+                 !r3.message.includes("secretvalue123");
+      addTest("V1.6 redactWorkflowEvent: tool_start/tool_result/error 字段脱敏", ok ? "pass" : "fail",
+        ok ? "" : `r1.input=${r1.toolInput} r2.output=${r2.output} r3.msg=${r3.message}`);
+    }
+
+    // ---- Test 4: workflowEventLabel/Icon/Class 返回正确映射 ----
+    {
+      const msgEvt = { type: "message", timestamp: "t", role: "assistant", text: "hi" };
+      const toolStart = { type: "tool_start", timestamp: "t", toolName: "Read", toolInput: "{}", callId: "c1" };
+      const toolDone = { type: "tool_result", timestamp: "t", callId: "c1", toolName: "Read", output: "ok", isError: false };
+      const toolErr = { type: "tool_result", timestamp: "t", callId: "c2", toolName: "Read", output: "err", isError: true };
+      const fc = { type: "file_change", timestamp: "t", action: "create", path: "a.md" };
+      const permG = { type: "permission", timestamp: "t", toolName: "Write", description: "d", granted: true };
+      const permD = { type: "permission", timestamp: "t", toolName: "Write", description: "d", granted: false };
+      const errRec = { type: "error", timestamp: "t", message: "m", recoverable: true };
+      const errFatal = { type: "error", timestamp: "t", message: "m", recoverable: false };
+
+      const labelOk = workflowEventLabel(msgEvt) === "Assistant" &&
+                      workflowEventLabel(toolStart) === "Tool: Read" &&
+                      workflowEventLabel(toolErr) === "Tool error: Read" &&
+                      workflowEventLabel(fc) === "Created file" &&
+                      workflowEventLabel(permG) === "Permission granted: Write" &&
+                      workflowEventLabel(errFatal) === "Fatal error";
+      const classOk = workflowEventClass(toolDone) === "is-tool-done" &&
+                      workflowEventClass(toolErr) === "is-tool-error" &&
+                      workflowEventClass(permD) === "is-perm-denied" &&
+                      workflowEventClass(errRec) === "is-error-recoverable" &&
+                      workflowEventClass(errFatal) === "is-error-fatal";
+      const fatalOk = isFatalError(errFatal) === true && isFatalError(errRec) === false && isFatalError(msgEvt) === false;
+      addTest("V1.6 workflowEventLabel/Class/isFatalError: 事件映射正确",
+        labelOk && classOk && fatalOk ? "pass" : "fail",
+        `label=${labelOk} class=${classOk} fatal=${fatalOk}`);
+    }
+
+    // ---- Test 5: buildToolTimeline 配对 tool_start + tool_result ----
+    {
+      const events = [
+        { type: "tool_start", timestamp: "t1", toolName: "Read", toolInput: '{"f":"a"}', callId: "c1" },
+        { type: "tool_result", timestamp: "t2", callId: "c1", toolName: "Read", output: "content", isError: false },
+        { type: "tool_start", timestamp: "t3", toolName: "Write", toolInput: '{}', callId: "c2" },
+        { type: "tool_result", timestamp: "t4", callId: "c2", toolName: "Write", output: "err", isError: true },
+        { type: "tool_start", timestamp: "t5", toolName: "Bash", toolInput: '{}', callId: "c3" },
+      ];
+      const timeline = buildToolTimeline(events);
+      const countOk = timeline.length === 3;
+      const pair1Ok = timeline[0].toolName === "Read" && timeline[0].status === "done" &&
+                      timeline[0].finishedAt === "t2" && timeline[0].output === "content" && !timeline[0].isError;
+      const pair2Ok = timeline[1].toolName === "Write" && timeline[1].status === "error" && timeline[1].isError;
+      const unpairedOk = timeline[2].toolName === "Bash" && timeline[2].status === "running" && timeline[2].finishedAt === null;
+      addTest("V1.6 buildToolTimeline: 配对 tool_start/tool_result，未配对保持 running",
+        countOk && pair1Ok && pair2Ok && unpairedOk ? "pass" : "fail",
+        `count=${countOk} pair1=${pair1Ok} pair2=${pair2Ok} unpaired=${unpairedOk}`);
+    }
+
+    // ---- Test 6: extractFileChanges 提取 file_change 事件 ----
+    {
+      const events = [
+        { type: "message", timestamp: "t", role: "assistant", text: "hi" },
+        { type: "file_change", timestamp: "t", action: "create", path: "a.md" },
+        { type: "file_change", timestamp: "t", action: "modify", path: "b.md" },
+        { type: "tool_start", timestamp: "t", toolName: "X", toolInput: "{}", callId: "c" },
+      ];
+      const changes = extractFileChanges(events);
+      const ok = changes.length === 2 && changes[0].path === "a.md" && changes[1].action === "modify";
+      addTest("V1.6 extractFileChanges: 只提取 file_change 事件", ok ? "pass" : "fail",
+        ok ? "" : `len=${changes.length}`);
+    }
+
+    // ---- Test 7: truncateText 截断超长文本 ----
+    {
+      const short = "abc";
+      const long = "a".repeat(100);
+      const truncOk = truncateText(short, 10) === "abc" &&
+                      truncateText(long, 10).length === 10 &&
+                      truncateText(long, 10).endsWith("…");
+      addTest("V1.6 truncateText: 超长截断加省略号", truncOk ? "pass" : "fail",
+        truncOk ? "" : `short=${truncateText(short, 10)} long.len=${truncateText(long, 10).length}`);
+    }
+
+    // ---- Test 8: SdkBackend fallback — SDK 不可用时仍产出 AgentEvent v0.1 + mock workflow ----
+    {
+      const backend = new SdkBackend();
+      const task = {
+        id: "v16-test", userMessage: "测试", prompt: "p", cwd: VAULT_PATH,
+        createdAt: new Date().toISOString(), includeActiveNote: false, includeSelection: false,
+      };
+      const settings = {
+        agentType: "claude", claudeCommand: "claude", claudeArgs: "-p",
+        codexCommand: "codex", codexArgs: "exec -", customCommand: "", customArgs: "",
+        includeActiveNote: false, includeSelection: false, maxActiveNoteChars: 6000,
+        maxSelectionChars: 3000, outputDir: "", showStderr: true, saveLogs: false,
+        sessionMode: "fresh", model: "", effortLevel: "", devTestMode: false,
+        backendMode: "sdk-experimental", claudeContinueSession: false, claudeResumeSessionId: "",
+        claudePermissionMode: "default", claudeExtraArgs: "",
+      };
+      const agentEvents = [];
+      const wfEvents = [];
+      const handle = backend.run(task, settings, (e) => agentEvents.push(e), (w) => wfEvents.push(w));
+      await new Promise((r) => setTimeout(r, 2000));
+      const startedFirst = agentEvents[0]?.type === "started";
+      const hasCompleted = agentEvents.some((e) => e.type === "completed" && e.exitCode === 0);
+      const hasStdout = agentEvents.some((e) => e.type === "stdout_delta");
+      const wfHasTypes = wfEvents.some((e) => e.type === "message") &&
+                         wfEvents.some((e) => e.type === "tool_start") &&
+                         wfEvents.some((e) => e.type === "tool_result") &&
+                         wfEvents.some((e) => e.type === "file_change");
+      const notRunning = !handle.running;
+      addTest("V1.6 SdkBackend fallback: SDK 不可用时产出 AgentEvent v0.1 + mock workflow",
+        startedFirst && hasCompleted && hasStdout && wfHasTypes && notRunning ? "pass" : "fail",
+        `startedFirst=${startedFirst} hasCompleted=${hasCompleted} hasStdout=${hasStdout} wfHasTypes=${wfHasTypes} notRunning=${notRunning}`);
+    }
+
+    // ---- Test 9: SdkBackend 产出的事件已脱敏（onWorkflowEvent 收到 redacted 事件）----
+    {
+      const backend = new SdkBackend();
+      const task = {
+        id: "v16-redact", userMessage: "测试脱敏", prompt: "p", cwd: VAULT_PATH,
+        createdAt: new Date().toISOString(), includeActiveNote: false, includeSelection: false,
+      };
+      const settings = {
+        agentType: "claude", claudeCommand: "claude", claudeArgs: "-p",
+        codexCommand: "codex", codexArgs: "exec -", customCommand: "", customArgs: "",
+        includeActiveNote: false, includeSelection: false, maxActiveNoteChars: 6000,
+        maxSelectionChars: 3000, outputDir: "", showStderr: true, saveLogs: false,
+        sessionMode: "fresh", model: "", effortLevel: "", devTestMode: false,
+        backendMode: "sdk-experimental", claudeContinueSession: false, claudeResumeSessionId: "",
+        claudePermissionMode: "default", claudeExtraArgs: "",
+      };
+      const wfEvents = [];
+      backend.run(task, settings, () => {}, (w) => wfEvents.push(w));
+      await new Promise((r) => setTimeout(r, 2000));
+      // 检查所有 message/tool_start/tool_result/error 文本不含原始 sk- key
+      const allText = wfEvents.map((e) => {
+        if (e.type === "message") return e.text;
+        if (e.type === "tool_start") return e.toolInput;
+        if (e.type === "tool_result") return e.output;
+        if (e.type === "error") return e.message;
+        return "";
+      }).join("|");
+      const noRawKey = !allText.includes("sk-ant-api03-") || allText.includes("sk-ant-api03-***");
+      addTest("V1.6 SdkBackend: onWorkflowEvent 收到的事件已脱敏", noRawKey ? "pass" : "fail",
+        noRawKey ? "" : `检测到未脱敏文本: ${allText.slice(0, 100)}`);
+    }
+
+    // ---- Test 10: SdkBackend stop() 终止运行并发出 stopped 事件 ----
+    {
+      const backend = new SdkBackend();
+      const task = {
+        id: "v16-stop", userMessage: "停止测试", prompt: "p", cwd: VAULT_PATH,
+        createdAt: new Date().toISOString(), includeActiveNote: false, includeSelection: false,
+      };
+      const settings = {
+        agentType: "claude", claudeCommand: "claude", claudeArgs: "-p",
+        codexCommand: "codex", codexArgs: "exec -", customCommand: "", customArgs: "",
+        includeActiveNote: false, includeSelection: false, maxActiveNoteChars: 6000,
+        maxSelectionChars: 3000, outputDir: "", showStderr: true, saveLogs: false,
+        sessionMode: "fresh", model: "", effortLevel: "", devTestMode: false,
+        backendMode: "sdk-experimental", claudeContinueSession: false, claudeResumeSessionId: "",
+        claudePermissionMode: "default", claudeExtraArgs: "",
+      };
+      const agentEvents = [];
+      const handle = backend.run(task, settings, (e) => agentEvents.push(e), () => {});
+      handle.stop();
+      await new Promise((r) => setTimeout(r, 100));
+      const hasStopped = agentEvents.some((e) => e.type === "stopped");
+      const notRunning = !handle.running;
+      addTest("V1.6 SdkBackend: stop() 发出 stopped 事件且 handle 不再 running",
+        hasStopped && notRunning ? "pass" : "fail",
+        `hasStopped=${hasStopped} notRunning=${notRunning}`);
+    }
+
+    // ---- Test 11: CLI 不回归 — ClaudeCliBackend 忽略 onWorkflowEvent，不产生 workflow 事件 ----
+    {
+      const backend = new ClaudeCliBackend();
+      const task = {
+        id: "v16-cli", userMessage: "cli", prompt: "p", cwd: VAULT_PATH,
+        createdAt: new Date().toISOString(), includeActiveNote: false, includeSelection: false,
+      };
+      // 用 custom agent + echo 绕过 claude 依赖
+      const settings = {
+        agentType: "custom", claudeCommand: "claude", claudeArgs: "-p",
+        codexCommand: "codex", codexArgs: "exec -",
+        customCommand: "cmd", customArgs: "/c echo hello_from_cli_v16",
+        includeActiveNote: false, includeSelection: false, maxActiveNoteChars: 6000,
+        maxSelectionChars: 3000, outputDir: "", showStderr: true, saveLogs: false,
+        sessionMode: "fresh", model: "", effortLevel: "", devTestMode: false,
+        backendMode: "auto", claudeContinueSession: false, claudeResumeSessionId: "",
+        claudePermissionMode: "default", claudeExtraArgs: "",
+      };
+      const agentEvents = [];
+      const wfEvents = [];
+      backend.run(task, settings, (e) => agentEvents.push(e), (w) => wfEvents.push(w));
+      await new Promise((r) => setTimeout(r, 3000));
+      const hasStdout = agentEvents.some((e) => e.type === "stdout_delta" && e.data.includes("hello_from_cli_v16"));
+      const noWfEvents = wfEvents.length === 0;
+      addTest("V1.6 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件",
+        hasStdout && noWfEvents ? "pass" : "fail",
+        `hasStdout=${hasStdout} noWfEvents=${noWfEvents} wfCount=${wfEvents.length}`);
+    }
+
+    // ---- Test 12: isSdkAvailable 在无 SDK 环境返回 false（不抛异常）----
+    {
+      let result = null;
+      let noThrow = true;
+      try {
+        result = isSdkAvailable(VAULT_PATH);
+      } catch {
+        noThrow = false;
+      }
+      // 测试环境通常无 SDK，期望 false；但若有 SDK 也接受 true，只要不抛异常
+      addTest("V1.6 isSdkAvailable: 探测不抛异常", noThrow ? "pass" : "fail",
+        noThrow ? `available=${result}` : "探测时抛出异常");
+    }
+
+  } catch (e) {
+    addTest("V1.6 单元测试段", "fail", `加载/执行异常: ${e?.message || e}`);
+  } finally {
+    try { if (workflowEventBundle) rmSync(workflowEventBundle, { force: true }); } catch {}
+    try { if (sdkBackendBundle) rmSync(sdkBackendBundle, { force: true }); } catch {}
+    try { if (cliBackendBundleV16) rmSync(cliBackendBundleV16, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");
