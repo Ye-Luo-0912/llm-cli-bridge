@@ -727,7 +727,26 @@ export class LLMBridgeView extends ItemView {
 
   private renderEmptyState(): void {
     this.messagesEl.empty();
-    this.messagesEl.createDiv({ cls: "llm-bridge-empty", text: "Ask Claude Code about this vault." });
+    const wrap = this.messagesEl.createDiv({ cls: "llm-bridge-empty" });
+    wrap.createEl("div", { cls: "llm-bridge-empty-title", text: "开始使用 LLM CLI Bridge" });
+
+    const steps = [
+      { n: "1", html: "<strong>确认 Backend 模式为 auto</strong>：设置 → LLM CLI Bridge → 开发者区域，保持 auto（默认）。" },
+      { n: "2", html: "<strong>点 Preflight 检测 CLI</strong>：点下方按钮或面板顶部 Preflight，状态栏显示 available 即可用。" },
+      { n: "3", html: "<strong>提问</strong>：在底部输入框输入问题，点 ↑ 或 Ctrl/Cmd+Enter 发送。" },
+      { n: "4", html: "<strong>解释选区</strong>：在编辑器选中文本，点「解释选区」按钮。" },
+      { n: "5", html: "<strong>总结当前笔记</strong>：打开笔记，点「总结当前笔记」按钮，结果生成到输出目录。" },
+    ];
+    for (const s of steps) {
+      const row = wrap.createDiv({ cls: "llm-bridge-empty-step" });
+      row.createEl("span", { cls: "llm-bridge-empty-step-num", text: s.n });
+      const text = row.createDiv({ cls: "llm-bridge-empty-step-text" });
+      text.innerHTML = s.html;
+    }
+
+    const action = wrap.createDiv({ cls: "llm-bridge-empty-action" });
+    const btn = action.createEl("button", { cls: "llm-bridge-empty-btn", text: "运行 Preflight 检测" });
+    btn.addEventListener("click", () => void this.runPreflightCheck());
   }
 
   private appendUserMessage(text: string): string {

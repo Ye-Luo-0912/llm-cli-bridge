@@ -18,9 +18,12 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     const s = this.plugin.settings;
 
+    // ===== 基础配置（普通用户日常只关心这里） =====
+    containerEl.createEl("h3", { text: "基础配置" });
+
     new Setting(containerEl)
       .setName("Agent 类型")
-      .setDesc("选择要调用的本地 CLI agent。也可以在 Chat View 顶部临时切换。")
+      .setDesc("选择要调用的本地 CLI agent。默认 Claude Code，也可以在面板顶部临时切换。日常使用保持 claude 即可。")
       .addDropdown((dd) => {
         dd.addOption("claude", "Claude Code");
         dd.addOption("codex", "Codex CLI");
@@ -33,7 +36,41 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    containerEl.createEl("h3", { text: "Claude Code" });
+    new Setting(containerEl)
+      .setName("引用当前笔记")
+      .setDesc("开启后，运行时把当前活动笔记内容注入 prompt。默认关闭——点面板「总结当前笔记」按钮会自动打开。")
+      .addToggle((t) =>
+        t.setValue(s.includeActiveNote).onChange(async (v) => {
+          s.includeActiveNote = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+    new Setting(containerEl)
+      .setName("引用选区")
+      .setDesc("开启后，运行时把当前选中文本注入 prompt。默认开启——点面板「解释选区」按钮会确保打开。")
+      .addToggle((t) =>
+        t.setValue(s.includeSelection).onChange(async (v) => {
+          s.includeSelection = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+    new Setting(containerEl)
+      .setName("推荐输出目录")
+      .setDesc("生成长内容时的建议目录（相对 Vault 根）。可留空。仅作建议，实际路径由 AGENTS.md 或用户请求决定。")
+      .addText((t) =>
+        t.setValue(s.outputDir).onChange(async (v) => {
+          s.outputDir = v.trim();
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    // ===== 高级配置（命令/参数，普通用户一般不改） =====
+    containerEl.createEl("h3", { text: "高级配置（命令与参数）" });
+    containerEl.createEl("p", {
+      cls: "llm-bridge-setting-hint",
+      text: "默认值已经可用。只有在本地 CLI 名称不同或需要自定义参数时才修改。",
+    });
+
     new Setting(containerEl)
       .setName("Claude command")
       .setDesc("默认 claude")
@@ -53,7 +90,6 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    containerEl.createEl("h3", { text: "Codex CLI" });
     new Setting(containerEl)
       .setName("Codex command")
       .setDesc("默认 codex")
@@ -73,7 +109,6 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    containerEl.createEl("h3", { text: "Custom" });
     new Setting(containerEl)
       .setName("Custom command")
       .setDesc("自定义可执行命令（需能从 stdin 读取 prompt）")
@@ -92,25 +127,6 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    containerEl.createEl("h3", { text: "引用与导出" });
-    new Setting(containerEl)
-      .setName("引用当前笔记")
-      .setDesc("开启后导出 active-note.md。默认关闭。")
-      .addToggle((t) =>
-        t.setValue(s.includeActiveNote).onChange(async (v) => {
-          s.includeActiveNote = v;
-          await this.plugin.saveSettings();
-        }),
-      );
-    new Setting(containerEl)
-      .setName("引用选区")
-      .setDesc("开启后导出 selection.md。默认开启。")
-      .addToggle((t) =>
-        t.setValue(s.includeSelection).onChange(async (v) => {
-          s.includeSelection = v;
-          await this.plugin.saveSettings();
-        }),
-      );
     new Setting(containerEl)
       .setName("最大 active note 导出字符数")
       .addText((t) => {
@@ -137,20 +153,12 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           }
         });
       });
-    new Setting(containerEl)
-      .setName("推荐输出目录")
-      .setDesc("生成长内容时的建议目录（相对 Vault 根）。可留空。仅作建议，实际路径由 AGENTS.md 或用户请求决定。")
-      .addText((t) =>
-        t.setValue(s.outputDir).onChange(async (v) => {
-          s.outputDir = v.trim();
-          await this.plugin.saveSettings();
-        }),
-      );
 
+    // ===== 日志与显示 =====
     containerEl.createEl("h3", { text: "日志与显示" });
     new Setting(containerEl)
       .setName("显示 stderr")
-      .setDesc("在 Chat View 中展示 stderr 流。默认开启。")
+      .setDesc("在面板中展示 stderr 流。默认开启——失败时错误摘要与 debug log 路径会显示在消息下方。")
       .addToggle((t) =>
         t.setValue(s.showStderr).onChange(async (v) => {
           s.showStderr = v;
@@ -167,20 +175,16 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    containerEl.createEl("h3", { text: "开发者" });
-    new Setting(containerEl)
-      .setName("Dev Test Mode")
-      .setDesc("启用开发测试端点 /dev/approve 和 /dev/reject，用于自动化测试。仅在开发测试时开启。")
-      .addToggle((t) =>
-        t.setValue(s.devTestMode).onChange(async (v) => {
-          s.devTestMode = v;
-          await this.plugin.saveSettings();
-        }),
-      );
+    // ===== 开发者区域（mock / devTestMode） =====
+    containerEl.createEl("h3", { text: "开发者区域" });
+    containerEl.createEl("p", {
+      cls: "llm-bridge-setting-hint llm-bridge-setting-hint-warn",
+      text: "以下选项仅供开发与测试。日常使用请保持 Backend 模式为 auto，不要开启 Dev Test Mode。",
+    });
 
     new Setting(containerEl)
-      .setName("Backend 模式（Demo / Mock）")
-      .setDesc("auto=使用真实 ClaudeCliBackend（默认生产）；mock-success/mock-failure=使用 MockAgentBackend 驱动 UI 演示，不调用真实 CLI。")
+      .setName("Backend 模式（Mock / Demo）")
+      .setDesc("auto=使用真实 ClaudeCliBackend（默认生产，日常使用）；mock-success / mock-failure=使用 MockAgentBackend 驱动 UI 演示，不调用真实 CLI，仅用于离线测试。")
       .addDropdown((d) => {
         d.addOption("auto", "auto（真实 CLI）");
         d.addOption("mock-success", "mock-success（演示成功流程）");
@@ -191,5 +195,15 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         });
       });
+
+    new Setting(containerEl)
+      .setName("Dev Test Mode")
+      .setDesc("启用开发测试端点 /dev/approve 和 /dev/reject，用于自动化测试。仅在开发测试时开启，正式使用请关闭。")
+      .addToggle((t) =>
+        t.setValue(s.devTestMode).onChange(async (v) => {
+          s.devTestMode = v;
+          await this.plugin.saveSettings();
+        }),
+      );
   }
 }
