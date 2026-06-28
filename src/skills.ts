@@ -10,6 +10,12 @@ import { redactSecrets } from "./workflowEvent";
 /** Skills 配置文件相对 Vault 根的路径 */
 export const SKILLS_FILE_REL = ".llm-bridge/skills.md";
 
+/** V2.3: 导入的 skill 文件目录（每个 skill 一个 .md 文件） */
+export const SKILLS_DIR_REL = ".llm-bridge/skills";
+
+/** V2.3: 单个 skill prompt 最大长度（与 maxActiveNoteChars 同量级，防 prompt 爆炸） */
+export const MAX_SKILL_PROMPT_LENGTH = 8000;
+
 /**
  * 单个 Skill 定义
  * - name: 显示名（来自 ## 标题）
@@ -92,19 +98,55 @@ export function parseSkillsMarkdown(content: string): Skill[] {
 
 /**
  * 从 Vault 读取 skills 列表
- * - 读取 {vaultPath}/.llm-bridge/skills.md
+ * - 读取 {vaultPath}/.llm-bridge/skills.md（主文件，向后兼容）
+ * - 读取 {vaultPath}/.llm-bridge/skills/*.md（V2.3 导入的 skill，每个文件一个 skill）
+ * - 主文件与目录中同名 skill 时，主文件优先
  * - 文件不存在时返回空数组（不报错，skills 为可选功能）
- * - 解析失败时返回空数组并记录警告
  */
 export async function loadSkills(vaultPath: string): Promise<Skill[]> {
+  // 1. 主文件
+  const mainSkills = await loadMainSkillsFile(vaultPath);
+  // 2. 导入目录
+  const importedSkills = await loadImportedSkillsDir(vaultPath);
+  // 去重：主文件优先
+  const names = new Set(mainSkills.map((s) => s.name));
+  return [...mainSkills, ...importedSkills.filter((s) => !names.has(s.name))];
+}
+
+// 内部：读取主文件
+async function loadMainSkillsFile(vaultPath: string): Promise<Skill[]> {
   const filePath = path.join(vaultPath, SKILLS_FILE_REL);
   try {
     const content = await fs.promises.readFile(filePath, "utf8");
     return parseSkillsMarkdown(content);
   } catch {
-    // 文件不存在或读取失败：skills 为空（可选功能）
     return [];
   }
+}
+
+// V2.3: 内部：读取导入目录下的所有 .md 文件
+async function loadImportedSkillsDir(vaultPath: string): Promise<Skill[]> {
+  const dirPath = path.join(vaultPath, SKILLS_DIR_REL);
+  let files: string[] = [];
+  try {
+    files = await fs.promises.readdir(dirPath);
+  } catch {
+    return []; // 目录不存在
+  }
+  const skills: Skill[] = [];
+  for (const file of files) {
+    if (!file.endsWith(".md")) continue;
+    const filePath = path.join(dirPath, file);
+    try {
+      const content = await fs.promises.readFile(filePath, "utf8");
+      const parsed = parseSkillsMarkdown(content);
+      // 每个文件应只含一个 skill，取第一个
+      if (parsed.length > 0) skills.push(parsed[0]);
+    } catch {
+      // 单个文件读取失败，跳过
+    }
+  }
+  return skills;
 }
 
 /**
@@ -193,4 +235,176 @@ export function redactSkillForLog(skill: Skill): { name: string; description: st
     description: skill.description,
     promptRedacted: redactSecrets(skill.prompt),
   };
+}
+
+// ─── V2.3: Skills 安装/导入/删除 ──────────────────────────────────────────
+
+/**
+ * 将单个 skill 序列化为 Markdown 文件内容（用于写入 .llm-bridge/skills/ 目录）
+ * 格式与主文件一致：## 标题 + 描述 + prompt 正文
+ */
+export function serializeSkillToMarkdown(skill: Skill): string {
+  const lines: string[] = [`## ${skill.name}`];
+  if (skill.description) {
+    lines.push("");
+    lines.push(skill.description);
+  }
+  if (skill.prompt) {
+    lines.push("");
+    lines.push(skill.prompt);
+  }
+  lines.push("");
+  return lines.join("\n");
+}
+
+/**
+ * 将 skill 名称转换为合法文件名（替换非法字符）
+ */
+function skillNameToFileName(name: string): string {
+  return name
+    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
+    .replace(/\s+/g, "_")
+    .slice(0, 64) || "untitled";
+}
+
+/**
+ * 从文本导入 skill 到 .llm-bridge/skills/ 目录
+ * @returns true 表示导入成功，false 表示失败（同名文件已存在或写入失败）
+ */
+export async function importSkillFromText(
+  vaultPath: string,
+  name: string,
+  description: string,
+  prompt: string,
+): Promise<boolean> {
+  const dirPath = path.join(vaultPath, SKILLS_DIR_REL);
+  const fileName = `${skillNameToFileName(name)}.md`;
+  const filePath = path.join(dirPath, fileName);
+  try {
+    // 确保目录存在
+    await fs.promises.mkdir(dirPath, { recursive: true });
+    // 检查是否已存在
+    try {
+      await fs.promises.access(filePath);
+      return false; // 已存在，不覆盖
+    } catch {
+      // 不存在，继续写入
+    }
+    const skill: Skill = { name, description, prompt };
+    await fs.promises.writeFile(filePath, serializeSkillToMarkdown(skill), "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 从外部 .md 文件导入 skill 到 .llm-bridge/skills/ 目录
+ * - 读取源文件，解析为 skill，重新序列化后写入导入目录
+ * - 文件名基于源文件名（去路径），冲突时返回 false
+ * @returns true 表示导入成功
+ */
+export async function importSkillFromFile(
+  vaultPath: string,
+  srcFilePath: string,
+): Promise<boolean> {
+  try {
+    const content = await fs.promises.readFile(srcFilePath, "utf8");
+    const parsed = parseSkillsMarkdown(content);
+    if (parsed.length === 0) return false;
+    const skill = parsed[0];
+    // 用源文件名作为目标文件名（保留可识别性）
+    const baseName = path.basename(srcFilePath, ".md");
+    const dirPath = path.join(vaultPath, SKILLS_DIR_REL);
+    const filePath = path.join(dirPath, `${baseName}.md`);
+    await fs.promises.mkdir(dirPath, { recursive: true });
+    try {
+      await fs.promises.access(filePath);
+      return false; // 已存在
+    } catch {
+      // 不存在
+    }
+    await fs.promises.writeFile(filePath, serializeSkillToMarkdown(skill), "utf8");
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 删除导入的 skill（仅删除 .llm-bridge/skills/ 目录下的文件，不删主文件 skills.md）
+ * @returns true 表示删除成功，false 表示文件不存在或删除失败
+ */
+export async function deleteSkill(vaultPath: string, skillName: string): Promise<boolean> {
+  const dirPath = path.join(vaultPath, SKILLS_DIR_REL);
+  const fileName = `${skillNameToFileName(skillName)}.md`;
+  const filePath = path.join(dirPath, fileName);
+  try {
+    await fs.promises.unlink(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * 判断 skill 是否为导入的（存在于 .llm-bridge/skills/ 目录）
+ * 用于 UI 决定是否显示"删除"按钮（主文件中的 skill 不可删除）
+ */
+export async function isImportedSkill(vaultPath: string, skillName: string): Promise<boolean> {
+  const dirPath = path.join(vaultPath, SKILLS_DIR_REL);
+  const fileName = `${skillNameToFileName(skillName)}.md`;
+  const filePath = path.join(dirPath, fileName);
+  try {
+    await fs.promises.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ─── V2.3: Skills 敏感扫描 + 长度截断 ─────────────────────────────────────
+
+/**
+ * Skill prompt 敏感扫描结果
+ * - redacted: 脱敏后的 prompt（可直接注入）
+ * - warnings: 检测到的可疑模式列表（用于 UI 提示）
+ */
+export interface SkillScanResult {
+  readonly redacted: string;
+  readonly warnings: string[];
+}
+
+/**
+ * 扫描 skill prompt 中的敏感内容并脱敏
+ * - 检测 API key / Bearer token / 凭证模式
+ * - 使用 redactSecrets 脱敏
+ * - 返回警告列表供 UI 提示用户
+ */
+export function scanSkillPrompt(prompt: string): SkillScanResult {
+  const warnings: string[] = [];
+  if (/sk-ant-api03-[A-Za-z0-9_-]{20,}/i.test(prompt)) {
+    warnings.push("疑似 Anthropic API key");
+  }
+  if (/sk-[A-Za-z0-9]{20,}/i.test(prompt)) {
+    warnings.push("疑似 API key（sk- 前缀）");
+  }
+  if (/Bearer\s+[A-Za-z0-9_.~+/=-]{20,}/i.test(prompt)) {
+    warnings.push("疑似 Bearer token");
+  }
+  if (/(api[_-]?key|token|password|secret|credential)\s*[:=]\s*["']?[A-Za-z0-9_./+-]{8,}/i.test(prompt)) {
+    warnings.push("疑似凭证赋值语句");
+  }
+  const redacted = redactSecrets(prompt);
+  return { redacted, warnings };
+}
+
+/**
+ * 截断 skill prompt 到最大长度
+ * - 超长时在末尾追加截断标记
+ * - 不超长时原样返回
+ */
+export function truncateSkillPrompt(prompt: string, maxLen: number = MAX_SKILL_PROMPT_LENGTH): string {
+  if (prompt.length <= maxLen) return prompt;
+  return prompt.slice(0, maxLen) + "\n…(skill prompt 已截断)";
 }

@@ -1106,6 +1106,57 @@
 .llm-bridge-sdk-event-item.is-failed-fatal .llm-bridge-sdk-event-label { color: #e53935; }
 .llm-bridge-sdk-event-item.is-failed-recoverable .llm-bridge-sdk-event-label { color: #fb8c00; }
 
+/* V2.3: SDK agents 列表（主 agent ★ / subagent ↳） */
+.llm-bridge-sdk-agent-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.llm-bridge-sdk-agent-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  font-size: var(--font-smallest);
+  border-radius: 3px;
+}
+.llm-bridge-sdk-agent-item.is-main { background: var(--background-secondary); }
+.llm-bridge-sdk-agent-item.is-subagent { background: var(--background-secondary-alt); margin-left: 12px; }
+.llm-bridge-sdk-agent-icon { font-size: 12px; flex: 0 0 auto; }
+.llm-bridge-sdk-agent-item.is-main .llm-bridge-sdk-agent-icon { color: #4caf50; }
+.llm-bridge-sdk-agent-item.is-subagent .llm-bridge-sdk-agent-icon { color: var(--text-muted); }
+.llm-bridge-sdk-agent-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.llm-bridge-sdk-agent-name { font-weight: 600; color: var(--text-normal); }
+.llm-bridge-sdk-agent-session,
+.llm-bridge-sdk-agent-parent {
+  font-family: var(--font-monospace);
+  font-size: 10px;
+  color: var(--text-muted);
+}
+.llm-bridge-sdk-agent-count {
+  font-size: 10px;
+  color: var(--text-muted);
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* V2.3: 状态栏新字段（权限策略 / Skills / Tools / Agents）颜色提示 */
+.llm-bridge-sb-permission.is-low .llm-bridge-sb-value { color: #4caf50; }
+.llm-bridge-sb-permission.is-medium .llm-bridge-sb-value { color: var(--text-normal); }
+.llm-bridge-sb-permission.is-high .llm-bridge-sb-value { color: #e53935; }
+.llm-bridge-sb-skills .llm-bridge-sb-value,
+.llm-bridge-sb-tools .llm-bridge-sb-value,
+.llm-bridge-sb-agents .llm-bridge-sb-value {
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+}
+
 /* === V1.3: 设置页提示 + 空状态引导 === */
 
 .llm-bridge-setting-hint {

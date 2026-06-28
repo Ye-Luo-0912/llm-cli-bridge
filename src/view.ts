@@ -1,6 +1,6 @@
 // LLM CLI Bridge — 右侧 Chat View（Codex / Claude Code 风格紧凑工作台）
 
-import { ItemView, MarkdownView, Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { ItemView, MarkdownView, Modal, Notice, TFile, WorkspaceLeaf } from "obsidian";
 import * as fs from "fs";
 import * as path from "path";
 import type LLMBridgePlugin from "../main";
@@ -23,7 +23,7 @@ import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalW
 import { SdkBackend } from "./sdkBackend";
 import { WorkflowEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
-import { Skill, loadSkills, seedDefaultSkills, filterEnabledSkills, expandSkillPrompt } from "./skills";
+import { Skill, loadSkills, seedDefaultSkills, filterEnabledSkills, expandSkillPrompt, importSkillFromText, deleteSkill, isImportedSkill, scanSkillPrompt, truncateSkillPrompt, MAX_SKILL_PROMPT_LENGTH } from "./skills";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -100,6 +100,8 @@ export class LLMBridgeView extends ItemView {
   private skillsListEl!: HTMLElement;
   // V2.1: Skills 面板折叠开关（用于更新标题计数）
   private skillsToggleEl!: HTMLElement;
+  // V2.3: 从 .llm-bridge/skills/ 导入的 skill 名称集合（用于 UI 显示删除按钮）
+  private importedSkillNames: Set<string> = new Set();
 
   // DOM
   private statusDotEl!: HTMLElement;
@@ -129,6 +131,16 @@ export class LLMBridgeView extends ItemView {
   private statusPreflightEl!: HTMLElement;
   private preflightBtn!: HTMLButtonElement;
   private presetBtnsEl!: HTMLElement;
+  // V2.3: 状态栏新增字段（权限策略 / 已应用 Skills / 工具步骤 / agent 计数）
+  private statusPermissionEl!: HTMLElement;
+  private statusSkillsEl!: HTMLElement;
+  private statusToolsEl!: HTMLElement;
+  private statusAgentsEl!: HTMLElement;
+  // V2.3: 已应用 Skills 名称集合（applySkill 添加；发送/清空时重置）
+  private appliedSkillNames: Set<string> = new Set();
+  // V2.3: 最近一次 SDK 运行的工具数与 agent 数（用于状态栏展示）
+  private lastSdkToolCount = 0;
+  private lastSdkAgentCount = 0;
 
   constructor(leaf: WorkspaceLeaf, plugin: LLMBridgePlugin) {
     super(leaf);
@@ -234,6 +246,19 @@ export class LLMBridgeView extends ItemView {
     this.statusPreflightEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-preflight", attr: { title: "最近一次 preflight 状态" } });
     this.statusPreflightEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Preflight" });
     this.statusPreflightEl.createEl("span", { cls: "llm-bridge-sb-value", text: "未检测" });
+    // V2.3: 权限策略 / 已应用 Skills / 工具步骤 / agent 计数
+    this.statusPermissionEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-permission", attr: { title: "当前权限策略" } });
+    this.statusPermissionEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Perm" });
+    this.statusPermissionEl.createEl("span", { cls: "llm-bridge-sb-value", text: "medium" });
+    this.statusSkillsEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-skills", attr: { title: "已应用到当前输入的 Skills" } });
+    this.statusSkillsEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Skills" });
+    this.statusSkillsEl.createEl("span", { cls: "llm-bridge-sb-value", text: "0" });
+    this.statusToolsEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-tools", attr: { title: "最近一次 SDK 运行的工具步骤数" } });
+    this.statusToolsEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Tools" });
+    this.statusToolsEl.createEl("span", { cls: "llm-bridge-sb-value", text: "0" });
+    this.statusAgentsEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-agents", attr: { title: "最近一次 SDK 运行的 agent 实例数" } });
+    this.statusAgentsEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Agents" });
+    this.statusAgentsEl.createEl("span", { cls: "llm-bridge-sb-value", text: "0" });
 
     // Preflight 按钮（不调用真实模型，只探测 command 可用性）
     this.preflightBtn = this.statusBarEl.createEl("button", {
@@ -390,6 +415,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   // 刷新 Pending Actions 列表显示
+  // V2.3: 按 actionType 分组，多 entry 时显示批量授权按钮；count=0 时隐藏面板
   private refreshPendingActions(): void {
     const bridge = this.plugin.getHttpBridge();
     if (!bridge) return;
@@ -411,49 +437,109 @@ export class LLMBridgeView extends ItemView {
 
     const count = this.pendingActions.length;
     this.pendingActionsCountEl.textContent = `(${count})`;
+
+    // V2.3: count=0 时隐藏整个面板（减少首屏噪音，解决 B-013 部分）
+    if (count === 0) {
+      this.pendingActionsEl.style.display = "none";
+      this.pendingActionsBody.empty();
+      return;
+    }
+    this.pendingActionsEl.style.display = "";
+
+    // V2.3: 按 actionType 分组（合并展示，避免每个 tool 弹一次）
+    const groups = new Map<string, PendingActionEntry[]>();
+    for (const entry of this.pendingActions) {
+      const arr = groups.get(entry.type) || [];
+      arr.push(entry);
+      groups.set(entry.type, arr);
+    }
+
     this.pendingActionsBody.empty();
 
-    if (count === 0) return;
+    for (const [actionType, entries] of groups) {
+      const groupWrap = this.pendingActionsBody.createDiv({ cls: "llm-bridge-pending-group" });
 
-    for (const entry of this.pendingActions) {
-      const item = this.pendingActionsBody.createDiv({ cls: "llm-bridge-pending-item" });
-      // 行1: type chip + actionId
-      const row1 = item.createDiv({ cls: "llm-bridge-pending-row1" });
-      row1.createEl("span", { cls: "llm-bridge-pending-type", text: entry.type });
-      row1.createEl("span", { cls: "llm-bridge-pending-id", text: entry.id.slice(0, 16) + "…" });
-      // 行2: 目标路径或说明
-      const row2 = item.createDiv({ cls: "llm-bridge-pending-row2" });
-      const p = entry.params;
-      let desc = "";
-      if (p.path) desc = String(p.path);
-      else if (p.message) desc = String(p.message).slice(0, 40);
-      else if (p.content) desc = String(p.content).slice(0, 40);
-      row2.createEl("span", { cls: "llm-bridge-pending-desc", text: desc });
-      // 行3: source + createdAt
-      const row3 = item.createDiv({ cls: "llm-bridge-pending-row3" });
-      row3.createEl("span", { cls: "llm-bridge-pending-meta", text: "http" });
-      const createdAt = new Date(entry.ts).toLocaleTimeString();
-      row3.createEl("span", { cls: "llm-bridge-pending-meta", text: createdAt });
-      // 按钮行
-      const btnRow = item.createDiv({ cls: "llm-bridge-pending-btns" });
-      const approveBtn = btnRow.createEl("button", {
-        cls: "llm-bridge-pending-btn-approve",
-        text: "✓ Approve",
-      });
-      approveBtn.addEventListener("click", () => {
-        bridge.approvePendingAction(entry.id);
-        this.pendingActions = this.pendingActions.filter((a) => a.id !== entry.id);
-        this.refreshPendingActions();
-      });
-      const rejectBtn = btnRow.createEl("button", {
-        cls: "llm-bridge-pending-btn-reject",
-        text: "✗ Reject",
-      });
-      rejectBtn.addEventListener("click", () => {
-        bridge.rejectPendingAction(entry.id);
-        this.pendingActions = this.pendingActions.filter((a) => a.id !== entry.id);
-        this.refreshPendingActions();
-      });
+      // 批量操作行（仅当该类型有 >1 个 pending 时显示）
+      if (entries.length > 1) {
+        const batchRow = groupWrap.createDiv({ cls: "llm-bridge-pending-batch" });
+        batchRow.createEl("span", {
+          cls: "llm-bridge-pending-batch-label",
+          text: `${actionType} ×${entries.length}`,
+        });
+        const batchBtns = batchRow.createDiv({ cls: "llm-bridge-pending-batch-btns" });
+        const batchAllowBtn = batchBtns.createEl("button", {
+          cls: "llm-bridge-pending-btn-approve llm-bridge-pending-btn-batch",
+          text: "✓ 全部允许（本会话）",
+          attr: { title: `本会话内允许所有 ${actionType} 操作` },
+        });
+        batchAllowBtn.addEventListener("click", () => {
+          bridge.batchApproveSession(actionType);
+          this.pendingActions = this.pendingActions.filter((a) => a.type !== actionType);
+          this.refreshPendingActions();
+        });
+        const batchRejectBtn = batchBtns.createEl("button", {
+          cls: "llm-bridge-pending-btn-reject llm-bridge-pending-btn-batch",
+          text: "✗ 全部拒绝",
+        });
+        batchRejectBtn.addEventListener("click", () => {
+          bridge.batchRejectSession(actionType);
+          this.pendingActions = this.pendingActions.filter((a) => a.type !== actionType);
+          this.refreshPendingActions();
+        });
+      }
+
+      // 单个 entry 渲染
+      for (const entry of entries) {
+        const item = groupWrap.createDiv({ cls: "llm-bridge-pending-item" });
+        // 行1: type chip + actionId
+        const row1 = item.createDiv({ cls: "llm-bridge-pending-row1" });
+        row1.createEl("span", { cls: "llm-bridge-pending-type", text: entry.type });
+        row1.createEl("span", { cls: "llm-bridge-pending-id", text: entry.id.slice(0, 16) + "…" });
+        // 行2: 目标路径或说明
+        const row2 = item.createDiv({ cls: "llm-bridge-pending-row2" });
+        const p = entry.params;
+        let desc = "";
+        if (p.path) desc = String(p.path);
+        else if (p.message) desc = String(p.message).slice(0, 40);
+        else if (p.content) desc = String(p.content).slice(0, 40);
+        row2.createEl("span", { cls: "llm-bridge-pending-desc", text: desc });
+        // 行3: source + createdAt
+        const row3 = item.createDiv({ cls: "llm-bridge-pending-row3" });
+        row3.createEl("span", { cls: "llm-bridge-pending-meta", text: "http" });
+        const createdAt = new Date(entry.ts).toLocaleTimeString();
+        row3.createEl("span", { cls: "llm-bridge-pending-meta", text: createdAt });
+        // V2.3: 按钮行（本次允许 + 本会话允许 + 拒绝）
+        const btnRow = item.createDiv({ cls: "llm-bridge-pending-btns" });
+        const allowOnceBtn = btnRow.createEl("button", {
+          cls: "llm-bridge-pending-btn-approve",
+          text: "✓ 本次",
+          attr: { title: "仅本次允许，不缓存" },
+        });
+        allowOnceBtn.addEventListener("click", () => {
+          bridge.approvePendingActionWithDecision(entry.id, "allow_once");
+          this.pendingActions = this.pendingActions.filter((a) => a.id !== entry.id);
+          this.refreshPendingActions();
+        });
+        const allowSessionBtn = btnRow.createEl("button", {
+          cls: "llm-bridge-pending-btn-approve llm-bridge-pending-btn-session",
+          text: "✓ 本会话",
+          attr: { title: "本会话内允许同类操作，不再询问" },
+        });
+        allowSessionBtn.addEventListener("click", () => {
+          bridge.approvePendingActionWithDecision(entry.id, "allow_session");
+          this.pendingActions = this.pendingActions.filter((a) => a.id !== entry.id);
+          this.refreshPendingActions();
+        });
+        const rejectBtn = btnRow.createEl("button", {
+          cls: "llm-bridge-pending-btn-reject",
+          text: "✗ 拒绝",
+        });
+        rejectBtn.addEventListener("click", () => {
+          bridge.rejectPendingActionWithDecision(entry.id, "deny_session");
+          this.pendingActions = this.pendingActions.filter((a) => a.id !== entry.id);
+          this.refreshPendingActions();
+        });
+      }
     }
   }
 
@@ -623,6 +709,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V1.1: 刷新状态栏（Backend 模式 / Agent / cwd / Preflight 状态）
+  // V2.3: 新增权限策略 / 已应用 Skills / 工具步骤 / agent 计数
   private refreshStatusBar(): void {
     const s = this.plugin.settings;
     // Backend 模式
@@ -645,6 +732,50 @@ export class LLMBridgeView extends ItemView {
     // 状态着色
     this.statusPreflightEl.classList.remove("is-available", "is-unavailable", "is-unknown");
     this.statusPreflightEl.classList.add(`is-${pfStatus.kind}`);
+    // V2.3: 权限策略
+    const policy = s.permissionPolicy ?? "medium";
+    this.statusPermissionEl.querySelector(".llm-bridge-sb-value")!.textContent = policy;
+    const policyDesc = policy === "low" ? "宽松（medium 自动允许）" : policy === "high" ? "严格（读操作需确认）" : "默认（读允许，写本轮授权）";
+    this.statusPermissionEl.setAttribute("title", `权限策略：${policyDesc}`);
+    this.statusPermissionEl.classList.remove("is-low", "is-medium", "is-high");
+    this.statusPermissionEl.classList.add(`is-${policy}`);
+    // V2.3: 已应用 Skills 计数
+    const appliedCount = this.appliedSkillNames.size;
+    this.statusSkillsEl.querySelector(".llm-bridge-sb-value")!.textContent = String(appliedCount);
+    const appliedNames = Array.from(this.appliedSkillNames).join(", ") || "无";
+    this.statusSkillsEl.setAttribute("title", `已应用 Skills：${appliedNames}`);
+    // V2.3: 最近一次 SDK 运行的工具步骤与 agent 数
+    this.statusToolsEl.querySelector(".llm-bridge-sb-value")!.textContent = String(this.lastSdkToolCount);
+    this.statusToolsEl.setAttribute("title", `最近一次 SDK 运行：${this.lastSdkToolCount} 个工具步骤`);
+    this.statusAgentsEl.querySelector(".llm-bridge-sb-value")!.textContent = String(this.lastSdkAgentCount);
+    this.statusAgentsEl.setAttribute("title", `最近一次 SDK 运行：${this.lastSdkAgentCount} 个 agent 实例（主+子）`);
+  }
+
+  // V2.3: 应用 Skill 时记录名称（用于状态栏展示）
+  private trackAppliedSkill(name: string): void {
+    this.appliedSkillNames.add(name);
+    this.refreshStatusBar();
+  }
+
+  // V2.3: 重置已应用 Skills（发送或清空时调用）
+  private resetAppliedSkills(): void {
+    this.appliedSkillNames.clear();
+    this.refreshStatusBar();
+  }
+
+  // V2.3: 更新最近一次 SDK 运行统计（工具步骤数 + agent 实例数）
+  private updateLastSdkStats(events: ReadonlyArray<WorkflowEvent>): void {
+    this.lastSdkToolCount = events.filter((e) => e.type === "tool_start").length;
+    // agent 实例数：从 tool_start + message 事件的 (sessionId, parentToolUseId) 去重
+    const agentKeys = new Set<string>();
+    for (const e of events) {
+      if (e.type !== "message" && e.type !== "tool_start") continue;
+      const isMain = !e.parentToolUseId;
+      const key = isMain ? `main:${e.sessionId ?? ""}` : `sub:${e.sessionId ?? ""}:${e.parentToolUseId ?? ""}`;
+      agentKeys.add(key);
+    }
+    this.lastSdkAgentCount = agentKeys.size;
+    this.refreshStatusBar();
   }
 
   // V1.1: 运行 preflight 检测（不调用真实模型）
@@ -870,6 +1001,8 @@ export class LLMBridgeView extends ItemView {
     // 仅 sdk-experimental backend 产生；CLI/mock backend 无此数据
     if (msg.role === "assistant" && msg.sdkEvents && msg.sdkEvents.length > 0) {
       this.appendSdkWorkflow(details, msg.sdkEvents);
+      // V2.3: 更新状态栏工具步骤/agent 计数
+      this.updateLastSdkStats(msg.sdkEvents);
     }
 
     if (msg.stderr) {
@@ -1008,33 +1141,49 @@ export class LLMBridgeView extends ItemView {
 
   // V2.0: 渲染 SDK 工作流事件（按阶段分组：thinking/message/tool/file/permission/error/terminal）
   // V1.8: 默认折叠（SDK experimental 为开发者功能，减少主 UI 噪音）
+  // V2.3: 按 agent/subagent 分组展示（主 agent vs subagent，工具与消息附带 agent 标签）
   private appendSdkWorkflow(parent: HTMLElement, events: ReadonlyArray<WorkflowEvent>): void {
     const body = this.createCollapsibleSection(parent, "SDK Workflow", "llm-bridge-sdk-workflow");
+
+    // V2.3: 提取所有 agent 实例（按 sessionId 区分，主 agent 无 parentToolUseId）
+    const agents = this.extractAgentInstances(events);
+    if (agents.length > 0) {
+      const agentGroup = this.createSdkGroup(body, "Agents", agents.length);
+      const agentList = agentGroup.createDiv({ cls: "llm-bridge-sdk-agent-list" });
+      for (const agent of agents) {
+        const item = agentList.createDiv({ cls: `llm-bridge-sdk-agent-item ${agent.isMain ? "is-main" : "is-subagent"}` });
+        item.createEl("span", { cls: "llm-bridge-sdk-agent-icon", text: agent.isMain ? "★" : "↳" });
+        const text = item.createDiv({ cls: "llm-bridge-sdk-agent-text" });
+        text.createEl("span", { cls: "llm-bridge-sdk-agent-name", text: agent.isMain ? "Main agent" : "Subagent" });
+        if (agent.sessionId) {
+          text.createEl("span", { cls: "llm-bridge-sdk-agent-session", text: truncateText(agent.sessionId, 12), attr: { title: agent.sessionId } });
+        }
+        if (!agent.isMain && agent.parentToolUseId) {
+          text.createEl("span", { cls: "llm-bridge-sdk-agent-parent", text: `parent: ${truncateText(agent.parentToolUseId, 12)}`, attr: { title: agent.parentToolUseId } });
+        }
+        text.createEl("span", { cls: "llm-bridge-sdk-agent-count", text: `${agent.eventCount} events` });
+      }
+    }
 
     // V2.0: 按阶段顺序分组渲染（空分组跳过）
     this.appendSdkEventGroup(body, "Thinking", events.filter((e) => e.type === "thinking"));
     this.appendSdkEventGroup(body, "Messages", events.filter((e) => e.type === "message"));
 
     // Tools 分组（tool timeline，含 durationMs / 结果状态 / 长内容截断）
+    // V2.3: 按主 agent / subagent 分组展示工具调用
     const toolTimeline = buildToolTimeline(events);
     if (toolTimeline.length > 0) {
-      const groupBody = this.createSdkGroup(body, "Tools", toolTimeline.length);
-      const toolList = groupBody.createDiv({ cls: "llm-bridge-sdk-tool-list" });
-      for (const tool of toolTimeline) {
-        const item = toolList.createDiv({ cls: `llm-bridge-sdk-tool-item is-${tool.status}` });
-        item.createEl("span", { cls: "llm-bridge-sdk-tool-icon", text: tool.status === "error" ? "✗" : tool.status === "done" ? "✓" : "…" });
-        const text = item.createDiv({ cls: "llm-bridge-sdk-tool-text" });
-        text.createEl("span", { cls: "llm-bridge-sdk-tool-name", text: tool.toolName });
-        // V2.0: 显示耗时（未配对 tool_result 时为 null，不显示）
-        if (tool.durationMs !== null) {
-          text.createEl("span", { cls: "llm-bridge-sdk-tool-duration", text: this.formatDurationMs(tool.durationMs) });
-        }
-        if (tool.input) {
-          text.createEl("span", { cls: "llm-bridge-sdk-tool-input", text: truncateText(tool.input, 80), attr: { title: tool.input } });
-        }
-        if (tool.output) {
-          text.createEl("span", { cls: "llm-bridge-sdk-tool-output", text: truncateText(tool.output, 80), attr: { title: tool.output } });
-        }
+      const mainTools = toolTimeline.filter((t) => this.findToolParentAgent(events, t.callId) === "main");
+      const subTools = toolTimeline.filter((t) => this.findToolParentAgent(events, t.callId) === "subagent");
+      if (mainTools.length > 0) {
+        this.renderToolTimelineGroup(body, "Tools — Main agent", mainTools);
+      }
+      if (subTools.length > 0) {
+        this.renderToolTimelineGroup(body, "Tools — Subagents", subTools);
+      }
+      // 兜底：若两者都为空（理论上不会发生，但保守处理）
+      if (mainTools.length === 0 && subTools.length === 0) {
+        this.renderToolTimelineGroup(body, "Tools", toolTimeline);
       }
     }
 
@@ -1042,6 +1191,68 @@ export class LLMBridgeView extends ItemView {
     this.appendSdkEventGroup(body, "Permissions", events.filter((e) => e.type === "permission"));
     this.appendSdkEventGroup(body, "Errors", events.filter((e) => e.type === "error"));
     this.appendSdkEventGroup(body, "Terminal", events.filter((e) => e.type === "completed" || e.type === "failed"));
+  }
+
+  // V2.3: 从事件中提取 agent 实例列表（主 agent + subagent）
+  private extractAgentInstances(events: ReadonlyArray<WorkflowEvent>): ReadonlyArray<{
+    readonly sessionId: string | undefined;
+    readonly parentToolUseId: string | undefined;
+    readonly isMain: boolean;
+    readonly eventCount: number;
+  }> {
+    const map = new Map<string, { sessionId: string | undefined; parentToolUseId: string | undefined; isMain: boolean; eventCount: number }>();
+    for (const event of events) {
+      // 仅 MessageEvent 和 ToolStartEvent 携带 agent 标识
+      if (event.type !== "message" && event.type !== "tool_start") continue;
+      const sessionId = event.sessionId;
+      const parentToolUseId = event.parentToolUseId;
+      // 主 agent 键：sessionId 或 "main"；subagent 键：sessionId + parentToolUseId
+      const isMain = !parentToolUseId;
+      const key = isMain ? `main:${sessionId ?? ""}` : `sub:${sessionId ?? ""}:${parentToolUseId ?? ""}`;
+      const existing = map.get(key);
+      if (existing) {
+        existing.eventCount += 1;
+      } else {
+        map.set(key, { sessionId, parentToolUseId, isMain, eventCount: 1 });
+      }
+    }
+    // 主 agent 排在前
+    return Array.from(map.values()).sort((a, b) => {
+      if (a.isMain && !b.isMain) return -1;
+      if (!a.isMain && b.isMain) return 1;
+      return 0;
+    });
+  }
+
+  // V2.3: 根据 tool_use callId 查找其所属 agent 类型（main / subagent / unknown）
+  private findToolParentAgent(events: ReadonlyArray<WorkflowEvent>, callId: string): "main" | "subagent" | "unknown" {
+    for (const event of events) {
+      if (event.type === "tool_start" && event.callId === callId) {
+        return event.parentToolUseId ? "subagent" : "main";
+      }
+    }
+    return "unknown";
+  }
+
+  // V2.3: 渲染工具时间线分组（用于 main / subagent 分组展示）
+  private renderToolTimelineGroup(body: HTMLElement, title: string, tools: ReadonlyArray<import("./workflowEvent").ToolTimelineEntry>): void {
+    const groupBody = this.createSdkGroup(body, title, tools.length);
+    const toolList = groupBody.createDiv({ cls: "llm-bridge-sdk-tool-list" });
+    for (const tool of tools) {
+      const item = toolList.createDiv({ cls: `llm-bridge-sdk-tool-item is-${tool.status}` });
+      item.createEl("span", { cls: "llm-bridge-sdk-tool-icon", text: tool.status === "error" ? "✗" : tool.status === "done" ? "✓" : "…" });
+      const text = item.createDiv({ cls: "llm-bridge-sdk-tool-text" });
+      text.createEl("span", { cls: "llm-bridge-sdk-tool-name", text: tool.toolName });
+      if (tool.durationMs !== null) {
+        text.createEl("span", { cls: "llm-bridge-sdk-tool-duration", text: this.formatDurationMs(tool.durationMs) });
+      }
+      if (tool.input) {
+        text.createEl("span", { cls: "llm-bridge-sdk-tool-input", text: truncateText(tool.input, 80), attr: { title: tool.input } });
+      }
+      if (tool.output) {
+        text.createEl("span", { cls: "llm-bridge-sdk-tool-output", text: truncateText(tool.output, 80), attr: { title: tool.output } });
+      }
+    }
   }
 
   // V2.0: 创建 SDK workflow 分组容器（带标题 + 计数）
@@ -1248,6 +1459,11 @@ export class LLMBridgeView extends ItemView {
     this.renderEmptyState();
     this.refreshSessionState();
     this.clearRunFlow();
+    // V2.3: 重置已应用 Skills 与 SDK 统计
+    this.resetAppliedSkills();
+    this.lastSdkToolCount = 0;
+    this.lastSdkAgentCount = 0;
+    this.refreshStatusBar();
   }
 
   // V2.0: 刷新会话状态展示（标题 + 状态 + 消息数 + 上下文指标）
@@ -1263,10 +1479,18 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V2.0: 渲染 Skills 面板（可折叠，从 .llm-bridge/skills.md 读取）
+  // V2.3: head 添加"导入"按钮
   private renderSkillsPanel(parent: HTMLElement): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-skills-panel" });
     const head = wrap.createDiv({ cls: "llm-bridge-skills-head" });
     this.skillsToggleEl = head.createEl("span", { cls: "llm-bridge-skills-toggle", text: "▶ Skills" });
+    // V2.3: 导入按钮（弹窗输入 name/description/prompt）
+    const importBtn = head.createEl("button", {
+      cls: "llm-bridge-skills-import-btn",
+      text: "+ 导入",
+      attr: { title: "从文本导入新 skill 到 .llm-bridge/skills/ 目录" },
+    });
+    importBtn.addEventListener("click", () => void this.openImportSkillDialog());
     const body = wrap.createDiv({ cls: "llm-bridge-skills-body" });
     body.setAttribute("hidden", "");
     this.skillsListEl = body;
@@ -1282,9 +1506,16 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V2.0: 从 Vault 读取 skills 列表并渲染
+  // V2.3: 预加载导入状态（用于 UI 显示删除按钮）
   private async refreshSkills(): Promise<void> {
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     this.skills = await loadSkills(vaultPath);
+    this.importedSkillNames = new Set();
+    for (const skill of this.skills) {
+      if (await isImportedSkill(vaultPath, skill.name)) {
+        this.importedSkillNames.add(skill.name);
+      }
+    }
     this.renderSkillsList();
   }
 
@@ -1339,22 +1570,71 @@ export class LLMBridgeView extends ItemView {
         }
         this.applySkill(skill);
       });
+      // V2.3: 导入的 skill 显示删除按钮（主文件中的 skill 不可删除）
+      if (this.importedSkillNames.has(skill.name)) {
+        const delBtn = item.createEl("button", {
+          cls: "llm-bridge-skill-del-btn",
+          text: "×",
+          attr: { title: "删除此导入的 skill（仅删除 .llm-bridge/skills/ 下的文件，不影响主文件）" },
+        });
+        delBtn.addEventListener("click", () => void this.deleteSkillFromVault(skill.name));
+      }
     }
     this.updateSkillsToggle();
   }
 
+  // V2.3: 打开导入 skill 对话框（简单 modal：name / description / prompt）
+  private openImportSkillDialog(): void {
+    const modal = new ImportSkillModal(this.app, async (name, description, prompt) => {
+      const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      const ok = await importSkillFromText(vaultPath, name, description, prompt);
+      if (ok) {
+        new Notice(`Skill "${name}" 已导入`);
+        await this.refreshSkills();
+      } else {
+        new Notice(`导入失败：同名 skill 可能已存在`);
+      }
+    });
+    modal.open();
+  }
+
+  // V2.3: 删除导入的 skill
+  private async deleteSkillFromVault(skillName: string): Promise<void> {
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const ok = await deleteSkill(vaultPath, skillName);
+    if (ok) {
+      new Notice(`Skill "${skillName}" 已删除`);
+      await this.refreshSkills();
+    } else {
+      new Notice(`删除失败：skill 不在导入目录中`);
+    }
+  }
+
   // V2.0: 应用 skill（只做 prompt 增强，插入到输入框，不执行危险操作）
   // V2.1: expandSkillPrompt 替换 {{outputDir}} 占位符
+  // V2.3: 进入 prompt 前做敏感扫描和长度截断
   private applySkill(skill: Skill): void {
     if (this.runHandle) return;
     const expanded = expandSkillPrompt(skill.prompt, this.plugin.settings.outputDir);
-    if (expanded.length > 0) {
-      this.setInput(expanded);
-    } else {
+    if (expanded.length === 0) {
       // 无 prompt 的 skill：清空输入框并聚焦
       this.inputEl.value = "";
       this.inputEl.focus();
+      return;
     }
+    // V2.3: 敏感扫描
+    const scan = scanSkillPrompt(expanded);
+    if (scan.warnings.length > 0) {
+      new Notice(`Skill 包含可疑内容：${scan.warnings.join("；")}\n已脱敏后填入，请检查`, 6000);
+    }
+    // V2.3: 长度截断
+    const truncated = truncateSkillPrompt(scan.redacted);
+    if (truncated.length < scan.redacted.length) {
+      new Notice(`Skill prompt 超过 ${MAX_SKILL_PROMPT_LENGTH} 字符，已截断`, 4000);
+    }
+    this.setInput(truncated);
+    // V2.3: 记录已应用 Skill 名称（用于状态栏展示）
+    this.trackAppliedSkill(skill.name);
   }
 
   // V2.1: 切换 skill 启用/禁用状态（持久化到 settings.disabledSkills）
@@ -1497,6 +1777,8 @@ export class LLMBridgeView extends ItemView {
 
     const settings = this.plugin.settings;
     const activeFile = this.getActiveFile();
+    // V2.3: 发送后重置已应用 Skills 计数（输入框将被清空）
+    this.resetAppliedSkills();
     const selection = settings.includeSelection ? this.getSelection() : null;
 
     // 导出状态
@@ -1771,5 +2053,62 @@ export class LLMBridgeView extends ItemView {
       return;
     }
     new Notice("文件尚未被 Obsidian 索引，请稍后重试。");
+  }
+}
+
+// V2.3: 导入 Skill 对话框（name / description / prompt 三字段）
+class ImportSkillModal extends Modal {
+  private resolved = false;
+  constructor(
+    app: import("obsidian").App,
+    private onConfirm: (name: string, description: string, prompt: string) => Promise<void>,
+  ) {
+    super(app);
+  }
+  onOpen(): void {
+    this.titleEl.setText("导入 Skill");
+    this.contentEl.empty();
+    const form = this.contentEl.createEl("div", { cls: "llm-bridge-import-skill-form" });
+    // name
+    form.createEl("label", { text: "Skill 名称", cls: "llm-bridge-import-label" });
+    const nameInput = form.createEl("input", { type: "text", cls: "llm-bridge-import-input", attr: { placeholder: "如：翻译选区" } });
+    // description
+    form.createEl("label", { text: "简短描述", cls: "llm-bridge-import-label" });
+    const descInput = form.createEl("input", { type: "text", cls: "llm-bridge-import-input", attr: { placeholder: "如：将选中文本翻译为英文" } });
+    // prompt
+    form.createEl("label", { text: "Prompt 模板（支持 {{outputDir}} 占位符）", cls: "llm-bridge-import-label" });
+    const promptArea = form.createEl("textarea", { cls: "llm-bridge-import-textarea", attr: { rows: "6", placeholder: "请将以上选中文本翻译为英文，并通过 replace_selection action 写回原选区位置。" } });
+    // 按钮
+    const btns = form.createDiv({ cls: "modal-button-container" });
+    const cancel = btns.createEl("button", { text: "取消" });
+    cancel.addEventListener("click", () => this.done(false));
+    const confirm = btns.createEl("button", { text: "导入", cls: "mod-warning" });
+    confirm.addEventListener("click", () => {
+      const name = nameInput.value.trim();
+      if (!name) {
+        new Notice("请输入 skill 名称");
+        return;
+      }
+      this.done(true);
+    });
+    nameInput.focus();
+  }
+  onClose(): void {
+    if (!this.resolved) this.done(false);
+    this.contentEl.empty();
+  }
+  private done(ok: boolean): void {
+    if (this.resolved) return;
+    this.resolved = true;
+    if (ok) {
+      const nameInput = this.contentEl.querySelector("input[type='text']") as HTMLInputElement;
+      const descInput = this.contentEl.querySelectorAll("input[type='text']")[1] as HTMLInputElement;
+      const promptArea = this.contentEl.querySelector("textarea") as HTMLTextAreaElement;
+      const name = nameInput?.value.trim() || "";
+      const description = descInput?.value.trim() || "";
+      const prompt = promptArea?.value || "";
+      void this.onConfirm(name, description, prompt);
+    }
+    this.close();
   }
 }

@@ -46,6 +46,10 @@ export interface MessageEvent extends WorkflowEventBase {
   readonly type: "message";
   readonly role: "assistant" | "system";
   readonly text: string;
+  /** V2.3: SDK 会话 ID（标识 agent 实例，可选） */
+  readonly sessionId?: string;
+  /** V2.3: 父工具调用 ID（标识 subagent；主 agent 为 undefined） */
+  readonly parentToolUseId?: string;
 }
 
 /** 工具调用开始 */
@@ -56,6 +60,10 @@ export interface ToolStartEvent extends WorkflowEventBase {
   readonly toolInput: string;
   /** 调用 ID，用于与 tool_result 配对 */
   readonly callId: string;
+  /** V2.3: SDK 会话 ID（标识 agent 实例，可选） */
+  readonly sessionId?: string;
+  /** V2.3: 父工具调用 ID（标识 subagent；主 agent 为 undefined） */
+  readonly parentToolUseId?: string;
 }
 
 /** 工具调用结束 */

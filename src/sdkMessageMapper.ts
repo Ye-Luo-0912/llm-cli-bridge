@@ -67,6 +67,8 @@ export interface SdkAssistantMessage {
   };
   readonly error?: string;
   readonly session_id?: string;
+  /** V2.3: 父工具调用 ID（subagent 响应时由 Task 工具触发，主 agent 为 undefined） */
+  readonly parent_tool_use_id?: string;
 }
 
 /** SDKUserMessage：用户输入 + tool_result */
@@ -77,6 +79,8 @@ export interface SdkUserMessage {
   };
   readonly tool_use_result?: unknown;
   readonly session_id?: string;
+  /** V2.3: 父工具调用 ID（subagent 上下文中的 user 消息） */
+  readonly parent_tool_use_id?: string;
 }
 
 /** SDKSystemMessage：会话初始化 / 状态 / 权限拒绝等 */
@@ -224,6 +228,9 @@ export function mapSdkMessageToWorkflowEvents(
   if (msg.type === "assistant") {
     const am = msg as SdkAssistantMessage;
     const events: WorkflowEvent[] = [];
+    // V2.3: 提取 agent 标识字段（sessionId / parentToolUseId）
+    const sessionId = typeof am.session_id === "string" ? am.session_id : undefined;
+    const parentToolUseId = typeof am.parent_tool_use_id === "string" ? am.parent_tool_use_id : undefined;
 
     // API 错误（per-turn）
     if (am.error) {
@@ -256,6 +263,9 @@ export function mapSdkMessageToWorkflowEvents(
               timestamp,
               role: "assistant",
               text: textBlock.text,
+              // V2.3: 标识产生此消息的 agent 实例
+              sessionId,
+              parentToolUseId,
             });
           }
         } else if (block.type === "tool_use") {
@@ -267,6 +277,9 @@ export function mapSdkMessageToWorkflowEvents(
             toolName: toolBlock.name,
             toolInput: serializeToolInput(toolBlock.input),
             callId: toolBlock.id,
+            // V2.3: 标识发起此工具调用的 agent 实例
+            sessionId,
+            parentToolUseId,
           });
           // 文件变更检测
           const fc = detectFileChangeFromToolUse(toolBlock.name, toolBlock.input, timestamp);
@@ -330,6 +343,8 @@ export function mapSdkMessageToWorkflowEvents(
   if (msg.type === "result") {
     const rm = msg as SdkResultMessage;
     const events: WorkflowEvent[] = [];
+    // V2.3: 终态消息同样附带 sessionId（标识完成会话）
+    const sessionId = typeof rm.session_id === "string" ? rm.session_id : undefined;
 
     if (rm.subtype === "success" && !rm.is_error) {
       // 成功完成
@@ -340,6 +355,8 @@ export function mapSdkMessageToWorkflowEvents(
           timestamp,
           role: "assistant",
           text: resultText,
+          // V2.3: 主 agent 终态消息（无 parentToolUseId）
+          sessionId,
         });
       }
       // V2.0: UI-only 终态事件（AgentEvent completed 由调用方另发）

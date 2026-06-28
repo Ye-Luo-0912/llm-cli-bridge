@@ -20,6 +20,9 @@ export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "bypassP
  */
 export type BackendMode = "auto" | "mock-success" | "mock-failure" | "sdk-experimental";
 
+// V2.3: 权限策略（low=宽松 / medium=默认 / high=严格）
+export type PermissionPolicy = "low" | "medium" | "high";
+
 // 单条聊天消息
 export interface ChatMessage {
   id: string;
@@ -74,6 +77,8 @@ export interface LLMBridgeSettings {
   claudeExtraArgs: string;
   // V2.1: 被禁用的 skill 名称列表（数据驱动，skills 从 .llm-bridge/skills.md 读取）
   disabledSkills: string[];
+  // V2.3: 权限策略（low/medium/high，控制修改类操作的授权门槛）
+  permissionPolicy: PermissionPolicy;
 }
 
 export const DEFAULT_SETTINGS: LLMBridgeSettings = {
@@ -103,6 +108,8 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   claudeExtraArgs: "",
   // V2.1: 默认所有 skill 启用
   disabledSkills: [],
+  // V2.3: 默认标准策略（medium 风险需本轮授权，读操作自动允许）
+  permissionPolicy: "medium",
 };
 
 // 写入到 .llm-bridge/state/current.json 的内容

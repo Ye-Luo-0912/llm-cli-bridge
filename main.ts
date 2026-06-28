@@ -292,5 +292,9 @@ export default class LLMBridgePlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
+    // V2.3: 同步权限策略到 httpBridge（运行时生效）
+    if (this.httpBridge) {
+      this.httpBridge.setPermissionPolicy(this.settings.permissionPolicy);
+    }
   }
 }

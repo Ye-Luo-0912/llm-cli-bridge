@@ -4302,6 +4302,315 @@ if (!runV21SkillsUnit) {
 }
 
 // ============================================================
+// 8.10 V2.3 Permission Policy / Skills Install / SDK Process UX 单元测试
+//     覆盖：权限分级 low/medium/high、checkPermission 决策矩阵、
+//           会话级 allow/deny 缓存、extractPathPattern、
+//           Skills 导入/删除/扫描/截断、SDK agent/subagent 事件标识、
+//           CLI 不回归
+// ============================================================
+console.log("\n=== V2.3 Permission / Skills / SDK UX 单元测试 ===");
+
+const runV23Unit = runMode === "all" || runMode === "unit";
+
+if (!runV23Unit) {
+  addTest("V2.3 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let permissionBundleV23 = null;
+  let skillsBundleV23 = null;
+  let sdkMapperBundleV23 = null;
+  let cliBackendBundleV23 = null;
+  let tempSkillsV23Dir = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    permissionBundleV23 = join(PROJECT_ROOT, ".test-permission-v23-temp.mjs");
+    skillsBundleV23 = join(PROJECT_ROOT, ".test-skills-v23-temp.mjs");
+    sdkMapperBundleV23 = join(PROJECT_ROOT, ".test-sdk-mapper-v23-temp.mjs");
+    cliBackendBundleV23 = join(PROJECT_ROOT, ".test-cli-backend-v23-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "permissionPolicy.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: permissionBundleV23,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "skills.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: skillsBundleV23,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sdkMessageMapper.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sdkMapperBundleV23,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV23,
+    });
+
+    const {
+      classifyActionRisk,
+      checkPermission,
+      checkSessionAllow,
+      checkSessionDeny,
+      extractPathPattern,
+      createSessionAllow,
+      createSessionDeny,
+      permissionPolicyLabel,
+      permissionLevelLabel,
+    } = await import(pathToFileURL(permissionBundleV23).href);
+    const {
+      importSkillFromText,
+      deleteSkill,
+      isImportedSkill,
+      scanSkillPrompt,
+      truncateSkillPrompt,
+      MAX_SKILL_PROMPT_LENGTH,
+      serializeSkillToMarkdown,
+      loadSkills,
+    } = await import(pathToFileURL(skillsBundleV23).href);
+    const { mapSdkMessageToWorkflowEvents } = await import(pathToFileURL(sdkMapperBundleV23).href);
+    const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV23).href);
+
+    const TS = "2026-06-28T00:00:00.000Z";
+
+    // ===== 权限分级 =====
+
+    // ---- Test 1: classifyActionRisk 低/中/高 ----
+    {
+      const low = classifyActionRisk("show_notice", {}, "/vault");
+      const med = classifyActionRisk("create_note", { path: "/vault/a.md" }, "/vault");
+      const high = classifyActionRisk("unknown_action", {}, "/vault");
+      addTest("V2.3 权限分级: low/medium/high 分类",
+        low === "low" && med === "medium" && high === "high" ? "pass" : "fail",
+        `low=${low} med=${med} high=${high}`);
+    }
+
+    // ---- Test 2: checkPermission medium 策略：low 自动允许，high 需审批，medium 需本轮授权 ----
+    {
+      const lowRes = checkPermission("show_notice", {}, "medium", [], []);
+      const highRes = checkPermission("delete_note", { path: "a.md" }, "medium", [], []);
+      const medRes = checkPermission("create_note", { path: "a.md" }, "medium", [], []);
+      addTest("V2.3 权限决策: medium 策略矩阵",
+        lowRes.decision === "auto_allow" && highRes.decision === "needs_approval" && medRes.decision === "needs_approval" ? "pass" : "fail",
+        `low=${lowRes.decision} high=${highRes.decision} med=${medRes.decision}`);
+    }
+
+    // ---- Test 3: low 策略下 medium 自动允许 ----
+    {
+      const medRes = checkPermission("create_note", { path: "a.md" }, "low", [], []);
+      addTest("V2.3 权限决策: low 策略 medium 自动允许",
+        medRes.decision === "auto_allow" ? "pass" : "fail",
+        `decision=${medRes.decision}`);
+    }
+
+    // ---- Test 4: high 策略下 low 也需审批 ----
+    {
+      const lowRes = checkPermission("show_notice", {}, "high", [], []);
+      addTest("V2.3 权限决策: high 策略 low 需审批",
+        lowRes.decision === "needs_approval" ? "pass" : "fail",
+        `decision=${lowRes.decision}`);
+    }
+
+    // ---- Test 5: 会话级 allow：同 actionType+pathPattern 不再询问 ----
+    {
+      const allow = createSessionAllow("create_note", "notes/");
+      const res = checkPermission("create_note", { path: "notes/a.md" }, "medium", [allow], []);
+      addTest("V2.3 会话级 allow: 同类操作自动通过",
+        res.decision === "session_allowed" ? "pass" : "fail",
+        `decision=${res.decision}`);
+    }
+
+    // ---- Test 6: 会话级 deny：重新询问（不自动拒绝，保守策略）----
+    {
+      const deny = createSessionDeny("create_note", "secret/");
+      const res = checkPermission("create_note", { path: "secret/x.md" }, "medium", [], [deny]);
+      addTest("V2.3 会话级 deny: 重新询问",
+        res.decision === "needs_approval" ? "pass" : "fail",
+        `decision=${res.decision}`);
+    }
+
+    // ---- Test 7: extractPathPattern 提取目录前缀 ----
+    {
+      const p1 = extractPathPattern("create_note", { path: "notes/sub/a.md" });
+      const p2 = extractPathPattern("create_note", { path: "a.md" });
+      const p3 = extractPathPattern("create_note", {});
+      addTest("V2.3 extractPathPattern: 目录前缀提取",
+        p1 === "notes/sub/" && p2 === "" && p3 === "" ? "pass" : "fail",
+        `p1=${p1} p2=${p2} p3=${p3}`);
+    }
+
+    // ---- Test 8: permissionPolicyLabel / permissionLevelLabel 可读标签 ----
+    {
+      const polLabel = permissionPolicyLabel("medium");
+      const lvlLabel = permissionLevelLabel("high");
+      addTest("V2.3 权限标签: policy/level 文本",
+        typeof polLabel === "string" && polLabel.length > 0 && typeof lvlLabel === "string" && lvlLabel.length > 0 ? "pass" : "fail",
+        `policy=${polLabel} level=${lvlLabel}`);
+    }
+
+    // ===== Skills 导入/删除/扫描/截断 =====
+
+    // ---- Test 9: importSkillFromText 写入 .llm-bridge/skills/ 并可读取 ----
+    {
+      tempSkillsV23Dir = mkdtempSync(join(tmpdir(), "llm-bridge-v23-skills-"));
+      const ok = await importSkillFromText(tempSkillsV23Dir, "测试 Skill", "V2.3 导入测试", "请执行测试操作");
+      const imported = await isImportedSkill(tempSkillsV23Dir, "测试 Skill");
+      addTest("V2.3 Skills 导入: 写入并识别",
+        ok && imported ? "pass" : "fail",
+        `ok=${ok} imported=${imported}`);
+    }
+
+    // ---- Test 10: deleteSkill 删除导入的 skill ----
+    {
+      const deleted = await deleteSkill(tempSkillsV23Dir, "测试 Skill");
+      const stillImported = await isImportedSkill(tempSkillsV23Dir, "测试 Skill");
+      addTest("V2.3 Skills 删除: 删除后不再识别为导入",
+        deleted && !stillImported ? "pass" : "fail",
+        `deleted=${deleted} stillImported=${stillImported}`);
+    }
+
+    // ---- Test 11: scanSkillPrompt 检测 API key 与 Bearer token ----
+    {
+      const scan1 = scanSkillPrompt("正常 prompt，无敏感内容");
+      const scan2 = scanSkillPrompt("API key: sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890");
+      const scan3 = scanSkillPrompt("Authorization: Bearer abcdefghijklmnopqrstuvwxyz123456789");
+      const scan4 = scanSkillPrompt("token=abcdefghijklmnop1234567890");
+      addTest("V2.3 Skills 扫描: 检测 API key / Bearer / 凭证",
+        scan1.warnings.length === 0 && scan2.warnings.length > 0 && scan3.warnings.length > 0 && scan4.warnings.length > 0 ? "pass" : "fail",
+        `clean=${scan1.warnings.length} apikey=${scan2.warnings.length} bearer=${scan3.warnings.length} cred=${scan4.warnings.length}`);
+    }
+
+    // ---- Test 12: scanSkillPrompt 脱敏后不含原文 ----
+    {
+      const scan = scanSkillPrompt("key: sk-ant-api03-abcdefghijklmnopqrstuvwxyz1234567890");
+      const redactedOk = !scan.redacted.includes("abcdefghijklmnopqrstuvwxyz1234567890");
+      addTest("V2.3 Skills 脱敏: redacted 不含原 key",
+        redactedOk ? "pass" : "fail",
+        `redactedContainsKey=${!redactedOk}`);
+    }
+
+    // ---- Test 13: truncateSkillPrompt 超长截断 ----
+    {
+      const long = "x".repeat(MAX_SKILL_PROMPT_LENGTH + 100);
+      const truncated = truncateSkillPrompt(long);
+      const short = "short";
+      const notTruncated = truncateSkillPrompt(short);
+      // 超长时截断到 maxLen 并追加截断标记（长度 > maxLen）
+      const truncatedOk = truncated.length > MAX_SKILL_PROMPT_LENGTH && truncated.startsWith("x".repeat(MAX_SKILL_PROMPT_LENGTH));
+      addTest("V2.3 Skills 截断: 超长截断，短文保留",
+        truncatedOk && notTruncated === short ? "pass" : "fail",
+        `truncatedLen=${truncated.length} shortLen=${notTruncated.length}`);
+    }
+
+    // ---- Test 14: serializeSkillToMarkdown 输出标准格式 ----
+    {
+      const skill = { name: "测试", description: "描述", prompt: "内容" };
+      const md = serializeSkillToMarkdown(skill);
+      const hasName = md.includes("## 测试");
+      const hasDesc = md.includes("描述");
+      const hasPrompt = md.includes("内容");
+      addTest("V2.3 Skills 序列化: markdown 格式正确",
+        hasName && hasDesc && hasPrompt ? "pass" : "fail",
+        `hasName=${hasName} hasDesc=${hasDesc} hasPrompt=${hasPrompt}`);
+    }
+
+    // ---- Test 15: loadSkills 主文件 + 导入目录合并去重 ----
+    {
+      // 主文件不存在 + 导入目录为空 → 空数组
+      const skills = await loadSkills(tempSkillsV23Dir);
+      addTest("V2.3 Skills 加载: 空目录返回空数组",
+        Array.isArray(skills) && skills.length === 0 ? "pass" : "fail",
+        `count=${skills.length}`);
+    }
+
+    // ===== SDK agent/subagent 事件标识 =====
+
+    // ---- Test 16: assistant 消息携带 sessionId 与 parentToolUseId 时映射到事件 ----
+    {
+      const assistantMsg = {
+        type: "assistant",
+        session_id: "sess-001",
+        parent_tool_use_id: "toolu_parent01",
+        message: { content: [
+          { type: "text", text: "subagent 处理中" },
+          { type: "tool_use", id: "toolu_sub01", name: "Read", input: { file_path: "/tmp/a.txt" } },
+        ] },
+      };
+      const result = mapSdkMessageToWorkflowEvents(assistantMsg, TS);
+      const msgEv = result.events.find((e) => e.type === "message");
+      const toolEv = result.events.find((e) => e.type === "tool_start");
+      const msgOk = msgEv && msgEv.sessionId === "sess-001" && msgEv.parentToolUseId === "toolu_parent01";
+      const toolOk = toolEv && toolEv.sessionId === "sess-001" && toolEv.parentToolUseId === "toolu_parent01";
+      addTest("V2.3 SDK 映射: subagent 消息携带 sessionId/parentToolUseId",
+        msgOk && toolOk ? "pass" : "fail",
+        `msgOk=${msgOk} toolOk=${toolOk}`);
+    }
+
+    // ---- Test 17: 主 agent（无 parentToolUseId）事件正确标识 ----
+    {
+      const assistantMsg = {
+        type: "assistant",
+        session_id: "sess-main",
+        message: { content: [
+          { type: "text", text: "主 agent 响应" },
+        ] },
+      };
+      const result = mapSdkMessageToWorkflowEvents(assistantMsg, TS);
+      const msgEv = result.events.find((e) => e.type === "message");
+      const isMain = msgEv && msgEv.sessionId === "sess-main" && msgEv.parentToolUseId === undefined;
+      addTest("V2.3 SDK 映射: 主 agent 无 parentToolUseId",
+        isMain ? "pass" : "fail",
+        `sessionId=${msgEv?.sessionId} parentToolUseId=${msgEv?.parentToolUseId}`);
+    }
+
+    // ---- Test 18: result 终态消息携带 sessionId ----
+    {
+      const resultMsg = {
+        type: "result", subtype: "success", is_error: false,
+        result: "完成", session_id: "sess-main",
+      };
+      const result = mapSdkMessageToWorkflowEvents(resultMsg, TS);
+      const msgEv = result.events.find((e) => e.type === "message");
+      const sessionIdOk = msgEv && msgEv.sessionId === "sess-main";
+      addTest("V2.3 SDK 映射: 终态消息携带 sessionId",
+        sessionIdOk && result.terminal === "completed" ? "pass" : "fail",
+        `sessionIdOk=${sessionIdOk} terminal=${result.terminal}`);
+    }
+
+    // ---- Test 19: 无 session_id 的消息不附加字段（向后兼容）----
+    {
+      const assistantMsg = {
+        type: "assistant",
+        message: { content: [{ type: "text", text: "无 session 消息" }] },
+      };
+      const result = mapSdkMessageToWorkflowEvents(assistantMsg, TS);
+      const msgEv = result.events.find((e) => e.type === "message");
+      const noSession = msgEv && msgEv.sessionId === undefined && msgEv.parentToolUseId === undefined;
+      addTest("V2.3 SDK 映射: 无 session_id 向后兼容",
+        noSession ? "pass" : "fail",
+        `sessionId=${msgEv?.sessionId} parentToolUseId=${msgEv?.parentToolUseId}`);
+    }
+
+    // ===== CLI 不回归 =====
+
+    // ---- Test 20: ClaudeCliBackend 仍是函数（不依赖 permission/skills）----
+    {
+      const isFunc = typeof ClaudeCliBackend === "function";
+      const backend = new ClaudeCliBackend();
+      const hasRun = typeof backend.run === "function";
+      addTest("V2.3 CLI 不回归: ClaudeCliBackend 仍可实例化",
+        isFunc && hasRun ? "pass" : "fail",
+        `isFunc=${isFunc} hasRun=${hasRun}`);
+    }
+
+  } catch (e) {
+    addTest("V2.3 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (permissionBundleV23) rmSync(permissionBundleV23, { force: true }); } catch {}
+    try { if (skillsBundleV23) rmSync(skillsBundleV23, { force: true }); } catch {}
+    try { if (sdkMapperBundleV23) rmSync(sdkMapperBundleV23, { force: true }); } catch {}
+    try { if (cliBackendBundleV23) rmSync(cliBackendBundleV23, { force: true }); } catch {}
+    try { if (tempSkillsV23Dir) rmSync(tempSkillsV23Dir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");

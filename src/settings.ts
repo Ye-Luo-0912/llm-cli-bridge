@@ -2,7 +2,7 @@
 
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type LLMBridgePlugin from "../main";
-import { AgentType, BackendMode, ClaudePermissionMode } from "./types";
+import { AgentType, BackendMode, ClaudePermissionMode, PermissionPolicy } from "./types";
 
 export class LLMBridgeSettingTab extends PluginSettingTab {
   plugin: LLMBridgePlugin;
@@ -234,6 +234,21 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       cls: "llm-bridge-setting-hint llm-bridge-setting-hint-warn",
       text: "以下选项仅供开发与测试。日常使用请保持 Backend 模式为 auto，不要开启 Dev Test Mode。",
     });
+
+    // V2.3: 权限策略（low / medium / high）
+    new Setting(containerEl)
+      .setName("权限策略")
+      .setDesc("low=宽松（读允许，medium 写操作自动允许）；medium=默认（读允许，Vault 内写操作本轮授权）；high=严格（所有操作需确认，包括读操作）")
+      .addDropdown((d) => {
+        d.addOption("low", "low（宽松）");
+        d.addOption("medium", "medium（默认）");
+        d.addOption("high", "high（严格）");
+        d.setValue(s.permissionPolicy);
+        d.onChange(async (v) => {
+          s.permissionPolicy = v as PermissionPolicy;
+          await this.plugin.saveSettings();
+        });
+      });
 
     new Setting(containerEl)
       .setName("Backend 模式（Mock / Demo）")
