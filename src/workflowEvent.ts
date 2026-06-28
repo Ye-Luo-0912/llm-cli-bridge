@@ -89,6 +89,28 @@ export interface PermissionEvent extends WorkflowEventBase {
   readonly toolName: string;
   readonly description: string;
   readonly granted: boolean;
+  /** V2.3s: 风险等级（low/medium/high） */
+  readonly riskLevel?: "low" | "medium" | "high";
+  /** V2.3s: 中文风险说明 */
+  readonly riskReason?: string;
+  /** V2.3s: 命中的高风险标记（删除/Shell/网络/Vault外等） */
+  readonly highRiskFlags?: ReadonlyArray<string>;
+  /** V2.3s: 决策来源（user/session_allow/session_deny/mode） */
+  readonly source?: "user" | "session_allow" | "session_deny" | "mode";
+  /** V2.3s: SDK 会话 ID（标识 agent 实例） */
+  readonly sessionId?: string;
+  /** V2.3s: 父工具调用 ID（标识 subagent） */
+  readonly parentToolUseId?: string;
+  /** V2.3s: 请求 ID（用于异步用户决策配对） */
+  readonly requestId?: string;
+  /** V2.3s: 请求合并键（相同工具+风险+路径前缀合并） */
+  readonly mergeKey?: string;
+  /** V2.3s: 是否待用户决策（true=等待用户点击允许/拒绝） */
+  readonly pending?: boolean;
+  /** V2.3s: 工具参数摘要（已脱敏，用于 UI 展示） */
+  readonly inputSummary?: string;
+  /** V2.3s: subagent 权限继承风险提示（非空时表示有继承风险） */
+  readonly subagentRisk?: string;
 }
 
 /** 错误 */
@@ -171,8 +193,15 @@ export function redactWorkflowEvent(event: WorkflowEvent): WorkflowEvent {
       return { ...event, text: redactSecrets(event.text) };
     case "failed":
       return { ...event, message: redactSecrets(event.message) };
+    case "permission":
+      // V2.3s: 脱敏 description 和 inputSummary
+      return {
+        ...event,
+        description: redactSecrets(event.description),
+        inputSummary: event.inputSummary ? redactSecrets(event.inputSummary) : event.inputSummary,
+      };
     default:
-      // file_change / permission 无敏感字段
+      // file_change 无敏感字段
       return event;
   }
 }

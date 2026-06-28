@@ -35,6 +35,20 @@ import {
   updateDiagnostics,
   formatDiagnosticsForLog,
 } from "./sdkMessageMapper";
+import {
+  assessToolRisk,
+  decideByMode,
+  checkSessionAllow,
+  checkSessionDeny,
+  createSessionAllow,
+  createSessionDeny,
+  buildRequestMergeKey,
+  assessSubagentPermissionRisk,
+  getPermissionModeInfo,
+  type PermissionChoice,
+  type SessionPermissionAllow,
+  type SessionPermissionDeny,
+} from "./sdkPermission";
 
 // ---------- SDK 可用性探测 ----------
 
@@ -328,6 +342,52 @@ export function generateMockFailureWorkflowEvents(
 // ---------- 真实 SDK 调用 ----------
 
 /**
+ * V2.3s: 权限状态（会话级允许/拒绝缓存 + 待决策请求）
+ * 在 SdkBackend 实例上持有，canUseTool 回调通过引用访问
+ */
+export interface PermissionState {
+  /** 会话级允许缓存 */
+  readonly allows: SessionPermissionAllow[];
+  /** 会话级拒绝缓存 */
+  readonly denies: SessionPermissionDeny[];
+  /** 待决策的权限请求（requestId → resolve 回调） */
+  readonly pending: Map<string, (choice: PermissionChoice) => void>;
+}
+
+/**
+ * 创建空的权限状态
+ */
+export function createPermissionState(): PermissionState {
+  return {
+    allows: [],
+    denies: [],
+    pending: new Map(),
+  };
+}
+
+/**
+ * V2.3s: 摘要工具输入参数（用于 UI 展示，已脱敏）
+ */
+function summarizeToolInput(input: Record<string, unknown>): string {
+  const parts: string[] = [];
+  if (typeof input.file_path === "string") parts.push(`file: ${input.file_path}`);
+  if (typeof input.notebook_path === "string") parts.push(`notebook: ${input.notebook_path}`);
+  if (typeof input.path === "string") parts.push(`path: ${input.path}`);
+  if (typeof input.command === "string") parts.push(`cmd: ${input.command.slice(0, 80)}`);
+  if (typeof input.pattern === "string") parts.push(`pattern: ${input.pattern}`);
+  if (typeof input.url === "string") parts.push(`url: ${input.url}`);
+  if (typeof input.query === "string") parts.push(`query: ${input.query.slice(0, 60)}`);
+  if (parts.length === 0) {
+    const keys = Object.keys(input).slice(0, 3);
+    for (const k of keys) {
+      const v = String(input[k]).slice(0, 60);
+      parts.push(`${k}: ${v}`);
+    }
+  }
+  return parts.join(" | ");
+}
+
+/**
  * 构造 SDK query options（从 LLMBridgeSettings 映射）
  */
 function buildSdkOptions(task: AgentTask, settings: LLMBridgeSettings): Record<string, unknown> {
@@ -363,6 +423,7 @@ async function runRealSdkQuery(
   onWorkflowEvent: WorkflowEventHandler | undefined,
   diagnostics: SdkDiagnostics,
   startedAt: number,
+  permissionState: PermissionState,
 ): Promise<{ status: "completed" | "failed"; text: string; exitCode: number; diagnostics: SdkDiagnostics }> {
   const queryFn = (sdkMod as { query?: unknown }).query;
   if (typeof queryFn !== "function") {
@@ -385,21 +446,109 @@ async function runRealSdkQuery(
   let terminalExitCode = 0;
 
   try {
-    // V1.7: canUseTool 回调 —— 发出 permission 事件，默认 allow（仅展示）
-    // 危险操作由 permissionMode 控制，此处不自动 deny（保持工作流连续）
-    const canUseTool = (toolName: string, input: Record<string, unknown>, opts: { toolUseID?: string; description?: string; displayName?: string }): { behavior: "allow"; updatedInput: Record<string, unknown> } => {
-      if (onWorkflowEvent) {
-        const permEv: PermissionEvent = {
+    // V2.3s: canUseTool 回调 —— 基于 SDK 原生 permissionMode 做 UI 封装
+    // 1. 评估工具风险（assessToolRisk）
+    // 2. 检查会话级允许/拒绝缓存
+    // 3. 非交互模式由 decideByMode 自动决策
+    // 4. 交互模式下 low 风险自动允许，medium/high 风险等待用户决策
+    // 5. 用户决策（allow_once/allow_session/deny_session）通过 resolvePermission 注入
+    const canUseTool = async (
+      toolName: string,
+      input: Record<string, unknown>,
+      opts: { toolUseID?: string; description?: string; displayName?: string; sessionId?: string; parentToolUseId?: string },
+    ): Promise<{ behavior: "allow" | "deny"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string }> => {
+      const mode = settings.claudePermissionMode ?? "default";
+      const risk = assessToolRisk(toolName, input);
+      const mergeKey = buildRequestMergeKey(toolName, risk, input);
+      const inputSummary = summarizeToolInput(input);
+      const sessionId = opts.sessionId;
+      const parentToolUseId = opts.parentToolUseId;
+      const isSubagent = !!parentToolUseId;
+      const subagentRiskWarn = isSubagent
+        ? assessSubagentPermissionRisk(mode, true).warning
+        : "";
+
+      // 发出权限事件辅助函数
+      const emitPerm = (
+        granted: boolean,
+        source: "user" | "session_allow" | "session_deny" | "mode",
+        pending: boolean = false,
+        requestId?: string,
+      ): void => {
+        if (!onWorkflowEvent) return;
+        const ev: PermissionEvent = {
           type: "permission",
           timestamp: new Date().toISOString(),
           toolName,
           description: opts.description ?? opts.displayName ?? `Tool: ${toolName}`,
-          granted: true, // V1.7: 默认允许，仅展示（危险操作由 permissionMode 拦截）
+          granted,
+          riskLevel: risk.level,
+          riskReason: risk.reason,
+          highRiskFlags: risk.highRiskFlags.length > 0 ? risk.highRiskFlags : undefined,
+          source,
+          sessionId,
+          parentToolUseId,
+          requestId,
+          mergeKey,
+          pending,
+          inputSummary,
+          subagentRisk: subagentRiskWarn || undefined,
         };
-        onWorkflowEvent(redactWorkflowEvent(permEv));
+        onWorkflowEvent(redactWorkflowEvent(ev));
         wfEventCount++;
+      };
+
+      // 1. 检查会话级允许缓存
+      if (checkSessionAllow(permissionState.allows, toolName, risk, input)) {
+        emitPerm(true, "session_allow");
+        return { behavior: "allow", updatedInput: input };
       }
-      return { behavior: "allow", updatedInput: input };
+
+      // 2. 检查会话级拒绝缓存
+      if (checkSessionDeny(permissionState.denies, toolName, risk, input)) {
+        emitPerm(false, "session_deny");
+        return { behavior: "deny", message: `会话已拒绝：${toolName}（${risk.reason}）` };
+      }
+
+      // 3. 非交互模式由 decideByMode 自动决策
+      const modeInfo = getPermissionModeInfo(mode);
+      if (!modeInfo.interactive) {
+        const decision = decideByMode(mode, risk);
+        emitPerm(decision.behavior === "allow", "mode");
+        if (decision.behavior === "deny") {
+          return { behavior: "deny", message: decision.reason };
+        }
+        return { behavior: "allow", updatedInput: input };
+      }
+
+      // 4. 交互模式下 low 风险自动允许
+      if (risk.level === "low") {
+        emitPerm(true, "mode");
+        return { behavior: "allow", updatedInput: input };
+      }
+
+      // 5. 交互模式下 medium/high 风险：等待用户决策
+      const requestId = `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      emitPerm(true, "user", true, requestId); // pending=true
+
+      const choice = await new Promise<PermissionChoice>((resolve) => {
+        permissionState.pending.set(requestId, resolve);
+      });
+
+      // 应用用户决策
+      if (choice === "allow_once") {
+        emitPerm(true, "user", false, requestId);
+        return { behavior: "allow", updatedInput: input };
+      }
+      if (choice === "allow_session") {
+        permissionState.allows.push(createSessionAllow(toolName, risk, input));
+        emitPerm(true, "user", false, requestId);
+        return { behavior: "allow", updatedInput: input };
+      }
+      // deny_session
+      permissionState.denies.push(createSessionDeny(toolName, risk, input));
+      emitPerm(false, "user", false, requestId);
+      return { behavior: "deny", message: `用户拒绝：${toolName}（${risk.reason}）` };
     };
     options.canUseTool = canUseTool;
 
@@ -516,6 +665,51 @@ export class SdkBackend implements AgentBackend {
   /** 最近一次运行的诊断信息（供 UI/日志读取，不含 secret） */
   lastDiagnostics: SdkDiagnostics | null = null;
 
+  /** V2.3s: 权限状态（会话级允许/拒绝缓存 + 待决策请求） */
+  private permissionState: PermissionState = createPermissionState();
+
+  /**
+   * V2.3s: 解析待决策的权限请求（由 UI 调用）
+   * @param requestId 权限请求 ID
+   * @param choice 用户决策（allow_once/allow_session/deny_session）
+   * @returns true=成功解析；false=请求不存在或已解析
+   */
+  resolvePermission(requestId: string, choice: PermissionChoice): boolean {
+    const resolve = this.permissionState.pending.get(requestId);
+    if (!resolve) return false;
+    this.permissionState.pending.delete(requestId);
+    resolve(choice);
+    return true;
+  }
+
+  /**
+   * V2.3s: 清空会话级权限缓存与待决策请求
+   * 在新会话或 stop 时调用；待决策请求自动拒绝（deny_session）
+   */
+  clearSessionPermissions(): void {
+    // 拒绝所有待决策请求
+    for (const [, resolve] of this.permissionState.pending) {
+      resolve("deny_session");
+    }
+    this.permissionState.pending.clear();
+    this.permissionState.allows.length = 0;
+    this.permissionState.denies.length = 0;
+  }
+
+  /**
+   * V2.3s: 获取当前会话级允许缓存（供 UI/测试读取）
+   */
+  getSessionAllows(): ReadonlyArray<SessionPermissionAllow> {
+    return this.permissionState.allows;
+  }
+
+  /**
+   * V2.3s: 获取当前会话级拒绝缓存（供 UI/测试读取）
+   */
+  getSessionDenies(): ReadonlyArray<SessionPermissionDeny> {
+    return this.permissionState.denies;
+  }
+
   run(
     task: AgentTask,
     settings: LLMBridgeSettings,
@@ -560,6 +754,7 @@ export class SdkBackend implements AgentBackend {
           onWorkflowEvent,
           diagnostics,
           startedAt,
+          this.permissionState,
         );
         if (stopped) return;
 
@@ -646,10 +841,12 @@ export class SdkBackend implements AgentBackend {
       get running(): boolean {
         return !stopped;
       },
-      stop(): void {
+      stop: (): void => {
         if (stopped) return;
         stopped = true;
         cleanup();
+        // V2.3s: 停止时拒绝所有待决策权限请求，避免 Promise 永久挂起
+        this.clearSessionPermissions();
         onEvent({
           type: "stopped",
           exitCode: null,

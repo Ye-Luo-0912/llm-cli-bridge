@@ -1419,3 +1419,204 @@
   opacity: 0.7;
   flex: 0 0 auto;
 }
+
+/* === V2.3s: 权限模式状态栏 + 权限请求面板 + 权限历史 === */
+
+/* 权限模式状态栏字段 */
+.llm-bridge-sb-perm-mode .llm-bridge-sb-value { font-size: var(--font-smallest); }
+.llm-bridge-sb-perm-mode.is-safe .llm-bridge-sb-value { color: #4caf50; }
+.llm-bridge-sb-perm-mode.is-caution .llm-bridge-sb-value { color: #fb8c00; }
+.llm-bridge-sb-perm-mode.is-danger .llm-bridge-sb-value { color: #e53935; font-weight: 600; }
+
+/* 权限请求面板（实时 pending 请求） */
+.llm-bridge-perm-panel {
+  border-top: 2px solid var(--interactive-accent);
+  background: var(--background-secondary);
+  padding: 8px 10px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.llm-bridge-perm-panel-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.llm-bridge-perm-panel-title {
+  font-size: var(--font-small);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.llm-bridge-perm-panel-count {
+  font-size: var(--font-smallest);
+  color: var(--interactive-accent);
+  font-weight: 500;
+}
+
+/* 权限请求卡片 */
+.llm-bridge-perm-card {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 8px;
+  margin-bottom: 6px;
+  background: var(--background-primary);
+}
+.llm-bridge-perm-card.is-risk-high { border-color: #e53935; border-left: 3px solid #e53935; }
+.llm-bridge-perm-card.is-risk-medium { border-color: #fb8c00; border-left: 3px solid #fb8c00; }
+.llm-bridge-perm-card.is-risk-low { border-color: var(--background-modifier-border); border-left: 3px solid #4caf50; }
+
+.llm-bridge-perm-card-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.llm-bridge-perm-card-tool {
+  font-size: var(--font-small);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.llm-bridge-perm-card-source {
+  font-size: var(--font-smallest);
+  padding: 1px 6px;
+  border-radius: 3px;
+}
+.llm-bridge-perm-card-source.is-main { background: rgba(76, 175, 80, 0.15); color: #4caf50; }
+.llm-bridge-perm-card-source.is-subagent { background: rgba(251, 140, 0, 0.15); color: #fb8c00; }
+.llm-bridge-perm-card-merge-count {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.llm-bridge-perm-card-risk {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.llm-bridge-perm-risk-level {
+  font-size: var(--font-smallest);
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+.llm-bridge-perm-risk-level.is-high { background: rgba(229, 57, 53, 0.15); color: #e53935; }
+.llm-bridge-perm-risk-level.is-medium { background: rgba(251, 140, 0, 0.15); color: #fb8c00; }
+.llm-bridge-perm-risk-level.is-low { background: rgba(76, 175, 80, 0.15); color: #4caf50; }
+.llm-bridge-perm-risk-reason {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+}
+
+.llm-bridge-perm-card-flags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+.llm-bridge-perm-flags-label {
+  font-size: var(--font-smallest);
+  font-weight: 600;
+  color: #e53935;
+}
+.llm-bridge-perm-flag {
+  font-size: var(--font-smallest);
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(229, 57, 53, 0.1);
+  color: #e53935;
+  border: 1px solid rgba(229, 57, 53, 0.3);
+}
+
+.llm-bridge-perm-card-input {
+  font-size: var(--font-smallest);
+  font-family: var(--font-monospace);
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-perm-card-subagent-warn {
+  font-size: var(--font-smallest);
+  color: #fb8c00;
+  margin-bottom: 6px;
+  font-style: italic;
+}
+
+.llm-bridge-perm-card-btns {
+  display: flex;
+  gap: 6px;
+}
+.llm-bridge-perm-btn {
+  font-size: var(--font-smallest);
+  padding: 4px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--background-primary);
+  color: var(--text-normal);
+}
+.llm-bridge-perm-btn:hover { border-color: var(--interactive-accent); }
+.llm-bridge-perm-btn.is-allow-once { color: var(--text-normal); }
+.llm-bridge-perm-btn.is-allow-session { color: #4caf50; border-color: rgba(76, 175, 80, 0.4); }
+.llm-bridge-perm-btn.is-allow-session:hover { background: rgba(76, 175, 80, 0.1); }
+.llm-bridge-perm-btn.is-deny { color: #e53935; border-color: rgba(229, 57, 53, 0.4); }
+.llm-bridge-perm-btn.is-deny:hover { background: rgba(229, 57, 53, 0.1); }
+
+/* 权限历史（SDK Workflow 中的 Permissions 分组） */
+.llm-bridge-perm-hist-row1 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.llm-bridge-perm-hist-tool {
+  font-size: var(--font-small);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.llm-bridge-perm-hist-source {
+  font-size: var(--font-smallest);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.llm-bridge-perm-hist-source.is-session_allow { background: rgba(76, 175, 80, 0.15); color: #4caf50; }
+.llm-bridge-perm-hist-source.is-session_deny { background: rgba(229, 57, 53, 0.15); color: #e53935; }
+.llm-bridge-perm-hist-source.is-mode { background: var(--background-modifier-border); color: var(--text-muted); }
+.llm-bridge-perm-hist-source.is-user { background: rgba(251, 140, 0, 0.15); color: #fb8c00; }
+.llm-bridge-perm-hist-agent {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+}
+.llm-bridge-perm-hist-agent.is-main { color: #4caf50; }
+.llm-bridge-perm-hist-agent.is-subagent { color: #fb8c00; }
+.llm-bridge-perm-hist-row2 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.llm-bridge-perm-hist-flags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 2px;
+}
+.llm-bridge-perm-hist-input {
+  font-size: var(--font-smallest);
+  font-family: var(--font-monospace);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-perm-hist-subagent-warn {
+  font-size: var(--font-smallest);
+  color: #fb8c00;
+  font-style: italic;
+}

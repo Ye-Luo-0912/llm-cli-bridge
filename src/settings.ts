@@ -120,11 +120,13 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("权限模式 (--permission-mode)")
-      .setDesc("default=默认询问；acceptEdits=自动接受文件编辑；plan=只读规划模式；bypassPermissions=跳过所有权限检查（危险）。默认 default。")
+      .setDesc("SDK 与 CLI 共用的权限模式。default=默认询问；acceptEdits=自动接受编辑；plan=只读规划；auto=自动决策；dontAsk=不询问；bypassPermissions=跳过所有权限（危险）。默认 default。风险说明见面板状态栏。")
       .addDropdown((d) => {
-        d.addOption("default", "default（询问）");
+        d.addOption("default", "default（默认询问）");
         d.addOption("acceptEdits", "acceptEdits（自动接受编辑）");
         d.addOption("plan", "plan（只读规划）");
+        d.addOption("auto", "auto（自动决策）");
+        d.addOption("dontAsk", "dontAsk（不询问，危险）");
         d.addOption("bypassPermissions", "bypassPermissions（跳过权限，危险）");
         d.setValue(s.claudePermissionMode);
         d.onChange(async (v) => {

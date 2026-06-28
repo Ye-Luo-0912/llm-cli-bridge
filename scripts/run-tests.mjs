@@ -4611,6 +4611,331 @@ if (!runV23Unit) {
 }
 
 // ============================================================
+// 8.11 V2.3s SDK Permission Bridge / Skills Install UX 单元测试
+//     覆盖：permissionMode 6 种映射、assessToolRisk 工具风险分级、
+//           decideByMode 自动决策、checkSessionAllow/Deny 会话缓存、
+//           buildRequestMergeKey 请求合并、assessSubagentPermissionRisk subagent 继承、
+//           SdkBackend.resolvePermission/clearSessionPermissions、
+//           PermissionEvent 脱敏、CLI 不回归
+// ============================================================
+console.log("\n=== V2.3s SDK Permission Bridge 单元测试 ===");
+
+const runV23sUnit = runMode === "all" || runMode === "unit";
+
+if (!runV23sUnit) {
+  addTest("V2.3s 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let sdkPermBundleV23s = null;
+  let sdkBackendBundleV23s = null;
+  let workflowEventBundleV23s = null;
+  let cliBackendBundleV23s = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    sdkPermBundleV23s = join(PROJECT_ROOT, ".test-sdk-perm-v23s-temp.mjs");
+    sdkBackendBundleV23s = join(PROJECT_ROOT, ".test-sdk-backend-v23s-temp.mjs");
+    workflowEventBundleV23s = join(PROJECT_ROOT, ".test-workflow-event-v23s-temp.mjs");
+    cliBackendBundleV23s = join(PROJECT_ROOT, ".test-cli-backend-v23s-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sdkPermission.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sdkPermBundleV23s,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sdkBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sdkBackendBundleV23s,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "workflowEvent.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: workflowEventBundleV23s,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV23s,
+    });
+
+    const {
+      getPermissionModeInfo,
+      listPermissionModes,
+      assessToolRisk,
+      decideByMode,
+      checkSessionAllow,
+      checkSessionDeny,
+      createSessionAllow,
+      createSessionDeny,
+      buildRequestMergeKey,
+      assessSubagentPermissionRisk,
+      extractToolPathPattern,
+    } = await import(pathToFileURL(sdkPermBundleV23s).href);
+    const { SdkBackend, createPermissionState } = await import(pathToFileURL(sdkBackendBundleV23s).href);
+    const { redactWorkflowEvent } = await import(pathToFileURL(workflowEventBundleV23s).href);
+    const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV23s).href);
+
+    // ===== permissionMode 映射（6 种） =====
+
+    // ---- Test 1: getPermissionModeInfo 返回 6 种模式 ----
+    {
+      const modes = ["default", "acceptEdits", "plan", "auto", "dontAsk", "bypassPermissions"];
+      let allOk = true;
+      let detail = "";
+      for (const m of modes) {
+        const info = getPermissionModeInfo(m);
+        if (!info.label || !info.risk || !info.level || typeof info.interactive !== "boolean") {
+          allOk = false;
+          detail += `${m}:missing fields;`;
+        }
+      }
+      addTest("V2.3s permissionMode 映射: 6 种模式均有中文标签/风险/等级",
+        allOk ? "pass" : "fail", detail || `all ${modes.length} modes ok`);
+    }
+
+    // ---- Test 2: listPermissionModes 返回 6 项 ----
+    {
+      const list = listPermissionModes();
+      addTest("V2.3s listPermissionModes: 返回 6 项",
+        list.length === 6 ? "pass" : "fail", `length=${list.length}`);
+    }
+
+    // ---- Test 3: permissionMode 风险等级正确 ----
+    {
+      const defaultInfo = getPermissionModeInfo("default");
+      const bypassInfo = getPermissionModeInfo("bypassPermissions");
+      const planInfo = getPermissionModeInfo("plan");
+      const dontAskInfo = getPermissionModeInfo("dontAsk");
+      addTest("V2.3s permissionMode 风险等级: default=safe, bypass=danger, plan=safe, dontAsk=danger",
+        defaultInfo.level === "safe" && bypassInfo.level === "danger" &&
+        planInfo.level === "safe" && dontAskInfo.level === "danger" ? "pass" : "fail",
+        `default=${defaultInfo.level} bypass=${bypassInfo.level} plan=${planInfo.level} dontAsk=${dontAskInfo.level}`);
+    }
+
+    // ===== assessToolRisk 工具风险分级 =====
+
+    // ---- Test 4: assessToolRisk 低/中/高 ----
+    {
+      const low = assessToolRisk("Read", { file_path: "notes/test.md" });
+      const med = assessToolRisk("Edit", { file_path: "notes/test.md" });
+      const high = assessToolRisk("Bash", { command: "ls" });
+      addTest("V2.3s assessToolRisk: Read=low, Edit=medium, Bash=high",
+        low.level === "low" && med.level === "medium" && high.level === "high" ? "pass" : "fail",
+        `Read=${low.level} Edit=${med.level} Bash=${high.level}`);
+    }
+
+    // ---- Test 5: assessToolRisk 高风险标记（敏感路径） ----
+    {
+      const r1 = assessToolRisk("Edit", { file_path: "/Users/test/.env" });
+      const r2 = assessToolRisk("Edit", { file_path: "vault/.obsidian/config.json" });
+      addTest("V2.3s assessToolRisk: .env 和 .obsidian 触发高风险标记",
+        r1.level === "high" && r1.highRiskFlags.includes(".env 环境文件") &&
+        r2.level === "high" && r2.highRiskFlags.some(f => f.includes(".obsidian")) ? "pass" : "fail",
+        `env=${r1.highRiskFlags.join(",")} obsidian=${r2.highRiskFlags.join(",")}`);
+    }
+
+    // ---- Test 6: assessToolRisk Bash 危险命令检测 ----
+    {
+      const r = assessToolRisk("Bash", { command: "rm -rf /tmp/test" });
+      addTest("V2.3s assessToolRisk: rm -rf 触发递归删除标记",
+        r.level === "high" && r.highRiskFlags.includes("递归删除命令") ? "pass" : "fail",
+        `flags=${r.highRiskFlags.join(",")}`);
+    }
+
+    // ===== decideByMode 自动决策 =====
+
+    // ---- Test 7: decideByMode bypassPermissions → allow ----
+    {
+      const risk = assessToolRisk("Bash", { command: "ls" });
+      const d = decideByMode("bypassPermissions", risk);
+      addTest("V2.3s decideByMode: bypassPermissions → allow (mode)",
+        d.behavior === "allow" && d.source === "mode" ? "pass" : "fail",
+        `behavior=${d.behavior} source=${d.source}`);
+    }
+
+    // ---- Test 8: decideByMode plan → deny ----
+    {
+      const risk = assessToolRisk("Read", { file_path: "test.md" });
+      const d = decideByMode("plan", risk);
+      addTest("V2.3s decideByMode: plan → deny (mode)",
+        d.behavior === "deny" && d.source === "mode" ? "pass" : "fail",
+        `behavior=${d.behavior} source=${d.source}`);
+    }
+
+    // ---- Test 9: decideByMode dontAsk → allow ----
+    {
+      const risk = assessToolRisk("Bash", { command: "ls" });
+      const d = decideByMode("dontAsk", risk);
+      addTest("V2.3s decideByMode: dontAsk → allow (mode)",
+        d.behavior === "allow" && d.source === "mode" ? "pass" : "fail",
+        `behavior=${d.behavior} source=${d.source}`);
+    }
+
+    // ===== 会话级缓存 =====
+
+    // ---- Test 10: checkSessionAllow 缓存命中 ----
+    {
+      const risk = assessToolRisk("Edit", { file_path: "notes/test.md" });
+      const allow = createSessionAllow("Edit", risk, { file_path: "notes/test.md" });
+      const hit = checkSessionAllow([allow], "Edit", risk, { file_path: "notes/test.md" });
+      addTest("V2.3s checkSessionAllow: 同工具同路径缓存命中",
+        hit ? "pass" : "fail", `hit=${hit}`);
+    }
+
+    // ---- Test 11: checkSessionAllow 不同路径不命中 ----
+    {
+      const risk = assessToolRisk("Edit", { file_path: "notes/a.md" });
+      const allow = createSessionAllow("Edit", risk, { file_path: "notes/a.md" });
+      const hit = checkSessionAllow([allow], "Edit", risk, { file_path: "other/b.md" });
+      addTest("V2.3s checkSessionAllow: 不同路径不命中",
+        !hit ? "pass" : "fail", `hit=${hit}`);
+    }
+
+    // ---- Test 12: checkSessionDeny 缓存命中 ----
+    {
+      const risk = assessToolRisk("Bash", { command: "ls" });
+      const deny = createSessionDeny("Bash", risk, { command: "ls" });
+      const hit = checkSessionDeny([deny], "Bash", risk, { command: "ls" });
+      addTest("V2.3s checkSessionDeny: 同工具缓存命中",
+        hit ? "pass" : "fail", `hit=${hit}`);
+    }
+
+    // ===== 请求合并键 =====
+
+    // ---- Test 13: buildRequestMergeKey 相同工具+风险+路径 → 相同键 ----
+    {
+      const risk = assessToolRisk("Edit", { file_path: "notes/test.md" });
+      const key1 = buildRequestMergeKey("Edit", risk, { file_path: "notes/test.md" });
+      const key2 = buildRequestMergeKey("Edit", risk, { file_path: "notes/test2.md" });
+      const key3 = buildRequestMergeKey("Write", risk, { file_path: "notes/test.md" });
+      addTest("V2.3s buildRequestMergeKey: 同工具同目录合并，不同工具不合并",
+        key1 === key2 && key1 !== key3 ? "pass" : "fail",
+        `key1=${key1} key2=${key2} key3=${key3}`);
+    }
+
+    // ===== subagent 权限继承 =====
+
+    // ---- Test 14: assessSubagentPermissionRisk danger 模式 + subagent → risky ----
+    {
+      const r = assessSubagentPermissionRisk("bypassPermissions", true);
+      addTest("V2.3s assessSubagentPermissionRisk: bypassPermissions + subagent → risky",
+        r.risky && r.warning.length > 0 ? "pass" : "fail",
+        `risky=${r.risky} warning=${r.warning.slice(0, 40)}`);
+    }
+
+    // ---- Test 15: assessSubagentPermissionRisk safe 模式 + subagent → not risky ----
+    {
+      const r = assessSubagentPermissionRisk("plan", true);
+      addTest("V2.3s assessSubagentPermissionRisk: plan + subagent → not risky",
+        !r.risky ? "pass" : "fail", `risky=${r.risky}`);
+    }
+
+    // ---- Test 16: assessSubagentPermissionRisk 非 subagent → not risky ----
+    {
+      const r = assessSubagentPermissionRisk("bypassPermissions", false);
+      addTest("V2.3s assessSubagentPermissionRisk: 非 subagent → not risky",
+        !r.risky ? "pass" : "fail", `risky=${r.risky}`);
+    }
+
+    // ===== extractToolPathPattern =====
+
+    // ---- Test 17: extractToolPathPattern 目录前缀提取 ----
+    {
+      const p1 = extractToolPathPattern({ file_path: "notes/sub/test.md" });
+      const p2 = extractToolPathPattern({ file_path: "test.md" });
+      addTest("V2.3s extractToolPathPattern: 提取目录前缀",
+        p1 === "notes/sub/" && p2 === "" ? "pass" : "fail",
+        `p1=${p1} p2=${p2}`);
+    }
+
+    // ===== SdkBackend.resolvePermission / clearSessionPermissions =====
+
+    // ---- Test 18: SdkBackend.resolvePermission 未知 requestId → false ----
+    {
+      const backend = new SdkBackend();
+      const ok = backend.resolvePermission("unknown_id", "allow_once");
+      addTest("V2.3s SdkBackend.resolvePermission: 未知 requestId → false",
+        !ok ? "pass" : "fail", `ok=${ok}`);
+    }
+
+    // ---- Test 19: SdkBackend.clearSessionPermissions 清空状态 ----
+    {
+      const backend = new SdkBackend();
+      backend.clearSessionPermissions();
+      const allows = backend.getSessionAllows();
+      const denies = backend.getSessionDenies();
+      addTest("V2.3s SdkBackend.clearSessionPermissions: 清空 allows/denies",
+        allows.length === 0 && denies.length === 0 ? "pass" : "fail",
+        `allows=${allows.length} denies=${denies.length}`);
+    }
+
+    // ---- Test 20: createPermissionState 返回空状态 ----
+    {
+      const state = createPermissionState();
+      addTest("V2.3s createPermissionState: 返回空状态",
+        state.allows.length === 0 && state.denies.length === 0 && state.pending.size === 0 ? "pass" : "fail",
+        `allows=${state.allows.length} denies=${state.denies.length} pending=${state.pending.size}`);
+    }
+
+    // ===== PermissionEvent 脱敏 =====
+
+    // ---- Test 21: redactWorkflowEvent 脱敏 PermissionEvent inputSummary ----
+    {
+      const ev = {
+        type: "permission",
+        timestamp: "2026-06-28T00:00:00.000Z",
+        toolName: "Bash",
+        description: "执行命令",
+        granted: true,
+        inputSummary: "cmd: curl -H 'Authorization: Bearer sk-ant-api03-abc123def456ghi789jkl012mno345pqr678' https://api.example.com",
+        riskLevel: "high",
+      };
+      const redacted = redactWorkflowEvent(ev);
+      const hasSecret = redacted.inputSummary.includes("sk-ant-api03-abc123");
+      const hasRedaction = redacted.inputSummary.includes("***");
+      addTest("V2.3s PermissionEvent 脱敏: inputSummary 中 API key 被替换",
+        !hasSecret && hasRedaction ? "pass" : "fail",
+        `hasSecret=${hasSecret} hasRedaction=${hasRedaction}`);
+    }
+
+    // ---- Test 22: redactWorkflowEvent 脱敏 PermissionEvent description ----
+    {
+      const ev = {
+        type: "permission",
+        timestamp: "2026-06-28T00:00:00.000Z",
+        toolName: "Edit",
+        description: "写入 token=supersecret12345678 to file",
+        granted: true,
+      };
+      const redacted = redactWorkflowEvent(ev);
+      const hasSecret = redacted.description.includes("supersecret12345678");
+      addTest("V2.3s PermissionEvent 脱敏: description 中凭证被替换",
+        !hasSecret ? "pass" : "fail", `hasSecret=${hasSecret}`);
+    }
+
+    // ===== CLI 不回归 =====
+
+    // ---- Test 23: ClaudeCliBackend 仍可实例化（SDK 变更不影响 CLI） ----
+    {
+      const backend = new ClaudeCliBackend();
+      const isFunc = typeof backend.run === "function";
+      addTest("V2.3s CLI 不回归: ClaudeCliBackend 仍可实例化且有 run()",
+        isFunc ? "pass" : "fail", `isFunc=${isFunc}`);
+    }
+
+    // ---- Test 24: SdkBackend 实例化且 name 正确 ----
+    {
+      const backend = new SdkBackend();
+      addTest("V2.3s SdkBackend: 实例化且 name='sdk-experimental'",
+        backend.name === "sdk-experimental" ? "pass" : "fail",
+        `name=${backend.name}`);
+    }
+
+  } catch (e) {
+    addTest("V2.3s 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (sdkPermBundleV23s) rmSync(sdkPermBundleV23s, { force: true }); } catch {}
+    try { if (sdkBackendBundleV23s) rmSync(sdkBackendBundleV23s, { force: true }); } catch {}
+    try { if (workflowEventBundleV23s) rmSync(workflowEventBundleV23s, { force: true }); } catch {}
+    try { if (cliBackendBundleV23s) rmSync(cliBackendBundleV23s, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");

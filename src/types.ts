@@ -9,7 +9,14 @@ export type SessionMode = "fresh" | "continue" | "resume";
 export type RunStatus = "idle" | "running" | "completed" | "failed" | "stopped";
 
 // V1.5: Claude Code permission 模式（--permission-mode 参数）
-export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
+// V2.3s: 扩展到 6 种，覆盖 SDK 原生 permissionMode
+// - default: 默认询问
+// - acceptEdits: 自动接受文件编辑
+// - plan: 只读规划模式
+// - auto: 自动决策（SDK 自行判断风险等级）
+// - dontAsk: 不询问（静默允许，但仍受 canUseTool 回调观测）
+// - bypassPermissions: 跳过所有权限检查（危险）
+export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "auto" | "dontAsk" | "bypassPermissions";
 
 /**
  * Backend 选择（V0.2 UI Mock Wiring / Demo Mode）

@@ -21,9 +21,10 @@ import { buildTimeline, isTerminalTimelineType, timelineTypeClass, timelineTypeL
 import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, previewToRows, CommandPreview } from "./commandProfile";
 import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
 import { SdkBackend } from "./sdkBackend";
-import { WorkflowEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
+import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
 import { Skill, loadSkills, seedDefaultSkills, filterEnabledSkills, expandSkillPrompt, importSkillFromText, deleteSkill, isImportedSkill, scanSkillPrompt, truncateSkillPrompt, MAX_SKILL_PROMPT_LENGTH } from "./skills";
+import { getPermissionModeInfo, type PermissionChoice } from "./sdkPermission";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -136,6 +137,11 @@ export class LLMBridgeView extends ItemView {
   private statusSkillsEl!: HTMLElement;
   private statusToolsEl!: HTMLElement;
   private statusAgentsEl!: HTMLElement;
+  // V2.3s: 权限模式状态栏字段（SDK permissionMode + 中文风险）
+  private statusPermModeEl!: HTMLElement;
+  // V2.3s: 待决策权限请求面板（运行中实时展示 pending 权限请求，用户点击允许/拒绝）
+  private permissionPanelEl!: HTMLElement;
+  private pendingPermissions: Map<string, PermissionEvent> = new Map();
   // V2.3: 已应用 Skills 名称集合（applySkill 添加；发送/清空时重置）
   private appliedSkillNames: Set<string> = new Set();
   // V2.3: 最近一次 SDK 运行的工具数与 agent 数（用于状态栏展示）
@@ -259,6 +265,10 @@ export class LLMBridgeView extends ItemView {
     this.statusAgentsEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-agents", attr: { title: "最近一次 SDK 运行的 agent 实例数" } });
     this.statusAgentsEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Agents" });
     this.statusAgentsEl.createEl("span", { cls: "llm-bridge-sb-value", text: "0" });
+    // V2.3s: 权限模式（SDK permissionMode + 中文风险解释）
+    this.statusPermModeEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-perm-mode", attr: { title: "SDK 权限模式" } });
+    this.statusPermModeEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Mode" });
+    this.statusPermModeEl.createEl("span", { cls: "llm-bridge-sb-value", text: "默认询问" });
 
     // Preflight 按钮（不调用真实模型，只探测 command 可用性）
     this.preflightBtn = this.statusBarEl.createEl("button", {
@@ -291,6 +301,10 @@ export class LLMBridgeView extends ItemView {
     // ===== 消息流（对话区） =====
     this.messagesEl = root.createDiv({ cls: "llm-bridge-messages" });
     this.renderEmptyState();
+
+    // V2.3s: 权限请求面板（运行中实时展示 pending 权限请求，用户点击允许/拒绝）
+    this.permissionPanelEl = root.createDiv({ cls: "llm-bridge-perm-panel" });
+    this.permissionPanelEl.style.display = "none";
 
     // ===== 底部 composer =====
     const composer = root.createDiv({ cls: "llm-bridge-composer" });
@@ -739,6 +753,13 @@ export class LLMBridgeView extends ItemView {
     this.statusPermissionEl.setAttribute("title", `权限策略：${policyDesc}`);
     this.statusPermissionEl.classList.remove("is-low", "is-medium", "is-high");
     this.statusPermissionEl.classList.add(`is-${policy}`);
+    // V2.3s: 权限模式（SDK permissionMode + 中文风险解释）
+    const permMode = s.claudePermissionMode ?? "default";
+    const permModeInfo = getPermissionModeInfo(permMode);
+    this.statusPermModeEl.querySelector(".llm-bridge-sb-value")!.textContent = permModeInfo.label;
+    this.statusPermModeEl.setAttribute("title", `权限模式：${permModeInfo.label}\n${permModeInfo.risk}`);
+    this.statusPermModeEl.classList.remove("is-safe", "is-caution", "is-danger");
+    this.statusPermModeEl.classList.add(`is-${permModeInfo.level}`);
     // V2.3: 已应用 Skills 计数
     const appliedCount = this.appliedSkillNames.size;
     this.statusSkillsEl.querySelector(".llm-bridge-sb-value")!.textContent = String(appliedCount);
@@ -776,6 +797,120 @@ export class LLMBridgeView extends ItemView {
     }
     this.lastSdkAgentCount = agentKeys.size;
     this.refreshStatusBar();
+  }
+
+  // V2.3s: 刷新权限请求面板（实时展示 pending 权限请求）
+  private refreshPermissionPanel(): void {
+    const panel = this.permissionPanelEl;
+    panel.empty();
+
+    if (this.pendingPermissions.size === 0) {
+      panel.style.display = "none";
+      return;
+    }
+    panel.style.display = "block";
+
+    // 标题
+    const header = panel.createDiv({ cls: "llm-bridge-perm-panel-header" });
+    header.createEl("span", { cls: "llm-bridge-perm-panel-title", text: "权限请求" });
+    header.createEl("span", { cls: "llm-bridge-perm-panel-count", text: `${this.pendingPermissions.size} 项待决策` });
+
+    // 按 mergeKey 合并展示（相同工具+风险+路径前缀合并）
+    const mergeGroups = new Map<string, PermissionEvent[]>();
+    for (const [, ev] of this.pendingPermissions) {
+      const key = ev.mergeKey ?? ev.requestId ?? "unknown";
+      if (!mergeGroups.has(key)) mergeGroups.set(key, []);
+      mergeGroups.get(key)!.push(ev);
+    }
+
+    for (const [, group] of mergeGroups) {
+      const first = group[0];
+      const card = panel.createDiv({ cls: `llm-bridge-perm-card is-risk-${first.riskLevel ?? "low"}` });
+
+      // 工具名 + 来源 agent
+      const cardHeader = card.createDiv({ cls: "llm-bridge-perm-card-header" });
+      cardHeader.createEl("span", { cls: "llm-bridge-perm-card-tool", text: first.toolName });
+      if (first.parentToolUseId) {
+        cardHeader.createEl("span", { cls: "llm-bridge-perm-card-source is-subagent", text: "Subagent", attr: { title: `parent: ${first.parentToolUseId}` } });
+      } else {
+        cardHeader.createEl("span", { cls: "llm-bridge-perm-card-source is-main", text: "Main agent" });
+      }
+      if (group.length > 1) {
+        cardHeader.createEl("span", { cls: "llm-bridge-perm-card-merge-count", text: `×${group.length}` });
+      }
+
+      // 风险等级 + 风险说明
+      const riskEl = card.createDiv({ cls: "llm-bridge-perm-card-risk" });
+      riskEl.createEl("span", { cls: `llm-bridge-perm-risk-level is-${first.riskLevel ?? "low"}`, text: first.riskLevel ?? "low" });
+      if (first.riskReason) {
+        riskEl.createEl("span", { cls: "llm-bridge-perm-risk-reason", text: first.riskReason });
+      }
+
+      // 高风险标记（明确提示）
+      if (first.highRiskFlags && first.highRiskFlags.length > 0) {
+        const flagsEl = card.createDiv({ cls: "llm-bridge-perm-card-flags" });
+        flagsEl.createEl("span", { cls: "llm-bridge-perm-flags-label", text: "高风险：" });
+        for (const flag of first.highRiskFlags) {
+          flagsEl.createEl("span", { cls: "llm-bridge-perm-flag", text: flag });
+        }
+      }
+
+      // 参数摘要
+      if (first.inputSummary) {
+        card.createDiv({ cls: "llm-bridge-perm-card-input", text: first.inputSummary, attr: { title: first.inputSummary } });
+      }
+
+      // subagent 权限继承风险提示
+      if (first.subagentRisk) {
+        card.createDiv({ cls: "llm-bridge-perm-card-subagent-warn", text: first.subagentRisk });
+      }
+
+      // 决策按钮（允许一次 / 本会话允许 / 拒绝）
+      const btns = card.createDiv({ cls: "llm-bridge-perm-card-btns" });
+      const requestIds = group.map((g) => g.requestId!).filter(Boolean);
+
+      const allowOnceBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-allow-once", text: "允许一次" });
+      allowOnceBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "allow_once"));
+
+      const allowSessionBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-allow-session", text: "本会话允许" });
+      allowSessionBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "allow_session"));
+
+      const denyBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-deny", text: "拒绝" });
+      denyBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "deny_session"));
+    }
+  }
+
+  // V2.3s: 解析权限请求（调用 SdkBackend.resolvePermission）
+  private resolvePermissionRequests(requestIds: string[], choice: PermissionChoice): void {
+    const backend = this.getBackend();
+    if (!(backend instanceof SdkBackend)) {
+      new Notice("权限请求仅在 sdk-experimental 模式下可用");
+      return;
+    }
+    let resolved = 0;
+    for (const id of requestIds) {
+      if (backend.resolvePermission(id, choice)) {
+        this.pendingPermissions.delete(id);
+        resolved++;
+      }
+    }
+    if (resolved > 0) {
+      this.refreshPermissionPanel();
+    }
+  }
+
+  // V2.3s: 清空待决策权限请求（新会话/停止时调用）
+  private clearPendingPermissions(): void {
+    if (this.pendingPermissions.size === 0) return;
+    // 尝试拒绝所有待决策请求（避免 Promise 挂起）
+    const backend = this.getBackend();
+    if (backend instanceof SdkBackend) {
+      for (const [, ev] of this.pendingPermissions) {
+        if (ev.requestId) backend.resolvePermission(ev.requestId, "deny_session");
+      }
+    }
+    this.pendingPermissions.clear();
+    this.refreshPermissionPanel();
   }
 
   // V1.1: 运行 preflight 检测（不调用真实模型）
@@ -1188,7 +1323,8 @@ export class LLMBridgeView extends ItemView {
     }
 
     this.appendSdkEventGroup(body, "File changes", events.filter((e) => e.type === "file_change"));
-    this.appendSdkEventGroup(body, "Permissions", events.filter((e) => e.type === "permission"));
+    // V2.3s: 权限事件分组（展示工具名/风险等级/决策来源/来源 agent/参数摘要）
+    this.renderPermissionHistory(body, events.filter((e): e is PermissionEvent => e.type === "permission"));
     this.appendSdkEventGroup(body, "Errors", events.filter((e) => e.type === "error"));
     this.appendSdkEventGroup(body, "Terminal", events.filter((e) => e.type === "completed" || e.type === "failed"));
   }
@@ -1268,6 +1404,65 @@ export class LLMBridgeView extends ItemView {
     const groupBody = this.createSdkGroup(body, title, groupEvents.length);
     for (const event of groupEvents) {
       this.appendSdkEventItem(groupBody, event);
+    }
+  }
+
+  // V2.3s: 渲染权限事件历史（展示工具名/风险等级/决策来源/来源 agent/参数摘要/高风险标记）
+  private renderPermissionHistory(body: HTMLElement, permEvents: ReadonlyArray<PermissionEvent>): void {
+    if (permEvents.length === 0) return;
+    const groupBody = this.createSdkGroup(body, "Permissions", permEvents.length);
+    for (const ev of permEvents) {
+      const item = groupBody.createDiv({ cls: `llm-bridge-sdk-event-item is-permission is-risk-${ev.riskLevel ?? "low"} ${ev.granted ? "is-perm-granted" : "is-perm-denied"}` });
+
+      // 第一行：图标 + 工具名 + 决策结果 + 来源 agent
+      const row1 = item.createDiv({ cls: "llm-bridge-perm-hist-row1" });
+      row1.createEl("span", { cls: "llm-bridge-sdk-event-icon", text: ev.granted ? "🔓" : "🔒" });
+      row1.createEl("span", { cls: "llm-bridge-perm-hist-tool", text: ev.toolName });
+      // 决策来源标签
+      const sourceLabel = ev.source === "session_allow" ? "会话允许"
+        : ev.source === "session_deny" ? "会话拒绝"
+        : ev.source === "mode" ? "模式自动"
+        : ev.pending ? "待决策"
+        : "用户决策";
+      row1.createEl("span", { cls: `llm-bridge-perm-hist-source is-${ev.source ?? "user"}`, text: sourceLabel });
+      // 来源 agent
+      if (ev.parentToolUseId) {
+        row1.createEl("span", { cls: "llm-bridge-perm-hist-agent is-subagent", text: "Subagent", attr: { title: `parent: ${ev.parentToolUseId}` } });
+      } else {
+        row1.createEl("span", { cls: "llm-bridge-perm-hist-agent is-main", text: "Main" });
+      }
+      const time = new Date(ev.timestamp).toLocaleTimeString();
+      row1.createEl("span", { cls: "llm-bridge-sdk-event-time", text: time });
+
+      // 第二行：风险等级 + 风险说明
+      if (ev.riskLevel || ev.riskReason) {
+        const row2 = item.createDiv({ cls: "llm-bridge-perm-hist-row2" });
+        if (ev.riskLevel) {
+          row2.createEl("span", { cls: `llm-bridge-perm-risk-level is-${ev.riskLevel}`, text: ev.riskLevel });
+        }
+        if (ev.riskReason) {
+          row2.createEl("span", { cls: "llm-bridge-perm-risk-reason", text: ev.riskReason });
+        }
+      }
+
+      // 高风险标记
+      if (ev.highRiskFlags && ev.highRiskFlags.length > 0) {
+        const flagsEl = item.createDiv({ cls: "llm-bridge-perm-hist-flags" });
+        flagsEl.createEl("span", { cls: "llm-bridge-perm-flags-label", text: "高风险：" });
+        for (const flag of ev.highRiskFlags) {
+          flagsEl.createEl("span", { cls: "llm-bridge-perm-flag", text: flag });
+        }
+      }
+
+      // 参数摘要
+      if (ev.inputSummary) {
+        item.createDiv({ cls: "llm-bridge-perm-hist-input", text: ev.inputSummary, attr: { title: ev.inputSummary } });
+      }
+
+      // subagent 权限继承风险提示
+      if (ev.subagentRisk) {
+        item.createDiv({ cls: "llm-bridge-perm-hist-subagent-warn", text: ev.subagentRisk });
+      }
     }
   }
 
@@ -1463,6 +1658,8 @@ export class LLMBridgeView extends ItemView {
     this.resetAppliedSkills();
     this.lastSdkToolCount = 0;
     this.lastSdkAgentCount = 0;
+    // V2.3s: 清空待决策权限请求
+    this.clearPendingPermissions();
     this.refreshStatusBar();
   }
 
@@ -1924,12 +2121,29 @@ export class LLMBridgeView extends ItemView {
     }, (wfEvent: WorkflowEvent) => {
       // V1.6: 收集 SDK 工作流事件（工具级），用于 UI 渲染
       sdkEvents.push(wfEvent);
+      // V2.3s: 实时处理权限请求事件（pending=true 时加入面板等待用户决策）
+      if (wfEvent.type === "permission") {
+        const permEv = wfEvent as PermissionEvent;
+        if (permEv.pending && permEv.requestId) {
+          // 新的 pending 权限请求：加入面板
+          this.pendingPermissions.set(permEv.requestId, permEv);
+          this.refreshPermissionPanel();
+        } else if (permEv.requestId && !permEv.pending) {
+          // 权限请求已解决（用户已决策或缓存命中）：从面板移除
+          if (this.pendingPermissions.has(permEv.requestId)) {
+            this.pendingPermissions.delete(permEv.requestId);
+            this.refreshPermissionPanel();
+          }
+        }
+      }
     });
   }
 
   private stop(): void {
     if (this.runHandle) {
       this.runHandle.stop();
+      // V2.3s: 清空待决策权限请求
+      this.clearPendingPermissions();
       const msg = this.messages.find((m) => m.id === this.currentAssistantId);
       if (msg) {
         this.updateAssistantMessage(this.currentAssistantId!, {
