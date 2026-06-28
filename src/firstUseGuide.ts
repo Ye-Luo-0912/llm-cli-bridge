@@ -47,7 +47,7 @@ export function buildFirstUseGuide(): GuideContent {
       {
         index: 4,
         title: "使用当前笔记作为上下文",
-        detail: "打开一个笔记后，底部 chips 行的 Note 会显示文件名。点击 Note chip 可开关是否将当前笔记内容注入 prompt。常见用法：打开笔记 → 点「总结当前笔记」或「生成复习提纲」按钮。",
+        detail: "打开一个笔记后，底部 chips 行的 Note 会显示文件名。点击 Note chip 可开关是否将当前笔记内容注入 prompt。常见用法：打开笔记 → 点「总结当前笔记」按钮。",
       },
       {
         index: 5,

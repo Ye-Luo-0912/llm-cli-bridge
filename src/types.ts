@@ -28,6 +28,10 @@ export interface ChatMessage {
   exitCode: number | null;
   durationMs: number;
   timestamp: string;
+  // V1.2: 运行过程时间线（assistant 消息专用）
+  timeline?: ReadonlyArray<{ type: string; timestamp: string; detail: string }>;
+  // V1.2: 运行过程中收集的中间事件（stdout/stderr 片段），用于构造时间线
+  timelineEvents?: Array<{ type: string; detail: string; timestamp: string }>;
 }
 
 export interface LLMBridgeSettings {

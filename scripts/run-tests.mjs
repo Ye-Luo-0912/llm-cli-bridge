@@ -1930,11 +1930,13 @@ if (!runV11Unit) {
   let presetBundle = null;
   let preflightStatusBundle = null;
   let guideBundle = null;
+  let runTimelineBundle = null;
   try {
     const esbuild = (await import("esbuild")).default;
     presetBundle = join(PROJECT_ROOT, ".test-preset-temp.mjs");
     preflightStatusBundle = join(PROJECT_ROOT, ".test-preflight-status-temp.mjs");
     guideBundle = join(PROJECT_ROOT, ".test-guide-temp.mjs");
+    runTimelineBundle = join(PROJECT_ROOT, ".test-run-timeline-temp.mjs");
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "presetPrompts.ts")],
       bundle: true,
@@ -1957,9 +1959,21 @@ if (!runV11Unit) {
       platform: "node",
       outfile: guideBundle,
     });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runTimeline.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: runTimelineBundle,
+      external: ["./types"],
+    });
     const { buildPresetPrompt, requiresActiveNote, requiresSelection, PRESETS } = await import(pathToFileURL(presetBundle).href);
     const { mapPreflightToStatus, buildErrorSummary, redactSecret } = await import(pathToFileURL(preflightStatusBundle).href);
     const { buildFirstUseGuide, shouldShowFirstUseGuide } = await import(pathToFileURL(guideBundle).href);
+    const {
+      mapStatusToTimelineType, timelineTypeLabel, timelineTypeClass,
+      buildTimeline, isTerminalTimelineType,
+    } = await import(pathToFileURL(runTimelineBundle).href);
 
     // --- Test 1: summarize 预设 prompt 包含 outputDir 和文件名 ---
     {
@@ -1998,18 +2012,7 @@ if (!runV11Unit) {
         ok ? "pass" : "fail", ok ? "" : `prompt: ${prompt}`);
     }
 
-    // --- Test 4: organize 预设包含文件路径和 create_note action ---
-    {
-      const prompt = buildPresetPrompt("organize", {
-        activeFilePath: "notes/messy.md",
-        outputDir: "out",
-      });
-      const ok = prompt.includes("notes/messy.md") && prompt.includes("create_note");
-      addTest("Preset: organize 包含文件路径和 create_note action",
-        ok ? "pass" : "fail", ok ? "" : `prompt: ${prompt}`);
-    }
-
-    // --- Test 5: freeform 返回空字符串 ---
+    // --- Test 4: freeform 返回空字符串 ---
     {
       const prompt = buildPresetPrompt("freeform", {
         activeFilePath: "a.md",
@@ -2020,23 +2023,22 @@ if (!runV11Unit) {
         ok ? "pass" : "fail", ok ? "" : `expected empty, got: ${prompt}`);
     }
 
-    // --- Test 6: requiresActiveNote / requiresSelection 正确映射 ---
+    // --- Test 5: requiresActiveNote / requiresSelection 正确映射（V1.2: 仅 summarize/explain/freeform） ---
     {
-      const ok = requiresActiveNote("summarize") && requiresActiveNote("organize") && requiresActiveNote("review") &&
+      const ok = requiresActiveNote("summarize") &&
                  !requiresActiveNote("explain") && !requiresActiveNote("freeform") &&
-                 requiresSelection("explain") && !requiresSelection("summarize") &&
-                 !requiresSelection("organize") && !requiresSelection("review") && !requiresSelection("freeform");
+                 requiresSelection("explain") && !requiresSelection("summarize") && !requiresSelection("freeform");
       addTest("Preset: requiresActiveNote / requiresSelection 正确映射",
         ok ? "pass" : "fail", ok ? "" : "映射错误");
     }
 
-    // --- Test 7: PRESETS 含 5 种类型 ---
+    // --- Test 6: PRESETS 含 3 种类型（V1.2: 移除 organize/review） ---
     {
       const types = PRESETS.map((p) => p.type);
-      const ok = types.length === 5 &&
-                 types.includes("summarize") && types.includes("explain") &&
-                 types.includes("organize") && types.includes("review") && types.includes("freeform");
-      addTest("Preset: PRESETS 含 5 种类型",
+      const ok = types.length === 3 &&
+                 types.includes("summarize") && types.includes("explain") && types.includes("freeform") &&
+                 !types.includes("organize") && !types.includes("review");
+      addTest("Preset: PRESETS 含 3 种类型（不含 organize/review）",
         ok ? "pass" : "fail", ok ? "" : `types: ${types.join(",")}`);
     }
 
@@ -2186,53 +2188,9 @@ if (!runV11Unit) {
         ok ? "pass" : "fail", ok ? "" : `prompt 含正文: ${prompt}`);
     }
 
-    // === V1.2 新增测试：复习提纲预设 + 首次使用提示 ===
+    // === V1.2 新增测试：首次使用提示 + 运行过程时间线 ===
 
-    // --- Test 22: review 预设包含 Q&A 和 -review 后缀 ---
-    {
-      const prompt = buildPresetPrompt("review", {
-        activeFilePath: "notes/cs101.md",
-        outputDir: "out",
-      });
-      const ok = prompt.includes("notes/cs101.md") && prompt.includes("Q&A") && prompt.includes("-review");
-      addTest("Preset V1.2: review 包含文件路径 / Q&A / -review 后缀",
-        ok ? "pass" : "fail", ok ? "" : `prompt: ${prompt}`);
-    }
-
-    // --- Test 23: review 无活动笔记时使用通用 prompt ---
-    {
-      const prompt = buildPresetPrompt("review", {
-        activeFilePath: null,
-        outputDir: "out",
-      });
-      const ok = prompt.includes("复习提纲") && !prompt.includes("null") && prompt.includes("out");
-      addTest("Preset V1.2: review 无活动笔记时使用通用 prompt（不含 null）",
-        ok ? "pass" : "fail", ok ? "" : `prompt: ${prompt}`);
-    }
-
-    // --- Test 24: review 不自动注入笔记全文 ---
-    {
-      const prompt = buildPresetPrompt("review", {
-        activeFilePath: "a.md",
-        outputDir: "out",
-      });
-      const ok = !prompt.includes("笔记内容") && !prompt.includes("==========");
-      addTest("Preset V1.2: review 不自动注入笔记全文",
-        ok ? "pass" : "fail", ok ? "" : `prompt 含正文: ${prompt}`);
-    }
-
-    // --- Test 25: review 遵循 outputDir 配置 ---
-    {
-      const prompt = buildPresetPrompt("review", {
-        activeFilePath: "a.md",
-        outputDir: "my-custom-dir",
-      });
-      const ok = prompt.includes("my-custom-dir") && !prompt.includes("90_AI整理待确认");
-      addTest("Preset V1.2: review 遵循 outputDir 配置（不硬编码目录）",
-        ok ? "pass" : "fail", ok ? "" : `prompt: ${prompt}`);
-    }
-
-    // --- Test 26: buildFirstUseGuide 返回 5 个步骤 ---
+    // --- Test 22: buildFirstUseGuide 返回 5 个步骤 ---
     {
       const guide = buildFirstUseGuide();
       const ok = guide.steps.length === 5 && guide.title === "首次使用提示";
@@ -2276,12 +2234,79 @@ if (!runV11Unit) {
         ok ? "pass" : "fail", ok ? "" : `footer: ${guide.footer}`);
     }
 
+    // === V1.2 Interaction Foundation: 运行过程时间线 ===
+
+    // --- Test 31: mapStatusToTimelineType 终态映射 ---
+    {
+      const ok = mapStatusToTimelineType("completed") === "completed" &&
+                 mapStatusToTimelineType("failed") === "failed" &&
+                 mapStatusToTimelineType("stopped") === "stopped" &&
+                 mapStatusToTimelineType("running") === null &&
+                 mapStatusToTimelineType("idle") === null;
+      addTest("Timeline: mapStatusToTimelineType 终态映射正确（running/idle 返回 null）",
+        ok ? "pass" : "fail", ok ? "" : "映射错误");
+    }
+
+    // --- Test 32: timelineTypeLabel / timelineTypeClass 全覆盖 ---
+    {
+      const types = ["started", "stdout", "stderr", "completed", "failed", "stopped"];
+      const labelsOk = types.every((t) => timelineTypeLabel(t).length > 0);
+      const classesOk = types.every((t) => timelineTypeClass(t).startsWith("is-"));
+      const ok = labelsOk && classesOk;
+      addTest("Timeline: timelineTypeLabel / timelineTypeClass 全类型有值",
+        ok ? "pass" : "fail", ok ? "" : "label/class 缺失");
+    }
+
+    // --- Test 33: isTerminalTimelineType 仅终态返回 true ---
+    {
+      const ok = isTerminalTimelineType("completed") && isTerminalTimelineType("failed") &&
+                 isTerminalTimelineType("stopped") &&
+                 !isTerminalTimelineType("started") && !isTerminalTimelineType("stdout") &&
+                 !isTerminalTimelineType("stderr");
+      addTest("Timeline: isTerminalTimelineType 仅终态返回 true",
+        ok ? "pass" : "fail", ok ? "" : "终态判断错误");
+    }
+
+    // --- Test 34: buildTimeline 首条为 started，末条为终态 ---
+    {
+      const startedAt = "2026-06-28T10:00:00.000Z";
+      const events = [
+        { type: "stdout", detail: "hello", timestamp: "2026-06-28T10:00:01.000Z" },
+        { type: "stderr", detail: "warn", timestamp: "2026-06-28T10:00:02.000Z" },
+      ];
+      const timeline = buildTimeline(startedAt, events, "completed", "exit 0 · 1500ms");
+      const firstIsStarted = timeline[0].type === "started" && timeline[0].timestamp === startedAt;
+      const lastIsCompleted = timeline[timeline.length - 1].type === "completed";
+      const middleHasEvents = timeline.length === 4; // started + stdout + stderr + completed
+      const ok = firstIsStarted && lastIsCompleted && middleHasEvents;
+      addTest("Timeline: buildTimeline 首条 started / 末条终态 / 含中间事件",
+        ok ? "pass" : "fail", ok ? "" : `len=${timeline.length}, first=${timeline[0].type}, last=${timeline[timeline.length - 1].type}`);
+    }
+
+    // --- Test 35: buildTimeline 无中间事件时仅 started + 终态 ---
+    {
+      const timeline = buildTimeline("2026-06-28T10:00:00.000Z", [], "failed", "命令未找到");
+      const ok = timeline.length === 2 && timeline[0].type === "started" &&
+                 timeline[1].type === "failed" && timeline[1].detail === "命令未找到";
+      addTest("Timeline: buildTimeline 无中间事件时仅 started + 终态",
+        ok ? "pass" : "fail", ok ? "" : `len=${timeline.length}, types=${timeline.map((t) => t.type).join(",")}`);
+    }
+
+    // --- Test 36: buildTimeline running/idle 不追加终态条目 ---
+    {
+      const timeline = buildTimeline("2026-06-28T10:00:00.000Z", [], "running", "");
+      const ok = timeline.length === 1 && timeline[0].type === "started";
+      addTest("Timeline: buildTimeline 非终态（running）不追加终态条目",
+        ok ? "pass" : "fail", ok ? "" : `len=${timeline.length}`);
+    }
+
   } catch (e) {
     addTest("V1.1/V1.2 单元测试段", "fail", `加载/执行异常: ${e?.message || e}`);
   } finally {
     try { if (presetBundle) rmSync(presetBundle, { force: true }); } catch {}
     try { if (preflightStatusBundle) rmSync(preflightStatusBundle, { force: true }); } catch {}
     try { if (guideBundle) rmSync(guideBundle, { force: true }); } catch {}
+    try { if (runTimelineBundle) rmSync(runTimelineBundle, { force: true }); } catch {}
   }
 }
 

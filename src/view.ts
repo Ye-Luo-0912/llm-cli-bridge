@@ -17,6 +17,7 @@ import { runPreflight, PreflightResult } from "./agentProfile";
 import { mapPreflightToStatus, buildErrorSummary } from "./preflightStatus";
 import { buildPresetPrompt, PRESETS, PresetType, requiresActiveNote, requiresSelection } from "./presetPrompts";
 import { buildFirstUseGuide, shouldShowFirstUseGuide } from "./firstUseGuide";
+import { buildTimeline, isTerminalTimelineType, timelineTypeClass, timelineTypeLabel, TimelineEventType } from "./runTimeline";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -658,8 +659,8 @@ export class LLMBridgeView extends ItemView {
         await this.plugin.saveSettings();
         this.syncControlsFromSettings();
       }
-    } else if (type === "summarize" || type === "organize") {
-      // summarize / organize 需要当前笔记内容注入（用户可手动关闭）
+    } else if (type === "summarize") {
+      // summarize 需要当前笔记内容注入（用户可手动关闭）
       if (!this.plugin.settings.includeActiveNote) {
         this.plugin.settings.includeActiveNote = true;
         await this.plugin.saveSettings();
@@ -803,9 +804,21 @@ export class LLMBridgeView extends ItemView {
     const details = block.createDiv({ cls: "llm-bridge-msg-details" });
     const failed = msg.status === "failed";
 
+    // V1.2: 运行过程时间线（assistant 消息且有时展示）
+    if (msg.role === "assistant" && msg.timeline && msg.timeline.length > 0) {
+      this.appendTimeline(details, msg.timeline);
+    }
+
     if (msg.stderr) {
       const startOpen = failed;
       this.appendCollapsible(details, "stderr", msg.stderr, "llm-bridge-stderr-text", startOpen, failed);
+      // V1.2: 失败时提取 debug log 路径，提供可点击/复制按钮
+      if (failed) {
+        const logPathMatch = msg.stderr.match(/Debug log:\s*(.+)/);
+        if (logPathMatch && logPathMatch[1]) {
+          this.appendDebugLogPath(details, logPathMatch[1].trim());
+        }
+      }
     }
     if (msg.log) {
       this.appendCollapsible(details, "log", msg.log, "llm-bridge-log-text", false, false);
@@ -820,6 +833,51 @@ export class LLMBridgeView extends ItemView {
         item.addEventListener("click", () => void this.openGeneratedFile(name));
       }
     }
+  }
+
+  // V1.2: 渲染运行过程时间线
+  private appendTimeline(parent: HTMLElement, timeline: ReadonlyArray<{ type: string; timestamp: string; detail: string }>): void {
+    const wrap = parent.createDiv({ cls: "llm-bridge-timeline" });
+    wrap.createEl("div", { cls: "llm-bridge-timeline-title", text: "运行过程" });
+    for (const entry of timeline) {
+      const type = entry.type as TimelineEventType;
+      const item = wrap.createDiv({ cls: `llm-bridge-timeline-item ${timelineTypeClass(type)}` });
+      item.createEl("span", { cls: "llm-bridge-timeline-dot" });
+      const text = item.createDiv({ cls: "llm-bridge-timeline-text" });
+      text.createEl("span", { cls: "llm-bridge-timeline-label", text: timelineTypeLabel(type) });
+      if (entry.detail) {
+        text.createEl("span", { cls: "llm-bridge-timeline-detail", text: entry.detail });
+      }
+      const time = new Date(entry.timestamp).toLocaleTimeString();
+      text.createEl("span", { cls: "llm-bridge-timeline-time", text: time });
+    }
+  }
+
+  // V1.2: 渲染 debug log 路径（可点击打开文件夹 / 可复制）
+  private appendDebugLogPath(parent: HTMLElement, logPath: string): void {
+    const wrap = parent.createDiv({ cls: "llm-bridge-debug-path" });
+    wrap.createEl("span", { cls: "llm-bridge-debug-path-label", text: "Debug log:" });
+    const pathEl = wrap.createEl("code", { cls: "llm-bridge-debug-path-value", text: logPath });
+    // 点击复制到剪贴板
+    pathEl.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(logPath);
+        new Notice("已复制 debug log 路径");
+      } catch {
+        new Notice("复制失败，请手动选中复制");
+      }
+    });
+    pathEl.setAttribute("title", "点击复制路径");
+    // 复制按钮
+    const copyBtn = wrap.createEl("button", { cls: "llm-bridge-debug-path-copy", text: "复制", attr: { title: "复制路径" } });
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(logPath);
+        new Notice("已复制");
+      } catch {
+        new Notice("复制失败");
+      }
+    });
   }
 
   private appendCollapsible(
@@ -961,6 +1019,11 @@ export class LLMBridgeView extends ItemView {
     this.inputEl.value = "";
 
     this.setGlobalStatus("running");
+    // V1.2: 运行过程时间线 —— 收集中间事件（首次 stdout/stderr 各记录一条，保持简洁）
+    const startedAt = new Date().toISOString();
+    const timelineEvents: Array<{ type: TimelineEventType; detail: string; timestamp: string }> = [];
+    let sawStdout = false;
+    let sawStderr = false;
     this.updateAssistantMessage(assistantId, {
       log: `$ ${this.commandLine()}\ncwd: ${vaultPath}\nprompt 通过 stdin 传入（${prompt.length} 字符）`,
     });
@@ -982,6 +1045,10 @@ export class LLMBridgeView extends ItemView {
           // 任务已启动，无需额外处理（状态已在前面设置）
           break;
         case "stdout_delta": {
+          if (!sawStdout) {
+            sawStdout = true;
+            timelineEvents.push({ type: "stdout", detail: event.data.replace(/\s+/g, " ").trim().slice(0, 60), timestamp: new Date().toISOString() });
+          }
           const msg = this.messages.find((m) => m.id === assistantId);
           if (msg) {
             this.updateAssistantMessage(assistantId, { content: msg.content + event.data });
@@ -989,6 +1056,10 @@ export class LLMBridgeView extends ItemView {
           break;
         }
         case "stderr_delta": {
+          if (!sawStderr) {
+            sawStderr = true;
+            timelineEvents.push({ type: "stderr", detail: event.data.replace(/\s+/g, " ").trim().slice(0, 60), timestamp: new Date().toISOString() });
+          }
           if (!this.plugin.settings.showStderr) return;
           const msg = this.messages.find((m) => m.id === assistantId);
           if (msg) {
@@ -1009,7 +1080,7 @@ export class LLMBridgeView extends ItemView {
             command: event.command,
             args: event.args,
           };
-          void this.onRunFinished(result, vaultPath, assistantId, event.type);
+          void this.onRunFinished(result, vaultPath, assistantId, event.type, startedAt, timelineEvents);
           break;
         }
       }
@@ -1033,6 +1104,8 @@ export class LLMBridgeView extends ItemView {
     vaultPath: string,
     assistantId: string,
     status: RunStatus,
+    startedAt: string,
+    timelineEvents: ReadonlyArray<{ type: TimelineEventType; detail: string; timestamp: string }>,
   ): Promise<void> {
     this.runHandle = null;
 
@@ -1043,8 +1116,8 @@ export class LLMBridgeView extends ItemView {
     // 详细诊断日志已写入 .llm-bridge/logs/debug-*.log
     let newStderr = this.plugin.settings.showStderr ? (result.stderr || "") : "";
     // V1.1: 失败时构造简短错误摘要（脱敏，不含 secret），并在 stderr 末尾追加 debug log 路径
+    const errorSummary = status === "failed" ? buildErrorSummary(result.stderr, result.exitCode) : "";
     if (status === "failed") {
-      const errorSummary = buildErrorSummary(result.stderr, result.exitCode);
       if (errorSummary) {
         newStderr = newStderr ? `${newStderr}\n---\n摘要: ${errorSummary}` : `摘要: ${errorSummary}`;
       }
@@ -1053,6 +1126,14 @@ export class LLMBridgeView extends ItemView {
       newStderr = `${newStderr}\nDebug log: ${logsDir}`;
     }
 
+    // V1.2: 构造运行过程时间线（started / stdout / stderr / 终态）
+    const finalDetail = status === "failed"
+      ? (errorSummary || `exit ${result.exitCode ?? "null"}`)
+      : status === "stopped"
+        ? "stopped by user"
+        : `exit ${result.exitCode ?? 0} · ${result.durationMs}ms`;
+    const timeline = buildTimeline(startedAt, timelineEvents, status, finalDetail);
+
     this.setGlobalStatus(status);
     this.updateAssistantMessage(assistantId, {
       status,
@@ -1060,6 +1141,7 @@ export class LLMBridgeView extends ItemView {
       log: newLog,
       exitCode: result.exitCode,
       durationMs: result.durationMs,
+      timeline,
     });
 
     if (this.plugin.settings.saveLogs) {

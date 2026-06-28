@@ -4,8 +4,9 @@
 
 /**
  * 预设操作类型
+ * V1.2 Interaction Foundation: 只保留通用入口，移除强业务模板
  */
-export type PresetType = "summarize" | "explain" | "organize" | "review" | "freeform";
+export type PresetType = "summarize" | "explain" | "freeform";
 
 /**
  * 预设操作的元数据（label / hint）
@@ -17,18 +18,15 @@ export interface PresetMeta {
 }
 
 export const PRESETS: readonly PresetMeta[] = [
-  { type: "summarize", label: "总结当前笔记", hint: "生成摘要笔记到输出目录" },
-  { type: "organize", label: "整理当前笔记", hint: "整理结构并写回文件" },
-  { type: "explain", label: "解释/改写选区", hint: "解释或改写选中的文本" },
-  { type: "review", label: "生成复习提纲", hint: "从当前笔记生成复习提纲" },
   { type: "freeform", label: "自由提问", hint: "清空输入框并聚焦" },
+  { type: "explain", label: "解释选区", hint: "解释选中的文本" },
+  { type: "summarize", label: "总结当前笔记", hint: "生成摘要笔记到输出目录" },
 ];
 
 /**
  * 构造预设 prompt
  * - summarize: 总结当前笔记，生成摘要笔记到 outputDir
  * - explain: 解释当前选区
- * - organize: 整理当前笔记结构，写回原文件（通过 create_note / append_to_note）
  * - freeform: 返回空字符串（仅聚焦输入框，不生成 prompt）
  *
  * @param type       预设类型
@@ -55,20 +53,6 @@ export function buildPresetPrompt(
     return `请解释以上选中文本的含义、背景和关键概念。如有可能，给出相关的延伸阅读建议。`;
   }
 
-  if (type === "organize") {
-    if (!ctx.activeFilePath) {
-      return `请整理当前笔记的结构：修正标题层级、统一格式、补充缺失的链接和 frontmatter。整理后通过 create_note action 写回原文件位置。`;
-    }
-    return `请整理当前笔记 \`${ctx.activeFilePath}\` 的结构：修正标题层级、统一格式、补充缺失的链接和 frontmatter。整理后通过 create_note action 写回原文件位置（覆盖原内容）。`;
-  }
-
-  if (type === "review") {
-    if (!ctx.activeFilePath) {
-      return `请基于当前笔记生成一份复习提纲，包含：核心概念清单、关键问题问答（Q&A）、易错点提示、延伸思考题。输出到 \`${outputDir}/\` 目录下，文件名用原笔记名加 \`-review\` 后缀。`;
-    }
-    return `请基于当前笔记 \`${ctx.activeFilePath}\` 生成一份复习提纲，包含：核心概念清单、关键问题问答（Q&A）、易错点提示、延伸思考题。输出到 \`${outputDir}/\` 目录下，文件名用原笔记名加 \`-review\` 后缀。`;
-  }
-
   // freeform
   return "";
 }
@@ -77,7 +61,7 @@ export function buildPresetPrompt(
  * 判断预设是否需要活动笔记
  */
 export function requiresActiveNote(type: PresetType): boolean {
-  return type === "summarize" || type === "organize" || type === "review";
+  return type === "summarize";
 }
 
 /**

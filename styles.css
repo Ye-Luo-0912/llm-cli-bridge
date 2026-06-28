@@ -619,3 +619,126 @@
   color: var(--text-muted);
   font-style: italic;
 }
+
+/* === V1.2: Run Timeline === */
+
+.llm-bridge-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 0 2px;
+  border-left: 2px solid var(--background-modifier-border);
+  margin-left: 2px;
+  padding-left: 10px;
+}
+
+.llm-bridge-timeline-title {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+
+.llm-bridge-timeline-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+}
+
+.llm-bridge-timeline-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex: 0 0 auto;
+}
+.llm-bridge-timeline-item.is-started .llm-bridge-timeline-dot { background: var(--text-muted); }
+.llm-bridge-timeline-item.is-stdout .llm-bridge-timeline-dot { background: var(--interactive-accent); }
+.llm-bridge-timeline-item.is-stderr .llm-bridge-timeline-dot { background: #e53935; }
+.llm-bridge-timeline-item.is-completed .llm-bridge-timeline-dot { background: #4caf50; }
+.llm-bridge-timeline-item.is-failed .llm-bridge-timeline-dot { background: #e53935; }
+.llm-bridge-timeline-item.is-stopped .llm-bridge-timeline-dot { background: #fb8c00; }
+
+.llm-bridge-timeline-text {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.llm-bridge-timeline-label {
+  font-size: var(--font-smallest);
+  font-weight: 600;
+  color: var(--text-normal);
+  flex: 0 0 auto;
+}
+.llm-bridge-timeline-item.is-completed .llm-bridge-timeline-label { color: #4caf50; }
+.llm-bridge-timeline-item.is-failed .llm-bridge-timeline-label { color: #e53935; }
+.llm-bridge-timeline-item.is-stopped .llm-bridge-timeline-label { color: #fb8c00; }
+
+.llm-bridge-timeline-detail {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.llm-bridge-timeline-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* === V1.2: Debug Log Path（可点击复制） === */
+
+.llm-bridge-debug-path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  margin-top: 2px;
+  background: var(--background-secondary);
+  border-radius: 5px;
+  border: 1px solid var(--background-modifier-border);
+}
+
+.llm-bridge-debug-path-label {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-weight: 600;
+  flex: 0 0 auto;
+}
+
+.llm-bridge-debug-path-value {
+  flex: 1;
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+  color: var(--interactive-accent);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  user-select: all;
+}
+.llm-bridge-debug-path-value:hover { text-decoration: underline; }
+
+.llm-bridge-debug-path-copy {
+  padding: 2px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.llm-bridge-debug-path-copy:hover { background: var(--interactive-hover); }
