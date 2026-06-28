@@ -27,6 +27,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join, resolve } from "node:path";
 
+// V1.0.1: 每次调用都读取最新 bridge.json，避免使用陈旧 port/token
 export function loadBridge(vaultPath) {
   const root = vaultPath || process.env.BRIDGE_VAULT || process.cwd();
   const bridgePath = join(root, ".llm-bridge", "bridge.json");
@@ -37,7 +38,20 @@ export function loadBridge(vaultPath) {
   }
 }
 
-async function req(bridge, method, pathname, body, timeoutMs) {
+// V1.0.1: 判断是否需要重读 bridge.json 重试（401/403/ECONNREFUSED/timeout）
+function shouldRetry(status, err) {
+  // HTTP 401/403：token 陈旧
+  if (status === 401 || status === 403) return true;
+  // 网络错误：ECONNREFUSED（端口陈旧）/ timeout（abort）
+  if (err) {
+    const msg = (err && err.message) || String(err);
+    if (msg.includes("ECONNREFUSED")) return true;
+    if (msg.includes("aborted") || msg.includes("timeout") || msg.includes("ETIMEDOUT")) return true;
+  }
+  return false;
+}
+
+async function reqOnce(bridge, method, pathname, body, timeoutMs) {
   const url = "http://" + bridge.host + ":" + bridge.port + pathname;
   const headers = { "Content-Type": "application/json", "Authorization": "Bearer " + bridge.token };
   const controller = new AbortController();
@@ -53,21 +67,64 @@ async function req(bridge, method, pathname, body, timeoutMs) {
     return { status: res.status, ok: res.ok, data };
   } catch (e) {
     clearTimeout(timer);
+    // 重新抛出，让外层判断是否重试
+    const err = new Error((e && e.message) || String(e));
+    err.cause = e;
+    err.isNetworkError = true;
+    throw err;
+  }
+}
+
+// V1.0.1: 带重试的请求 —— 遇到 401/403/ECONNREFUSED/timeout 时重读 bridge.json 重试一次
+async function reqWithRetry(vaultPath, method, pathname, body, timeoutMs) {
+  let bridge = loadBridge(vaultPath);
+  try {
+    return await reqOnce(bridge, method, pathname, body, timeoutMs);
+  } catch (e) {
+    if (shouldRetry(null, e)) {
+      // 重读 bridge.json 并重试一次
+      bridge = loadBridge(vaultPath);
+      return await reqOnce(bridge, method, pathname, body, timeoutMs);
+    }
     throw e;
   }
 }
 
+// 包装返回响应以支持重试检测
+async function reqWithRetryHandleStatus(vaultPath, method, pathname, body, timeoutMs) {
+  let bridge = loadBridge(vaultPath);
+  let res;
+  try {
+    res = await reqOnce(bridge, method, pathname, body, timeoutMs);
+  } catch (e) {
+    if (shouldRetry(null, e)) {
+      bridge = loadBridge(vaultPath);
+      res = await reqOnce(bridge, method, pathname, body, timeoutMs);
+    } else {
+      throw e;
+    }
+  }
+  // 检查 HTTP 状态码是否需要重试
+  if (shouldRetry(res.status, null)) {
+    bridge = loadBridge(vaultPath);
+    res = await reqOnce(bridge, method, pathname, body, timeoutMs);
+  }
+  return res;
+}
+
 export function createClient(vaultPath) {
-  const bridge = loadBridge(vaultPath);
-  const action = (type, params, id) => req(bridge, "POST", "/action", { type, params, id });
-  const actionStatus = (actionId) => req(bridge, "GET", "/action-status?id=" + encodeURIComponent(actionId));
+  const _vaultPath = vaultPath;
+  // V1.0.1: 每次调用都重新读取 bridge.json（通过 reqWithRetryHandleStatus）
+  const action = (type, params, id) => reqWithRetryHandleStatus(_vaultPath, "POST", "/action", { type, params, id });
+  const actionStatus = (actionId) => reqWithRetryHandleStatus(_vaultPath, "GET", "/action-status?id=" + encodeURIComponent(actionId));
   return {
-    bridge,
-    health: () => req(bridge, "GET", "/health"),
-    state: () => req(bridge, "GET", "/state"),
+    // 暴露当前 bridge 信息（每次访问都读最新）
+    get bridge() { return loadBridge(_vaultPath); },
+    health: () => reqWithRetryHandleStatus(_vaultPath, "GET", "/health"),
+    state: () => reqWithRetryHandleStatus(_vaultPath, "GET", "/state"),
     action,
     actionStatus,
-    batch: (actions) => req(bridge, "POST", "/batch", { actions }),
+    batch: (actions) => reqWithRetryHandleStatus(_vaultPath, "POST", "/batch", { actions }),
     // 便捷方法
     showNotice: (message) => action("show_notice", { message }),
     openNote: (path) => action("open_note", { path }),

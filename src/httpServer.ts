@@ -51,11 +51,51 @@ function safeTokenEqual(a: string, b: string): boolean {
 }
 
 export interface BridgeInfo {
+  version: number;
   host: string;
   port: number;
   token: string;
   vaultPath: string;
   startedAt: string;
+  pluginVersion: string;
+}
+
+// V1.0.1: bridge.json 写入结果（供 main.ts 诊断）
+export interface BridgeWriteResult {
+  written: boolean;
+  error: string | null;
+  path: string;
+  actualPort: number;
+}
+
+// V1.0.1: 原子写入 bridge.json（tmp + rename），失败时写日志，不静默吞错
+async function writeBridgeJsonAtomic(bridgePath: string, info: BridgeInfo, logsDir: string): Promise<BridgeWriteResult> {
+  try {
+    await fs.promises.mkdir(path.dirname(bridgePath), { recursive: true });
+    const tmpPath = bridgePath + ".tmp-" + Date.now();
+    const content = JSON.stringify(info, null, 2);
+    await fs.promises.writeFile(tmpPath, content, "utf8");
+    // rename 原子覆盖旧文件
+    try {
+      await fs.promises.rename(tmpPath, bridgePath);
+    } catch {
+      // rename 失败：尝试 unlink + writeFile 兜底
+      try { await fs.promises.unlink(bridgePath); } catch { /* ignore */ }
+      await fs.promises.writeFile(bridgePath, content, "utf8");
+      try { await fs.promises.unlink(tmpPath); } catch { /* ignore */ }
+    }
+    return { written: true, error: null, path: bridgePath, actualPort: info.port };
+  } catch (e) {
+    const errMsg = (e as Error)?.message || String(e);
+    // 写入失败必须记录日志，不得静默吞错
+    try {
+      await fs.promises.mkdir(logsDir, { recursive: true });
+      const logPath = path.join(logsDir, `bridge-${Date.now()}.log`);
+      const logContent = `=== bridge.json 写入失败 ===\ntime: ${new Date().toISOString()}\npath: ${bridgePath}\nerror: ${errMsg}\ntokenPresent: ${!!info.token}\ntokenLength: ${info.token?.length || 0}\nactualPort: ${info.port}\n`;
+      await fs.promises.writeFile(logPath, logContent, "utf8");
+    } catch { /* 日志也失败则彻底无法记录 */ }
+    return { written: false, error: errMsg, path: bridgePath, actualPort: info.port };
+  }
 }
 
 interface ActionRequest {
@@ -104,9 +144,12 @@ export class HttpBridge {
   private server: AnyServer | null = null;
   private port = 0;
   private logsDir: string;
+  private bridgePath: string;
   private actionsLogPath: string;
   private devLogPath: string;
   private startedAt = "";
+  // V1.0.1: bridge.json 写入结果（供诊断）
+  private bridgeWriteResult: BridgeWriteResult | null = null;
   // Pending actions 注册表：actionId → entry
   private pendingActions = new Map<string, PendingActionEntry>();
   // 已完成的 actions（保留 60s，供状态查询）
@@ -126,10 +169,17 @@ export class HttpBridge {
     private vaultPath: string,
     private token: string,
     private devTestMode: boolean = false,
+    private pluginVersion: string = "0.1.0",
   ) {
     this.logsDir = path.join(vaultPath, ".llm-bridge", "logs");
+    this.bridgePath = path.join(vaultPath, ".llm-bridge", "bridge.json");
     this.actionsLogPath = path.join(this.logsDir, "actions.jsonl");
     this.devLogPath = path.join(this.logsDir, "dev-ops.jsonl");
+  }
+
+  // V1.0.1: 获取 bridge.json 写入结果（供 main.ts 诊断）
+  getBridgeWriteResult(): BridgeWriteResult | null {
+    return this.bridgeWriteResult;
   }
 
   // 注册 pending action 确认 UI 回调（由 view 层调用）
@@ -161,7 +211,7 @@ export class HttpBridge {
         });
       });
       server.on("error", reject);
-      server.listen(0, "127.0.0.1", () => {
+      server.listen(0, "127.0.0.1", async () => {
         const addr = server.address();
         if (!addr || typeof addr === "string") {
           reject(new Error("无法获取监听地址"));
@@ -169,13 +219,18 @@ export class HttpBridge {
         }
         this.port = addr.port;
         this.server = server as unknown as AnyServer;
-        resolve({
+        const info: BridgeInfo = {
+          version: 1,
           host: "127.0.0.1",
           port: this.port,
           token: this.token,
           vaultPath: this.vaultPath,
           startedAt: this.startedAt,
-        });
+          pluginVersion: this.pluginVersion,
+        };
+        // V1.0.1: 在 listen 回调中立即写入 bridge.json（tmp + rename），不依赖外部调用
+        this.bridgeWriteResult = await writeBridgeJsonAtomic(this.bridgePath, info, this.logsDir);
+        resolve(info);
       });
     });
   }

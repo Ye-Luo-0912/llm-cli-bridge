@@ -7,7 +7,7 @@ import { LLMBridgeSettingTab } from "./src/settings";
 import { LLMBridgeView, VIEW_TYPE_LLM_BRIDGE } from "./src/view";
 import { DEFAULT_SETTINGS, LLMBridgeSettings } from "./src/types";
 import { OutboxWatcher } from "./src/outbox";
-import { BridgeInfo, HttpBridge } from "./src/httpServer";
+import { BridgeInfo, BridgeWriteResult, HttpBridge } from "./src/httpServer";
 import { writeHelper } from "./src/toolsWriter";
 
 const BRIDGE_FILE_REL = ".llm-bridge/bridge.json";
@@ -37,10 +37,14 @@ export default class LLMBridgePlugin extends Plugin {
   private httpBridge: HttpBridge | null = null;
 
   async onload(): Promise<void> {
-    // 诊断：确认 onload 执行
+    // V1.0.1: 诊断文件含 vaultPath / bridgePath / timestamp（actual port / bridgeWritten 在 HTTP 启动后补充）
+    const vaultPath0 = this.getVaultPath();
+    const bridgePath0 = path.join(vaultPath0, BRIDGE_FILE_REL);
     try {
-      const vp0 = this.getVaultPath();
-      await fs.promises.writeFile(path.join(vp0, ".llm-bridge", "diag-onload.txt"), `onload ${new Date().toISOString()}\n`, "utf8");
+      await fs.promises.mkdir(path.dirname(bridgePath0), { recursive: true });
+      await fs.promises.writeFile(path.join(vaultPath0, ".llm-bridge", "diag-onload.txt"),
+        `onload ${new Date().toISOString()}\nvaultPath: ${vaultPath0}\nbridgePath: ${bridgePath0}\nactualPort: (pending)\nbridgeWritten: (pending)\nbridgeWriteError: (pending)\n`,
+        "utf8");
     } catch { /* ignore */ }
     await this.loadSettings();
 
@@ -90,12 +94,13 @@ export default class LLMBridgePlugin extends Plugin {
     return adapter.getBasePath ? adapter.getBasePath() : "";
   }
 
-  // 启动 HTTP server + 写 bridge.json + 写 helper mjs
+  // V1.0.1: 启动 HTTP server（bridge.json 已在 HttpBridge.start 内部写入）+ 写 helper mjs + 补充诊断
   private async startHttpBridge(vaultPath: string): Promise<void> {
     try {
       // 每次启动生成新 token
       const token = generateToken();
-      this.httpBridge = new HttpBridge(this.app, vaultPath, token, this.settings.devTestMode);
+      // V1.0.1: 传入 pluginVersion，写入 bridge.json
+      this.httpBridge = new HttpBridge(this.app, vaultPath, token, this.settings.devTestMode, this.manifest.version);
       // 加超时保护，避免 server.listen 回调不触发导致永久挂起
       const info: BridgeInfo = await Promise.race([
         this.httpBridge.start(),
@@ -104,15 +109,28 @@ export default class LLMBridgePlugin extends Plugin {
         ),
       ]);
 
-      // 写 bridge.json
+      // V1.0.1: bridge.json 已在 HttpBridge.start() 内部原子写入，这里只取写入结果做诊断
+      const writeResult: BridgeWriteResult | null = this.httpBridge.getBridgeWriteResult();
       const bridgePath = path.join(vaultPath, BRIDGE_FILE_REL);
-      await fs.promises.mkdir(path.dirname(bridgePath), { recursive: true });
-      await fs.promises.writeFile(bridgePath, JSON.stringify(info, null, 2), "utf8");
 
       // 写 helper mjs
       await writeHelper(vaultPath);
 
-      console.log("[llm-cli-bridge] HTTP Bridge started:", `http://${info.host}:${info.port}`);
+      // V1.0.1: 补充 onload 诊断文件（含 actualPort / bridgeWritten / bridgeWriteError）
+      try {
+        await fs.promises.writeFile(path.join(vaultPath, ".llm-bridge", "diag-onload.txt"),
+          `onload ${new Date().toISOString()}\n` +
+          `vaultPath: ${vaultPath}\n` +
+          `bridgePath: ${bridgePath}\n` +
+          `actualPort: ${info.port}\n` +
+          `bridgeWritten: ${writeResult?.written ?? false}\n` +
+          `bridgeWriteError: ${writeResult?.error ?? "(none)"}\n` +
+          `tokenPresent: ${!!token}\n` +
+          `tokenLength: ${token.length}\n`,
+          "utf8");
+      } catch { /* ignore */ }
+
+      console.log("[llm-cli-bridge] HTTP Bridge started:", `http://${info.host}:${info.port}`, "bridgeWritten:", writeResult?.written ?? false);
     } catch (e) {
       console.error("[llm-cli-bridge] HTTP Bridge 启动失败:", e);
       // 写诊断文件（无法访问控制台时用）
