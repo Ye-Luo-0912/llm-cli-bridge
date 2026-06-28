@@ -30,6 +30,15 @@
 - [ ] 空状态引导：首次打开显示 5 步引导 + Preflight 按钮
 - [ ] 首次使用提示：可关闭，关闭后不再显示
 
+### 3.1 V1.6 SDK Experimental Smoke（manual required，详见 docs/manual-smoke-v1.6.md）
+
+- [ ] sdk-experimental 模式：发送消息 → 显示 SDK Workflow 区域（工具时间线 + 非工具事件）
+- [ ] SDK 不可用时 fallback：sdk-experimental 仍产出 mock workflow 事件 + AgentEvent v0.1
+- [ ] sdk-experimental 事件已脱敏：无完整 sk-ant / Bearer / password 明文
+- [ ] sdk-experimental stop() 可中断：状态 → Stopped
+- [ ] SDK 不影响 CLI：切回 auto 模式后 claude CLI 正常，无 SDK Workflow 区域
+- [ ] auto/mock-success/mock-failure 不产生 SDK Workflow 区域（CLI 主线不回归）
+
 ## 4. 敏感信息扫描
 
 - [ ] `node scripts/scan-sensitive.mjs` 通过（无 token / API key / .env / credentials）
@@ -73,3 +82,4 @@
 | v1.0.1-rc.1 | 2026-06-28 | d281628 | 首个 release zip，36.9 KB |
 | v1.3.0 | 2026-06-28 | b9b87e4 | Handoff Ready Polish，含 USER_GUIDE / BACKLOG / 统一 release 脚本，GitHub Release 已创建 |
 | v1.5.0 | 2026-06-28 | d0c489d | Claude Code Command Support / Workflow Trace Foundation，新增命令预览区 + Workflow Trace |
+| v1.6.0 | 2026-06-28 | 282b911 | SDK Workflow Event Prototype (experimental)，新增 sdk-experimental backend + UI-only WorkflowEvent 模型，默认关闭，CLI 主线不变 |
