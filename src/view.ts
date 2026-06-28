@@ -5,6 +5,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type LLMBridgePlugin from "../main";
 import { buildPrompt } from "./prompt";
+import { buildPromptPackage, StateSnapshot } from "./promptPackage";
 import { ClaudeCliBackend } from "./claudeCliBackend";
 import { MockAgentBackend } from "./mockAgentBackend";
 import { AgentBackend, AgentRunHandle, AgentTask } from "./agentBackend";
@@ -745,7 +746,28 @@ export class LLMBridgeView extends ItemView {
     }
 
     this.beforeFiles = await this.snapshotVaultMarkdownFiles(vaultPath);
-    const prompt = buildPrompt(userInput, settings);
+
+    // 构建 State Snapshot（用于 prompt package）
+    const snapshot: StateSnapshot = {
+      vaultPath,
+      activeFilePath: activeFile?.path || null,
+      activeFileContent: null,
+      selection,
+      timestamp: new Date().toISOString(),
+    };
+
+    // 如果启用 includeActiveNote，读取活动笔记内容
+    if (settings.includeActiveNote && activeFile) {
+      try {
+        snapshot.activeFileContent = await this.app.vault.read(activeFile);
+      } catch (e) {
+        // 读取失败不阻断主流程
+        console.warn("Failed to read active file:", e);
+      }
+    }
+
+    // 使用 prompt package builder（V0.7）
+    const prompt = buildPromptPackage(userInput, snapshot, settings);
 
     // 渲染用户消息 + assistant 占位
     this.appendUserMessage(userInput);

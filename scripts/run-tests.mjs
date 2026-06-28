@@ -228,6 +228,192 @@ for (const t of combinedTests) {
 }
 
 // ============================================================
+// 2.5 Prompt Package 单元测试（V0.7）
+// ============================================================
+console.log("\n=== Prompt Package 单元测试 ===");
+
+// 动态导入 promptPackage.ts
+let promptPackageBundle = null;
+try {
+  const esbuild = (await import("esbuild")).default;
+  promptPackageBundle = join(PROJECT_ROOT, ".test-prompt-package-temp.mjs");
+  await esbuild.build({
+    entryPoints: [join(PROJECT_ROOT, "src", "promptPackage.ts")],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    outfile: promptPackageBundle,
+  });
+  const { truncateText, buildPromptPackage } = await import(pathToFileURL(promptPackageBundle).href);
+
+  // 辅助 settings
+  function makePromptSettings(includeActiveNote, includeSelection) {
+    return {
+      agentType: "claude",
+      claudeCommand: "claude",
+      claudeArgs: "-p",
+      codexCommand: "codex",
+      codexArgs: "exec -",
+      customCommand: "",
+      customArgs: "",
+      includeActiveNote,
+      includeSelection,
+      maxActiveNoteChars: 100,
+      maxSelectionChars: 50,
+      outputDir: "90_AI整理待确认",
+      showStderr: true,
+      saveLogs: false,
+      sessionMode: "fresh",
+      model: "gpt-5.5",
+      effortLevel: "high",
+      devTestMode: false,
+      backendMode: "auto",
+    };
+  }
+
+  // Test 1: truncateText 截断
+  {
+    const longText = "a".repeat(200);
+    const truncated = truncateText(longText, 100);
+    const ok = truncated.length === 100 + "\n\n...[truncated by LLM CLI Bridge]".length &&
+               truncated.startsWith("a".repeat(100)) &&
+               truncated.includes("truncated");
+    addTest("Prompt Package: truncateText 截断", ok ? "pass" : "fail",
+      ok ? "" : `length=${truncated.length}, starts=${truncated.startsWith("a".repeat(100))}`);
+  }
+
+  // Test 2: truncateText 不截断短文本
+  {
+    const shortText = "hello";
+    const result = truncateText(shortText, 100);
+    const ok = result === shortText;
+    addTest("Prompt Package: truncateText 不截断短文本", ok ? "pass" : "fail",
+      ok ? "" : `expected="${shortText}", got="${result}"`);
+  }
+
+  // Test 3: buildPromptPackage 包含启用内容（includeActiveNote=true）
+  {
+    const settings = makePromptSettings(true, false);
+    const snapshot = {
+      vaultPath: "/test/vault",
+      activeFilePath: "note.md",
+      activeFileContent: "# Test Note\nContent here",
+      selection: null,
+      timestamp: "2026-06-28T12:00:00Z",
+    };
+    const prompt = buildPromptPackage("用户请求", snapshot, settings);
+    const hasNote = prompt.includes("当前活动笔记") &&
+                    prompt.includes("note.md") &&
+                    prompt.includes("# Test Note");
+    const hasSelection = prompt.includes("当前选区内容");
+    const ok = hasNote && !hasSelection;
+    addTest("Prompt Package: 包含启用内容（includeActiveNote=true）", ok ? "pass" : "fail",
+      ok ? "" : `hasNote=${hasNote}, hasSelection=${hasSelection}`);
+  }
+
+  // Test 4: buildPromptPackage 包含启用内容（includeSelection=true）
+  {
+    const settings = makePromptSettings(false, true);
+    const snapshot = {
+      vaultPath: "/test/vault",
+      activeFilePath: "note.md",
+      activeFileContent: "# Test Note",
+      selection: "选中的文本",
+      timestamp: "2026-06-28T12:00:00Z",
+    };
+    const prompt = buildPromptPackage("用户请求", snapshot, settings);
+    const hasNote = prompt.includes("当前活动笔记");
+    const hasSelection = prompt.includes("当前选区内容") && prompt.includes("选中的文本");
+    const ok = !hasNote && hasSelection;
+    addTest("Prompt Package: 包含启用内容（includeSelection=true）", ok ? "pass" : "fail",
+      ok ? "" : `hasNote=${hasNote}, hasSelection=${hasSelection}`);
+  }
+
+  // Test 5: buildPromptPackage 不包含未启用内容
+  {
+    const settings = makePromptSettings(false, false);
+    const snapshot = {
+      vaultPath: "/test/vault",
+      activeFilePath: "note.md",
+      activeFileContent: "# Test Note",
+      selection: "选中的文本",
+      timestamp: "2026-06-28T12:00:00Z",
+    };
+    const prompt = buildPromptPackage("用户请求", snapshot, settings);
+    const hasNote = prompt.includes("当前活动笔记");
+    const hasSelection = prompt.includes("当前选区内容");
+    const ok = !hasNote && !hasSelection;
+    addTest("Prompt Package: 不包含未启用内容", ok ? "pass" : "fail",
+      ok ? "" : `hasNote=${hasNote}, hasSelection=${hasSelection}`);
+  }
+
+  // Test 6: buildPromptPackage 包含输出规则
+  {
+    const settings = makePromptSettings(false, false);
+    const snapshot = {
+      vaultPath: "/test/vault",
+      activeFilePath: null,
+      activeFileContent: null,
+      selection: null,
+      timestamp: "2026-06-28T12:00:00Z",
+    };
+    const prompt = buildPromptPackage("用户请求", snapshot, settings);
+    const hasOutputRule = prompt.includes("输出规则") &&
+                          prompt.includes("90_AI整理待确认") &&
+                          prompt.includes("不要在聊天输出里打印完整长文件");
+    const ok = hasOutputRule;
+    addTest("Prompt Package: 包含输出规则", ok ? "pass" : "fail",
+      ok ? "" : `hasOutputRule=${hasOutputRule}`);
+  }
+
+  // Test 7: buildPromptPackage 包含用户请求
+  {
+    const settings = makePromptSettings(false, false);
+    const snapshot = {
+      vaultPath: "/test/vault",
+      activeFilePath: null,
+      activeFileContent: null,
+      selection: null,
+      timestamp: "2026-06-28T12:00:00Z",
+    };
+    const prompt = buildPromptPackage("请帮我整理笔记", snapshot, settings);
+    const hasUserRequest = prompt.includes("用户请求") && prompt.includes("请帮我整理笔记");
+    const ok = hasUserRequest;
+    addTest("Prompt Package: 包含用户请求", ok ? "pass" : "fail",
+      ok ? "" : `hasUserRequest=${hasUserRequest}`);
+  }
+
+  // Test 8: buildPromptPackage 截断长内容
+  {
+    const settings = makePromptSettings(true, false);
+    settings.maxActiveNoteChars = 50;
+    const longContent = "a".repeat(200);
+    const snapshot = {
+      vaultPath: "/test/vault",
+      activeFilePath: "note.md",
+      activeFileContent: longContent,
+      selection: null,
+      timestamp: "2026-06-28T12:00:00Z",
+    };
+    const prompt = buildPromptPackage("用户请求", snapshot, settings);
+    const hasTruncated = prompt.includes("truncated") && !prompt.includes("a".repeat(200));
+    const ok = hasTruncated;
+    addTest("Prompt Package: 截断长内容", ok ? "pass" : "fail",
+      ok ? "" : `hasTruncated=${hasTruncated}`);
+  }
+
+  // 清理临时 bundle
+  if (promptPackageBundle) {
+    try { rmSync(promptPackageBundle, { force: true }); } catch {}
+  }
+} catch (e) {
+  addTest("Prompt Package 单元测试", "fail", e?.stack || e?.message || String(e));
+  if (promptPackageBundle) {
+    try { rmSync(promptPackageBundle, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 3. 文件系统主通道测试（快照 + diff）
 // ============================================================
 console.log("\n=== 文件系统主通道测试 ===");
