@@ -2106,7 +2106,7 @@ if (!runNoteSummarizeSmoke) {
       includeSelection: true,   // V0.8: 启用 selection 注入
       maxActiveNoteChars: 6000,
       maxSelectionChars: 3000,
-      outputDir: "90_AI整理待确认",
+      outputDir: "my-test-output-dir",
       showStderr: true,
       saveLogs: false,
       sessionMode: "fresh",
