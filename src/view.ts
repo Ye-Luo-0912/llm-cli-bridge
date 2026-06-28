@@ -13,6 +13,9 @@ import { exportState } from "./state";
 import { diffSnapshots, extractRelPath, FileSnapshot, snapshotVaultMarkdownFiles } from "./fileDiff";
 import { AgentType, BackendMode, ChatMessage, RunResult, RunStatus, SessionMode } from "./types";
 import type { PendingActionEntry } from "./httpServer";
+import { runPreflight, PreflightResult } from "./agentProfile";
+import { mapPreflightToStatus, buildErrorSummary } from "./preflightStatus";
+import { buildPresetPrompt, PRESETS, PresetType, requiresActiveNote, requiresSelection } from "./presetPrompts";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -71,6 +74,9 @@ export class LLMBridgeView extends ItemView {
   private beforeFiles: Map<string, FileSnapshot> = new Map();
   private pendingActions: PendingActionEntry[] = [];
 
+  // V1.1: preflight 结果缓存
+  private lastPreflightResult: PreflightResult | null = null;
+
   // DOM
   private statusDotEl!: HTMLElement;
   private statusLabelEl!: HTMLElement;
@@ -91,6 +97,14 @@ export class LLMBridgeView extends ItemView {
   private pendingActionsEl!: HTMLElement;
   private pendingActionsCountEl!: HTMLElement;
   private pendingActionsBody!: HTMLElement;
+  // V1.1: 状态栏 + preflight + 常用操作 DOM
+  private statusBarEl!: HTMLElement;
+  private statusBackendEl!: HTMLElement;
+  private statusAgentEl!: HTMLElement;
+  private statusCwdEl!: HTMLElement;
+  private statusPreflightEl!: HTMLElement;
+  private preflightBtn!: HTMLButtonElement;
+  private presetBtnsEl!: HTMLElement;
 
   constructor(leaf: WorkspaceLeaf, plugin: LLMBridgePlugin) {
     super(leaf);
@@ -170,6 +184,41 @@ export class LLMBridgeView extends ItemView {
 
     // 注册 pending action 回调
     this.registerPendingActionCallback();
+
+    // ===== V1.1: 状态栏（Backend 模式 / Agent / cwd / Preflight 状态） =====
+    this.statusBarEl = root.createDiv({ cls: "llm-bridge-status-bar" });
+    const sbItems = this.statusBarEl.createDiv({ cls: "llm-bridge-sb-items" });
+    this.statusBackendEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item", attr: { title: "Backend 模式" } });
+    this.statusBackendEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Backend" });
+    this.statusBackendEl.createEl("span", { cls: "llm-bridge-sb-value" });
+    this.statusAgentEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item", attr: { title: "Agent 类型" } });
+    this.statusAgentEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Agent" });
+    this.statusAgentEl.createEl("span", { cls: "llm-bridge-sb-value" });
+    this.statusCwdEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-cwd", attr: { title: "当前 Vault / cwd" } });
+    this.statusCwdEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Cwd" });
+    this.statusCwdEl.createEl("span", { cls: "llm-bridge-sb-value" });
+    this.statusPreflightEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-preflight", attr: { title: "最近一次 preflight 状态" } });
+    this.statusPreflightEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Preflight" });
+    this.statusPreflightEl.createEl("span", { cls: "llm-bridge-sb-value", text: "未检测" });
+
+    // Preflight 按钮（不调用真实模型，只探测 command 可用性）
+    this.preflightBtn = this.statusBarEl.createEl("button", {
+      cls: "llm-bridge-sb-btn",
+      text: "Preflight",
+      attr: { title: "检测 agent 命令是否可用（不调用真实模型）" },
+    });
+    this.preflightBtn.addEventListener("click", () => void this.runPreflightCheck());
+
+    // ===== V1.1: 常用操作按钮行 =====
+    this.presetBtnsEl = root.createDiv({ cls: "llm-bridge-presets" });
+    for (const preset of PRESETS) {
+      const btn = this.presetBtnsEl.createEl("button", {
+        cls: "llm-bridge-preset-btn",
+        text: preset.label,
+        attr: { title: preset.hint, "data-preset": preset.type },
+      });
+      btn.addEventListener("click", () => void this.applyPreset(preset.type));
+    }
 
     // ===== 消息流 =====
     this.messagesEl = root.createDiv({ cls: "llm-bridge-messages" });
@@ -269,8 +318,12 @@ export class LLMBridgeView extends ItemView {
     this.syncControlsFromSettings();
     this.updateContextDisplay();
     this.setGlobalStatus("idle");
+    this.refreshStatusBar();
 
-    this.registerEvent(this.app.workspace.on("active-leaf-change", () => this.updateContextDisplay()));
+    this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
+      this.updateContextDisplay();
+      this.refreshStatusBar();
+    }));
 
     // 注册 pending action 回调到 httpBridge
     this.registerPendingActionCallback();
@@ -511,6 +564,104 @@ export class LLMBridgeView extends ItemView {
     this.includeNoteCheckEl.disabled = running;
     this.includeSelectionCheckEl.disabled = running;
     this.clearBtn.disabled = running;
+    // V1.1: 运行中禁用 preflight 和 preset 按钮
+    this.preflightBtn.disabled = running;
+    (this.presetBtnsEl.querySelectorAll(".llm-bridge-preset-btn") as NodeListOf<HTMLButtonElement>).forEach((b) => {
+      b.disabled = running;
+    });
+  }
+
+  // V1.1: 刷新状态栏（Backend 模式 / Agent / cwd / Preflight 状态）
+  private refreshStatusBar(): void {
+    const s = this.plugin.settings;
+    // Backend 模式
+    const backendLabel = s.backendMode === "auto" ? "auto" : s.backendMode;
+    this.statusBackendEl.querySelector(".llm-bridge-sb-value")!.textContent = backendLabel;
+    // Agent 类型
+    const agentLabel = AGENT_OPTIONS.find((a) => a.value === s.agentType)?.label ?? s.agentType;
+    this.statusAgentEl.querySelector(".llm-bridge-sb-value")!.textContent = agentLabel;
+    // Cwd（Vault 根目录）— getBasePath 运行时存在但类型未声明，用 as 绕过
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    // 只显示最后两级目录，避免过长
+    const shortPath = vaultPath.split(/[/\\]/).slice(-2).join("/");
+    this.statusCwdEl.querySelector(".llm-bridge-sb-value")!.textContent = shortPath;
+    this.statusCwdEl.setAttribute("title", vaultPath);
+    // Preflight 状态
+    const pfStatus = mapPreflightToStatus(this.lastPreflightResult);
+    const pfValueEl = this.statusPreflightEl.querySelector(".llm-bridge-sb-value")!;
+    pfValueEl.textContent = pfStatus.label;
+    this.statusPreflightEl.setAttribute("title", pfStatus.detail);
+    // 状态着色
+    this.statusPreflightEl.classList.remove("is-available", "is-unavailable", "is-unknown");
+    this.statusPreflightEl.classList.add(`is-${pfStatus.kind}`);
+  }
+
+  // V1.1: 运行 preflight 检测（不调用真实模型）
+  private async runPreflightCheck(): Promise<void> {
+    if (this.runHandle) return;
+    this.preflightBtn.disabled = true;
+    this.preflightBtn.textContent = "检测中…";
+    try {
+      const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      this.lastPreflightResult = await runPreflight(this.plugin.settings, vaultPath);
+      this.refreshStatusBar();
+      const status = mapPreflightToStatus(this.lastPreflightResult);
+      new Notice(`Preflight: ${status.label} — ${status.detail}`);
+    } catch (e) {
+      new Notice(`Preflight 失败: ${(e as Error)?.message || e}`);
+    } finally {
+      this.preflightBtn.disabled = false;
+      this.preflightBtn.textContent = "Preflight";
+    }
+  }
+
+  // V1.1: 应用预设操作（只生成 prompt，不自动注入全文）
+  private async applyPreset(type: PresetType): Promise<void> {
+    if (this.runHandle) return;
+
+    const activeFile = this.getActiveFile();
+    const selection = this.getSelection();
+
+    // 检查前置条件
+    if (requiresActiveNote(type) && !activeFile) {
+      new Notice("请先打开一个笔记");
+      return;
+    }
+    if (requiresSelection(type) && !selection) {
+      new Notice("请先选中文本");
+      return;
+    }
+
+    const prompt = buildPresetPrompt(type, {
+      activeFilePath: activeFile?.path || null,
+      outputDir: this.plugin.settings.outputDir,
+    });
+
+    if (type === "freeform") {
+      // 自由提问：清空输入框并聚焦
+      this.inputEl.value = "";
+      this.inputEl.focus();
+      return;
+    }
+
+    // 设置 includeSelection / includeActiveNote（不自动注入全文）
+    if (type === "explain") {
+      // explain 需要选区注入
+      if (!this.plugin.settings.includeSelection) {
+        this.plugin.settings.includeSelection = true;
+        await this.plugin.saveSettings();
+        this.syncControlsFromSettings();
+      }
+    } else if (type === "summarize" || type === "organize") {
+      // summarize / organize 需要当前笔记内容注入（用户可手动关闭）
+      if (!this.plugin.settings.includeActiveNote) {
+        this.plugin.settings.includeActiveNote = true;
+        await this.plugin.saveSettings();
+        this.syncControlsFromSettings();
+      }
+    }
+
+    this.setInput(prompt);
   }
 
   // ---------- Obsidian 状态 ----------
@@ -852,7 +1003,17 @@ export class LLMBridgeView extends ItemView {
       `\nexit code: ${result.exitCode ?? "null"}  signal: ${result.signal ?? "-"}\nduration: ${result.durationMs} ms`;
     // V0.3: backend 终态 stderr 已是用户可见摘要，直接覆盖（不再增量拼接）
     // 详细诊断日志已写入 .llm-bridge/logs/debug-*.log
-    const newStderr = this.plugin.settings.showStderr ? (result.stderr || "") : "";
+    let newStderr = this.plugin.settings.showStderr ? (result.stderr || "") : "";
+    // V1.1: 失败时构造简短错误摘要（脱敏，不含 secret），并在 stderr 末尾追加 debug log 路径
+    if (status === "failed") {
+      const errorSummary = buildErrorSummary(result.stderr, result.exitCode);
+      if (errorSummary) {
+        newStderr = newStderr ? `${newStderr}\n---\n摘要: ${errorSummary}` : `摘要: ${errorSummary}`;
+      }
+      // 追加 debug log 路径提示
+      const logsDir = path.join(vaultPath, ".llm-bridge", "logs");
+      newStderr = `${newStderr}\nDebug log: ${logsDir}`;
+    }
 
     this.setGlobalStatus(status);
     this.updateAssistantMessage(assistantId, {

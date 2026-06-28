@@ -454,3 +454,84 @@
   color: var(--text-normal);
 }
 .llm-bridge-pending-btn-reject:hover { background: rgba(229,57,53,0.2); color: #e53935; }
+
+/* === V1.1: Status Bar / Preflight / Presets === */
+
+.llm-bridge-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  font-size: var(--font-ui-smaller);
+}
+
+.llm-bridge-sb-items {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.llm-bridge-sb-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.llm-bridge-sb-label {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.llm-bridge-sb-value {
+  color: var(--text-normal);
+  font-weight: 500;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-sb-cwd .llm-bridge-sb-value { max-width: 160px; }
+
+.llm-bridge-sb-preflight.is-available .llm-bridge-sb-value { color: #4caf50; }
+.llm-bridge-sb-preflight.is-unavailable .llm-bridge-sb-value { color: #e53935; }
+.llm-bridge-sb-preflight.is-unknown .llm-bridge-sb-value { color: var(--text-muted); }
+
+.llm-bridge-sb-btn {
+  padding: 2px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+}
+
+.llm-bridge-sb-btn:hover:not(:disabled) { background: var(--interactive-hover); }
+.llm-bridge-sb-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.llm-bridge-presets {
+  display: flex;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-wrap: wrap;
+}
+
+.llm-bridge-preset-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.llm-bridge-preset-btn:hover:not(:disabled) { background: var(--interactive-hover); }
+.llm-bridge-preset-btn:disabled { opacity: 0.5; cursor: not-allowed; }

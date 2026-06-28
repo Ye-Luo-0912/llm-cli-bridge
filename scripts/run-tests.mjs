@@ -1918,6 +1918,273 @@ if (!runBridgeUnit) {
 }
 
 // ============================================================
+// 8.7 Preset Prompts & Preflight Status 单元测试（V1.1）
+// ============================================================
+console.log("\n=== Preset Prompts & Preflight Status 单元测试 ===");
+
+const runV11Unit = runMode === "all" || runMode === "unit";
+
+if (!runV11Unit) {
+  addTest("V1.1 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let presetBundle = null;
+  let preflightStatusBundle = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    presetBundle = join(PROJECT_ROOT, ".test-preset-temp.mjs");
+    preflightStatusBundle = join(PROJECT_ROOT, ".test-preflight-status-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "presetPrompts.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: presetBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "preflightStatus.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: preflightStatusBundle,
+      external: ["./agentProfile"],
+    });
+    const { buildPresetPrompt, requiresActiveNote, requiresSelection, PRESETS } = await import(pathToFileURL(presetBundle).href);
+    const { mapPreflightToStatus, buildErrorSummary, redactSecret } = await import(pathToFileURL(preflightStatusBundle).href);
+
+    // --- Test 1: summarize 预设 prompt 包含 outputDir 和文件名 ---
+    {
+      const prompt = buildPresetPrompt("summarize", {
+        activeFilePath: "notes/test.md",
+        outputDir: "90_AI整理待确认",
+      });
+      const hasOutputDir = prompt.includes("90_AI整理待确认");
+      const hasFilePath = prompt.includes("notes/test.md");
+      const hasSummarySuffix = prompt.includes("-summary");
+      const ok = hasOutputDir && hasFilePath && hasSummarySuffix;
+      addTest("Preset: summarize 包含 outputDir / 文件路径 / -summary 后缀",
+        ok ? "pass" : "fail",
+        ok ? "" : `outputDir=${hasOutputDir}, filePath=${hasFilePath}, summary=${hasSummarySuffix}`);
+    }
+
+    // --- Test 2: summarize 无活动笔记时使用通用 prompt ---
+    {
+      const prompt = buildPresetPrompt("summarize", {
+        activeFilePath: null,
+        outputDir: "out",
+      });
+      const ok = prompt.includes("当前笔记") && !prompt.includes("null") && prompt.includes("out");
+      addTest("Preset: summarize 无活动笔记时使用通用 prompt（不含 null）",
+        ok ? "pass" : "fail", ok ? "" : `prompt: ${prompt}`);
+    }
+
+    // --- Test 3: explain 预设只含指令，不含选区文本（选区由 includeSelection 注入） ---
+    {
+      const prompt = buildPresetPrompt("explain", {
+        activeFilePath: "a.md",
+        outputDir: "out",
+      });
+      const ok = prompt.includes("解释") && !prompt.includes("a.md") && prompt.length < 200;
+      addTest("Preset: explain 只含指令，不含文件路径（选区由 includeSelection 注入）",
+        ok ? "pass" : "fail", ok ? "" : `prompt: ${prompt}`);
+    }
+
+    // --- Test 4: organize 预设包含文件路径和 create_note action ---
+    {
+      const prompt = buildPresetPrompt("organize", {
+        activeFilePath: "notes/messy.md",
+        outputDir: "out",
+      });
+      const ok = prompt.includes("notes/messy.md") && prompt.includes("create_note");
+      addTest("Preset: organize 包含文件路径和 create_note action",
+        ok ? "pass" : "fail", ok ? "" : `prompt: ${prompt}`);
+    }
+
+    // --- Test 5: freeform 返回空字符串 ---
+    {
+      const prompt = buildPresetPrompt("freeform", {
+        activeFilePath: "a.md",
+        outputDir: "out",
+      });
+      const ok = prompt === "";
+      addTest("Preset: freeform 返回空字符串",
+        ok ? "pass" : "fail", ok ? "" : `expected empty, got: ${prompt}`);
+    }
+
+    // --- Test 6: requiresActiveNote / requiresSelection 正确映射 ---
+    {
+      const ok = requiresActiveNote("summarize") && requiresActiveNote("organize") &&
+                 !requiresActiveNote("explain") && !requiresActiveNote("freeform") &&
+                 requiresSelection("explain") && !requiresSelection("summarize") &&
+                 !requiresSelection("organize") && !requiresSelection("freeform");
+      addTest("Preset: requiresActiveNote / requiresSelection 正确映射",
+        ok ? "pass" : "fail", ok ? "" : "映射错误");
+    }
+
+    // --- Test 7: PRESETS 含 4 种类型 ---
+    {
+      const types = PRESETS.map((p) => p.type);
+      const ok = types.length === 4 &&
+                 types.includes("summarize") && types.includes("explain") &&
+                 types.includes("organize") && types.includes("freeform");
+      addTest("Preset: PRESETS 含 4 种类型",
+        ok ? "pass" : "fail", ok ? "" : `types: ${types.join(",")}`);
+    }
+
+    // --- Test 8: outputDir 为空时使用默认目录 ---
+    {
+      const prompt = buildPresetPrompt("summarize", {
+        activeFilePath: "a.md",
+        outputDir: "",
+      });
+      const ok = prompt.includes("90_AI整理待确认");
+      addTest("Preset: outputDir 为空时使用默认目录",
+        ok ? "pass" : "fail", ok ? "" : `prompt: ${prompt}`);
+    }
+
+    // --- Test 9: mapPreflightToStatus(null) 返回 unknown ---
+    {
+      const status = mapPreflightToStatus(null);
+      const ok = status.kind === "unknown" && status.label === "未检测";
+      addTest("Preflight: null 结果映射为 unknown",
+        ok ? "pass" : "fail", ok ? "" : `kind=${status.kind}, label=${status.label}`);
+    }
+
+    // --- Test 10: mapPreflightToStatus available 状态含 version ---
+    {
+      const result = {
+        profile: "claude", command: "claude", args: ["-p"], versionArgs: ["--version"],
+        cwd: "/tmp", cwdExists: true, commandFound: true, versionExitCode: 0,
+        versionStdout: "1.0.0\n", versionStderr: "", available: true,
+        diagnostics: "", debugLogPath: null, skipReason: null,
+      };
+      const status = mapPreflightToStatus(result);
+      const ok = status.kind === "available" && status.label === "available" && status.detail.includes("1.0.0");
+      addTest("Preflight: available 状态含 version",
+        ok ? "pass" : "fail", ok ? "" : `kind=${status.kind}, detail=${status.detail}`);
+    }
+
+    // --- Test 11: mapPreflightToStatus unavailable 状态含原因 ---
+    {
+      const result = {
+        profile: "claude", command: "claude", args: [], versionArgs: ["--version"],
+        cwd: "/tmp", cwdExists: true, commandFound: false, versionExitCode: 127,
+        versionStdout: "", versionStderr: "command not found", available: false,
+        diagnostics: "", debugLogPath: null, skipReason: null,
+      };
+      const status = mapPreflightToStatus(result);
+      const ok = status.kind === "unavailable" && status.label === "unavailable" && status.detail.includes("127");
+      addTest("Preflight: unavailable 状态含退出码原因",
+        ok ? "pass" : "fail", ok ? "" : `kind=${status.kind}, detail=${status.detail}`);
+    }
+
+    // --- Test 12: mapPreflightToStatus command 为空时含 skipReason ---
+    {
+      const result = {
+        profile: "claude", command: "", args: [], versionArgs: ["--version"],
+        cwd: "/tmp", cwdExists: true, commandFound: false, versionExitCode: null,
+        versionStdout: "", versionStderr: "", available: false,
+        diagnostics: "", debugLogPath: null, skipReason: "command 为空",
+      };
+      const status = mapPreflightToStatus(result);
+      const ok = status.kind === "unavailable" && status.detail.includes("command 为空");
+      addTest("Preflight: command 为空时 detail 含 skipReason",
+        ok ? "pass" : "fail", ok ? "" : `detail=${status.detail}`);
+    }
+
+    // --- Test 13: buildErrorSummary 不包含 48-hex token ---
+    {
+      const token = "a".repeat(48);
+      const stderr = `Error: auth failed token=${token}`;
+      const summary = buildErrorSummary(stderr, 1);
+      const ok = !summary.includes(token) && summary.includes("<token>");
+      addTest("ErrorSummary: 不包含 48-hex token 明文（替换为 <token>）",
+        ok ? "pass" : "fail", ok ? "" : `summary: ${summary}`);
+    }
+
+    // --- Test 14: buildErrorSummary 不包含 sk-ant API key ---
+    {
+      const key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789";
+      const stderr = `Error: invalid key ${key}`;
+      const summary = buildErrorSummary(stderr, 1);
+      const ok = !summary.includes(key) && summary.includes("<api-key>");
+      addTest("ErrorSummary: 不包含 sk-ant API key 明文（替换为 <api-key>）",
+        ok ? "pass" : "fail", ok ? "" : `summary: ${summary}`);
+    }
+
+    // --- Test 15: buildErrorSummary 不包含 Bearer token ---
+    {
+      const bearer = "Bearer abcdefghijklmnopqrstuvwxyz0123456789";
+      const stderr = `Auth: ${bearer}`;
+      const summary = buildErrorSummary(stderr, 1);
+      const ok = !summary.includes("Bearer abcdefghijklmnopqrstuvwxyz0123456789") && summary.includes("<redacted>");
+      addTest("ErrorSummary: 不包含 Bearer token 明文",
+        ok ? "pass" : "fail", ok ? "" : `summary: ${summary}`);
+    }
+
+    // --- Test 16: buildErrorSummary 不包含 ANTHROPIC_API_KEY 值 ---
+    {
+      const stderr = `env ANTHROPIC_API_KEY=sk-ant-something-secret-1234567890`;
+      const summary = buildErrorSummary(stderr, 1);
+      const ok = !summary.includes("sk-ant-something-secret-1234567890") && summary.includes("<redacted>");
+      addTest("ErrorSummary: 不包含 ANTHROPIC_API_KEY 值",
+        ok ? "pass" : "fail", ok ? "" : `summary: ${summary}`);
+    }
+
+    // --- Test 17: buildErrorSummary 包含 exit code ---
+    {
+      const summary = buildErrorSummary("some error", 42);
+      const ok = summary.includes("exit 42");
+      addTest("ErrorSummary: 包含 exit code",
+        ok ? "pass" : "fail", ok ? "" : `summary: ${summary}`);
+    }
+
+    // --- Test 18: buildErrorSummary 空输入返回空字符串 ---
+    {
+      const summary = buildErrorSummary("", null);
+      const ok = summary === "";
+      addTest("ErrorSummary: 空 stderr + null exitCode 返回空字符串",
+        ok ? "pass" : "fail", ok ? "" : `summary: ${summary}`);
+    }
+
+    // --- Test 19: buildErrorSummary 截断到 maxLen ---
+    {
+      const longErr = "x".repeat(500);
+      const summary = buildErrorSummary(longErr, 1, 50);
+      const ok = summary.length <= 50;
+      addTest("ErrorSummary: 截断到 maxLen",
+        ok ? "pass" : "fail", ok ? "" : `len=${summary.length}`);
+    }
+
+    // --- Test 20: redactSecret 独立函数测试 ---
+    {
+      const text = `token=${"a".repeat(48)} key=sk-ant-${"b".repeat(20)} Bearer ${"c".repeat(25)}`;
+      const redacted = redactSecret(text);
+      const ok = redacted.includes("<token>") && redacted.includes("<api-key>") && redacted.includes("<redacted>");
+      addTest("redactSecret: 替换 token / api-key / Bearer",
+        ok ? "pass" : "fail", ok ? "" : `redacted: ${redacted}`);
+    }
+
+    // --- Test 21: 预设不自动注入全文（buildPresetPrompt 输出不含笔记内容） ---
+    {
+      const prompt = buildPresetPrompt("summarize", {
+        activeFilePath: "a.md",
+        outputDir: "out",
+      });
+      // prompt 只应含指令和路径，不应含笔记正文（正文由 promptPackage 注入）
+      const ok = !prompt.includes("笔记内容") && !prompt.includes("==========");
+      addTest("Preset: 不自动注入笔记全文（正文由 promptPackage 注入）",
+        ok ? "pass" : "fail", ok ? "" : `prompt 含正文: ${prompt}`);
+    }
+
+  } catch (e) {
+    addTest("V1.1 单元测试段", "fail", `加载/执行异常: ${e?.message || e}`);
+  } finally {
+    try { if (presetBundle) rmSync(presetBundle, { force: true }); } catch {}
+    try { if (preflightStatusBundle) rmSync(preflightStatusBundle, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");
