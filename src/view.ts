@@ -118,11 +118,19 @@ export class LLMBridgeView extends ItemView {
   // V2.7: state 写入节流定时器 + 搜索防抖定时器（避免频繁 IO/渲染）
   private skillsStateSaveTimer: number | null = null;
   private skillsSearchDebounceTimer: number | null = null;
+  // V2.9: scrollToBottom rAF 批处理定时器（合并同帧多次调用，避免每个 delta 触发 reflow）
+  private scrollRafId: number | null = null;
   // V2.5: 历史会话列表
   private historyListEl!: HTMLElement;
   private historyToggleEl!: HTMLElement;
   private historyItems: SessionListItem[] = [];
   private historySortMode: "time" | "messages" = "time"; // V2.8: 历史会话排序模式
+  // V2.9: 历史会话搜索 + 列表缓存（避免频繁展开/收起重复全量读盘）
+  private historyBodyEl!: HTMLElement;
+  private historySearchEl!: HTMLInputElement;
+  private historySearchQuery = "";
+  private historySearchDebounceTimer: number | null = null;
+  private historyLastLoadAt = 0;
   // V2.5: 当前活动会话 id（保存后赋值；用于后续运行更新同一会话文件）
   private currentSessionId: string | null = null;
 
@@ -674,6 +682,15 @@ export class LLMBridgeView extends ItemView {
     if (this.runHandle) {
       this.runHandle.stop();
       this.runHandle = null;
+    }
+    // V2.9: 清理 pending 定时器，避免视图关闭后回调仍触发
+    if (this.scrollRafId !== null) {
+      window.cancelAnimationFrame(this.scrollRafId);
+      this.scrollRafId = null;
+    }
+    if (this.historySearchDebounceTimer !== null) {
+      window.clearTimeout(this.historySearchDebounceTimer);
+      this.historySearchDebounceTimer = null;
     }
   }
 
@@ -1367,8 +1384,9 @@ export class LLMBridgeView extends ItemView {
     // V2.3: 按主 agent / subagent 分组展示工具调用
     const toolTimeline = buildToolTimeline(events);
     if (toolTimeline.length > 0) {
-      const mainTools = toolTimeline.filter((t) => this.findToolParentAgent(events, t.callId) === "main");
-      const subTools = toolTimeline.filter((t) => this.findToolParentAgent(events, t.callId) === "subagent");
+      // V2.9: 直接用 entry.parentToolUseId 分组（O(1) 查表），替代 findToolParentAgent 对每个 tool 线性扫描 events（原 O(N²)）
+      const mainTools = toolTimeline.filter((t) => !t.parentToolUseId);
+      const subTools = toolTimeline.filter((t) => !!t.parentToolUseId);
       if (mainTools.length > 0) {
         this.renderToolTimelineGroup(body, "Tools — Main agent", mainTools);
       }
@@ -1419,15 +1437,8 @@ export class LLMBridgeView extends ItemView {
     });
   }
 
-  // V2.3: 根据 tool_use callId 查找其所属 agent 类型（main / subagent / unknown）
-  private findToolParentAgent(events: ReadonlyArray<WorkflowEvent>, callId: string): "main" | "subagent" | "unknown" {
-    for (const event of events) {
-      if (event.type === "tool_start" && event.callId === callId) {
-        return event.parentToolUseId ? "subagent" : "main";
-      }
-    }
-    return "unknown";
-  }
+  // V2.9: findToolParentAgent 已移除——buildToolTimeline 现将 parentToolUseId 直接写入 ToolTimelineEntry，
+  // appendSdkWorkflow 用 entry.parentToolUseId 做 O(1) 分组，无需再对每个 tool 线性扫描 events。
 
   // V2.3: 渲染工具时间线分组（用于 main / subagent 分组展示）
   private renderToolTimelineGroup(body: HTMLElement, title: string, tools: ReadonlyArray<import("./workflowEvent").ToolTimelineEntry>): void {
@@ -1688,7 +1699,12 @@ export class LLMBridgeView extends ItemView {
   }
 
   private scrollToBottom(): void {
-    this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+    // V2.9: 用 requestAnimationFrame 合并同帧多次调用，避免每个 delta 都同步触发 reflow
+    if (this.scrollRafId !== null) return;
+    this.scrollRafId = window.requestAnimationFrame(() => {
+      this.scrollRafId = null;
+      this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
+    });
   }
 
   private clearMessages(): void {
@@ -1842,7 +1858,7 @@ export class LLMBridgeView extends ItemView {
       text: "↻",
       attr: { title: "刷新历史会话列表" },
     });
-    refreshHistBtn.addEventListener("click", () => void this.refreshHistory());
+    refreshHistBtn.addEventListener("click", () => void this.refreshHistory(true));
     // V2.8: 排序下拉（时间/消息数）
     const sortSelect = head.createEl("select", {
       cls: "llm-bridge-history-sort",
@@ -1857,7 +1873,28 @@ export class LLMBridgeView extends ItemView {
     });
     const body = wrap.createDiv({ cls: "llm-bridge-history-body" });
     body.setAttribute("hidden", "");
-    this.historyListEl = body;
+    this.historyBodyEl = body;
+    // V2.9: 搜索框（复用 Skills 300ms 防抖模式，按标题子串过滤）
+    const searchBar = body.createDiv({ cls: "llm-bridge-history-search" });
+    this.historySearchEl = searchBar.createEl("input", {
+      type: "text",
+      cls: "llm-bridge-history-search-input",
+      attr: { placeholder: "搜索会话标题…", title: "按标题子串过滤历史会话（大小写不敏感）" },
+    }) as HTMLInputElement;
+    this.historySearchEl.addEventListener("input", () => {
+      if (this.historySearchDebounceTimer !== null) {
+        window.clearTimeout(this.historySearchDebounceTimer);
+      }
+      const value = this.historySearchEl.value;
+      this.historySearchDebounceTimer = window.setTimeout(() => {
+        this.historySearchQuery = value;
+        this.renderHistoryList();
+        this.historySearchDebounceTimer = null;
+      }, 300);
+    });
+    // 列表容器独立于搜索框，renderHistoryList 的 empty() 只清空列表，不影响搜索框
+    const listContainer = body.createDiv({ cls: "llm-bridge-history-list-container" });
+    this.historyListEl = listContainer;
     this.historyToggleEl.addEventListener("click", () => {
       const hidden = body.hasAttribute("hidden");
       if (hidden) {
@@ -1870,17 +1907,24 @@ export class LLMBridgeView extends ItemView {
       }
     });
     // 初始空状态
-    body.createDiv({ cls: "llm-bridge-history-empty", text: "暂无历史会话" });
+    listContainer.createDiv({ cls: "llm-bridge-history-empty", text: "暂无历史会话" });
   }
 
   // V2.5: 从 .llm-bridge/sessions/ 加载历史会话列表并渲染
-  private async refreshHistory(): Promise<void> {
+  // V2.9: 加 5s 缓存守卫——非强制调用在缓存有效期内跳过全量读盘，仅重渲染；↻ 按钮与运行后保存传 force=true
+  private async refreshHistory(force = false): Promise<void> {
+    // 缓存命中：5s 内不重复 readdir + 逐文件 stat + readFile
+    if (!force && Date.now() - this.historyLastLoadAt < 5000) {
+      this.renderHistoryList();
+      return;
+    }
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     try {
       this.historyItems = await listSessions(vaultPath);
     } catch {
       this.historyItems = [];
     }
+    this.historyLastLoadAt = Date.now();
     this.renderHistoryList();
   }
 
@@ -1890,21 +1934,29 @@ export class LLMBridgeView extends ItemView {
     if (!this.historyListEl) return;
     try {
     this.historyListEl.empty();
+    // V2.9: 按搜索词过滤（标题子串，大小写不敏感）；filter 返回新数组，可直接排序不修改原 historyItems
+    const query = this.historySearchQuery.trim().toLowerCase();
+    const filtered = this.historyItems.filter((it) => !query || it.title.toLowerCase().includes(query));
+    const arrow = this.historyBodyEl.hasAttribute("hidden") ? "▶" : "▼";
     if (this.historyItems.length === 0) {
       this.historyListEl.createDiv({ cls: "llm-bridge-history-empty", text: "暂无历史会话" });
-      this.historyToggleEl.textContent = `${this.historyListEl.hasAttribute("hidden") ? "▶" : "▼"} History (0)`;
+      this.historyToggleEl.textContent = `${arrow} History (0)`;
       return;
     }
-    // V2.8: 按 sortMode 排序（不修改原数组，用副本）
-    const sorted = this.historyItems.slice();
+    if (filtered.length === 0) {
+      this.historyListEl.createDiv({ cls: "llm-bridge-history-empty", text: `无匹配「${this.historySearchQuery.trim()}」的会话` });
+      this.historyToggleEl.textContent = `${arrow} History (0/${this.historyItems.length})`;
+      return;
+    }
+    // V2.8: 按 sortMode 排序（filtered 已是新数组，直接排序不修改原 historyItems）
     if (this.historySortMode === "messages") {
-      sorted.sort((a, b) => b.messageCount - a.messageCount);
+      filtered.sort((a, b) => b.messageCount - a.messageCount);
     } else {
       // time: 按 savedAt 降序（最新在前，listSessions 已排但副本后稳定排序）
-      sorted.sort((a, b) => (a.savedAt < b.savedAt ? 1 : a.savedAt > b.savedAt ? -1 : 0));
+      filtered.sort((a, b) => (a.savedAt < b.savedAt ? 1 : a.savedAt > b.savedAt ? -1 : 0));
     }
     const list = this.historyListEl.createDiv({ cls: "llm-bridge-history-list" });
-    for (const item of sorted) {
+    for (const item of filtered) {
       const row = list.createDiv({
         cls: `llm-bridge-history-item is-${item.status}`,
         attr: { title: `${item.title} · ${item.messageCount} 条消息 · ${item.savedAt}` },
@@ -1936,7 +1988,9 @@ export class LLMBridgeView extends ItemView {
         void this.deleteHistorySession(item.id, item.title);
       });
     }
-    this.historyToggleEl.textContent = `${this.historyListEl.hasAttribute("hidden") ? "▶" : "▼"} History (${this.historyItems.length})`;
+    // V2.9: 搜索时显示「匹配数/总数」，否则显示总数
+    const countLabel = query ? `${filtered.length}/${this.historyItems.length}` : `${this.historyItems.length}`;
+    this.historyToggleEl.textContent = `${arrow} History (${countLabel})`;
     } catch (e) {
       this.renderListError(this.historyListEl, "history", e);
     }
@@ -3036,8 +3090,8 @@ export class LLMBridgeView extends ItemView {
       );
       if (savedId) {
         this.currentSessionId = savedId;
-        // 静默刷新历史列表（若已展开）
-        void this.refreshHistory();
+        // V2.9: 强制重载（force=true），确保新保存的会话立即出现，不被 5s 缓存拦截
+        void this.refreshHistory(true);
       }
     } catch {
       // 保存失败不阻断主流程

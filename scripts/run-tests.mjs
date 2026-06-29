@@ -6814,6 +6814,275 @@ if (!runV28Unit) {
 }
 
 // ============================================================
+// 8.16 V2.9 性能优化 + 搜索 单元测试
+//     覆盖：findToolParentAgent O(N²)→O(1)（buildToolTimeline 预记录 parentToolUseId）/
+//           scrollToBottom rAF 批处理 / listSessions 5s 缓存守卫 /
+//           History 搜索框 + 过滤 / CLI 不回归 + sdk-experimental 默认关闭 + schema 不变
+// ============================================================
+console.log("\n=== V2.9 性能优化 + 搜索 单元测试 ===");
+
+const runV29Unit = runMode === "all" || runMode === "unit";
+
+if (!runV29Unit) {
+  addTest("V2.9 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let workflowEventBundleV29 = null;
+  let cliBackendBundleV29 = null;
+  let typesBundleV29 = null;
+  let sessionsBundleV29 = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    workflowEventBundleV29 = join(PROJECT_ROOT, ".test-workflow-event-v29-temp.mjs");
+    cliBackendBundleV29 = join(PROJECT_ROOT, ".test-cli-backend-v29-temp.mjs");
+    typesBundleV29 = join(PROJECT_ROOT, ".test-types-v29-temp.mjs");
+    sessionsBundleV29 = join(PROJECT_ROOT, ".test-sessions-v29-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "workflowEvent.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: workflowEventBundleV29,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV29,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "types.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: typesBundleV29,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sessions.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sessionsBundleV29,
+    });
+
+    const { buildToolTimeline } = await import(pathToFileURL(workflowEventBundleV29).href);
+    const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV29).href);
+    const { DEFAULT_SETTINGS } = await import(pathToFileURL(typesBundleV29).href);
+    const { SESSION_SCHEMA_VERSION } = await import(pathToFileURL(sessionsBundleV29).href);
+
+    // 读取源码用于字符串检查
+    const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+    const workflowSrc = readFileSync(join(PROJECT_ROOT, "src", "workflowEvent.ts"), "utf8");
+
+    // ===== findToolParentAgent O(N²)→O(1)：buildToolTimeline 预记录 parentToolUseId =====
+
+    // ---- Test 1: tool_start 无 parentToolUseId → entry.parentToolUseId === undefined（主 agent）----
+    {
+      const events = [
+        { type: "tool_start", timestamp: "t1", toolName: "Read", toolInput: "{}", callId: "c1" },
+        { type: "tool_result", timestamp: "t2", callId: "c1", toolName: "Read", output: "ok", isError: false },
+      ];
+      const timeline = buildToolTimeline(events);
+      const pass = timeline.length === 1 && timeline[0].parentToolUseId === undefined
+        && timeline[0].callId === "c1" && timeline[0].status === "done";
+      addTest("V2.9 buildToolTimeline: 主 agent tool parentToolUseId=undefined",
+        pass ? "pass" : "fail", `len=${timeline.length} pid=${timeline[0]?.parentToolUseId}`);
+    }
+
+    // ---- Test 2: tool_start 有 parentToolUseId → entry.parentToolUseId 正确记录（subagent）----
+    {
+      const events = [
+        { type: "tool_start", timestamp: "t1", toolName: "Write", toolInput: "{}", callId: "c1", parentToolUseId: "parent-abc" },
+      ];
+      const timeline = buildToolTimeline(events);
+      const pass = timeline.length === 1 && timeline[0].parentToolUseId === "parent-abc";
+      addTest("V2.9 buildToolTimeline: subagent tool 记录 parentToolUseId",
+        pass ? "pass" : "fail", `pid=${timeline[0]?.parentToolUseId}`);
+    }
+
+    // ---- Test 3: subagent tool 配对 tool_result 后 parentToolUseId 仍保留 ----
+    {
+      const events = [
+        { type: "tool_start", timestamp: "t1", toolName: "Edit", toolInput: "{}", callId: "c1", parentToolUseId: "p1" },
+        { type: "tool_result", timestamp: "t2", callId: "c1", toolName: "Edit", output: "done", isError: false },
+      ];
+      const timeline = buildToolTimeline(events);
+      const pass = timeline.length === 1 && timeline[0].parentToolUseId === "p1"
+        && timeline[0].status === "done" && timeline[0].finishedAt === "t2";
+      addTest("V2.9 buildToolTimeline: 配对后 parentToolUseId 保留",
+        pass ? "pass" : "fail", `pid=${timeline[0]?.parentToolUseId} status=${timeline[0]?.status}`);
+    }
+
+    // ---- Test 4: 混合 main + subagent，按 entry.parentToolUseId 分组（模拟 appendSdkWorkflow O(1) 分组）----
+    {
+      const events = [
+        { type: "tool_start", timestamp: "t1", toolName: "Read", toolInput: "{}", callId: "c1" },
+        { type: "tool_start", timestamp: "t2", toolName: "Write", toolInput: "{}", callId: "c2", parentToolUseId: "p1" },
+        { type: "tool_start", timestamp: "t3", toolName: "Bash", toolInput: "{}", callId: "c3" },
+        { type: "tool_start", timestamp: "t4", toolName: "Edit", toolInput: "{}", callId: "c4", parentToolUseId: "p2" },
+      ];
+      const timeline = buildToolTimeline(events);
+      // 模拟 appendSdkWorkflow 的分组逻辑：!t.parentToolUseId = main, !!t.parentToolUseId = subagent
+      const mainTools = timeline.filter((t) => !t.parentToolUseId);
+      const subTools = timeline.filter((t) => !!t.parentToolUseId);
+      const pass = timeline.length === 4 && mainTools.length === 2 && subTools.length === 2
+        && mainTools.every((t) => t.parentToolUseId === undefined)
+        && subTools.every((t) => typeof t.parentToolUseId === "string");
+      addTest("V2.9 buildToolTimeline: main/subagent O(1) 分组正确",
+        pass ? "pass" : "fail", `total=${timeline.length} main=${mainTools.length} sub=${subTools.length}`);
+    }
+
+    // ---- Test 5: 多个 subagent tool 各自保留自己的 parentToolUseId ----
+    {
+      const events = [
+        { type: "tool_start", timestamp: "t1", toolName: "Read", toolInput: "{}", callId: "c1", parentToolUseId: "pA" },
+        { type: "tool_start", timestamp: "t2", toolName: "Read", toolInput: "{}", callId: "c2", parentToolUseId: "pB" },
+      ];
+      const timeline = buildToolTimeline(events);
+      const pass = timeline.length === 2
+        && timeline[0].parentToolUseId === "pA" && timeline[1].parentToolUseId === "pB"
+        && timeline[0].callId === "c1" && timeline[1].callId === "c2";
+      addTest("V2.9 buildToolTimeline: 多 subagent 各自保留 parentToolUseId",
+        pass ? "pass" : "fail", `p1=${timeline[0]?.parentToolUseId} p2=${timeline[1]?.parentToolUseId}`);
+    }
+
+    // ===== 源码检查：workflowEvent.ts =====
+
+    // ---- Test 6: ToolTimelineEntry 接口含 parentToolUseId 字段 ----
+    {
+      const ok = workflowSrc.includes("parentToolUseId: string | undefined;")
+        && workflowSrc.includes("parentToolUseId: event.parentToolUseId,");
+      addTest("V2.9 workflowEvent.ts: ToolTimelineEntry 含 parentToolUseId 字段", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 源码检查：view.ts findParent 优化 =====
+
+    // ---- Test 7: appendSdkWorkflow 用 entry.parentToolUseId 分组 ----
+    {
+      const ok = viewSrc.includes("!t.parentToolUseId") && viewSrc.includes("!!t.parentToolUseId");
+      addTest("V2.9 view.ts: appendSdkWorkflow 用 entry.parentToolUseId O(1) 分组", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 8: findToolParentAgent 方法已移除 ----
+    {
+      const ok = !viewSrc.includes("private findToolParentAgent(");
+      addTest("V2.9 view.ts: findToolParentAgent 线性扫描方法已移除", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 源码检查：scrollToBottom rAF 批处理 =====
+
+    // ---- Test 9: scrollToBottom 用 requestAnimationFrame ----
+    {
+      const ok = viewSrc.includes("window.requestAnimationFrame") && viewSrc.includes("this.scrollRafId");
+      addTest("V2.9 view.ts: scrollToBottom 用 requestAnimationFrame 合并", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 10: scrollRafId 字段声明 ----
+    {
+      const ok = viewSrc.includes("private scrollRafId: number | null = null;");
+      addTest("V2.9 view.ts: 含 scrollRafId 字段", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 11: onClose 清理 scrollRafId（cancelAnimationFrame）----
+    {
+      const ok = viewSrc.includes("window.cancelAnimationFrame(this.scrollRafId)");
+      addTest("V2.9 view.ts: onClose 清理 scrollRafId 避免关闭后回调", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 源码检查：listSessions 5s 缓存守卫 =====
+
+    // ---- Test 12: refreshHistory 含 force 参数 + 5s 缓存守卫 ----
+    {
+      const ok = viewSrc.includes("refreshHistory(force = false)")
+        && viewSrc.includes("Date.now() - this.historyLastLoadAt < 5000");
+      addTest("V2.9 view.ts: refreshHistory 含 5s 缓存守卫 + force 参数", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 13: ↻ 按钮强制重载 refreshHistory(true) ----
+    {
+      const ok = viewSrc.includes("void this.refreshHistory(true)");
+      addTest("V2.9 view.ts: ↻ 按钮强制重载", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 14: historyLastLoadAt 字段 + 缓存命中时跳过读盘 ----
+    {
+      const ok = viewSrc.includes("private historyLastLoadAt = 0;")
+        && viewSrc.includes("this.historyLastLoadAt = Date.now();");
+      addTest("V2.9 view.ts: 含 historyLastLoadAt 缓存时间戳", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 源码检查：History 搜索框 =====
+
+    // ---- Test 15: 含 historySearch 相关字段 ----
+    {
+      const ok = viewSrc.includes("private historySearchEl!")
+        && viewSrc.includes("private historySearchQuery =")
+        && viewSrc.includes("private historySearchDebounceTimer:");
+      addTest("V2.9 view.ts: 含 historySearch 字段（El/Query/Debounce）", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 16: 含搜索框 UI（input + placeholder）----
+    {
+      const ok = viewSrc.includes("llm-bridge-history-search-input")
+        && viewSrc.includes("搜索会话标题");
+      addTest("V2.9 view.ts: 含历史搜索框 UI", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 17: 含 300ms 防抖 ----
+    {
+      // historySearchDebounceTimer 在 300ms setTimeout 回调中清空
+      const ok = viewSrc.includes("historySearchDebounceTimer = window.setTimeout")
+        && viewSrc.includes("}, 300);");
+      addTest("V2.9 view.ts: 历史搜索 300ms 防抖", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 18: renderHistoryList 含过滤逻辑（toLowerCase().includes）----
+    {
+      const ok = viewSrc.includes("it.title.toLowerCase().includes(query)");
+      addTest("V2.9 view.ts: renderHistoryList 按标题子串过滤", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 19: historyBodyEl 与 listContainer 分离（搜索框不被 empty() 清空）----
+    {
+      const ok = viewSrc.includes("private historyBodyEl!")
+        && viewSrc.includes("llm-bridge-history-list-container")
+        && viewSrc.includes("this.historyBodyEl.hasAttribute(\"hidden\")");
+      addTest("V2.9 view.ts: historyBodyEl + listContainer 分离", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 20: 搜索时 countLabel 显示「匹配数/总数」----
+    {
+      const ok = viewSrc.includes("${filtered.length}/${this.historyItems.length}");
+      addTest("V2.9 view.ts: 搜索时显示匹配数/总数", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 不回归 =====
+
+    // ---- Test 21: ClaudeCliBackend 可实例化（CLI 主线不回归）----
+    {
+      let ok = false; let detail = "";
+      try {
+        const b = new ClaudeCliBackend();
+        ok = !!b;
+      } catch (e) {
+        detail = e?.message || String(e);
+      }
+      addTest("V2.9 CLI 不回归: ClaudeCliBackend 可实例化", ok ? "pass" : "fail", detail);
+    }
+
+    // ---- Test 22: sdk-experimental 默认关闭 ----
+    {
+      addTest("V2.9 SDK 默认关闭: DEFAULT_SETTINGS.backendMode = auto",
+        DEFAULT_SETTINGS.backendMode === "auto" ? "pass" : "fail",
+        `mode=${DEFAULT_SETTINGS.backendMode}`);
+    }
+
+    // ---- Test 23: SESSION_SCHEMA_VERSION 仍为 1（V2.9 不改 schema）----
+    {
+      addTest("V2.9 schema 不变: SESSION_SCHEMA_VERSION = 1",
+        SESSION_SCHEMA_VERSION === 1 ? "pass" : "fail",
+        `version=${SESSION_SCHEMA_VERSION}`);
+    }
+
+  } catch (e) {
+    addTest("V2.9 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (workflowEventBundleV29) rmSync(workflowEventBundleV29, { force: true }); } catch {}
+    try { if (cliBackendBundleV29) rmSync(cliBackendBundleV29, { force: true }); } catch {}
+    try { if (typesBundleV29) rmSync(typesBundleV29, { force: true }); } catch {}
+    try { if (sessionsBundleV29) rmSync(sessionsBundleV29, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");

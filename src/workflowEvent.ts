@@ -304,6 +304,8 @@ export interface ToolTimelineEntry {
   readonly output: string | null;
   readonly isError: boolean;
   readonly status: "running" | "done" | "error";
+  /** V2.9: 所属 agent 标识（undefined=主 agent，字符串=subagent 的 parentToolUseId），用于 O(1) 分组，替代下游线性扫描 */
+  readonly parentToolUseId: string | undefined;
 }
 
 /**
@@ -331,6 +333,8 @@ export function buildToolTimeline(events: ReadonlyArray<WorkflowEvent>): ToolTim
         output: null,
         isError: false,
         status: "running",
+        // V2.9: 顺手记录 parentToolUseId，避免下游为每个 tool 重新线性扫描 events
+        parentToolUseId: event.parentToolUseId,
       };
       byCallId.set(event.callId, entries.length);
       entries.push(entry);

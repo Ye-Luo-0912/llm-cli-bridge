@@ -1,20 +1,20 @@
 # LLM CLI Bridge 测试报告
 
-- **测试时间**: 2026-06-29T04:13:01.173Z
+- **测试时间**: 2026-06-29T04:38:22.712Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.8.0
-- **main.js 大小**: 302.4 KB
+- **main.js 大小**: 304.8 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 63019
 
 ## 测试汇总
 
-- ✅ **通过**: 493
+- ✅ **通过**: 516
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 1
 - ⚪ **需人工验证**: 2
-- **总计**: 496
+- **总计**: 519
 
 ## 详细结果
 
@@ -141,7 +141,7 @@
 | ✅ | state 命令 | - |
 | ✅ | show_notice 命令 | - |
 | ✅ | --json 标志输出有效 JSON | - |
-| ✅ | --wait --timeout 超时行为 | 耗时: 3283ms, stderr包含timeout: true |
+| ✅ | --wait --timeout 超时行为 | 耗时: 3159ms, stderr包含timeout: true |
 | ✅ | bridge.json 缺失时错误提示 | 正确提示 bridge.json 缺失 |
 
 ### Contract
@@ -1078,7 +1078,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-06-29T04-13-36-123Z-wepkew |
+| ✅ | 返回非空 id | id=s-2026-06-29T04-38-57-751Z-pda16v |
 
 ### V2.5 Session 版本
 
@@ -1097,7 +1097,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-06-29T04-13-36-220Z-1vdf8s second=s-2026-06-29T04-13-36-136Z-qpkfzd |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-06-29T04-38-57-831Z-dza253 second=s-2026-06-29T04-38-57-765Z-l49gdj |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1124,7 +1124,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-06-29T04-13-36-251Z-lj65mj id2=s-2026-06-29T04-13-36-251Z-cn1ljm |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-06-29T04-38-57-874Z-6xn8wg id2=s-2026-06-29T04-38-57-874Z-pmyoyf |
 
 ### V2.5 Session 上限
 
@@ -1222,7 +1222,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-06-29T04:13:36.322Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-06-29T04:38:57.947Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1310,7 +1310,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-06-29T04:13:36.371Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-06-29T04:38:58.005Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 1
 
@@ -1416,7 +1416,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-06-29T04:13:36.426Z after=2026-06-29T04:13:36.479Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-06-29T04:38:58.075Z after=2026-06-29T04:38:58.137Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -1453,6 +1453,59 @@
 | ✅ | DEFAULT_SETTINGS.backendMode = auto | mode=auto |
 
 ### V2.8 schema 不变
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | SESSION_SCHEMA_VERSION = 1 | version=1 |
+
+### V2.9 buildToolTimeline
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 主 agent tool parentToolUseId=undefined | len=1 pid=undefined |
+| ✅ | subagent tool 记录 parentToolUseId | pid=parent-abc |
+| ✅ | 配对后 parentToolUseId 保留 | pid=p1 status=done |
+| ✅ | main/subagent O(1) 分组正确 | total=4 main=2 sub=2 |
+| ✅ | 多 subagent 各自保留 parentToolUseId | p1=pA p2=pB |
+
+### V2.9 workflowEvent.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | ToolTimelineEntry 含 parentToolUseId 字段 | - |
+
+### V2.9 view.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | appendSdkWorkflow 用 entry.parentToolUseId O(1) 分组 | - |
+| ✅ | findToolParentAgent 线性扫描方法已移除 | - |
+| ✅ | scrollToBottom 用 requestAnimationFrame 合并 | - |
+| ✅ | 含 scrollRafId 字段 | - |
+| ✅ | onClose 清理 scrollRafId 避免关闭后回调 | - |
+| ✅ | refreshHistory 含 5s 缓存守卫 + force 参数 | - |
+| ✅ | ↻ 按钮强制重载 | - |
+| ✅ | 含 historyLastLoadAt 缓存时间戳 | - |
+| ✅ | 含 historySearch 字段（El/Query/Debounce） | - |
+| ✅ | 含历史搜索框 UI | - |
+| ✅ | 历史搜索 300ms 防抖 | - |
+| ✅ | renderHistoryList 按标题子串过滤 | - |
+| ✅ | historyBodyEl + listContainer 分离 | - |
+| ✅ | 搜索时显示匹配数/总数 | - |
+
+### V2.9 CLI 不回归
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | ClaudeCliBackend 可实例化 | - |
+
+### V2.9 SDK 默认关闭
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | DEFAULT_SETTINGS.backendMode = auto | mode=auto |
+
+### V2.9 schema 不变
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
