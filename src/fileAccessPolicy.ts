@@ -97,9 +97,12 @@ export function evaluateFileAccess(policy: FileAccessPolicy, request: FileAccess
 
   const sensitive = isSensitivePath(parsed.resolvedPath);
   if (sensitive) {
+    const decision = request.operation === "read" && policy.sensitivePathMode === "confirm"
+      ? "confirm"
+      : "deny";
     return buildDecision(
       request.operation,
-      policy.sensitivePathMode === "confirm" ? "confirm" : "deny",
+      decision,
       "sensitive_path",
       "high",
       parsed.resolvedPath,

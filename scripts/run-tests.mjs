@@ -9414,6 +9414,10 @@ if (!runV214BUnit) {
       const confirmPolicy = createFileAccessPolicy({ vaultPath: "C:\\Vault", sensitivePathMode: "confirm" });
       const denied = evaluateFileAccess(denyPolicy, { operation: "read", path: ".env" });
       const confirmed = evaluateFileAccess(confirmPolicy, { operation: "read", path: ".env" });
+      const writeConfirmed = evaluateFileAccess(confirmPolicy, { operation: "write", path: ".env" });
+      const deleteConfirmed = evaluateFileAccess(confirmPolicy, { operation: "delete", path: ".env" });
+      const renameSensitiveSource = evaluateFileAccess(confirmPolicy, { operation: "rename", path: ".env", targetPath: "notes\\env.md" });
+      const renameSensitiveTarget = evaluateFileAccess(confirmPolicy, { operation: "rename", path: "notes\\safe.md", targetPath: ".env" });
       const directSensitive = [
         "C:\\Vault\\.obsidian\\workspace.json",
         "C:\\Vault\\.git\\config",
@@ -9426,9 +9430,14 @@ if (!runV214BUnit) {
         && denied.reason === "sensitive_path"
         && confirmed.decision === "confirm"
         && confirmed.risk === "high"
+        && writeConfirmed.decision === "deny"
+        && deleteConfirmed.decision === "deny"
+        && renameSensitiveSource.decision === "deny"
+        && renameSensitiveTarget.decision === "deny"
         && directSensitive;
-      addTest("V2.14.0-B sensitive: 默认拒绝，强确认模式返回 confirm",
-        ok ? "pass" : "fail", `deny=${denied.decision}/${denied.reason} confirm=${confirmed.decision}/${confirmed.risk} direct=${directSensitive}`);
+      addTest("V2.14.0-B/B1 sensitive: read 可 confirm，写删改敏感路径 hard deny",
+        ok ? "pass" : "fail",
+        `readDeny=${denied.decision}/${denied.reason} readConfirm=${confirmed.decision}/${confirmed.risk} write=${writeConfirmed.decision} delete=${deleteConfirmed.decision} renameSrc=${renameSensitiveSource.decision} renameTarget=${renameSensitiveTarget.decision} direct=${directSensitive}`);
     }
 
     {
