@@ -8528,6 +8528,215 @@ if (!runV2121Unit) {
 }
 
 // ============================================================
+// 8.22 V2.13.0-C Agent Skill Manifest + Materialization 单元测试
+// ============================================================
+console.log("\n=== V2.13.0-C Agent Skill Manifest + Materialization 单元测试 ===");
+
+const runV213CUnit = runMode === "all" || runMode === "unit";
+
+if (!runV213CUnit) {
+  addTest("V2.13.0-C Agent Skill Manifest 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let agentSkillsBundleV213C = null;
+  let tempAgentSkillVault = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    agentSkillsBundleV213C = join(tmpdir(), `agent-skills-v213c-${Date.now()}.mjs`);
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "agentSkills.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: agentSkillsBundleV213C,
+      logLevel: "silent",
+    });
+
+    const {
+      AGENT_SKILLS_FILE_REL,
+      AGENT_SKILL_FILE_NAME,
+      CLAUDE_SKILLS_DIR_REL,
+      createAgentSkillRecord,
+      createAgentSkillFromPromptSnippet,
+      createEmptyAgentSkillsManifest,
+      loadAgentSkillsManifest,
+      saveAgentSkillsManifest,
+      slugifyAgentSkillName,
+      materializedSkillPathForSlug,
+      serializeAgentSkillToMarkdown,
+      computeAgentSkillSourceHash,
+      materializeAgentSkill,
+      materializeEnabledAgentSkills,
+    } = await import(pathToFileURL(agentSkillsBundleV213C).href);
+
+    tempAgentSkillVault = mkdtempSync(join(tmpdir(), "llm-bridge-agent-skills-v213c-"));
+
+    {
+      const ok = AGENT_SKILLS_FILE_REL === ".llm-bridge/agent-skills.json"
+        && CLAUDE_SKILLS_DIR_REL === ".claude/skills"
+        && AGENT_SKILL_FILE_NAME === "SKILL.md";
+      addTest("V2.13.0-C 常量: manifest 与 Claude Skills 路径正确", ok ? "pass" : "fail", "");
+    }
+
+    {
+      const ascii = slugifyAgentSkillName("Code Review Helper");
+      const cjk = slugifyAgentSkillName("代码审查");
+      const dedup = slugifyAgentSkillName("Code Review Helper", [ascii]);
+      const ok = ascii === "code-review-helper"
+        && /^skill-[a-f0-9]{8}$/.test(cjk)
+        && dedup === "code-review-helper-2";
+      addTest("V2.13.0-C slug: ASCII/CJK fallback/去重正确", ok ? "pass" : "fail", `ascii=${ascii} cjk=${cjk} dedup=${dedup}`);
+    }
+
+    const record = createAgentSkillRecord({
+      id: "as-review",
+      name: "Review Skill",
+      description: "Review code changes",
+      instructions: "Inspect diffs and report blockers only.",
+      source: "manual",
+    }, [], "2026-06-30T00:00:00.000Z");
+
+    {
+      const ok = record.slug === "review-skill"
+        && record.materializedPath === materializedSkillPathForSlug(record.slug)
+        && record.materializedPath.endsWith("/SKILL.md")
+        && record.enabled === true
+        && record.materializedHash === "";
+      addTest("V2.13.0-C record: 创建 AgentSkillRecord 默认值正确", ok ? "pass" : "fail", JSON.stringify(record));
+    }
+
+    {
+      const converted = createAgentSkillFromPromptSnippet({
+        name: "翻译选区",
+        description: "Translate selected text",
+        prompt: "Translate the selected text into English.",
+      }, [], "2026-06-30T00:00:01.000Z");
+      const ok = converted.source === "converted"
+        && converted.instructions === "Translate the selected text into English."
+        && converted.materializedPath.endsWith("/SKILL.md");
+      addTest("V2.13.0-C convert: Prompt Snippet 可显式转换为 Agent Skill record", ok ? "pass" : "fail", `source=${converted.source}`);
+    }
+
+    {
+      const md = serializeAgentSkillToMarkdown(record);
+      const sourceHash = computeAgentSkillSourceHash(record);
+      const ok = md.startsWith("---\nname: \"Review Skill\"")
+        && md.includes("description: \"Review code changes\"")
+        && md.includes("<!-- generated-by: llm-cli-bridge -->")
+        && md.includes("<!-- source-id: as-review -->")
+        && md.includes(`<!-- source-hash: ${sourceHash} -->`)
+        && md.includes("# Instructions")
+        && md.includes("Inspect diffs and report blockers only.");
+      addTest("V2.13.0-C serializer: SKILL.md 含 frontmatter/marker/instructions", ok ? "pass" : "fail", "");
+    }
+
+    {
+      const empty = createEmptyAgentSkillsManifest();
+      const saved = await saveAgentSkillsManifest(tempAgentSkillVault, { ...empty, skills: [record] });
+      const loaded = await loadAgentSkillsManifest(tempAgentSkillVault);
+      const ok = saved
+        && loaded.version === 1
+        && loaded.skills.length === 1
+        && loaded.skills[0].id === "as-review"
+        && loaded.skills[0].materializedPath === record.materializedPath;
+      addTest("V2.13.0-C manifest: save/load 往返一致", ok ? "pass" : "fail", `saved=${saved} count=${loaded.skills.length}`);
+    }
+
+    let materialized = null;
+    {
+      materialized = await materializeAgentSkill(tempAgentSkillVault, record);
+      const expectedPath = join(tempAgentSkillVault, ".claude", "skills", "review-skill", "SKILL.md");
+      const content = readFileSync(expectedPath, "utf8");
+      const ok = materialized.ok
+        && materialized.status === "created"
+        && materialized.record.materializedHash.length === 64
+        && content.includes("<!-- generated-by: llm-cli-bridge -->");
+      addTest("V2.13.0-C materialize: 创建 .claude/skills/<slug>/SKILL.md", ok ? "pass" : "fail", `status=${materialized.status}`);
+    }
+
+    {
+      const skipped = await materializeAgentSkill(tempAgentSkillVault, materialized.record);
+      const ok = skipped.ok && skipped.status === "skipped";
+      addTest("V2.13.0-C materialize: 内容一致时 skipped", ok ? "pass" : "fail", `status=${skipped.status}`);
+    }
+
+    let updated = null;
+    {
+      const changed = {
+        ...materialized.record,
+        instructions: "Inspect diffs, report blockers, and cite files.",
+        updatedAt: "2026-06-30T00:00:02.000Z",
+      };
+      updated = await materializeAgentSkill(tempAgentSkillVault, changed);
+      const ok = updated.ok
+        && updated.status === "updated"
+        && updated.record.materializedHash !== materialized.record.materializedHash;
+      addTest("V2.13.0-C materialize: tracked generated file 可安全更新", ok ? "pass" : "fail", `status=${updated.status}`);
+    }
+
+    {
+      const target = join(tempAgentSkillVault, ".claude", "skills", "manual-skill", "SKILL.md");
+      mkdirSync(resolve(target, ".."), { recursive: true });
+      writeFileSync(target, "# User managed skill\n", "utf8");
+      const manualRecord = createAgentSkillRecord({
+        id: "as-manual-conflict",
+        slug: "manual-skill",
+        name: "Manual Skill",
+        description: "Should not overwrite user file",
+        instructions: "Never overwrite unmanaged SKILL.md.",
+      }, [], "2026-06-30T00:00:03.000Z");
+      const result = await materializeAgentSkill(tempAgentSkillVault, manualRecord);
+      const ok = !result.ok && result.status === "conflict" && /not plugin-generated/.test(result.reason || "");
+      addTest("V2.13.0-C materialize: 不覆盖非插件生成 SKILL.md", ok ? "pass" : "fail", result.reason || "");
+    }
+
+    {
+      const target = join(tempAgentSkillVault, ".claude", "skills", "review-skill", "SKILL.md");
+      writeFileSync(target, `${readFileSync(target, "utf8")}\nmanual edit\n`, "utf8");
+      const result = await materializeAgentSkill(tempAgentSkillVault, updated.record);
+      const ok = !result.ok && result.status === "conflict" && /changed after last materialization/.test(result.reason || "");
+      addTest("V2.13.0-C materialize: 检测插件生成文件被手工修改", ok ? "pass" : "fail", result.reason || "");
+    }
+
+    {
+      const disabled = createAgentSkillRecord({
+        id: "as-disabled",
+        name: "Disabled Agent Skill",
+        description: "Disabled",
+        instructions: "Should not materialize.",
+        enabled: false,
+      }, [], "2026-06-30T00:00:04.000Z");
+      const enabled = createAgentSkillRecord({
+        id: "as-enabled",
+        name: "Enabled Agent Skill",
+        description: "Enabled",
+        instructions: "Should materialize.",
+        enabled: true,
+      }, [], "2026-06-30T00:00:05.000Z");
+      const result = await materializeEnabledAgentSkills(tempAgentSkillVault, { version: 1, skills: [disabled, enabled] });
+      const disabledExists = existsSync(join(tempAgentSkillVault, disabled.materializedPath));
+      const enabledExists = existsSync(join(tempAgentSkillVault, enabled.materializedPath));
+      const ok = result.results.length === 1
+        && result.results[0].record.id === "as-enabled"
+        && !disabledExists
+        && enabledExists;
+      addTest("V2.13.0-C materializeEnabled: 只物化 enabled Agent Skills", ok ? "pass" : "fail", `results=${result.results.length}`);
+    }
+
+    {
+      const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
+      const ok = !promptPackageSrc.includes("activeSkillPrompts")
+        && !promptPackageSrc.includes("已启用 Skills");
+      addTest("V2.13.0-C boundary: Agent Skill 正文不拼进 promptPackage", ok ? "pass" : "fail", "");
+    }
+  } catch (e) {
+    addTest("V2.13.0-C Agent Skill Manifest 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (agentSkillsBundleV213C) rmSync(agentSkillsBundleV213C, { force: true }); } catch {}
+    try { if (tempAgentSkillVault) rmSync(tempAgentSkillVault, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");
