@@ -7,6 +7,7 @@ export type FileAccessRisk = "low" | "medium" | "high";
 export type FileAccessReason =
   | "inside_read_root"
   | "inside_write_root"
+  | "pending_read_request"
   | "outside_read_roots"
   | "outside_write_roots"
   | "sensitive_path"
@@ -17,13 +18,23 @@ export type FileAccessReason =
 export interface FileAccessRoot {
   input: string;
   resolvedPath: string;
-  kind: "vault" | "output" | "external";
+  kind: "vault" | "output" | "session-grant" | "attachment-grant";
+  match: "file" | "directory";
+}
+
+export interface FileAccessReadGrant {
+  path: string;
+  scope: "session" | "attachment";
+  match?: "file" | "directory";
+  grantedAt?: string;
+  source?: string;
 }
 
 export interface FileAccessPolicyConfig {
   vaultPath: string;
   outputDir?: string | null;
-  externalReadRoots?: string[];
+  sessionReadGrants?: FileAccessReadGrant[];
+  attachmentReadGrants?: FileAccessReadGrant[];
   sensitivePathMode?: "deny" | "confirm";
 }
 
@@ -58,22 +69,20 @@ interface ParsedPath {
 export function createFileAccessPolicy(config: FileAccessPolicyConfig): FileAccessPolicy {
   const vault = parseRootPath(config.vaultPath);
   const readRoots = dedupeRoots([
-    { input: config.vaultPath, resolvedPath: vault.resolvedPath, kind: "vault" as const },
-    ...(config.externalReadRoots || []).map((root) => {
-      const parsed = parseRootPath(root);
-      return { input: root, resolvedPath: parsed.resolvedPath, kind: "external" as const };
-    }),
+    { input: config.vaultPath, resolvedPath: vault.resolvedPath, kind: "vault" as const, match: "directory" as const },
+    ...readGrantRoots(config.sessionReadGrants || [], "session-grant"),
+    ...readGrantRoots(config.attachmentReadGrants || [], "attachment-grant"),
   ]);
 
   const writeRoots: FileAccessRoot[] = [
-    { input: config.vaultPath, resolvedPath: vault.resolvedPath, kind: "vault" },
+    { input: config.vaultPath, resolvedPath: vault.resolvedPath, kind: "vault", match: "directory" },
   ];
 
   const outputDir = (config.outputDir || "").trim();
   if (outputDir) {
     const outputPath = resolveCandidatePath(config.vaultPath, outputDir);
     if (outputPath && isPathInside(outputPath.resolvedPath, vault.resolvedPath)) {
-      writeRoots.push({ input: outputDir, resolvedPath: outputPath.resolvedPath, kind: "output" });
+      writeRoots.push({ input: outputDir, resolvedPath: outputPath.resolvedPath, kind: "output", match: "directory" });
     }
   }
 
@@ -112,8 +121,8 @@ export function evaluateFileAccess(policy: FileAccessPolicy, request: FileAccess
   if (request.operation === "read") {
     const readRoot = findContainingRoot(parsed.resolvedPath, policy.readRoots);
     return readRoot
-      ? buildDecision("read", "allow", "inside_read_root", readRoot.kind === "external" ? "medium" : "low", parsed.resolvedPath, readRoot)
-      : buildDecision("read", "deny", "outside_read_roots", "medium", parsed.resolvedPath);
+      ? buildDecision("read", "allow", "inside_read_root", readRoot.kind === "vault" ? "low" : "medium", parsed.resolvedPath, readRoot)
+      : buildDecision("read", "confirm", "pending_read_request", "medium", parsed.resolvedPath);
   }
 
   const writeRoot = findContainingRoot(parsed.resolvedPath, policy.writeRoots);
@@ -202,19 +211,40 @@ function hasPathTraversal(input: string): boolean {
 }
 
 function findContainingRoot(candidatePath: string, roots: FileAccessRoot[]): FileAccessRoot | undefined {
-  return roots.find((root) => isPathInside(candidatePath, root.resolvedPath));
+  return roots.find((root) => {
+    if (root.match === "file") {
+      return parseRootPath(candidatePath).resolvedPath === root.resolvedPath;
+    }
+    return isPathInside(candidatePath, root.resolvedPath);
+  });
 }
 
 function dedupeRoots(roots: FileAccessRoot[]): FileAccessRoot[] {
   const seen = new Set<string>();
   const out: FileAccessRoot[] = [];
   for (const root of roots) {
-    const key = root.resolvedPath;
+    const key = `${root.kind}:${root.match}:${root.resolvedPath}`;
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(root);
   }
   return out;
+}
+
+function readGrantRoots(grants: FileAccessReadGrant[], kind: "session-grant" | "attachment-grant"): FileAccessRoot[] {
+  const roots: FileAccessRoot[] = [];
+  for (const grant of grants) {
+    if (grant.scope === "session" && kind !== "session-grant") continue;
+    if (grant.scope === "attachment" && kind !== "attachment-grant") continue;
+    const parsed = parseRootPath(grant.path);
+    roots.push({
+      input: grant.path,
+      resolvedPath: parsed.resolvedPath,
+      kind,
+      match: grant.match || "file",
+    });
+  }
+  return roots;
 }
 
 function buildDecision(

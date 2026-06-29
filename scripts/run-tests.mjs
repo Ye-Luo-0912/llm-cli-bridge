@@ -9332,6 +9332,7 @@ if (!runV214BUnit) {
     } = await import(pathToFileURL(fileAccessPolicyBundleV214B).href);
 
     const reportSrc = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-B_FILE_ACCESS_POLICY_MODULE.md"), "utf8");
+    const reportSrcV214C = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-C_ON_DEMAND_EXTERNAL_READ_AUTHORIZATION.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const cliBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeCliBackend.ts"), "utf8");
     const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
@@ -9342,8 +9343,10 @@ if (!runV214BUnit) {
         .every((fn) => typeof fn === "function");
       const reportOk = ["## PolicyTypes", "## Decisions", "## PathSafety", "## Tests", "## RemainingRisk", "## Recommendation"]
         .every((heading) => reportSrc.includes(heading));
-      addTest("V2.14.0-B exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk ? "pass" : "fail", `exports=${exportsOk} report=${reportOk}`);
+      const reportCOk = ["## GrantModel", "## DecisionFlow", "## UserFriction", "## Tests", "## RemainingRisk", "## Recommendation"]
+        .every((heading) => reportSrcV214C.includes(heading));
+      addTest("V2.14.0-B/C exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk ? "pass" : "fail", `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk}`);
     }
 
     {
@@ -9357,18 +9360,37 @@ if (!runV214BUnit) {
     }
 
     {
-      const policy = createFileAccessPolicy({
+      const ungrantedPolicy = createFileAccessPolicy({ vaultPath: "C:\\Vault" });
+      const sessionPolicy = createFileAccessPolicy({
         vaultPath: "C:\\Vault",
-        externalReadRoots: ["D:\\References"],
+        sessionReadGrants: [{ path: "D:\\References\\paper.md", scope: "session" }],
       });
-      const read = evaluateFileAccess(policy, { operation: "read", path: "D:\\References\\paper.md" });
-      const write = evaluateFileAccess(policy, { operation: "write", path: "D:\\References\\paper.md" });
-      const ok = read.decision === "allow"
-        && read.reason === "inside_read_root"
+      const attachmentPolicy = createFileAccessPolicy({
+        vaultPath: "C:\\Vault",
+        attachmentReadGrants: [{ path: "D:\\Drop\\diagram.png", scope: "attachment" }],
+      });
+      const vaultRead = evaluateFileAccess(ungrantedPolicy, { operation: "read", path: "notes\\today.md" });
+      const pendingRead = evaluateFileAccess(ungrantedPolicy, { operation: "read", path: "D:\\References\\paper.md" });
+      const sessionRead = evaluateFileAccess(sessionPolicy, { operation: "read", path: "D:\\References\\paper.md" });
+      const siblingRead = evaluateFileAccess(sessionPolicy, { operation: "read", path: "D:\\References\\other.md" });
+      const attachmentRead = evaluateFileAccess(attachmentPolicy, { operation: "read", path: "D:\\Drop\\diagram.png" });
+      const write = evaluateFileAccess(sessionPolicy, { operation: "write", path: "D:\\References\\paper.md" });
+      const del = evaluateFileAccess(sessionPolicy, { operation: "delete", path: "D:\\References\\paper.md" });
+      const rename = evaluateFileAccess(sessionPolicy, { operation: "rename", path: "D:\\References\\paper.md", targetPath: "D:\\References\\paper2.md" });
+      const ok = vaultRead.decision === "allow"
+        && pendingRead.decision === "confirm"
+        && pendingRead.reason === "pending_read_request"
+        && sessionRead.decision === "allow"
+        && sessionRead.matchedRoot?.kind === "session-grant"
+        && siblingRead.decision === "confirm"
+        && attachmentRead.decision === "allow"
+        && attachmentRead.matchedRoot?.kind === "attachment-grant"
         && write.decision === "deny"
-        && write.reason === "outside_write_roots";
-      addTest("V2.14.0-B external read: 外部显式 read root 可读不可写",
-        ok ? "pass" : "fail", `read=${read.decision}/${read.reason} write=${write.decision}/${write.reason}`);
+        && del.decision === "deny"
+        && rename.decision === "deny";
+      addTest("V2.14.0-C on-demand external read: 未授权 confirm，session/attachment grant allow，外部写删改 deny",
+        ok ? "pass" : "fail",
+        `vault=${vaultRead.decision} pending=${pendingRead.decision}/${pendingRead.reason} session=${sessionRead.decision}/${sessionRead.matchedRoot?.kind} sibling=${siblingRead.decision} attachment=${attachmentRead.decision}/${attachmentRead.matchedRoot?.kind} write=${write.decision} delete=${del.decision} rename=${rename.decision}`);
     }
 
     {
