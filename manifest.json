@@ -1,7 +1,7 @@
 {
   "id": "llm-cli-bridge",
   "name": "LLM CLI Bridge",
-  "version": "2.10.0",
+  "version": "2.11.0",
   "minAppVersion": "1.4.0",
   "description": "将 Obsidian 桥接到本地 Claude Code / Codex CLI agent，仅在桌面端运行。",
   "author": "Ye_Luo",

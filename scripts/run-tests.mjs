@@ -7354,6 +7354,282 @@ if (!runV210Unit) {
 }
 
 // ============================================================
+// 8.18 V2.11 Bug Fix 单元测试
+//     覆盖：B-010 scan-sensitive 误报修复 /
+//           SCAN_EXCLUDE_DIRS 跳过 node_modules/.git/.llm-bridge/dist/build /
+//           --strict 标志（默认 false） / isTestFile 文件级判断 / isTestFixture 上下文判断 /
+//           CLI 不回归 + sdk-experimental 默认关闭 + schema 不变
+// ============================================================
+console.log("\n=== V2.11 Bug Fix 单元测试 ===");
+
+const runV211Unit = runMode === "all" || runMode === "unit";
+
+if (!runV211Unit) {
+  addTest("V2.11 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let cliBackendBundleV211 = null;
+  let typesBundleV211 = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    cliBackendBundleV211 = join(PROJECT_ROOT, ".test-cli-backend-v211-temp.mjs");
+    typesBundleV211 = join(PROJECT_ROOT, ".test-types-v211-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV211,
+      external: ["obsidian"],
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "types.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: typesBundleV211,
+    });
+
+    const scanSrc = readFileSync(join(PROJECT_ROOT, "scripts", "scan-sensitive.mjs"), "utf-8");
+    const { spawnSync } = await import("node:child_process");
+
+    // 辅助：在临时目录运行 scan-sensitive.mjs，返回 { exitCode, stdout, stderr }
+    function runScan(targetDir, extraArgs = []) {
+      const result = spawnSync(
+        process.execPath,
+        [join(PROJECT_ROOT, "scripts", "scan-sensitive.mjs"), targetDir, ...extraArgs],
+        { encoding: "utf8", timeout: 15000 },
+      );
+      return {
+        exitCode: result.status,
+        stdout: result.stdout || "",
+        stderr: result.stderr || "",
+      };
+    }
+
+    // ===== B-010: scan-sensitive.mjs 源码结构 =====
+
+    // ---- Test 1: 解析 --strict 标志（默认 false） ----
+    {
+      const ok = scanSrc.includes('argv.includes("--strict")')
+        && scanSrc.includes("const strictMode");
+      addTest("V2.11 B-010: 解析 --strict 标志（默认 false）", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 2: SCAN_EXCLUDE_DIRS 含 5 个目录 ----
+    {
+      const ok = scanSrc.includes("SCAN_EXCLUDE_DIRS")
+        && scanSrc.includes('"node_modules"')
+        && scanSrc.includes('".git"')
+        && scanSrc.includes('".llm-bridge"')
+        && scanSrc.includes('"dist"')
+        && scanSrc.includes('"build"');
+      addTest("V2.11 B-010: SCAN_EXCLUDE_DIRS 含 node_modules/.git/.llm-bridge/dist/build", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 3: walk 函数跳过 SCAN_EXCLUDE_DIRS ----
+    {
+      const idx = scanSrc.indexOf("function walk(dir)");
+      const snippet = idx >= 0 ? scanSrc.slice(idx, idx + 400) : "";
+      const ok = snippet.includes("SCAN_EXCLUDE_DIRS.has(entry.name)") && snippet.includes("continue");
+      addTest("V2.11 B-010: walk 函数跳过 SCAN_EXCLUDE_DIRS", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 4: TEST_FIXTURE_MARKERS 含测试假数据标记 ----
+    {
+      const ok = scanSrc.includes("TEST_FIXTURE_MARKERS")
+        && scanSrc.includes('"test"')
+        && scanSrc.includes('"fixture"')
+        && scanSrc.includes('"假数据"')
+        && scanSrc.includes('"mock"');
+      addTest("V2.11 B-010: TEST_FIXTURE_MARKERS 含测试假数据标记", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 5: isTestFile 函数存在且含测试文件判断 ----
+    {
+      const ok = scanSrc.includes("function isTestFile(rel, base)")
+        && scanSrc.includes('".test."')
+        && scanSrc.includes('"run-tests"');
+      addTest("V2.11 B-010: isTestFile 函数判断测试文件", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 6: isTestFixture 函数存在且用 lastIndexOf/indexOf 优化 ----
+    {
+      const ok = scanSrc.includes("function isTestFixture(content, matchIndex)")
+        && scanSrc.includes('content.lastIndexOf("\\n"')
+        && scanSrc.includes('content.indexOf("\\n"');
+      addTest("V2.11 B-010: isTestFixture 用 lastIndexOf/indexOf 优化上下文扫描", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 7: 主循环含测试文件整体跳过逻辑 ----
+    {
+      const ok = scanSrc.includes("const skipFileAsFixture = !strictMode && isTestFile")
+        && scanSrc.includes("skippedFixtures++");
+      addTest("V2.11 B-010: 主循环非 strict 模式跳过测试文件", ok ? "pass" : "fail", "");
+    }
+
+    // ===== B-010: 实际运行 scan-sensitive.mjs =====
+
+    // ---- Test 8: 默认模式扫描干净目录 → exit 0 ----
+    {
+      const tmpDir = mkdtempSync(join(tmpdir(), "v211-clean-"));
+      try {
+        writeFileSync(join(tmpDir, "normal.md"), "# just normal content\nnothing sensitive here\n");
+        const r = runScan(tmpDir);
+        const ok = r.exitCode === 0 && r.stdout.includes("无敏感信息");
+        addTest("V2.11 B-010: 默认模式扫描干净目录 exit 0", ok ? "pass" : "fail", `exit=${r.exitCode} out=${r.stdout.slice(0, 80)}`);
+      } catch (e) {
+        addTest("V2.11 B-010: 默认模式扫描干净目录 exit 0", "fail", e?.message || String(e));
+      } finally {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // ---- Test 9: 默认模式扫描含真实 sk-ant key 的普通文件 → exit 1 ----
+    {
+      const tmpDir = mkdtempSync(join(tmpdir(), "v211-real-secret-"));
+      try {
+        writeFileSync(join(tmpDir, "config.md"), `# config\napi_key = sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ\n`);
+        const r = runScan(tmpDir);
+        const ok = r.exitCode === 1 && r.stderr.includes("命中");
+        addTest("V2.11 B-010: 默认模式扫描真实 sk-ant key exit 1", ok ? "pass" : "fail", `exit=${r.exitCode} err=${r.stderr.slice(0, 80)}`);
+      } catch (e) {
+        addTest("V2.11 B-010: 默认模式扫描真实 sk-ant key exit 1", "fail", e?.message || String(e));
+      } finally {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // ---- Test 10: 默认模式扫描含假数据的测试文件 → exit 0（整体跳过）----
+    {
+      const tmpDir = mkdtempSync(join(tmpdir(), "v211-test-fixture-"));
+      try {
+        // 文件名含 .test. 触发 isTestFile 整体跳过
+        writeFileSync(join(tmpDir, "redact.test.md"),
+          `# 测试用例\n// 假数据 fixture mock\nconst key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ";\n`);
+        const r = runScan(tmpDir);
+        const ok = r.exitCode === 0 && r.stdout.includes("跳过");
+        addTest("V2.11 B-010: 默认模式跳过测试文件中的假数据", ok ? "pass" : "fail", `exit=${r.exitCode} out=${r.stdout.slice(0, 100)}`);
+      } catch (e) {
+        addTest("V2.11 B-010: 默认模式跳过测试文件中的假数据", "fail", e?.message || String(e));
+      } finally {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // ---- Test 11: --strict 模式扫描测试文件中的假数据 → exit 1（全扫描）----
+    {
+      const tmpDir = mkdtempSync(join(tmpdir(), "v211-strict-"));
+      try {
+        writeFileSync(join(tmpDir, "redact.test.md"),
+          `# 测试用例\nconst key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ";\n`);
+        const r = runScan(tmpDir, ["--strict"]);
+        const ok = r.exitCode === 1 && r.stderr.includes("命中");
+        addTest("V2.11 B-010: --strict 模式检出测试文件中的假数据", ok ? "pass" : "fail", `exit=${r.exitCode} err=${r.stderr.slice(0, 80)}`);
+      } catch (e) {
+        addTest("V2.11 B-010: --strict 模式检出测试文件中的假数据", "fail", e?.message || String(e));
+      } finally {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // ---- Test 12: 默认模式扫描跳过 node_modules 子目录中的敏感信息 ----
+    {
+      const tmpDir = mkdtempSync(join(tmpdir(), "v211-exclude-dirs-"));
+      try {
+        mkdirSync(join(tmpDir, "node_modules"));
+        writeFileSync(join(tmpDir, "node_modules", "pkg.md"),
+          `api_key = sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ\n`);
+        writeFileSync(join(tmpDir, "normal.md"), "# clean\n");
+        const r = runScan(tmpDir);
+        const ok = r.exitCode === 0 && !r.stderr.includes("命中");
+        addTest("V2.11 B-010: 默认模式跳过 node_modules 子目录", ok ? "pass" : "fail", `exit=${r.exitCode} err=${r.stderr.slice(0, 80)}`);
+      } catch (e) {
+        addTest("V2.11 B-010: 默认模式跳过 node_modules 子目录", "fail", e?.message || String(e));
+      } finally {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // ---- Test 13: 默认模式扫描跳过 .git 子目录 ----
+    {
+      const tmpDir = mkdtempSync(join(tmpdir(), "v211-git-"));
+      try {
+        mkdirSync(join(tmpDir, ".git"));
+        writeFileSync(join(tmpDir, ".git", "config.md"),
+          `token = sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ\n`);
+        writeFileSync(join(tmpDir, "ok.md"), "# ok\n");
+        const r = runScan(tmpDir);
+        const ok = r.exitCode === 0;
+        addTest("V2.11 B-010: 默认模式跳过 .git 子目录", ok ? "pass" : "fail", `exit=${r.exitCode}`);
+      } catch (e) {
+        addTest("V2.11 B-010: 默认模式跳过 .git 子目录", "fail", e?.message || String(e));
+      } finally {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // ---- Test 14: 默认模式扫描非测试文件中的零散假数据（含 fixture 标记）→ exit 0 ----
+    {
+      const tmpDir = mkdtempSync(join(tmpdir(), "v211-fixture-ctx-"));
+      try {
+        // 普通文件名，但内容含 fixture/mock 标记 + 假数据，靠 isTestFixture 上下文识别
+        writeFileSync(join(tmpDir, "notes.md"),
+          `# 笔记\n\n## test fixture mock 假数据\nkey = sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ\n`);
+        const r = runScan(tmpDir);
+        const ok = r.exitCode === 0 && r.stdout.includes("跳过");
+        addTest("V2.11 B-010: 默认模式用 isTestFixture 识别零散假数据", ok ? "pass" : "fail", `exit=${r.exitCode} out=${r.stdout.slice(0, 100)}`);
+      } catch (e) {
+        addTest("V2.11 B-010: 默认模式用 isTestFixture 识别零散假数据", "fail", e?.message || String(e));
+      } finally {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // ===== 不回归 =====
+
+    // ---- Test 15: CLI 不回归 ----
+    {
+      let ok = false;
+      let detail = "";
+      try {
+        const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV211).href);
+        const backend = new ClaudeCliBackend();
+        ok = typeof backend.run === "function" && typeof backend.name === "string";
+        detail = `run=${typeof backend.run} name=${backend.name}`;
+      } catch (e) {
+        detail = e?.message || String(e);
+      }
+      addTest("V2.11 CLI 不回归: ClaudeCliBackend 可实例化", ok ? "pass" : "fail", detail);
+    }
+
+    // ---- Test 16: SDK 默认关闭 ----
+    {
+      const { DEFAULT_SETTINGS } = await import(pathToFileURL(typesBundleV211).href);
+      const ok = DEFAULT_SETTINGS.backendMode === "auto";
+      addTest("V2.11 SDK 默认关闭: DEFAULT_SETTINGS.backendMode = auto",
+        ok ? "pass" : "fail", `backendMode=${DEFAULT_SETTINGS.backendMode}`);
+    }
+
+    // ---- Test 17: SESSION_SCHEMA_VERSION 仍为 1（V2.11 不改 schema）----
+    {
+      const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
+      const match = sessionsSrc.match(/SESSION_SCHEMA_VERSION\s*=\s*(\d+)/);
+      const ok = match && match[1] === "1";
+      addTest("V2.11 schema 不变: SESSION_SCHEMA_VERSION = 1",
+        ok ? "pass" : "fail", `value=${match?.[1] ?? "not found"}`);
+    }
+
+    // ---- Test 18: 正则强制添加 g 标志（修复死循环 bug）----
+    {
+      const ok = scanSrc.includes('p.re.flags.includes("g")')
+        && scanSrc.includes('p.re.flags + "g"')
+        && scanSrc.includes("强制添加 g 标志");
+      addTest("V2.11 B-010: 正则强制添加 g 标志避免 re.exec 死循环", ok ? "pass" : "fail", "");
+    }
+
+  } catch (e) {
+    addTest("V2.11 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (cliBackendBundleV211) rmSync(cliBackendBundleV211, { force: true }); } catch {}
+    try { if (typesBundleV211) rmSync(typesBundleV211, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");
