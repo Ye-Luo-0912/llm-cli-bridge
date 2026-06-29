@@ -8866,6 +8866,203 @@ if (!runV213DUnit) {
 }
 
 // ============================================================
+// 8.24 V2.13.0-E SDK Capability-Gated Skills Alignment 单元测试
+// ============================================================
+console.log("\n=== V2.13.0-E SDK Capability-Gated Skills Alignment 单元测试 ===");
+
+const runV213EUnit = runMode === "all" || runMode === "unit";
+
+if (!runV213EUnit) {
+  addTest("V2.13.0-E SDK Skills Alignment 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let sdkBackendBundleV213E = null;
+  let agentSkillsBundleV213E = null;
+  let tempSdkSkillVault = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    sdkBackendBundleV213E = join(tmpdir(), `sdk-backend-v213e-${Date.now()}.mjs`);
+    agentSkillsBundleV213E = join(tmpdir(), `agent-skills-v213e-${Date.now()}.mjs`);
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sdkBackend.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: sdkBackendBundleV213E,
+      logLevel: "silent",
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "agentSkills.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: agentSkillsBundleV213E,
+      logLevel: "silent",
+    });
+
+    const {
+      SDK_SKILL_SETTING_SOURCES,
+      buildSdkAgentSkillsOptions,
+      buildSdkOptions,
+    } = await import(pathToFileURL(sdkBackendBundleV213E).href);
+    const {
+      createAgentSkillRecord,
+      saveAgentSkillsManifestSync,
+      loadAgentSkillsManifestSync,
+    } = await import(pathToFileURL(agentSkillsBundleV213E).href);
+
+    tempSdkSkillVault = mkdtempSync(join(tmpdir(), "llm-bridge-sdk-skills-v213e-"));
+
+    const baseSettings = {
+      agentType: "claude",
+      claudeCommand: "claude",
+      claudeArgs: "-p",
+      codexCommand: "codex",
+      codexArgs: "exec -",
+      customCommand: "",
+      customArgs: "",
+      includeActiveNote: false,
+      includeSelection: false,
+      maxActiveNoteChars: 6000,
+      maxSelectionChars: 3000,
+      outputDir: "",
+      showStderr: true,
+      saveLogs: false,
+      sessionMode: "fresh",
+      model: "",
+      effortLevel: "",
+      devTestMode: false,
+      backendMode: "sdk-experimental",
+      claudeContinueSession: false,
+      claudeResumeSessionId: "",
+      claudePermissionMode: "default",
+      claudeExtraArgs: "",
+      disabledSkills: [],
+      permissionPolicy: "medium",
+    };
+    const task = {
+      id: "v213e",
+      userMessage: "test",
+      prompt: "prompt",
+      cwd: tempSdkSkillVault,
+      createdAt: "2026-06-30T02:00:00.000Z",
+      includeActiveNote: false,
+      includeSelection: false,
+    };
+
+    {
+      const sourcesOk = Array.isArray(SDK_SKILL_SETTING_SOURCES)
+        && SDK_SKILL_SETTING_SOURCES.includes("user")
+        && SDK_SKILL_SETTING_SOURCES.includes("project")
+        && SDK_SKILL_SETTING_SOURCES.includes("local");
+      const result = buildSdkAgentSkillsOptions(tempSdkSkillVault);
+      const ok = sourcesOk
+        && result.ok
+        && result.skills.length === 0
+        && result.settingSources.includes("project");
+      addTest("V2.13.0-E SDK: 无 manifest 时传空 skills + settingSources，不阻塞", ok ? "pass" : "fail",
+        `sources=${JSON.stringify(result.settingSources)} skills=${JSON.stringify(result.skills)}`);
+    }
+
+    const enabled = createAgentSkillRecord({
+      id: "as-sdk-enabled",
+      name: "SDK Enabled Skill",
+      description: "Available to SDK runtime",
+      instructions: "Use this capability when asked.",
+      enabled: true,
+    }, [], "2026-06-30T02:00:01.000Z");
+    const disabled = createAgentSkillRecord({
+      id: "as-sdk-disabled",
+      name: "SDK Disabled Skill",
+      description: "Disabled",
+      instructions: "Should not be exposed to SDK.",
+      enabled: false,
+    }, [], "2026-06-30T02:00:02.000Z");
+    saveAgentSkillsManifestSync(tempSdkSkillVault, { version: 1, skills: [enabled, disabled] });
+
+    let sdkSkillOptions = null;
+    {
+      sdkSkillOptions = buildSdkAgentSkillsOptions(tempSdkSkillVault);
+      const loaded = loadAgentSkillsManifestSync(tempSdkSkillVault);
+      const loadedEnabled = loaded.skills.find((s) => s.id === enabled.id);
+      const ok = sdkSkillOptions.ok
+        && sdkSkillOptions.skills.length === 1
+        && sdkSkillOptions.skills[0] === enabled.slug
+        && !sdkSkillOptions.skills.includes(disabled.slug)
+        && existsSync(join(tempSdkSkillVault, enabled.materializedPath))
+        && !existsSync(join(tempSdkSkillVault, disabled.materializedPath))
+        && loadedEnabled?.materializedHash?.length === 64;
+      addTest("V2.13.0-E SDK: 只暴露 enabled Agent Skill slug 并物化 SKILL.md", ok ? "pass" : "fail",
+        `skills=${JSON.stringify(sdkSkillOptions.skills)} ok=${sdkSkillOptions.ok}`);
+    }
+
+    {
+      const options = buildSdkOptions(task, baseSettings, sdkSkillOptions);
+      const settingSourcesOk = Array.isArray(options.settingSources)
+        && options.settingSources.includes("project")
+        && options.settingSources.includes("local");
+      const skillsOk = Array.isArray(options.skills)
+        && options.skills.length === 1
+        && options.skills[0] === enabled.slug;
+      const permissionSeparate = options.permissionMode === "default"
+        && options.canUseTool === undefined
+        && options.allowedTools === undefined;
+      const ok = settingSourcesOk && skillsOk && permissionSeparate;
+      addTest("V2.13.0-E SDK: buildSdkOptions 使用 settingSources + skills，权限仍不混入 skills", ok ? "pass" : "fail",
+        `settingSources=${JSON.stringify(options.settingSources)} skills=${JSON.stringify(options.skills)} permissionSeparate=${permissionSeparate}`);
+    }
+
+    {
+      const conflictVault = mkdtempSync(join(tmpdir(), "llm-bridge-sdk-skills-v213e-conflict-"));
+      try {
+        const conflict = createAgentSkillRecord({
+          id: "as-sdk-conflict",
+          slug: "sdk-user-owned",
+          name: "SDK User Owned",
+          description: "Should not overwrite unmanaged SKILL.md",
+          instructions: "Do not overwrite.",
+          enabled: true,
+        }, [], "2026-06-30T02:00:03.000Z");
+        saveAgentSkillsManifestSync(conflictVault, { version: 1, skills: [conflict] });
+        const target = join(conflictVault, ".claude", "skills", "sdk-user-owned", "SKILL.md");
+        mkdirSync(resolve(target, ".."), { recursive: true });
+        writeFileSync(target, "# User managed SDK skill\n", "utf8");
+        const result = buildSdkAgentSkillsOptions(conflictVault);
+        const ok = !result.ok
+          && result.skills.length === 1
+          && result.skills[0] === conflict.slug
+          && /not plugin-generated/.test(result.reason || "");
+        addTest("V2.13.0-E SDK: 非插件生成 SKILL.md 冲突时 fail-fast", ok ? "pass" : "fail",
+          result.reason || "");
+      } finally {
+        rmSync(conflictVault, { recursive: true, force: true });
+      }
+    }
+
+    {
+      const sdkSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
+      const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
+      const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf8");
+      const hasSkillsOptions = sdkSrc.includes("options.settingSources") && sdkSrc.includes("options.skills");
+      const hasCanUseTool = sdkSrc.includes("options.canUseTool = canUseTool");
+      const noPromptInjection = !promptPackageSrc.includes("Agent Skill")
+        && !promptPackageSrc.includes("agentSkills")
+        && !promptPackageSrc.includes("activeSkillPrompts");
+      const sdkDefaultOff = /backendMode:\s*"auto"/.test(typesSrc);
+      const ok = hasSkillsOptions && hasCanUseTool && noPromptInjection && sdkDefaultOff;
+      addTest("V2.13.0-E boundary: SDK skills option 与 canUseTool 分离，sdk-experimental 默认关闭，不注入 prompt",
+        ok ? "pass" : "fail",
+        `skillsOptions=${hasSkillsOptions} canUseTool=${hasCanUseTool} noPromptInjection=${noPromptInjection} defaultOff=${sdkDefaultOff}`);
+    }
+  } catch (e) {
+    addTest("V2.13.0-E SDK Skills Alignment 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (sdkBackendBundleV213E) rmSync(sdkBackendBundleV213E, { force: true }); } catch {}
+    try { if (agentSkillsBundleV213E) rmSync(agentSkillsBundleV213E, { force: true }); } catch {}
+    try { if (tempSdkSkillVault) rmSync(tempSdkSkillVault, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");

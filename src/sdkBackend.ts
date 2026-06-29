@@ -12,6 +12,10 @@
 
 import * as path from "path";
 import { AgentBackend, AgentEventHandler, AgentRunHandle, AgentTask } from "./agentBackend";
+import {
+  AgentSkillsRuntimePreparationResult,
+  prepareAgentSkillsForClaudeRuntimeSync,
+} from "./agentSkills";
 import { LLMBridgeSettings } from "./types";
 import {
   MessageEvent,
@@ -57,6 +61,8 @@ const SDK_PACKAGE_CANDIDATES = [
   "@anthropic-ai/claude-agent-sdk", // V1.7: 新包名（当前推荐）
   "@anthropic-ai/claude-code", // V1.6: 旧包名（已 deprecated，兼容）
 ];
+
+export const SDK_SKILL_SETTING_SOURCES = ["user", "project", "local"] as const;
 
 export interface SdkLoadResult {
   readonly mod: unknown;
@@ -384,6 +390,14 @@ export function createPermissionState(): PermissionState {
   };
 }
 
+export interface SdkAgentSkillsOptions {
+  readonly ok: boolean;
+  readonly settingSources: readonly string[];
+  readonly skills: readonly string[];
+  readonly preparation: AgentSkillsRuntimePreparationResult;
+  readonly reason?: string;
+}
+
 /**
  * V2.3s: 摘要工具输入参数（用于 UI 展示，已脱敏）
  */
@@ -406,10 +420,40 @@ function summarizeToolInput(input: Record<string, unknown>): string {
   return parts.join(" | ");
 }
 
+export function buildSdkAgentSkillsOptions(vaultPath: string): SdkAgentSkillsOptions {
+  const preparation = prepareAgentSkillsForClaudeRuntimeSync(vaultPath);
+  const skills = preparation.manifest.skills
+    .filter((record) => record.enabled)
+    .map((record) => record.slug);
+  return {
+    ok: preparation.ok,
+    settingSources: SDK_SKILL_SETTING_SOURCES,
+    skills,
+    preparation,
+    ...(preparation.reason ? { reason: preparation.reason } : {}),
+  };
+}
+
+function buildAgentSkillsPreparationFailureSummary(result: SdkAgentSkillsOptions): string {
+  const lines: string[] = [];
+  lines.push("[sdk] Agent Skills runtime preparation failed");
+  if (result.reason) {
+    lines.push(`reason: ${result.reason}`);
+  }
+  for (const item of result.preparation.results.filter((r) => !r.ok)) {
+    lines.push(`- ${item.record.slug}: ${item.reason || item.status}`);
+  }
+  return lines.join("\n");
+}
+
 /**
  * 构造 SDK query options（从 LLMBridgeSettings 映射）
  */
-function buildSdkOptions(task: AgentTask, settings: LLMBridgeSettings): Record<string, unknown> {
+export function buildSdkOptions(
+  task: AgentTask,
+  settings: LLMBridgeSettings,
+  agentSkillsOptions?: SdkAgentSkillsOptions,
+): Record<string, unknown> {
   const options: Record<string, unknown> = {
     cwd: task.cwd,
     // 不设置 model（让 SDK 使用默认/配置）；settings.model 主要给 CLI backend 用
@@ -426,6 +470,10 @@ function buildSdkOptions(task: AgentTask, settings: LLMBridgeSettings): Record<s
   // extra args
   if (settings.claudeExtraArgs) {
     options.extraArgs = settings.claudeExtraArgs.split(/\s+/).filter(Boolean);
+  }
+  if (agentSkillsOptions) {
+    options.settingSources = [...agentSkillsOptions.settingSources];
+    options.skills = [...agentSkillsOptions.skills];
   }
   return options;
 }
@@ -456,7 +504,27 @@ async function runRealSdkQuery(
     };
   }
 
-  const options = buildSdkOptions(task, settings);
+  const agentSkillsOptions = buildSdkAgentSkillsOptions(task.cwd);
+  if (!agentSkillsOptions.ok) {
+    const summary = buildAgentSkillsPreparationFailureSummary(agentSkillsOptions);
+    if (onWorkflowEvent) {
+      const errEv: ErrorEvent = {
+        type: "error",
+        timestamp: new Date().toISOString(),
+        message: summary,
+        recoverable: false,
+      };
+      onWorkflowEvent(redactWorkflowEvent(errEv));
+    }
+    return {
+      status: "failed",
+      text: summary,
+      exitCode: 1,
+      diagnostics: updateDiagnostics(diagnostics, { fallbackReason: "Agent Skills runtime preparation failed" }),
+    };
+  }
+
+  const options = buildSdkOptions(task, settings, agentSkillsOptions);
   let msgCount = 0;
   let wfEventCount = 0;
   let partialCount = 0;
