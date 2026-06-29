@@ -703,17 +703,8 @@ export class LLMBridgeView extends ItemView {
       this.skillsSearchDebounceTimer = null;
     }
     // V2.11.1: flush skills state（立即写入最后一次 state 变更，不丢数据）
-    // 节流定时器内可能还有未写入的 state，关闭视图时立即写盘
-    if (this.skillsStateSaveTimer !== null) {
-      window.clearTimeout(this.skillsStateSaveTimer);
-      this.skillsStateSaveTimer = null;
-      try {
-        const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-        await saveSkillsState(vaultPath, this.skillsState);
-      } catch {
-        // 写入失败不阻断关闭
-      }
-    }
+    // V2.12.1: 改为调用 flushSkillsStateSave() 复用统一逻辑（openEditSkillDialog 也复用）
+    await this.flushSkillsStateSave();
   }
 
   // ---------- 控件同步 ----------
@@ -2597,6 +2588,21 @@ export class LLMBridgeView extends ItemView {
     }, 500);
   }
 
+  // V2.12.1: 立即 flush 待写的 skills state（取消 500ms 节流定时器并同步写盘）
+  // 用于在 refreshSkills 等磁盘重载操作前确保内存 state 已落盘，避免时序冲突覆盖
+  // 抽取自原 onClose 的 flush 逻辑，供 openEditSkillDialog / onClose 复用
+  private async flushSkillsStateSave(): Promise<void> {
+    if (this.skillsStateSaveTimer === null) return;
+    window.clearTimeout(this.skillsStateSaveTimer);
+    this.skillsStateSaveTimer = null;
+    try {
+      const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      await saveSkillsState(vaultPath, this.skillsState);
+    } catch {
+      // 写入失败不阻断主流程
+    }
+  }
+
   // V2.6: 记录单个 skill 使用（更新 applyCount + lastUsedAt 并持久化）
   private recordSkillUse(skillName: string): void {
     this.skillsState = recordSkillApplied(this.skillsState, skillName);
@@ -2633,9 +2639,11 @@ export class LLMBridgeView extends ItemView {
       const ok = await updateImportedSkill(vaultPath, skill.name, newName, newDesc, newPrompt);
       if (ok) {
         // V2.11.1: 重命名时迁移 skill meta（pinned/applyCount/lastUsedAt/groupOverride）到新名称
+        // V2.12.1: 修复 ManualId 13 blocker — renameSkillMeta 必须在 oldName 未被 refreshSkills 重载覆盖前执行
+        //          且迁移后必须先 flush 落盘再 refreshSkills，否则 refreshSkills 从磁盘重载旧 state 会覆盖内存迁移
         if (newName !== skill.name) {
           this.skillsState = renameSkillMeta(this.skillsState, skill.name, newName);
-          this.scheduleSkillsStateSave();
+          await this.flushSkillsStateSave();
         }
         new Notice(`Skill 已更新`);
         await this.refreshSkills();

@@ -1,6 +1,6 @@
 {
   "name": "obsidian-llm-cli-bridge",
-  "version": "2.12.0",
+  "version": "2.12.1",
   "description": "Bridge Obsidian to local Claude Code / Codex CLI agents.",
   "main": "main.js",
   "scripts": {
