@@ -7632,7 +7632,7 @@ if (!runV211Unit) {
 // ============================================================
 // 8.19 V2.11.1 Skills State Integrity / Lifecycle Cleanup 单元测试
 //     覆盖：skill 重命名 meta 迁移 / tags 编辑保留 / onClose flush /
-//           组合应用勾选顺序 / 嵌套 session 脱敏 / 设置页刷新 /
+//           Insert selected 勾选顺序 / 嵌套 session 脱敏 / 设置页刷新 /
 //           groupOverride future 标注 / CLI 不回归 + sdk-experimental 默认关闭 + schema 不变
 // ============================================================
 console.log("\n=== V2.11.1 Skills State Integrity 单元测试 ===");
@@ -7830,7 +7830,7 @@ if (!runV2111Unit) {
       addTest("V2.11.1 groupOverride: 标注为 future 不误导", ok ? "pass" : "fail", "");
     }
 
-    // ===== 要求 7: 组合应用勾选顺序 =====
+    // ===== 要求 7: Insert selected 勾选顺序 =====
 
     // ---- Test 12: applyCombo 按 Set 插入顺序（勾选顺序）收集 ----
     {
@@ -8028,7 +8028,7 @@ if (runMode !== "all" && runMode !== "unit") {
 
   // ===== 要求 7: UI 默认折叠 =====
 
-  addTest("V2.12 UI: Skills 面板默认折叠（body setAttribute hidden）",
+  addTest("V2.12 UI: Prompt Snippets 面板默认折叠（body setAttribute hidden）",
     /renderSkillsPanel[\s\S]{0,800}body[\s\S]{0,30}setAttribute\("hidden", ""\)/.test(viewSrcV212) ? "pass" : "fail", "");
 
   addTest("V2.12 UI: History 面板默认折叠",
@@ -8087,24 +8087,24 @@ if (runMode !== "all" && runMode !== "unit") {
   addTest("V2.12 错误: debug log 路径可复制（clipboard.writeText(logPath)）",
     /clipboard\.writeText\(logPath\)/.test(viewSrcV212) ? "pass" : "fail", "");
 
-  // ===== 要求 4: Skills 验证（代码级，V2.11.1 修复仍生效）=====
+  // ===== 要求 4: Prompt Snippets 验证（代码级，V2.11.1 修复仍生效）=====
 
-  addTest("V2.12 Skills: 搜索框存在 + 防抖定时器",
+  addTest("V2.12 Prompt Snippets: 搜索框存在 + 防抖定时器",
     /skillsSearchEl[\s\S]{0,500}skillsSearchDebounceTimer/.test(viewSrcV212) ? "pass" : "fail", "");
 
-  addTest("V2.12 Skills: 分组下拉存在（group + sort）",
+  addTest("V2.12 Prompt Snippets: 分组下拉存在（group + sort）",
     /skillsGroupEl[\s\S]{0,300}skillsSortEl/.test(viewSrcV212) ? "pass" : "fail", "");
 
-  addTest("V2.12 Skills: 置顶按钮存在（pinBtn）",
+  addTest("V2.12 Prompt Snippets: 置顶按钮存在（pinBtn）",
     /pinBtn[\s\S]{0,200}isPinned/.test(viewSrcV212) ? "pass" : "fail", "");
 
-  addTest("V2.12 Skills: 使用统计存在（applyCount + lastUsedAt）",
+  addTest("V2.12 Prompt Snippets: 使用统计存在（applyCount + lastUsedAt）",
     viewSrcV212.includes("applyCount") && viewSrcV212.includes("lastUsedAt") ? "pass" : "fail", "");
 
-  addTest("V2.12 Skills: V2.11.1 重命名 meta 迁移仍生效（renameSkillMeta 调用）",
+  addTest("V2.12 Prompt Snippets: V2.11.1 重命名 meta 迁移仍生效（renameSkillMeta 调用）",
     viewSrcV212.includes("renameSkillMeta") ? "pass" : "fail", "");
 
-  addTest("V2.12 Skills: V2.11.1 组合应用勾选顺序仍生效（for...of skillsComboSet）",
+  addTest("V2.12 Prompt Snippets: V2.11.1 Insert selected 勾选顺序仍生效（for...of skillsComboSet）",
     /for \(const name of this\.skillsComboSet\)/.test(viewSrcV212) ? "pass" : "fail", "");
 
   // ===== 要求 5: Session 验证（代码级）=====
@@ -8153,7 +8153,7 @@ if (runMode !== "all" && runMode !== "unit") {
 
 // ============================================================
 // 8.21 V2.12.1 Skill Rename Meta Runtime Patch 单元测试
-//     修复 ManualId 13 blocker: 导入 Skill 重命名后 pinned/applyCount/lastUsedAt/groupOverride 未迁移
+//     修复 ManualId 13 blocker: 导入 Prompt Snippet 重命名后 pinned/applyCount/lastUsedAt/groupOverride 未迁移
 //     根因: scheduleSkillsStateSave 500ms 防抖 + refreshSkills 立即重载磁盘 state 时序冲突
 //     修复: 抽取 flushSkillsStateSave(), openEditSkillDialog 先 flush 再 refresh, onClose 复用
 //     覆盖: flushSkillsStateSave 存在/调用链路/真实保存路径/时序冲突回归/字段完整性/旧名孤儿清理
@@ -8455,25 +8455,25 @@ if (!runV2121Unit) {
       addTest("V2.12.1 EditSkillModal: 保存按钮触发 onConfirm 回调", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 14: openEditSkillDialog 调用 updateImportedSkill（真实保存链路）----
+    // ---- Test 14: openEditPromptSnippetDialog 调用 updateImportedSkill（真实保存链路）----
     {
-      // V2.12.1: openEditSkillDialog 到 updateImportedSkill 中间含冲突检测，窗口扩到 800
-      const ok = /openEditSkillDialog[\s\S]{0,800}updateImportedSkill\(vaultPath, skill\.name, newName/.test(viewSrcV2121);
-      addTest("V2.12.1 openEditSkillDialog: 调用 updateImportedSkill 真实保存", ok ? "pass" : "fail", "");
+      // V2.13.0-B: legacy UI 已重命名为 Prompt Snippet，保存链路保持不变
+      const ok = /openEditPromptSnippetDialog[\s\S]{0,800}updateImportedSkill\(vaultPath, skill\.name, newName/.test(viewSrcV2121);
+      addTest("V2.12.1 openEditPromptSnippetDialog: 调用 updateImportedSkill 真实保存", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 15: openEditSkillDialog 重命名冲突检测（checkImportConflict）----
+    // ---- Test 15: openEditPromptSnippetDialog 重命名冲突检测（checkImportConflict）----
     {
-      const ok = /openEditSkillDialog[\s\S]{0,500}checkImportConflict\(vaultPath, newName\)/.test(viewSrcV2121);
-      addTest("V2.12.1 openEditSkillDialog: 重命名冲突检测 checkImportConflict", ok ? "pass" : "fail", "");
+      const ok = /openEditPromptSnippetDialog[\s\S]{0,500}checkImportConflict\(vaultPath, newName\)/.test(viewSrcV2121);
+      addTest("V2.12.1 openEditPromptSnippetDialog: 重命名冲突检测 checkImportConflict", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 16: openEditSkillDialog 重命名条件（newName !== skill.name）----
+    // ---- Test 16: openEditPromptSnippetDialog 重命名条件（newName !== skill.name）----
     {
-      // V2.12.1: openEditSkillDialog 中有两个 if (newName !== skill.name)，第二个才跟 renameSkillMeta
+      // V2.12.1: 编辑入口中有两个 if (newName !== skill.name)，第二个才跟 renameSkillMeta
       // 窗口扩到 1500 覆盖第二个 if + renameSkillMeta
-      const ok = /openEditSkillDialog[\s\S]{0,1500}if \(newName !== skill\.name\)[\s\S]{0,200}renameSkillMeta/.test(viewSrcV2121);
-      addTest("V2.12.1 openEditSkillDialog: newName !== skill.name 时触发 renameSkillMeta", ok ? "pass" : "fail", "");
+      const ok = /openEditPromptSnippetDialog[\s\S]{0,1500}if \(newName !== skill\.name\)[\s\S]{0,200}renameSkillMeta/.test(viewSrcV2121);
+      addTest("V2.12.1 openEditPromptSnippetDialog: newName !== skill.name 时触发 renameSkillMeta", ok ? "pass" : "fail", "");
     }
 
     // ===== 要求 7: 约束确认（不改 AgentEvent / 不新增 tool event / sdk-experimental 默认关闭）=====

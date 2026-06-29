@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// CDP 验证 ManualId 13: 导入 Skill 重命名后 pinned/applyCount/lastUsedAt/groupOverride 迁移
+// CDP 验证 ManualId 13: 导入 Prompt Snippet 重命名后 pinned/applyCount/lastUsedAt/groupOverride 迁移
 // V2.12.1 Patch — 在真实 Obsidian runtime 验证 flushSkillsStateSave 修复
 //
 // 使用前提：
@@ -177,8 +177,9 @@ const VERIFY_JS = `
       return { error: "meta 设置后落盘失败", metaBefore };
     }
 
-    // 触发 openEditSkillDialog（真实 UI 路径）
-    view.openEditSkillDialog(skill);
+    // 触发编辑 Prompt Snippet（真实 UI 路径；兼容旧方法名）
+    const openEdit = view.openEditPromptSnippetDialog || view.openEditSkillDialog;
+    openEdit.call(view, skill);
 
     // 等待 Modal DOM 渲染
     await new Promise(r => setTimeout(r, 300));
