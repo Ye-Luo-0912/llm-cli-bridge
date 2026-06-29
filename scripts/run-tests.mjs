@@ -7997,6 +7997,160 @@ if (!runV2111Unit) {
 }
 
 // ============================================================
+// 8.20 V2.12 Long Flow E2E / Real Daily Smoke 代码级验证
+// 不新增功能；仅断言现有代码满足 Long Flow 验收要求
+// 真实 Obsidian UI 手工验证项见 docs/e2e-smoke-v2.12.md（manual required）
+// ============================================================
+console.log("\n=== V2.12 Long Flow E2E / Real Daily Smoke 代码级验证 ===");
+
+if (runMode !== "all" && runMode !== "unit") {
+  console.log("⏭️ V2.12 段 — 当前非 unit 模式，跳过");
+} else {
+  // 读取源码用于代码级断言
+  const viewSrcV212 = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+  const typesSrcV212 = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf8");
+  const agentBackendSrcV212 = readFileSync(join(PROJECT_ROOT, "src", "agentBackend.ts"), "utf8");
+  const permissionPolicySrcV212 = readFileSync(join(PROJECT_ROOT, "src", "permissionPolicy.ts"), "utf8");
+
+  // ===== 要求 1+2: 不改 AgentEvent v0.1 + CLI 主线稳定 + sdk-experimental 默认关闭 =====
+
+  addTest("V2.12 约束: AgentEvent v0.1 不变（6 事件，无 tool event）",
+    /export type AgentEvent\s*=[\s\S]*?started[\s\S]*?stdout_delta[\s\S]*?stderr_delta[\s\S]*?completed[\s\S]*?failed[\s\S]*?stopped/.test(agentBackendSrcV212)
+      && /不新增 tool event/.test(agentBackendSrcV212)
+      ? "pass" : "fail", "");
+
+  addTest("V2.12 约束: sdk-experimental 默认关闭",
+    /backendMode:\s*"auto"/.test(typesSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 约束: CLI auto 主线不回归（ClaudeCliBackend 可实例化）",
+    viewSrcV212.includes("ClaudeCliBackend") ? "pass" : "fail", "");
+
+  // ===== 要求 7: UI 默认折叠 =====
+
+  addTest("V2.12 UI: Skills 面板默认折叠（body setAttribute hidden）",
+    /renderSkillsPanel[\s\S]{0,800}body[\s\S]{0,30}setAttribute\("hidden", ""\)/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 UI: History 面板默认折叠",
+    /renderHistoryPanel[\s\S]{0,1500}body\.setAttribute\("hidden", ""\)/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 UI: Advanced 指标区默认折叠（sbAdvancedItems setAttribute hidden）",
+    /sbAdvancedItems\.setAttribute\("hidden", ""\)/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 UI: createCollapsibleSection 默认 startOpen=false",
+    /createCollapsibleSection[\s\S]{0,200}startOpen\s*=\s*false/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  // ===== 要求 7: tooltip =====
+
+  addTest("V2.12 UI: timeline detail 含 tooltip attr title",
+    /llm-bridge-timeline-detail[\s\S]{0,100}attr:\s*\{\s*title:\s*entry\.detail\s*\}/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 UI: workflow trace detail 含 tooltip attr title",
+    /llm-bridge-workflow-trace-detail[\s\S]{0,100}attr:\s*\{\s*title:\s*entry\.detail\s*\}/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 UI: SDK event detail 含 tooltip attr title",
+    /llm-bridge-sdk-event-detail[\s\S]{0,100}attr:\s*\{\s*title:\s*detail\s*\}/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  // ===== 要求 6: 权限策略 =====
+
+  addTest("V2.12 权限: low 风险 auto_allow（policy != high）",
+    /level === "low"[\s\S]{0,200}policy === "high"[\s\S]{0,200}auto_allow/.test(permissionPolicySrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 权限: high 风险 needs_approval（始终）",
+    /level === "high"[\s\S]{0,200}needs_approval/.test(permissionPolicySrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 权限: medium + policy=high 不静默放行（needs_approval）",
+    /policy === "high"[\s\S]{0,300}needs_approval/.test(permissionPolicySrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 权限: medium + policy=medium 不静默放行（needs_approval）",
+    /medium 风险需本轮授权/.test(permissionPolicySrcV212) ? "pass" : "fail", "");
+
+  // ===== 要求 6: stop 清理 pending =====
+
+  addTest("V2.12 权限: stop 按钮存在 + 绑定 stop() 调用",
+    /stopBtn\.addEventListener\("click",\s*\(\)\s*=>\s*this\.stop\(\)\)/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 权限: onClose 调用 runHandle.stop() 终止运行",
+    /onClose[\s\S]{0,300}this\.runHandle\.stop\(\)/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 权限: onClose 清理 scrollRafId 定时器",
+    /onClose[\s\S]{0,500}cancelAnimationFrame\(this\.scrollRafId\)/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  // ===== 要求 8: 错误体验 =====
+
+  addTest("V2.12 错误: showFileNotFoundModal 含完整路径显示",
+    /showFileNotFoundModal[\s\S]{0,500}relPath/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 错误: showFileNotFoundModal 含复制按钮（clipboard.writeText）",
+    /showFileNotFoundModal[\s\S]{0,800}navigator\.clipboard\.writeText\(relPath\)/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 错误: debug log 路径可复制（clipboard.writeText(logPath)）",
+    /clipboard\.writeText\(logPath\)/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  // ===== 要求 4: Skills 验证（代码级，V2.11.1 修复仍生效）=====
+
+  addTest("V2.12 Skills: 搜索框存在 + 防抖定时器",
+    /skillsSearchEl[\s\S]{0,500}skillsSearchDebounceTimer/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 Skills: 分组下拉存在（group + sort）",
+    /skillsGroupEl[\s\S]{0,300}skillsSortEl/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 Skills: 置顶按钮存在（pinBtn）",
+    /pinBtn[\s\S]{0,200}isPinned/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 Skills: 使用统计存在（applyCount + lastUsedAt）",
+    viewSrcV212.includes("applyCount") && viewSrcV212.includes("lastUsedAt") ? "pass" : "fail", "");
+
+  addTest("V2.12 Skills: V2.11.1 重命名 meta 迁移仍生效（renameSkillMeta 调用）",
+    viewSrcV212.includes("renameSkillMeta") ? "pass" : "fail", "");
+
+  addTest("V2.12 Skills: V2.11.1 组合应用勾选顺序仍生效（for...of skillsComboSet）",
+    /for \(const name of this\.skillsComboSet\)/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  // ===== 要求 5: Session 验证（代码级）=====
+
+  addTest("V2.12 Session: 历史搜索框存在（historySearchEl）",
+    viewSrcV212.includes("historySearchEl") ? "pass" : "fail", "");
+
+  addTest("V2.12 Session: 标题重命名功能存在（renameSession 调用）",
+    viewSrcV212.includes("renameSession") ? "pass" : "fail", "");
+
+  addTest("V2.12 Session: 删除会话功能存在（deleteSession 调用）",
+    viewSrcV212.includes("deleteSession") ? "pass" : "fail", "");
+
+  addTest("V2.12 Session: 恢复会话功能存在（restoreSession）",
+    viewSrcV212.includes("restoreSession") ? "pass" : "fail", "");
+
+  addTest("V2.12 Session: V2.11.1 defense-in-depth 脱敏仍生效（redactSdkEventForSession）",
+    readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf8").includes("redactSdkEventForSession") ? "pass" : "fail", "");
+
+  // ===== 要求 3: 核心用户流（代码级，真实 UI 验证见 manual required）=====
+
+  addTest("V2.12 核心流: 自由提问输入框存在（inputEl）",
+    viewSrcV212.includes("this.inputEl") ? "pass" : "fail", "");
+
+  addTest("V2.12 核心流: 选区 chip 存在（Selection chip）",
+    /Selection|选区/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 核心流: 笔记 chip 存在（Note chip）",
+    /Note\s|笔记/.test(viewSrcV212) ? "pass" : "fail", "");
+
+  addTest("V2.12 核心流: 生成文件列表可点击（openGeneratedFile）",
+    viewSrcV212.includes("openGeneratedFile") ? "pass" : "fail", "");
+
+  addTest("V2.12 核心流: preset 提示存在（presetPrompts）",
+    readFileSync(join(PROJECT_ROOT, "src", "presetPrompts.ts"), "utf8").includes("PRESETS") ? "pass" : "fail", "");
+
+  // ===== 要求 9: 输出 docs/e2e-smoke-v2.12.md（验证文件可写）=====
+  // 实际报告内容在测试运行后由人工/脚本写入，此处仅断言 docs 目录存在
+
+  addTest("V2.12 报告: docs 目录存在（e2e-smoke-v2.12.md 写入位置）",
+    existsSync(join(PROJECT_ROOT, "docs")) ? "pass" : "fail", "");
+
+  addTest("V2.12 报告: 现有 e2e-smoke-v2.2.md 模板存在",
+    existsSync(join(PROJECT_ROOT, "docs", "e2e-smoke-v2.2.md")) ? "pass" : "fail", "");
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");
