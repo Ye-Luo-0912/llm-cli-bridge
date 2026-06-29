@@ -272,6 +272,12 @@ export default class LLMBridgePlugin extends Plugin {
     return view instanceof LLMBridgeView ? view : null;
   }
 
+  // V2.10 (B-019): 设置页切换 backendMode 等关键设置后通知 view 刷新（状态栏 Backend 值立即更新）
+  public refreshBridgeView(): void {
+    const v = this.getBridgeView();
+    if (v) v.refreshOnSettingsChange();
+  }
+
   async activateView(): Promise<void> {
     const { workspace } = this.app;
     let leaf: WorkspaceLeaf | null;

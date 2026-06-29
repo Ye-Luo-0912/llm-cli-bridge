@@ -43,14 +43,20 @@ export function isMarkdownFile(fileName: string): boolean {
   return fileName.toLowerCase().endsWith(".md");
 }
 
+// V2.10: 并行 stat 批大小，避免单次 Promise.all 在超大 Vault 下同时打开过多句柄
+const STAT_BATCH_SIZE = 64;
+
 /**
  * 扫描 Vault 目录，收集所有 Markdown 文件快照
  * - 排除 EXCLUDE_DIRS 中的目录
  * - 只收集 .md 文件
  * - 返回 Map<相对路径, FileSnapshot>
+ * - V2.10: 优化大 Vault 性能——先收集所有 md 文件路径，再分批 Promise.all 并行 stat（替代循环内逐个 await）
  */
 export async function snapshotVaultMarkdownFiles(vaultPath: string): Promise<Map<string, FileSnapshot>> {
   const out = new Map<string, FileSnapshot>();
+  // 第一遍：BFS 收集所有 md 文件路径（只 readdir，不 stat）
+  const mdFiles: Array<{ fullPath: string; rel: string }> = [];
   const stack: string[] = [vaultPath];
   while (stack.length > 0) {
     const current = stack.pop()!;
@@ -64,16 +70,28 @@ export async function snapshotVaultMarkdownFiles(vaultPath: string): Promise<Map
             stack.push(fullPath);
           }
         } else if (e.isFile() && isMarkdownFile(e.name)) {
-          try {
-            const stat = await fs.promises.stat(fullPath);
-            out.set(rel, { path: rel, mtime: stat.mtimeMs, size: stat.size });
-          } catch {
-            /* stat 失败跳过 */
-          }
+          mdFiles.push({ fullPath, rel });
         }
       }
     } catch {
       /* 目录不存在或无权限 */
+    }
+  }
+  // 第二遍：分批并行 stat（V2.10 替代循环内逐个 await，大 Vault 从 O(N) 串行 syscall 降为 O(N/BATCH) 批次）
+  for (let i = 0; i < mdFiles.length; i += STAT_BATCH_SIZE) {
+    const batch = mdFiles.slice(i, i + STAT_BATCH_SIZE);
+    const results = await Promise.all(
+      batch.map(async (f) => {
+        try {
+          const stat = await fs.promises.stat(f.fullPath);
+          return { rel: f.rel, mtime: stat.mtimeMs, size: stat.size };
+        } catch {
+          return null;
+        }
+      }),
+    );
+    for (const r of results) {
+      if (r) out.set(r.rel, { path: r.rel, mtime: r.mtime, size: r.size });
     }
   }
   return out;

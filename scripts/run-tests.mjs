@@ -7083,6 +7083,277 @@ if (!runV29Unit) {
 }
 
 // ============================================================
+// 8.17 V2.10 Bug Fix 单元测试
+//     覆盖：B-018 fileDiff 并行 stat / B-001 file-open 订阅 /
+//           B-002 timeline + workflow trace detail title / B-003 重新显示首次使用提示 /
+//           B-019 backendMode 切换通知 view 刷新 / CLI 不回归 + sdk-experimental 默认关闭 + schema 不变
+// ============================================================
+console.log("\n=== V2.10 Bug Fix 单元测试 ===");
+
+const runV210Unit = runMode === "all" || runMode === "unit";
+
+if (!runV210Unit) {
+  addTest("V2.10 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let fileDiffBundleV210 = null;
+  let cliBackendBundleV210 = null;
+  let typesBundleV210 = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    fileDiffBundleV210 = join(PROJECT_ROOT, ".test-file-diff-v210-temp.mjs");
+    cliBackendBundleV210 = join(PROJECT_ROOT, ".test-cli-backend-v210-temp.mjs");
+    typesBundleV210 = join(PROJECT_ROOT, ".test-types-v210-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "fileDiff.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: fileDiffBundleV210,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV210,
+      external: ["obsidian"],
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "types.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: typesBundleV210,
+    });
+
+    const { snapshotVaultMarkdownFiles, diffSnapshots, shouldExclude, isMarkdownFile, EXCLUDE_DIRS } = await import(pathToFileURL(fileDiffBundleV210).href);
+    const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+    const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
+    const mainSrc = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf-8");
+    const fileDiffSrc = readFileSync(join(PROJECT_ROOT, "src", "fileDiff.ts"), "utf-8");
+
+    // ===== B-018: fileDiff 并行 stat 优化 =====
+
+    // ---- Test 1: snapshotVaultMarkdownFiles 含两阶段收集（先 readdir 收集，再分批 stat）----
+    {
+      const ok = fileDiffSrc.includes("第一遍：BFS 收集所有 md 文件路径")
+        && fileDiffSrc.includes("第二遍：分批并行 stat")
+        && fileDiffSrc.includes("STAT_BATCH_SIZE")
+        && fileDiffSrc.includes("Promise.all");
+      addTest("V2.10 B-018: snapshotVaultMarkdownFiles 两阶段并行 stat", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 2: snapshotVaultMarkdownFiles 基本功能正常（并行优化不破坏原行为）----
+    {
+      const tmpDir = mkdtempSync(join(tmpdir(), "v210-filediff-basic-"));
+      try {
+        writeFileSync(join(tmpDir, "a.md"), "# A");
+        writeFileSync(join(tmpDir, "b.md"), "# B");
+        mkdirSync(join(tmpDir, "sub"));
+        writeFileSync(join(tmpDir, "sub", "c.md"), "# C");
+        mkdirSync(join(tmpDir, ".obsidian"));
+        writeFileSync(join(tmpDir, ".obsidian", "config.md"), "should be excluded");
+        const snap = await snapshotVaultMarkdownFiles(tmpDir);
+        const ok = snap.size === 3
+          && snap.has("a.md")
+          && snap.has("b.md")
+          && snap.has("sub/c.md")
+          && !snap.has(".obsidian/config.md");
+        addTest("V2.10 B-018: 并行优化后仍正确收集 md + 排除目录", ok ? "pass" : "fail", `size=${snap.size} keys=${[...snap.keys()].join(",")}`);
+      } catch (e) {
+        addTest("V2.10 B-018: 并行优化后仍正确收集 md + 排除目录", "fail", e?.message || String(e));
+      } finally {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // ---- Test 3: snapshotVaultMarkdownFiles 分批处理大量文件（验证批大小逻辑）----
+    {
+      const tmpDir = mkdtempSync(join(tmpdir(), "v210-filediff-batch-"));
+      try {
+        // 创建 70 个 md 文件（超过 STAT_BATCH_SIZE=64，验证跨批处理）
+        for (let i = 0; i < 70; i++) {
+          writeFileSync(join(tmpDir, `file-${i}.md`), `# file ${i}`);
+        }
+        const snap = await snapshotVaultMarkdownFiles(tmpDir);
+        const ok = snap.size === 70;
+        addTest("V2.10 B-018: 跨批处理 70 个文件全部收集", ok ? "pass" : "fail", `size=${snap.size} expected=70`);
+      } catch (e) {
+        addTest("V2.10 B-018: 跨批处理 70 个文件全部收集", "fail", e?.message || String(e));
+      } finally {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // ---- Test 4: diffSnapshots 功能正常（并行优化不影响 diff 逻辑）----
+    {
+      const tmpDir = mkdtempSync(join(tmpdir(), "v210-filediff-diff-"));
+      try {
+        writeFileSync(join(tmpDir, "exist.md"), "# before");
+        const before = await snapshotVaultMarkdownFiles(tmpDir);
+        writeFileSync(join(tmpDir, "new.md"), "# new");
+        writeFileSync(join(tmpDir, "exist.md"), "# after"); // 修改
+        const after = await snapshotVaultMarkdownFiles(tmpDir);
+        const diff = diffSnapshots(before, after);
+        const hasNew = diff.some((d) => d.includes("new.md") && d.includes("[NEW]"));
+        const hasMod = diff.some((d) => d.includes("exist.md") && d.includes("[MODIFIED]"));
+        const ok = hasNew && hasMod;
+        addTest("V2.10 B-018: diffSnapshots 仍正确检测新增+修改", ok ? "pass" : "fail", `diff=${JSON.stringify(diff)}`);
+      } catch (e) {
+        addTest("V2.10 B-018: diffSnapshots 仍正确检测新增+修改", "fail", e?.message || String(e));
+      } finally {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // ===== B-001: file-open 订阅 =====
+
+    // ---- Test 5: view.ts 订阅 file-open 事件 ----
+    {
+      const ok = viewSrc.includes('this.app.workspace.on("file-open"')
+        && viewSrc.includes("V2.10 (B-001): 订阅 file-open 事件");
+      addTest("V2.10 B-001: view.ts 订阅 file-open 事件", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 6: file-open 回调调用 updateContextDisplay ----
+    {
+      const idx = viewSrc.indexOf('this.app.workspace.on("file-open"');
+      const snippet = idx >= 0 ? viewSrc.slice(idx, idx + 200) : "";
+      const ok = snippet.includes("this.updateContextDisplay()");
+      addTest("V2.10 B-001: file-open 回调内调用 updateContextDisplay", ok ? "pass" : "fail", "");
+    }
+
+    // ===== B-002: timeline + workflow trace detail title =====
+
+    // ---- Test 7: appendTimeline detail 含 title 属性 ----
+    {
+      const idx = viewSrc.indexOf("llm-bridge-timeline-detail");
+      // V2.10: 注释在 detail 类名上一行，需回溯 200 字符覆盖注释
+      const snippet = idx >= 0 ? viewSrc.slice(idx - 200, idx + 250) : "";
+      const ok = snippet.includes('attr: { title: entry.detail }') && snippet.includes("V2.10 (B-002)");
+      addTest("V2.10 B-002: timeline detail 含 title 属性", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 8: workflow trace detail 含 title 属性 ----
+    {
+      const idx = viewSrc.indexOf("llm-bridge-workflow-trace-detail");
+      const snippet = idx >= 0 ? viewSrc.slice(idx - 200, idx + 250) : "";
+      const ok = snippet.includes('attr: { title: entry.detail }') && snippet.includes("V2.10 (B-002)");
+      addTest("V2.10 B-002: workflow trace detail 含 title 属性", ok ? "pass" : "fail", "");
+    }
+
+    // ===== B-003: 重新显示首次使用提示按钮 =====
+
+    // ---- Test 9: settings.ts 含「重新显示首次使用提示」按钮 ----
+    {
+      const ok = settingsSrc.includes("重新显示首次使用提示")
+        && settingsSrc.includes('localStorage.removeItem("llm-bridge-guide-dismissed")')
+        && settingsSrc.includes("V2.10 (B-003)");
+      addTest("V2.10 B-003: settings.ts 含重新显示首次使用提示按钮", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 10: 按钮使用 addButton 组件 ----
+    {
+      const idx = settingsSrc.indexOf("重新显示首次使用提示");
+      const snippet = idx >= 0 ? settingsSrc.slice(idx, idx + 400) : "";
+      const ok = snippet.includes("addButton") && snippet.includes("重新显示");
+      addTest("V2.10 B-003: 按钮使用 addButton + setButtonText", ok ? "pass" : "fail", "");
+    }
+
+    // ===== B-019: backendMode 切换通知 view 刷新 =====
+
+    // ---- Test 11: settings.ts backendMode onChange 调用 refreshBridgeView ----
+    {
+      const idx = settingsSrc.indexOf("backendMode");
+      const snippet = idx >= 0 ? settingsSrc.slice(idx, idx + 600) : "";
+      const ok = snippet.includes("this.plugin.refreshBridgeView()") && snippet.includes("V2.10 (B-019)");
+      addTest("V2.10 B-019: settings.ts backendMode onChange 调用 refreshBridgeView", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 12: main.ts 含 refreshBridgeView 公开方法 ----
+    {
+      const ok = mainSrc.includes("public refreshBridgeView(): void")
+        && mainSrc.includes("v.refreshOnSettingsChange()")
+        && mainSrc.includes("V2.10 (B-019)");
+      addTest("V2.10 B-019: main.ts 含 refreshBridgeView 公开方法", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 13: view.ts 含 refreshOnSettingsChange 公开方法 ----
+    {
+      const ok = viewSrc.includes("public refreshOnSettingsChange(): void")
+        && viewSrc.includes("this.syncControlsFromSettings()")
+        && viewSrc.includes("V2.10 (B-019)");
+      addTest("V2.10 B-019: view.ts 含 refreshOnSettingsChange 公开方法", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 14: refreshOnSettingsChange 调用 refreshStatusBar ----
+    {
+      const idx = viewSrc.indexOf("public refreshOnSettingsChange(): void");
+      const snippet = idx >= 0 ? viewSrc.slice(idx, idx + 200) : "";
+      const ok = snippet.includes("this.refreshStatusBar()");
+      addTest("V2.10 B-019: refreshOnSettingsChange 调用 refreshStatusBar", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 不回归 =====
+
+    // ---- Test 15: CLI 不回归 ----
+    {
+      let ok = false;
+      let detail = "";
+      try {
+        const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV210).href);
+        const backend = new ClaudeCliBackend();
+        // V2.10: stop() 在 run() 返回的 handle 上，不在 backend 实例上（与 V2.9 测试一致只检查 run）
+        ok = typeof backend.run === "function" && typeof backend.name === "string";
+        detail = `run=${typeof backend.run} name=${backend.name}`;
+      } catch (e) {
+        detail = e?.message || String(e);
+      }
+      addTest("V2.10 CLI 不回归: ClaudeCliBackend 可实例化", ok ? "pass" : "fail", detail);
+    }
+
+    // ---- Test 16: SDK 默认关闭 ----
+    {
+      const { DEFAULT_SETTINGS } = await import(pathToFileURL(typesBundleV210).href);
+      const ok = DEFAULT_SETTINGS.backendMode === "auto";
+      addTest("V2.10 SDK 默认关闭: DEFAULT_SETTINGS.backendMode = auto",
+        ok ? "pass" : "fail", `backendMode=${DEFAULT_SETTINGS.backendMode}`);
+    }
+
+    // ---- Test 17: SESSION_SCHEMA_VERSION 仍为 1（V2.10 不改 schema）----
+    {
+      const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
+      const match = sessionsSrc.match(/SESSION_SCHEMA_VERSION\s*=\s*(\d+)/);
+      const ok = match && match[1] === "1";
+      addTest("V2.10 schema 不变: SESSION_SCHEMA_VERSION = 1",
+        ok ? "pass" : "fail", `value=${match?.[1] ?? "not found"}`);
+    }
+
+    // ---- Test 18: EXCLUDE_DIRS 不变（并行优化不修改排除列表）----
+    {
+      const expected = [".obsidian", ".llm-bridge", "node_modules", ".git", "LLM-AgentRuntime", "dist", "build"];
+      const ok = EXCLUDE_DIRS.length === expected.length
+        && expected.every((d) => EXCLUDE_DIRS.includes(d));
+      addTest("V2.10 B-018: EXCLUDE_DIRS 排除列表不变", ok ? "pass" : "fail", `dirs=${EXCLUDE_DIRS.join(",")}`);
+    }
+
+    // ---- Test 19: shouldExclude 大小写不敏感仍正常 ----
+    {
+      const ok = shouldExclude(".Obsidian/config") === true
+        && shouldExclude("NODE_MODULES/pkg") === true
+        && shouldExclude("notes/file.md") === false;
+      addTest("V2.10 B-018: shouldExclude 大小写不敏感仍正常", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 20: isMarkdownFile 不变 ----
+    {
+      const ok = isMarkdownFile("a.md") === true
+        && isMarkdownFile("A.MD") === true
+        && isMarkdownFile("a.txt") === false;
+      addTest("V2.10 B-018: isMarkdownFile 不变", ok ? "pass" : "fail", "");
+    }
+
+  } catch (e) {
+    addTest("V2.10 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (fileDiffBundleV210) rmSync(fileDiffBundleV210, { force: true }); } catch {}
+    try { if (cliBackendBundleV210) rmSync(cliBackendBundleV210, { force: true }); } catch {}
+    try { if (typesBundleV210) rmSync(typesBundleV210, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");

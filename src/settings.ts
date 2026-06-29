@@ -264,6 +264,8 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         d.onChange(async (v) => {
           s.backendMode = v as BackendMode;
           await this.plugin.saveSettings();
+          // V2.10 (B-019): 通知 view 刷新状态栏，Backend 值立即更新（替代原只 saveSettings 不刷新的问题）
+          this.plugin.refreshBridgeView();
         });
       });
 
@@ -274,6 +276,17 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         t.setValue(s.devTestMode).onChange(async (v) => {
           s.devTestMode = v;
           await this.plugin.saveSettings();
+        }),
+      );
+
+    // V2.10 (B-003): 重新显示首次使用提示
+    // 关闭后只能通过清除 localStorage 重新显示，现在在设置页提供按钮
+    new Setting(containerEl)
+      .setName("重新显示首次使用提示")
+      .setDesc("清除「不再显示首次使用提示」标记，下次打开面板时将重新显示 3 步引导。")
+      .addButton((b) =>
+        b.setButtonText("重新显示").onClick(() => {
+          localStorage.removeItem("llm-bridge-guide-dismissed");
         }),
       );
   }

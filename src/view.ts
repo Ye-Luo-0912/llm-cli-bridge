@@ -449,6 +449,11 @@ export class LLMBridgeView extends ItemView {
       this.updateContextDisplay();
       this.refreshStatusBar();
     }));
+    // V2.10 (B-001): 订阅 file-open 事件，确保同一 pane 内切换文件时 chip 立即更新
+    // active-leaf-change 在某些场景（如快速切换同 pane 文件）可能延迟或不触发，file-open 更可靠
+    this.registerEvent(this.app.workspace.on("file-open", () => {
+      this.updateContextDisplay();
+    }));
 
     // 注册 pending action 回调到 httpBridge
     this.registerPendingActionCallback();
@@ -700,6 +705,13 @@ export class LLMBridgeView extends ItemView {
     this.refreshAllChips();
     this.includeNoteCheckEl.checked = this.plugin.settings.includeActiveNote;
     this.includeSelectionCheckEl.checked = this.plugin.settings.includeSelection;
+  }
+
+  // V2.10 (B-019): 设置页切换 backendMode 等关键设置后通知 view 刷新状态栏与控件
+  // 解决 settings.ts onChange 只 saveSettings 不触发 view 刷新、状态栏 Backend 值不立即更新的问题
+  public refreshOnSettingsChange(): void {
+    this.syncControlsFromSettings();
+    this.refreshStatusBar();
   }
 
   private refreshModeOptions(): void {
@@ -1343,7 +1355,8 @@ export class LLMBridgeView extends ItemView {
       const text = item.createDiv({ cls: "llm-bridge-workflow-trace-text" });
       text.createEl("span", { cls: "llm-bridge-workflow-trace-label", text: workflowStageLabel(stage) });
       if (entry.detail) {
-        text.createEl("span", { cls: "llm-bridge-workflow-trace-detail", text: entry.detail });
+        // V2.10 (B-002): 加 title 属性，CSS 截断后鼠标悬停可看完整内容
+        text.createEl("span", { cls: "llm-bridge-workflow-trace-detail", text: entry.detail, attr: { title: entry.detail } });
       }
       const time = new Date(entry.timestamp).toLocaleTimeString();
       text.createEl("span", { cls: "llm-bridge-workflow-trace-time", text: time });
@@ -1588,7 +1601,8 @@ export class LLMBridgeView extends ItemView {
       const text = item.createDiv({ cls: "llm-bridge-timeline-text" });
       text.createEl("span", { cls: "llm-bridge-timeline-label", text: timelineTypeLabel(type) });
       if (entry.detail) {
-        text.createEl("span", { cls: "llm-bridge-timeline-detail", text: entry.detail });
+        // V2.10 (B-002): 加 title 属性，CSS 截断后鼠标悬停可看完整内容
+        text.createEl("span", { cls: "llm-bridge-timeline-detail", text: entry.detail, attr: { title: entry.detail } });
       }
       const time = new Date(entry.timestamp).toLocaleTimeString();
       text.createEl("span", { cls: "llm-bridge-timeline-time", text: time });
