@@ -179,20 +179,42 @@ export async function loadSession(vaultPath: string, sessionId: string): Promise
   try {
     const filePath = path.join(vaultPath, SESSIONS_DIR_REL, `${sessionId}.json`);
     const content = await fs.promises.readFile(filePath, "utf8");
-    const parsed = JSON.parse(content) as PersistedSession;
-    // 基本字段校验
-    if (!parsed.id || typeof parsed.version !== "number" || !Array.isArray(parsed.messages)) {
-      return null;
-    }
-    // 版本迁移占位（当前只有 v1，未来升级在此分支处理）
-    if (parsed.version > SESSION_SCHEMA_VERSION) {
-      // 高版本文件：保守返回 null（不强行降级）
-      return null;
-    }
-    return parsed;
+    const parsed = JSON.parse(content);
+    return migrateSession(parsed);
   } catch {
     return null;
   }
+}
+
+/**
+ * V2.7: session schema 迁移框架
+ * - 根据文件 version 字段执行迁移到当前 SESSION_SCHEMA_VERSION
+ * - 当前只有 v1，未来 v2 在此添加迁移步骤（字段重命名/结构变更）
+ * - 高版本文件保守返回 null（不强行降级）
+ * - 字段缺失/类型错误返回 null
+ */
+export function migrateSession(parsed: unknown): PersistedSession | null {
+  if (!parsed || typeof parsed !== "object") return null;
+  const p = parsed as Record<string, unknown>;
+  if (typeof p.version !== "number") return null;
+  // 高版本不降级
+  if (p.version > SESSION_SCHEMA_VERSION) return null;
+  // 迁移步骤占位（v1 → v1 直通；未来 v1 → v2 在此添加）
+  // 迁移后必需字段校验
+  if (typeof p.id !== "string" || !p.id) return null;
+  if (!Array.isArray(p.messages)) return null;
+  if (typeof p.messageCount !== "number") return null;
+  return {
+    version: SESSION_SCHEMA_VERSION,
+    id: p.id,
+    title: typeof p.title === "string" ? p.title : "新会话",
+    status: (typeof p.status === "string" ? p.status : "idle") as RunStatus,
+    messageCount: p.messageCount,
+    startedAt: typeof p.startedAt === "string" ? p.startedAt : null,
+    savedAt: typeof p.savedAt === "string" ? p.savedAt : new Date().toISOString(),
+    agentType: typeof p.agentType === "string" ? p.agentType : "claude",
+    messages: p.messages as ChatMessage[],
+  };
 }
 
 /**

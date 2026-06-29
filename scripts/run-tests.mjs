@@ -6105,6 +6105,482 @@ if (!runV26Unit) {
 }
 
 // ============================================================
+// 8.14 V2.7 稳定性加固 单元测试
+//     覆盖：migrateSession 迁移框架 / sanitizeSkillMeta 字段校验（间接）/
+//           saveSkillsState .bak 备份 / lastCombo 过滤 /
+//           SessionContext 工厂函数 / 节流防抖源码检查 /
+//           错误边界源码检查 / 长会话折叠源码检查 /
+//           CLI 不回归 + sdk-experimental 默认关闭
+// ============================================================
+console.log("\n=== V2.7 稳定性加固 单元测试 ===");
+
+const runV27Unit = runMode === "all" || runMode === "unit";
+
+if (!runV27Unit) {
+  addTest("V2.7 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let sessionsBundleV27 = null;
+  let skillsStateBundleV27 = null;
+  let sessionContextBundleV27 = null;
+  let cliBackendBundleV27 = null;
+  let typesBundleV27 = null;
+  let tempV27Dir = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    sessionsBundleV27 = join(PROJECT_ROOT, ".test-sessions-v27-temp.mjs");
+    skillsStateBundleV27 = join(PROJECT_ROOT, ".test-skills-state-v27-temp.mjs");
+    sessionContextBundleV27 = join(PROJECT_ROOT, ".test-session-context-v27-temp.mjs");
+    cliBackendBundleV27 = join(PROJECT_ROOT, ".test-cli-backend-v27-temp.mjs");
+    typesBundleV27 = join(PROJECT_ROOT, ".test-types-v27-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sessions.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sessionsBundleV27,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "skillsState.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: skillsStateBundleV27,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sessionContext.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sessionContextBundleV27,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV27,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "types.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: typesBundleV27,
+    });
+
+    const {
+      migrateSession, SESSION_SCHEMA_VERSION,
+    } = await import(pathToFileURL(sessionsBundleV27).href);
+    const {
+      createEmptySkillsState, loadSkillsState, saveSkillsState,
+      SKILLS_STATE_VERSION,
+    } = await import(pathToFileURL(skillsStateBundleV27).href);
+    const {
+      buildCliSessionContext, buildSdkSessionContext, buildLocalSessionContext,
+      needsSessionResume, isContinueMode, sessionContextLabel,
+    } = await import(pathToFileURL(sessionContextBundleV27).href);
+    const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV27).href);
+    const { DEFAULT_SETTINGS } = await import(pathToFileURL(typesBundleV27).href);
+
+    // 临时 vault 目录
+    tempV27Dir = join(PROJECT_ROOT, ".test-v27-temp-dir");
+    try { rmSync(tempV27Dir, { recursive: true, force: true }); } catch {}
+    mkdirSync(tempV27Dir, { recursive: true });
+
+    // 读取 view.ts 源码用于字符串检查
+    const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+
+    // ===== migrateSession 迁移框架 =====
+
+    // ---- Test 1: migrateSession 有效 v1 完整对象 ----
+    {
+      const input = {
+        version: 1, id: "s-test-1", title: "测试会话", status: "completed",
+        messageCount: 3, startedAt: "2026-06-29T00:00:00Z", savedAt: "2026-06-29T01:00:00Z",
+        agentType: "claude", messages: [{ role: "user", content: "hi", id: "m1", timestamp: "2026-06-29T00:00:00Z" }],
+      };
+      const out = migrateSession(input);
+      const ok = out !== null && out.version === 1 && out.id === "s-test-1" && out.title === "测试会话" && out.messageCount === 3 && out.messages.length === 1;
+      addTest("V2.7 migrateSession: 有效 v1 完整对象返回规整结果", ok ? "pass" : "fail", ok ? "" : `out=${JSON.stringify(out)}`);
+    }
+
+    // ---- Test 2: migrateSession version 缺失 → null ----
+    {
+      const out = migrateSession({ id: "s", messages: [], messageCount: 0 });
+      addTest("V2.7 migrateSession: version 缺失返回 null", out === null ? "pass" : "fail", `out=${JSON.stringify(out)}`);
+    }
+
+    // ---- Test 3: migrateSession version 过高 → null（不降级）----
+    {
+      const out = migrateSession({ version: 99, id: "s", messages: [], messageCount: 0 });
+      addTest("V2.7 migrateSession: 高版本不降级返回 null", out === null ? "pass" : "fail", `out=${JSON.stringify(out)}`);
+    }
+
+    // ---- Test 4: migrateSession id 缺失 → null ----
+    {
+      const out = migrateSession({ version: 1, messages: [], messageCount: 0 });
+      addTest("V2.7 migrateSession: id 缺失返回 null", out === null ? "pass" : "fail", `out=${JSON.stringify(out)}`);
+    }
+
+    // ---- Test 5: migrateSession messages 非数组 → null ----
+    {
+      const out = migrateSession({ version: 1, id: "s", messages: "not-array", messageCount: 0 });
+      addTest("V2.7 migrateSession: messages 非数组返回 null", out === null ? "pass" : "fail", `out=${JSON.stringify(out)}`);
+    }
+
+    // ---- Test 6: migrateSession messageCount 非数字 → null ----
+    {
+      const out = migrateSession({ version: 1, id: "s", messages: [], messageCount: "3" });
+      addTest("V2.7 migrateSession: messageCount 非数字返回 null", out === null ? "pass" : "fail", `out=${JSON.stringify(out)}`);
+    }
+
+    // ---- Test 7: migrateSession null 输入 → null ----
+    {
+      const out = migrateSession(null);
+      addTest("V2.7 migrateSession: null 输入返回 null", out === null ? "pass" : "fail", `out=${JSON.stringify(out)}`);
+    }
+
+    // ---- Test 8: migrateSession 非对象输入（字符串）→ null ----
+    {
+      const out = migrateSession("not-an-object");
+      addTest("V2.7 migrateSession: 字符串输入返回 null", out === null ? "pass" : "fail", `out=${JSON.stringify(out)}`);
+    }
+
+    // ---- Test 9: migrateSession title 非字符串 → 用默认"新会话" ----
+    {
+      const out = migrateSession({ version: 1, id: "s", messages: [], messageCount: 0, title: 123 });
+      const ok = out !== null && out.title === "新会话";
+      addTest("V2.7 migrateSession: title 非字符串用默认值", ok ? "pass" : "fail", `title=${out?.title}`);
+    }
+
+    // ---- Test 10: migrateSession status 非字符串 → 用默认"idle" ----
+    {
+      const out = migrateSession({ version: 1, id: "s", messages: [], messageCount: 0, status: null });
+      const ok = out !== null && out.status === "idle";
+      addTest("V2.7 migrateSession: status 非字符串用默认 idle", ok ? "pass" : "fail", `status=${out?.status}`);
+    }
+
+    // ---- Test 11: migrateSession startedAt 非字符串 → null ----
+    {
+      const out = migrateSession({ version: 1, id: "s", messages: [], messageCount: 0, startedAt: 12345 });
+      const ok = out !== null && out.startedAt === null;
+      addTest("V2.7 migrateSession: startedAt 非字符串为 null", ok ? "pass" : "fail", `startedAt=${out?.startedAt}`);
+    }
+
+    // ---- Test 12: migrateSession agentType 非字符串 → 用默认"claude" ----
+    {
+      const out = migrateSession({ version: 1, id: "s", messages: [], messageCount: 0, agentType: 42 });
+      const ok = out !== null && out.agentType === "claude";
+      addTest("V2.7 migrateSession: agentType 非字符串用默认 claude", ok ? "pass" : "fail", `agentType=${out?.agentType}`);
+    }
+
+    // ---- Test 13: migrateSession savedAt 非字符串 → 用当前时间 ----
+    {
+      const before = new Date().toISOString();
+      const out = migrateSession({ version: 1, id: "s", messages: [], messageCount: 0, savedAt: 999 });
+      const after = new Date().toISOString();
+      const ok = out !== null && typeof out.savedAt === "string" && out.savedAt >= before && out.savedAt <= after;
+      addTest("V2.7 migrateSession: savedAt 非字符串用当前时间", ok ? "pass" : "fail", `savedAt=${out?.savedAt}`);
+    }
+
+    // ---- Test 14: SESSION_SCHEMA_VERSION = 1 ----
+    {
+      addTest("V2.7 SESSION_SCHEMA_VERSION = 1",
+        SESSION_SCHEMA_VERSION === 1 ? "pass" : "fail",
+        `version=${SESSION_SCHEMA_VERSION}`);
+    }
+
+    // ===== sanitizeSkillMeta 字段校验（通过 loadSkillsState 间接测）=====
+
+    // ---- Test 15: loadSkillsState 过滤无效 SkillMeta 字段 ----
+    {
+      const stateDir = join(tempV27Dir, ".llm-bridge");
+      mkdirSync(stateDir, { recursive: true });
+      const corruptState = {
+        version: 1,
+        skills: {
+          "valid-skill": { applyCount: 3, lastUsedAt: "2026-06-29T00:00:00Z", pinned: true, sortOrder: 1, collapsed: false, groupOverride: "test" },
+          "bad-applyCount": { applyCount: "not-number", lastUsedAt: null },
+          "bad-pinned": { applyCount: 1, lastUsedAt: null, pinned: "true" },
+          "bad-sortOrder": { applyCount: 1, lastUsedAt: null, sortOrder: "high" },
+          "bad-lastUsedAt": { applyCount: 1, lastUsedAt: 12345 },
+          "bad-collapsed": { applyCount: 1, lastUsedAt: null, collapsed: 1 },
+          "bad-groupOverride": { applyCount: 1, lastUsedAt: null, groupOverride: 42 },
+          "null-meta": null,
+          "non-object-meta": "string",
+        },
+        lastCombo: ["a", 123, "b", null, "c"],
+      };
+      writeFileSync(join(stateDir, "skills-state.json"), JSON.stringify(corruptState), "utf8");
+      const loaded = await loadSkillsState(tempV27Dir);
+      let ok = true;
+      const detail = [];
+      // valid-skill 保留全部字段
+      const v = loaded.skills["valid-skill"];
+      if (!v || v.applyCount !== 3 || v.pinned !== true || v.sortOrder !== 1 || v.collapsed !== false || v.groupOverride !== "test") {
+        ok = false; detail.push(`valid-skill 异常: ${JSON.stringify(v)}`);
+      }
+      // bad-applyCount: applyCount 非数字 → 默认 0
+      if (loaded.skills["bad-applyCount"]?.applyCount !== 0) { ok = false; detail.push(`bad-applyCount 应为 0`); }
+      // bad-pinned: pinned 非布尔 → 丢弃（undefined）
+      if (loaded.skills["bad-pinned"]?.pinned !== undefined) { ok = false; detail.push(`bad-pinned 应为 undefined`); }
+      // bad-sortOrder: sortOrder 非数字 → 丢弃
+      if (loaded.skills["bad-sortOrder"]?.sortOrder !== undefined) { ok = false; detail.push(`bad-sortOrder 应为 undefined`); }
+      // bad-lastUsedAt: lastUsedAt 非字符串 → null
+      if (loaded.skills["bad-lastUsedAt"]?.lastUsedAt !== null) { ok = false; detail.push(`bad-lastUsedAt 应为 null`); }
+      // bad-collapsed: collapsed 非布尔 → 丢弃
+      if (loaded.skills["bad-collapsed"]?.collapsed !== undefined) { ok = false; detail.push(`bad-collapsed 应为 undefined`); }
+      // bad-groupOverride: groupOverride 非字符串 → 丢弃
+      if (loaded.skills["bad-groupOverride"]?.groupOverride !== undefined) { ok = false; detail.push(`bad-groupOverride 应为 undefined`); }
+      // null-meta / non-object-meta: 整条过滤
+      if (loaded.skills["null-meta"] !== undefined) { ok = false; detail.push(`null-meta 应被过滤`); }
+      if (loaded.skills["non-object-meta"] !== undefined) { ok = false; detail.push(`non-object-meta 应被过滤`); }
+      // lastCombo 过滤非字符串
+      const comboOk = JSON.stringify(loaded.lastCombo) === JSON.stringify(["a", "b", "c"]);
+      if (!comboOk) { ok = false; detail.push(`lastCombo 应为 [a,b,c]，实际 ${JSON.stringify(loaded.lastCombo)}`); }
+      addTest("V2.7 loadSkillsState: 过滤无效 SkillMeta 字段 + lastCombo 非字符串", ok ? "pass" : "fail", ok ? "" : detail.join("; "));
+    }
+
+    // ---- Test 16: loadSkillsState version 过高 → 空 state ----
+    {
+      const stateDir = join(tempV27Dir, ".llm-bridge");
+      mkdirSync(stateDir, { recursive: true });
+      writeFileSync(join(stateDir, "skills-state.json"), JSON.stringify({ version: 99, skills: {}, lastCombo: [] }), "utf8");
+      const loaded = await loadSkillsState(tempV27Dir);
+      const ok = loaded.version === SKILLS_STATE_VERSION && Object.keys(loaded.skills).length === 0 && loaded.lastCombo.length === 0;
+      addTest("V2.7 loadSkillsState: version 过高返回空 state", ok ? "pass" : "fail", `v=${loaded.version} skills=${Object.keys(loaded.skills).length}`);
+    }
+
+    // ===== saveSkillsState .bak 备份 =====
+
+    // ---- Test 17: saveSkillsState 首次写入无 .bak（无旧文件可备份）----
+    {
+      const bakDir = join(tempV27Dir, "bak-test-1", ".llm-bridge");
+      mkdirSync(bakDir, { recursive: true });
+      const vault = join(tempV27Dir, "bak-test-1");
+      const state1 = createEmptySkillsState();
+      const ok1 = await saveSkillsState(vault, state1);
+      const mainExists = existsSync(join(bakDir, "skills-state.json"));
+      const bakExists = existsSync(join(bakDir, "skills-state.json.bak"));
+      addTest("V2.7 saveSkillsState: 首次写入无 .bak（无旧文件）",
+        ok1 && mainExists && !bakExists ? "pass" : "fail",
+        `saved=${ok1} main=${mainExists} bak=${bakExists}`);
+    }
+
+    // ---- Test 18: saveSkillsState 第二次写入生成 .bak（内容为第一次）----
+    {
+      const vault = join(tempV27Dir, "bak-test-2");
+      const bakDir = join(vault, ".llm-bridge");
+      mkdirSync(bakDir, { recursive: true });
+      const state1 = createEmptySkillsState();
+      state1.skills["first"] = { applyCount: 1, lastUsedAt: "2026-06-29T00:00:00Z" };
+      await saveSkillsState(vault, state1);
+      const state2 = createEmptySkillsState();
+      state2.skills["second"] = { applyCount: 2, lastUsedAt: "2026-06-29T01:00:00Z" };
+      await saveSkillsState(vault, state2);
+      const mainContent = JSON.parse(readFileSync(join(bakDir, "skills-state.json"), "utf8"));
+      const bakContent = JSON.parse(readFileSync(join(bakDir, "skills-state.json.bak"), "utf8"));
+      const ok = mainContent.skills["second"] !== undefined && mainContent.skills["first"] === undefined
+        && bakContent.skills["first"] !== undefined && bakContent.skills["second"] === undefined;
+      addTest("V2.7 saveSkillsState: 第二次写入生成 .bak（备份第一次内容）",
+        ok ? "pass" : "fail",
+        `mainHasSecond=${mainContent.skills["second"] !== undefined} bakHasFirst=${bakContent.skills["first"] !== undefined}`);
+    }
+
+    // ===== SessionContext 工厂函数 =====
+
+    // ---- Test 19: buildCliSessionContext continue 模式 ----
+    {
+      const ctx = buildCliSessionContext({ claudeContinueSession: true, claudeResumeSessionId: "" });
+      const ok = ctx.mode === "continue" && ctx.sessionId === null && ctx.source === "cli";
+      addTest("V2.7 buildCliSessionContext: continue 模式", ok ? "pass" : "fail", `ctx=${JSON.stringify(ctx)}`);
+    }
+
+    // ---- Test 20: buildCliSessionContext resume 模式 ----
+    {
+      const ctx = buildCliSessionContext({ claudeContinueSession: false, claudeResumeSessionId: "abc-123" });
+      const ok = ctx.mode === "resume" && ctx.sessionId === "abc-123" && ctx.source === "cli";
+      addTest("V2.7 buildCliSessionContext: resume 模式", ok ? "pass" : "fail", `ctx=${JSON.stringify(ctx)}`);
+    }
+
+    // ---- Test 21: buildCliSessionContext resume id 仅空白 → fresh ----
+    {
+      const ctx = buildCliSessionContext({ claudeContinueSession: false, claudeResumeSessionId: "   " });
+      const ok = ctx.mode === "fresh" && ctx.sessionId === null;
+      addTest("V2.7 buildCliSessionContext: resume id 仅空白 → fresh", ok ? "pass" : "fail", `ctx=${JSON.stringify(ctx)}`);
+    }
+
+    // ---- Test 22: buildCliSessionContext fresh 模式 ----
+    {
+      const ctx = buildCliSessionContext({ claudeContinueSession: false, claudeResumeSessionId: "" });
+      const ok = ctx.mode === "fresh" && ctx.sessionId === null && ctx.source === "cli";
+      addTest("V2.7 buildCliSessionContext: fresh 模式", ok ? "pass" : "fail", `ctx=${JSON.stringify(ctx)}`);
+    }
+
+    // ---- Test 23: buildSdkSessionContext resume 模式 ----
+    {
+      const ctx = buildSdkSessionContext("xyz-456");
+      const ok = ctx.mode === "resume" && ctx.sessionId === "xyz-456" && ctx.source === "sdk";
+      addTest("V2.7 buildSdkSessionContext: resume 模式", ok ? "pass" : "fail", `ctx=${JSON.stringify(ctx)}`);
+    }
+
+    // ---- Test 24: buildSdkSessionContext null → fresh ----
+    {
+      const ctx = buildSdkSessionContext(null);
+      const ok = ctx.mode === "fresh" && ctx.sessionId === null && ctx.source === "sdk";
+      addTest("V2.7 buildSdkSessionContext: null → fresh", ok ? "pass" : "fail", `ctx=${JSON.stringify(ctx)}`);
+    }
+
+    // ---- Test 25: buildSdkSessionContext 仅空白 → fresh ----
+    {
+      const ctx = buildSdkSessionContext("   ");
+      const ok = ctx.mode === "fresh" && ctx.sessionId === null;
+      addTest("V2.7 buildSdkSessionContext: 仅空白 → fresh", ok ? "pass" : "fail", `ctx=${JSON.stringify(ctx)}`);
+    }
+
+    // ---- Test 26: buildLocalSessionContext ----
+    {
+      const ctx = buildLocalSessionContext();
+      const ok = ctx.mode === "fresh" && ctx.sessionId === null && ctx.source === "local";
+      addTest("V2.7 buildLocalSessionContext: 固定 fresh + local", ok ? "pass" : "fail", `ctx=${JSON.stringify(ctx)}`);
+    }
+
+    // ---- Test 27: needsSessionResume resume+id → true ----
+    {
+      const ok = needsSessionResume({ mode: "resume", sessionId: "abc", source: "cli" }) === true;
+      addTest("V2.7 needsSessionResume: resume+id → true", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 28: needsSessionResume fresh → false ----
+    {
+      const ok = needsSessionResume({ mode: "fresh", sessionId: null, source: "cli" }) === false;
+      addTest("V2.7 needsSessionResume: fresh → false", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 29: needsSessionResume resume 但 sessionId null → false ----
+    {
+      const ok = needsSessionResume({ mode: "resume", sessionId: null, source: "cli" }) === false;
+      addTest("V2.7 needsSessionResume: resume+null id → false", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 30: needsSessionResume continue → false ----
+    {
+      const ok = needsSessionResume({ mode: "continue", sessionId: null, source: "cli" }) === false;
+      addTest("V2.7 needsSessionResume: continue → false", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 31: isContinueMode ----
+    {
+      const t = isContinueMode({ mode: "continue", sessionId: null, source: "cli" }) === true;
+      const f = isContinueMode({ mode: "fresh", sessionId: null, source: "cli" }) === false;
+      addTest("V2.7 isContinueMode: continue=true / fresh=false", t && f ? "pass" : "fail", `t=${t} f=${f}`);
+    }
+
+    // ---- Test 32: sessionContextLabel resume 带 id ----
+    {
+      const label = sessionContextLabel({ mode: "resume", sessionId: "abcdefghijklmn", source: "cli" });
+      const ok = label === "CLI·恢复指定(abcdefghijkl)";
+      addTest("V2.7 sessionContextLabel: resume 带 id 截断 12 字符", ok ? "pass" : "fail", `label=${label}`);
+    }
+
+    // ---- Test 33: sessionContextLabel fresh 无 id ----
+    {
+      const label = sessionContextLabel({ mode: "fresh", sessionId: null, source: "cli" });
+      const ok = label === "CLI·新会话";
+      addTest("V2.7 sessionContextLabel: fresh 无 id", ok ? "pass" : "fail", `label=${label}`);
+    }
+
+    // ---- Test 34: sessionContextLabel sdk + local 来源 ----
+    {
+      const sdkLabel = sessionContextLabel({ mode: "fresh", sessionId: null, source: "sdk" });
+      const localLabel = sessionContextLabel({ mode: "fresh", sessionId: null, source: "local" });
+      const ok = sdkLabel === "SDK·新会话" && localLabel === "本地·新会话";
+      addTest("V2.7 sessionContextLabel: SDK / 本地 来源标签", ok ? "pass" : "fail", `sdk=${sdkLabel} local=${localLabel}`);
+    }
+
+    // ---- Test 35: sessionContextLabel continue 模式 ----
+    {
+      const label = sessionContextLabel({ mode: "continue", sessionId: null, source: "cli" });
+      const ok = label === "CLI·继续最近";
+      addTest("V2.7 sessionContextLabel: continue 模式", ok ? "pass" : "fail", `label=${label}`);
+    }
+
+    // ===== 节流防抖源码检查（view.ts）=====
+
+    // ---- Test 36: view.ts 含 scheduleSkillsStateSave（state 写入节流）----
+    {
+      const ok = viewSrc.includes("scheduleSkillsStateSave") && viewSrc.includes("skillsStateSaveTimer");
+      addTest("V2.7 view.ts: 含 scheduleSkillsStateSave 节流方法", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 37: view.ts 含搜索防抖 300ms ----
+    {
+      const ok = viewSrc.includes("skillsSearchDebounceTimer") && viewSrc.includes("clearTimeout");
+      addTest("V2.7 view.ts: 含 skillsSearchDebounceTimer 防抖", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 错误边界源码检查（view.ts）=====
+
+    // ---- Test 38: view.ts 含 renderMessageError fallback ----
+    {
+      const ok = viewSrc.includes("renderMessageError") && viewSrc.includes("llm-bridge-msg-error");
+      addTest("V2.7 view.ts: 含 renderMessageError 错误 fallback", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 39: view.ts 含 renderListError fallback ----
+    {
+      const ok = viewSrc.includes("renderListError") && viewSrc.includes("renderSkillsList") && viewSrc.includes("renderHistoryList");
+      addTest("V2.7 view.ts: 含 renderListError 列表 fallback", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 长会话折叠源码检查（view.ts）=====
+
+    // ---- Test 40: view.ts 含长会话折叠逻辑 ----
+    {
+      const ok = viewSrc.includes("messagesFoldExpanded") && viewSrc.includes("MAX_EXPANDED") && viewSrc.includes("展开更早") && viewSrc.includes("llm-bridge-msg-fold");
+      addTest("V2.7 view.ts: 含长会话折叠（MAX_EXPANDED + 展开按钮）", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 41: view.ts 含 doNewSession/restoreSession 重置折叠 ----
+    {
+      const ok = viewSrc.includes('messagesFoldExpanded = false; // V2.7: 重置折叠状态')
+        && viewSrc.includes('messagesFoldExpanded = false; // V2.7: 恢复后默认折叠旧消息');
+      addTest("V2.7 view.ts: doNewSession/restoreSession 重置折叠状态", ok ? "pass" : "fail", "");
+    }
+
+    // ===== CLI 不回归 + sdk-experimental 默认关闭 =====
+
+    // ---- Test 42: ClaudeCliBackend 可实例化（CLI 主线不回归）----
+    {
+      let ok = false; let detail = "";
+      try {
+        const b = new ClaudeCliBackend();
+        ok = !!b;
+      } catch (e) {
+        detail = e?.message || String(e);
+      }
+      addTest("V2.7 CLI 不回归: ClaudeCliBackend 可实例化", ok ? "pass" : "fail", detail);
+    }
+
+    // ---- Test 43: sdk-experimental 默认关闭 ----
+    {
+      addTest("V2.7 SDK 默认关闭: DEFAULT_SETTINGS.backendMode = auto",
+        DEFAULT_SETTINGS.backendMode === "auto" ? "pass" : "fail",
+        `mode=${DEFAULT_SETTINGS.backendMode}`);
+    }
+
+    // ---- Test 44: DEFAULT_SETTINGS.claudeContinueSession = false（不回归）----
+    {
+      addTest("V2.7 默认设置: claudeContinueSession = false",
+        DEFAULT_SETTINGS.claudeContinueSession === false ? "pass" : "fail",
+        `continue=${DEFAULT_SETTINGS.claudeContinueSession}`);
+    }
+
+    // ---- Test 45: DEFAULT_SETTINGS.claudeResumeSessionId = "" （不回归）----
+    {
+      addTest("V2.7 默认设置: claudeResumeSessionId = 空字符串",
+        DEFAULT_SETTINGS.claudeResumeSessionId === "" ? "pass" : "fail",
+        `resume=${DEFAULT_SETTINGS.claudeResumeSessionId}`);
+    }
+
+  } catch (e) {
+    addTest("V2.7 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (sessionsBundleV27) rmSync(sessionsBundleV27, { force: true }); } catch {}
+    try { if (skillsStateBundleV27) rmSync(skillsStateBundleV27, { force: true }); } catch {}
+    try { if (sessionContextBundleV27) rmSync(sessionContextBundleV27, { force: true }); } catch {}
+    try { if (cliBackendBundleV27) rmSync(cliBackendBundleV27, { force: true }); } catch {}
+    try { if (typesBundleV27) rmSync(typesBundleV27, { force: true }); } catch {}
+    try { if (tempV27Dir) rmSync(tempV27Dir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");

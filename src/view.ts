@@ -115,6 +115,9 @@ export class LLMBridgeView extends ItemView {
   private skillsGroupFilter = "all"; // all | ungrouped | <tag>
   private skillsSortBy = "name"; // name | recent | popular
   private skillsComboSet: Set<string> = new Set(); // 勾选组合的 skill 名称（按插入顺序）
+  // V2.7: state 写入节流定时器 + 搜索防抖定时器（避免频繁 IO/渲染）
+  private skillsStateSaveTimer: number | null = null;
+  private skillsSearchDebounceTimer: number | null = null;
   // V2.5: 历史会话列表
   private historyListEl!: HTMLElement;
   private historyToggleEl!: HTMLElement;
@@ -134,6 +137,8 @@ export class LLMBridgeView extends ItemView {
   private includeNoteCheckEl!: HTMLInputElement;
   private includeSelectionCheckEl!: HTMLInputElement;
   private messagesEl!: HTMLElement;
+  // V2.7: 长会话旧消息折叠（false=折叠显示最近 N 条；true=展开全部）
+  private messagesFoldExpanded = false;
   private inputEl!: HTMLTextAreaElement;
   private sendBtn!: HTMLButtonElement;
   private stopBtn!: HTMLButtonElement;
@@ -1111,33 +1116,58 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderMessage(msg: ChatMessage): void {
-    const empty = this.messagesEl.querySelector(".llm-bridge-empty");
-    if (empty) empty.remove();
+    try {
+      const empty = this.messagesEl.querySelector(".llm-bridge-empty");
+      if (empty) empty.remove();
 
-    const block = this.messagesEl.createDiv({
-      cls: `llm-bridge-msg llm-bridge-msg-${msg.role}`,
-      attr: { "data-msg-id": msg.id },
-    });
-
-    // 消息头：角色 + 状态（失败时高亮）+ 时间
-    const head = block.createDiv({ cls: "llm-bridge-msg-head" });
-    head.createEl("span", { cls: "llm-bridge-msg-role", text: msg.role === "user" ? "You" : "Claude Code" });
-    if (msg.role === "assistant") {
-      head.createEl("span", {
-        cls: `llm-bridge-msg-status is-${msg.status}`,
-        text: STATUS_LABEL[msg.status],
+      const block = this.messagesEl.createDiv({
+        cls: `llm-bridge-msg llm-bridge-msg-${msg.role}`,
+        attr: { "data-msg-id": msg.id },
       });
-    }
-    head.createEl("span", { cls: "llm-bridge-msg-time", text: new Date(msg.timestamp).toLocaleTimeString() });
 
-    // 内容
-    const content = block.createEl("div", { cls: "llm-bridge-msg-content" });
-    content.textContent = msg.content || (msg.role === "assistant" && msg.status === "running" ? "…" : "");
+      // 消息头：角色 + 状态（失败时高亮）+ 时间
+      const head = block.createDiv({ cls: "llm-bridge-msg-head" });
+      head.createEl("span", { cls: "llm-bridge-msg-role", text: msg.role === "user" ? "You" : "Claude Code" });
+      if (msg.role === "assistant") {
+        head.createEl("span", {
+          cls: `llm-bridge-msg-status is-${msg.status}`,
+          text: STATUS_LABEL[msg.status],
+        });
+      }
+      head.createEl("span", { cls: "llm-bridge-msg-time", text: new Date(msg.timestamp).toLocaleTimeString() });
 
-    if (msg.role === "assistant") {
-      this.appendMsgDetails(block, msg);
+      // 内容
+      const content = block.createEl("div", { cls: "llm-bridge-msg-content" });
+      content.textContent = msg.content || (msg.role === "assistant" && msg.status === "running" ? "…" : "");
+
+      if (msg.role === "assistant") {
+        this.appendMsgDetails(block, msg);
+      }
+      this.scrollToBottom();
+    } catch (e) {
+      // V2.7: 单条消息渲染失败不影响其他消息
+      this.renderMessageError(msg, e);
     }
-    this.scrollToBottom();
+  }
+
+  // V2.7: 消息渲染失败的 fallback 块（避免单条消息异常导致整个列表白屏）
+  private renderMessageError(msg: ChatMessage, error: unknown): void {
+    try {
+      const block = this.messagesEl.createDiv({
+        cls: "llm-bridge-msg llm-bridge-msg-error",
+        attr: { "data-msg-id": msg.id },
+      });
+      block.createEl("div", {
+        cls: "llm-bridge-msg-content",
+        text: `[消息渲染失败] ${msg.role} · ${msg.timestamp}`,
+      });
+      if (error instanceof Error && error.message) {
+        block.createEl("pre", { cls: "llm-bridge-error-detail", text: error.message });
+      }
+      this.scrollToBottom();
+    } catch {
+      // 连错误块都渲染失败，静默忽略（避免无限抛出）
+    }
   }
 
   // stderr / log / 生成文件，默认折叠；失败或有新文件时显著
@@ -1695,6 +1725,7 @@ export class LLMBridgeView extends ItemView {
     this.messages = [];
     this.currentAssistantId = null;
     this.currentSessionId = null; // 新会话不绑定旧 id，下次运行将生成新 id
+    this.messagesFoldExpanded = false; // V2.7: 重置折叠状态
     this.sessionState = createNewSession();
     this.renderEmptyState();
     this.refreshSessionState();
@@ -1745,8 +1776,16 @@ export class LLMBridgeView extends ItemView {
       attr: { placeholder: "搜索 skill 名称/描述/#标签…", title: "按名称/描述/标签过滤 skills" },
     }) as HTMLInputElement;
     this.skillsSearchEl.addEventListener("input", () => {
-      this.skillsSearchQuery = this.skillsSearchEl.value;
-      this.renderSkillsList();
+      // V2.7: 搜索防抖（300ms），避免每次按键都重渲染列表
+      if (this.skillsSearchDebounceTimer !== null) {
+        window.clearTimeout(this.skillsSearchDebounceTimer);
+      }
+      const value = this.skillsSearchEl.value;
+      this.skillsSearchDebounceTimer = window.setTimeout(() => {
+        this.skillsSearchQuery = value;
+        this.renderSkillsList();
+        this.skillsSearchDebounceTimer = null;
+      }, 300);
     });
     // V2.6: 分组 + 排序下拉 + 组合应用按钮
     const controlsBar = body.createDiv({ cls: "llm-bridge-skills-controls" });
@@ -1835,6 +1874,7 @@ export class LLMBridgeView extends ItemView {
   // V2.5: 渲染历史会话列表
   private renderHistoryList(): void {
     if (!this.historyListEl) return;
+    try {
     this.historyListEl.empty();
     if (this.historyItems.length === 0) {
       this.historyListEl.createDiv({ cls: "llm-bridge-history-empty", text: "暂无历史会话" });
@@ -1865,6 +1905,9 @@ export class LLMBridgeView extends ItemView {
       });
     }
     this.historyToggleEl.textContent = `${this.historyListEl.hasAttribute("hidden") ? "▶" : "▼"} History (${this.historyItems.length})`;
+    } catch (e) {
+      this.renderListError(this.historyListEl, "history", e);
+    }
   }
 
   // V2.5: 格式化历史会话时间（简化展示）
@@ -1908,6 +1951,7 @@ export class LLMBridgeView extends ItemView {
     this.messages = session.messages.slice();
     this.currentAssistantId = null;
     this.currentSessionId = session.id;
+    this.messagesFoldExpanded = false; // V2.7: 恢复后默认折叠旧消息
     this.sessionState = {
       title: session.title,
       status: session.status,
@@ -1926,14 +1970,32 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V2.5: 从历史会话渲染消息列表（复用 renderMessage 渲染逻辑）
+  // V2.7: 长会话旧消息折叠（默认显示最近 8 条，更早的折叠为按钮）
   private renderMessagesFromHistory(): void {
     this.messagesEl.empty();
     if (this.messages.length === 0) {
       this.renderEmptyState();
       return;
     }
-    for (const msg of this.messages) {
-      this.renderMessage(msg);
+    const MAX_EXPANDED = 8;
+    if (this.messages.length > MAX_EXPANDED && !this.messagesFoldExpanded) {
+      const hiddenCount = this.messages.length - MAX_EXPANDED;
+      const visible = this.messages.slice(hiddenCount);
+      const foldBtn = this.messagesEl.createDiv({ cls: "llm-bridge-msg-fold" });
+      foldBtn.createEl("button", {
+        cls: "llm-bridge-msg-fold-btn",
+        text: `展开更早 ${hiddenCount} 条消息`,
+      }).addEventListener("click", () => {
+        this.messagesFoldExpanded = true;
+        this.renderMessagesFromHistory();
+      });
+      for (const msg of visible) {
+        this.renderMessage(msg);
+      }
+    } else {
+      for (const msg of this.messages) {
+        this.renderMessage(msg);
+      }
     }
   }
 
@@ -2032,6 +2094,7 @@ export class LLMBridgeView extends ItemView {
   // V2.6: 分组/排序/置顶/组合勾选/使用统计
   private renderSkillsList(): void {
     if (!this.skillsListEl) return;
+    try {
     this.skillsListEl.empty();
     if (this.skills.length === 0) {
       const empty = this.skillsListEl.createDiv({ cls: "llm-bridge-skills-empty" });
@@ -2174,6 +2237,24 @@ export class LLMBridgeView extends ItemView {
     }
     this.updateSkillsToggle();
     this.updateComboButton();
+    } catch (e) {
+      this.renderListError(this.skillsListEl, "skills", e);
+    }
+  }
+
+  // V2.7: 列表渲染失败的 fallback 提示（避免异常导致面板空白）
+  private renderListError(container: HTMLElement | null, name: string, error: unknown): void {
+    if (!container) return;
+    try {
+      container.empty();
+      const err = container.createDiv({ cls: "llm-bridge-list-error" });
+      err.createEl("span", { text: `[${name} 列表渲染失败]` });
+      if (error instanceof Error && error.message) {
+        err.createEl("pre", { cls: "llm-bridge-error-detail", text: error.message });
+      }
+    } catch {
+      // 静默忽略
+    }
   }
 
   // V2.6: 排序 skills（置顶最前，组内按 sortBy 排序）
@@ -2198,11 +2279,10 @@ export class LLMBridgeView extends ItemView {
     return withMeta.map((x) => x.skill);
   }
 
-  // V2.6: 切换置顶状态并持久化
-  private async toggleSkillPinned(skillName: string, pinned: boolean): Promise<void> {
+  // V2.6: 切换置顶状态并持久化（V2.7: 节流写入）
+  private toggleSkillPinned(skillName: string, pinned: boolean): void {
     this.skillsState = setSkillPinned(this.skillsState, skillName, pinned);
-    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-    await saveSkillsState(vaultPath, this.skillsState);
+    this.scheduleSkillsStateSave();
     this.renderSkillsList();
   }
 
@@ -2267,7 +2347,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V2.6: 应用组合（按勾选顺序拼接 prompt，插入光标位置）
-  private async applyCombo(): Promise<void> {
+  private applyCombo(): void {
     if (this.runHandle) return;
     if (this.skillsComboSet.size === 0) {
       new Notice("请先勾选要组合的 skill");
@@ -2307,25 +2387,39 @@ export class LLMBridgeView extends ItemView {
     const newPos = start + combined.length;
     this.inputEl.setSelectionRange(newPos, newPos);
     this.inputEl.focus();
-    // 记录组合 + 各 skill 使用
-    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    // 记录组合 + 各 skill 使用（V2.7: 节流写入）
     this.skillsState = recordCombo(this.skillsState, orderedNames);
     for (const name of orderedNames) {
       this.skillsState = recordSkillApplied(this.skillsState, name);
       this.trackAppliedSkill(name);
     }
-    await saveSkillsState(vaultPath, this.skillsState);
+    this.scheduleSkillsStateSave();
     // 清空勾选
     this.skillsComboSet.clear();
     this.renderSkillsList();
     new Notice(`已组合应用 ${orderedNames.length} 个 skill`);
   }
 
+  // V2.7: 节流写入 skills-state（500ms 内多次操作合并为一次写入，减少 IO）
+  private scheduleSkillsStateSave(): void {
+    if (this.skillsStateSaveTimer !== null) {
+      window.clearTimeout(this.skillsStateSaveTimer);
+    }
+    this.skillsStateSaveTimer = window.setTimeout(async () => {
+      this.skillsStateSaveTimer = null;
+      try {
+        const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+        await saveSkillsState(vaultPath, this.skillsState);
+      } catch {
+        // 写入失败不阻断主流程
+      }
+    }, 500);
+  }
+
   // V2.6: 记录单个 skill 使用（更新 applyCount + lastUsedAt 并持久化）
-  private async recordSkillUse(skillName: string): Promise<void> {
-    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+  private recordSkillUse(skillName: string): void {
     this.skillsState = recordSkillApplied(this.skillsState, skillName);
-    await saveSkillsState(vaultPath, this.skillsState);
+    this.scheduleSkillsStateSave();
   }
 
   // V2.5: 查看完整 skill prompt（弹窗只读展示）

@@ -67,6 +67,7 @@ export function createEmptySkillsState(): SkillsState {
 
 /**
  * 读取 skills-state（文件不存在或解析失败返回空 state）
+ * V2.7: 增强 SkillMeta 字段校验，过滤无效条目
  */
 export async function loadSkillsState(vaultPath: string): Promise<SkillsState> {
   try {
@@ -81,10 +82,16 @@ export async function loadSkillsState(vaultPath: string): Promise<SkillsState> {
     if (parsed.version > SKILLS_STATE_VERSION) {
       return createEmptySkillsState();
     }
+    // V2.7: 过滤无效 SkillMeta 条目
+    const sanitizedSkills: Record<string, SkillMeta> = {};
+    for (const [name, meta] of Object.entries(parsed.skills as Record<string, unknown>)) {
+      const valid = sanitizeSkillMeta(meta);
+      if (valid) sanitizedSkills[name] = valid;
+    }
     return {
       version: SKILLS_STATE_VERSION,
-      skills: parsed.skills as Record<string, SkillMeta>,
-      lastCombo: Array.isArray(parsed.lastCombo) ? parsed.lastCombo : [],
+      skills: sanitizedSkills,
+      lastCombo: Array.isArray(parsed.lastCombo) ? parsed.lastCombo.filter((x) => typeof x === "string") : [],
     };
   } catch {
     return createEmptySkillsState();
@@ -92,7 +99,26 @@ export async function loadSkillsState(vaultPath: string): Promise<SkillsState> {
 }
 
 /**
+ * V2.7: 校验并规整单个 SkillMeta（无效返回 null）
+ * - applyCount 必须是 number（默认 0）
+ * - lastUsedAt 必须是 string 或 null
+ * - pinned/sortOrder/collapsed/groupOverride 可选，类型不匹配时丢弃
+ */
+function sanitizeSkillMeta(raw: unknown): SkillMeta | null {
+  if (!raw || typeof raw !== "object") return null;
+  const m = raw as Record<string, unknown>;
+  const applyCount = typeof m.applyCount === "number" && !isNaN(m.applyCount) ? m.applyCount : 0;
+  const lastUsedAt = typeof m.lastUsedAt === "string" ? m.lastUsedAt : null;
+  const pinned = typeof m.pinned === "boolean" ? m.pinned : undefined;
+  const sortOrder = typeof m.sortOrder === "number" && !isNaN(m.sortOrder) ? m.sortOrder : undefined;
+  const collapsed = typeof m.collapsed === "boolean" ? m.collapsed : undefined;
+  const groupOverride = typeof m.groupOverride === "string" ? m.groupOverride : undefined;
+  return { applyCount, lastUsedAt, pinned, sortOrder, collapsed, groupOverride };
+}
+
+/**
  * 保存 skills-state（tmp+rename 原子写，失败不抛异常返回 false）
+ * V2.7: 写入前备份旧文件到 .bak，便于数据损坏时手动回滚
  */
 export async function saveSkillsState(vaultPath: string, state: SkillsState): Promise<boolean> {
   try {
@@ -100,12 +126,19 @@ export async function saveSkillsState(vaultPath: string, state: SkillsState): Pr
     await fs.promises.mkdir(dirPath, { recursive: true });
     const filePath = path.join(dirPath, "skills-state.json");
     const tmpPath = path.join(dirPath, "skills-state.json.tmp");
+    const bakPath = path.join(dirPath, "skills-state.json.bak");
     const payload: SkillsState = {
       version: SKILLS_STATE_VERSION,
       skills: state.skills,
       lastCombo: state.lastCombo,
     };
     await fs.promises.writeFile(tmpPath, JSON.stringify(payload, null, 2), "utf8");
+    // V2.7: 备份旧文件（若存在），便于新文件损坏时手动恢复
+    try {
+      await fs.promises.copyFile(filePath, bakPath);
+    } catch {
+      // 旧文件不存在（首次写入），无备份
+    }
     await fs.promises.rename(tmpPath, filePath);
     return true;
   } catch {
