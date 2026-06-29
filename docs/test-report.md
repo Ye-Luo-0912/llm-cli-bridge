@@ -1,6 +1,6 @@
 # LLM CLI Bridge 测试报告
 
-- **测试时间**: 2026-06-29T17:08:20.450Z
+- **测试时间**: 2026-06-29T17:18:32.095Z
 - **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.12.1
 - **main.js 大小**: 336.1 KB
@@ -10,11 +10,11 @@
 
 ## 测试汇总
 
-- ✅ **通过**: 55
+- ✅ **通过**: 62
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 49
+- ⏭️ **跳过**: 52
 - ⚪ **需人工验证**: 0
-- **总计**: 104
+- **总计**: 114
 
 ## 详细结果
 
@@ -315,32 +315,58 @@
 |------|--------|------|
 | ⏭️ | V2.13.0-F Agent Skills UI Split 单元测试段 | 当前模式不运行 unit |
 
-### Process 测试段
+### V2.14.0-A File Access Permission Boundary 单元测试段
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | Process 测试段 | 当前为 unit/integration 模式，跳过 process 测试 |
+| ⏭️ | V2.14.0-A File Access Permission Boundary 单元测试段 | 当前模式不运行 unit |
 
-### Claude Smoke
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ✅ | claude 可用性 | version: 2.1.195 (Claude Code) |
-| ✅ | started 先发出 | - |
-| ✅ | 接收 stdout_delta | - |
-| ✅ | completed exitCode 0 | - |
-| ✅ | stdout 含 OK | - |
-
-### Claude Note Summarize
+### Process
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | claude 可用性 | version: 2.1.195 (Claude Code) |
-| ✅ | prompt 包含标记词 | - |
-| ✅ | started 先发出 | - |
-| ✅ | completed exitCode 0 | - |
-| ✅ | stdout 包含标记词 | - |
-| ✅ | stdout 提到总结/关键 | - |
+| ✅ | 启动 fixture success | - |
+| ✅ | 接收多段 stdout_delta | - |
+| ✅ | 接收 stderr_delta | - |
+| ✅ | exit 0 → completed | - |
+| ✅ | exit 1 → failed | - |
+| ✅ | stop() 终止 slow fixture | - |
+| ✅ | cwd 路径带空格可运行 | - |
+| ✅ | cwd 指向临时目录可运行 | - |
+| ✅ | large-output 不污染诊断日志 | - |
+
+### Preflight
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | cwd 不存在 → failed diagnostic | - |
+| ✅ | command 不存在 → unavailable | - |
+| ✅ | version 成功 → available | - |
+| ✅ | command 为空 → unavailable | - |
+| ✅ | debug log 不含 secret | - |
+| ✅ | 路径带空格可运行 | - |
+| ✅ | claude 真实命令探测 | available=true, stdout="2.1.195 (Claude Code)
+" |
+| ⏭️ | codex 真实命令探测 | codex 未安装或不可用 (exitCode=1) |
+
+### Process File Diff
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | fixture write-file completed | - |
+| ✅ | diff 检测到 fixture 写入的新文件 | - |
+
+### Claude Smoke 段
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ⏭️ | Claude Smoke 段 | 当前模式不运行 claude smoke |
+
+### Claude Note Summarize Smoke 段
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ⏭️ | Claude Note Summarize Smoke 段 | 当前模式不运行 note summarize smoke |
 
 ## 失败项详情
 

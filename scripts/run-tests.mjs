@@ -9181,6 +9181,126 @@ if (!runV213FUnit) {
 }
 
 // ============================================================
+// 8.26 V2.14.0-A File Access Permission Boundary 单元测试
+// ============================================================
+console.log("\n=== V2.14.0-A File Access Permission Boundary 单元测试 ===");
+
+const runV214AUnit = runMode === "all" || runMode === "unit";
+
+if (!runV214AUnit) {
+  addTest("V2.14.0-A File Access Permission Boundary 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  try {
+    const reportSrc = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-A_FILE_ACCESS_PERMISSION_BOUNDARY.md"), "utf8");
+    const actionsSrc = readFileSync(join(PROJECT_ROOT, "src", "actions.ts"), "utf8");
+    const fileDiffSrc = readFileSync(join(PROJECT_ROOT, "src", "fileDiff.ts"), "utf8");
+    const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
+    const permissionPolicySrc = readFileSync(join(PROJECT_ROOT, "src", "permissionPolicy.ts"), "utf8");
+    const sdkPermissionSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkPermission.ts"), "utf8");
+    const agentBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "agentBackend.ts"), "utf8");
+    const cliBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeCliBackend.ts"), "utf8");
+    const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
+
+    {
+      const hasSections = [
+        "## CurrentState",
+        "## ReadPolicy",
+        "## WritePolicy",
+        "## SensitivePathPolicy",
+        "## BackendImpact",
+        "## ImplementationPhases",
+        "## Risks",
+        "## Recommendation",
+      ].every((heading) => reportSrc.includes(heading));
+      addTest("V2.14.0-A report: 包含要求的边界报告章节",
+        hasSections ? "pass" : "fail", `sections=${hasSections}`);
+    }
+
+    {
+      const readRootsOk = reportSrc.includes("`readRoots` defaults to `[vaultPath]`")
+        && reportSrc.includes("Users may explicitly add external directories to `readRoots`")
+        && reportSrc.includes("External paths are read-only by default");
+      const noBlindPrompt = reportSrc.includes("Do not append external file content wholesale to `promptPackage`")
+        && !promptPackageSrc.includes("readRoots")
+        && !promptPackageSrc.includes("externalFile")
+        && !promptPackageSrc.includes("workingFiles");
+      addTest("V2.14.0-A read policy: 外部可显式只读，且不无脑拼进 promptPackage",
+        readRootsOk && noBlindPrompt ? "pass" : "fail",
+        `readRoots=${readRootsOk} noBlindPrompt=${noBlindPrompt}`);
+    }
+
+    {
+      const writeRootsOk = reportSrc.includes("`writeRoots` defaults to:")
+        && reportSrc.includes("`vaultPath`")
+        && reportSrc.includes("resolved `outputDir` when it is inside `vaultPath`")
+        && reportSrc.includes("External paths may be readable through `readRoots`, but they are not writable");
+      const actionsRejectExternalWrite = actionsSrc.includes("拒绝绝对路径")
+        && actionsSrc.includes("拒绝路径遍历")
+        && actionsSrc.includes("create_note")
+        && actionsSrc.includes("append_to_note")
+        && !actionsSrc.includes("fs.promises.writeFile(");
+      addTest("V2.14.0-A write policy: Vault 内写入可控，外部写/删/重命名禁止",
+        writeRootsOk && actionsRejectExternalWrite ? "pass" : "fail",
+        `writeRoots=${writeRootsOk} actions=${actionsRejectExternalWrite}`);
+    }
+
+    {
+      const reportSensitiveOk = [".env", "token", "credentials", "secrets", ".ssh", "PRIVATE KEY", ".git/config", ".obsidian"]
+        .every((needle) => reportSrc.includes(needle));
+      const actionsSensitiveOk = [".obsidian", ".env", ".git", "token", "secrets", "credentials"]
+        .every((needle) => actionsSrc.includes(needle));
+      const sdkSensitiveOk = sdkPermissionSrc.includes(".obsidian 配置目录")
+        && sdkPermissionSrc.includes(".env 环境文件")
+        && sdkPermissionSrc.includes(".git 版本控制目录")
+        && sdkPermissionSrc.includes("Bridge 凭证文件")
+        && sdkPermissionSrc.includes("Vault 外绝对路径");
+      addTest("V2.14.0-A sensitive paths: 敏感路径默认拒绝或强确认",
+        reportSensitiveOk && actionsSensitiveOk && sdkSensitiveOk ? "pass" : "fail",
+        `report=${reportSensitiveOk} actions=${actionsSensitiveOk} sdk=${sdkSensitiveOk}`);
+    }
+
+    {
+      const fileDiffVaultOnly = fileDiffSrc.includes("snapshotVaultMarkdownFiles(vaultPath")
+        && fileDiffSrc.includes("\".obsidian\"")
+        && fileDiffSrc.includes("\".llm-bridge\"")
+        && fileDiffSrc.includes("\".git\"")
+        && !fileDiffSrc.includes("readRoots")
+        && !fileDiffSrc.includes("writeRoots");
+      const permissionPolicyFutureHigh = permissionPolicySrc.includes("Vault 外访问")
+        && permissionPolicySrc.includes(".obsidian")
+        && permissionPolicySrc.includes("env")
+        && permissionPolicySrc.includes("shell");
+      addTest("V2.14.0-A current audit: fileDiff Vault-only，权限策略保留高风险边界",
+        fileDiffVaultOnly && permissionPolicyFutureHigh ? "pass" : "fail",
+        `fileDiff=${fileDiffVaultOnly} policy=${permissionPolicyFutureHigh}`);
+    }
+
+    {
+      const agentEventStart = agentBackendSrc.indexOf("export type AgentEvent =");
+      const agentEventEnd = agentBackendSrc.indexOf("export type AgentEventHandler", agentEventStart);
+      const agentEventType = agentEventStart >= 0 && agentEventEnd > agentEventStart
+        ? agentBackendSrc.slice(agentEventStart, agentEventEnd)
+        : "";
+      const agentEventNames = Array.from(agentEventType.matchAll(/type:\s*"([^"]+)"/g)).map((m) => m[1]).sort();
+      const expectedAgentEventNames = ["completed", "failed", "started", "stderr_delta", "stopped", "stdout_delta"].sort();
+      const agentEventUnchanged = JSON.stringify(agentEventNames) === JSON.stringify(expectedAgentEventNames)
+        && agentEventNames.every((name) => !name.includes("tool") && !name.includes("file"));
+      const backendUnchangedByV214 = !cliBackendSrc.includes("readRoots")
+        && !cliBackendSrc.includes("writeRoots")
+        && !sdkBackendSrc.includes("readRoots")
+        && !sdkBackendSrc.includes("writeRoots");
+      const skillsRuntimeUnchanged = reportSrc.includes("Do not change Agent Skills manifest/materialization")
+        || reportSrc.includes("Do not change Agent Skills");
+      addTest("V2.14.0-A runtime boundary: AgentEvent/CLI/SDK/Skills 主线不变",
+        agentEventUnchanged && backendUnchangedByV214 && skillsRuntimeUnchanged ? "pass" : "fail",
+        `agentEvent=${agentEventUnchanged} backend=${backendUnchangedByV214} skills=${skillsRuntimeUnchanged}`);
+    }
+  } catch (e) {
+    addTest("V2.14.0-A File Access Permission Boundary 单元测试段", "fail", e?.stack || e?.message || String(e));
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");
