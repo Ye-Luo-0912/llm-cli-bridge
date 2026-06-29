@@ -9301,6 +9301,177 @@ if (!runV214AUnit) {
 }
 
 // ============================================================
+// 8.27 V2.14.0-B Shared File Access Policy Module 单元测试
+// ============================================================
+console.log("\n=== V2.14.0-B Shared File Access Policy Module 单元测试 ===");
+
+const runV214BUnit = runMode === "all" || runMode === "unit";
+
+if (!runV214BUnit) {
+  addTest("V2.14.0-B Shared File Access Policy Module 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  try {
+    const esbuild = (await import("esbuild")).default;
+    const fileAccessPolicyBundleV214B = join(tmpdir(), `file-access-policy-v214b-${Date.now()}.mjs`);
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "fileAccessPolicy.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: fileAccessPolicyBundleV214B,
+      external: ["obsidian"],
+      logLevel: "silent",
+    });
+
+    const {
+      createFileAccessPolicy,
+      evaluateFileAccess,
+      normalizeFileAccessPath,
+      isPathInside,
+      isSensitivePath,
+    } = await import(pathToFileURL(fileAccessPolicyBundleV214B).href);
+
+    const reportSrc = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-B_FILE_ACCESS_POLICY_MODULE.md"), "utf8");
+    const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
+    const cliBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeCliBackend.ts"), "utf8");
+    const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
+    const agentBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "agentBackend.ts"), "utf8");
+
+    {
+      const exportsOk = [createFileAccessPolicy, evaluateFileAccess, normalizeFileAccessPath, isPathInside, isSensitivePath]
+        .every((fn) => typeof fn === "function");
+      const reportOk = ["## PolicyTypes", "## Decisions", "## PathSafety", "## Tests", "## RemainingRisk", "## Recommendation"]
+        .every((heading) => reportSrc.includes(heading));
+      addTest("V2.14.0-B exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk ? "pass" : "fail", `exports=${exportsOk} report=${reportOk}`);
+    }
+
+    {
+      const policy = createFileAccessPolicy({ vaultPath: "C:\\Vault" });
+      const ok = policy.readRoots.length === 1
+        && policy.writeRoots.length === 1
+        && policy.readRoots[0].kind === "vault"
+        && policy.writeRoots[0].kind === "vault";
+      addTest("V2.14.0-B roots: 默认 readRoots/writeRoots 仅 Vault",
+        ok ? "pass" : "fail", `read=${policy.readRoots.length} write=${policy.writeRoots.length}`);
+    }
+
+    {
+      const policy = createFileAccessPolicy({
+        vaultPath: "C:\\Vault",
+        externalReadRoots: ["D:\\References"],
+      });
+      const read = evaluateFileAccess(policy, { operation: "read", path: "D:\\References\\paper.md" });
+      const write = evaluateFileAccess(policy, { operation: "write", path: "D:\\References\\paper.md" });
+      const ok = read.decision === "allow"
+        && read.reason === "inside_read_root"
+        && write.decision === "deny"
+        && write.reason === "outside_write_roots";
+      addTest("V2.14.0-B external read: 外部显式 read root 可读不可写",
+        ok ? "pass" : "fail", `read=${read.decision}/${read.reason} write=${write.decision}/${write.reason}`);
+    }
+
+    {
+      const policy = createFileAccessPolicy({ vaultPath: "C:\\Vault", outputDir: "Generated\\Daily" });
+      const write = evaluateFileAccess(policy, { operation: "write", path: "Generated\\Daily\\out.md" });
+      const normalized = normalizeFileAccessPath("Generated\\Daily\\out.md", "C:\\Vault");
+      const ok = policy.writeRoots.length === 2
+        && policy.writeRoots.some((r) => r.kind === "output" && r.resolvedPath.endsWith("\\generated\\daily"))
+        && write.decision === "allow"
+        && normalized.endsWith("\\generated\\daily\\out.md");
+      addTest("V2.14.0-B outputDir: Vault 内 outputDir 归一化并加入 writeRoots",
+        ok ? "pass" : "fail", `roots=${policy.writeRoots.length} write=${write.decision} normalized=${normalized}`);
+    }
+
+    {
+      const policy = createFileAccessPolicy({ vaultPath: "C:\\Vault", outputDir: "..\\Outside" });
+      const write = evaluateFileAccess(policy, { operation: "write", path: "C:\\Outside\\out.md" });
+      const ok = policy.writeRoots.length === 1
+        && !policy.writeRoots.some((r) => r.kind === "output")
+        && write.decision === "deny"
+        && write.reason === "outside_write_roots";
+      addTest("V2.14.0-B outputDir: Vault 外 outputDir 不加入 writeRoots",
+        ok ? "pass" : "fail", `roots=${policy.writeRoots.length} write=${write.decision}/${write.reason}`);
+    }
+
+    {
+      const policy = createFileAccessPolicy({ vaultPath: "C:\\Vault" });
+      const write = evaluateFileAccess(policy, { operation: "write", path: "notes\\today.md" });
+      const del = evaluateFileAccess(policy, { operation: "delete", path: "D:\\External\\today.md" });
+      const rename = evaluateFileAccess(policy, { operation: "rename", path: "notes\\a.md", targetPath: "D:\\External\\a.md" });
+      const ok = write.decision === "allow"
+        && write.reason === "inside_write_root"
+        && del.decision === "deny"
+        && del.reason === "outside_write_roots"
+        && rename.decision === "deny"
+        && rename.reason === "rename_target_denied";
+      addTest("V2.14.0-B write/delete/rename: Vault 内写允许，Vault 外写删改拒绝",
+        ok ? "pass" : "fail", `write=${write.decision}/${write.reason} delete=${del.decision}/${del.reason} rename=${rename.decision}/${rename.reason}`);
+    }
+
+    {
+      const denyPolicy = createFileAccessPolicy({ vaultPath: "C:\\Vault" });
+      const confirmPolicy = createFileAccessPolicy({ vaultPath: "C:\\Vault", sensitivePathMode: "confirm" });
+      const denied = evaluateFileAccess(denyPolicy, { operation: "read", path: ".env" });
+      const confirmed = evaluateFileAccess(confirmPolicy, { operation: "read", path: ".env" });
+      const directSensitive = [
+        "C:\\Vault\\.obsidian\\workspace.json",
+        "C:\\Vault\\.git\\config",
+        "C:\\Vault\\.ssh\\id_ed25519",
+        "C:\\Vault\\.llm-bridge\\bridge.json",
+        "C:\\Vault\\notes\\api-token.txt",
+        "C:\\Vault\\keys\\private.pem",
+      ].every((p) => isSensitivePath(p));
+      const ok = denied.decision === "deny"
+        && denied.reason === "sensitive_path"
+        && confirmed.decision === "confirm"
+        && confirmed.risk === "high"
+        && directSensitive;
+      addTest("V2.14.0-B sensitive: 默认拒绝，强确认模式返回 confirm",
+        ok ? "pass" : "fail", `deny=${denied.decision}/${denied.reason} confirm=${confirmed.decision}/${confirmed.risk} direct=${directSensitive}`);
+    }
+
+    {
+      const windowsInside = isPathInside("C:\\Vault\\Sub\\a.md", "c:\\vault");
+      const windowsOutside = !isPathInside("C:\\Vault2\\a.md", "c:\\vault");
+      const posixInside = isPathInside("/home/me/vault/sub/a.md", "/home/me/vault");
+      const posixOutside = !isPathInside("/home/me/vault2/a.md", "/home/me/vault");
+      const policy = createFileAccessPolicy({ vaultPath: "/home/me/vault" });
+      const traversal = evaluateFileAccess(policy, { operation: "read", path: "../secrets.md" });
+      const ok = windowsInside && windowsOutside && posixInside && posixOutside
+        && traversal.decision === "deny"
+        && traversal.reason === "path_traversal";
+      addTest("V2.14.0-B path safety: Windows/POSIX containment 与路径遍历",
+        ok ? "pass" : "fail", `win=${windowsInside}/${windowsOutside} posix=${posixInside}/${posixOutside} traversal=${traversal.decision}/${traversal.reason}`);
+    }
+
+    {
+      const agentEventStart = agentBackendSrc.indexOf("export type AgentEvent =");
+      const agentEventEnd = agentBackendSrc.indexOf("export type AgentEventHandler", agentEventStart);
+      const agentEventType = agentEventStart >= 0 && agentEventEnd > agentEventStart
+        ? agentBackendSrc.slice(agentEventStart, agentEventEnd)
+        : "";
+      const noPromptPackageWire = !promptPackageSrc.includes("fileAccessPolicy")
+        && !promptPackageSrc.includes("readRoots")
+        && !promptPackageSrc.includes("workingFiles");
+      const noBackendWire = !cliBackendSrc.includes("fileAccessPolicy")
+        && !sdkBackendSrc.includes("fileAccessPolicy")
+        && !cliBackendSrc.includes("readRoots")
+        && !sdkBackendSrc.includes("readRoots");
+      const agentEventUnchanged = ["started", "stdout_delta", "stderr_delta", "completed", "failed", "stopped"]
+        .every((type) => agentEventType.includes(`type: "${type}"`))
+        && !agentEventType.includes("tool")
+        && !agentEventType.includes("file_access");
+      addTest("V2.14.0-B boundary: 不接 promptPackage/CLI/SDK，不改 AgentEvent",
+        noPromptPackageWire && noBackendWire && agentEventUnchanged ? "pass" : "fail",
+        `prompt=${noPromptPackageWire} backend=${noBackendWire} event=${agentEventUnchanged}`);
+    }
+  } catch (e) {
+    addTest("V2.14.0-B Shared File Access Policy Module 单元测试段", "fail", e?.stack || e?.message || String(e));
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");
