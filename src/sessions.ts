@@ -232,6 +232,30 @@ export async function deleteSession(vaultPath: string, sessionId: string): Promi
 }
 
 /**
+ * V2.8: 重命名历史会话标题（原子写，失败返回 false）
+ * 仅修改 title 与 savedAt，保留其他字段不变
+ */
+export async function renameSession(vaultPath: string, sessionId: string, newTitle: string): Promise<boolean> {
+  try {
+    const session = await loadSession(vaultPath, sessionId);
+    if (!session) return false;
+    const renamed: PersistedSession = {
+      ...session,
+      title: newTitle,
+      savedAt: new Date().toISOString(),
+    };
+    const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
+    const filePath = path.join(dirPath, `${sessionId}.json`);
+    const tmpPath = path.join(dirPath, `${sessionId}.json.tmp`);
+    await fs.promises.writeFile(tmpPath, JSON.stringify(renamed, null, 2), "utf8");
+    await fs.promises.rename(tmpPath, filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * 内部：淘汰最旧会话，保持目录不超过 MAX_SESSIONS_KEPT
  * 按 savedAt 升序删除最旧的若干个
  */

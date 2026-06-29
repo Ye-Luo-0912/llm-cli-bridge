@@ -6581,6 +6581,239 @@ if (!runV27Unit) {
 }
 
 // ============================================================
+// 8.15 V2.8 会话恢复深化 单元测试
+//     覆盖：renameSession 重命名 / 一致性提示源码检查 /
+//           排序源码检查 / 删除原地刷新源码检查 /
+//           文件引用增强源码检查 / CLI 不回归 + sdk-experimental 默认关闭
+// ============================================================
+console.log("\n=== V2.8 会话恢复深化 单元测试 ===");
+
+const runV28Unit = runMode === "all" || runMode === "unit";
+
+if (!runV28Unit) {
+  addTest("V2.8 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let sessionsBundleV28 = null;
+  let cliBackendBundleV28 = null;
+  let typesBundleV28 = null;
+  let tempV28Dir = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    sessionsBundleV28 = join(PROJECT_ROOT, ".test-sessions-v28-temp.mjs");
+    cliBackendBundleV28 = join(PROJECT_ROOT, ".test-cli-backend-v28-temp.mjs");
+    typesBundleV28 = join(PROJECT_ROOT, ".test-types-v28-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sessions.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sessionsBundleV28,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV28,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "types.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: typesBundleV28,
+    });
+
+    const {
+      saveSession, loadSession, renameSession, listSessions,
+      SESSION_SCHEMA_VERSION,
+    } = await import(pathToFileURL(sessionsBundleV28).href);
+    const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV28).href);
+    const { DEFAULT_SETTINGS } = await import(pathToFileURL(typesBundleV28).href);
+
+    // 临时 vault 目录
+    tempV28Dir = join(PROJECT_ROOT, ".test-v28-temp-dir");
+    try { rmSync(tempV28Dir, { recursive: true, force: true }); } catch {}
+    mkdirSync(tempV28Dir, { recursive: true });
+
+    // 读取 view.ts 源码用于字符串检查
+    const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+
+    // ===== renameSession 重命名 =====
+
+    // ---- Test 1: renameSession 成功修改 title ----
+    {
+      const vault = join(tempV28Dir, "rename-1");
+      mkdirSync(join(vault, ".llm-bridge", "sessions"), { recursive: true });
+      const state = { title: "原标题", status: "completed", messageCount: 2, startedAt: "2026-06-29T00:00:00Z" };
+      const messages = [{ id: "m1", role: "user", content: "hi", status: "completed", stderr: "", log: "", generatedFiles: [], exitCode: 0, durationMs: 100, timestamp: "2026-06-29T00:00:00Z" }];
+      const id = await saveSession(vault, state, messages, "claude");
+      const ok = await renameSession(vault, id, "新标题");
+      const loaded = await loadSession(vault, id);
+      const pass = ok && loaded !== null && loaded.title === "新标题" && loaded.id === id && loaded.messageCount === 2;
+      addTest("V2.8 renameSession: 成功修改 title", pass ? "pass" : "fail", `ok=${ok} title=${loaded?.title}`);
+    }
+
+    // ---- Test 2: renameSession 保留其他字段不变 ----
+    {
+      const vault = join(tempV28Dir, "rename-2");
+      mkdirSync(join(vault, ".llm-bridge", "sessions"), { recursive: true });
+      const state = { title: "原标题", status: "failed", messageCount: 5, startedAt: "2026-06-29T01:00:00Z" };
+      const messages = [{ id: "m1", role: "user", content: "test", status: "failed", stderr: "", log: "", generatedFiles: ["a.md"], exitCode: 1, durationMs: 200, timestamp: "2026-06-29T01:00:00Z" }];
+      const id = await saveSession(vault, state, messages, "codex");
+      await renameSession(vault, id, "重命名后");
+      const loaded = await loadSession(vault, id);
+      const pass = loaded !== null && loaded.status === "failed" && loaded.messageCount === 5
+        && loaded.startedAt === "2026-06-29T01:00:00Z" && loaded.agentType === "codex"
+        && loaded.messages.length === 1 && loaded.messages[0].generatedFiles.length === 1;
+      addTest("V2.8 renameSession: 保留其他字段不变", pass ? "pass" : "fail", `status=${loaded?.status} agentType=${loaded?.agentType}`);
+    }
+
+    // ---- Test 3: renameSession 不存在的会话返回 false ----
+    {
+      const vault = join(tempV28Dir, "rename-3");
+      mkdirSync(join(vault, ".llm-bridge", "sessions"), { recursive: true });
+      const ok = await renameSession(vault, "nonexistent-id", "新标题");
+      addTest("V2.8 renameSession: 不存在的会话返回 false", ok === false ? "pass" : "fail", `ok=${ok}`);
+    }
+
+    // ---- Test 4: renameSession 后 savedAt 更新 ----
+    {
+      const vault = join(tempV28Dir, "rename-4");
+      mkdirSync(join(vault, ".llm-bridge", "sessions"), { recursive: true });
+      const state = { title: "原标题", status: "idle", messageCount: 1, startedAt: "2026-06-29T00:00:00Z" };
+      const messages = [{ id: "m1", role: "user", content: "hi", status: "idle", stderr: "", log: "", generatedFiles: [], exitCode: null, durationMs: 0, timestamp: "2026-06-29T00:00:00Z" }];
+      const id = await saveSession(vault, state, messages, "claude");
+      const before = await loadSession(vault, id);
+      // 等待 50ms 确保 savedAt 不同
+      await new Promise((r) => setTimeout(r, 50));
+      await renameSession(vault, id, "新标题");
+      const after = await loadSession(vault, id);
+      const pass = before !== null && after !== null && after.savedAt > before.savedAt;
+      addTest("V2.8 renameSession: savedAt 更新为当前时间", pass ? "pass" : "fail", `before=${before?.savedAt} after=${after?.savedAt}`);
+    }
+
+    // ---- Test 5: renameSession 后 listSessions 反映新标题 ----
+    {
+      const vault = join(tempV28Dir, "rename-5");
+      mkdirSync(join(vault, ".llm-bridge", "sessions"), { recursive: true });
+      const state = { title: "原标题", status: "completed", messageCount: 1, startedAt: "2026-06-29T00:00:00Z" };
+      const messages = [{ id: "m1", role: "user", content: "hi", status: "completed", stderr: "", log: "", generatedFiles: [], exitCode: 0, durationMs: 0, timestamp: "2026-06-29T00:00:00Z" }];
+      const id = await saveSession(vault, state, messages, "claude");
+      await renameSession(vault, id, "列表新标题");
+      const items = await listSessions(vault);
+      const pass = items.length === 1 && items[0].title === "列表新标题";
+      addTest("V2.8 renameSession: listSessions 反映新标题", pass ? "pass" : "fail", `title=${items[0]?.title}`);
+    }
+
+    // ===== 一致性提示源码检查（view.ts）=====
+
+    // ---- Test 6: view.ts 含 agentType 一致性提示 ----
+    {
+      const ok = viewSrc.includes("agentType 一致性提示") && viewSrc.includes("session.agentType !== this.plugin.settings.agentType");
+      addTest("V2.8 view.ts: 含 restoreSession agentType 一致性提示", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 7: view.ts 含恢复后 scrollToBottom ----
+    {
+      const ok = viewSrc.includes("this.scrollToBottom(); // V2.8: 恢复后滚到最新消息");
+      addTest("V2.8 view.ts: restoreSession 末尾 scrollToBottom", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 排序源码检查（view.ts）=====
+
+    // ---- Test 8: view.ts 含 historySortMode 字段 ----
+    {
+      const ok = viewSrc.includes("historySortMode") && viewSrc.includes('"time" | "messages"');
+      addTest("V2.8 view.ts: 含 historySortMode 排序模式字段", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 9: view.ts 含排序下拉 UI ----
+    {
+      const ok = viewSrc.includes("llm-bridge-history-sort") && viewSrc.includes("按时间") && viewSrc.includes("按消息数");
+      addTest("V2.8 view.ts: 含排序下拉 UI（按时间/按消息数）", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 10: view.ts 含排序逻辑（messages 降序）----
+    {
+      const ok = viewSrc.includes('this.historySortMode === "messages"') && viewSrc.includes("b.messageCount - a.messageCount");
+      addTest("V2.8 view.ts: 含 messages 排序逻辑（降序）", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 删除原地刷新源码检查（view.ts）=====
+
+    // ---- Test 11: view.ts 含删除原地刷新 ----
+    {
+      const ok = viewSrc.includes("V2.8: 原地移除该项并重渲染") && viewSrc.includes("this.historyItems.filter");
+      addTest("V2.8 view.ts: deleteHistorySession 原地刷新不重载", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 文件引用增强源码检查（view.ts）=====
+
+    // ---- Test 12: view.ts 含 showFileNotFoundModal ----
+    {
+      const ok = viewSrc.includes("showFileNotFoundModal") && viewSrc.includes("复制路径");
+      addTest("V2.8 view.ts: openGeneratedFile 失败弹 Modal + 复制路径", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 标题编辑源码检查（view.ts）=====
+
+    // ---- Test 13: view.ts 含 renameHistorySession 方法 ----
+    {
+      const ok = viewSrc.includes("renameHistorySession") && viewSrc.includes("重命名会话标题");
+      addTest("V2.8 view.ts: 含 renameHistorySession 方法", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 14: view.ts 含 promptDialog 通用输入框 ----
+    {
+      const ok = viewSrc.includes("promptDialog") && viewSrc.includes("llm-bridge-prompt-input");
+      addTest("V2.8 view.ts: 含 promptDialog 通用输入对话框", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 15: view.ts 含编辑按钮（✎）----
+    {
+      const ok = viewSrc.includes("llm-bridge-history-edit-btn") && viewSrc.includes("✎");
+      addTest("V2.8 view.ts: 历史列表项含编辑按钮", ok ? "pass" : "fail", "");
+    }
+
+    // ===== renameSession 导出检查 =====
+
+    // ---- Test 16: sessions.ts 导出 renameSession ----
+    {
+      const ok = typeof renameSession === "function";
+      addTest("V2.8 sessions.ts: 导出 renameSession 函数", ok ? "pass" : "fail", `type=${typeof renameSession}`);
+    }
+
+    // ===== CLI 不回归 + sdk-experimental 默认关闭 =====
+
+    // ---- Test 17: ClaudeCliBackend 可实例化（CLI 主线不回归）----
+    {
+      let ok = false; let detail = "";
+      try {
+        const b = new ClaudeCliBackend();
+        ok = !!b;
+      } catch (e) {
+        detail = e?.message || String(e);
+      }
+      addTest("V2.8 CLI 不回归: ClaudeCliBackend 可实例化", ok ? "pass" : "fail", detail);
+    }
+
+    // ---- Test 18: sdk-experimental 默认关闭 ----
+    {
+      addTest("V2.8 SDK 默认关闭: DEFAULT_SETTINGS.backendMode = auto",
+        DEFAULT_SETTINGS.backendMode === "auto" ? "pass" : "fail",
+        `mode=${DEFAULT_SETTINGS.backendMode}`);
+    }
+
+    // ---- Test 19: SESSION_SCHEMA_VERSION 仍为 1（V2.8 不改 schema）----
+    {
+      addTest("V2.8 schema 不变: SESSION_SCHEMA_VERSION = 1",
+        SESSION_SCHEMA_VERSION === 1 ? "pass" : "fail",
+        `version=${SESSION_SCHEMA_VERSION}`);
+    }
+
+  } catch (e) {
+    addTest("V2.8 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (sessionsBundleV28) rmSync(sessionsBundleV28, { force: true }); } catch {}
+    try { if (cliBackendBundleV28) rmSync(cliBackendBundleV28, { force: true }); } catch {}
+    try { if (typesBundleV28) rmSync(typesBundleV28, { force: true }); } catch {}
+    try { if (tempV28Dir) rmSync(tempV28Dir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");

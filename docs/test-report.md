@@ -1,20 +1,20 @@
 # LLM CLI Bridge 测试报告
 
-- **测试时间**: 2026-06-29T03:47:34.817Z
+- **测试时间**: 2026-06-29T04:13:01.173Z
 - **测试环境**: win32 / Node.js v24.14.0
-- **插件版本**: 2.7.0
-- **main.js 大小**: 295.9 KB
+- **插件版本**: 2.8.0
+- **main.js 大小**: 302.4 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 49742
+- **HTTP 端口**: 63019
 
 ## 测试汇总
 
-- ✅ **通过**: 474
+- ✅ **通过**: 493
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 1
 - ⚪ **需人工验证**: 2
-- **总计**: 477
+- **总计**: 496
 
 ## 详细结果
 
@@ -141,7 +141,7 @@
 | ✅ | state 命令 | - |
 | ✅ | show_notice 命令 | - |
 | ✅ | --json 标志输出有效 JSON | - |
-| ✅ | --wait --timeout 超时行为 | 耗时: 3129ms, stderr包含timeout: true |
+| ✅ | --wait --timeout 超时行为 | 耗时: 3283ms, stderr包含timeout: true |
 | ✅ | bridge.json 缺失时错误提示 | 正确提示 bridge.json 缺失 |
 
 ### Contract
@@ -1078,7 +1078,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-06-29T03-48-08-384Z-jzp0un |
+| ✅ | 返回非空 id | id=s-2026-06-29T04-13-36-123Z-wepkew |
 
 ### V2.5 Session 版本
 
@@ -1097,7 +1097,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-06-29T03-48-08-458Z-y0a15e second=s-2026-06-29T03-48-08-399Z-qgy3cl |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-06-29T04-13-36-220Z-1vdf8s second=s-2026-06-29T04-13-36-136Z-qpkfzd |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1124,7 +1124,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-06-29T03-48-08-483Z-rx7x80 id2=s-2026-06-29T03-48-08-483Z-cuhk3k |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-06-29T04-13-36-251Z-lj65mj id2=s-2026-06-29T04-13-36-251Z-cn1ljm |
 
 ### V2.5 Session 上限
 
@@ -1222,7 +1222,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-06-29T03:48:08.548Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-06-29T04:13:36.322Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1310,7 +1310,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-06-29T03:48:08.602Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-06-29T04:13:36.371Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 1
 
@@ -1408,6 +1408,55 @@
 |------|--------|------|
 | ✅ | claudeContinueSession = false | continue=false |
 | ✅ | claudeResumeSessionId = 空字符串 | resume= |
+
+### V2.8 renameSession
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 成功修改 title | ok=true title=新标题 |
+| ✅ | 保留其他字段不变 | status=failed agentType=codex |
+| ✅ | 不存在的会话返回 false | ok=false |
+| ✅ | savedAt 更新为当前时间 | before=2026-06-29T04:13:36.426Z after=2026-06-29T04:13:36.479Z |
+| ✅ | listSessions 反映新标题 | title=列表新标题 |
+
+### V2.8 view.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 含 restoreSession agentType 一致性提示 | - |
+| ✅ | restoreSession 末尾 scrollToBottom | - |
+| ✅ | 含 historySortMode 排序模式字段 | - |
+| ✅ | 含排序下拉 UI（按时间/按消息数） | - |
+| ✅ | 含 messages 排序逻辑（降序） | - |
+| ✅ | deleteHistorySession 原地刷新不重载 | - |
+| ✅ | openGeneratedFile 失败弹 Modal + 复制路径 | - |
+| ✅ | 含 renameHistorySession 方法 | - |
+| ✅ | 含 promptDialog 通用输入对话框 | - |
+| ✅ | 历史列表项含编辑按钮 | - |
+
+### V2.8 sessions.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 导出 renameSession 函数 | type=function |
+
+### V2.8 CLI 不回归
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | ClaudeCliBackend 可实例化 | - |
+
+### V2.8 SDK 默认关闭
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | DEFAULT_SETTINGS.backendMode = auto | mode=auto |
+
+### V2.8 schema 不变
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | SESSION_SCHEMA_VERSION = 1 | version=1 |
 
 ### Process
 

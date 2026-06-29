@@ -23,7 +23,7 @@ import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalW
 import { SdkBackend } from "./sdkBackend";
 import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
-import { PersistedSession, SessionListItem, saveSession, listSessions, loadSession, deleteSession } from "./sessions";
+import { PersistedSession, SessionListItem, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
 import { Skill, loadSkills, seedDefaultSkills, filterEnabledSkills, expandSkillPrompt, importSkillFromText, deleteSkill, isImportedSkill, scanSkillPrompt, truncateSkillPrompt, MAX_SKILL_PROMPT_LENGTH, updateImportedSkill, searchSkills, checkImportConflict, extractTags } from "./skills";
 import { SkillsState, SkillMeta, loadSkillsState, saveSkillsState, getSkillMeta, recordSkillApplied, setSkillPinned, recordCombo, formatRelativeTime, createEmptySkillsState } from "./skillsState";
 import { getPermissionModeInfo, type PermissionChoice } from "./sdkPermission";
@@ -122,6 +122,7 @@ export class LLMBridgeView extends ItemView {
   private historyListEl!: HTMLElement;
   private historyToggleEl!: HTMLElement;
   private historyItems: SessionListItem[] = [];
+  private historySortMode: "time" | "messages" = "time"; // V2.8: 历史会话排序模式
   // V2.5: 当前活动会话 id（保存后赋值；用于后续运行更新同一会话文件）
   private currentSessionId: string | null = null;
 
@@ -1842,6 +1843,18 @@ export class LLMBridgeView extends ItemView {
       attr: { title: "刷新历史会话列表" },
     });
     refreshHistBtn.addEventListener("click", () => void this.refreshHistory());
+    // V2.8: 排序下拉（时间/消息数）
+    const sortSelect = head.createEl("select", {
+      cls: "llm-bridge-history-sort",
+      attr: { title: "排序方式" },
+    });
+    sortSelect.createEl("option", { value: "time", text: "按时间" });
+    sortSelect.createEl("option", { value: "messages", text: "按消息数" });
+    sortSelect.value = this.historySortMode;
+    sortSelect.addEventListener("change", () => {
+      this.historySortMode = sortSelect.value as "time" | "messages";
+      this.renderHistoryList();
+    });
     const body = wrap.createDiv({ cls: "llm-bridge-history-body" });
     body.setAttribute("hidden", "");
     this.historyListEl = body;
@@ -1872,6 +1885,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V2.5: 渲染历史会话列表
+  // V2.8: 支持排序（时间/消息数）+ 每项加编辑按钮
   private renderHistoryList(): void {
     if (!this.historyListEl) return;
     try {
@@ -1881,8 +1895,16 @@ export class LLMBridgeView extends ItemView {
       this.historyToggleEl.textContent = `${this.historyListEl.hasAttribute("hidden") ? "▶" : "▼"} History (0)`;
       return;
     }
+    // V2.8: 按 sortMode 排序（不修改原数组，用副本）
+    const sorted = this.historyItems.slice();
+    if (this.historySortMode === "messages") {
+      sorted.sort((a, b) => b.messageCount - a.messageCount);
+    } else {
+      // time: 按 savedAt 降序（最新在前，listSessions 已排但副本后稳定排序）
+      sorted.sort((a, b) => (a.savedAt < b.savedAt ? 1 : a.savedAt > b.savedAt ? -1 : 0));
+    }
     const list = this.historyListEl.createDiv({ cls: "llm-bridge-history-list" });
-    for (const item of this.historyItems) {
+    for (const item of sorted) {
       const row = list.createDiv({
         cls: `llm-bridge-history-item is-${item.status}`,
         attr: { title: `${item.title} · ${item.messageCount} 条消息 · ${item.savedAt}` },
@@ -1893,6 +1915,16 @@ export class LLMBridgeView extends ItemView {
       const meta = `${item.messageCount} 条 · ${item.agentType} · ${this.formatHistoryTime(item.savedAt)}`;
       main.createEl("span", { cls: "llm-bridge-history-meta", text: meta });
       main.addEventListener("click", () => void this.restoreSession(item.id));
+      // V2.8: 编辑按钮（重命名标题）
+      const editBtn = row.createEl("button", {
+        cls: "llm-bridge-history-edit-btn",
+        text: "✎",
+        attr: { title: "重命名会话标题" },
+      });
+      editBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        void this.renameHistorySession(item.id, item.title);
+      });
       // 删除按钮
       const delBtn = row.createEl("button", {
         cls: "llm-bridge-history-del-btn",
@@ -1966,7 +1998,15 @@ export class LLMBridgeView extends ItemView {
     this.lastSdkAgentCount = 0;
     this.clearPendingPermissions();
     this.refreshStatusBar();
-    new Notice(`已恢复会话：${session.title}`);
+    this.scrollToBottom(); // V2.8: 恢复后滚到最新消息
+    // V2.8: agentType 一致性提示（不强制切换 backend）
+    if (session.agentType && session.agentType !== this.plugin.settings.agentType) {
+      const sessionLabel = AGENT_OPTIONS.find((a) => a.value === session.agentType)?.label ?? session.agentType;
+      const currentLabel = AGENT_OPTIONS.find((a) => a.value === this.plugin.settings.agentType)?.label ?? this.plugin.settings.agentType;
+      new Notice(`已恢复会话：${session.title}（该会话使用 ${sessionLabel}，当前为 ${currentLabel}，已按当前 backend 恢复）`, 6000);
+    } else {
+      new Notice(`已恢复会话：${session.title}`);
+    }
   }
 
   // V2.5: 从历史会话渲染消息列表（复用 renderMessage 渲染逻辑）
@@ -2000,6 +2040,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V2.5: 删除历史会话（确认后删除 + 刷新列表）
+  // V2.8: 改为原地移除 historyItems 项 + 重渲染，不重新 listSessions
   private async deleteHistorySession(sessionId: string, title: string): Promise<void> {
     const confirmed = await this.confirmDialog(
       "删除历史会话",
@@ -2014,10 +2055,66 @@ export class LLMBridgeView extends ItemView {
       if (this.currentSessionId === sessionId) {
         this.currentSessionId = null;
       }
-      await this.refreshHistory();
+      // V2.8: 原地移除该项并重渲染（不重新 listSessions）
+      this.historyItems = this.historyItems.filter((it) => it.id !== sessionId);
+      this.renderHistoryList();
     } else {
       new Notice("删除失败：会话文件不存在");
     }
+  }
+
+  // V2.8: 重命名历史会话标题（弹 Modal 输入 + 原子写 + 原地更新）
+  private async renameHistorySession(sessionId: string, currentTitle: string): Promise<void> {
+    const newTitle = await this.promptDialog("重命名会话标题", "输入新的会话标题：", currentTitle);
+    if (newTitle === null) return; // 用户取消
+    const trimmed = newTitle.trim();
+    if (!trimmed) {
+      new Notice("标题不能为空");
+      return;
+    }
+    if (trimmed === currentTitle) return; // 未修改
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const ok = await renameSession(vaultPath, sessionId, trimmed);
+    if (ok) {
+      // 原地更新 historyItems 对应项
+      if (this.historyItems.some((it) => it.id === sessionId)) {
+        this.historyItems = this.historyItems.map((it) =>
+          it.id === sessionId ? { ...it, title: trimmed, savedAt: new Date().toISOString() } : it,
+        );
+      }
+      // 若重命名的是当前活动会话，同步更新 sessionState.title
+      if (this.currentSessionId === sessionId) {
+        this.sessionState = { ...this.sessionState, title: trimmed };
+        this.refreshSessionState();
+      }
+      this.renderHistoryList();
+      new Notice(`已重命名会话：${trimmed}`);
+    } else {
+      new Notice("重命名失败：会话文件不存在或写入失败");
+    }
+  }
+
+  // V2.8: 通用输入对话框（返回输入值；取消返回 null）
+  private promptDialog(title: string, message: string, defaultValue: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      const modal = new Modal(this.app);
+      modal.titleEl.setText(title);
+      modal.contentEl.empty();
+      modal.contentEl.createEl("p", { text: message, cls: "llm-bridge-confirm-msg" });
+      const input = modal.contentEl.createEl("input", {
+        cls: "llm-bridge-prompt-input",
+        attr: { type: "text", value: defaultValue },
+      });
+      input.style.width = "100%";
+      const btns = modal.contentEl.createDiv({ cls: "modal-button-container" });
+      const cancel = btns.createEl("button", { text: "取消" });
+      cancel.addEventListener("click", () => { resolve(null); modal.close(); });
+      const confirm = btns.createEl("button", { text: "确认", cls: "mod-warning" });
+      confirm.addEventListener("click", () => { resolve(input.value); modal.close(); });
+      modal.open();
+      // 自动聚焦输入框并选中文本
+      setTimeout(() => { input.focus(); input.select(); }, 50);
+    });
   }
 
   // V2.5: 通用确认对话框（返回 true=确认 / false=取消）
@@ -2979,7 +3076,34 @@ export class LLMBridgeView extends ItemView {
       await this.app.workspace.getLeaf().openFile(file);
       return;
     }
-    new Notice("文件尚未被 Obsidian 索引，请稍后重试。");
+    // V2.8: 文件不存在/未索引时弹 Modal 显示完整路径 + 复制按钮
+    this.showFileNotFoundModal(relPath);
+  }
+
+  // V2.8: 文件未找到时的提示 Modal（显示路径 + 复制按钮）
+  private showFileNotFoundModal(relPath: string): void {
+    const modal = new Modal(this.app);
+    modal.titleEl.setText("文件无法打开");
+    modal.contentEl.empty();
+    modal.contentEl.createEl("p", {
+      text: "文件可能已被删除或尚未被 Obsidian 索引。可复制路径后手动查找：",
+      cls: "llm-bridge-confirm-msg",
+    });
+    const pathBox = modal.contentEl.createDiv({ cls: "llm-bridge-file-path-box" });
+    pathBox.createEl("code", { text: relPath, cls: "llm-bridge-file-path-code" });
+    const btns = modal.contentEl.createDiv({ cls: "modal-button-container" });
+    const copyBtn = btns.createEl("button", { text: "复制路径" });
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(relPath);
+        new Notice("路径已复制");
+      } catch {
+        new Notice("复制失败，请手动选取");
+      }
+    });
+    const closeBtn = btns.createEl("button", { text: "关闭", cls: "mod-warning" });
+    closeBtn.addEventListener("click", () => modal.close());
+    modal.open();
   }
 }
 
