@@ -453,6 +453,7 @@ export function truncateSkillPrompt(prompt: string, maxLen: number = MAX_SKILL_P
  * - 仅作用于 .llm-bridge/skills/ 目录下的文件
  * - 若 newName 与 originalName 不同，删除旧文件并写入新文件（保持 skillNameToFileName 一致性）
  * - 若 newName 与 originalName 相同，直接覆盖原文件内容
+ * - V2.11.1: 从 newDescription 重新 extractTags，保留编辑后的 #标签（修复编辑后 tags 丢失）
  * - 主文件（skills.md）中的 skill 不可编辑，需返回 false
  * @returns true 表示编辑成功
  */
@@ -474,6 +475,8 @@ export async function updateImportedSkill(
       return false; // 原文件不存在或为主文件中的 skill
     }
     await fs.promises.mkdir(dirPath, { recursive: true });
+    // V2.11.1: 从描述中重新提取 #标签（编辑弹窗描述行可含 #标签，与 parseSkillsMarkdown 行为一致）
+    const { description: cleanDesc, tags } = extractTags(newDescription);
     // 若名称改变：检查新名称是否冲突（已存在同文件名的另一文件）
     if (newName !== originalName) {
       const newFileName = `${skillNameToFileName(newName)}.md`;
@@ -485,7 +488,7 @@ export async function updateImportedSkill(
         // 新名称不冲突，继续
       }
       // 写入新文件
-      const updatedSkill: Skill = { name: newName, description: newDescription, prompt: newPrompt, tags: [] };
+      const updatedSkill: Skill = { name: newName, description: cleanDesc, prompt: newPrompt, tags };
       await fs.promises.writeFile(newFilePath, serializeSkillToMarkdown(updatedSkill), "utf8");
       // 删除旧文件
       try {
@@ -496,7 +499,7 @@ export async function updateImportedSkill(
       return true;
     }
     // 名称未变：直接覆盖原文件
-    const updatedSkill: Skill = { name: newName, description: newDescription, prompt: newPrompt, tags: [] };
+    const updatedSkill: Skill = { name: newName, description: cleanDesc, prompt: newPrompt, tags };
     await fs.promises.writeFile(oldFilePath, serializeSkillToMarkdown(updatedSkill), "utf8");
     return true;
   } catch {

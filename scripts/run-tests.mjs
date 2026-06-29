@@ -7630,6 +7630,373 @@ if (!runV211Unit) {
 }
 
 // ============================================================
+// 8.19 V2.11.1 Skills State Integrity / Lifecycle Cleanup 单元测试
+//     覆盖：skill 重命名 meta 迁移 / tags 编辑保留 / onClose flush /
+//           组合应用勾选顺序 / 嵌套 session 脱敏 / 设置页刷新 /
+//           groupOverride future 标注 / CLI 不回归 + sdk-experimental 默认关闭 + schema 不变
+// ============================================================
+console.log("\n=== V2.11.1 Skills State Integrity 单元测试 ===");
+
+const runV2111Unit = runMode === "all" || runMode === "unit";
+
+if (!runV2111Unit) {
+  addTest("V2.11.1 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let skillsStateBundleV2111 = null;
+  let skillsBundleV2111 = null;
+  let sessionsBundleV2111 = null;
+  let typesBundleV2111 = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    skillsStateBundleV2111 = join(PROJECT_ROOT, ".test-skills-state-v2111-temp.mjs");
+    skillsBundleV2111 = join(PROJECT_ROOT, ".test-skills-v2111-temp.mjs");
+    sessionsBundleV2111 = join(PROJECT_ROOT, ".test-sessions-v2111-temp.mjs");
+    typesBundleV2111 = join(PROJECT_ROOT, ".test-types-v2111-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "skillsState.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: skillsStateBundleV2111,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "skills.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: skillsBundleV2111,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sessions.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sessionsBundleV2111,
+      external: ["obsidian"],
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "types.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: typesBundleV2111,
+    });
+
+    const {
+      renameSkillMeta, recordSkillApplied, setSkillPinned, recordCombo,
+      createEmptySkillsState, SKILLS_STATE_VERSION,
+    } = await import(pathToFileURL(skillsStateBundleV2111).href);
+    const { updateImportedSkill, parseSkillsMarkdown, extractTags, serializeSkillToMarkdown } =
+      await import(pathToFileURL(skillsBundleV2111).href);
+    const { redactSessionMessages } = await import(pathToFileURL(sessionsBundleV2111).href);
+    const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+    const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
+    const skillsStateSrc = readFileSync(join(PROJECT_ROOT, "src", "skillsState.ts"), "utf-8");
+
+    // ===== 要求 3: skill 重命名 meta 迁移 =====
+
+    // ---- Test 1: renameSkillMeta 迁移 meta 到新名称 ----
+    {
+      let state = createEmptySkillsState();
+      state = setSkillPinned(state, "旧名", true);
+      state = recordSkillApplied(state, "旧名");
+      state = recordSkillApplied(state, "旧名");
+      const before = state.skills["旧名"];
+      state = renameSkillMeta(state, "旧名", "新名");
+      const after = state.skills["新名"];
+      const oldGone = state.skills["旧名"] === undefined;
+      const ok = oldGone
+        && after !== undefined
+        && after.pinned === true
+        && after.applyCount === 2
+        && before.applyCount === after.applyCount;
+      addTest("V2.11.1 重命名迁移: meta 从旧名迁移到新名", ok ? "pass" : "fail",
+        `oldGone=${oldGone} newPinned=${after?.pinned} newCount=${after?.applyCount}`);
+    }
+
+    // ---- Test 2: renameSkillMeta 同名返回原 state ----
+    {
+      let state = createEmptySkillsState();
+      state = recordSkillApplied(state, "A");
+      const result = renameSkillMeta(state, "A", "A");
+      const ok = result === state; // 同名直接返回原引用
+      addTest("V2.11.1 重命名迁移: 同名返回原 state", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 3: renameSkillMeta 旧名无 meta 返回原 state ----
+    {
+      const state = createEmptySkillsState();
+      const result = renameSkillMeta(state, "不存在", "新名");
+      const ok = result === state && result.skills["新名"] === undefined;
+      addTest("V2.11.1 重命名迁移: 旧名无 meta 返回原 state", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 4: renameSkillMeta 保留 lastCombo 不变 ----
+    {
+      let state = createEmptySkillsState();
+      state = setSkillPinned(state, "A", true);
+      state = recordCombo(state, ["A", "B"]);
+      state = renameSkillMeta(state, "A", "A2");
+      const ok = state.lastCombo.length === 2 && state.lastCombo[0] === "A";
+      addTest("V2.11.1 重命名迁移: lastCombo 不变（不自动改名）", ok ? "pass" : "fail",
+        `combo=${JSON.stringify(state.lastCombo)}`);
+    }
+
+    // ---- Test 5: view.ts openEditSkillDialog 调用 renameSkillMeta ----
+    {
+      const idx = viewSrc.indexOf("V2.11.1: 重命名时迁移 skill meta");
+      const snippet = idx >= 0 ? viewSrc.slice(idx, idx + 300) : "";
+      const ok = snippet.includes("renameSkillMeta(this.skillsState, skill.name, newName)")
+        && snippet.includes("this.scheduleSkillsStateSave()");
+      addTest("V2.11.1 view.ts: 编辑重命名后调用 renameSkillMeta", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 要求 4: tags 编辑保留 =====
+
+    // ---- Test 6: updateImportedSkill 从 description 提取 tags ----
+    {
+      const tmpDir = mkdtempSync(join(tmpdir(), "v2111-tags-edit-"));
+      try {
+        // 先导入一个 skill
+        const dirPath = join(tmpDir, ".llm-bridge", "skills");
+        mkdirSync(dirPath, { recursive: true });
+        const initial = "## 翻译\n将选区翻译为英文 #翻译 #常用\n\n请翻译以上内容\n";
+        writeFileSync(join(dirPath, "翻译.md"), initial, "utf8");
+        // 编辑：保留 tags 并修改描述
+        const ok1 = await updateImportedSkill(tmpDir, "翻译", "翻译", "将选区翻译为日文 #翻译 #常用", "请翻译为日文");
+        const content = readFileSync(join(dirPath, "翻译.md"), "utf8");
+        const parsed = parseSkillsMarkdown(content);
+        const skill = parsed[0];
+        const ok = ok1
+          && skill.tags.length === 2
+          && skill.tags.includes("翻译")
+          && skill.tags.includes("常用")
+          && skill.description === "将选区翻译为日文";
+        addTest("V2.11.1 tags 编辑保留: updateImportedSkill 提取 #标签", ok ? "pass" : "fail",
+          `ok1=${ok1} tags=${JSON.stringify(skill?.tags)} desc=${skill?.description}`);
+      } catch (e) {
+        addTest("V2.11.1 tags 编辑保留: updateImportedSkill 提取 #标签", "fail", e?.message || String(e));
+      } finally {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // ---- Test 7: updateImportedSkill 无 tags 时 tags 为空 ----
+    {
+      const tmpDir = mkdtempSync(join(tmpdir(), "v2111-tags-none-"));
+      try {
+        const dirPath = join(tmpDir, ".llm-bridge", "skills");
+        mkdirSync(dirPath, { recursive: true });
+        writeFileSync(join(dirPath, "总结.md"), "## 总结\n生成摘要\n\n请总结\n", "utf8");
+        const ok1 = await updateImportedSkill(tmpDir, "总结", "总结", "生成内容摘要", "请总结内容");
+        const content = readFileSync(join(dirPath, "总结.md"), "utf8");
+        const parsed = parseSkillsMarkdown(content);
+        const ok = ok1 && parsed[0].tags.length === 0;
+        addTest("V2.11.1 tags 编辑保留: 无 #标签时 tags 为空", ok ? "pass" : "fail", `tags=${JSON.stringify(parsed[0]?.tags)}`);
+      } catch (e) {
+        addTest("V2.11.1 tags 编辑保留: 无 #标签时 tags 为空", "fail", e?.message || String(e));
+      } finally {
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // ---- Test 8: EditSkillModal 描述框预填 #标签 ----
+    {
+      const idx = viewSrc.indexOf("V2.11.1: 描述框预填原始描述 + #标签");
+      const snippet = idx >= 0 ? viewSrc.slice(idx, idx + 400) : "";
+      const ok = snippet.includes("descWithTags")
+        && snippet.includes("this.skill.tags")
+        && snippet.includes("#${t}");
+      addTest("V2.11.1 EditSkillModal: 描述框预填 #标签", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 要求 5: onClose flush =====
+
+    // ---- Test 9: onClose 含 skillsStateSaveTimer flush 逻辑 ----
+    {
+      const idx = viewSrc.indexOf("V2.11.1: flush skills state");
+      // V2.11.1: 切片窗口需覆盖到 saveSkillsState 调用（中间含 const vaultPath 长行），扩到 600
+      const snippet = idx >= 0 ? viewSrc.slice(idx, idx + 600) : "";
+      const ok = snippet.includes("this.skillsStateSaveTimer")
+        && snippet.includes("saveSkillsState(vaultPath, this.skillsState)");
+      addTest("V2.11.1 onClose: flush skillsStateSaveTimer 立即写入", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 10: onClose 清理 skillsSearchDebounceTimer ----
+    {
+      const idx = viewSrc.indexOf("V2.11.1: 清理 skills 搜索防抖定时器");
+      const snippet = idx >= 0 ? viewSrc.slice(idx, idx + 200) : "";
+      const ok = snippet.includes("this.skillsSearchDebounceTimer")
+        && snippet.includes("window.clearTimeout");
+      addTest("V2.11.1 onClose: 清理 skillsSearchDebounceTimer", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 要求 6: groupOverride future 标注 =====
+
+    // ---- Test 11: skillsState.ts groupOverride 标注 future ----
+    {
+      const ok = skillsStateSrc.includes("groupOverride")
+        && skillsStateSrc.includes("V2.11.1: 保留字段")
+        && skillsStateSrc.includes("future 扩展");
+      addTest("V2.11.1 groupOverride: 标注为 future 不误导", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 要求 7: 组合应用勾选顺序 =====
+
+    // ---- Test 12: applyCombo 按 Set 插入顺序（勾选顺序）收集 ----
+    {
+      const idx = viewSrc.indexOf("V2.11.1: 按 Set 插入顺序（勾选顺序）收集");
+      // V2.11.1: 切片窗口需覆盖到 orderedNames.push(name)（中间含 runHandle/size===0/Notice 检查），扩到 600
+      const snippet = idx >= 0 ? viewSrc.slice(idx, idx + 600) : "";
+      const ok = snippet.includes("for (const name of this.skillsComboSet)")
+        && snippet.includes("orderedNames.push(name)");
+      addTest("V2.11.1 组合顺序: applyCombo 按 Set 插入顺序收集", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 13: Set 插入顺序保持勾选顺序（JS 语义验证）----
+    {
+      const set = new Set();
+      set.add("C");
+      set.add("A");
+      set.add("B");
+      const order = [...set];
+      const ok = order[0] === "C" && order[1] === "A" && order[2] === "B";
+      addTest("V2.11.1 组合顺序: Set 保持插入顺序", ok ? "pass" : "fail", `order=${JSON.stringify(order)}`);
+    }
+
+    // ===== 要求 8: 嵌套 session 脱敏 =====
+
+    // ---- Test 14: redactSessionMessages 脱敏 timeline detail ----
+    {
+      const secret = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ";
+      const msgs = [{
+        id: "m1", role: "assistant", content: "ok", status: "completed",
+        stderr: "", log: "", generatedFiles: [], exitCode: 0, durationMs: 100,
+        timestamp: new Date().toISOString(),
+        timeline: [{ type: "stdout", timestamp: "t1", detail: `output ${secret}` }],
+      }];
+      const redacted = redactSessionMessages(msgs);
+      const ok = !redacted[0].timeline[0].detail.includes(secret)
+        && redacted[0].timeline[0].detail.includes("sk-ant-api03-***");
+      addTest("V2.11.1 session 脱敏: timeline detail 含 secret 被脱敏", ok ? "pass" : "fail",
+        `detail=${redacted[0].timeline[0].detail.slice(0, 50)}`);
+    }
+
+    // ---- Test 15: redactSessionMessages 脱敏 commandPreview value ----
+    {
+      const secret = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ";
+      const msgs = [{
+        id: "m1", role: "assistant", content: "ok", status: "completed",
+        stderr: "", log: "", generatedFiles: [], exitCode: 0, durationMs: 100,
+        timestamp: new Date().toISOString(),
+        commandPreview: [{ label: "env", value: `ANTHROPIC_API_KEY=${secret}` }],
+      }];
+      const redacted = redactSessionMessages(msgs);
+      const ok = !redacted[0].commandPreview[0].value.includes(secret);
+      addTest("V2.11.1 session 脱敏: commandPreview value 含 secret 被脱敏", ok ? "pass" : "fail",
+        `value=${redacted[0].commandPreview[0].value.slice(0, 50)}`);
+    }
+
+    // ---- Test 16: redactSessionMessages 脱敏 workflowTrace detail ----
+    {
+      const secret = "Bearer abcdefghijklmnopqrstuvwxyz0123456789AB";
+      const msgs = [{
+        id: "m1", role: "assistant", content: "ok", status: "completed",
+        stderr: "", log: "", generatedFiles: [], exitCode: 0, durationMs: 100,
+        timestamp: new Date().toISOString(),
+        workflowTrace: [{ stage: "stdout", timestamp: "t1", detail: `token=${secret}`, status: "ok" }],
+      }];
+      const redacted = redactSessionMessages(msgs);
+      const ok = !redacted[0].workflowTrace[0].detail.includes(secret);
+      addTest("V2.11.1 session 脱敏: workflowTrace detail 含 secret 被脱敏", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 17: redactSessionMessages 脱敏 sdkEvents 字段 ----
+    {
+      const secret = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEFGHIJ";
+      const msgs = [{
+        id: "m1", role: "assistant", content: "ok", status: "completed",
+        stderr: "", log: "", generatedFiles: [], exitCode: 0, durationMs: 100,
+        timestamp: new Date().toISOString(),
+        sdkEvents: [
+          { type: "message", timestamp: "t1", role: "assistant", text: `key=${secret}` },
+          { type: "tool_start", timestamp: "t2", toolName: "Edit", toolInput: `{"secret":"${secret}"}`, callId: "c1" },
+          { type: "tool_result", timestamp: "t3", callId: "c1", toolName: "Edit", output: `result ${secret}`, isError: false },
+          { type: "error", timestamp: "t4", message: `err ${secret}`, recoverable: false },
+        ],
+      }];
+      const redacted = redactSessionMessages(msgs);
+      const ev = redacted[0].sdkEvents;
+      const ok = !ev[0].text.includes(secret)
+        && !ev[1].toolInput.includes(secret)
+        && !ev[2].output.includes(secret)
+        && !ev[3].message.includes(secret);
+      addTest("V2.11.1 session 脱敏: sdkEvents 各字段含 secret 被脱敏", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 18: redactSessionMessages 无嵌套字段时不崩溃 ----
+    {
+      const msgs = [{
+        id: "m1", role: "user", content: "hello", status: "idle",
+        stderr: "", log: "", generatedFiles: [], exitCode: null, durationMs: 0,
+        timestamp: new Date().toISOString(),
+      }];
+      const redacted = redactSessionMessages(msgs);
+      const ok = redacted[0].content === "hello" && redacted[0].timeline === undefined;
+      addTest("V2.11.1 session 脱敏: 无嵌套字段不崩溃", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 要求 9: 设置页关键配置刷新 =====
+
+    // ---- Test 19: settings.ts agentType onChange 调用 refreshBridgeView ----
+    {
+      const idx = settingsSrc.indexOf("V2.11.1: 关键配置变更后通知 view 刷新状态栏");
+      const snippet = idx >= 0 ? settingsSrc.slice(idx, idx + 200) : "";
+      const ok = snippet.includes("this.plugin.refreshBridgeView()");
+      addTest("V2.11.1 设置刷新: agentType onChange 调用 refreshBridgeView", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 20: settings.ts claudePermissionMode onChange 调用 refreshBridgeView ----
+    {
+      const idx = settingsSrc.indexOf("V2.11.1: 权限模式影响状态栏显示");
+      const snippet = idx >= 0 ? settingsSrc.slice(idx, idx + 200) : "";
+      const ok = snippet.includes("this.plugin.refreshBridgeView()");
+      addTest("V2.11.1 设置刷新: claudePermissionMode onChange 调用 refreshBridgeView", ok ? "pass" : "fail", "");
+    }
+
+    // ---- Test 21: settings.ts permissionPolicy onChange 调用 refreshBridgeView ----
+    {
+      const idx = settingsSrc.indexOf("V2.11.1: 权限策略影响状态栏显示");
+      const snippet = idx >= 0 ? settingsSrc.slice(idx, idx + 200) : "";
+      const ok = snippet.includes("this.plugin.refreshBridgeView()");
+      addTest("V2.11.1 设置刷新: permissionPolicy onChange 调用 refreshBridgeView", ok ? "pass" : "fail", "");
+    }
+
+    // ===== 不回归 =====
+
+    // ---- Test 22: SDK 默认关闭 ----
+    {
+      const { DEFAULT_SETTINGS } = await import(pathToFileURL(typesBundleV2111).href);
+      const ok = DEFAULT_SETTINGS.backendMode === "auto";
+      addTest("V2.11.1 SDK 默认关闭: DEFAULT_SETTINGS.backendMode = auto",
+        ok ? "pass" : "fail", `backendMode=${DEFAULT_SETTINGS.backendMode}`);
+    }
+
+    // ---- Test 23: SESSION_SCHEMA_VERSION 仍为 1 ----
+    {
+      const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
+      const match = sessionsSrc.match(/SESSION_SCHEMA_VERSION\s*=\s*(\d+)/);
+      const ok = match && match[1] === "1";
+      addTest("V2.11.1 schema 不变: SESSION_SCHEMA_VERSION = 1",
+        ok ? "pass" : "fail", `value=${match?.[1] ?? "not found"}`);
+    }
+
+    // ---- Test 24: SKILLS_STATE_VERSION 仍为 1 ----
+    {
+      const ok = SKILLS_STATE_VERSION === 1;
+      addTest("V2.11.1 schema 不变: SKILLS_STATE_VERSION = 1",
+        ok ? "pass" : "fail", `value=${SKILLS_STATE_VERSION}`);
+    }
+
+  } catch (e) {
+    addTest("V2.11.1 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (skillsStateBundleV2111) rmSync(skillsStateBundleV2111, { force: true }); } catch {}
+    try { if (skillsBundleV2111) rmSync(skillsBundleV2111, { force: true }); } catch {}
+    try { if (sessionsBundleV2111) rmSync(sessionsBundleV2111, { force: true }); } catch {}
+    try { if (typesBundleV2111) rmSync(typesBundleV2111, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");

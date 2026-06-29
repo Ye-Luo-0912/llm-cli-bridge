@@ -76,7 +76,50 @@ export function redactSessionMessages(messages: ReadonlyArray<ChatMessage>): Cha
     content: redactSecrets(m.content),
     stderr: redactSecrets(m.stderr),
     log: redactSecrets(m.log),
+    // V2.11.1: defense-in-depth 脱敏嵌套字段（timeline/workflowTrace/sdkEvents/commandPreview）
+    // 这些字段可能含 stdout/stderr 片段或工具输入输出，需二次脱敏防止 secret 进入 session 文件
+    timeline: m.timeline ? m.timeline.map((e) => ({ ...e, detail: redactSecrets(e.detail) })) : undefined,
+    timelineEvents: m.timelineEvents ? m.timelineEvents.map((e) => ({ ...e, detail: redactSecrets(e.detail) })) : undefined,
+    commandPreview: m.commandPreview ? m.commandPreview.map((r) => ({ ...r, value: redactSecrets(r.value) })) : undefined,
+    workflowTrace: m.workflowTrace ? m.workflowTrace.map((e) => ({ ...e, detail: redactSecrets(e.detail) })) : undefined,
+    workflowEvents: m.workflowEvents ? m.workflowEvents.map((e) => ({ ...e, detail: redactSecrets(e.detail) })) : undefined,
+    sdkEvents: m.sdkEvents ? m.sdkEvents.map(redactSdkEventForSession) : undefined,
   }));
+}
+
+/**
+ * V2.11.1: 脱敏单个 SDK 事件的字符串字段（defense-in-depth）
+ * 处理 WorkflowEvent 联合类型的各种 string 字段，返回新事件对象
+ */
+function redactSdkEventForSession(event: import("./workflowEvent").WorkflowEvent): import("./workflowEvent").WorkflowEvent {
+  switch (event.type) {
+    case "thinking":
+      return { ...event, text: redactSecrets(event.text) };
+    case "message":
+      return { ...event, text: redactSecrets(event.text) };
+    case "tool_start":
+      return { ...event, toolInput: redactSecrets(event.toolInput) };
+    case "tool_result":
+      return { ...event, output: redactSecrets(event.output) };
+    case "file_change":
+      return event; // path 不含 secret，原样返回
+    case "permission":
+      return {
+        ...event,
+        description: redactSecrets(event.description),
+        inputSummary: event.inputSummary ? redactSecrets(event.inputSummary) : event.inputSummary,
+        riskReason: event.riskReason ? redactSecrets(event.riskReason) : event.riskReason,
+        subagentRisk: event.subagentRisk ? redactSecrets(event.subagentRisk) : event.subagentRisk,
+      };
+    case "error":
+      return { ...event, message: redactSecrets(event.message) };
+    case "completed":
+      return { ...event, text: redactSecrets(event.text) };
+    case "failed":
+      return { ...event, message: redactSecrets(event.message) };
+    default:
+      return event;
+  }
 }
 
 /**

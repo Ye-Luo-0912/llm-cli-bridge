@@ -25,7 +25,7 @@ import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, 
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
 import { PersistedSession, SessionListItem, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
 import { Skill, loadSkills, seedDefaultSkills, filterEnabledSkills, expandSkillPrompt, importSkillFromText, deleteSkill, isImportedSkill, scanSkillPrompt, truncateSkillPrompt, MAX_SKILL_PROMPT_LENGTH, updateImportedSkill, searchSkills, checkImportConflict, extractTags } from "./skills";
-import { SkillsState, SkillMeta, loadSkillsState, saveSkillsState, getSkillMeta, recordSkillApplied, setSkillPinned, recordCombo, formatRelativeTime, createEmptySkillsState } from "./skillsState";
+import { SkillsState, SkillMeta, loadSkillsState, saveSkillsState, getSkillMeta, recordSkillApplied, setSkillPinned, recordCombo, formatRelativeTime, createEmptySkillsState, renameSkillMeta } from "./skillsState";
 import { getPermissionModeInfo, type PermissionChoice } from "./sdkPermission";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
@@ -696,6 +696,23 @@ export class LLMBridgeView extends ItemView {
     if (this.historySearchDebounceTimer !== null) {
       window.clearTimeout(this.historySearchDebounceTimer);
       this.historySearchDebounceTimer = null;
+    }
+    // V2.11.1: 清理 skills 搜索防抖定时器
+    if (this.skillsSearchDebounceTimer !== null) {
+      window.clearTimeout(this.skillsSearchDebounceTimer);
+      this.skillsSearchDebounceTimer = null;
+    }
+    // V2.11.1: flush skills state（立即写入最后一次 state 变更，不丢数据）
+    // 节流定时器内可能还有未写入的 state，关闭视图时立即写盘
+    if (this.skillsStateSaveTimer !== null) {
+      window.clearTimeout(this.skillsStateSaveTimer);
+      this.skillsStateSaveTimer = null;
+      try {
+        const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+        await saveSkillsState(vaultPath, this.skillsState);
+      } catch {
+        // 写入失败不阻断关闭
+      }
     }
   }
 
@@ -2512,25 +2529,24 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V2.6: 应用组合（按勾选顺序拼接 prompt，插入光标位置）
+  // V2.11.1: 按 Set 插入顺序（勾选顺序）收集，而非可见列表顺序，匹配用户勾选意图
   private applyCombo(): void {
     if (this.runHandle) return;
     if (this.skillsComboSet.size === 0) {
       new Notice("请先勾选要组合的 skill");
       return;
     }
-    // 按勾选顺序（skills 列表中的出现顺序）收集
+    // V2.11.1: 按勾选顺序（Set 插入顺序）收集，过滤已禁用的 skill
     const orderedNames: string[] = [];
-    for (const skill of this.skills) {
-      if (this.skillsComboSet.has(skill.name)) {
-        orderedNames.push(skill.name);
-      }
+    for (const name of this.skillsComboSet) {
+      if (this.plugin.settings.disabledSkills.includes(name)) continue;
+      orderedNames.push(name);
     }
     // 拼接 prompt
     const parts: string[] = [];
     for (const name of orderedNames) {
       const skill = this.skills.find((s) => s.name === name);
       if (!skill) continue;
-      if (this.plugin.settings.disabledSkills.includes(name)) continue;
       const expanded = expandSkillPrompt(skill.prompt, this.plugin.settings.outputDir);
       const scan = scanSkillPrompt(expanded);
       const truncated = truncateSkillPrompt(scan.redacted);
@@ -2616,6 +2632,11 @@ export class LLMBridgeView extends ItemView {
       }
       const ok = await updateImportedSkill(vaultPath, skill.name, newName, newDesc, newPrompt);
       if (ok) {
+        // V2.11.1: 重命名时迁移 skill meta（pinned/applyCount/lastUsedAt/groupOverride）到新名称
+        if (newName !== skill.name) {
+          this.skillsState = renameSkillMeta(this.skillsState, skill.name, newName);
+          this.scheduleSkillsStateSave();
+        }
         new Notice(`Skill 已更新`);
         await this.refreshSkills();
       } else {
@@ -3261,9 +3282,16 @@ class EditSkillModal extends Modal {
     this.descInput = form.createEl("input", {
       type: "text",
       cls: "llm-bridge-import-input",
-      attr: { placeholder: "如：将选中文本翻译为英文" },
+      attr: { placeholder: "如：将选中文本翻译为英文（行末可加 #标签）" },
     }) as HTMLInputElement;
-    this.descInput.value = this.skill.description || "";
+    // V2.11.1: 描述框预填原始描述 + #标签（标签追加在行末，与 skills.md 格式一致）
+    // 这样用户能看到并编辑原有标签，保存时 updateImportedSkill 会重新 extractTags
+    let descWithTags = this.skill.description || "";
+    if (this.skill.tags && this.skill.tags.length > 0) {
+      const tagStr = this.skill.tags.map((t) => `#${t}`).join(" ");
+      descWithTags = descWithTags ? `${descWithTags} ${tagStr}` : tagStr;
+    }
+    this.descInput.value = descWithTags;
     form.createEl("label", { text: "Prompt 模板（支持 {{outputDir}} 占位符）", cls: "llm-bridge-import-label" });
     this.promptArea = form.createEl("textarea", {
       cls: "llm-bridge-import-textarea",

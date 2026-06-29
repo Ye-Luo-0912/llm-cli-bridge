@@ -24,6 +24,7 @@ export const SKILLS_STATE_VERSION = 1;
  * - sortOrder: 手动排序权重（越小越靠前；默认 0）
  * - collapsed: 在列表中折叠（长 prompt skill 折叠展示）
  * - groupOverride: 手动指定分组（覆盖 #标签推断）
+ *   V2.11.1: 保留字段，当前 UI 未实现手动分组设置，留作 future 扩展，不应误导为已生效
  * - applyCount: 累计应用次数
  * - lastUsedAt: 最近应用时间（ISO），null 表示从未使用
  */
@@ -201,6 +202,24 @@ export function recordCombo(state: SkillsState, skillNames: string[]): SkillsSta
   return {
     ...state,
     lastCombo: skillNames.slice(),
+  };
+}
+
+/**
+ * V2.11.1: 迁移 skill meta 到新名称（重命名时调用）
+ * - 将 oldName 的 meta（pinned/applyCount/lastUsedAt/groupOverride/sortOrder/collapsed）整体迁移到 newName
+ * - 删除 oldName 的 meta 条目
+ * - oldName === newName 或 oldName 无 meta 时返回原 state
+ * - 不可变更新，返回新 state
+ */
+export function renameSkillMeta(state: SkillsState, oldName: string, newName: string): SkillsState {
+  if (oldName === newName) return state;
+  const meta = state.skills[oldName];
+  if (!meta) return state; // 旧名称无 meta，无需迁移
+  const { [oldName]: _omit, ...rest } = state.skills;
+  return {
+    ...state,
+    skills: { ...rest, [newName]: meta },
   };
 }
 

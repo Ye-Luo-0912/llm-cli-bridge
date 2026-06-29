@@ -33,6 +33,8 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           s.agentType = v as AgentType;
           await this.plugin.saveSettings();
           this.display();
+          // V2.11.1: 关键配置变更后通知 view 刷新状态栏
+          this.plugin.refreshBridgeView();
         });
       });
 
@@ -132,6 +134,8 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         d.onChange(async (v) => {
           s.claudePermissionMode = v as ClaudePermissionMode;
           await this.plugin.saveSettings();
+          // V2.11.1: 权限模式影响状态栏显示，通知 view 刷新
+          this.plugin.refreshBridgeView();
         });
       });
 
@@ -249,6 +253,8 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         d.onChange(async (v) => {
           s.permissionPolicy = v as PermissionPolicy;
           await this.plugin.saveSettings();
+          // V2.11.1: 权限策略影响状态栏显示，通知 view 刷新
+          this.plugin.refreshBridgeView();
         });
       });
 
