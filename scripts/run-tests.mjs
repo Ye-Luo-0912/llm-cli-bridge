@@ -8737,6 +8737,135 @@ if (!runV213CUnit) {
 }
 
 // ============================================================
+// 8.23 V2.13.0-D CLI Runtime Alignment 单元测试
+// ============================================================
+console.log("\n=== V2.13.0-D CLI Runtime Alignment 单元测试 ===");
+
+const runV213DUnit = runMode === "all" || runMode === "unit";
+
+if (!runV213DUnit) {
+  addTest("V2.13.0-D CLI Runtime Alignment 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  let agentSkillsBundleV213D = null;
+  let tempCliSkillVault = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    agentSkillsBundleV213D = join(tmpdir(), `agent-skills-v213d-${Date.now()}.mjs`);
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "agentSkills.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: agentSkillsBundleV213D,
+      logLevel: "silent",
+    });
+
+    const {
+      createAgentSkillRecord,
+      loadAgentSkillsManifestSync,
+      prepareAgentSkillsForClaudeRuntimeSync,
+      saveAgentSkillsManifestSync,
+    } = await import(pathToFileURL(agentSkillsBundleV213D).href);
+
+    tempCliSkillVault = mkdtempSync(join(tmpdir(), "llm-bridge-agent-skills-v213d-"));
+
+    {
+      const result = prepareAgentSkillsForClaudeRuntimeSync(tempCliSkillVault);
+      const skillDirExists = existsSync(join(tempCliSkillVault, ".claude", "skills"));
+      const ok = result.ok && result.enabledCount === 0 && result.results.length === 0 && !skillDirExists;
+      addTest("V2.13.0-D prepare: 无 Agent Skill manifest 时不阻塞 CLI", ok ? "pass" : "fail", `enabled=${result.enabledCount}`);
+    }
+
+    const enabled = createAgentSkillRecord({
+      id: "as-cli-review",
+      name: "CLI Review Skill",
+      description: "Available to Claude Code runtime",
+      instructions: "When invoked, review code changes and cite blockers.",
+      enabled: true,
+    }, [], "2026-06-30T01:00:00.000Z");
+    const disabled = createAgentSkillRecord({
+      id: "as-cli-disabled",
+      name: "CLI Disabled Skill",
+      description: "Disabled",
+      instructions: "Should not be available.",
+      enabled: false,
+    }, [], "2026-06-30T01:00:01.000Z");
+    saveAgentSkillsManifestSync(tempCliSkillVault, { version: 1, skills: [enabled, disabled] });
+
+    {
+      const result = prepareAgentSkillsForClaudeRuntimeSync(tempCliSkillVault);
+      const enabledFile = join(tempCliSkillVault, enabled.materializedPath);
+      const disabledFile = join(tempCliSkillVault, disabled.materializedPath);
+      const loaded = loadAgentSkillsManifestSync(tempCliSkillVault);
+      const loadedEnabled = loaded.skills.find((s) => s.id === enabled.id);
+      const ok = result.ok
+        && result.enabledCount === 1
+        && result.results.length === 1
+        && result.results[0].status === "created"
+        && existsSync(enabledFile)
+        && !existsSync(disabledFile)
+        && loadedEnabled?.materializedHash?.length === 64;
+      addTest("V2.13.0-D prepare: CLI 运行前只物化 enabled Agent Skills 并回写 hash", ok ? "pass" : "fail",
+        `ok=${result.ok} enabled=${result.enabledCount} results=${result.results.length}`);
+    }
+
+    {
+      const result = prepareAgentSkillsForClaudeRuntimeSync(tempCliSkillVault);
+      const ok = result.ok && result.results.length === 1 && result.results[0].status === "skipped" && !result.saved;
+      addTest("V2.13.0-D prepare: 已物化且未变化时 skipped，不重复写 manifest", ok ? "pass" : "fail",
+        `status=${result.results[0]?.status} saved=${result.saved}`);
+    }
+
+    {
+      const conflictVault = mkdtempSync(join(tmpdir(), "llm-bridge-agent-skills-v213d-conflict-"));
+      try {
+        const conflict = createAgentSkillRecord({
+          id: "as-conflict",
+          slug: "owned-by-user",
+          name: "Owned By User",
+          description: "Should not overwrite unmanaged Claude skill",
+          instructions: "Do not overwrite.",
+          enabled: true,
+        }, [], "2026-06-30T01:00:02.000Z");
+        saveAgentSkillsManifestSync(conflictVault, { version: 1, skills: [conflict] });
+        const target = join(conflictVault, ".claude", "skills", "owned-by-user", "SKILL.md");
+        mkdirSync(resolve(target, ".."), { recursive: true });
+        writeFileSync(target, "# User owned skill\n", "utf8");
+        const result = prepareAgentSkillsForClaudeRuntimeSync(conflictVault);
+        const ok = !result.ok
+          && result.enabledCount === 1
+          && result.results.length === 1
+          && result.results[0].status === "conflict"
+          && /not plugin-generated/.test(result.reason || "");
+        addTest("V2.13.0-D prepare: 非插件生成 SKILL.md 冲突时 fail-fast", ok ? "pass" : "fail",
+          result.reason || "");
+      } finally {
+        rmSync(conflictVault, { recursive: true, force: true });
+      }
+    }
+
+    {
+      const cliBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeCliBackend.ts"), "utf8");
+      const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
+      const hasPreparationCall = cliBackendSrc.includes("prepareAgentSkillsForClaudeRuntimeSync(task.cwd)");
+      const gatedToClaude = cliBackendSrc.includes('settings.agentType === "claude"');
+      const noPromptInjection = !promptPackageSrc.includes("agentSkills")
+        && !promptPackageSrc.includes("Agent Skill")
+        && !promptPackageSrc.includes("activeSkillPrompts");
+      const ok = hasPreparationCall && gatedToClaude && noPromptInjection;
+      addTest("V2.13.0-D boundary: CLI backend 物化 Agent Skills，promptPackage 不注入正文",
+        ok ? "pass" : "fail",
+        `prep=${hasPreparationCall} gated=${gatedToClaude} noPromptInjection=${noPromptInjection}`);
+    }
+  } catch (e) {
+    addTest("V2.13.0-D CLI Runtime Alignment 单元测试段", "fail", e?.stack || e?.message || String(e));
+  } finally {
+    try { if (agentSkillsBundleV213D) rmSync(agentSkillsBundleV213D, { force: true }); } catch {}
+    try { if (tempCliSkillVault) rmSync(tempCliSkillVault, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");

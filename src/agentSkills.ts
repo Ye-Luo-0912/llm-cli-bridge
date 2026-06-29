@@ -53,6 +53,15 @@ export interface AgentSkillMaterializeResult {
   readonly reason?: string;
 }
 
+export interface AgentSkillsRuntimePreparationResult {
+  readonly ok: boolean;
+  readonly enabledCount: number;
+  readonly results: readonly AgentSkillMaterializeResult[];
+  readonly manifest: AgentSkillsManifest;
+  readonly saved: boolean;
+  readonly reason?: string;
+}
+
 export function createEmptyAgentSkillsManifest(): AgentSkillsManifest {
   return { version: AGENT_SKILLS_MANIFEST_VERSION, skills: [] };
 }
@@ -96,6 +105,49 @@ export async function saveAgentSkillsManifest(vaultPath: string, manifest: Agent
     return true;
   } catch {
     try { await fs.promises.unlink(tmpPath); } catch {}
+    return false;
+  }
+}
+
+export function loadAgentSkillsManifestSync(vaultPath: string): AgentSkillsManifest {
+  const filePath = path.join(vaultPath, AGENT_SKILLS_FILE_REL);
+  try {
+    const content = fs.readFileSync(filePath, "utf8");
+    const parsed = JSON.parse(content) as Partial<AgentSkillsManifest>;
+    if (parsed.version !== AGENT_SKILLS_MANIFEST_VERSION || !Array.isArray(parsed.skills)) {
+      return createEmptyAgentSkillsManifest();
+    }
+    const skills = parsed.skills
+      .map(sanitizeAgentSkillRecord)
+      .filter((s): s is AgentSkillRecord => s !== null);
+    return { version: AGENT_SKILLS_MANIFEST_VERSION, skills };
+  } catch {
+    return createEmptyAgentSkillsManifest();
+  }
+}
+
+export function saveAgentSkillsManifestSync(vaultPath: string, manifest: AgentSkillsManifest): boolean {
+  const dirPath = path.join(vaultPath, ".llm-bridge");
+  const filePath = path.join(vaultPath, AGENT_SKILLS_FILE_REL);
+  const tmpPath = `${filePath}.tmp`;
+  const bakPath = `${filePath}.bak`;
+  try {
+    fs.mkdirSync(dirPath, { recursive: true });
+    const payload: AgentSkillsManifest = {
+      version: AGENT_SKILLS_MANIFEST_VERSION,
+      skills: manifest.skills.map(normalizeAgentSkillRecord),
+    };
+    const content = `${JSON.stringify(payload, null, 2)}\n`;
+    try {
+      fs.copyFileSync(filePath, bakPath);
+    } catch {
+      // 首次写入没有旧文件，不需要备份。
+    }
+    fs.writeFileSync(tmpPath, content, "utf8");
+    fs.renameSync(tmpPath, filePath);
+    return true;
+  } catch {
+    try { fs.unlinkSync(tmpPath); } catch {}
     return false;
   }
 }
@@ -228,6 +280,45 @@ export async function materializeAgentSkill(vaultPath: string, record: AgentSkil
   }
 }
 
+export function materializeAgentSkillSync(vaultPath: string, record: AgentSkillRecord): AgentSkillMaterializeResult {
+  const normalized = normalizeAgentSkillRecord(record);
+  const filePath = path.join(vaultPath, normalized.materializedPath);
+  const nextContent = serializeAgentSkillToMarkdown(normalized);
+  const nextHash = sha256(nextContent);
+  const nextRecord = normalizeAgentSkillRecord({ ...normalized, materializedHash: nextHash });
+
+  try {
+    let existing: string | null = null;
+    try {
+      existing = fs.readFileSync(filePath, "utf8");
+    } catch {
+      existing = null;
+    }
+
+    if (existing !== null) {
+      const marker = parseGeneratedMarker(existing);
+      if (!marker || marker.generatedBy !== AGENT_SKILL_GENERATED_BY) {
+        return conflict(nextRecord, filePath, "target SKILL.md is not plugin-generated");
+      }
+      if (marker.sourceId !== normalized.id) {
+        return conflict(nextRecord, filePath, "target SKILL.md belongs to another Agent Skill record");
+      }
+      if (normalized.materializedHash && sha256(existing) !== normalized.materializedHash) {
+        return conflict(nextRecord, filePath, "target SKILL.md changed after last materialization");
+      }
+      if (existing === nextContent) {
+        return { ok: true, status: "skipped", record: nextRecord, filePath };
+      }
+    }
+
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, nextContent, "utf8");
+    return { ok: true, status: existing === null ? "created" : "updated", record: nextRecord, filePath };
+  } catch (e) {
+    return { ok: false, status: "error", record: nextRecord, filePath, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function materializeEnabledAgentSkills(
   vaultPath: string,
   manifest: AgentSkillsManifest,
@@ -247,6 +338,66 @@ export async function materializeEnabledAgentSkills(
     manifest: { version: AGENT_SKILLS_MANIFEST_VERSION, skills: nextRecords },
     results,
   };
+}
+
+export function materializeEnabledAgentSkillsSync(
+  vaultPath: string,
+  manifest: AgentSkillsManifest,
+): { readonly manifest: AgentSkillsManifest; readonly results: AgentSkillMaterializeResult[] } {
+  const results: AgentSkillMaterializeResult[] = [];
+  const nextRecords: AgentSkillRecord[] = [];
+  for (const record of manifest.skills) {
+    if (!record.enabled) {
+      nextRecords.push(record);
+      continue;
+    }
+    const result = materializeAgentSkillSync(vaultPath, record);
+    results.push(result);
+    nextRecords.push(result.ok ? result.record : record);
+  }
+  return {
+    manifest: { version: AGENT_SKILLS_MANIFEST_VERSION, skills: nextRecords },
+    results,
+  };
+}
+
+export function prepareAgentSkillsForClaudeRuntimeSync(vaultPath: string): AgentSkillsRuntimePreparationResult {
+  const manifest = loadAgentSkillsManifestSync(vaultPath);
+  const enabledCount = manifest.skills.filter((record) => record.enabled).length;
+  if (enabledCount === 0) {
+    return { ok: true, enabledCount, results: [], manifest, saved: false };
+  }
+
+  const materialized = materializeEnabledAgentSkillsSync(vaultPath, manifest);
+  const failed = materialized.results.filter((result) => !result.ok);
+  if (failed.length > 0) {
+    return {
+      ok: false,
+      enabledCount,
+      results: materialized.results,
+      manifest,
+      saved: false,
+      reason: failed.map((result) => `${result.record.slug}: ${result.reason || result.status}`).join("; "),
+    };
+  }
+
+  const changed = materialized.manifest.skills.some((record, index) => {
+    const prev = manifest.skills[index];
+    return !prev || record.materializedHash !== prev.materializedHash;
+  });
+  const saved = changed ? saveAgentSkillsManifestSync(vaultPath, materialized.manifest) : false;
+  if (changed && !saved) {
+    return {
+      ok: false,
+      enabledCount,
+      results: materialized.results,
+      manifest: materialized.manifest,
+      saved,
+      reason: "failed to persist updated Agent Skills manifest",
+    };
+  }
+
+  return { ok: true, enabledCount, results: materialized.results, manifest: materialized.manifest, saved };
 }
 
 function sanitizeAgentSkillRecord(raw: unknown): AgentSkillRecord | null {

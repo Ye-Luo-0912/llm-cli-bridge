@@ -8,6 +8,7 @@ import * as path from "path";
 import { AgentBackend, AgentEvent, AgentEventHandler, AgentRunHandle, AgentTask } from "./agentBackend";
 import { AgentType, LLMBridgeSettings } from "./types";
 import { buildCommandLine } from "./commandProfile";
+import { AgentSkillsRuntimePreparationResult, prepareAgentSkillsForClaudeRuntimeSync } from "./agentSkills";
 
 // ---------- PATH 增强工具函数（从 runner.ts 迁移） ----------
 
@@ -44,6 +45,7 @@ export function buildEnhancedPath(cwd: string): string {
   paths.push(path.join(cwd, "LLM-AgentRuntime", "node_modules", ".bin"));
   paths.push(path.join(cwd, "..", "LLM-AgentRuntime", "node_modules", ".bin")); // V2.4: sibling 布局
   paths.push(path.join(cwd, "node_modules", ".bin"));
+  paths.push(path.dirname(process.execPath));
 
   if (win) {
     // fnm：%FNM_DIR%/node-versions/v*/installation
@@ -232,6 +234,37 @@ function buildFailureSummary(
   return lines.join("\n") + "\n";
 }
 
+function buildAgentSkillsRuntimeDiagnostic(result: AgentSkillsRuntimePreparationResult): string {
+  const lines: string[] = [];
+  lines.push("\n=== Agent Skills Runtime ===");
+  lines.push(`enabled count: ${result.enabledCount}`);
+  lines.push(`saved manifest: ${result.saved}`);
+  if (result.results.length === 0) {
+    lines.push("materialized: (none)");
+  } else {
+    for (const item of result.results) {
+      lines.push(`- ${item.record.slug}: ${item.status}${item.reason ? ` (${item.reason})` : ""}`);
+    }
+  }
+  if (result.reason) {
+    lines.push(`reason: ${result.reason}`);
+  }
+  return lines.join("\n") + "\n";
+}
+
+function buildAgentSkillsRuntimeFailureSummary(result: AgentSkillsRuntimePreparationResult): string {
+  const lines: string[] = [];
+  lines.push("[failed] Agent Skills runtime preparation failed");
+  lines.push(`enabled skills: ${result.enabledCount}`);
+  if (result.reason) {
+    lines.push(`reason: ${result.reason}`);
+  }
+  for (const item of result.results.filter((r) => !r.ok)) {
+    lines.push(`- ${item.record.slug}: ${item.reason || item.status}`);
+  }
+  return lines.join("\n") + "\n";
+}
+
 // ---------- 命令解析（V1.5: 委托给 commandProfile.ts 统一构造） ----------
 
 export interface ResolvedCommand {
@@ -303,6 +336,23 @@ export class ClaudeCliBackend implements AgentBackend {
         get running(): boolean { return false; },
         stop(): void { /* no-op */ },
       };
+    }
+
+    if (settings.agentType === "claude") {
+      const agentSkillsRuntime = prepareAgentSkillsForClaudeRuntimeSync(task.cwd);
+      debugLog += buildAgentSkillsRuntimeDiagnostic(agentSkillsRuntime);
+      if (!agentSkillsRuntime.ok) {
+        spawnFailed = true;
+        writeDebugLog(task.cwd, debugLog);
+        stderr = buildAgentSkillsRuntimeFailureSummary(agentSkillsRuntime);
+        onEvent({ type: "failed", exitCode: null, durationMs: 0, stdout, stderr, command, args });
+        return {
+          get running(): boolean { return false; },
+          stop(): void { /* no-op */ },
+        };
+      }
+    } else {
+      debugLog += "\n=== Agent Skills Runtime ===\nskipped: agentType is not claude\n";
     }
 
     // spawn：使用 shell:true 兼容 Windows .cmd/.ps1 垫片和带空格的路径
