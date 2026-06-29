@@ -8196,10 +8196,16 @@ if (!runV2121Unit) {
       addTest("V2.12.1 修复: flushSkillsStateSave 方法已抽取定义", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 2: flushSkillsStateSave 在 timer===null 时提前返回（无副作用）----
+    // ---- Test 2: flushSkillsStateSave 总是落盘（V2.12.1 CDP 验证发现 timer===null 提前返回导致 meta 不迁移，已移除）----
     {
-      const ok = /flushSkillsStateSave[\s\S]{0,200}if \(this\.skillsStateSaveTimer === null\) return/.test(viewSrcV2121);
-      addTest("V2.12.1 修复: flushSkillsStateSave timer===null 提前返回", ok ? "pass" : "fail", "");
+      const idxFlushV2121T2 = viewSrcV2121.indexOf("flushSkillsStateSave(): Promise<void>");
+      // V2.12.1: 截取 600 字符以覆盖到 saveSkillsState 调用（方法体含注释约 344+ 字符）
+      const snippetV2121T2 = idxFlushV2121T2 >= 0 ? viewSrcV2121.slice(idxFlushV2121T2, idxFlushV2121T2 + 600) : "";
+      // 验证不含 timer===null 提前返回（已移除），且含 saveSkillsState 落盘
+      const noEarlyReturnV2121T2 = !snippetV2121T2.includes("=== null) return");
+      const hasSaveV2121T2 = snippetV2121T2.includes("saveSkillsState(vaultPath, this.skillsState)");
+      const ok = noEarlyReturnV2121T2 && hasSaveV2121T2;
+      addTest("V2.12.1 修复: flushSkillsStateSave 总是落盘（移除 timer===null 提前返回）", ok ? "pass" : "fail", "");
     }
 
     // ---- Test 3: flushSkillsStateSave 调用 saveSkillsState 落盘 ----
@@ -8249,7 +8255,8 @@ if (!runV2121Unit) {
     {
       // V2.11.1 旧逻辑：onClose 内含 if (skillsStateSaveTimer !== null) { ... saveSkillsState ... }
       // V2.12.1 修复后：onClose 调用 flushSkillsStateSave，内联块应消失
-      const badInline = /onClose[\s\S]{0,800}if \(this\.skillsStateSaveTimer !== null\)\s*\{[\s\S]{0,300}saveSkillsState/;
+      // V2.12.1: 用 async onClose() 方法定义作为起点，避免误匹配注释中的 onClose（如 flushSkillsStateSave 注释）
+      const badInline = /async onClose\(\)[\s\S]{0,500}if \(this\.skillsStateSaveTimer !== null\)\s*\{[\s\S]{0,200}saveSkillsState/;
       const ok = !badInline.test(viewSrcV2121);
       addTest("V2.12.1 修复: onClose 不再内联重复 flush 逻辑", ok ? "pass" : "fail", "");
     }

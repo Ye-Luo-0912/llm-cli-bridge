@@ -2591,10 +2591,13 @@ export class LLMBridgeView extends ItemView {
   // V2.12.1: 立即 flush 待写的 skills state（取消 500ms 节流定时器并同步写盘）
   // 用于在 refreshSkills 等磁盘重载操作前确保内存 state 已落盘，避免时序冲突覆盖
   // 抽取自原 onClose 的 flush 逻辑，供 openEditSkillDialog / onClose 复用
+  // V2.12.1: 移除 timer===null 提前返回 — renameSkillMeta 后直接调用 flush 时 timer 为 null，
+  //          会导致迁移不落盘，refreshSkills 重载旧 state 覆盖内存迁移（ManualId 13 真实根因）
   private async flushSkillsStateSave(): Promise<void> {
-    if (this.skillsStateSaveTimer === null) return;
-    window.clearTimeout(this.skillsStateSaveTimer);
-    this.skillsStateSaveTimer = null;
+    if (this.skillsStateSaveTimer !== null) {
+      window.clearTimeout(this.skillsStateSaveTimer);
+      this.skillsStateSaveTimer = null;
+    }
     try {
       const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
       await saveSkillsState(vaultPath, this.skillsState);
