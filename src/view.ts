@@ -146,6 +146,9 @@ export class LLMBridgeView extends ItemView {
   private includeNoteCheckEl!: HTMLInputElement;
   private includeSelectionCheckEl!: HTMLInputElement;
   private messagesEl!: HTMLElement;
+  // V2.12.1 UI Refactor: 标签页三分布
+  private tabPanels!: { chat: HTMLElement; skills: HTMLElement; history: HTMLElement };
+  private activeTab: "chat" | "skills" | "history" = "chat";
   // V2.7: 长会话旧消息折叠（false=折叠显示最近 N 条；true=展开全部）
   private messagesFoldExpanded = false;
   private inputEl!: HTMLTextAreaElement;
@@ -236,8 +239,39 @@ export class LLMBridgeView extends ItemView {
       this.syncControlsFromSettings();
     });
 
+    // ===== V2.12.1 UI Refactor: 标签页三分布（Chat / Skills / History） =====
+    const tabBar = root.createDiv({ cls: "llm-bridge-tab-bar" });
+    const chatTab = tabBar.createEl("button", { cls: "llm-bridge-tab is-active", text: "Chat", attr: { "data-tab": "chat", title: "对话主链路" } });
+    const skillsTab = tabBar.createEl("button", { cls: "llm-bridge-tab", text: "Skills", attr: { "data-tab": "skills", title: "Skills 管理" } });
+    const historyTab = tabBar.createEl("button", { cls: "llm-bridge-tab", text: "History", attr: { "data-tab": "history", title: "历史会话" } });
+    const chatPanel = root.createDiv({ cls: "llm-bridge-tab-panel is-active", attr: { "data-panel": "chat" } });
+    const skillsPanel = root.createDiv({ cls: "llm-bridge-tab-panel", attr: { "data-panel": "skills" } });
+    const historyPanel = root.createDiv({ cls: "llm-bridge-tab-panel", attr: { "data-panel": "history" } });
+    this.tabPanels = { chat: chatPanel, skills: skillsPanel, history: historyPanel };
+    const switchTab = (tab: "chat" | "skills" | "history") => {
+      for (const t of [chatTab, skillsTab, historyTab]) t.classList.remove("is-active");
+      for (const p of [chatPanel, skillsPanel, historyPanel]) p.classList.remove("is-active");
+      if (tab === "chat") { chatTab.classList.add("is-active"); chatPanel.classList.add("is-active"); }
+      else if (tab === "skills") { skillsTab.classList.add("is-active"); skillsPanel.classList.add("is-active"); }
+      else { historyTab.classList.add("is-active"); historyPanel.classList.add("is-active"); }
+      this.activeTab = tab;
+      if (tab === "skills") {
+        const sBody = skillsPanel.querySelector(".llm-bridge-skills-body") as HTMLElement | null;
+        if (sBody && sBody.hasAttribute("hidden")) sBody.removeAttribute("hidden");
+        if (this.skillsToggleEl) this.skillsToggleEl.textContent = "\u25BC Skills";
+      } else if (tab === "history") {
+        const hBody = historyPanel.querySelector(".llm-bridge-history-body") as HTMLElement | null;
+        if (hBody && hBody.hasAttribute("hidden")) hBody.removeAttribute("hidden");
+        if (this.historyToggleEl) this.historyToggleEl.textContent = "\u25BC History";
+        void this.refreshHistory();
+      }
+    };
+    chatTab.addEventListener("click", () => switchTab("chat"));
+    skillsTab.addEventListener("click", () => switchTab("skills"));
+    historyTab.addEventListener("click", () => switchTab("history"));
+
     // ===== Pending Actions 区域（最小化折叠） =====
-    this.pendingActionsEl = root.createDiv({ cls: "llm-bridge-pending-wrap" });
+    this.pendingActionsEl = chatPanel.createDiv({ cls: "llm-bridge-pending-wrap" });
     const pendingHead = this.pendingActionsEl.createDiv({ cls: "llm-bridge-pending-head" });
     const pendingToggle = pendingHead.createEl("span", { cls: "llm-bridge-pending-toggle", text: "▶ Pending (0)" });
     this.pendingActionsCountEl = pendingHead.createEl("span", { cls: "llm-bridge-pending-count", text: "" });
@@ -262,7 +296,7 @@ export class LLMBridgeView extends ItemView {
 
     // ===== V2.0: 会话状态区（Session State） =====
     // 会话标题 + 运行状态 + Backend/Agent/上下文指标
-    this.statusBarEl = root.createDiv({ cls: "llm-bridge-status-bar" });
+    this.statusBarEl = chatPanel.createDiv({ cls: "llm-bridge-status-bar" });
     // 会话标题行（左侧标题 + 右侧 New Session 按钮）
     const sbTitleRow = this.statusBarEl.createDiv({ cls: "llm-bridge-sb-title-row" });
     this.sessionTitleEl = sbTitleRow.createEl("span", { cls: "llm-bridge-sb-session-title", text: this.sessionState.title, attr: { title: "当前会话" } });
@@ -330,7 +364,7 @@ export class LLMBridgeView extends ItemView {
     this.preflightBtn.addEventListener("click", () => void this.runPreflightCheck());
 
     // ===== V1.1: 常用操作按钮行（上下文选择区一部分） =====
-    this.presetBtnsEl = root.createDiv({ cls: "llm-bridge-presets" });
+    this.presetBtnsEl = chatPanel.createDiv({ cls: "llm-bridge-presets" });
     for (const preset of PRESETS) {
       const btn = this.presetBtnsEl.createEl("button", {
         cls: "llm-bridge-preset-btn",
@@ -341,27 +375,27 @@ export class LLMBridgeView extends ItemView {
     }
 
     // ===== V2.0: Skills 入口（上下文选择区，可折叠，从 .llm-bridge/skills.md 读取） =====
-    this.renderSkillsPanel(root);
+    this.renderSkillsPanel(skillsPanel);
 
     // ===== V2.5: 历史会话入口（可折叠，默认折叠） =====
-    this.renderHistoryPanel(root);
+    this.renderHistoryPanel(historyPanel);
 
     // ===== V1.2: 首次使用提示（可关闭，关闭后不再显示） =====
-    this.renderFirstUseGuide(root);
+    this.renderFirstUseGuide(chatPanel);
 
     // ===== V2.0: 运行流程区（Run Flow，展示最新一次运行的 6 步流程） =====
-    this.renderRunFlowPanel(root);
+    this.renderRunFlowPanel(chatPanel);
 
     // ===== 消息流（对话区） =====
-    this.messagesEl = root.createDiv({ cls: "llm-bridge-messages" });
+    this.messagesEl = chatPanel.createDiv({ cls: "llm-bridge-messages" });
     this.renderEmptyState();
 
     // V2.3s: 权限请求面板（运行中实时展示 pending 权限请求，用户点击允许/拒绝）
-    this.permissionPanelEl = root.createDiv({ cls: "llm-bridge-perm-panel" });
+    this.permissionPanelEl = chatPanel.createDiv({ cls: "llm-bridge-perm-panel" });
     this.permissionPanelEl.style.display = "none";
 
     // ===== 底部 composer =====
-    const composer = root.createDiv({ cls: "llm-bridge-composer" });
+    const composer = chatPanel.createDiv({ cls: "llm-bridge-composer" });
 
     // 输入框（大）+ 右侧发送/停止
     const inputRow = composer.createDiv({ cls: "llm-bridge-input-row" });

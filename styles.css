@@ -1779,3 +1779,76 @@
   width: 100%;
   padding-top: 2px;
 }
+
+
+/* === V2.12.1 UI Refactor: 标签页三分布 === */
+.llm-bridge-tab-bar {
+  display: flex;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  padding: 0 8px;
+  gap: 2px;
+}
+.llm-bridge-tab {
+  padding: 5px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-small);
+  font-weight: 500;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: color 0.1s, border-color 0.1s;
+}
+.llm-bridge-tab:hover { color: var(--text-normal); }
+.llm-bridge-tab.is-active {
+  color: var(--interactive-accent);
+  border-bottom-color: var(--interactive-accent);
+}
+.llm-bridge-tab-panel {
+  display: none;
+  flex: 1 1 auto;
+  min-height: 0;
+  flex-direction: column;
+}
+.llm-bridge-tab-panel.is-active { display: flex; }
+/* tab 模式下 Skills/History panel 不需要 border-bottom（已在 tab-bar 下） */
+.llm-bridge-tab-panel[data-panel="skills"] .llm-bridge-skills-panel,
+.llm-bridge-tab-panel[data-panel="history"] .llm-bridge-history-panel {
+  border-bottom: none;
+  background: transparent;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* tab 模式下 Skills/History body 可滚动，取消固定 max-height */
+.llm-bridge-tab-panel[data-panel="skills"] .llm-bridge-skills-body {
+  max-height: none;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+.llm-bridge-tab-panel[data-panel="history"] .llm-bridge-history-body {
+  max-height: none;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+/* tab 模式下 Skills/History head 不可点击折叠（tab 切换替代） */
+.llm-bridge-tab-panel[data-panel="skills"] .llm-bridge-skills-head,
+.llm-bridge-tab-panel[data-panel="history"] .llm-bridge-history-head {
+  cursor: default;
+  flex: 0 0 auto;
+}
+/* tab 模式下 Skills/History body 不响应 hidden 属性（tab 激活时强制显示） */
+.llm-bridge-tab-panel.is-active[data-panel="skills"] .llm-bridge-skills-body,
+.llm-bridge-tab-panel.is-active[data-panel="history"] .llm-bridge-history-body {
+  display: flex;
+  flex-direction: column;
+}
+.llm-bridge-tab-panel.is-active[data-panel="skills"] .llm-bridge-skills-body[hidden],
+.llm-bridge-tab-panel.is-active[data-panel="history"] .llm-bridge-history-body[hidden] {
+  display: flex;
+}
