@@ -9075,6 +9075,7 @@ if (!runV213FUnit) {
   try {
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const agentSkillsSrc = readFileSync(join(PROJECT_ROOT, "src", "agentSkills.ts"), "utf8");
+    const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf8");
 
     {
       const hasImport = viewSrc.includes("loadAgentSkillsManifest")
@@ -9082,7 +9083,9 @@ if (!runV213FUnit) {
         && viewSrc.includes("AgentSkillRecord");
       const hasFields = viewSrc.includes("private agentSkills: AgentSkillRecord[]")
         && viewSrc.includes("private agentSkillsToggleEl")
-        && viewSrc.includes("private agentSkillsListEl");
+        && viewSrc.includes("private agentSkillsListEl")
+        && viewSrc.includes("private agentSkillPreviewEl")
+        && viewSrc.includes("private selectedAgentSkillId");
       addTest("V2.13.0-F UI: view.ts 引入并持有 Agent Skills manifest state",
         hasImport && hasFields ? "pass" : "fail",
         `import=${hasImport} fields=${hasFields}`);
@@ -9099,10 +9102,11 @@ if (!runV213FUnit) {
     }
 
     {
-      const hasRefresh = /private async refreshAgentSkills\(\)[\s\S]{0,300}loadAgentSkillsManifest/.test(viewSrc)
+      const hasRefresh = /private async refreshAgentSkills\(\)[\s\S]{0,600}loadAgentSkillsManifest/.test(viewSrc)
         && /private async refreshSkills\(\)[\s\S]{0,150}await this\.refreshAgentSkills\(\)/.test(viewSrc);
       const hasToggle = /private async toggleAgentSkillEnabled[\s\S]{0,600}saveAgentSkillsManifest/.test(viewSrc)
-        && /skill\.id === skillId[\s\S]{0,120}enabled/.test(viewSrc);
+        && /skill\.id === skillId[\s\S]{0,120}enabled/.test(viewSrc)
+        && /private async toggleAgentSkillEnabled[\s\S]{0,700}renderAgentSkillPreview\(this\.getSelectedAgentSkill\(\)\)/.test(viewSrc);
       addTest("V2.13.0-F UI: Agent Skills 可刷新并通过 manifest 启用/禁用",
         hasRefresh && hasToggle ? "pass" : "fail",
         `refresh=${hasRefresh} toggle=${hasToggle}`);
@@ -9117,8 +9121,8 @@ if (!runV213FUnit) {
       const noPromptInsert = !agentSection.includes("insertPromptSnippetAtCursor")
         && !agentSection.includes("appendPromptSnippetToInput")
         && !agentSection.includes("setInput(");
-      const hasPreview = viewSrc.includes("private viewAgentSkill")
-        && viewSrc.includes("Agent Skill：")
+      const hasPreview = viewSrc.includes("private renderAgentSkillPreview")
+        && viewSrc.includes("llm-bridge-agent-skill-preview")
         && viewSrc.includes("skill.instructions");
       addTest("V2.13.0-F boundary: Agent Skills UI 只预览/启用，不插入 composer",
         noPromptInsert && hasPreview ? "pass" : "fail",
@@ -9135,6 +9139,41 @@ if (!runV213FUnit) {
       addTest("V2.13.0-F compatibility: Prompt Snippets 保留显式插入，Agent Skill 仍是 runtime capability",
         promptSnippetStillExists && agentMaterializationStillRuntime ? "pass" : "fail",
         `snippet=${promptSnippetStillExists} runtime=${agentMaterializationStillRuntime}`);
+    }
+
+    {
+      const hasInlinePreviewDom = viewSrc.includes("this.agentSkillPreviewEl = grid.createDiv")
+        && viewSrc.includes("renderAgentSkillPreview(null)")
+        && viewSrc.includes("llm-bridge-agent-skill-boundary")
+        && viewSrc.includes("materializedPath")
+        && viewSrc.includes("updatedAt");
+      const defaultClickInline = /main\.addEventListener\("click", \(\) => this\.selectAgentSkill\(skill\.id\)\)/.test(viewSrc)
+        && /viewBtn\.addEventListener[\s\S]{0,180}this\.selectAgentSkill\(skill\.id\)/.test(viewSrc);
+      const modalAuxOnly = viewSrc.includes("private openAgentSkillPreviewModal")
+        && viewSrc.includes("辅助打开完整预览；默认交互仍为内联面板");
+      const stylesOk = stylesSrc.includes(".llm-bridge-agent-skills-grid")
+        && stylesSrc.includes(".llm-bridge-agent-skill-preview")
+        && stylesSrc.includes(".llm-bridge-agent-skill-instructions");
+      addTest("V2.13.0-F2 UI: Agent Skills 默认内联预览且 Modal 仅辅助",
+        hasInlinePreviewDom && defaultClickInline && modalAuxOnly && stylesOk ? "pass" : "fail",
+        `dom=${hasInlinePreviewDom} click=${defaultClickInline} modalAux=${modalAuxOnly} styles=${stylesOk}`);
+    }
+
+    {
+      const agentSectionStart = viewSrc.indexOf("private renderAgentSkillsList");
+      const agentSectionEnd = viewSrc.indexOf("private async toggleAgentSkillEnabled");
+      const agentSection = agentSectionStart >= 0 && agentSectionEnd > agentSectionStart
+        ? viewSrc.slice(agentSectionStart, agentSectionEnd)
+        : "";
+      const clickDoesNotMutateComposer = !agentSection.includes("inputEl")
+        && !agentSection.includes("setInput(")
+        && !agentSection.includes("insertPromptSnippetAtCursor")
+        && !agentSection.includes("appendPromptSnippetToInput");
+      const promptSnippetInsertionStillExists = /private insertPromptSnippetAtCursor[\s\S]{0,900}this\.inputEl\.value/.test(viewSrc)
+        && /private appendPromptSnippetToInput[\s\S]{0,700}this\.inputEl\.value/.test(viewSrc);
+      addTest("V2.13.0-F2 boundary: 点击 Agent Skill 不改 composer，Prompt Snippets 插入不回归",
+        clickDoesNotMutateComposer && promptSnippetInsertionStillExists ? "pass" : "fail",
+        `agentNoComposer=${clickDoesNotMutateComposer} snippetInsert=${promptSnippetInsertionStillExists}`);
     }
   } catch (e) {
     addTest("V2.13.0-F Agent Skills UI Split 单元测试段", "fail", e?.stack || e?.message || String(e));

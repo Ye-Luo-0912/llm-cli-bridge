@@ -1327,6 +1327,163 @@
   color: var(--text-muted);
 }
 
+/* === V2.13.0-F2: Agent Skills inline preview === */
+.llm-bridge-agent-skills-panel {
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+.llm-bridge-agent-skills-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  min-height: 0;
+}
+.llm-bridge-agent-skills-list-container {
+  min-width: 0;
+}
+.llm-bridge-agent-skill-item.is-selected {
+  border-color: var(--interactive-accent);
+  background: var(--background-primary-alt);
+}
+.llm-bridge-agent-skill-item.is-selected .llm-bridge-skill-name {
+  color: var(--interactive-accent);
+}
+.llm-bridge-agent-skill-preview {
+  min-width: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--background-primary);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.llm-bridge-agent-skill-preview-empty {
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 4px;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+}
+.llm-bridge-agent-skill-preview-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.llm-bridge-agent-skill-preview-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.llm-bridge-agent-skill-preview-kicker {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+}
+.llm-bridge-agent-skill-preview-title {
+  font-size: var(--font-smaller);
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-agent-skill-status {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+}
+.llm-bridge-agent-skill-status.is-enabled {
+  border-color: rgba(76, 175, 80, 0.45);
+  color: #4caf50;
+}
+.llm-bridge-agent-skill-status.is-disabled {
+  border-color: rgba(251, 140, 0, 0.45);
+  color: #fb8c00;
+}
+.llm-bridge-agent-skill-boundary {
+  padding: 5px 7px;
+  border-left: 2px solid var(--interactive-accent);
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  line-height: 1.4;
+}
+.llm-bridge-agent-skill-preview-desc {
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  line-height: 1.45;
+}
+.llm-bridge-agent-skill-preview-meta {
+  display: grid;
+  gap: 3px;
+}
+.llm-bridge-agent-skill-preview-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  gap: 6px;
+  align-items: baseline;
+  font-size: var(--font-smallest);
+}
+.llm-bridge-agent-skill-preview-label {
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.llm-bridge-agent-skill-preview-value {
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-agent-skill-instructions-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+.llm-bridge-agent-skill-full-btn {
+  padding: 1px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--interactive-normal);
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  cursor: pointer;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.llm-bridge-agent-skill-full-btn:hover {
+  background: var(--interactive-hover);
+  color: var(--text-normal);
+}
+.llm-bridge-agent-skill-instructions {
+  margin: 0;
+  padding: 7px;
+  max-height: 180px;
+  overflow: auto;
+  border-radius: 5px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* === V2.0: 运行流程区（Run Flow） === */
 
 .llm-bridge-run-flow {

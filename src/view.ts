@@ -109,6 +109,8 @@ export class LLMBridgeView extends ItemView {
   private agentSkillsToggleEl!: HTMLElement;
   private agentSkillsBodyEl!: HTMLElement;
   private agentSkillsListEl!: HTMLElement;
+  private agentSkillPreviewEl!: HTMLElement;
+  private selectedAgentSkillId: string | null = null;
   // V2.3: 从 .llm-bridge/skills/ 导入的 skill 名称集合（用于 UI 显示删除按钮）
   private importedSkillNames: Set<string> = new Set();
   // V2.5: Skills 搜索框 + 当前过滤 query
@@ -1856,7 +1858,10 @@ export class LLMBridgeView extends ItemView {
     this.agentSkillsBodyEl = body;
     const help = body.createDiv({ cls: "llm-bridge-skills-empty" });
     help.createEl("span", { text: "Agent Skills 会物化到 .claude/skills/<slug>/SKILL.md，由 Claude Code/SDK runtime 发现；不会写入 composer。" });
-    this.agentSkillsListEl = body.createDiv({ cls: "llm-bridge-agent-skills-list-container" });
+    const grid = body.createDiv({ cls: "llm-bridge-agent-skills-grid" });
+    this.agentSkillsListEl = grid.createDiv({ cls: "llm-bridge-agent-skills-list-container" });
+    this.agentSkillPreviewEl = grid.createDiv({ cls: "llm-bridge-agent-skill-preview" });
+    this.renderAgentSkillPreview(null);
 
     this.agentSkillsToggleEl.addEventListener("click", () => {
       const hidden = body.hasAttribute("hidden");
@@ -2312,7 +2317,14 @@ export class LLMBridgeView extends ItemView {
     } catch {
       this.agentSkills = [];
     }
+    if (this.selectedAgentSkillId && !this.agentSkills.some((skill) => skill.id === this.selectedAgentSkillId)) {
+      this.selectedAgentSkillId = null;
+    }
+    if (!this.selectedAgentSkillId && this.agentSkills.length > 0) {
+      this.selectedAgentSkillId = this.agentSkills[0].id;
+    }
     this.renderAgentSkillsList();
+    this.renderAgentSkillPreview(this.getSelectedAgentSkill());
   }
 
   private updateAgentSkillsToggle(): void {
@@ -2340,7 +2352,7 @@ export class LLMBridgeView extends ItemView {
       const sorted = this.agentSkills.slice().sort((a, b) => a.slug.localeCompare(b.slug));
       for (const skill of sorted) {
         const item = list.createDiv({
-          cls: `llm-bridge-skill-item llm-bridge-agent-skill-item${skill.enabled ? "" : " is-disabled"}`,
+          cls: `llm-bridge-skill-item llm-bridge-agent-skill-item${skill.enabled ? "" : " is-disabled"}${skill.id === this.selectedAgentSkillId ? " is-selected" : ""}`,
           attr: { title: `${skill.name}\n${skill.materializedPath}` },
         });
         const checkLabel = item.createEl("label", {
@@ -2355,16 +2367,16 @@ export class LLMBridgeView extends ItemView {
         main.createEl("span", { cls: "llm-bridge-skill-name", text: skill.name });
         main.createEl("span", { cls: "llm-bridge-skill-desc", text: skill.description || skill.slug });
         main.createEl("span", { cls: "llm-bridge-skill-stats", text: `${skill.slug} · ${skill.source} · ${skill.enabled ? "enabled" : "disabled"}` });
-        main.addEventListener("click", () => this.viewAgentSkill(skill));
+        main.addEventListener("click", () => this.selectAgentSkill(skill.id));
 
         const viewBtn = item.createEl("button", {
           cls: "llm-bridge-skill-view-btn",
-          text: "👁",
-          attr: { title: "预览 Agent Skill（不会插入输入框）" },
+          text: "View",
+          attr: { title: "在右侧内联预览 Agent Skill（不会插入输入框）" },
         });
         viewBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          this.viewAgentSkill(skill);
+          this.selectAgentSkill(skill.id);
         });
       }
       this.updateAgentSkillsToggle();
@@ -2386,10 +2398,77 @@ export class LLMBridgeView extends ItemView {
     }
     this.agentSkills = skills;
     this.renderAgentSkillsList();
+    this.renderAgentSkillPreview(this.getSelectedAgentSkill());
     new Notice(`${enabled ? "已启用" : "已禁用"} Agent Skill`);
   }
 
-  private viewAgentSkill(skill: AgentSkillRecord): void {
+  private getSelectedAgentSkill(): AgentSkillRecord | null {
+    if (!this.selectedAgentSkillId) return null;
+    return this.agentSkills.find((skill) => skill.id === this.selectedAgentSkillId) ?? null;
+  }
+
+  private selectAgentSkill(skillId: string): void {
+    this.selectedAgentSkillId = skillId;
+    this.renderAgentSkillsList();
+    this.renderAgentSkillPreview(this.getSelectedAgentSkill());
+  }
+
+  private renderAgentSkillPreview(skill: AgentSkillRecord | null): void {
+    if (!this.agentSkillPreviewEl) return;
+    this.agentSkillPreviewEl.empty();
+    if (!skill) {
+      const empty = this.agentSkillPreviewEl.createDiv({ cls: "llm-bridge-agent-skill-preview-empty" });
+      empty.createEl("span", { text: "选择一个 Agent Skill 查看详情。" });
+      empty.createEl("small", { text: "Agent Skills 是 runtime capabilities；不会插入 composer。" });
+      return;
+    }
+
+    const head = this.agentSkillPreviewEl.createDiv({ cls: "llm-bridge-agent-skill-preview-head" });
+    const titleWrap = head.createDiv({ cls: "llm-bridge-agent-skill-preview-title-wrap" });
+    titleWrap.createEl("span", { cls: "llm-bridge-agent-skill-preview-kicker", text: "Runtime capability" });
+    titleWrap.createEl("strong", { cls: "llm-bridge-agent-skill-preview-title", text: skill.name });
+    const status = head.createEl("span", {
+      cls: `llm-bridge-agent-skill-status ${skill.enabled ? "is-enabled" : "is-disabled"}`,
+      text: skill.enabled ? "enabled" : "disabled",
+    });
+    status.setAttribute("title", "由 .llm-bridge/agent-skills.json 控制；物化由 CLI/SDK runtime preparation 处理");
+
+    this.agentSkillPreviewEl.createDiv({
+      cls: "llm-bridge-agent-skill-boundary",
+      text: "Agent Skill 是 Claude runtime 可发现/可调用的能力，不会写入 composer，也不会拼进 promptPackage。",
+    });
+
+    const desc = this.agentSkillPreviewEl.createDiv({ cls: "llm-bridge-agent-skill-preview-desc" });
+    desc.setText(skill.description || "(no description)");
+
+    const meta = this.agentSkillPreviewEl.createDiv({ cls: "llm-bridge-agent-skill-preview-meta" });
+    const rows: Array<[string, string]> = [
+      ["slug", skill.slug],
+      ["source", skill.source],
+      ["path", skill.materializedPath],
+      ["updated", skill.updatedAt || "(unknown)"],
+    ];
+    for (const [label, value] of rows) {
+      const row = meta.createDiv({ cls: "llm-bridge-agent-skill-preview-row" });
+      row.createEl("span", { cls: "llm-bridge-agent-skill-preview-label", text: label });
+      row.createEl("span", { cls: "llm-bridge-agent-skill-preview-value", text: value });
+    }
+
+    const instructionsHead = this.agentSkillPreviewEl.createDiv({ cls: "llm-bridge-agent-skill-instructions-head" });
+    instructionsHead.createEl("span", { text: "Instructions" });
+    instructionsHead.createEl("button", {
+      cls: "llm-bridge-agent-skill-full-btn",
+      text: "完整预览",
+      attr: { title: "辅助打开完整预览；默认交互仍为内联面板" },
+    }).addEventListener("click", () => this.openAgentSkillPreviewModal(skill));
+
+    this.agentSkillPreviewEl.createEl("pre", {
+      cls: "llm-bridge-agent-skill-instructions",
+      text: skill.instructions || "(empty instructions)",
+    });
+  }
+
+  private openAgentSkillPreviewModal(skill: AgentSkillRecord): void {
     const modal = new Modal(this.app);
     modal.titleEl.setText(`Agent Skill：${skill.name}`);
     modal.contentEl.empty();
