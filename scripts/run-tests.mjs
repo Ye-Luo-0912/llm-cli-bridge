@@ -9063,6 +9063,85 @@ if (!runV213EUnit) {
 }
 
 // ============================================================
+// 8.25 V2.13.0-F Agent Skills UI Split 单元测试
+// ============================================================
+console.log("\n=== V2.13.0-F Agent Skills UI Split 单元测试 ===");
+
+const runV213FUnit = runMode === "all" || runMode === "unit";
+
+if (!runV213FUnit) {
+  addTest("V2.13.0-F Agent Skills UI Split 单元测试段", "skip", "当前模式不运行 unit");
+} else {
+  try {
+    const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+    const agentSkillsSrc = readFileSync(join(PROJECT_ROOT, "src", "agentSkills.ts"), "utf8");
+
+    {
+      const hasImport = viewSrc.includes("loadAgentSkillsManifest")
+        && viewSrc.includes("saveAgentSkillsManifest")
+        && viewSrc.includes("AgentSkillRecord");
+      const hasFields = viewSrc.includes("private agentSkills: AgentSkillRecord[]")
+        && viewSrc.includes("private agentSkillsToggleEl")
+        && viewSrc.includes("private agentSkillsListEl");
+      addTest("V2.13.0-F UI: view.ts 引入并持有 Agent Skills manifest state",
+        hasImport && hasFields ? "pass" : "fail",
+        `import=${hasImport} fields=${hasFields}`);
+    }
+
+    {
+      const orderOk = /renderAgentSkillsPanel\(skillsPanel\)[\s\S]{0,300}renderSkillsPanel\(skillsPanel\)/.test(viewSrc);
+      const hasPanel = viewSrc.includes("private renderAgentSkillsPanel")
+        && viewSrc.includes("Agent Skills")
+        && viewSrc.includes("不会插入输入框");
+      addTest("V2.13.0-F UI: Agent Skills 面板独立且位于 Prompt Snippets 之前",
+        orderOk && hasPanel ? "pass" : "fail",
+        `order=${orderOk} panel=${hasPanel}`);
+    }
+
+    {
+      const hasRefresh = /private async refreshAgentSkills\(\)[\s\S]{0,300}loadAgentSkillsManifest/.test(viewSrc)
+        && /private async refreshSkills\(\)[\s\S]{0,150}await this\.refreshAgentSkills\(\)/.test(viewSrc);
+      const hasToggle = /private async toggleAgentSkillEnabled[\s\S]{0,600}saveAgentSkillsManifest/.test(viewSrc)
+        && /skill\.id === skillId[\s\S]{0,120}enabled/.test(viewSrc);
+      addTest("V2.13.0-F UI: Agent Skills 可刷新并通过 manifest 启用/禁用",
+        hasRefresh && hasToggle ? "pass" : "fail",
+        `refresh=${hasRefresh} toggle=${hasToggle}`);
+    }
+
+    {
+      const agentSectionStart = viewSrc.indexOf("private renderAgentSkillsList");
+      const agentSectionEnd = viewSrc.indexOf("private async toggleAgentSkillEnabled");
+      const agentSection = agentSectionStart >= 0 && agentSectionEnd > agentSectionStart
+        ? viewSrc.slice(agentSectionStart, agentSectionEnd)
+        : "";
+      const noPromptInsert = !agentSection.includes("insertPromptSnippetAtCursor")
+        && !agentSection.includes("appendPromptSnippetToInput")
+        && !agentSection.includes("setInput(");
+      const hasPreview = viewSrc.includes("private viewAgentSkill")
+        && viewSrc.includes("Agent Skill：")
+        && viewSrc.includes("skill.instructions");
+      addTest("V2.13.0-F boundary: Agent Skills UI 只预览/启用，不插入 composer",
+        noPromptInsert && hasPreview ? "pass" : "fail",
+        `noPromptInsert=${noPromptInsert} hasPreview=${hasPreview}`);
+    }
+
+    {
+      const promptSnippetStillExists = viewSrc.includes("private renderSkillsPanel")
+        && viewSrc.includes("Prompt Snippets")
+        && viewSrc.includes("insertPromptSnippetAtCursor")
+        && viewSrc.includes("appendPromptSnippetToInput");
+      const agentMaterializationStillRuntime = agentSkillsSrc.includes("物化到 .claude/skills/<slug>/SKILL.md")
+        && agentSkillsSrc.includes("不写入 composer");
+      addTest("V2.13.0-F compatibility: Prompt Snippets 保留显式插入，Agent Skill 仍是 runtime capability",
+        promptSnippetStillExists && agentMaterializationStillRuntime ? "pass" : "fail",
+        `snippet=${promptSnippetStillExists} runtime=${agentMaterializationStillRuntime}`);
+    }
+  } catch (e) {
+    addTest("V2.13.0-F Agent Skills UI Split 单元测试段", "fail", e?.stack || e?.message || String(e));
+  }
+}
+
+// ============================================================
 // 9. Process integration tests（本地 fixture CLI，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== Process integration tests ===");

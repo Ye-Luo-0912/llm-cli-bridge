@@ -26,6 +26,7 @@ import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabe
 import { PersistedSession, SessionListItem, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
 import { Skill, loadSkills, seedDefaultSkills, filterEnabledSkills, expandSkillPrompt, importSkillFromText, deleteSkill, isImportedSkill, scanSkillPrompt, truncateSkillPrompt, MAX_SKILL_PROMPT_LENGTH, updateImportedSkill, searchSkills, checkImportConflict, extractTags } from "./skills";
 import { SkillsState, SkillMeta, loadSkillsState, saveSkillsState, getSkillMeta, recordSkillApplied, setSkillPinned, recordCombo, formatRelativeTime, createEmptySkillsState, renameSkillMeta } from "./skillsState";
+import { AgentSkillRecord, loadAgentSkillsManifest, saveAgentSkillsManifest } from "./agentSkills";
 import { getPermissionModeInfo, type PermissionChoice } from "./sdkPermission";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
@@ -103,6 +104,11 @@ export class LLMBridgeView extends ItemView {
   private skillsListEl!: HTMLElement;
   // V2.13.0-B: Prompt Snippets 面板折叠开关（用于更新标题计数）
   private skillsToggleEl!: HTMLElement;
+  // V2.13.0-F: Agent Skills 是 runtime capability，不插入 composer。
+  private agentSkills: AgentSkillRecord[] = [];
+  private agentSkillsToggleEl!: HTMLElement;
+  private agentSkillsBodyEl!: HTMLElement;
+  private agentSkillsListEl!: HTMLElement;
   // V2.3: 从 .llm-bridge/skills/ 导入的 skill 名称集合（用于 UI 显示删除按钮）
   private importedSkillNames: Set<string> = new Set();
   // V2.5: Skills 搜索框 + 当前过滤 query
@@ -373,6 +379,9 @@ export class LLMBridgeView extends ItemView {
       });
       btn.addEventListener("click", () => void this.applyPreset(preset.type));
     }
+
+    // ===== V2.13.0-F: Agent Skills runtime capabilities（独立于 Prompt Snippets） =====
+    this.renderAgentSkillsPanel(skillsPanel);
 
     // ===== V2.0: Prompt Snippets 入口（上下文选择区，可折叠，从 .llm-bridge/skills.md 读取） =====
     this.renderSkillsPanel(skillsPanel);
@@ -1827,6 +1836,39 @@ export class LLMBridgeView extends ItemView {
   // V2.13.0-B: 渲染 Prompt Snippets 面板（legacy 数据仍从 .llm-bridge/skills.md 读取）
   // V2.3: head 添加"导入"按钮
   // V2.5: body 顶部添加搜索框
+  private renderAgentSkillsPanel(parent: HTMLElement): void {
+    const wrap = parent.createDiv({ cls: "llm-bridge-agent-skills-panel" });
+    const head = wrap.createDiv({ cls: "llm-bridge-skills-head" });
+    this.agentSkillsToggleEl = head.createEl("span", {
+      cls: "llm-bridge-skills-toggle",
+      text: "▶ Agent Skills",
+      attr: { title: "Agent 可发现/可调用的 runtime capabilities；不会插入输入框" },
+    });
+    const refreshBtn = head.createEl("button", {
+      cls: "llm-bridge-skills-refresh-btn",
+      text: "↻",
+      attr: { title: "刷新 Agent Skills manifest" },
+    });
+    refreshBtn.addEventListener("click", () => void this.refreshAgentSkills());
+
+    const body = wrap.createDiv({ cls: "llm-bridge-skills-body llm-bridge-agent-skills-body" });
+    body.setAttribute("hidden", "");
+    this.agentSkillsBodyEl = body;
+    const help = body.createDiv({ cls: "llm-bridge-skills-empty" });
+    help.createEl("span", { text: "Agent Skills 会物化到 .claude/skills/<slug>/SKILL.md，由 Claude Code/SDK runtime 发现；不会写入 composer。" });
+    this.agentSkillsListEl = body.createDiv({ cls: "llm-bridge-agent-skills-list-container" });
+
+    this.agentSkillsToggleEl.addEventListener("click", () => {
+      const hidden = body.hasAttribute("hidden");
+      if (hidden) {
+        body.removeAttribute("hidden");
+      } else {
+        body.setAttribute("hidden", "");
+      }
+      this.updateAgentSkillsToggle();
+    });
+  }
+
   private renderSkillsPanel(parent: HTMLElement): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-skills-panel" });
     const head = wrap.createDiv({ cls: "llm-bridge-skills-head" });
@@ -2248,6 +2290,7 @@ export class LLMBridgeView extends ItemView {
   // V2.6: 同时加载 skills-state（置顶/统计/最近组合），并填充分组下拉标签选项
   private async refreshSkills(): Promise<void> {
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    await this.refreshAgentSkills();
     this.skills = await loadSkills(vaultPath);
     this.skillsState = await loadSkillsState(vaultPath);
     this.importedSkillNames = new Set();
@@ -2259,6 +2302,106 @@ export class LLMBridgeView extends ItemView {
     // V2.6: 填充分组下拉的标签选项（保留 all/ungrouped，追加所有 tags）
     this.populateGroupOptions();
     this.renderSkillsList();
+  }
+
+  private async refreshAgentSkills(): Promise<void> {
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    try {
+      const manifest = await loadAgentSkillsManifest(vaultPath);
+      this.agentSkills = manifest.skills.slice();
+    } catch {
+      this.agentSkills = [];
+    }
+    this.renderAgentSkillsList();
+  }
+
+  private updateAgentSkillsToggle(): void {
+    if (!this.agentSkillsToggleEl || !this.agentSkillsBodyEl) return;
+    const enabled = this.agentSkills.filter((skill) => skill.enabled).length;
+    const total = this.agentSkills.length;
+    const hidden = this.agentSkillsBodyEl.hasAttribute("hidden");
+    this.agentSkillsToggleEl.textContent = `${hidden ? "▶" : "▼"} Agent Skills (${enabled}/${total})`;
+  }
+
+  private renderAgentSkillsList(): void {
+    if (!this.agentSkillsListEl) return;
+    try {
+      this.agentSkillsListEl.empty();
+      if (this.agentSkills.length === 0) {
+        this.agentSkillsListEl.createDiv({
+          cls: "llm-bridge-skills-empty",
+          text: "无 Agent Skills。可通过 .llm-bridge/agent-skills.json 管理，或导入外部 skill pack。",
+        });
+        this.updateAgentSkillsToggle();
+        return;
+      }
+
+      const list = this.agentSkillsListEl.createDiv({ cls: "llm-bridge-skills-list llm-bridge-agent-skills-list" });
+      const sorted = this.agentSkills.slice().sort((a, b) => a.slug.localeCompare(b.slug));
+      for (const skill of sorted) {
+        const item = list.createDiv({
+          cls: `llm-bridge-skill-item llm-bridge-agent-skill-item${skill.enabled ? "" : " is-disabled"}`,
+          attr: { title: `${skill.name}\n${skill.materializedPath}` },
+        });
+        const checkLabel = item.createEl("label", {
+          cls: "llm-bridge-skill-check",
+          attr: { title: "启用/禁用此 Agent Skill（控制 runtime 可发现能力）" },
+        });
+        const check = checkLabel.createEl("input", { type: "checkbox" }) as HTMLInputElement;
+        check.checked = skill.enabled;
+        check.addEventListener("change", () => void this.toggleAgentSkillEnabled(skill.id, check.checked));
+
+        const main = item.createEl("button", { cls: "llm-bridge-skill-main" });
+        main.createEl("span", { cls: "llm-bridge-skill-name", text: skill.name });
+        main.createEl("span", { cls: "llm-bridge-skill-desc", text: skill.description || skill.slug });
+        main.createEl("span", { cls: "llm-bridge-skill-stats", text: `${skill.slug} · ${skill.source} · ${skill.enabled ? "enabled" : "disabled"}` });
+        main.addEventListener("click", () => this.viewAgentSkill(skill));
+
+        const viewBtn = item.createEl("button", {
+          cls: "llm-bridge-skill-view-btn",
+          text: "👁",
+          attr: { title: "预览 Agent Skill（不会插入输入框）" },
+        });
+        viewBtn.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.viewAgentSkill(skill);
+        });
+      }
+      this.updateAgentSkillsToggle();
+    } catch (e) {
+      this.renderListError(this.agentSkillsListEl, "agent-skills", e);
+    }
+  }
+
+  private async toggleAgentSkillEnabled(skillId: string, enabled: boolean): Promise<void> {
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const manifest = await loadAgentSkillsManifest(vaultPath);
+    const skills = manifest.skills.map((skill) =>
+      skill.id === skillId ? { ...skill, enabled, updatedAt: new Date().toISOString() } : skill,
+    );
+    const ok = await saveAgentSkillsManifest(vaultPath, { version: manifest.version, skills });
+    if (!ok) {
+      new Notice("Agent Skill 状态保存失败");
+      return;
+    }
+    this.agentSkills = skills;
+    this.renderAgentSkillsList();
+    new Notice(`${enabled ? "已启用" : "已禁用"} Agent Skill`);
+  }
+
+  private viewAgentSkill(skill: AgentSkillRecord): void {
+    const modal = new Modal(this.app);
+    modal.titleEl.setText(`Agent Skill：${skill.name}`);
+    modal.contentEl.empty();
+    const meta = modal.contentEl.createDiv({ cls: "llm-bridge-skill-preview-meta" });
+    meta.createEl("div", { text: `slug: ${skill.slug}` });
+    meta.createEl("div", { text: `status: ${skill.enabled ? "enabled" : "disabled"}` });
+    meta.createEl("div", { text: `path: ${skill.materializedPath}` });
+    meta.createEl("p", { text: skill.description || "(no description)" });
+    modal.contentEl.createEl("pre", { cls: "llm-bridge-skill-preview", text: skill.instructions });
+    const btns = modal.contentEl.createDiv({ cls: "modal-button-container" });
+    btns.createEl("button", { text: "关闭" }).addEventListener("click", () => modal.close());
+    modal.open();
   }
 
   // V2.6: 填充分组下拉标签选项（从当前 skills 收集所有 tags）
