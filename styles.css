@@ -1620,3 +1620,162 @@
   color: #fb8c00;
   font-style: italic;
 }
+
+
+/* === V2.12.1: UI Recovery — 布局分层 + header 按钮对齐 + 输入区约束 === */
+/* 目标：修复 Bridge View 真实可用性退化（拥挤/错位/挤压），最小 patch，不新增功能 */
+/* 1. 统一折叠区 head 为 flex 布局，确保按钮在 header 内对齐，不漂浮到下一行 */
+.llm-bridge-skills-head,
+.llm-bridge-history-head,
+.llm-bridge-run-flow-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+}
+/* 2. 补齐 5 个未定义 class（V2.3/V2.5/V2.8 引入但遗漏 CSS） */
+.llm-bridge-sb-advanced-toggle {
+  padding: 2px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+.llm-bridge-sb-advanced-toggle:hover { background: var(--interactive-hover); }
+.llm-bridge-skills-import-btn,
+.llm-bridge-history-refresh-btn,
+.llm-bridge-history-edit-btn,
+.llm-bridge-history-del-btn {
+  padding: 1px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  cursor: pointer;
+  flex: 0 0 auto;
+  line-height: 1.4;
+}
+.llm-bridge-skills-import-btn:hover,
+.llm-bridge-history-refresh-btn:hover,
+.llm-bridge-history-edit-btn:hover { background: var(--interactive-hover); }
+.llm-bridge-history-del-btn:hover { background: rgba(229,57,53,0.15); color: #e53935; }
+.llm-bridge-history-toggle {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  flex: 1 1 auto;
+}
+.llm-bridge-history-toggle:hover { color: var(--text-normal); }
+.llm-bridge-history-sort {
+  font-size: var(--font-smallest);
+  padding: 1px 4px;
+  height: auto;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  flex: 0 0 auto;
+}
+/* 3. History 面板整体样式（V2.5 引入但 CSS 完全缺失） */
+.llm-bridge-history-panel {
+  border-bottom: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+}
+.llm-bridge-history-body {
+  padding: 4px 10px 6px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.llm-bridge-history-body[hidden] { display: none; }
+.llm-bridge-history-search {
+  margin-bottom: 4px;
+}
+.llm-bridge-history-search-input,
+.llm-bridge-skills-search-input {
+  width: 100%;
+  font-size: var(--font-smallest);
+  padding: 3px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-sizing: border-box;
+}
+.llm-bridge-history-search-input:focus,
+.llm-bridge-skills-search-input:focus {
+  outline: none;
+  border-color: var(--interactive-accent);
+}
+.llm-bridge-history-list-container {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.llm-bridge-history-empty {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 4px 0;
+}
+.llm-bridge-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.llm-bridge-history-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  border-radius: 4px;
+}
+.llm-bridge-history-item:hover { border-color: var(--interactive-accent); }
+.llm-bridge-history-main {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 2px 4px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.llm-bridge-history-title {
+  font-size: var(--font-smaller);
+  font-weight: 600;
+  color: var(--text-normal);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-history-meta {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-history-item.is-completed { border-left: 3px solid #4caf50; }
+.llm-bridge-history-item.is-failed { border-left: 3px solid #e53935; }
+.llm-bridge-history-item.is-stopped { border-left: 3px solid #fb8c00; }
+/* 4. 输入框 overflow-y（V2.12.1 修复：max-height 160px 但缺 overflow 导致超长文本溢出） */
+.llm-bridge-input { overflow-y: auto; }
+/* 5. 状态栏约束（防止子元素撑高导致顶部拥挤） */
+.llm-bridge-status-bar { flex-wrap: wrap; }
+.llm-bridge-sb-advanced-items[hidden] { display: none; }
+.llm-bridge-sb-advanced-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  width: 100%;
+  padding-top: 2px;
+}
