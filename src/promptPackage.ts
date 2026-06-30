@@ -65,6 +65,14 @@ export function buildPromptPackage(
 当前 Vault 根目录：${snapshot.vaultPath}
 当前时间：${snapshot.timestamp}`);
 
+  parts.push(`
+========== CLI/SDK Native File Handoff ==========
+- 当前 Vault 根目录是本轮工作区；Vault 内普通文件可由 Claude Code / Claude SDK 的原生文件能力合理读取、创建或编辑。
+- 插件职责是提供上下文、Working Set、附件路径和权限边界提示；不要把插件当作自研文件 runtime。
+- 不要写入、删除、重命名 Vault 外路径；external read 只有在用户授权后才可作为引用使用。
+- 不要修改 sensitive paths，例如 .env、token、credentials、secrets、.ssh、private keys、.git/config、.obsidian 内部配置、.llm-bridge credentials。
+- 如需查看附件或 FileRef 中的 image/pdf/binary/unknown 文件，优先使用 Claude Code Read 或 SDK 原生能力读取对应 path；插件不做 OCR、PDF parser 或 base64 注入。`);
+
   // 2. 当前活动笔记（仅当 includeActiveNote=true 且有内容时）
   if (settings.includeActiveNote && snapshot.activeFilePath && snapshot.activeFileContent) {
     const truncated = truncateText(snapshot.activeFileContent, settings.maxActiveNoteChars);
@@ -94,7 +102,7 @@ ${truncated}
 ========== FileRef Metadata Index ==========
 以下是已授权或用户主动添加的文件引用索引，只包含 metadata，不包含文件正文。pending / denied / 未授权 external refs 不会出现在本区。
 CLI/Claude Code 路径：如需查看 image/pdf/binary 或 refs-only 文件，可在权限允许时使用 Claude Code Read 读取对应 path。
-SDK 路径：本阶段仅保留 refs，不启用 streaming image。
+SDK 路径：使用 SDK 原生文件能力处理已授权/用户主动引用；本阶段不启用插件侧 streaming image。
 
 ${rows}
 `);

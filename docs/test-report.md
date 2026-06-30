@@ -1,20 +1,20 @@
 # LLM CLI Bridge 测试报告
 
-- **测试时间**: 2026-06-30T10:03:53.429Z
+- **测试时间**: 2026-06-30T10:24:55.108Z
 - **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.12.1
-- **main.js 大小**: 391.6 KB
+- **main.js 大小**: 393.1 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 63019
 
 ## 测试汇总
 
-- ✅ **通过**: 638
+- ✅ **通过**: 639
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 663
+- **总计**: 664
 
 ## 详细结果
 
@@ -1066,7 +1066,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-06-30T10-04-22-199Z-xoh61x |
+| ✅ | 返回非空 id | id=s-2026-06-30T10-25-23-417Z-4a2hlh |
 
 ### V2.5 Session 版本
 
@@ -1085,7 +1085,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-06-30T10-04-22-315Z-ym4eoz second=s-2026-06-30T10-04-22-242Z-t8h8nk |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-06-30T10-25-23-518Z-74juqg second=s-2026-06-30T10-25-23-450Z-m49v9i |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1112,7 +1112,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-06-30T10-04-22-405Z-719tc3 id2=s-2026-06-30T10-04-22-405Z-5fwyv0 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-06-30T10-25-23-550Z-pen8vk id2=s-2026-06-30T10-25-23-550Z-9dd7fx |
 
 ### V2.5 Session 上限
 
@@ -1210,7 +1210,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-06-30T10:04:22.598Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-06-30T10:25:23.625Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1298,7 +1298,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-06-30T10:04:22.738Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-06-30T10:25:23.691Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 1
 
@@ -1404,7 +1404,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-06-30T10:04:23.044Z after=2026-06-30T10:04:23.121Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-06-30T10:25:23.802Z after=2026-06-30T10:25:23.875Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -1774,13 +1774,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-06-30T10:04:23.944Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-06-30T10:25:24.827Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-06-30T10:04:23.961Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-06-30T10:25:24.841Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -1973,11 +1973,11 @@
 |------|--------|------|
 | ✅ | AgentEvent/CLI/SDK/Skills 主线不变 | agentEvent=true backend=true skills=true |
 
-### V2.14.0-B/C/D/E/E1/F/G/H/I/I1/J/K/K1 exports/report
+### V2.14.0-B/C/D/E/E1/F/G/H/I/I1/J/K/K1/L exports/report
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | policy 类型与报告章节存在 | exports=true reportB=true reportC=true reportD=true reportE=true reportE1=true reportF=true reportG=true reportH=true reportI=true reportI1=true reportJ=true reportK=true reportK1=true |
+| ✅ | policy 类型与报告章节存在 | exports=true reportB=true reportC=true reportD=true reportE=true reportE1=true reportF=true reportG=true reportH=true reportI=true reportI1=true reportJ=true reportK=true reportK1=true reportL=true |
 
 ### V2.14.0-B roots
 
@@ -2062,7 +2062,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-jDGhWh\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-OTvWoL\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-JpZlw8\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-Dwqzoc\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -2074,7 +2074,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-TenxCg\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-d9nmMg\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-3R3fqe\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-peAkwz\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -2086,13 +2086,19 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-acKYOA\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-krQOUP\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-qu1gqx\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-Tz9E1M\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | 只能收窄不能放大 | clamp=true lower=true ext=true invalid=true execution=true noWrite=true static=true |
+
+### V2.14.0-L native handoff simplification
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | prompt 指引原生文件能力且不新增写 runtime | prompt=true external=true sensitive=true adapter=true noRuntime=true |
 
 ### V2.14.0-E runtime UI
 

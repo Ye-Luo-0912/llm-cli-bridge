@@ -9483,6 +9483,7 @@ if (!runV214BUnit) {
     const reportSrcV214J = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-J_AGENT_FILE_TOOL_ROUTING.md"), "utf8");
     const reportSrcV214K = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-K_RUNTIME_TOOL_ADAPTER.md"), "utf8");
     const reportSrcV214K1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-K1_RUNTIME_ADAPTER_LIMITS_HARDENING.md"), "utf8");
+    const reportSrcV214L = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-L_CLI_SDK_NATIVE_HANDOFF_SIMPLIFICATION.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
@@ -9559,9 +9560,11 @@ if (!runV214BUnit) {
         .every((heading) => reportSrcV214K.includes(heading));
       const reportK1Ok = ["## LimitClamp", "## SearchExtensionPolicy", "## NoWriteBoundary", "## Tests", "## Recommendation"]
         .every((heading) => reportSrcV214K1.includes(heading));
-      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I/I1/J/K/K1 exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk && reportI1Ok && reportJOk && reportKOk && reportK1Ok ? "pass" : "fail",
-        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk} reportI1=${reportI1Ok} reportJ=${reportJOk} reportK=${reportKOk} reportK1=${reportK1Ok}`);
+      const reportLOk = ["## NativeHandoffStrategy", "## PluginResponsibilityBoundary", "## VaultOperationGuidance", "## ExternalBoundary", "## SimplificationDecision", "## Tests", "## Recommendation"]
+        .every((heading) => reportSrcV214L.includes(heading));
+      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I/I1/J/K/K1/L exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk && reportI1Ok && reportJOk && reportKOk && reportK1Ok && reportLOk ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk} reportI1=${reportI1Ok} reportJ=${reportJOk} reportK=${reportKOk} reportK1=${reportK1Ok} reportL=${reportLOk}`);
     }
 
     {
@@ -10635,6 +10638,63 @@ if (!runV214BUnit) {
       addTest("V2.14.0-K1 runtime adapter limits clamp: 只能收窄不能放大",
         ok ? "pass" : "fail",
         `clamp=${clampOk} lower=${lowerOk} ext=${extOk} invalid=${invalidOk} execution=${executionOk} noWrite=${noWriteOk} static=${staticOk}`);
+    }
+
+    {
+      const prompt = buildPromptPackageV214G(
+        "请整理这些附件并按需更新 Vault 内笔记",
+        {
+          vaultPath: "C:\\Vault",
+          activeFilePath: null,
+          activeFileContent: null,
+          selection: null,
+          timestamp: "2026-06-30T00:11:00.000Z",
+          fileRefIndex: [
+            { id: "att-pdf", displayName: "Spec.pdf", path: "C:\\Vault\\refs\\Spec.pdf", kind: "attachment", fileType: "pdf", status: "active" },
+            { id: "vault-md", displayName: "Plan.md", path: "C:\\Vault\\notes\\Plan.md", kind: "vault", fileType: "markdown", status: "active" },
+          ],
+        },
+        {
+          includeActiveNote: false,
+          includeSelection: false,
+          maxActiveNoteChars: 6000,
+          maxSelectionChars: 3000,
+          outputDir: "90_AI整理待确认",
+        },
+      );
+      const promptGuidanceOk = prompt.includes("CLI/SDK Native File Handoff")
+        && prompt.includes("当前 Vault 根目录是本轮工作区")
+        && prompt.includes("Vault 内普通文件可由 Claude Code / Claude SDK 的原生文件能力合理读取、创建或编辑")
+        && prompt.includes("不要写入、删除、重命名 Vault 外路径")
+        && prompt.includes("不要修改 sensitive paths")
+        && prompt.includes("Claude Code Read 或 SDK 原生能力")
+        && prompt.includes("插件不做 OCR、PDF parser 或 base64 注入");
+      const externalBoundaryOk = evaluateFileAccess(createFileAccessPolicy({ vaultPath: "C:\\Vault" }), { operation: "write", path: "D:\\External\\out.md" }).decision === "deny"
+        && evaluateFileAccess(createFileAccessPolicy({ vaultPath: "C:\\Vault" }), { operation: "delete", path: "D:\\External\\out.md" }).decision === "deny"
+        && evaluateFileAccess(createFileAccessPolicy({ vaultPath: "C:\\Vault" }), { operation: "rename", path: "C:\\Vault\\notes\\a.md", targetPath: "D:\\External\\a.md" }).decision === "deny";
+      const sensitiveBoundaryOk = evaluateFileAccess(createFileAccessPolicy({ vaultPath: "C:\\Vault", sensitivePathMode: "confirm" }), { operation: "write", path: ".env" }).decision === "deny"
+        && evaluateFileAccess(createFileAccessPolicy({ vaultPath: "C:\\Vault", sensitivePathMode: "confirm" }), { operation: "read", path: ".env" }).decision === "confirm";
+      const adapterBoundaryOk = describeRuntimeFileToolAdapter(createRuntimeFileToolAdapter("cli", async () => ({ toolName: "stat", status: "deny", reason: "test" })))
+          .includes("read-only policy gate")
+        && describeRuntimeFileToolAdapter(createRuntimeFileToolAdapter("sdk", async () => ({ toolName: "stat", status: "deny", reason: "test" })))
+          .includes("native runtime handles Vault file operations")
+        && !isReadOnlyAgentFileTool("write")
+        && !isReadOnlyAgentFileTool("delete")
+        && !isReadOnlyAgentFileTool("rename")
+        && !runtimeFileToolAdapterSrc.includes("\"write\"")
+        && !runtimeFileToolAdapterSrc.includes("\"delete\"")
+        && !runtimeFileToolAdapterSrc.includes("\"rename\"");
+      const noNewRuntimeOk = !runtimeFileToolAdapterSrc.includes("writeFile")
+        && !runtimeFileToolAdapterSrc.includes("rm(")
+        && !runtimeFileToolAdapterSrc.includes("unlink")
+        && !runtimeFileToolAdapterSrc.includes("rename(")
+        && !promptPackageSrc.includes("backup")
+        && !promptPackageSrc.includes("rollback")
+        && !promptPackageSrc.includes("audit transaction");
+      const ok = promptGuidanceOk && externalBoundaryOk && sensitiveBoundaryOk && adapterBoundaryOk && noNewRuntimeOk;
+      addTest("V2.14.0-L native handoff simplification: prompt 指引原生文件能力且不新增写 runtime",
+        ok ? "pass" : "fail",
+        `prompt=${promptGuidanceOk} external=${externalBoundaryOk} sensitive=${sensitiveBoundaryOk} adapter=${adapterBoundaryOk} noRuntime=${noNewRuntimeOk}`);
     }
 
     {

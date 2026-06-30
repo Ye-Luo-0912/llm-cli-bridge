@@ -102,7 +102,7 @@ export function normalizeRuntimeFileToolCall(
 
 export function describeRuntimeFileToolAdapter(adapter: RuntimeFileToolAdapter | undefined): string {
   if (!adapter) return "runtime file tools: disabled";
-  return `runtime file tools: ${adapter.kind} [${adapter.toolNames.join(", ")}]`;
+  return `runtime file tools: ${adapter.kind} read-only policy gate [${adapter.toolNames.join(", ")}]; native runtime handles Vault file operations; no write/delete/rename routes`;
 }
 
 function extractPath(input: Record<string, unknown>): string | null {
