@@ -20,15 +20,18 @@
 
 ## 3. 手工 Smoke（manual required）
 
-- [ ] mock-success：发送消息 → 显示 completed → 无错误
-- [ ] mock-failure：发送消息 → 显示 failed → 错误摘要脱敏 → debug log 路径可点击复制
-- [ ] auto + Claude 短消息：发送 → 收到回复
-- [ ] 选区识别：编辑器选中文本 → Selection chip 显示字符数
-- [ ] 当前笔记识别：打开笔记 → Note chip 显示文件名
-- [ ] 生成文件可点击：运行结束后文件列表可点击打开
-- [ ] 运行过程时间线：started / stdout / stderr / 终态 正确显示
-- [ ] 空状态引导：首次打开显示 5 步引导 + Preflight 按钮
-- [ ] 首次使用提示：可关闭，关闭后不再显示
+- [ ] Obsidian bridge online，`bridge.json` 存在且 `GET /state` 成功
+- [ ] Chat / Files / Skills / History 页面可切换
+- [ ] 左侧 compact rail 只显示图标，不显示 Settings / brand / collapse
+- [ ] 顶部栏显示 Bridge、当前会话、新聊天、设置齿轮、compact runtime status
+- [ ] Composer 显示上传、命令菜单、权限 chip、输入框、agent/model/effort/send
+- [ ] 失败卡片只显示摘要，stderr / command / workflow / debug log 默认折叠
+- [ ] Working Set strip 显示 AGENTS.md / Note / Selection / FileRefs compact chips
+- [ ] Claude Code minimal prompt 通过
+- [ ] Claude Code native read/edit Vault 内普通文件通过
+- [ ] SDK minimal prompt 通过或明确记录环境阻断
+- [ ] external absolute write 被拒绝
+- [ ] sensitive `.env` write 被拒绝
 
 ### 3.1 V1.6 SDK Experimental Smoke（manual required，详见 docs/manual-smoke-v1.6.md）
 
@@ -57,6 +60,9 @@
 
 - [ ] `README.md` 普通用户章节与当前功能一致（无已移除的按钮名称）
 - [ ] `docs/USER_GUIDE.md` 步骤可走通
+- [ ] 文档只说明 `CLAUDE_CONFIG_DIR`，不再要求 `ANTHROPIC_CONFIG_DIR`
+- [ ] 文档说明 native handoff boundary：Claude Code / SDK 执行文件能力，插件负责上下文与权限边界
+- [ ] 文档说明 V2.15 UI：Chat / Files / Skills / History
 - [ ] `docs/BACKLOG.md` 已更新已知问题
 - [ ] `docs/test-report.md` 已重新生成
 
@@ -102,3 +108,4 @@
 | v2.11.1 | 2026-06-29 | 7ddf9fd | Skills State Integrity / Lifecycle Cleanup，skill 重命名 meta 迁移(skillsState.ts 新增 renameSkillMeta 迁移 pinned/applyCount/lastUsedAt/groupOverride/sortOrder/collapsed 到新名称 + view.ts openEditSkillDialog 重命名时调用) + tags 编辑保留(skills.ts updateImportedSkill 从 newDescription 重新 extractTags 替代原 tags:[] + view.ts EditSkillModal 描述框预填原始描述+#标签) + onClose flush(view.ts onClose 立即写入 skillsStateSaveTimer 待写 state + 清理 skillsSearchDebounceTimer) + groupOverride future 标注(skillsState.ts 注释标明当前 UI 未实现手动分组留作 future 扩展) + 组合应用勾选顺序(view.ts applyCombo 改用 Set 插入顺序即勾选顺序替代原可见列表顺序) + session defense-in-depth 脱敏(sessions.ts redactSessionMessages 扩展脱敏 timeline/timelineEvents/commandPreview/workflowTrace/workflowEvents/sdkEvents 嵌套字段 + redactSdkEventForSession 处理 WorkflowEvent 联合类型各 string 字段) + 设置页关键配置刷新(settings.ts agentType/claudePermissionMode/permissionPolicy onChange 调用 refreshBridgeView 统一刷新状态栏)，不修改 AgentEvent v0.1，CLI 主线不变，sdk-experimental 仍默认关闭，SESSION_SCHEMA_VERSION 不变(仍为 1)，SKILLS_STATE_VERSION 不变(仍为 1)，新增 24 个 V2.11.1 单元测试 |
 | v2.12.0 | 2026-06-29 | e61ceb7 | Long Flow E2E / Real Daily Smoke，验证型工作单元不新增功能不修改 src/ 业务代码，新增 8.20 测试段 38 个代码级断言覆盖(约束确认 AgentEvent v0.1 不变/sdk-experimental 默认关闭/CLI 主线不回归 + UI 默认折叠 Skills/History/Advanced/createCollapsibleSection startOpen=false + tooltip timeline/workflow trace/sdk event detail 含 attr title + 权限策略 low auto_allow/high needs_approval/medium+high 不静默/medium+medium 不静默 + stop 清理 stopBtn 绑定/onClose runHandle.stop()/onClose 清理 scrollRafId + 错误体验 showFileNotFoundModal 完整路径/复制按钮/debug log 路径可复制 + Skills 搜索框防抖/分组下拉/置顶按钮/使用统计/V2.11.1 renameSkillMeta 不回归/V2.11.1 组合勾选顺序不回归 + Session 历史搜索/标题重命名/删除会话/恢复会话/V2.11.1 defense-in-depth 脱敏不回归 + 核心流 inputEl/Selection chip/Note chip/openGeneratedFile/presetPrompts + 报告输出 docs 目录/e2e-smoke-v2.2.md 模板) + 输出 docs/e2e-smoke-v2.12.md 报告(7 项约束确认 + 自动化测试结果 562/62/55 passed 0 failed + 35 项 manual required 手工验证清单覆盖核心用户流 7/Skills 7/Session 6/权限停止 4/UI 7/错误体验 3/session 文件扫描 1 + V2.11.1 修复回归确认 8/8 + 敏感信息扫描 4/4 自动化项通过)，不修改 AgentEvent v0.1，CLI 主线不变(test:process 62 passed + test:claude 55 passed 真实执行)，sdk-experimental 仍默认关闭，SESSION_SCHEMA_VERSION 不变(仍为 1)，新增 38 个 V2.12 单元测试 |
 | v2.12.1 | 2026-06-29 | 941d452 | Skill Rename Meta Runtime Patch，修复 ManualId 13 blocker(导入 skill 重命名后 pinned/applyCount/lastUsedAt/groupOverride 未迁移到新名称)，根因两层(第一层 scheduleSkillsStateSave 500ms 防抖定时器 + refreshSkills 立即从磁盘重载 state 时序冲突导致内存迁移被覆盖 + 第二层 CDP 验证发现 flushSkillsStateSave 内部 if(timer===null) return 提前返回导致 renameSkillMeta 后 flush 不落盘)，修复(view.ts 新增 flushSkillsStateSave() 方法抽取自原 onClose flush 逻辑 + openEditSkillDialog 改为 renameSkillMeta 后 await flushSkillsStateSave() 立即落盘再 refreshSkills + onClose 复用 flushSkillsStateSave 消除内联重复 + 二次修复移除 flushSkillsStateSave 的 timer===null 提前返回改为总是落盘)，新增 8.21 测试段 20 个测试覆盖(flushSkillsStateSave 代码级存在/总是落盘移除 timer===null 提前返回/saveSkillsState 落盘 + openEditSkillDialog 调用链路/renameSkillMeta 后 flush/flush 在 refresh 之前/不再调用 scheduleSkillsStateSave + onClose 复用/不再内联 + 真实保存路径集成测试 导入→pin/apply/groupOverride→updateImportedSkill→renameSkillMeta→flush→reload 验证新名 meta 完整 + 旧名孤儿清理 + 磁盘 skills 文件重命名 + 字段完整性 pinned/applyCount/lastUsedAt/groupOverride 全部迁移 + 时序冲突回归 重现 bug scheduleSkillsStateSave 路径丢失迁移 + 验证修复 flushSkillsStateSave 路径保留迁移 + EditSkillModal 保存按钮触发 onConfirm + openEditSkillDialog updateImportedSkill/checkImportConflict/newName!==skill.name + 约束确认 AgentEvent v0.1 不变/sdk-experimental 默认关闭/schema 不变/CLI 主线不回归)，CDP 真实 Obsidian 1.12.7 runtime 验证通过(8 项 checks 全绿 newMetaExists/pinnedMigrated/applyCountMigrated/lastUsedAtMigrated/groupOverrideMigrated/oldMetaCleaned/oldSkillFileGone/newSkillFileExists)，不修改 AgentEvent v0.1，CLI 主线不变，sdk-experimental 仍默认关闭，SESSION_SCHEMA_VERSION 不变(仍为 1)，SKILLS_STATE_VERSION 不变(仍为 1)，新增 20 个 V2.12.1 单元测试 |
+| v2.15.0-rc | 2026-06-30 | pending | Compact Plugin Shell / Release Candidate Freeze，版本提升到 2.15.0，冻结 Chat / Files / Skills / History compact UI、composer command menu、permission chip、Claude Code / SDK native handoff boundary、CLAUDE_CONFIG_DIR-only runtime config 文档；不新增自研 write executor、backup/rollback/audit、PDF/OCR/image parser、SDK image streaming 或复杂 runtime tool registration。 |
