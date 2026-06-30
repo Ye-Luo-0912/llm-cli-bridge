@@ -9341,6 +9341,7 @@ if (!runV214BUnit) {
     const reportSrcV214C = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-C_ON_DEMAND_EXTERNAL_READ_AUTHORIZATION.md"), "utf8");
     const reportSrcV214D = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-D_SESSION_DIRECTORY_READ_GRANTS.md"), "utf8");
     const reportSrcV214E = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-E_PENDING_EXTERNAL_READ_APPROVAL_UI.md"), "utf8");
+    const reportSrcV214E1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-E1_STRONG_CONFIRM_EXTERNAL_READ_APPROVAL.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf8");
@@ -9371,9 +9372,11 @@ if (!runV214BUnit) {
         .every((heading) => reportSrcV214D.includes(heading));
       const reportEOk = ["## RuntimeStore", "## ApprovalUI", "## GrantActions", "## SafetyBehavior", "## Tests", "## RemainingRisk", "## Recommendation"]
         .every((heading) => reportSrcV214E.includes(heading));
-      addTest("V2.14.0-B/C/D/E exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk && reportDOk && reportEOk ? "pass" : "fail",
-        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk}`);
+      const reportE1Ok = ["## ChangedBehavior", "## StrongConfirmFlow", "## DeniedRootBehavior", "## Tests", "## Recommendation"]
+        .every((heading) => reportSrcV214E1.includes(heading));
+      addTest("V2.14.0-B/C/D/E/E1 exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok}`);
     }
 
     {
@@ -9583,6 +9586,51 @@ if (!runV214BUnit) {
     }
 
     {
+      const basePolicy = createFileAccessPolicy({ vaultPath: "D:\\Vault" });
+      const confirmPending = createPendingExternalReadRequest(
+        basePolicy,
+        { operation: "read", path: "C:\\Users\\Ye_Luo\\notes.md" },
+        { now: "2026-06-30T00:04:00.000Z", source: "unit" },
+      );
+      const confirmStore = enqueuePendingExternalReadRequest(createSessionReadGrantStore(), confirmPending);
+      const confirmPlain = approvePendingExternalReadRequest(confirmStore, confirmPending?.id || "");
+      const confirmStrongDir = approvePendingExternalReadRequest(confirmStore, confirmPending?.id || "", { strongConfirm: true, grantedAt: "2026-06-30T00:04:01.000Z" });
+      const confirmStrongFile = approvePendingExternalReadRequest(confirmStore, confirmPending?.id || "", { strongConfirm: true, forceFileScope: true });
+      const denyPending = createPendingExternalReadRequest(
+        basePolicy,
+        { operation: "read", path: "C:\\" },
+        { pathKind: "directory", now: "2026-06-30T00:04:02.000Z", source: "unit" },
+      );
+      const denyStore = enqueuePendingExternalReadRequest(createSessionReadGrantStore(), denyPending);
+      const denyStrong = approvePendingExternalReadRequest(denyStore, denyPending?.id || "", { strongConfirm: true });
+      const allowPending = createPendingExternalReadRequest(
+        basePolicy,
+        { operation: "read", path: "D:\\Work\\Project\\src\\index.ts" },
+        { now: "2026-06-30T00:04:03.000Z", knownProjectRootMarkers: ["D:\\Work\\Project\\package.json"] },
+      );
+      const allowStore = enqueuePendingExternalReadRequest(createSessionReadGrantStore(), allowPending);
+      const allowPlain = approvePendingExternalReadRequest(allowStore, allowPending?.id || "");
+      const ok = confirmPending?.grantRootSafety === "confirm"
+        && confirmPlain.sessionReadGrants.length === 0
+        && confirmPlain.pendingReadRequests.length === 1
+        && confirmStrongDir.sessionReadGrants.length === 1
+        && confirmStrongDir.sessionReadGrants[0].match === "directory"
+        && confirmStrongDir.sessionReadGrants[0].path === "c:\\users\\ye_luo"
+        && confirmStrongFile.sessionReadGrants.length === 1
+        && confirmStrongFile.sessionReadGrants[0].match === "file"
+        && confirmStrongFile.sessionReadGrants[0].path === "c:\\users\\ye_luo\\notes.md"
+        && denyPending?.grantRootSafety === "deny"
+        && denyStrong.sessionReadGrants.length === 0
+        && denyStrong.pendingReadRequests.length === 1
+        && allowPending?.grantRootSafety === "allow"
+        && allowPlain.sessionReadGrants.length === 1
+        && allowPlain.sessionReadGrants[0].match === "directory";
+      addTest("V2.14.0-E1 strong confirm: confirm 显式批准，deny 永不批准，allow 普通批准",
+        ok ? "pass" : "fail",
+        `confirm=${confirmPending?.grantRootSafety} plain=${confirmPlain.sessionReadGrants.length}/${confirmPlain.pendingReadRequests.length} dir=${confirmStrongDir.sessionReadGrants[0]?.match}/${confirmStrongDir.sessionReadGrants[0]?.path} file=${confirmStrongFile.sessionReadGrants[0]?.match}/${confirmStrongFile.sessionReadGrants[0]?.path} deny=${denyPending?.grantRootSafety}/${denyStrong.sessionReadGrants.length} allow=${allowPending?.grantRootSafety}/${allowPlain.sessionReadGrants.length}`);
+    }
+
+    {
       const hasRuntimeStore = viewSrc.includes("externalReadGrantStore: SessionReadGrantStore = createSessionReadGrantStore()")
         && viewSrc.includes("queueExternalFileAccessRequest")
         && viewSrc.includes("clearExternalReadRequests");
@@ -9592,13 +9640,14 @@ if (!runV214BUnit) {
       const hasGrantActions = viewSrc.includes("允许本次会话读取此目录")
         && viewSrc.includes("仅允许此文件")
         && viewSrc.includes("拒绝")
-        && viewSrc.includes("approvePendingExternalReadRequest(this.externalReadGrantStore, requestId, { forceFileScope })")
-        && viewSrc.includes("this.approveExternalReadRequest(req.id, false)")
-        && viewSrc.includes("this.approveExternalReadRequest(req.id, true)");
+        && viewSrc.includes("approvePendingExternalReadRequest(this.externalReadGrantStore, requestId, { forceFileScope, strongConfirm })")
+        && viewSrc.includes("this.approveExternalReadRequest(req.id, false, req.grantRootSafety === \"confirm\")")
+        && viewSrc.includes("this.approveExternalReadRequest(req.id, true, req.grantRootSafety === \"confirm\")");
       const hasSafetyBehavior = viewSrc.includes("req.grantRootSafety === \"deny\"")
         && viewSrc.includes("req.grantRootSafety === \"confirm\"")
         && viewSrc.includes("Strong confirmation required")
-        && viewSrc.includes("if (req.grantRootSafety !== \"deny\")");
+        && viewSrc.includes("if (req.grantRootSafety !== \"deny\")")
+        && viewSrc.includes("strongConfirm = false");
       const nonReadStillNoPending = createPendingExternalReadRequest(createFileAccessPolicy({ vaultPath: "C:\\Vault" }), { operation: "delete", path: "D:\\External\\x.md" }) === null;
       const ok = hasRuntimeStore && hasPendingUi && hasGrantActions && hasSafetyBehavior && nonReadStillNoPending;
       addTest("V2.14.0-E runtime UI: pending 文案/授权动作/safety 行为存在，非 read 不入 pending",

@@ -87,6 +87,13 @@ export interface SessionReadGrantStore {
   pendingReadRequests: PendingExternalReadRequest[];
 }
 
+export interface PendingExternalReadApprovalOptions {
+  grantedAt?: string;
+  forceFileScope?: boolean;
+  strongConfirm?: boolean;
+  allowConfirmRoot?: boolean;
+}
+
 interface ParsedPath {
   input: string;
   resolvedPath: string;
@@ -223,10 +230,11 @@ export function enqueuePendingExternalReadRequest(
 export function approvePendingExternalReadRequest(
   store: SessionReadGrantStore,
   requestId: string,
-  options: { grantedAt?: string; forceFileScope?: boolean } = {},
+  options: PendingExternalReadApprovalOptions = {},
 ): SessionReadGrantStore {
   const pending = store.pendingReadRequests.find((item) => item.id === requestId);
-  if (!pending || pending.grantRootSafety !== "allow" || !pending.proposedGrantRoot) {
+  const confirmApproved = pending?.grantRootSafety === "confirm" && (options.strongConfirm === true || options.allowConfirmRoot === true);
+  if (!pending || !pending.proposedGrantRoot || (pending.grantRootSafety !== "allow" && !confirmApproved)) {
     return store;
   }
 

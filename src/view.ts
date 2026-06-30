@@ -1100,10 +1100,10 @@ export class LLMBridgeView extends ItemView {
       if (req.grantRootSafety !== "deny") {
         const allowDirText = req.grantRootSafety === "confirm" ? "强确认：允许本次会话读取此目录" : "允许本次会话读取此目录";
         const allowDirBtn = btns.createEl("button", { cls: "llm-bridge-external-read-allow-dir", text: allowDirText });
-        allowDirBtn.addEventListener("click", () => this.approveExternalReadRequest(req.id, false));
+        allowDirBtn.addEventListener("click", () => this.approveExternalReadRequest(req.id, false, req.grantRootSafety === "confirm"));
         const allowFileText = req.grantRootSafety === "confirm" ? "强确认：仅允许此文件" : "仅允许此文件";
         const allowFileBtn = btns.createEl("button", { cls: "llm-bridge-external-read-allow-file", text: allowFileText });
-        allowFileBtn.addEventListener("click", () => this.approveExternalReadRequest(req.id, true));
+        allowFileBtn.addEventListener("click", () => this.approveExternalReadRequest(req.id, true, req.grantRootSafety === "confirm"));
       }
       const denyBtn = btns.createEl("button", { cls: "llm-bridge-external-read-deny", text: "拒绝" });
       denyBtn.addEventListener("click", () => this.denyExternalReadRequest(req.id));
@@ -1116,8 +1116,8 @@ export class LLMBridgeView extends ItemView {
     row.createEl("span", { cls: "llm-bridge-external-read-field-value", text: value, attr: { title: value } });
   }
 
-  private approveExternalReadRequest(requestId: string, forceFileScope: boolean): void {
-    this.externalReadGrantStore = approvePendingExternalReadRequest(this.externalReadGrantStore, requestId, { forceFileScope });
+  private approveExternalReadRequest(requestId: string, forceFileScope: boolean, strongConfirm = false): void {
+    this.externalReadGrantStore = approvePendingExternalReadRequest(this.externalReadGrantStore, requestId, { forceFileScope, strongConfirm });
     this.refreshExternalReadPanel();
   }
 
