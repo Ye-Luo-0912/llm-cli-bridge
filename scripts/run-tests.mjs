@@ -9155,13 +9155,14 @@ if (!runV213FUnit) {
     }
 
     {
-      const orderOk = /renderAgentSkillsPanel\(skillsPanel\)[\s\S]{0,300}renderSkillsPanel\(skillsPanel\)/.test(viewSrc);
+      const orderOk = viewSrc.includes("renderAgentSkillsPanel(skillsPanel)")
+        && !viewSrc.includes("renderSkillsPanel(skillsPanel)");
       const hasPanel = viewSrc.includes("private renderAgentSkillsPanel")
         && viewSrc.includes("Agent Skills")
         && viewSrc.includes("不会插入输入框");
-      addTest("V2.13.0-F UI: Agent Skills 面板独立且位于 Prompt Snippets 之前",
+      addTest("V2.13.0-F UI: Agent Skills 面板独立且 Skills 页不挂载 Prompt Snippets",
         orderOk && hasPanel ? "pass" : "fail",
-        `order=${orderOk} panel=${hasPanel}`);
+        `agentOnly=${orderOk} panel=${hasPanel}`);
     }
 
     {
@@ -9193,15 +9194,16 @@ if (!runV213FUnit) {
     }
 
     {
-      const promptSnippetStillExists = viewSrc.includes("private renderSkillsPanel")
+      const promptSnippetLegacyExists = viewSrc.includes("private renderSkillsPanel")
         && viewSrc.includes("Prompt Snippets")
         && viewSrc.includes("insertPromptSnippetAtCursor")
         && viewSrc.includes("appendPromptSnippetToInput");
+      const promptSnippetNotMountedAsSkills = !viewSrc.includes("renderSkillsPanel(skillsPanel)");
       const agentMaterializationStillRuntime = agentSkillsSrc.includes("物化到 .claude/skills/<slug>/SKILL.md")
         && agentSkillsSrc.includes("不写入 composer");
-      addTest("V2.13.0-F compatibility: Prompt Snippets 保留显式插入，Agent Skill 仍是 runtime capability",
-        promptSnippetStillExists && agentMaterializationStillRuntime ? "pass" : "fail",
-        `snippet=${promptSnippetStillExists} runtime=${agentMaterializationStillRuntime}`);
+      addTest("V2.13.0-F compatibility: Prompt Snippets 保留 legacy 代码但不挂载到 Skills 页",
+        promptSnippetLegacyExists && promptSnippetNotMountedAsSkills && agentMaterializationStillRuntime ? "pass" : "fail",
+        `snippet=${promptSnippetLegacyExists} mounted=${!promptSnippetNotMountedAsSkills} runtime=${agentMaterializationStillRuntime}`);
     }
 
     {
@@ -9232,11 +9234,10 @@ if (!runV213FUnit) {
         && !agentSection.includes("setInput(")
         && !agentSection.includes("insertPromptSnippetAtCursor")
         && !agentSection.includes("appendPromptSnippetToInput");
-      const promptSnippetInsertionStillExists = /private insertPromptSnippetAtCursor[\s\S]{0,900}this\.inputEl\.value/.test(viewSrc)
-        && /private appendPromptSnippetToInput[\s\S]{0,700}this\.inputEl\.value/.test(viewSrc);
-      addTest("V2.13.0-F2 boundary: 点击 Agent Skill 不改 composer，Prompt Snippets 插入不回归",
-        clickDoesNotMutateComposer && promptSnippetInsertionStillExists ? "pass" : "fail",
-        `agentNoComposer=${clickDoesNotMutateComposer} snippetInsert=${promptSnippetInsertionStillExists}`);
+      const promptSnippetNotMountedAsSkills = !viewSrc.includes("renderSkillsPanel(skillsPanel)");
+      addTest("V2.13.0-F2 boundary: 点击 Agent Skill 不改 composer，Skills 页不暴露 snippet 插入器",
+        clickDoesNotMutateComposer && promptSnippetNotMountedAsSkills ? "pass" : "fail",
+        `agentNoComposer=${clickDoesNotMutateComposer} snippetMounted=${!promptSnippetNotMountedAsSkills}`);
     }
   } catch (e) {
     addTest("V2.13.0-F Agent Skills UI Split 单元测试段", "fail", e?.stack || e?.message || String(e));
@@ -10970,7 +10971,7 @@ if (!runV214BUnit) {
       const secondaryOk = viewSrc.includes("llm-bridge-files-page")
         && viewSrc.includes("FileRef index")
         && viewSrc.includes("renderAgentSkillsPanel(skillsPanel)")
-        && viewSrc.includes("renderSkillsPanel(skillsPanel)")
+        && !viewSrc.includes("renderSkillsPanel(skillsPanel)")
         && viewSrc.includes("renderHistoryPanel(historyPanel)");
       const stylesOk = stylesSrc.includes(".llm-bridge-nav-rail")
         && stylesSrc.includes(".llm-bridge-topbar")
@@ -11097,9 +11098,14 @@ if (!runV214BUnit) {
       const nativePathFailureOk = viewSrc.includes("原生文件选择器未返回 path")
         && viewSrc.includes("if (paths.length === 0)")
         && viewSrc.includes("return;");
-      const skillsNoAutoInsertOk = /main\.addEventListener\("click", \(\) => \{[\s\S]{0,80}this\.viewPromptSnippet\(skill\);[\s\S]{0,40}\}\);/.test(viewSrc)
-        && viewSrc.includes("text: \"Insert prompt\"")
-        && !/main\.addEventListener\("click"[\s\S]{0,220}insertPromptSnippetAtCursor\(skill\)/.test(viewSrc);
+      const skillsNoAutoInsertOk = viewSrc.includes("renderAgentSkillsPanel(skillsPanel)")
+        && !viewSrc.includes("renderSkillsPanel(skillsPanel)")
+        && !/renderAgentSkillsList[\s\S]{0,1800}insertPromptSnippetAtCursor/.test(viewSrc)
+        && !/renderAgentSkillsList[\s\S]{0,1800}appendPromptSnippetToInput/.test(viewSrc);
+      const skillsLayoutOk = stylesSrc.includes(".llm-bridge-agent-skills-grid")
+        && stylesSrc.includes(".llm-bridge-agent-skill-preview")
+        && stylesSrc.includes(".llm-bridge-agent-skill-instructions")
+        && !stylesSrc.includes("grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto auto auto");
       const sessionDropdownOk = viewSrc.includes("llm-bridge-session-dropdown")
         && viewSrc.includes("toggleSessionDropdown")
         && viewSrc.includes("查看全部历史")
@@ -11127,6 +11133,7 @@ if (!runV214BUnit) {
       const ok = attachmentMenuOk
         && nativePathFailureOk
         && skillsNoAutoInsertOk
+        && skillsLayoutOk
         && sessionDropdownOk
         && composerOk
         && chatIconOk
@@ -11135,7 +11142,7 @@ if (!runV214BUnit) {
         && reportOk;
       addTest("V2.15-E RC UI regression: 附件、Skills、session、composer、icon、details 修复",
         ok ? "pass" : "fail",
-        `attachment=${attachmentMenuOk} native=${nativePathFailureOk} skills=${skillsNoAutoInsertOk} session=${sessionDropdownOk} composer=${composerOk} icon=${chatIconOk} details=${detailsCollapsedOk} runtime=${noRuntimeExpansion} report=${reportOk}`);
+        `attachment=${attachmentMenuOk} native=${nativePathFailureOk} skills=${skillsNoAutoInsertOk} layout=${skillsLayoutOk} session=${sessionDropdownOk} composer=${composerOk} icon=${chatIconOk} details=${detailsCollapsedOk} runtime=${noRuntimeExpansion} report=${reportOk}`);
     }
   } catch (e) {
     addTest("V2.14.0-B Shared File Access Policy Module 单元测试段", "fail", e?.stack || e?.message || String(e));

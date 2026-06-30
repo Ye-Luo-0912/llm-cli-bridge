@@ -2827,19 +2827,82 @@
   font-size: var(--font-small);
 }
 
-.llm-bridge-skill-item {
+.llm-bridge-skills-list {
+  gap: 6px;
+}
+.llm-bridge-skills-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0;
+}
+.llm-bridge-skills-ctrl-label {
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+}
+.llm-bridge-skills-group-select,
+.llm-bridge-skills-sort-select {
+  max-width: 150px;
+  min-height: 30px;
+  padding: 2px 8px;
+  border-radius: 8px;
+}
+.llm-bridge-skills-combo-btn {
+  min-height: 30px;
+  padding: 3px 10px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.llm-bridge-skill-item:not(.llm-bridge-agent-skill-item) {
   display: grid;
-  grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto auto auto;
-  align-items: start;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  border-radius: 9px;
 }
 .llm-bridge-agent-skill-item {
+  display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: start;
+}
+.llm-bridge-skill-leading,
+.llm-bridge-skill-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.llm-bridge-skill-leading {
+  align-self: start;
+}
+.llm-bridge-skill-actions {
+  justify-self: end;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.llm-bridge-skill-combo,
+.llm-bridge-skill-check {
+  width: 22px;
+  min-width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 0;
 }
 .llm-bridge-skill-main {
   min-width: 0;
+  gap: 2px;
 }
-.llm-bridge-skill-name,
-.llm-bridge-skill-desc {
+.llm-bridge-skill-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-skill-desc,
+.llm-bridge-skill-stats {
   overflow-wrap: anywhere;
 }
 .llm-bridge-skill-insert-btn,
@@ -2848,7 +2911,31 @@
 .llm-bridge-skill-edit-btn,
 .llm-bridge-skill-del-btn,
 .llm-bridge-skill-pin-btn {
-  min-height: 26px;
+  min-height: 28px;
+  padding: 3px 9px;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+.llm-bridge-skill-insert-btn {
+  min-width: 106px;
+}
+.llm-bridge-skill-append-btn,
+.llm-bridge-skill-view-btn,
+.llm-bridge-skill-edit-btn,
+.llm-bridge-skill-del-btn,
+.llm-bridge-skill-pin-btn {
+  min-width: 30px;
+}
+
+@media (max-width: 860px) {
+  .llm-bridge-skill-item:not(.llm-bridge-agent-skill-item) {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .llm-bridge-skill-actions {
+    grid-column: 2;
+    justify-self: start;
+    justify-content: flex-start;
+  }
 }
 
 @media (max-width: 720px) {

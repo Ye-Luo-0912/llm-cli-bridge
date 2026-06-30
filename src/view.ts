@@ -341,9 +341,9 @@ export class LLMBridgeView extends ItemView {
         this.pageTitleEl.textContent = tab === "chat" ? "Chat" : tab === "files" ? "Files" : tab === "skills" ? "Skills" : "History";
       }
       if (tab === "skills") {
-        const sBody = skillsPanel.querySelector(".llm-bridge-skills-body") as HTMLElement | null;
-        if (sBody && sBody.hasAttribute("hidden")) sBody.removeAttribute("hidden");
-        if (this.skillsToggleEl) this.skillsToggleEl.textContent = "\u25BC Prompt Snippets";
+        const agentBody = skillsPanel.querySelector(".llm-bridge-agent-skills-body") as HTMLElement | null;
+        if (agentBody && agentBody.hasAttribute("hidden")) agentBody.removeAttribute("hidden");
+        this.updateAgentSkillsToggle();
       } else if (tab === "history") {
         const hBody = historyPanel.querySelector(".llm-bridge-history-body") as HTMLElement | null;
         if (hBody && hBody.hasAttribute("hidden")) hBody.removeAttribute("hidden");
@@ -447,8 +447,8 @@ export class LLMBridgeView extends ItemView {
     // ===== V2.13.0-F: Agent Skills runtime capabilities（独立于 Prompt Snippets） =====
     this.renderAgentSkillsPanel(skillsPanel);
 
-    // ===== V2.0: Prompt Snippets 入口（上下文选择区，可折叠，从 .llm-bridge/skills.md 读取） =====
-    this.renderSkillsPanel(skillsPanel);
+    // Prompt Snippets 是 legacy prompt templates，不属于 Skills 页的 runtime capability 管理。
+    // V2.15-E2: 不在 Skills 页挂载 legacy 插入器，避免误把 snippet 当 Agent Skill 并写入 composer。
 
     // ===== V2.5: 历史会话入口（可折叠，默认折叠） =====
     this.renderHistoryPanel(historyPanel);
@@ -2919,9 +2919,9 @@ export class LLMBridgeView extends ItemView {
         this.importedSkillNames.add(skill.name);
       }
     }
-    // V2.6: 填充分组下拉的标签选项（保留 all/ungrouped，追加所有 tags）
-    this.populateGroupOptions();
-    this.renderSkillsList();
+    // Legacy Prompt Snippets UI may be absent from the Skills page. Keep loaders safe for hidden/legacy entry points.
+    if (this.skillsGroupEl) this.populateGroupOptions();
+    if (this.skillsListEl) this.renderSkillsList();
   }
 
   private async refreshAgentSkills(): Promise<void> {
@@ -3180,8 +3180,9 @@ export class LLMBridgeView extends ItemView {
         cls: `llm-bridge-skill-item${isDisabled ? " is-disabled" : ""}${isPinned ? " is-pinned" : ""}`,
         attr: { title: skill.description || skill.name },
       });
+      const leading = item.createDiv({ cls: "llm-bridge-skill-leading" });
       // V2.6: 组合勾选框（与启用开关区分：启用是永久，勾选是本次批量插入）
-      const comboLabel = item.createEl("label", { cls: "llm-bridge-skill-combo", attr: { title: "勾选加入批量插入" } });
+      const comboLabel = leading.createEl("label", { cls: "llm-bridge-skill-combo", attr: { title: "勾选加入批量插入" } });
       const comboCheck = comboLabel.createEl("input", { type: "checkbox" }) as HTMLInputElement;
       comboCheck.checked = this.skillsComboSet.has(skill.name);
       comboCheck.addEventListener("change", () => {
@@ -3193,12 +3194,12 @@ export class LLMBridgeView extends ItemView {
         this.updateComboButton();
       });
       // 启用/禁用开关
-      const checkLabel = item.createEl("label", { cls: "llm-bridge-skill-check", attr: { title: "启用/禁用此 Prompt Snippet" } });
+      const checkLabel = leading.createEl("label", { cls: "llm-bridge-skill-check", attr: { title: "启用/禁用此 Prompt Snippet" } });
       const check = checkLabel.createEl("input", { type: "checkbox" }) as HTMLInputElement;
       check.checked = !isDisabled;
       check.addEventListener("change", () => void this.toggleSkillEnabled(skill.name, check.checked));
       // V2.6: 置顶按钮
-      const pinBtn = item.createEl("button", {
+      const pinBtn = leading.createEl("button", {
         cls: "llm-bridge-skill-pin-btn",
         text: isPinned ? "📌" : "📍",
         attr: { title: isPinned ? "取消置顶" : "置顶（排在分组最前）" },
@@ -3229,7 +3230,8 @@ export class LLMBridgeView extends ItemView {
       main.addEventListener("click", () => {
         this.viewPromptSnippet(skill);
       });
-      const insertBtn = item.createEl("button", {
+      const actions = item.createDiv({ cls: "llm-bridge-skill-actions" });
+      const insertBtn = actions.createEl("button", {
         cls: "llm-bridge-skill-insert-btn",
         text: "Insert prompt",
         attr: { title: "显式插入此 Prompt Snippet 到光标位置" },
@@ -3243,7 +3245,7 @@ export class LLMBridgeView extends ItemView {
         this.insertPromptSnippetAtCursor(skill);
       });
       // V2.6: 追加按钮（追加 prompt 到输入框末尾，与点击插入光标位置区分）
-      const appendBtn = item.createEl("button", {
+      const appendBtn = actions.createEl("button", {
         cls: "llm-bridge-skill-append-btn",
         text: "+",
         attr: { title: "Insert prompt 到输入框末尾" },
@@ -3257,7 +3259,7 @@ export class LLMBridgeView extends ItemView {
         this.appendPromptSnippetToInput(skill);
       });
       // V2.5: 查看完整 prompt 按钮（所有 Prompt Snippet 可查看）
-      const viewBtn = item.createEl("button", {
+      const viewBtn = actions.createEl("button", {
         cls: "llm-bridge-skill-view-btn",
         text: "👁",
         attr: { title: "预览完整 Prompt Snippet" },
@@ -3268,7 +3270,7 @@ export class LLMBridgeView extends ItemView {
       });
       // V2.5: 导入的 Prompt Snippet 显示编辑 + 删除按钮（主文件中的 snippet 不可编辑/删除）
       if (this.importedSkillNames.has(skill.name)) {
-        const editBtn = item.createEl("button", {
+        const editBtn = actions.createEl("button", {
           cls: "llm-bridge-skill-edit-btn",
           text: "✎",
           attr: { title: "编辑此导入的 Prompt Snippet（名称/描述/prompt）" },
@@ -3277,7 +3279,7 @@ export class LLMBridgeView extends ItemView {
           e.stopPropagation();
           void this.openEditPromptSnippetDialog(skill);
         });
-        const delBtn = item.createEl("button", {
+        const delBtn = actions.createEl("button", {
           cls: "llm-bridge-skill-del-btn",
           text: "×",
           attr: { title: "删除此导入的 Prompt Snippet（仅删除 .llm-bridge/skills/ 下的文件，不影响主文件）" },
