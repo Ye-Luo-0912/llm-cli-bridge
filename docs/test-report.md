@@ -1,20 +1,20 @@
 # LLM CLI Bridge 测试报告
 
-- **测试时间**: 2026-06-30T09:13:41.090Z
+- **测试时间**: 2026-06-30T09:39:13.717Z
 - **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.12.1
-- **main.js 大小**: 385.6 KB
+- **main.js 大小**: 386.8 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 63019
 
 ## 测试汇总
 
-- ✅ **通过**: 635
+- ✅ **通过**: 636
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 23
+- ⏭️ **跳过**: 24
 - ⚪ **需人工验证**: 0
-- **总计**: 658
+- **总计**: 660
 
 ## 详细结果
 
@@ -1066,7 +1066,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-06-30T09-14-09-640Z-5j8aec |
+| ✅ | 返回非空 id | id=s-2026-06-30T09-39-41-776Z-xa5gbd |
 
 ### V2.5 Session 版本
 
@@ -1085,7 +1085,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-06-30T09-14-09-763Z-8s7c9c second=s-2026-06-30T09-14-09-691Z-68u70h |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-06-30T09-39-41-877Z-fgfj75 second=s-2026-06-30T09-39-41-813Z-p9c3h8 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1112,7 +1112,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-06-30T09-14-09-809Z-nk38a7 id2=s-2026-06-30T09-14-09-809Z-nculof |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-06-30T09-39-41-914Z-u9emhh id2=s-2026-06-30T09-39-41-914Z-uw8yme |
 
 ### V2.5 Session 上限
 
@@ -1210,7 +1210,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-06-30T09:14:09.924Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-06-30T09:39:41.991Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1298,7 +1298,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-06-30T09:14:09.997Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-06-30T09:39:42.048Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 1
 
@@ -1404,7 +1404,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-06-30T09:14:10.153Z after=2026-06-30T09:14:10.227Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-06-30T09:39:42.159Z after=2026-06-30T09:39:42.233Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -1765,7 +1765,7 @@
 | ✅ | flushSkillsStateSave 总是落盘（移除 timer===null 提前返回） | - |
 | ✅ | flushSkillsStateSave 调用 saveSkillsState 落盘 | - |
 | ✅ | openEditSkillDialog renameSkillMeta 后调用 flushSkillsStateSave | - |
-| ✅ | flushSkillsStateSave 在 refreshSkills 之前（时序正确） | idxRename=141031 idxFlush=141341 idxRefresh=141436 |
+| ✅ | flushSkillsStateSave 在 refreshSkills 之前（时序正确） | idxRename=141397 idxFlush=141707 idxRefresh=141802 |
 | ✅ | renameSkillMeta 后不再调用 scheduleSkillsStateSave | - |
 | ✅ | onClose 复用 flushSkillsStateSave | - |
 | ✅ | onClose 不再内联重复 flush 逻辑 | - |
@@ -1774,13 +1774,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-06-30T09:14:11.431Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-06-30T09:39:43.005Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-06-30T09:14:11.452Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-06-30T09:39:43.022Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -1973,11 +1973,11 @@
 |------|--------|------|
 | ✅ | AgentEvent/CLI/SDK/Skills 主线不变 | agentEvent=true backend=true skills=true |
 
-### V2.14.0-B/C/D/E/E1/F/G/H/I/I1 exports/report
+### V2.14.0-B/C/D/E/E1/F/G/H/I/I1/J exports/report
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | policy 类型与报告章节存在 | exports=true reportB=true reportC=true reportD=true reportE=true reportE1=true reportF=true reportG=true reportH=true reportI=true reportI1=true |
+| ✅ | policy 类型与报告章节存在 | exports=true reportB=true reportC=true reportD=true reportE=true reportE1=true reportF=true reportG=true reportH=true reportI=true reportI1=true reportJ=true |
 
 ### V2.14.0-B roots
 
@@ -2062,7 +2062,19 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-085T61\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-7pjYNL\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-aJxaFg\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-jWccCJ\link-out.md' |
+
+### V2.14.0-J agent file tool route
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | read-only routing + policy gate + result surface | routing=true policy=true pending=true deny=true result=true noWrite=true boundary=true |
+
+### V2.14.0-J route symlink escape runtime test
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-e6M26D\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-jKSZ8e\link-out.md' |
 
 ### V2.14.0-E runtime UI
 

@@ -53,6 +53,7 @@ import {
 } from "./fileRefs";
 import { AttachmentTextSnippet, ingestAttachmentTextSnippet } from "./fileIngestion";
 import { FileToolExecutionRequest, FileToolResult, executeFileTool } from "./fileToolExecutor";
+import { AgentFileToolRouteRequest, AgentFileToolRouteResult, executeAgentFileToolRoute as routeAgentFileTool } from "./agentFileToolBridge";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -1189,6 +1190,10 @@ export class LLMBridgeView extends ItemView {
       this.refreshExternalReadPanel();
     }
     return result;
+  }
+
+  public async executeAgentFileToolRoute(request: AgentFileToolRouteRequest): Promise<AgentFileToolRouteResult> {
+    return await routeAgentFileTool(request, (toolRequest) => this.executeFileToolRequest(toolRequest));
   }
 
   private createCurrentFileAccessPolicy() {

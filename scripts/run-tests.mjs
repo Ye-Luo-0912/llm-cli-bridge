@@ -9317,6 +9317,7 @@ if (!runV214BUnit) {
     const fileIngestionBundleV214G = join(tmpdir(), `file-ingestion-v214g-${Date.now()}.mjs`);
     const fileToolPolicyBundleV214H = join(tmpdir(), `file-tool-policy-v214h-${Date.now()}.mjs`);
     const fileToolExecutorBundleV214I = join(tmpdir(), `file-tool-executor-v214i-${Date.now()}.mjs`);
+    const agentFileToolBridgeBundleV214J = join(tmpdir(), `agent-file-tool-bridge-v214j-${Date.now()}.mjs`);
     const promptPackageBundleV214G = join(tmpdir(), `prompt-package-v214g-${Date.now()}.mjs`);
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "fileAccessPolicy.ts")],
@@ -9360,6 +9361,15 @@ if (!runV214BUnit) {
       format: "esm",
       platform: "node",
       outfile: fileToolExecutorBundleV214I,
+      external: ["obsidian"],
+      logLevel: "silent",
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "agentFileToolBridge.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: agentFileToolBridgeBundleV214J,
       external: ["obsidian"],
       logLevel: "silent",
     });
@@ -9410,6 +9420,11 @@ if (!runV214BUnit) {
       DEFAULT_FILE_TOOL_MAX_LIST_ENTRIES,
       DEFAULT_FILE_TOOL_MAX_SEARCH_RESULTS,
     } = await import(pathToFileURL(fileToolExecutorBundleV214I).href);
+    const {
+      executeAgentFileToolRoute,
+      formatAgentFileToolRouteResult,
+      isReadOnlyAgentFileTool,
+    } = await import(pathToFileURL(agentFileToolBridgeBundleV214J).href);
     const { buildPromptPackage: buildPromptPackageV214G } = await import(pathToFileURL(promptPackageBundleV214G).href);
 
     const reportSrc = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-B_FILE_ACCESS_POLICY_MODULE.md"), "utf8");
@@ -9422,11 +9437,13 @@ if (!runV214BUnit) {
     const reportSrcV214H = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-H_NATIVE_ATTACHMENTS_FILEREF_INDEX_READ_POLICY.md"), "utf8");
     const reportSrcV214I = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-I_REAL_FILE_TOOL_EXECUTION.md"), "utf8");
     const reportSrcV214I1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-I1_FILE_TOOL_REALPATH_SYMLINK_HARDENING.md"), "utf8");
+    const reportSrcV214J = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-J_AGENT_FILE_TOOL_ROUTING.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
     const fileIngestionSrc = readFileSync(join(PROJECT_ROOT, "src", "fileIngestion.ts"), "utf8");
     const fileToolExecutorSrc = readFileSync(join(PROJECT_ROOT, "src", "fileToolExecutor.ts"), "utf8");
+    const agentFileToolBridgeSrc = readFileSync(join(PROJECT_ROOT, "src", "agentFileToolBridge.ts"), "utf8");
     const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf8");
     const cliBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeCliBackend.ts"), "utf8");
     const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
@@ -9458,6 +9475,9 @@ if (!runV214BUnit) {
         isBoundedTextAttachmentType,
         evaluateFileToolPolicy,
         executeFileTool,
+        executeAgentFileToolRoute,
+        formatAgentFileToolRouteResult,
+        isReadOnlyAgentFileTool,
         buildPromptPackageV214G,
       ]
         .every((fn) => typeof fn === "function");
@@ -9481,9 +9501,11 @@ if (!runV214BUnit) {
         .every((heading) => reportSrcV214I.includes(heading));
       const reportI1Ok = ["## RealpathCheck", "## SymlinkPolicy", "## ListSearchTraversalSafety", "## Tests", "## Recommendation"]
         .every((heading) => reportSrcV214I1.includes(heading));
-      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I/I1 exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk && reportI1Ok ? "pass" : "fail",
-        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk} reportI1=${reportI1Ok}`);
+      const reportJOk = ["## ToolRouting", "## PolicyGateIntegration", "## PendingFlow", "## ResultSurface", "## NoWriteBoundary", "## Tests", "## RemainingRisk", "## Recommendation"]
+        .every((heading) => reportSrcV214J.includes(heading));
+      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I/I1/J exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk && reportI1Ok && reportJOk ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk} reportI1=${reportI1Ok} reportJ=${reportJOk}`);
     }
 
     {
@@ -10225,6 +10247,108 @@ if (!runV214BUnit) {
         addTest("V2.14.0-I1 symlink realpath hardening: read/stat/list/search 不越权",
           ok ? "pass" : "fail",
           `readLink=${readEscapingLink.status} statLink=${statEscapingLink.status} sensitive=${readSensitiveLink.status}/${readSensitiveLink.reason} listBlocked=${escapeListBlocked} searchBlocked=${escapeSearchBlocked} inside=${readInside.status} granted=${readGrantedLink.status} static=${staticHardening}`);
+      }
+    }
+
+    {
+      const vault = mkdtempSync(join(tmpdir(), "llm-bridge-j-vault-"));
+      const external = mkdtempSync(join(tmpdir(), "llm-bridge-j-external-"));
+      const docsDir = join(vault, "docs");
+      mkdirSync(docsDir, { recursive: true });
+      const note = join(docsDir, "note.md");
+      const large = join(docsDir, "large.txt");
+      const image = join(docsDir, "image.png");
+      const sensitive = join(vault, ".env");
+      const externalFile = join(external, "outside.md");
+      writeFileSync(note, "# Routed\nneedle from route", "utf8");
+      writeFileSync(large, "abcdef0123456789".repeat(200), "utf8");
+      writeFileSync(image, "fake image bytes", "utf8");
+      writeFileSync(sensitive, "TOKEN=secret", "utf8");
+      writeFileSync(externalFile, "external pending", "utf8");
+
+      const calls = [];
+      const policy = createFileAccessPolicy({ vaultPath: vault });
+      const runner = async (request) => {
+        calls.push(request);
+        return await executeFileTool(policy, request);
+      };
+      const routeStat = await executeAgentFileToolRoute({ toolName: "stat", path: note }, runner);
+      const routeRead = await executeAgentFileToolRoute({ toolName: "read", path: note }, runner);
+      const routeList = await executeAgentFileToolRoute({ toolName: "list", path: docsDir, limits: { maxListEntries: 2, maxListDepth: 1 } }, runner);
+      const routeSearch = await executeAgentFileToolRoute({ toolName: "search", path: docsDir, query: "needle", limits: { maxSearchFiles: 5, maxSearchResults: 1 } }, runner);
+      const routeConfirm = await executeAgentFileToolRoute({ toolName: "read", path: externalFile, source: "agent-route-test" }, runner);
+      const routeDeny = await executeAgentFileToolRoute({ toolName: "read", path: sensitive }, runner);
+      const routeImage = await executeAgentFileToolRoute({ toolName: "read", path: image }, runner);
+      const routeLarge = await executeAgentFileToolRoute({ toolName: "read", path: large, limits: { maxReadBytes: 80, maxReadChars: 40 } }, runner);
+      const routeWrite = await executeAgentFileToolRoute({ toolName: "write", path: note }, runner);
+      const routeDelete = await executeAgentFileToolRoute({ toolName: "delete", path: note }, runner);
+      const routeRename = await executeAgentFileToolRoute({ toolName: "rename", path: note }, runner);
+      const formatted = formatAgentFileToolRouteResult(routeRead);
+
+      const routingOk = routeStat.result?.operation === "stat"
+        && routeStat.status === "allow"
+        && routeRead.result?.operation === "read"
+        && routeRead.result.content.includes("needle from route")
+        && routeList.result?.operation === "list"
+        && routeList.result.entries.length <= 2
+        && routeSearch.result?.operation === "search"
+        && routeSearch.result.matches.length === 1;
+      const policyOk = calls.length === 8
+        && calls.every((call) => ["stat", "read", "list", "search"].includes(call.operation))
+        && agentFileToolBridgeSrc.includes("runner({")
+        && !agentFileToolBridgeSrc.includes("fs.promises")
+        && !agentFileToolBridgeSrc.includes("readFile(");
+      const pendingOk = routeConfirm.status === "confirm"
+        && routeConfirm.result?.pendingRequest?.operation === "read"
+        && routeConfirm.result.pendingRequest.source === "agent-route-test"
+        && viewSrc.includes("public async executeAgentFileToolRoute")
+        && viewSrc.includes("routeAgentFileTool(request, (toolRequest) => this.executeFileToolRequest(toolRequest))")
+        && viewSrc.includes("enqueuePendingExternalReadRequest(this.externalReadGrantStore, result.pendingRequest)");
+      const denyOk = routeDeny.status === "deny"
+        && routeDeny.reason === "sensitive_path";
+      const resultOk = formatted.includes("\"status\": \"allow\"")
+        && routeImage.result?.readMode === "refs-only"
+        && routeImage.result?.handoffHint.includes("Claude Code")
+        && routeLarge.result?.truncated === true
+        && routeLarge.result.content.length <= 40;
+      const noWriteRoute = !isReadOnlyAgentFileTool("write")
+        && !isReadOnlyAgentFileTool("delete")
+        && !isReadOnlyAgentFileTool("rename")
+        && routeWrite.status === "deny"
+        && routeDelete.status === "deny"
+        && routeRename.status === "deny"
+        && routeWrite.reason === "unsupported_file_tool"
+        && calls.length === 8;
+      const staticBoundary = agentBackendSrc.includes("v0.1（已冻结）")
+        && !agentFileToolBridgeSrc.includes("AgentEvent")
+        && !cliBackendSrc.includes("agentFileToolBridge")
+        && !sdkBackendSrc.includes("agentFileToolBridge")
+        && !agentFileToolBridgeSrc.includes("writeFile")
+        && !agentFileToolBridgeSrc.includes("unlink")
+        && !agentFileToolBridgeSrc.includes("rename(");
+      const ok = routingOk && policyOk && pendingOk && denyOk && resultOk && noWriteRoute && staticBoundary;
+      addTest("V2.14.0-J agent file tool route: read-only routing + policy gate + result surface",
+        ok ? "pass" : "fail",
+        `routing=${routingOk} policy=${policyOk} pending=${pendingOk} deny=${denyOk} result=${resultOk} noWrite=${noWriteRoute} boundary=${staticBoundary}`);
+
+      const linkPath = join(vault, "link-out.md");
+      try {
+        symlinkSync(externalFile, linkPath, "file");
+        const linkCalls = [];
+        const linkRoute = await executeAgentFileToolRoute({ toolName: "read", path: linkPath }, async (request) => {
+          linkCalls.push(request);
+          return await executeFileTool(policy, request);
+        });
+        addTest("V2.14.0-J route symlink escape: executor realpath guard 仍生效",
+          linkRoute.status === "confirm" && linkCalls.length === 1 ? "pass" : "fail",
+          `status=${linkRoute.status} reason=${linkRoute.reason} calls=${linkCalls.length}`);
+      } catch (error) {
+        const staticHardening = fileToolExecutorSrc.includes("fs.promises.lstat")
+          && fileToolExecutorSrc.includes("fs.promises.realpath")
+          && fileToolExecutorSrc.includes("resolveRealExecutionTarget")
+          && agentFileToolBridgeSrc.includes("runner({");
+        addTest("V2.14.0-J route symlink escape runtime test", staticHardening ? "skip" : "fail",
+          `当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=${staticHardening}: ${error?.message || String(error)}`);
       }
     }
 
