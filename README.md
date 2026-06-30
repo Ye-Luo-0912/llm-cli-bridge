@@ -2,7 +2,7 @@
 
 LLM CLI Bridge is an Obsidian desktop plugin that turns a Vault into a compact Claude Code / Claude SDK workbench.
 
-The plugin is a context and permission bridge: it manages the chat UI, Working Set, attachments, Prompt Snippets, Agent Skills status, external read approvals, and native handoff guidance. Claude Code / SDK keep responsibility for native file execution inside the Vault.
+The plugin is a context and permission bridge: it manages the chat UI, Working Set, attachments, Agent Skills status, external read approvals, and native handoff guidance. Claude Code / SDK keep responsibility for native file execution inside the Vault.
 
 Current release candidate: `2.15.0`.
 
@@ -39,10 +39,10 @@ V2.15 uses a compact Obsidian panel shell:
 - Left rail: icon-only navigation for `Chat`, `Files`, `Skills`, and `History`.
 - Topbar: `Bridge`, current session selector, new chat, settings gear, and compact runtime status.
 - Chat: message stream, thinking/status cards, collapsed command/workflow/debug details, and concise error cards.
-- Composer: upload, command menu, permission chip, input, agent selector, model selector, effort selector, and send/stop.
+- Composer: upload, command menu, permission chip, input, model/effort selector, and send/stop.
 - Working Set strip: compact chips for `AGENTS.md`, active note, selection, and FileRefs.
 - Files page: Working Set, attachments, FileRef index, and external read requests.
-- Skills page: Agent Skills and Prompt Snippets stay separated. Agent Skills do not insert text into the composer.
+- Skills page: Agent Skills runtime capabilities only. Clicking a skill previews/toggles state and never inserts text into the composer.
 - History page: session list, preview, restore, rename, and delete.
 
 Settings stay in the topbar gear and the normal Obsidian plugin settings modal.
@@ -112,7 +112,7 @@ Obsidian command palette:
 | Create pending note from selection | Create a pending note from selected text |
 | Open last generated note | Open the newest generated Markdown file |
 
-The composer command menu contains high-frequency prompt actions and secondary controls without spreading buttons across the main panel.
+The composer command menu contains runtime checks, context refresh, and attachment fallback controls without spreading buttons across the main panel.
 
 ---
 
@@ -141,10 +141,12 @@ Runtime data lives under the Vault-local `.llm-bridge/` directory:
 | `.llm-bridge/claude-runtime.json` | Project-local Claude config pointer |
 | `.llm-bridge/logs/` | Debug and action logs |
 | `.llm-bridge/sessions/` | Saved sessions |
-| `.llm-bridge/skills.md` | Legacy Prompt Snippets |
+| `.llm-bridge/skills.md` | Legacy file from older releases; no longer read or modified by V2.15 |
 | `.llm-bridge/agent-skills.json` | Agent Skill manifest state |
 
 Logs record env key presence and operational metadata, not secret values.
+
+V2.15 does not automatically delete old `.llm-bridge/skills.md` or `.llm-bridge/skills/` data, but these legacy prompt-template paths are no longer part of the UI or runtime flow.
 
 ---
 

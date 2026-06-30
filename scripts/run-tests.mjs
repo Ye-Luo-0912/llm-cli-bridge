@@ -6555,16 +6555,16 @@ if (!runV27Unit) {
 
     // ===== 节流防抖源码检查（view.ts）=====
 
-    // ---- Test 36: view.ts 含 scheduleSkillsStateSave（state 写入节流）----
+    // ---- Test 36: view.ts 不再含 Prompt Snippet skills-state 写入节流 ----
     {
-      const ok = viewSrc.includes("scheduleSkillsStateSave") && viewSrc.includes("skillsStateSaveTimer");
-      addTest("V2.7 view.ts: 含 scheduleSkillsStateSave 节流方法", ok ? "pass" : "fail", "");
+      const ok = !viewSrc.includes("scheduleSkillsStateSave") && !viewSrc.includes("skillsStateSaveTimer");
+      addTest("V2.15-E view.ts: 移除 Prompt Snippet skills-state 写入节流", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 37: view.ts 含搜索防抖 300ms ----
+    // ---- Test 37: view.ts 不再含 Prompt Snippet 搜索防抖 ----
     {
-      const ok = viewSrc.includes("skillsSearchDebounceTimer") && viewSrc.includes("clearTimeout");
-      addTest("V2.7 view.ts: 含 skillsSearchDebounceTimer 防抖", ok ? "pass" : "fail", "");
+      const ok = !viewSrc.includes("skillsSearchDebounceTimer") && !viewSrc.includes("skillsSearchEl");
+      addTest("V2.15-E view.ts: 移除 Prompt Snippet 搜索防抖", ok ? "pass" : "fail", "");
     }
 
     // ===== 错误边界源码检查（view.ts）=====
@@ -6577,7 +6577,7 @@ if (!runV27Unit) {
 
     // ---- Test 39: view.ts 含 renderListError fallback ----
     {
-      const ok = viewSrc.includes("renderListError") && viewSrc.includes("renderSkillsList") && viewSrc.includes("renderHistoryList");
+      const ok = viewSrc.includes("renderListError") && viewSrc.includes("renderAgentSkillsList") && viewSrc.includes("renderHistoryList");
       addTest("V2.7 view.ts: 含 renderListError 列表 fallback", ok ? "pass" : "fail", "");
     }
 
@@ -7793,13 +7793,12 @@ if (!runV2111Unit) {
         `combo=${JSON.stringify(state.lastCombo)}`);
     }
 
-    // ---- Test 5: view.ts openEditSkillDialog 调用 renameSkillMeta ----
+    // ---- Test 5: view.ts 不再保留 Prompt Snippet 编辑入口 ----
     {
-      const idx = viewSrc.indexOf("V2.11.1: 重命名时迁移 skill meta");
-      const snippet = idx >= 0 ? viewSrc.slice(idx, idx + 400) : "";
-      // V2.12.1: 修复后 scheduleSkillsStateSave 改为 flushSkillsStateSave，断言只验证 renameSkillMeta 调用
-      const ok = snippet.includes("renameSkillMeta(this.skillsState, skill.name, newName)");
-      addTest("V2.11.1 view.ts: 编辑重命名后调用 renameSkillMeta", ok ? "pass" : "fail", "");
+      const ok = !viewSrc.includes("openEditPromptSnippetDialog")
+        && !viewSrc.includes("renameSkillMeta(this.skillsState")
+        && !viewSrc.includes("EditSkillModal");
+      addTest("V2.15-E view.ts: 删除 Prompt Snippet 编辑入口", ok ? "pass" : "fail", "");
     }
 
     // ===== 要求 4: tags 编辑保留 =====
@@ -7851,36 +7850,25 @@ if (!runV2111Unit) {
       }
     }
 
-    // ---- Test 8: EditSkillModal 描述框预填 #标签 ----
+    // ---- Test 8: EditSkillModal 已从 Bridge view 删除 ----
     {
-      const idx = viewSrc.indexOf("V2.11.1: 描述框预填原始描述 + #标签");
-      const snippet = idx >= 0 ? viewSrc.slice(idx, idx + 400) : "";
-      const ok = snippet.includes("descWithTags")
-        && snippet.includes("this.skill.tags")
-        && snippet.includes("#${t}");
-      addTest("V2.11.1 EditSkillModal: 描述框预填 #标签", ok ? "pass" : "fail", "");
+      const ok = !viewSrc.includes("class EditSkillModal") && !viewSrc.includes("descWithTags");
+      addTest("V2.15-E view.ts: 删除 Prompt Snippet EditSkillModal", ok ? "pass" : "fail", "");
     }
 
     // ===== 要求 5: onClose flush =====
 
-    // ---- Test 9: onClose 含 skillsStateSaveTimer flush 逻辑 ----
+    // ---- Test 9: onClose 不再写 legacy skills-state ----
     {
-      const idx = viewSrc.indexOf("V2.11.1: flush skills state");
-      const snippet = idx >= 0 ? viewSrc.slice(idx, idx + 600) : "";
-      // V2.12.1: 修复后 onClose 调用 flushSkillsStateSave() 复用（不再内联 skillsStateSaveTimer + saveSkillsState）
-      // 断言验证 onClose 中调用 flushSkillsStateSave（V2.11.1 flush 意图仍生效，V2.12.1 只是抽取复用）
-      const ok = snippet.includes("flushSkillsStateSave")
-        || (snippet.includes("this.skillsStateSaveTimer") && snippet.includes("saveSkillsState(vaultPath, this.skillsState)"));
-      addTest("V2.11.1 onClose: flush skillsStateSaveTimer 立即写入", ok ? "pass" : "fail", "");
+      const ok = !/onClose[\s\S]{0,800}flushSkillsStateSave/.test(viewSrc)
+        && !/onClose[\s\S]{0,800}saveSkillsState/.test(viewSrc);
+      addTest("V2.15-E onClose: 不再写 legacy skills-state", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 10: onClose 清理 skillsSearchDebounceTimer ----
+    // ---- Test 10: onClose 不再清理 legacy skills 搜索防抖 ----
     {
-      const idx = viewSrc.indexOf("V2.11.1: 清理 skills 搜索防抖定时器");
-      const snippet = idx >= 0 ? viewSrc.slice(idx, idx + 200) : "";
-      const ok = snippet.includes("this.skillsSearchDebounceTimer")
-        && snippet.includes("window.clearTimeout");
-      addTest("V2.11.1 onClose: 清理 skillsSearchDebounceTimer", ok ? "pass" : "fail", "");
+      const ok = !viewSrc.includes("skillsSearchDebounceTimer");
+      addTest("V2.15-E onClose: 移除 legacy skills 搜索防抖", ok ? "pass" : "fail", "");
     }
 
     // ===== 要求 6: groupOverride future 标注 =====
@@ -7895,14 +7883,10 @@ if (!runV2111Unit) {
 
     // ===== 要求 7: Insert selected 勾选顺序 =====
 
-    // ---- Test 12: applyCombo 按 Set 插入顺序（勾选顺序）收集 ----
+    // ---- Test 12: applyCombo 已从 Bridge view 删除 ----
     {
-      const idx = viewSrc.indexOf("V2.11.1: 按 Set 插入顺序（勾选顺序）收集");
-      // V2.11.1: 切片窗口需覆盖到 orderedNames.push(name)（中间含 runHandle/size===0/Notice 检查），扩到 600
-      const snippet = idx >= 0 ? viewSrc.slice(idx, idx + 600) : "";
-      const ok = snippet.includes("for (const name of this.skillsComboSet)")
-        && snippet.includes("orderedNames.push(name)");
-      addTest("V2.11.1 组合顺序: applyCombo 按 Set 插入顺序收集", ok ? "pass" : "fail", "");
+      const ok = !viewSrc.includes("applyCombo") && !viewSrc.includes("skillsComboSet");
+      addTest("V2.15-E view.ts: 删除 Prompt Snippet combo 插入", ok ? "pass" : "fail", "");
     }
 
     // ---- Test 13: Set 插入顺序保持勾选顺序（JS 语义验证）----
@@ -8091,8 +8075,9 @@ if (runMode !== "all" && runMode !== "unit") {
 
   // ===== 要求 7: UI 默认折叠 =====
 
-  addTest("V2.12 UI: Prompt Snippets 面板默认折叠（body setAttribute hidden）",
-    /renderSkillsPanel[\s\S]{0,800}body[\s\S]{0,30}setAttribute\("hidden", ""\)/.test(viewSrcV212) ? "pass" : "fail", "");
+  addTest("V2.15-E UI: Skills 页只保留 Agent Skills 且默认折叠",
+    /renderAgentSkillsPanel[\s\S]{0,800}body\.setAttribute\("hidden", ""\)/.test(viewSrcV212)
+      && !viewSrcV212.includes("renderSkillsPanel") ? "pass" : "fail", "");
 
   addTest("V2.12 UI: History 面板默认折叠",
     /renderHistoryPanel[\s\S]{0,1500}body\.setAttribute\("hidden", ""\)/.test(viewSrcV212) ? "pass" : "fail", "");
@@ -8150,25 +8135,25 @@ if (runMode !== "all" && runMode !== "unit") {
   addTest("V2.12 错误: debug log 路径可复制（clipboard.writeText(logPath)）",
     /clipboard\.writeText\(logPath\)/.test(viewSrcV212) ? "pass" : "fail", "");
 
-  // ===== 要求 4: Prompt Snippets 验证（代码级，V2.11.1 修复仍生效）=====
+  // ===== V2.15-E: Prompt Snippets 从 Bridge view 删除 =====
 
-  addTest("V2.12 Prompt Snippets: 搜索框存在 + 防抖定时器",
-    /skillsSearchEl[\s\S]{0,500}skillsSearchDebounceTimer/.test(viewSrcV212) ? "pass" : "fail", "");
+  addTest("V2.15-E Prompt Snippets: view.ts 不再含搜索/防抖 UI",
+    !/skillsSearchEl|skillsSearchDebounceTimer/.test(viewSrcV212) ? "pass" : "fail", "");
 
-  addTest("V2.12 Prompt Snippets: 分组下拉存在（group + sort）",
-    /skillsGroupEl[\s\S]{0,300}skillsSortEl/.test(viewSrcV212) ? "pass" : "fail", "");
+  addTest("V2.15-E Prompt Snippets: view.ts 不再含分组/排序 UI",
+    !/skillsGroupEl|skillsSortEl/.test(viewSrcV212) ? "pass" : "fail", "");
 
-  addTest("V2.12 Prompt Snippets: 置顶按钮存在（pinBtn）",
-    /pinBtn[\s\S]{0,200}isPinned/.test(viewSrcV212) ? "pass" : "fail", "");
+  addTest("V2.15-E Prompt Snippets: view.ts 不再含置顶/使用统计 UI",
+    !/pinBtn|isPinned|applyCount|lastUsedAt/.test(viewSrcV212) ? "pass" : "fail", "");
 
-  addTest("V2.12 Prompt Snippets: 使用统计存在（applyCount + lastUsedAt）",
-    viewSrcV212.includes("applyCount") && viewSrcV212.includes("lastUsedAt") ? "pass" : "fail", "");
+  addTest("V2.15-E Prompt Snippets: view.ts 不再含 rename/import/edit 链路",
+    !/renameSkillMeta|openEditPromptSnippetDialog|ImportSkillModal|EditSkillModal/.test(viewSrcV212) ? "pass" : "fail", "");
 
-  addTest("V2.12 Prompt Snippets: V2.11.1 重命名 meta 迁移仍生效（renameSkillMeta 调用）",
-    viewSrcV212.includes("renameSkillMeta") ? "pass" : "fail", "");
+  addTest("V2.15-E Prompt Snippets: view.ts 不再含 Insert selected/combo 插入链路",
+    !/skillsComboSet|Insert selected|applyCombo/.test(viewSrcV212) ? "pass" : "fail", "");
 
-  addTest("V2.12 Prompt Snippets: V2.11.1 Insert selected 勾选顺序仍生效（for...of skillsComboSet）",
-    /for \(const name of this\.skillsComboSet\)/.test(viewSrcV212) ? "pass" : "fail", "");
+  addTest("V2.15-E Prompt Snippets: view.ts 不再含 Insert prompt/Append 插入函数",
+    !/insertPromptSnippetAtCursor|appendPromptSnippetToInput|Insert prompt/.test(viewSrcV212) ? "pass" : "fail", "");
 
   // ===== 要求 5: Session 验证（代码级）=====
 
@@ -8253,48 +8238,34 @@ if (!runV2121Unit) {
 
     // ===== 要求 4: 修复真实编辑保存链路（代码级）=====
 
-    // ---- Test 1: flushSkillsStateSave 方法已抽取定义 ----
+    // ---- Test 1: flushSkillsStateSave 已从 Bridge view 删除 ----
     {
-      const ok = /private async flushSkillsStateSave\(\):\s*Promise<void>\s*\{/.test(viewSrcV2121);
-      addTest("V2.12.1 修复: flushSkillsStateSave 方法已抽取定义", ok ? "pass" : "fail", "");
+      const ok = !/flushSkillsStateSave/.test(viewSrcV2121);
+      addTest("V2.15-E cleanup: Bridge view 不再保留 flushSkillsStateSave", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 2: flushSkillsStateSave 总是落盘（V2.12.1 CDP 验证发现 timer===null 提前返回导致 meta 不迁移，已移除）----
+    // ---- Test 2: Bridge view 不再保存 legacy skills-state ----
     {
-      const idxFlushV2121T2 = viewSrcV2121.indexOf("flushSkillsStateSave(): Promise<void>");
-      // V2.12.1: 截取 600 字符以覆盖到 saveSkillsState 调用（方法体含注释约 344+ 字符）
-      const snippetV2121T2 = idxFlushV2121T2 >= 0 ? viewSrcV2121.slice(idxFlushV2121T2, idxFlushV2121T2 + 600) : "";
-      // 验证不含 timer===null 提前返回（已移除），且含 saveSkillsState 落盘
-      const noEarlyReturnV2121T2 = !snippetV2121T2.includes("=== null) return");
-      const hasSaveV2121T2 = snippetV2121T2.includes("saveSkillsState(vaultPath, this.skillsState)");
-      const ok = noEarlyReturnV2121T2 && hasSaveV2121T2;
-      addTest("V2.12.1 修复: flushSkillsStateSave 总是落盘（移除 timer===null 提前返回）", ok ? "pass" : "fail", "");
+      const ok = !/saveSkillsState|skillsStateSaveTimer|this\.skillsState/.test(viewSrcV2121);
+      addTest("V2.15-E cleanup: Bridge view 不再保存 legacy skills-state", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 3: flushSkillsStateSave 调用 saveSkillsState 落盘 ----
+    // ---- Test 3: Bridge view 不再调用 renameSkillMeta ----
     {
-      const ok = /flushSkillsStateSave[\s\S]{0,400}await saveSkillsState\(vaultPath, this\.skillsState\)/.test(viewSrcV2121);
-      addTest("V2.12.1 修复: flushSkillsStateSave 调用 saveSkillsState 落盘", ok ? "pass" : "fail", "");
+      const ok = !viewSrcV2121.includes("renameSkillMeta");
+      addTest("V2.15-E cleanup: Bridge view 不再调用 renameSkillMeta", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 4: openEditSkillDialog 中 renameSkillMeta 后调用 flushSkillsStateSave（核心修复）----
+    // ---- Test 4: openEditPromptSnippetDialog 已删除 ----
     {
-      const ok = /renameSkillMeta\(this\.skillsState, skill\.name, newName\)[\s\S]{0,100}await this\.flushSkillsStateSave\(\)/.test(viewSrcV2121);
-      addTest("V2.12.1 修复: openEditSkillDialog renameSkillMeta 后调用 flushSkillsStateSave",
-        ok ? "pass" : "fail", "");
+      const ok = !viewSrcV2121.includes("openEditPromptSnippetDialog");
+      addTest("V2.15-E cleanup: 删除 openEditPromptSnippetDialog", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 5: openEditSkillDialog 中 flushSkillsStateSave 在 refreshSkills 之前 ----
+    // ---- Test 5: refreshSkills legacy loader 已删除 ----
     {
-      // V2.12.1: 在 openEditSkillDialog 修复注释之后找 flush → refresh 顺序
-      const idxRename = viewSrcV2121.indexOf("V2.12.1: 修复 ManualId 13 blocker");
-      const idxFlush = viewSrcV2121.indexOf("await this.flushSkillsStateSave();", idxRename);
-      const idxRefresh = viewSrcV2121.indexOf("await this.refreshSkills();", idxFlush);
-      const ok = idxRename > 0
-        && idxFlush > idxRename
-        && idxRefresh > idxFlush;
-      addTest("V2.12.1 修复: flushSkillsStateSave 在 refreshSkills 之前（时序正确）",
-        ok ? "pass" : "fail", `idxRename=${idxRename} idxFlush=${idxFlush} idxRefresh=${idxRefresh}`);
+      const ok = !viewSrcV2121.includes("private async refreshSkills");
+      addTest("V2.15-E cleanup: 删除 legacy refreshSkills loader", ok ? "pass" : "fail", "");
     }
 
     // ---- Test 6: openEditSkillDialog 不再使用 scheduleSkillsStateSave 处理重命名迁移 ----
@@ -8307,11 +8278,11 @@ if (!runV2121Unit) {
       addTest("V2.12.1 修复: renameSkillMeta 后不再调用 scheduleSkillsStateSave", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 7: onClose 复用 flushSkillsStateSave（不再内联）----
+    // ---- Test 7: onClose 不再复用 legacy skills flush ----
     {
-      // V2.12.1: onClose 从 line 686 到 708，中间含多个定时器清理，窗口扩到 800
-      const ok = /onClose[\s\S]{0,800}await this\.flushSkillsStateSave\(\)/.test(viewSrcV2121);
-      addTest("V2.12.1 修复: onClose 复用 flushSkillsStateSave", ok ? "pass" : "fail", "");
+      const ok = !/onClose[\s\S]{0,800}flushSkillsStateSave/.test(viewSrcV2121)
+        && !/onClose[\s\S]{0,800}saveSkillsState/.test(viewSrcV2121);
+      addTest("V2.15-E cleanup: onClose 不再处理 legacy skills-state", ok ? "pass" : "fail", "");
     }
 
     // ---- Test 8: onClose 不再内联重复 flush 逻辑 ----
@@ -8508,35 +8479,30 @@ if (!runV2121Unit) {
       }
     }
 
-    // ===== 要求 6: EditSkillModal / openEditSkillDialog 代码级回归 =====
+    // ===== V2.15-E: Prompt Snippet UI 删除回归 =====
 
-    // ---- Test 13: EditSkillModal 保存按钮触发 onConfirm 回调 ----
+    // ---- Test 13: EditSkillModal 已删除 ----
     {
-      // V2.12.1: EditSkillModal 类定义到 confirm.addEventListener 距离较远，窗口扩到 3000
-      const ok = /EditSkillModal[\s\S]{0,3000}confirm\.addEventListener\("click",[\s\S]{0,200}this\.done\(true\)/.test(viewSrcV2121)
-        && /done\(ok: boolean\)[\s\S]{0,300}void this\.onConfirm\(name, description, prompt\)/.test(viewSrcV2121);
-      addTest("V2.12.1 EditSkillModal: 保存按钮触发 onConfirm 回调", ok ? "pass" : "fail", "");
+      const ok = !viewSrcV2121.includes("class EditSkillModal");
+      addTest("V2.15-E cleanup: 删除 EditSkillModal", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 14: openEditPromptSnippetDialog 调用 updateImportedSkill（真实保存链路）----
+    // ---- Test 14: updateImportedSkill 不再从 Bridge view 调用 ----
     {
-      // V2.13.0-B: legacy UI 已重命名为 Prompt Snippet，保存链路保持不变
-      const ok = /openEditPromptSnippetDialog[\s\S]{0,800}updateImportedSkill\(vaultPath, skill\.name, newName/.test(viewSrcV2121);
-      addTest("V2.12.1 openEditPromptSnippetDialog: 调用 updateImportedSkill 真实保存", ok ? "pass" : "fail", "");
+      const ok = !viewSrcV2121.includes("updateImportedSkill");
+      addTest("V2.15-E cleanup: Bridge view 不再调用 updateImportedSkill", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 15: openEditPromptSnippetDialog 重命名冲突检测（checkImportConflict）----
+    // ---- Test 15: checkImportConflict 不再从 Bridge view 调用 ----
     {
-      const ok = /openEditPromptSnippetDialog[\s\S]{0,500}checkImportConflict\(vaultPath, newName\)/.test(viewSrcV2121);
-      addTest("V2.12.1 openEditPromptSnippetDialog: 重命名冲突检测 checkImportConflict", ok ? "pass" : "fail", "");
+      const ok = !viewSrcV2121.includes("checkImportConflict");
+      addTest("V2.15-E cleanup: Bridge view 不再调用 checkImportConflict", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 16: openEditPromptSnippetDialog 重命名条件（newName !== skill.name）----
+    // ---- Test 16: ImportSkillModal 已删除 ----
     {
-      // V2.12.1: 编辑入口中有两个 if (newName !== skill.name)，第二个才跟 renameSkillMeta
-      // 窗口扩到 1500 覆盖第二个 if + renameSkillMeta
-      const ok = /openEditPromptSnippetDialog[\s\S]{0,1500}if \(newName !== skill\.name\)[\s\S]{0,200}renameSkillMeta/.test(viewSrcV2121);
-      addTest("V2.12.1 openEditPromptSnippetDialog: newName !== skill.name 时触发 renameSkillMeta", ok ? "pass" : "fail", "");
+      const ok = !viewSrcV2121.includes("class ImportSkillModal");
+      addTest("V2.15-E cleanup: 删除 ImportSkillModal", ok ? "pass" : "fail", "");
     }
 
     // ===== 要求 7: 约束确认（不改 AgentEvent / 不新增 tool event / sdk-experimental 默认关闭）=====
@@ -9167,7 +9133,7 @@ if (!runV213FUnit) {
 
     {
       const hasRefresh = /private async refreshAgentSkills\(\)[\s\S]{0,600}loadAgentSkillsManifest/.test(viewSrc)
-        && /private async refreshSkills\(\)[\s\S]{0,150}await this\.refreshAgentSkills\(\)/.test(viewSrc);
+        && viewSrc.includes("void this.refreshAgentSkills()");
       const hasToggle = /private async toggleAgentSkillEnabled[\s\S]{0,600}saveAgentSkillsManifest/.test(viewSrc)
         && /skill\.id === skillId[\s\S]{0,120}enabled/.test(viewSrc)
         && /private async toggleAgentSkillEnabled[\s\S]{0,700}renderAgentSkillPreview\(this\.getSelectedAgentSkill\(\)\)/.test(viewSrc);
@@ -9194,16 +9160,15 @@ if (!runV213FUnit) {
     }
 
     {
-      const promptSnippetLegacyExists = viewSrc.includes("private renderSkillsPanel")
-        && viewSrc.includes("Prompt Snippets")
-        && viewSrc.includes("insertPromptSnippetAtCursor")
-        && viewSrc.includes("appendPromptSnippetToInput");
-      const promptSnippetNotMountedAsSkills = !viewSrc.includes("renderSkillsPanel(skillsPanel)");
+      const promptSnippetLegacyRemoved = !viewSrc.includes("private renderSkillsPanel")
+        && !viewSrc.includes("Prompt Snippets")
+        && !viewSrc.includes("insertPromptSnippetAtCursor")
+        && !viewSrc.includes("appendPromptSnippetToInput");
       const agentMaterializationStillRuntime = agentSkillsSrc.includes("物化到 .claude/skills/<slug>/SKILL.md")
         && agentSkillsSrc.includes("不写入 composer");
-      addTest("V2.13.0-F compatibility: Prompt Snippets 保留 legacy 代码但不挂载到 Skills 页",
-        promptSnippetLegacyExists && promptSnippetNotMountedAsSkills && agentMaterializationStillRuntime ? "pass" : "fail",
-        `snippet=${promptSnippetLegacyExists} mounted=${!promptSnippetNotMountedAsSkills} runtime=${agentMaterializationStillRuntime}`);
+      addTest("V2.15-E compatibility: Prompt Snippets 从 Bridge view 删除，Agent Skills runtime 边界保留",
+        promptSnippetLegacyRemoved && agentMaterializationStillRuntime ? "pass" : "fail",
+        `snippetRemoved=${promptSnippetLegacyRemoved} runtime=${agentMaterializationStillRuntime}`);
     }
 
     {
@@ -10999,7 +10964,8 @@ if (!runV214BUnit) {
         && viewSrc.includes("llm-bridge-command-menu-body")
         && viewSrc.includes("检测 runtime")
         && viewSrc.includes("添加路径附件")
-        && viewSrc.includes("this.presetBtnsEl = commandMenuBody.createDiv");
+        && !viewSrc.includes("this.presetBtnsEl = commandMenuBody.createDiv")
+        && !viewSrc.includes("llm-bridge-preset-btn");
       const permissionChipOk = viewSrc.includes("permissionModeChipEl")
         && viewSrc.includes("permissionModeShortLabel")
         && viewSrc.includes("cyclePermissionMode")
@@ -11017,7 +10983,7 @@ if (!runV214BUnit) {
         && stylesSrc.includes(".llm-bridge-command-menu-body")
         && stylesSrc.includes(".llm-bridge-permission-chip")
         && stylesSrc.includes(".llm-bridge-permission-chip.is-caution")
-        && stylesSrc.includes(".llm-bridge-preset-btn");
+        && !stylesSrc.includes(".llm-bridge-preset-btn");
       const noRuntimeExpansion = !runtimeFileToolAdapterSrc.includes("\"write\"")
         && !runtimeFileToolAdapterSrc.includes("\"delete\"")
         && !runtimeFileToolAdapterSrc.includes("\"rename\"")
@@ -11128,7 +11094,7 @@ if (!runV214BUnit) {
         && !fileToolExecutorSrc.includes("rename(");
       const reportPath = join(PROJECT_ROOT, "docs", "V2.15-E_RC_UI_REGRESSION_FIX.md");
       const reportOk = existsSync(reportPath)
-        && ["AttachmentRepair", "SkillsRegressionFix", "SessionDropdown", "ComposerInputArea", "ModelEffortDropdown", "IconPolish", "DetailsCollapse", "VisualSmoke", "Tests", "RemainingRisk", "Recommendation"]
+        && ["RemovalDecision", "RemovedPromptSnippets", "AgentSkillsOnlyPage", "LegacyDataHandling", "DocsUpdate", "Tests", "VisualSmoke", "RemainingRisk", "Recommendation"]
           .every((heading) => readFileSync(reportPath, "utf8").includes(`## ${heading}`));
       const ok = attachmentMenuOk
         && nativePathFailureOk

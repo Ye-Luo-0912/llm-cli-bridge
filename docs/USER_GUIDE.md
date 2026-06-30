@@ -74,7 +74,7 @@ claude --version
 
 - `Chat`：聊天主界面。
 - `Files`：Working Set、附件、FileRef index、外部读取授权。
-- `Skills`：Agent Skills 与 Prompt Snippets。
+- `Skills`：Agent Skills runtime capabilities。
 - `History`：历史会话列表和恢复。
 
 左侧不会放 Settings。设置入口在顶部齿轮。
@@ -108,9 +108,9 @@ Chat 页只保留主消息流和必要状态：
 
 - 左侧：上传、命令菜单、权限模式 chip。
 - 中间：输入框，支持 `/` 命令习惯。
-- 右侧：agent、model、effort/thinking、发送按钮。
+- 右侧：model/effort thinking 组合控件、发送按钮。
 
-常用 preset、preflight、路径 fallback 等入口已收进命令菜单或二级区域，不再铺满输入区下方。
+preflight、路径 fallback 等入口已收进命令菜单或二级区域，不再铺满输入区下方。
 
 ### Working Set
 
@@ -147,14 +147,16 @@ Claude Code / SDK native handoff：
 
 ---
 
-## 五、Skills 与 Snippets
+## 五、Agent Skills
 
-V2.15 明确区分两类能力：
+V2.15 的 Skills 页只代表 Agent Skills：
 
-- Agent Skill：runtime capability，展示、启用/禁用、预览，不写入 composer。
-- Prompt Snippet：legacy prompt 模板，只有用户显式 `Insert prompt` 时才插入输入框。
+- Agent Skill 是 Claude Code / SDK runtime 可发现、可调用的 capability。
+- Skills 页只负责展示、启用/禁用和预览。
+- 点击 Agent Skill 只更新内联预览，不写入 composer。
+- Agent Skill instructions 不会拼接进 promptPackage。
 
-Skills 页会先显示 Agent Skills，再显示 Prompt Snippets。
+旧版本的 `.llm-bridge/skills.md` 和 `.llm-bridge/skills/` prompt-template 数据不会被 V2.15 自动删除，但插件不再读取、显示或插入这些 legacy 数据。
 
 ---
 

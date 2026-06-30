@@ -1018,34 +1018,6 @@
 .llm-bridge-sb-btn:hover:not(:disabled) { background: var(--interactive-hover); }
 .llm-bridge-sb-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-.llm-bridge-presets {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 0;
-  border-bottom: none;
-  flex-wrap: nowrap;
-}
-
-.llm-bridge-preset-btn {
-  width: 100%;
-  padding: 6px 9px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-normal);
-  font-size: var(--font-smallest);
-  cursor: pointer;
-  white-space: nowrap;
-  text-align: left;
-}
-
-.llm-bridge-preset-btn:hover:not(:disabled) {
-  border-color: rgba(var(--interactive-accent-rgb), 0.28);
-  background: var(--background-modifier-hover);
-}
-.llm-bridge-preset-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
 /* === V1.2: First Use Guide === */
 
 .llm-bridge-guide {
@@ -2830,59 +2802,11 @@
 .llm-bridge-skills-list {
   gap: 6px;
 }
-.llm-bridge-skills-controls {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 8px 0;
-}
-.llm-bridge-skills-ctrl-label {
-  color: var(--text-muted);
-  font-size: var(--font-smallest);
-}
-.llm-bridge-skills-group-select,
-.llm-bridge-skills-sort-select {
-  max-width: 150px;
-  min-height: 30px;
-  padding: 2px 8px;
-  border-radius: 8px;
-}
-.llm-bridge-skills-combo-btn {
-  min-height: 30px;
-  padding: 3px 10px;
-  border-radius: 8px;
-  white-space: nowrap;
-}
-.llm-bridge-skill-item:not(.llm-bridge-agent-skill-item) {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 9px;
-  border-radius: 9px;
-}
 .llm-bridge-agent-skill-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: start;
 }
-.llm-bridge-skill-leading,
-.llm-bridge-skill-actions {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.llm-bridge-skill-leading {
-  align-self: start;
-}
-.llm-bridge-skill-actions {
-  justify-self: end;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-.llm-bridge-skill-combo,
 .llm-bridge-skill-check {
   width: 22px;
   min-width: 22px;
@@ -2905,37 +2829,14 @@
 .llm-bridge-skill-stats {
   overflow-wrap: anywhere;
 }
-.llm-bridge-skill-insert-btn,
-.llm-bridge-skill-append-btn,
-.llm-bridge-skill-view-btn,
-.llm-bridge-skill-edit-btn,
-.llm-bridge-skill-del-btn,
-.llm-bridge-skill-pin-btn {
+.llm-bridge-skill-view-btn {
   min-height: 28px;
   padding: 3px 9px;
   border-radius: 8px;
   white-space: nowrap;
 }
-.llm-bridge-skill-insert-btn {
-  min-width: 106px;
-}
-.llm-bridge-skill-append-btn,
-.llm-bridge-skill-view-btn,
-.llm-bridge-skill-edit-btn,
-.llm-bridge-skill-del-btn,
-.llm-bridge-skill-pin-btn {
+.llm-bridge-skill-view-btn {
   min-width: 30px;
-}
-
-@media (max-width: 860px) {
-  .llm-bridge-skill-item:not(.llm-bridge-agent-skill-item) {
-    grid-template-columns: auto minmax(0, 1fr);
-  }
-  .llm-bridge-skill-actions {
-    grid-column: 2;
-    justify-self: start;
-    justify-content: flex-start;
-  }
 }
 
 @media (max-width: 720px) {

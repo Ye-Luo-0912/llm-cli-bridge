@@ -24,7 +24,9 @@
 - [ ] Chat / Files / Skills / History 页面可切换
 - [ ] 左侧 compact rail 只显示图标，不显示 Settings / brand / collapse
 - [ ] 顶部栏显示 Bridge、当前会话、新聊天、设置齿轮、compact runtime status
-- [ ] Composer 显示上传、命令菜单、权限 chip、输入框、agent/model/effort/send
+- [ ] Composer 显示上传、命令菜单、权限 chip、输入框、model/effort/send
+- [ ] Skills 页只显示 Agent Skills runtime capabilities，不显示 Prompt Snippets / Insert prompt / Insert selected / Append
+- [ ] 点击 Agent Skill 只更新预览，不改变 composer
 - [ ] 失败卡片只显示摘要，stderr / command / workflow / debug log 默认折叠
 - [ ] Working Set strip 显示 AGENTS.md / Note / Selection / FileRefs compact chips
 - [ ] Claude Code minimal prompt 通过
@@ -63,6 +65,7 @@
 - [ ] 文档只说明 `CLAUDE_CONFIG_DIR`，不再要求 `ANTHROPIC_CONFIG_DIR`
 - [ ] 文档说明 native handoff boundary：Claude Code / SDK 执行文件能力，插件负责上下文与权限边界
 - [ ] 文档说明 V2.15 UI：Chat / Files / Skills / History
+- [ ] 文档说明 legacy `.llm-bridge/skills.md` 不再使用但不会自动删除
 - [ ] `docs/BACKLOG.md` 已更新已知问题
 - [ ] `docs/test-report.md` 已重新生成
 
