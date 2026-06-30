@@ -9484,6 +9484,7 @@ if (!runV214BUnit) {
     const reportSrcV214K = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-K_RUNTIME_TOOL_ADAPTER.md"), "utf8");
     const reportSrcV214K1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-K1_RUNTIME_ADAPTER_LIMITS_HARDENING.md"), "utf8");
     const reportSrcV214L = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-L_CLI_SDK_NATIVE_HANDOFF_SIMPLIFICATION.md"), "utf8");
+    const reportSrcV214M = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-M_REAL_OBSIDIAN_SMOKE_NATIVE_HANDOFF_UX.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
@@ -9562,9 +9563,11 @@ if (!runV214BUnit) {
         .every((heading) => reportSrcV214K1.includes(heading));
       const reportLOk = ["## NativeHandoffStrategy", "## PluginResponsibilityBoundary", "## VaultOperationGuidance", "## ExternalBoundary", "## SimplificationDecision", "## Tests", "## Recommendation"]
         .every((heading) => reportSrcV214L.includes(heading));
-      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I/I1/J/K/K1/L exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk && reportI1Ok && reportJOk && reportKOk && reportK1Ok && reportLOk ? "pass" : "fail",
-        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk} reportI1=${reportI1Ok} reportJ=${reportJOk} reportK=${reportKOk} reportK1=${reportK1Ok} reportL=${reportLOk}`);
+      const reportMOk = ["## SmokeMatrix", "## AttachmentFlow", "## NativeHandoffBehavior", "## VaultEditBehavior", "## ExternalBoundary", "## UXFixes", "## Tests", "## RemainingRisk", "## Recommendation"]
+        .every((heading) => reportSrcV214M.includes(heading));
+      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I/I1/J/K/K1/L/M exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk && reportI1Ok && reportJOk && reportKOk && reportK1Ok && reportLOk && reportMOk ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk} reportI1=${reportI1Ok} reportJ=${reportJOk} reportK=${reportKOk} reportK1=${reportK1Ok} reportL=${reportLOk} reportM=${reportMOk}`);
     }
 
     {
@@ -10695,6 +10698,59 @@ if (!runV214BUnit) {
       addTest("V2.14.0-L native handoff simplification: prompt 指引原生文件能力且不新增写 runtime",
         ok ? "pass" : "fail",
         `prompt=${promptGuidanceOk} external=${externalBoundaryOk} sensitive=${sensitiveBoundaryOk} adapter=${adapterBoundaryOk} noRuntime=${noNewRuntimeOk}`);
+    }
+
+    {
+      const prompt = buildPromptPackageV214G(
+        "请总结附件图片/PDF，并在 Vault 内普通笔记中补充摘要",
+        {
+          vaultPath: "D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-Wiki",
+          activeFilePath: "D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-Wiki\\LLM-Wiki.md",
+          activeFileContent: "# LLM Wiki\n",
+          selection: null,
+          timestamp: "2026-06-30T00:12:00.000Z",
+          fileRefIndex: [
+            { id: "img", displayName: "diagram.png", path: "D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-Wiki\\30_资料\\diagram.png", kind: "attachment", fileType: "image", status: "active" },
+            { id: "pdf", displayName: "manual.pdf", path: "D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-Wiki\\30_资料\\manual.pdf", kind: "attachment", fileType: "pdf", status: "active" },
+          ],
+          attachmentTextSnippets: [],
+        },
+        {
+          includeActiveNote: true,
+          includeSelection: false,
+          maxActiveNoteChars: 6000,
+          maxSelectionChars: 3000,
+          outputDir: "90_AI整理待确认",
+        },
+      );
+      const attachmentHandoffOk = prompt.includes("diagram.png")
+        && prompt.includes("manual.pdf")
+        && prompt.includes("FileRef Metadata Index")
+        && prompt.includes("Claude Code Read")
+        && prompt.includes("SDK 原生能力")
+        && prompt.includes("插件不做 OCR")
+        && prompt.includes("base64 注入");
+      const workingSetUxOk = viewSrc.includes("No files attached. Add files as native handoff refs")
+        && viewSrc.includes("native ref")
+        && viewSrc.includes("bounded text")
+        && viewSrc.includes("refs-only native reference; use Claude Code / SDK native read when needed.")
+        && stylesSrc.includes(".llm-bridge-working-set-empty");
+      const reportSmokeOk = reportSrcV214M.includes("bridge offline")
+        && reportSrcV214M.includes("Computer Use Node REPL tool was not exposed")
+        && reportSrcV214M.includes("No self-hosted write executor was added");
+      const externalBoundaryOk = evaluateFileAccess(createFileAccessPolicy({ vaultPath: "D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-Wiki" }), { operation: "write", path: "D:\\Users\\Ye_Luo\\Desktop\\outside.md" }).decision === "deny"
+        && evaluateFileAccess(createFileAccessPolicy({ vaultPath: "D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-Wiki" }), { operation: "delete", path: "D:\\Users\\Ye_Luo\\Desktop\\outside.md" }).decision === "deny"
+        && evaluateFileAccess(createFileAccessPolicy({ vaultPath: "D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-Wiki" }), { operation: "rename", path: "LLM-Wiki.md", targetPath: "D:\\Users\\Ye_Luo\\Desktop\\outside.md" }).decision === "deny";
+      const runtimeBoundaryOk = !runtimeFileToolAdapterSrc.includes("\"write\"")
+        && !runtimeFileToolAdapterSrc.includes("\"delete\"")
+        && !runtimeFileToolAdapterSrc.includes("\"rename\"")
+        && !runtimeFileToolAdapterSrc.includes("writeFile")
+        && !runtimeFileToolAdapterSrc.includes("unlink")
+        && !runtimeFileToolAdapterSrc.includes("rename(");
+      const ok = attachmentHandoffOk && workingSetUxOk && reportSmokeOk && externalBoundaryOk && runtimeBoundaryOk;
+      addTest("V2.14.0-M smoke/UX: native handoff refs、Working Set 状态、外部边界与 read-only runtime 不回归",
+        ok ? "pass" : "fail",
+        `handoff=${attachmentHandoffOk} ux=${workingSetUxOk} smoke=${reportSmokeOk} external=${externalBoundaryOk} runtime=${runtimeBoundaryOk}`);
     }
 
     {

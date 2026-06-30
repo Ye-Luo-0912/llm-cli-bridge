@@ -1211,7 +1211,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   private async promptAndAddAttachmentFile(): Promise<void> {
-    const input = await this.promptDialog("添加文件附件", "输入文件路径。小型 text / markdown / json 会被 bounded ingestion；图片/PDF/binary 只作为引用。", "");
+    const input = await this.promptDialog("添加文件附件", "输入文件路径。小型 text / markdown / json 会进入 bounded text；图片/PDF/binary 只作为 native handoff 引用。", "");
     const requestedPath = (input || "").trim();
     if (!requestedPath) return;
     const ref = await this.addAttachmentFileRefWithIngestion(requestedPath);
@@ -1260,7 +1260,12 @@ export class LLMBridgeView extends ItemView {
     const refs = this.fileWorkingSet.refs;
     this.workingSetEl.empty();
     if (refs.length === 0) {
-      this.workingSetEl.style.display = "none";
+      this.workingSetEl.style.display = "flex";
+      this.workingSetEl.createEl("span", { cls: "llm-bridge-working-set-label", text: "Working Set" });
+      this.workingSetEl.createEl("span", {
+        cls: "llm-bridge-working-set-empty",
+        text: "No files attached. Add files as native handoff refs; small text/md/json can include bounded text.",
+      });
       return;
     }
     this.workingSetEl.style.display = "flex";
@@ -1270,7 +1275,11 @@ export class LLMBridgeView extends ItemView {
       chip.createEl("span", { cls: "llm-bridge-working-set-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
       chip.createEl("span", { cls: "llm-bridge-working-set-meta", text: `${ref.kind} · ${ref.status} · ${ref.source} · ${ref.pathKind} · ${ref.fileType}` });
       const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id);
-      chip.createEl("span", { cls: "llm-bridge-working-set-ingested", text: snippet ? "bounded" : "refs-only" });
+      chip.createEl("span", {
+        cls: "llm-bridge-working-set-ingested",
+        text: snippet ? "bounded text" : "native ref",
+        attr: { title: snippet ? "Bounded text is included in prompt." : "refs-only native reference; use Claude Code / SDK native read when needed." },
+      });
       const remove = chip.createEl("button", { cls: "llm-bridge-working-set-remove", text: "×", attr: { title: "移除" } });
       remove.addEventListener("click", () => this.removeWorkingSetRef(ref.id));
     }

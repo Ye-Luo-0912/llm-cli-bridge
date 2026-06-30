@@ -415,6 +415,12 @@
   letter-spacing: 0.04em;
 }
 
+.llm-bridge-working-set-empty {
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+  line-height: 1.4;
+}
+
 .llm-bridge-working-set-chip {
   display: inline-flex;
   align-items: center;
