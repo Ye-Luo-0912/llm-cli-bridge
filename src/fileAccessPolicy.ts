@@ -67,6 +67,7 @@ export interface PendingExternalReadRequest {
   requestedPath: string;
   resolvedPath: string;
   proposedGrantRoot: string | null;
+  pathKind: FileAccessPathKind;
   operation: "read";
   risk: FileAccessRisk;
   reason: FileAccessReason;
@@ -206,6 +207,7 @@ export function createPendingExternalReadRequest(
     requestedPath: request.path,
     resolvedPath: evaluation.resolvedPath,
     proposedGrantRoot: proposed,
+    pathKind: options.pathKind || "file",
     operation: "read",
     risk,
     reason: evaluation.reason,

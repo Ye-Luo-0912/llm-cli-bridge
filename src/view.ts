@@ -34,14 +34,31 @@ import {
   createPendingExternalReadRequest,
   createSessionReadGrantStore,
   enqueuePendingExternalReadRequest,
+  FileAccessPathKind,
+  FileAccessReadGrant,
   PendingExternalReadRequest,
   SessionReadGrantStore,
   FileAccessOperation,
 } from "./fileAccessPolicy";
+import {
+  addFileRefToWorkingSet,
+  createAttachmentFileRef,
+  createExternalFileRefFromApprovedRequest,
+  createVaultFileRef,
+  createWorkingSet,
+  FileRef,
+  WorkingSet,
+} from "./fileRefs";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
 // V0.9: FileSnapshot / snapshotVaultMarkdownFiles / diffSnapshots 已抽取到 fileDiff.ts
+
+interface ExternalFileAccessRequestOptions {
+  source?: string;
+  pathKind?: FileAccessPathKind;
+  knownProjectRootMarkers?: string[];
+}
 
 const STATUS_LABEL: Record<RunStatus, string> = {
   idle: "Idle",
@@ -197,6 +214,9 @@ export class LLMBridgeView extends ItemView {
   // V2.14.0-E: 外部 read 授权仅存在于当前 Bridge View/session 生命周期
   private externalReadGrantStore: SessionReadGrantStore = createSessionReadGrantStore();
   private externalReadPanelEl!: HTMLElement;
+  // V2.14.0-F: Working Set 只保存文件引用和授权状态，不保存文件正文
+  private fileWorkingSet: WorkingSet = createWorkingSet();
+  private attachmentReadGrants: FileAccessReadGrant[] = [];
   // V2.13.0-B: 已插入 Prompt Snippets 名称集合（插入 prompt 时添加；发送/清空时重置）
   private insertedSnippetNames: Set<string> = new Set();
   // V2.3: 最近一次 SDK 运行的工具数与 agent 数（用于状态栏展示）
@@ -767,6 +787,7 @@ export class LLMBridgeView extends ItemView {
     // V2.12.1: 改为调用 flushSkillsStateSave() 复用统一逻辑（openEditSkillDialog 也复用）
     await this.flushSkillsStateSave();
     this.clearExternalReadRequests();
+    this.clearFileWorkingSet();
   }
 
   // ---------- 控件同步 ----------
@@ -1049,18 +1070,60 @@ export class LLMBridgeView extends ItemView {
   public queueExternalFileAccessRequest(
     operation: FileAccessOperation,
     requestedPath: string,
-    source = "agent",
+    options: ExternalFileAccessRequestOptions | string = {},
   ): PendingExternalReadRequest | null {
-    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-    const policy = createFileAccessPolicy({
-      vaultPath,
-      outputDir: this.plugin.settings.outputDir,
-      sessionReadGrants: this.externalReadGrantStore.sessionReadGrants,
-    });
-    const pending = createPendingExternalReadRequest(policy, { operation, path: requestedPath }, { source });
+    const requestOptions = typeof options === "string" ? { source: options } : options;
+    const pending = createPendingExternalReadRequest(
+      this.createCurrentFileAccessPolicy(),
+      { operation, path: requestedPath },
+      {
+        source: requestOptions.source || "agent",
+        pathKind: requestOptions.pathKind || "file",
+        knownProjectRootMarkers: requestOptions.knownProjectRootMarkers || [],
+      },
+    );
     this.externalReadGrantStore = enqueuePendingExternalReadRequest(this.externalReadGrantStore, pending);
     this.refreshExternalReadPanel();
     return pending;
+  }
+
+  public addVaultFileRef(requestedPath: string, options: { pathKind?: FileAccessPathKind; source?: string } = {}): FileRef | null {
+    const ref = createVaultFileRef(this.createCurrentFileAccessPolicy(), requestedPath, {
+      pathKind: options.pathKind || "file",
+      source: options.source || "user",
+    });
+    this.fileWorkingSet = addFileRefToWorkingSet(this.fileWorkingSet, ref);
+    return ref;
+  }
+
+  public addAttachmentFileRef(requestedPath: string, options: { pathKind?: FileAccessPathKind; source?: string } = {}): FileRef | null {
+    const result = createAttachmentFileRef(this.getVaultPath(), requestedPath, {
+      pathKind: options.pathKind || "file",
+      source: options.source || "attachment",
+    });
+    if (!result) return null;
+    this.attachmentReadGrants = this.attachmentReadGrants
+      .filter((grant) => grant.path !== result.readGrant.path || grant.scope !== result.readGrant.scope);
+    this.attachmentReadGrants.push(result.readGrant);
+    this.fileWorkingSet = addFileRefToWorkingSet(this.fileWorkingSet, result.ref);
+    return result.ref;
+  }
+
+  public getWorkingSetFileRefs(): FileRef[] {
+    return this.fileWorkingSet.refs.slice();
+  }
+
+  private createCurrentFileAccessPolicy() {
+    return createFileAccessPolicy({
+      vaultPath: this.getVaultPath(),
+      outputDir: this.plugin.settings.outputDir,
+      sessionReadGrants: this.externalReadGrantStore.sessionReadGrants,
+      attachmentReadGrants: this.attachmentReadGrants,
+    });
+  }
+
+  private getVaultPath(): string {
+    return (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
   }
 
   private refreshExternalReadPanel(): void {
@@ -1117,7 +1180,13 @@ export class LLMBridgeView extends ItemView {
   }
 
   private approveExternalReadRequest(requestId: string, forceFileScope: boolean, strongConfirm = false): void {
-    this.externalReadGrantStore = approvePendingExternalReadRequest(this.externalReadGrantStore, requestId, { forceFileScope, strongConfirm });
+    const pending = this.externalReadGrantStore.pendingReadRequests.find((req) => req.id === requestId) || null;
+    const nextStore = approvePendingExternalReadRequest(this.externalReadGrantStore, requestId, { forceFileScope, strongConfirm });
+    if (pending && nextStore !== this.externalReadGrantStore) {
+      const ref = createExternalFileRefFromApprovedRequest(pending, nextStore.sessionReadGrants);
+      this.fileWorkingSet = addFileRefToWorkingSet(this.fileWorkingSet, ref);
+    }
+    this.externalReadGrantStore = nextStore;
     this.refreshExternalReadPanel();
   }
 
@@ -1132,6 +1201,11 @@ export class LLMBridgeView extends ItemView {
   private clearExternalReadRequests(): void {
     this.externalReadGrantStore = createSessionReadGrantStore();
     if (this.externalReadPanelEl) this.refreshExternalReadPanel();
+  }
+
+  private clearFileWorkingSet(): void {
+    this.fileWorkingSet = createWorkingSet();
+    this.attachmentReadGrants = [];
   }
 
   // V1.1: 运行 preflight 检测（不调用真实模型）
@@ -1927,6 +2001,7 @@ export class LLMBridgeView extends ItemView {
     // V2.3s: 清空待决策权限请求
     this.clearPendingPermissions();
     this.clearExternalReadRequests();
+    this.clearFileWorkingSet();
     this.refreshStatusBar();
   }
 
@@ -2262,6 +2337,7 @@ export class LLMBridgeView extends ItemView {
     this.lastSdkAgentCount = 0;
     this.clearPendingPermissions();
     this.clearExternalReadRequests();
+    this.clearFileWorkingSet();
     this.refreshStatusBar();
     this.scrollToBottom(); // V2.8: 恢复后滚到最新消息
     // V2.8: agentType 一致性提示（不强制切换 backend）

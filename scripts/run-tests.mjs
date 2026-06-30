@@ -9313,12 +9313,22 @@ if (!runV214BUnit) {
   try {
     const esbuild = (await import("esbuild")).default;
     const fileAccessPolicyBundleV214B = join(tmpdir(), `file-access-policy-v214b-${Date.now()}.mjs`);
+    const fileRefsBundleV214F = join(tmpdir(), `file-refs-v214f-${Date.now()}.mjs`);
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "fileAccessPolicy.ts")],
       bundle: true,
       format: "esm",
       platform: "node",
       outfile: fileAccessPolicyBundleV214B,
+      external: ["obsidian"],
+      logLevel: "silent",
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "fileRefs.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: fileRefsBundleV214F,
       external: ["obsidian"],
       logLevel: "silent",
     });
@@ -9336,14 +9346,25 @@ if (!runV214BUnit) {
       inferProposedGrantRoot,
       assessGrantRootSafety,
     } = await import(pathToFileURL(fileAccessPolicyBundleV214B).href);
+    const {
+      createWorkingSet,
+      addFileRefToWorkingSet,
+      createVaultFileRef,
+      createAttachmentFileRef,
+      createExternalFileRefFromApprovedRequest,
+      createPendingExternalFileRef,
+      workingSetContainsFileContent,
+    } = await import(pathToFileURL(fileRefsBundleV214F).href);
 
     const reportSrc = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-B_FILE_ACCESS_POLICY_MODULE.md"), "utf8");
     const reportSrcV214C = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-C_ON_DEMAND_EXTERNAL_READ_AUTHORIZATION.md"), "utf8");
     const reportSrcV214D = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-D_SESSION_DIRECTORY_READ_GRANTS.md"), "utf8");
     const reportSrcV214E = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-E_PENDING_EXTERNAL_READ_APPROVAL_UI.md"), "utf8");
     const reportSrcV214E1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-E1_STRONG_CONFIRM_EXTERNAL_READ_APPROVAL.md"), "utf8");
+    const reportSrcV214F = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-F_FILE_REFS_WORKING_SET_MODEL.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+    const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
     const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf8");
     const cliBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeCliBackend.ts"), "utf8");
     const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
@@ -9362,6 +9383,13 @@ if (!runV214BUnit) {
         approvePendingExternalReadRequest,
         inferProposedGrantRoot,
         assessGrantRootSafety,
+        createWorkingSet,
+        addFileRefToWorkingSet,
+        createVaultFileRef,
+        createAttachmentFileRef,
+        createExternalFileRefFromApprovedRequest,
+        createPendingExternalFileRef,
+        workingSetContainsFileContent,
       ]
         .every((fn) => typeof fn === "function");
       const reportOk = ["## PolicyTypes", "## Decisions", "## PathSafety", "## Tests", "## RemainingRisk", "## Recommendation"]
@@ -9374,9 +9402,11 @@ if (!runV214BUnit) {
         .every((heading) => reportSrcV214E.includes(heading));
       const reportE1Ok = ["## ChangedBehavior", "## StrongConfirmFlow", "## DeniedRootBehavior", "## Tests", "## Recommendation"]
         .every((heading) => reportSrcV214E1.includes(heading));
-      addTest("V2.14.0-B/C/D/E/E1 exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok ? "pass" : "fail",
-        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok}`);
+      const reportFOk = ["## FileRefModel", "## WorkingSetRules", "## GrantIntegration", "## PromptBoundary", "## Tests", "## RemainingRisk", "## Recommendation"]
+        .every((heading) => reportSrcV214F.includes(heading));
+      addTest("V2.14.0-B/C/D/E/E1/F exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk}`);
     }
 
     {
@@ -9628,6 +9658,76 @@ if (!runV214BUnit) {
       addTest("V2.14.0-E1 strong confirm: confirm 显式批准，deny 永不批准，allow 普通批准",
         ok ? "pass" : "fail",
         `confirm=${confirmPending?.grantRootSafety} plain=${confirmPlain.sessionReadGrants.length}/${confirmPlain.pendingReadRequests.length} dir=${confirmStrongDir.sessionReadGrants[0]?.match}/${confirmStrongDir.sessionReadGrants[0]?.path} file=${confirmStrongFile.sessionReadGrants[0]?.match}/${confirmStrongFile.sessionReadGrants[0]?.path} deny=${denyPending?.grantRootSafety}/${denyStrong.sessionReadGrants.length} allow=${allowPending?.grantRootSafety}/${allowPlain.sessionReadGrants.length}`);
+    }
+
+    {
+      const vaultPolicy = createFileAccessPolicy({ vaultPath: "D:\\Vault" });
+      const vaultRef = createVaultFileRef(vaultPolicy, "Notes\\daily.md", { now: "2026-06-30T00:05:00.000Z" });
+      const pending = createPendingExternalReadRequest(
+        vaultPolicy,
+        { operation: "read", path: "D:\\Work\\Project\\src\\index.ts" },
+        {
+          now: "2026-06-30T00:05:01.000Z",
+          source: "agent",
+          pathKind: "file",
+          knownProjectRootMarkers: ["D:\\Work\\Project\\package.json"],
+        },
+      );
+      const pendingRef = createPendingExternalFileRef(pending);
+      const store1 = enqueuePendingExternalReadRequest(createSessionReadGrantStore(), pending);
+      const noExternalRefBeforeApproval = createWorkingSet();
+      const approved = approvePendingExternalReadRequest(store1, pending?.id || "");
+      const externalRef = createExternalFileRefFromApprovedRequest(pending, approved.sessionReadGrants, { now: "2026-06-30T00:05:02.000Z" });
+      const attachment = createAttachmentFileRef("D:\\Vault", "D:\\External\\drop.png", { now: "2026-06-30T00:05:03.000Z" });
+      const workingSet = addFileRefToWorkingSet(
+        addFileRefToWorkingSet(addFileRefToWorkingSet(createWorkingSet(), vaultRef), externalRef),
+        attachment?.ref || null,
+      );
+      const withAttachmentPolicy = createFileAccessPolicy({
+        vaultPath: "D:\\Vault",
+        attachmentReadGrants: attachment ? [attachment.readGrant] : [],
+      });
+      const attachmentRead = evaluateFileAccess(withAttachmentPolicy, { operation: "read", path: "D:\\External\\drop.png" });
+      const attachmentSibling = evaluateFileAccess(withAttachmentPolicy, { operation: "read", path: "D:\\External\\other.png" });
+      const hasRequiredFields = [vaultRef, pendingRef, externalRef, attachment?.ref]
+        .every((ref) => ref && ["id", "kind", "displayName", "requestedPath", "resolvedPath", "pathKind", "source", "grantScope", "createdAt", "status"].every((key) => Object.prototype.hasOwnProperty.call(ref, key)));
+      const noFileBodyFields = !workingSetContainsFileContent(workingSet)
+        && !fileRefsSrc.includes("readFile")
+        && !fileRefsSrc.includes("readdir")
+        && !fileRefsSrc.includes("pdf")
+        && !fileRefsSrc.includes("image");
+      const promptUnwired = !promptPackageSrc.includes("FileRef")
+        && !promptPackageSrc.includes("WorkingSet")
+        && !promptPackageSrc.includes("fileWorkingSet");
+      const viewWiringOk = viewSrc.includes("fileWorkingSet: WorkingSet = createWorkingSet()")
+        && viewSrc.includes("attachmentReadGrants: FileAccessReadGrant[] = []")
+        && viewSrc.includes("addVaultFileRef")
+        && viewSrc.includes("addAttachmentFileRef")
+        && viewSrc.includes("pathKind: requestOptions.pathKind || \"file\"")
+        && viewSrc.includes("knownProjectRootMarkers: requestOptions.knownProjectRootMarkers || []");
+      const ok = vaultRef?.kind === "vault"
+        && vaultRef.status === "active"
+        && pending?.grantRootSafety === "allow"
+        && pending.pathKind === "file"
+        && pendingRef.status === "pending"
+        && noExternalRefBeforeApproval.refs.length === 0
+        && externalRef?.kind === "external"
+        && externalRef.status === "active"
+        && externalRef.grantScope === "session"
+        && attachment?.ref.kind === "attachment"
+        && attachment.ref.grantScope === "attachment"
+        && attachment.readGrant.scope === "attachment"
+        && attachment.readGrant.match === "file"
+        && attachmentRead.decision === "allow"
+        && attachmentSibling.decision === "confirm"
+        && workingSet.refs.length === 3
+        && hasRequiredFields
+        && noFileBodyFields
+        && promptUnwired
+        && viewWiringOk;
+      addTest("V2.14.0-F FileRef/Working Set: refs only，授权衔接，不读正文不接 prompt",
+        ok ? "pass" : "fail",
+        `vault=${vaultRef?.kind}/${vaultRef?.status} pending=${pending?.reason}/${pendingRef.status} before=${noExternalRefBeforeApproval.refs.length} external=${externalRef?.kind}/${externalRef?.grantScope} attachment=${attachment?.ref.kind}/${attachment?.readGrant.match} reads=${attachmentRead.decision}/${attachmentSibling.decision} refs=${workingSet.refs.length} fields=${hasRequiredFields} body=${noFileBodyFields} prompt=${promptUnwired} view=${viewWiringOk}`);
     }
 
     {
