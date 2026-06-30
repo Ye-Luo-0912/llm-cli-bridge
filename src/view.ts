@@ -184,6 +184,7 @@ export class LLMBridgeView extends ItemView {
   private agentChipTextEl!: HTMLElement;
   private modelChipGroup!: HTMLElement;
   private effortChipGroup!: HTMLElement;
+  private permissionModeChipEl!: HTMLButtonElement;
   private includeNoteCheckEl!: HTMLInputElement;
   private includeSelectionCheckEl!: HTMLInputElement;
   private messagesEl!: HTMLElement;
@@ -306,14 +307,6 @@ export class LLMBridgeView extends ItemView {
       this.refreshAllChips();
     });
     this.agentChipGroup = agentSelect;
-
-    const refreshBtn = headerRight.createEl("button", { cls: "llm-bridge-icon-btn", attr: { title: "刷新上下文" } });
-    refreshBtn.createEl("span", { cls: "llm-bridge-icon", text: "↻" });
-    refreshBtn.addEventListener("click", () => {
-      this.lastPreflightResult = null; // V2.4: 手动刷新时失效 preflight 缓存
-      this.updateContextDisplay();
-      this.syncControlsFromSettings();
-    });
 
     // ===== V2.15-A: 左侧 slim navigation rail（无 Settings 入口） =====
     const chatTab = nav.createEl("button", { cls: "llm-bridge-nav-item is-active", attr: { "data-tab": "chat", title: "Chat" } });
@@ -492,27 +485,60 @@ export class LLMBridgeView extends ItemView {
       attr: { title: "上传/选择一个或多个用户主动附件" },
     });
     attachBtn.addEventListener("click", () => this.openNativeAttachmentPicker());
-    const pathAttachBtn = leftTools.createEl("button", {
-      cls: "llm-bridge-composer-tool-btn llm-bridge-attach-path-btn",
-      text: "⌁",
-      attr: { title: "通过路径添加附件（fallback/debug）" },
-    });
-    pathAttachBtn.addEventListener("click", () => void this.promptAndAddAttachmentFile());
-    this.preflightBtn = leftTools.createEl("button", {
-      cls: "llm-bridge-composer-tool-btn",
+    const commandMenu = leftTools.createEl("details", { cls: "llm-bridge-command-menu" });
+    commandMenu.createEl("summary", {
+      cls: "llm-bridge-composer-tool-btn llm-bridge-command-menu-summary",
       text: "⌘",
+      attr: { title: "命令入口：预设、检测、路径附件、刷新上下文" },
+    });
+    const commandMenuBody = commandMenu.createDiv({ cls: "llm-bridge-command-menu-body" });
+    this.preflightBtn = commandMenuBody.createEl("button", {
+      cls: "llm-bridge-command-menu-item",
+      text: "检测 runtime",
       attr: { title: "检测 agent 命令是否可用（不调用真实模型）" },
     });
-    this.preflightBtn.addEventListener("click", () => void this.runPreflightCheck());
-    this.presetBtnsEl = leftTools.createDiv({ cls: "llm-bridge-presets" });
+    this.preflightBtn.addEventListener("click", () => {
+      commandMenu.removeAttribute("open");
+      void this.runPreflightCheck();
+    });
+    const refreshContextBtn = commandMenuBody.createEl("button", {
+      cls: "llm-bridge-command-menu-item",
+      text: "刷新上下文",
+      attr: { title: "刷新当前笔记、选区和状态显示" },
+    });
+    refreshContextBtn.addEventListener("click", () => {
+      commandMenu.removeAttribute("open");
+      this.lastPreflightResult = null;
+      this.updateContextDisplay();
+      this.syncControlsFromSettings();
+    });
+    const pathAttachBtn = commandMenuBody.createEl("button", {
+      cls: "llm-bridge-command-menu-item llm-bridge-attach-path-btn",
+      text: "添加路径附件",
+      attr: { title: "通过路径添加附件（fallback/debug）" },
+    });
+    pathAttachBtn.addEventListener("click", () => {
+      commandMenu.removeAttribute("open");
+      void this.promptAndAddAttachmentFile();
+    });
+    this.presetBtnsEl = commandMenuBody.createDiv({ cls: "llm-bridge-presets" });
     for (const preset of PRESETS) {
       const btn = this.presetBtnsEl.createEl("button", {
         cls: "llm-bridge-preset-btn",
         text: preset.label,
         attr: { title: preset.hint, "data-preset": preset.type },
       });
-      btn.addEventListener("click", () => void this.applyPreset(preset.type));
+      btn.addEventListener("click", () => {
+        commandMenu.removeAttribute("open");
+        void this.applyPreset(preset.type);
+      });
     }
+
+    this.permissionModeChipEl = leftTools.createEl("button", {
+      cls: "llm-bridge-permission-chip",
+      attr: { title: "切换权限模式：受限 / 默认 / acceptEdits" },
+    });
+    this.permissionModeChipEl.addEventListener("click", () => void this.cyclePermissionMode());
 
     const inputRow = composerBar.createDiv({ cls: "llm-bridge-input-row" });
     this.inputEl = inputRow.createEl("textarea", {
@@ -817,6 +843,7 @@ export class LLMBridgeView extends ItemView {
     // cycle chips：显示当前选中标签
     this.refreshCycleChip(this.modelChipGroup, MODEL_OPTIONS, this.plugin.settings.model);
     this.refreshCycleChip(this.effortChipGroup, EFFORT_OPTIONS, this.plugin.settings.effortLevel);
+    this.refreshPermissionModeChip();
     // V2.4: Mode chip 已移除（仅 Fresh 可用，无需 refresh）
 
     // 上下文 chip 勾选态
@@ -829,6 +856,36 @@ export class LLMBridgeView extends ItemView {
   private refreshCycleChip(wrap: HTMLElement, options: { value: string; label: string }[], v: string): void {
     const chip = wrap.querySelector(".llm-bridge-chip") as HTMLButtonElement | null;
     if (chip) chip.textContent = this.labelForValue(options, v);
+  }
+
+  private permissionModeShortLabel(): string {
+    const mode = this.plugin.settings.claudePermissionMode ?? "default";
+    if (mode === "plan") return "受限";
+    if (mode === "default") return "默认";
+    if (mode === "acceptEdits") return "acceptEdits";
+    return mode;
+  }
+
+  private refreshPermissionModeChip(): void {
+    if (!this.permissionModeChipEl) return;
+    const mode = this.plugin.settings.claudePermissionMode ?? "default";
+    const info = getPermissionModeInfo(mode);
+    this.permissionModeChipEl.textContent = `权限：${this.permissionModeShortLabel()}`;
+    this.permissionModeChipEl.setAttribute("title", `权限模式：${info.label}\n${info.risk}\n点击切换：受限 / 默认 / acceptEdits`);
+    this.permissionModeChipEl.classList.remove("is-safe", "is-caution", "is-danger");
+    this.permissionModeChipEl.classList.add(`is-${info.level}`);
+  }
+
+  private async cyclePermissionMode(): Promise<void> {
+    if (this.runHandle) return;
+    const modes: Array<"plan" | "default" | "acceptEdits"> = ["plan", "default", "acceptEdits"];
+    const current = this.plugin.settings.claudePermissionMode ?? "default";
+    const index = modes.indexOf(current as "plan" | "default" | "acceptEdits");
+    const next = modes[(index + 1 + modes.length) % modes.length];
+    this.plugin.settings.claudePermissionMode = next;
+    await this.plugin.saveSettings();
+    this.refreshPermissionModeChip();
+    this.refreshStatusBar();
   }
 
   async onClose(): Promise<void> {
@@ -934,7 +991,7 @@ export class LLMBridgeView extends ItemView {
     this.sendBtn.style.display = running ? "none" : "inline-flex";
     this.sendBtn.disabled = running;
     // 禁用所有 chip 与 agent 下拉
-    const allChips = this.contentEl.querySelectorAll(".llm-bridge-chip, .llm-bridge-agent-select");
+    const allChips = this.contentEl.querySelectorAll(".llm-bridge-chip, .llm-bridge-agent-select, .llm-bridge-composer-tool-btn, .llm-bridge-command-menu-item, .llm-bridge-preset-btn, .llm-bridge-permission-chip");
     allChips.forEach((c) => {
       (c as HTMLButtonElement).disabled = running;
     });
@@ -1439,7 +1496,7 @@ export class LLMBridgeView extends ItemView {
       new Notice(`Preflight 失败: ${(e as Error)?.message || e}`);
     } finally {
       this.preflightBtn.disabled = false;
-      this.preflightBtn.textContent = "Preflight";
+      this.preflightBtn.textContent = "检测 runtime";
     }
   }
 
@@ -1677,13 +1734,14 @@ export class LLMBridgeView extends ItemView {
     }
 
     if (msg.stderr) {
-      const startOpen = failed;
-      this.appendCollapsible(details, "stderr", msg.stderr, "llm-bridge-stderr-text", startOpen, failed);
+      const startOpen = false;
+      this.appendCollapsible(details, failed ? "查看详情" : "stderr", msg.stderr, "llm-bridge-stderr-text", startOpen, failed);
       // V1.2/V1.5: 失败时提取 debug log 路径，提供可点击/复制/打开按钮
       if (failed) {
         const logPathMatch = msg.stderr.match(/Debug log:\s*(.+)/);
         if (logPathMatch && logPathMatch[1]) {
-          this.appendDebugLogPath(details, logPathMatch[1].trim());
+          const debugLogBody = this.createCollapsibleSection(details, "debug log", "llm-bridge-debug-log-collapse", false);
+          this.appendDebugLogPath(debugLogBody, logPathMatch[1].trim());
         }
       }
     }

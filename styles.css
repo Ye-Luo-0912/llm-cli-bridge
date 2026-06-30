@@ -517,6 +517,93 @@
   cursor: not-allowed;
 }
 
+.llm-bridge-command-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.llm-bridge-command-menu-summary {
+  list-style: none;
+}
+
+.llm-bridge-command-menu-summary::-webkit-details-marker {
+  display: none;
+}
+
+.llm-bridge-command-menu[open] .llm-bridge-command-menu-summary {
+  border-color: rgba(var(--interactive-accent-rgb), 0.55);
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-command-menu-body {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+.llm-bridge-command-menu-item {
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-normal);
+  text-align: left;
+  font-size: var(--font-smallest);
+  cursor: pointer;
+}
+
+.llm-bridge-command-menu-item:hover:not(:disabled) {
+  border-color: rgba(var(--interactive-accent-rgb), 0.28);
+  background: var(--background-modifier-hover);
+}
+
+.llm-bridge-permission-chip {
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.llm-bridge-permission-chip:hover:not(:disabled) {
+  border-color: rgba(var(--interactive-accent-rgb), 0.45);
+}
+
+.llm-bridge-permission-chip.is-safe {
+  color: #4caf50;
+  border-color: rgba(76, 175, 80, 0.35);
+}
+
+.llm-bridge-permission-chip.is-caution {
+  color: #fb8c00;
+  border-color: rgba(251, 140, 0, 0.35);
+}
+
+.llm-bridge-permission-chip.is-danger {
+  color: #e53935;
+  border-color: rgba(229, 57, 53, 0.4);
+}
+
+.llm-bridge-permission-chip:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .llm-bridge-action-col { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 
 .llm-bridge-send-btn,
@@ -894,24 +981,30 @@
 
 .llm-bridge-presets {
   display: flex;
-  gap: 6px;
+  flex-direction: column;
+  gap: 5px;
   padding: 0;
   border-bottom: none;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .llm-bridge-preset-btn {
-  padding: 5px 8px;
-  border: 1px solid var(--background-modifier-border);
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid transparent;
   border-radius: 8px;
-  background: var(--interactive-normal);
+  background: transparent;
   color: var(--text-normal);
   font-size: var(--font-smallest);
   cursor: pointer;
   white-space: nowrap;
+  text-align: left;
 }
 
-.llm-bridge-preset-btn:hover:not(:disabled) { background: var(--interactive-hover); }
+.llm-bridge-preset-btn:hover:not(:disabled) {
+  border-color: rgba(var(--interactive-accent-rgb), 0.28);
+  background: var(--background-modifier-hover);
+}
 .llm-bridge-preset-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* === V1.2: First Use Guide === */

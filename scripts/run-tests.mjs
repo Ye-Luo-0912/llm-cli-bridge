@@ -5312,7 +5312,7 @@ if (!runV24Unit) {
     {
       const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
       const agentChangeResets = /agentSelect\.addEventListener\([\s\S]*?lastPreflightResult = null/.test(viewSrc);
-      const refreshResets = /refreshBtn\.addEventListener\([\s\S]*?lastPreflightResult = null/.test(viewSrc);
+      const refreshResets = /refreshContextBtn\.addEventListener\([\s\S]*?lastPreflightResult = null/.test(viewSrc);
       addTest("V2.4 Preflight 缓存失效: agent 切换 + 手动刷新均重置",
         agentChangeResets && refreshResets ? "pass" : "fail",
         `agentChange=${agentChangeResets} refresh=${refreshResets}`);
@@ -10990,6 +10990,52 @@ if (!runV214BUnit) {
       addTest("V2.15-A UI shell: nav/topbar/chat/composer/files pages 存在且未扩展 runtime",
         ok ? "pass" : "fail",
         `shell=${shellOk} top=${topBarOk} composer=${composerOk} working=${workingSetOk} secondary=${secondaryOk} styles=${stylesOk} runtime=${noRuntimeExpansion} report=${reportOk}`);
+    }
+
+    {
+      const commandMenuOk = viewSrc.includes("llm-bridge-command-menu")
+        && viewSrc.includes("llm-bridge-command-menu-body")
+        && viewSrc.includes("检测 runtime")
+        && viewSrc.includes("添加路径附件")
+        && viewSrc.includes("this.presetBtnsEl = commandMenuBody.createDiv");
+      const permissionChipOk = viewSrc.includes("permissionModeChipEl")
+        && viewSrc.includes("permissionModeShortLabel")
+        && viewSrc.includes("cyclePermissionMode")
+        && viewSrc.includes("权限：")
+        && viewSrc.includes("\"plan\", \"default\", \"acceptEdits\"");
+      const topbarOk = !viewSrc.includes("const refreshBtn = headerRight.createEl")
+        && viewSrc.includes("llm-bridge-runtime-status")
+        && viewSrc.includes("llm-bridge-settings-btn")
+        && viewSrc.includes("+ 新聊天");
+      const collapsedDetailsOk = viewSrc.includes("failed ? \"查看详情\" : \"stderr\"")
+        && viewSrc.includes("const startOpen = false")
+        && viewSrc.includes("this.createCollapsibleSection(details, \"debug log\"")
+        && viewSrc.includes("this.appendDebugLogPath(debugLogBody");
+      const stylesOk = stylesSrc.includes(".llm-bridge-command-menu")
+        && stylesSrc.includes(".llm-bridge-command-menu-body")
+        && stylesSrc.includes(".llm-bridge-permission-chip")
+        && stylesSrc.includes(".llm-bridge-permission-chip.is-caution")
+        && stylesSrc.includes(".llm-bridge-preset-btn");
+      const noRuntimeExpansion = !runtimeFileToolAdapterSrc.includes("\"write\"")
+        && !runtimeFileToolAdapterSrc.includes("\"delete\"")
+        && !runtimeFileToolAdapterSrc.includes("\"rename\"")
+        && !fileToolExecutorSrc.includes("writeFile(")
+        && !fileToolExecutorSrc.includes("unlink(")
+        && !fileToolExecutorSrc.includes("rename(");
+      const reportPath = join(PROJECT_ROOT, "docs", "V2.15-B_VISUAL_SMOKE_COMPOSER_POLISH.md");
+      const reportOk = existsSync(reportPath)
+        && ["VisualSmoke", "ComposerPolish", "PermissionChip", "CommandMenu", "TopbarPolish", "ChatDetailsCollapse", "PreservedBehavior", "Tests", "RemainingRisk", "Recommendation"]
+          .every((heading) => readFileSync(reportPath, "utf8").includes(`## ${heading}`));
+      const ok = commandMenuOk
+        && permissionChipOk
+        && topbarOk
+        && collapsedDetailsOk
+        && stylesOk
+        && noRuntimeExpansion
+        && reportOk;
+      addTest("V2.15-B visual polish: composer 收敛、权限 chip、失败详情折叠且未扩展 runtime",
+        ok ? "pass" : "fail",
+        `command=${commandMenuOk} permission=${permissionChipOk} topbar=${topbarOk} details=${collapsedDetailsOk} styles=${stylesOk} runtime=${noRuntimeExpansion} report=${reportOk}`);
     }
   } catch (e) {
     addTest("V2.14.0-B Shared File Access Policy Module 单元测试段", "fail", e?.stack || e?.message || String(e));
