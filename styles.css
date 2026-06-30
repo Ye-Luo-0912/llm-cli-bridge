@@ -20,18 +20,19 @@
 }
 
 .llm-bridge-nav-rail {
-  width: 92px;
-  flex: 0 0 92px;
+  width: 44px;
+  flex: 0 0 44px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px 8px 10px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 4px;
   border-right: 1px solid var(--background-modifier-border);
   background: color-mix(in srgb, var(--background-secondary-alt) 80%, transparent);
 }
 
 .llm-bridge-nav-brand {
-  display: flex;
+  display: none;
   align-items: center;
   gap: 8px;
   padding: 6px 8px 16px;
@@ -59,13 +60,13 @@
 .llm-bridge-nav-item {
   position: relative;
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 5px;
-  min-height: 62px;
+  width: 34px;
+  height: 34px;
+  min-height: 34px;
   border: 1px solid transparent;
-  border-radius: 10px;
+  border-radius: 11px;
   background: transparent;
   color: var(--text-muted);
   cursor: pointer;
@@ -85,16 +86,16 @@
 .llm-bridge-nav-item.is-active::before {
   content: "";
   position: absolute;
-  left: -8px;
-  top: 10px;
-  bottom: 10px;
+  left: -5px;
+  top: 7px;
+  bottom: 7px;
   width: 3px;
   border-radius: 999px;
   background: var(--interactive-accent);
 }
 
 .llm-bridge-nav-icon {
-  font-size: 22px;
+  font-size: 18px;
   line-height: 1;
 }
 
@@ -107,6 +108,7 @@
 }
 
 .llm-bridge-nav-collapse {
+  display: none;
   border: none;
   background: transparent;
   color: var(--text-faint);
@@ -144,6 +146,43 @@
   padding: 10px 14px;
   background: color-mix(in srgb, var(--background-primary) 86%, transparent);
   backdrop-filter: blur(12px);
+}
+
+.llm-bridge-topbar-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 0 0 auto;
+  padding-right: 4px;
+}
+
+.llm-bridge-topbar-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+  box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb), 0.12);
+}
+
+.llm-bridge-topbar-title {
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.llm-bridge-page-title {
+  padding-left: 7px;
+  border-left: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .llm-bridge-session-selector {
@@ -2594,9 +2633,9 @@
 
 @media (max-width: 720px) {
   .llm-bridge-nav-rail {
-    width: 64px;
-    flex-basis: 64px;
-    padding-inline: 6px;
+    width: 40px;
+    flex-basis: 40px;
+    padding-inline: 3px;
   }
 
   .llm-bridge-nav-title,

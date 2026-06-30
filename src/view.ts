@@ -191,6 +191,7 @@ export class LLMBridgeView extends ItemView {
   // V2.15-A: Chat shell 页面分区。Files 只展示 refs/approval 状态，不执行文件 runtime。
   private tabPanels!: { chat: HTMLElement; files: HTMLElement; skills: HTMLElement; history: HTMLElement };
   private activeTab: "chat" | "files" | "skills" | "history" = "chat";
+  private pageTitleEl!: HTMLElement;
   // V2.7: 长会话旧消息折叠（false=折叠显示最近 N 条；true=展开全部）
   private messagesFoldExpanded = false;
   private inputEl!: HTMLTextAreaElement;
@@ -256,14 +257,15 @@ export class LLMBridgeView extends ItemView {
 
     const shell = root.createDiv({ cls: "llm-bridge-shell" });
     const nav = shell.createDiv({ cls: "llm-bridge-nav-rail" });
-    const brand = nav.createDiv({ cls: "llm-bridge-nav-brand" });
-    brand.createEl("span", { cls: "llm-bridge-nav-logo", text: "⌘" });
-    brand.createEl("span", { cls: "llm-bridge-nav-title", text: "Bridge" });
 
     const main = shell.createDiv({ cls: "llm-bridge-main" });
 
     // ===== 顶部栏：会话 / 新聊天 / 设置 / compact runtime status =====
     const header = main.createDiv({ cls: "llm-bridge-header llm-bridge-topbar" });
+    const topbarBrand = header.createDiv({ cls: "llm-bridge-topbar-brand" });
+    topbarBrand.createEl("span", { cls: "llm-bridge-topbar-logo", text: "⌘" });
+    topbarBrand.createEl("span", { cls: "llm-bridge-topbar-title", text: "Bridge" });
+    this.pageTitleEl = topbarBrand.createEl("span", { cls: "llm-bridge-page-title", text: "Chat" });
     const sessionPreview = header.createEl("button", {
       cls: "llm-bridge-session-selector",
       attr: { title: "当前会话预览；完整历史在 History 页面" },
@@ -309,24 +311,14 @@ export class LLMBridgeView extends ItemView {
     this.agentChipGroup = agentSelect;
 
     // ===== V2.15-A: 左侧 slim navigation rail（无 Settings 入口） =====
-    const chatTab = nav.createEl("button", { cls: "llm-bridge-nav-item is-active", attr: { "data-tab": "chat", title: "Chat" } });
+    const chatTab = nav.createEl("button", { cls: "llm-bridge-nav-item is-active", attr: { "data-tab": "chat", title: "Chat", "aria-label": "Chat" } });
     chatTab.createEl("span", { cls: "llm-bridge-nav-icon", text: "☏" });
-    chatTab.createEl("span", { cls: "llm-bridge-nav-label", text: "Chat" });
-    const filesTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "files", title: "Files" } });
+    const filesTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "files", title: "Files", "aria-label": "Files" } });
     filesTab.createEl("span", { cls: "llm-bridge-nav-icon", text: "▤" });
-    filesTab.createEl("span", { cls: "llm-bridge-nav-label", text: "Files" });
-    const skillsTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "skills", title: "Skills / Snippets" } });
+    const skillsTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "skills", title: "Skills / Snippets", "aria-label": "Skills" } });
     skillsTab.createEl("span", { cls: "llm-bridge-nav-icon", text: "◇" });
-    skillsTab.createEl("span", { cls: "llm-bridge-nav-label", text: "Skills" });
-    const historyTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "history", title: "History" } });
+    const historyTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "history", title: "History", "aria-label": "History" } });
     historyTab.createEl("span", { cls: "llm-bridge-nav-icon", text: "◷" });
-    historyTab.createEl("span", { cls: "llm-bridge-nav-label", text: "History" });
-    nav.createDiv({ cls: "llm-bridge-nav-spacer" });
-    nav.createEl("button", {
-      cls: "llm-bridge-nav-collapse",
-      text: "»",
-      attr: { title: "Navigation rail" },
-    });
 
     const pageStack = main.createDiv({ cls: "llm-bridge-page-stack" });
     const chatPanel = pageStack.createDiv({ cls: "llm-bridge-tab-panel llm-bridge-chat-page is-active", attr: { "data-panel": "chat" } });
@@ -342,6 +334,9 @@ export class LLMBridgeView extends ItemView {
       else if (tab === "skills") { skillsTab.classList.add("is-active"); skillsPanel.classList.add("is-active"); }
       else { historyTab.classList.add("is-active"); historyPanel.classList.add("is-active"); }
       this.activeTab = tab;
+      if (this.pageTitleEl) {
+        this.pageTitleEl.textContent = tab === "chat" ? "Chat" : tab === "files" ? "Files" : tab === "skills" ? "Skills" : "History";
+      }
       if (tab === "skills") {
         const sBody = skillsPanel.querySelector(".llm-bridge-skills-body") as HTMLElement | null;
         if (sBody && sBody.hasAttribute("hidden")) sBody.removeAttribute("hidden");

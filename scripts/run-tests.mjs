@@ -11037,6 +11037,55 @@ if (!runV214BUnit) {
         ok ? "pass" : "fail",
         `command=${commandMenuOk} permission=${permissionChipOk} topbar=${topbarOk} details=${collapsedDetailsOk} styles=${stylesOk} runtime=${noRuntimeExpansion} report=${reportOk}`);
     }
+
+    {
+      const iconOnlyRailOk = viewSrc.includes("llm-bridge-nav-rail")
+        && viewSrc.includes("llm-bridge-nav-icon")
+        && viewSrc.includes("\"aria-label\": \"Chat\"")
+        && viewSrc.includes("\"aria-label\": \"Files\"")
+        && viewSrc.includes("\"aria-label\": \"Skills\"")
+        && viewSrc.includes("\"aria-label\": \"History\"")
+        && !viewSrc.includes("llm-bridge-nav-brand")
+        && !viewSrc.includes("llm-bridge-nav-label")
+        && !viewSrc.includes("llm-bridge-nav-collapse");
+      const noLeftSettingsOrBrand = !/llm-bridge-nav-[^\\n]*Settings/.test(viewSrc)
+        && !/llm-bridge-nav-title[\s\S]{0,80}Bridge/.test(viewSrc);
+      const topbarBrandOk = viewSrc.includes("llm-bridge-topbar-brand")
+        && viewSrc.includes("llm-bridge-topbar-title")
+        && viewSrc.includes("llm-bridge-page-title")
+        && viewSrc.includes("text: \"Bridge\"")
+        && viewSrc.includes("this.pageTitleEl.textContent");
+      const compactStylesOk = /\.llm-bridge-nav-rail\s*\{[\s\S]{0,160}width:\s*44px/.test(stylesSrc)
+        && /flex:\s*0 0 44px/.test(stylesSrc)
+        && stylesSrc.includes(".llm-bridge-topbar-brand")
+        && stylesSrc.includes(".llm-bridge-page-title")
+        && /@media \(max-width: 720px\)[\s\S]{0,180}width:\s*40px/.test(stylesSrc);
+      const composerStillOk = viewSrc.includes("llm-bridge-command-menu")
+        && viewSrc.includes("llm-bridge-permission-chip")
+        && viewSrc.includes("rightTools.appendChild(agentSelect)")
+        && viewSrc.includes("this.modelChipGroup = this.buildChipGroup(rightTools")
+        && viewSrc.includes("this.effortChipGroup = this.buildChipGroup(rightTools");
+      const noRuntimeExpansion = !runtimeFileToolAdapterSrc.includes("\"write\"")
+        && !runtimeFileToolAdapterSrc.includes("\"delete\"")
+        && !runtimeFileToolAdapterSrc.includes("\"rename\"")
+        && !fileToolExecutorSrc.includes("writeFile(")
+        && !fileToolExecutorSrc.includes("unlink(")
+        && !fileToolExecutorSrc.includes("rename(");
+      const reportPath = join(PROJECT_ROOT, "docs", "V2.15-C_COMPACT_PLUGIN_SHELL_RC.md");
+      const reportOk = existsSync(reportPath)
+        && ["CompactRail", "TopbarBrand", "PageHeaders", "ComposerPreserved", "VisualSmoke", "Tests", "RemainingRisk", "Recommendation"]
+          .every((heading) => readFileSync(reportPath, "utf8").includes(`## ${heading}`));
+      const ok = iconOnlyRailOk
+        && noLeftSettingsOrBrand
+        && topbarBrandOk
+        && compactStylesOk
+        && composerStillOk
+        && noRuntimeExpansion
+        && reportOk;
+      addTest("V2.15-C compact shell: 左侧 icon-only rail，Bridge 移至 topbar，runtime 未扩展",
+        ok ? "pass" : "fail",
+        `rail=${iconOnlyRailOk} left=${noLeftSettingsOrBrand} topbar=${topbarBrandOk} styles=${compactStylesOk} composer=${composerStillOk} runtime=${noRuntimeExpansion} report=${reportOk}`);
+    }
   } catch (e) {
     addTest("V2.14.0-B Shared File Access Policy Module 单元测试段", "fail", e?.stack || e?.message || String(e));
   }
