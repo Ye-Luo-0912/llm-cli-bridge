@@ -11156,7 +11156,11 @@ if (!runV214BUnit) {
         && viewSrc.includes("llm-bridge-effort-list")
         && !viewSrc.includes("llm-bridge-model-effort-select")
         && !viewSrc.includes("modelEffortSelectEl")
+        && viewSrc.includes('registerDomEvent(document, "pointerdown"')
+        && viewSrc.includes('registerDomEvent(document, "keydown"')
         && stylesSrc.includes(".llm-bridge-model-effort-popover")
+        && stylesSrc.includes(".llm-bridge-model-effort-popover[hidden]")
+        && stylesSrc.includes("display: none !important")
         && stylesSrc.includes("padding-bottom: 44px");
       const reportPath = join(PROJECT_ROOT, "docs", "V2.15-F_AGENT_SKILLS_REGISTRY.md");
       const reportOk = existsSync(reportPath)

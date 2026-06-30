@@ -949,8 +949,8 @@ export class LLMBridgeView extends ItemView {
       });
       option.addEventListener("click", (event) => {
         event.stopPropagation();
-        void this.setModelEffort(model.value, this.plugin.settings.effortLevel);
         this.closeModelEffortPopover();
+        void this.setModelEffort(model.value, this.plugin.settings.effortLevel);
       });
     }
     const effortColumn = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-column llm-bridge-effort-list" });
@@ -963,17 +963,20 @@ export class LLMBridgeView extends ItemView {
       });
       option.addEventListener("click", (event) => {
         event.stopPropagation();
-        void this.setModelEffort(this.plugin.settings.model, effort.value);
         this.closeModelEffortPopover();
+        void this.setModelEffort(this.plugin.settings.model, effort.value);
       });
     }
     this.modelEffortPickerEl.addEventListener("keydown", (event) => {
       if (event.key === "Escape") this.closeModelEffortPopover();
     });
-    this.registerDomEvent(document, "click", (event) => {
+    this.registerDomEvent(document, "pointerdown", (event) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest(".llm-bridge-model-effort-picker")) return;
       this.closeModelEffortPopover();
+    });
+    this.registerDomEvent(document, "keydown", (event) => {
+      if (event.key === "Escape") this.closeModelEffortPopover();
     });
   }
 
@@ -991,6 +994,7 @@ export class LLMBridgeView extends ItemView {
     if (!this.modelEffortPopoverEl) return;
     if (this.modelEffortPopoverEl.hasAttribute("hidden")) {
       this.modelEffortPopoverEl.removeAttribute("hidden");
+      this.modelEffortPopoverEl.classList.add("is-open");
       this.modelEffortButtonEl?.setAttribute("aria-expanded", "true");
     } else {
       this.closeModelEffortPopover();
@@ -1000,6 +1004,7 @@ export class LLMBridgeView extends ItemView {
   private closeModelEffortPopover(): void {
     if (!this.modelEffortPopoverEl) return;
     this.modelEffortPopoverEl.setAttribute("hidden", "");
+    this.modelEffortPopoverEl.classList.remove("is-open");
     this.modelEffortButtonEl?.setAttribute("aria-expanded", "false");
   }
 

@@ -2801,6 +2801,9 @@
   background: var(--background-secondary);
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
 }
+.llm-bridge-model-effort-popover[hidden] {
+  display: none !important;
+}
 .llm-bridge-model-effort-column {
   display: flex;
   flex-direction: column;
