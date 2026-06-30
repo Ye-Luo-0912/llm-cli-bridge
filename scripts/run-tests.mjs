@@ -9486,6 +9486,7 @@ if (!runV214BUnit) {
     const reportSrcV214L = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-L_CLI_SDK_NATIVE_HANDOFF_SIMPLIFICATION.md"), "utf8");
     const reportSrcV214M = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-M_REAL_OBSIDIAN_SMOKE_NATIVE_HANDOFF_UX.md"), "utf8");
     const reportSrcV214N = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-N_REAL_OBSIDIAN_RUNTIME_SMOKE_RELEASE_UX.md"), "utf8");
+    const reportSrcV214N1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-N1_NATIVE_RUNTIME_CERTIFICATE_FIX_SMOKE_RERUN.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
@@ -10790,6 +10791,42 @@ if (!runV214BUnit) {
       addTest("V2.14.0-N real runtime smoke: artifact freshness、bridge 在线、边界真实验证且未扩展 runtime",
         ok ? "pass" : "fail",
         `sections=${sectionsOk} smoke=${realSmokeEvidenceOk} nativeLimit=${honestNativeLimitOk} boundary=${boundaryEvidenceOk} runtime=${noRuntimeExpansionOk}`);
+    }
+
+    {
+      const sectionsOk = [
+        "CertificateDiagnosis",
+        "ClaudeCodeSmoke",
+        "SdkSmoke",
+        "VaultSelection",
+        "NativeReadEditResult",
+        "RemainingRisk",
+        "Recommendation",
+      ].every((heading) => reportSrcV214N1.includes(`## ${heading}`));
+      const diagnosisOk = reportSrcV214N1.includes("where claude")
+        && reportSrcV214N1.includes("v22.22.2")
+        && reportSrcV214N1.includes("HTTPS_PROXY")
+        && reportSrcV214N1.includes("NODE_USE_SYSTEM_CA=1")
+        && reportSrcV214N1.includes("NODE_EXTRA_CA_CERTS")
+        && reportSrcV214N1.includes("NODE_TLS_REJECT_UNAUTHORIZED=0");
+      const failureEvidenceOk = reportSrcV214N1.includes("ark.cn-beijing.volces.com")
+        && reportSrcV214N1.includes("ECONNRESET")
+        && reportSrcV214N1.includes("TLS handshake")
+        && reportSrcV214N1.includes("Connection error")
+        && reportSrcV214N1.includes("TARGET_EXISTS=False");
+      const vaultOk = reportSrcV214N1.includes("D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-Wiki")
+        && reportSrcV214N1.includes("`pluginVersion` `2.12.1`")
+        && reportSrcV214N1.includes("GET /state");
+      const noRuntimeExpansionOk = !runtimeFileToolAdapterSrc.includes("\"write\"")
+        && !runtimeFileToolAdapterSrc.includes("\"delete\"")
+        && !runtimeFileToolAdapterSrc.includes("\"rename\"")
+        && !runtimeFileToolAdapterSrc.includes("writeFile")
+        && !runtimeFileToolAdapterSrc.includes("unlink")
+        && !runtimeFileToolAdapterSrc.includes("rename(");
+      const ok = sectionsOk && diagnosisOk && failureEvidenceOk && vaultOk && noRuntimeExpansionOk;
+      addTest("V2.14.0-N1 native cert rerun: TLS 诊断、CLI/SDK 明确 fail 证据、唯一测试 Vault 且未扩展 runtime",
+        ok ? "pass" : "fail",
+        `sections=${sectionsOk} diagnosis=${diagnosisOk} fail=${failureEvidenceOk} vault=${vaultOk} runtime=${noRuntimeExpansionOk}`);
     }
 
     {
