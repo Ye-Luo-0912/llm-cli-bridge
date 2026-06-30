@@ -2,7 +2,7 @@
 // 运行：node scripts/run-tests.mjs
 // 输出：docs/test-report.md
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, statSync, readdirSync, mkdtempSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, statSync, readdirSync, mkdtempSync, symlinkSync } from "node:fs";
 import { join, resolve, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
@@ -9421,6 +9421,7 @@ if (!runV214BUnit) {
     const reportSrcV214G = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-G_COMPOSER_ATTACHMENTS_WORKING_SET_INGESTION.md"), "utf8");
     const reportSrcV214H = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-H_NATIVE_ATTACHMENTS_FILEREF_INDEX_READ_POLICY.md"), "utf8");
     const reportSrcV214I = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-I_REAL_FILE_TOOL_EXECUTION.md"), "utf8");
+    const reportSrcV214I1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-I1_FILE_TOOL_REALPATH_SYMLINK_HARDENING.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
@@ -9478,9 +9479,11 @@ if (!runV214BUnit) {
         .every((heading) => reportSrcV214H.includes(heading));
       const reportIOk = ["## FileToolExecutor", "## PolicyGateFlow", "## BoundedRead", "## ListSearchLimits", "## ClaudeReadHandoff", "## WorkingSetIntegration", "## Tests", "## RemainingRisk", "## Recommendation"]
         .every((heading) => reportSrcV214I.includes(heading));
-      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk ? "pass" : "fail",
-        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk}`);
+      const reportI1Ok = ["## RealpathCheck", "## SymlinkPolicy", "## ListSearchTraversalSafety", "## Tests", "## Recommendation"]
+        .every((heading) => reportSrcV214I1.includes(heading));
+      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I/I1 exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk && reportI1Ok ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk} reportI1=${reportI1Ok}`);
     }
 
     {
@@ -10154,6 +10157,75 @@ if (!runV214BUnit) {
       addTest("V2.14.0-I real file tool executor: policy gate、bounded read、safe list/search、Claude Read handoff",
         ok ? "pass" : "fail",
         `stat=${statOk} read=${readOk} listSearch=${listSearchOk} external=${externalOk} gate=${gateFirst} noWrite=${noWriteOps} limits=${staticLimits} view=${viewCaller}`);
+    }
+
+    {
+      const vault = mkdtempSync(join(tmpdir(), "llm-bridge-i1-vault-"));
+      const external = mkdtempSync(join(tmpdir(), "llm-bridge-i1-external-"));
+      const docsDir = join(vault, "docs");
+      const externalDir = join(external, "external-dir");
+      mkdirSync(docsDir, { recursive: true });
+      mkdirSync(externalDir, { recursive: true });
+      const inside = join(docsDir, "inside.md");
+      const externalFile = join(external, "outside.md");
+      const externalSensitive = join(external, ".env");
+      const externalNested = join(externalDir, "escape.md");
+      const fileLink = join(vault, "link-out.md");
+      const sensitiveLink = join(vault, "link-sensitive.md");
+      const dirLink = join(docsDir, "linked-external-dir");
+      writeFileSync(inside, "inside needle", "utf8");
+      writeFileSync(externalFile, "outside via symlink", "utf8");
+      writeFileSync(externalSensitive, "TOKEN=secret", "utf8");
+      writeFileSync(externalNested, "escape needle", "utf8");
+
+      let symlinkOk = true;
+      try {
+        symlinkSync(externalFile, fileLink, "file");
+        symlinkSync(externalSensitive, sensitiveLink, "file");
+        symlinkSync(externalDir, dirLink, process.platform === "win32" ? "junction" : "dir");
+      } catch (error) {
+        symlinkOk = false;
+        addTest("V2.14.0-I1 symlink realpath hardening runtime test", "skip", `当前环境无法创建 symlink/junction: ${error?.message || String(error)}`);
+      }
+
+      if (symlinkOk) {
+        const vaultPolicy = createFileAccessPolicy({ vaultPath: vault });
+        const readEscapingLink = await executeFileTool(vaultPolicy, { operation: "read", path: fileLink });
+        const statEscapingLink = await executeFileTool(vaultPolicy, { operation: "stat", path: fileLink });
+        const readSensitiveLink = await executeFileTool(vaultPolicy, { operation: "read", path: sensitiveLink });
+        const listDocs = await executeFileTool(vaultPolicy, { operation: "list", path: docsDir, limits: { maxListEntries: 20, maxListDepth: 3 } });
+        const searchDocs = await executeFileTool(vaultPolicy, { operation: "search", path: docsDir, query: "needle", limits: { maxSearchFiles: 20, maxSearchResults: 20 } });
+        const readInside = await executeFileTool(vaultPolicy, { operation: "read", path: inside });
+        const grantedPolicy = createFileAccessPolicy({
+          vaultPath: vault,
+          sessionReadGrants: [{ path: external, scope: "session", match: "directory" }],
+        });
+        const readGrantedLink = await executeFileTool(grantedPolicy, { operation: "read", path: fileLink });
+        const staticHardening = fileToolExecutorSrc.includes("fs.promises.lstat")
+          && fileToolExecutorSrc.includes("fs.promises.realpath")
+          && fileToolExecutorSrc.includes("isSymbolicLink()")
+          && fileToolExecutorSrc.includes("resolveRealExecutionTarget")
+          && fileToolExecutorSrc.includes("evaluateFileToolPolicy(policy");
+        const escapeListBlocked = listDocs.status === "allow"
+          && !listDocs.entries.some((entry) => entry.path === dirLink || entry.path === externalNested || entry.name === "escape.md");
+        const escapeSearchBlocked = searchDocs.status === "allow"
+          && searchDocs.matches.some((match) => match.path === inside)
+          && !searchDocs.matches.some((match) => match.path === externalNested);
+        const ok = readEscapingLink.status === "confirm"
+          && statEscapingLink.status === "confirm"
+          && readSensitiveLink.status === "deny"
+          && readSensitiveLink.reason === "sensitive_path"
+          && escapeListBlocked
+          && escapeSearchBlocked
+          && readInside.status === "allow"
+          && readInside.content.includes("inside needle")
+          && readGrantedLink.status === "allow"
+          && readGrantedLink.content.includes("outside via symlink")
+          && staticHardening;
+        addTest("V2.14.0-I1 symlink realpath hardening: read/stat/list/search 不越权",
+          ok ? "pass" : "fail",
+          `readLink=${readEscapingLink.status} statLink=${statEscapingLink.status} sensitive=${readSensitiveLink.status}/${readSensitiveLink.reason} listBlocked=${escapeListBlocked} searchBlocked=${escapeSearchBlocked} inside=${readInside.status} granted=${readGrantedLink.status} static=${staticHardening}`);
+      }
     }
 
     {

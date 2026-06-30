@@ -135,10 +135,30 @@ export async function executeFileTool(policy: FileAccessPolicy, request: FileToo
   }
 
   try {
-    if (request.operation === "stat") return await executeStat(base, gate.resolvedPath);
-    if (request.operation === "read") return await executeRead(base, gate.resolvedPath, request.limits || {});
-    if (request.operation === "list") return await executeList(base, gate.resolvedPath, request.limits || {});
-    return await executeSearch(base, gate.resolvedPath, request.query || "", request.limits || {});
+    const target = await resolveRealExecutionTarget(policy, request, gate.resolvedPath);
+    if (target.status === "confirm") {
+      return {
+        ...base,
+        resolvedPath: target.resolvedPath,
+        status: "confirm",
+        reason: target.reason,
+        pendingRequest: target.pendingRequest || undefined,
+      } as FileToolResult;
+    }
+    if (target.status === "deny") {
+      return {
+        ...base,
+        resolvedPath: target.resolvedPath,
+        status: "deny",
+        reason: target.reason,
+      } as FileToolResult;
+    }
+
+    const realBase = { ...base, resolvedPath: target.resolvedPath };
+    if (request.operation === "stat") return await executeStat(realBase, target.resolvedPath);
+    if (request.operation === "read") return await executeRead(realBase, target.resolvedPath, request.limits || {});
+    if (request.operation === "list") return await executeList(realBase, target.resolvedPath, request.limits || {});
+    return await executeSearch(realBase, target.resolvedPath, request.query || "", request.limits || {});
   } catch (error) {
     return {
       ...base,
@@ -147,6 +167,50 @@ export async function executeFileTool(policy: FileAccessPolicy, request: FileToo
       fileType: gate.resolvedPath ? classifyFileTypeByPath(gate.resolvedPath) : undefined,
     } as FileToolResult;
   }
+}
+
+async function resolveRealExecutionTarget(
+  policy: FileAccessPolicy,
+  request: FileToolExecutionRequest,
+  resolvedPath: string,
+): Promise<{
+  status: "allow" | "confirm" | "deny";
+  reason: string;
+  resolvedPath: string;
+  pendingRequest?: PendingExternalReadRequest | null;
+}> {
+  const lstat = await fs.promises.lstat(resolvedPath);
+  const realPath = await fs.promises.realpath(resolvedPath);
+  if (isSensitivePath(resolvedPath) || isSensitivePath(realPath)) {
+    return { status: "deny", reason: "sensitive_path", resolvedPath: realPath };
+  }
+
+  const pathChanged = normalizeForCompare(realPath) !== normalizeForCompare(resolvedPath);
+  const isSymlink = lstat.isSymbolicLink();
+  if (!pathChanged && !isSymlink) {
+    return { status: "allow", reason: "realpath_authorized", resolvedPath: realPath };
+  }
+
+  const realGate = evaluateFileToolPolicy(policy, {
+    operation: request.operation,
+    path: realPath,
+    source: request.source || "agent",
+    pathKind: request.operation === "list" || request.operation === "search" ? "directory" : "file",
+    knownProjectRootMarkers: request.knownProjectRootMarkers || [],
+    fileRefs: request.fileRefs || [],
+  });
+  if (realGate.decision === "confirm") {
+    return {
+      status: "confirm",
+      reason: realGate.reason,
+      resolvedPath: realGate.resolvedPath || realPath,
+      pendingRequest: realGate.pendingRequest,
+    };
+  }
+  if (realGate.decision === "deny" || !realGate.resolvedPath) {
+    return { status: "deny", reason: realGate.reason, resolvedPath: realGate.resolvedPath || realPath };
+  }
+  return { status: "allow", reason: "realpath_authorized", resolvedPath: realGate.resolvedPath };
 }
 
 async function executeStat(base: Pick<FileToolResultBase, "operation" | "path" | "resolvedPath">, resolvedPath: string): Promise<FileToolStatResult> {
@@ -255,17 +319,18 @@ async function collectListEntries(
     if (entries.length >= maxEntries) break;
     const childPath = path.join(current, dirent.name);
     if (isSensitivePath(childPath)) continue;
-    const stat = await safeStat(childPath);
+    const stat = await safeLstat(childPath);
+    if (!stat || stat.isSymbolicLink()) continue;
     entries.push({
       name: dirent.name,
       path: childPath,
-      isFile: dirent.isFile(),
-      isDirectory: dirent.isDirectory(),
+      isFile: stat.isFile(),
+      isDirectory: stat.isDirectory(),
       fileType: classifyFileTypeByPath(childPath),
-      size: stat?.size ?? null,
-      mtime: stat?.mtime.toISOString() ?? null,
+      size: stat.size,
+      mtime: stat.mtime.toISOString(),
     });
-    if (dirent.isDirectory() && depth + 1 <= maxDepth) {
+    if (stat.isDirectory() && depth + 1 <= maxDepth) {
       await collectListEntries(root, childPath, depth + 1, maxDepth, maxEntries, entries);
     }
   }
@@ -320,8 +385,9 @@ async function collectSearchFiles(root: string, allowedExts: Set<string>, maxFil
   const out: string[] = [];
   async function walk(current: string): Promise<void> {
     if (out.length >= maxFiles || isSensitivePath(current)) return;
-    const stat = await safeStat(current);
+    const stat = await safeLstat(current);
     if (!stat) return;
+    if (stat.isSymbolicLink()) return;
     if (stat.isFile()) {
       if (allowedExts.has(path.extname(current).toLowerCase())) out.push(current);
       return;
@@ -337,9 +403,24 @@ async function collectSearchFiles(root: string, allowedExts: Set<string>, maxFil
   return out;
 }
 
+function normalizeForCompare(input: string): string {
+  const normalized = input.includes("\\") || /^[a-zA-Z]:[\\/]/.test(input)
+    ? path.win32.normalize(input).toLowerCase()
+    : path.posix.normalize(input);
+  return normalized;
+}
+
 async function safeStat(filePath: string): Promise<fs.Stats | null> {
   try {
     return await fs.promises.stat(filePath);
+  } catch {
+    return null;
+  }
+}
+
+async function safeLstat(filePath: string): Promise<fs.Stats | null> {
+  try {
+    return await fs.promises.lstat(filePath);
   } catch {
     return null;
   }
