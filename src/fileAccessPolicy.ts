@@ -3,6 +3,8 @@ import * as path from "path";
 export type FileAccessOperation = "read" | "write" | "delete" | "rename";
 export type FileAccessDecision = "allow" | "confirm" | "deny";
 export type FileAccessRisk = "low" | "medium" | "high";
+export type FileAccessPathKind = "file" | "directory";
+export type GrantRootSafety = "allow" | "confirm" | "deny";
 
 export type FileAccessReason =
   | "inside_read_root"
@@ -58,6 +60,31 @@ export interface FileAccessEvaluation {
   risk: FileAccessRisk;
   resolvedPath: string | null;
   matchedRoot?: FileAccessRoot;
+}
+
+export interface PendingExternalReadRequest {
+  id: string;
+  requestedPath: string;
+  resolvedPath: string;
+  proposedGrantRoot: string | null;
+  operation: "read";
+  risk: FileAccessRisk;
+  reason: FileAccessReason;
+  createdAt: string;
+  source: string;
+  grantRootSafety: GrantRootSafety;
+}
+
+export interface PendingReadRequestOptions {
+  pathKind?: FileAccessPathKind;
+  source?: string;
+  now?: string;
+  knownProjectRootMarkers?: string[];
+}
+
+export interface SessionReadGrantStore {
+  sessionReadGrants: FileAccessReadGrant[];
+  pendingReadRequests: PendingExternalReadRequest[];
 }
 
 interface ParsedPath {
@@ -142,6 +169,113 @@ export function evaluateFileAccess(policy: FileAccessPolicy, request: FileAccess
   }
 
   return buildDecision(request.operation, "allow", "inside_write_root", writeRoot.kind === "output" ? "low" : "medium", parsed.resolvedPath, writeRoot);
+}
+
+export function createSessionReadGrantStore(): SessionReadGrantStore {
+  return { sessionReadGrants: [], pendingReadRequests: [] };
+}
+
+export function createPendingExternalReadRequest(
+  policy: FileAccessPolicy,
+  request: FileAccessRequest,
+  options: PendingReadRequestOptions = {},
+): PendingExternalReadRequest | null {
+  const evaluation = evaluateFileAccess(policy, request);
+  if (request.operation !== "read" || evaluation.decision !== "confirm" || evaluation.reason !== "pending_read_request" || !evaluation.resolvedPath) {
+    return null;
+  }
+
+  const proposed = inferProposedGrantRoot(evaluation.resolvedPath, {
+    pathKind: options.pathKind || "file",
+    knownProjectRootMarkers: options.knownProjectRootMarkers || [],
+  });
+  const safety = proposed ? assessGrantRootSafety(proposed) : "deny";
+  const risk: FileAccessRisk = safety === "allow" ? "medium" : "high";
+  const createdAt = options.now || new Date().toISOString();
+  const source = options.source || "agent";
+
+  return {
+    id: stablePendingReadRequestId(evaluation.resolvedPath, createdAt, source),
+    requestedPath: request.path,
+    resolvedPath: evaluation.resolvedPath,
+    proposedGrantRoot: proposed,
+    operation: "read",
+    risk,
+    reason: evaluation.reason,
+    createdAt,
+    source,
+    grantRootSafety: safety,
+  };
+}
+
+export function enqueuePendingExternalReadRequest(
+  store: SessionReadGrantStore,
+  pending: PendingExternalReadRequest | null,
+): SessionReadGrantStore {
+  if (!pending) return store;
+  if (store.pendingReadRequests.some((item) => item.id === pending.id)) return store;
+  return {
+    sessionReadGrants: [...store.sessionReadGrants],
+    pendingReadRequests: [...store.pendingReadRequests, pending],
+  };
+}
+
+export function approvePendingExternalReadRequest(
+  store: SessionReadGrantStore,
+  requestId: string,
+  options: { grantedAt?: string; forceFileScope?: boolean } = {},
+): SessionReadGrantStore {
+  const pending = store.pendingReadRequests.find((item) => item.id === requestId);
+  if (!pending || pending.grantRootSafety !== "allow" || !pending.proposedGrantRoot) {
+    return store;
+  }
+
+  const grant: FileAccessReadGrant = {
+    path: options.forceFileScope ? pending.resolvedPath : pending.proposedGrantRoot,
+    scope: "session",
+    match: options.forceFileScope ? "file" : "directory",
+    grantedAt: options.grantedAt || new Date().toISOString(),
+    source: pending.source,
+  };
+
+  return {
+    sessionReadGrants: dedupeReadGrants([...store.sessionReadGrants, grant]),
+    pendingReadRequests: store.pendingReadRequests.filter((item) => item.id !== requestId),
+  };
+}
+
+export function inferProposedGrantRoot(
+  resolvedPath: string,
+  options: { pathKind?: FileAccessPathKind; knownProjectRootMarkers?: string[] } = {},
+): string {
+  if (options.pathKind === "directory") {
+    return parseRootPath(resolvedPath).resolvedPath;
+  }
+
+  const filePath = parseRootPath(resolvedPath);
+  const pathApi = filePath.flavor === "win32" ? path.win32 : path.posix;
+  const parentDir = pathApi.dirname(filePath.resolvedPath);
+  const projectRoot = inferKnownProjectRoot(parentDir, options.knownProjectRootMarkers || []);
+  return projectRoot || parentDir;
+}
+
+export function assessGrantRootSafety(rootPath: string): GrantRootSafety {
+  const parsed = parseRootPath(rootPath);
+  const pathApi = parsed.flavor === "win32" ? path.win32 : path.posix;
+  const root = pathApi.parse(parsed.resolvedPath).root;
+  if (parsed.resolvedPath === normalizeCase(root, parsed.flavor)) return "deny";
+
+  const normalized = parsed.resolvedPath.replace(/\\/g, "/").toLowerCase();
+  const parts = normalized.split("/").filter(Boolean);
+  const basename = parts[parts.length - 1] || "";
+  if (parsed.flavor === "win32" && /^c:$/.test(parts[0] || "")) {
+    const systemDirs = ["windows", "program files", "program files (x86)", "programdata"];
+    if (systemDirs.includes((parts[1] || "").toLowerCase())) return "deny";
+    if ((parts[1] || "").toLowerCase() === "users" && parts.length === 3) return "confirm";
+  }
+  if (parsed.flavor === "posix" && ["/home", "/users"].includes(normalized)) return "deny";
+  if (["desktop", "downloads"].includes(basename)) return "confirm";
+  return "allow";
 }
 
 export function normalizeFileAccessPath(input: string, basePath?: string): string | null {
@@ -245,6 +379,51 @@ function readGrantRoots(grants: FileAccessReadGrant[], kind: "session-grant" | "
     });
   }
   return roots;
+}
+
+function dedupeReadGrants(grants: FileAccessReadGrant[]): FileAccessReadGrant[] {
+  const seen = new Set<string>();
+  const out: FileAccessReadGrant[] = [];
+  for (const grant of grants) {
+    const parsed = parseRootPath(grant.path);
+    const key = `${grant.scope}:${grant.match || "file"}:${parsed.resolvedPath}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(grant);
+  }
+  return out;
+}
+
+function inferKnownProjectRoot(parentDir: string, knownProjectRootMarkers: string[]): string | null {
+  const parent = parseRootPath(parentDir);
+  const pathApi = parent.flavor === "win32" ? path.win32 : path.posix;
+  let bestRoot: string | null = null;
+
+  for (const marker of knownProjectRootMarkers) {
+    const markerPath = parseRootPath(marker);
+    if (markerPath.flavor !== parent.flavor) continue;
+    const markerName = pathApi.basename(markerPath.resolvedPath).toLowerCase();
+    if (![".git", "package.json", ".sln", ".csproj", "pyproject.toml", "go.mod", "cargo.toml"].some((name) => markerName === name || markerName.endsWith(name))) {
+      continue;
+    }
+    const markerRoot = pathApi.dirname(markerPath.resolvedPath);
+    if (!isPathInside(parent.resolvedPath, markerRoot)) continue;
+    if (!bestRoot || markerRoot.length > bestRoot.length) {
+      bestRoot = markerRoot;
+    }
+  }
+
+  return bestRoot;
+}
+
+function stablePendingReadRequestId(resolvedPath: string, createdAt: string, source: string): string {
+  let hash = 2166136261;
+  const input = `${resolvedPath}|${createdAt}|${source}`;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `read-${(hash >>> 0).toString(16)}`;
 }
 
 function buildDecision(

@@ -9329,24 +9329,46 @@ if (!runV214BUnit) {
       normalizeFileAccessPath,
       isPathInside,
       isSensitivePath,
+      createSessionReadGrantStore,
+      createPendingExternalReadRequest,
+      enqueuePendingExternalReadRequest,
+      approvePendingExternalReadRequest,
+      inferProposedGrantRoot,
+      assessGrantRootSafety,
     } = await import(pathToFileURL(fileAccessPolicyBundleV214B).href);
 
     const reportSrc = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-B_FILE_ACCESS_POLICY_MODULE.md"), "utf8");
     const reportSrcV214C = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-C_ON_DEMAND_EXTERNAL_READ_AUTHORIZATION.md"), "utf8");
+    const reportSrcV214D = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-D_SESSION_DIRECTORY_READ_GRANTS.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const cliBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeCliBackend.ts"), "utf8");
     const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
     const agentBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "agentBackend.ts"), "utf8");
 
     {
-      const exportsOk = [createFileAccessPolicy, evaluateFileAccess, normalizeFileAccessPath, isPathInside, isSensitivePath]
+      const exportsOk = [
+        createFileAccessPolicy,
+        evaluateFileAccess,
+        normalizeFileAccessPath,
+        isPathInside,
+        isSensitivePath,
+        createSessionReadGrantStore,
+        createPendingExternalReadRequest,
+        enqueuePendingExternalReadRequest,
+        approvePendingExternalReadRequest,
+        inferProposedGrantRoot,
+        assessGrantRootSafety,
+      ]
         .every((fn) => typeof fn === "function");
       const reportOk = ["## PolicyTypes", "## Decisions", "## PathSafety", "## Tests", "## RemainingRisk", "## Recommendation"]
         .every((heading) => reportSrc.includes(heading));
       const reportCOk = ["## GrantModel", "## DecisionFlow", "## UserFriction", "## Tests", "## RemainingRisk", "## Recommendation"]
         .every((heading) => reportSrcV214C.includes(heading));
-      addTest("V2.14.0-B/C exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk ? "pass" : "fail", `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk}`);
+      const reportDOk = ["## GrantStore", "## GrantRootInference", "## PendingFlow", "## DirectoryGrantRules", "## SafetyRules", "## Tests", "## RemainingRisk", "## Recommendation"]
+        .every((heading) => reportSrcV214D.includes(heading));
+      addTest("V2.14.0-B/C/D exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk}`);
     }
 
     {
@@ -9460,6 +9482,85 @@ if (!runV214BUnit) {
       addTest("V2.14.0-B/B1 sensitive: read 可 confirm，写删改敏感路径 hard deny",
         ok ? "pass" : "fail",
         `readDeny=${denied.decision}/${denied.reason} readConfirm=${confirmed.decision}/${confirmed.risk} write=${writeConfirmed.decision} delete=${deleteConfirmed.decision} renameSrc=${renameSensitiveSource.decision} renameTarget=${renameSensitiveTarget.decision} direct=${directSensitive}`);
+    }
+
+    {
+      const basePolicy = createFileAccessPolicy({ vaultPath: "C:\\Vault" });
+      const store0 = createSessionReadGrantStore();
+      const pending = createPendingExternalReadRequest(
+        basePolicy,
+        { operation: "read", path: "D:\\Work\\Project\\src\\index.ts" },
+        {
+          now: "2026-06-30T00:00:00.000Z",
+          source: "unit",
+          knownProjectRootMarkers: ["D:\\Work\\Project\\package.json"],
+        },
+      );
+      const nonReadPending = createPendingExternalReadRequest(basePolicy, { operation: "write", path: "D:\\Work\\Project\\src\\index.ts" });
+      const store1 = enqueuePendingExternalReadRequest(store0, pending);
+      const store2 = approvePendingExternalReadRequest(store1, pending?.id || "", { grantedAt: "2026-06-30T00:01:00.000Z" });
+      const grantedPolicy = createFileAccessPolicy({ vaultPath: "C:\\Vault", sessionReadGrants: store2.sessionReadGrants });
+      const sameFile = evaluateFileAccess(grantedPolicy, { operation: "read", path: "D:\\Work\\Project\\src\\index.ts" });
+      const sibling = evaluateFileAccess(grantedPolicy, { operation: "read", path: "D:\\Work\\Project\\src\\util.ts" });
+      const sensitiveSibling = evaluateFileAccess(grantedPolicy, { operation: "read", path: "D:\\Work\\Project\\.env" });
+      const externalWrite = evaluateFileAccess(grantedPolicy, { operation: "write", path: "D:\\Work\\Project\\src\\index.ts" });
+      const externalDelete = evaluateFileAccess(grantedPolicy, { operation: "delete", path: "D:\\Work\\Project\\src\\index.ts" });
+      const externalRename = evaluateFileAccess(grantedPolicy, { operation: "rename", path: "D:\\Work\\Project\\src\\index.ts", targetPath: "D:\\Work\\Project\\src\\index2.ts" });
+      const ok = pending
+        && pending.operation === "read"
+        && pending.proposedGrantRoot === "d:\\work\\project"
+        && pending.grantRootSafety === "allow"
+        && nonReadPending === null
+        && store1.pendingReadRequests.length === 1
+        && store2.pendingReadRequests.length === 0
+        && store2.sessionReadGrants.length === 1
+        && store2.sessionReadGrants[0].match === "directory"
+        && sameFile.decision === "allow"
+        && sibling.decision === "allow"
+        && sensitiveSibling.decision === "deny"
+        && externalWrite.decision === "deny"
+        && externalDelete.decision === "deny"
+        && externalRename.decision === "deny";
+      addTest("V2.14.0-D pending/session directory grant: read pending，批准后项目根目录只读，外部写删改拒绝",
+        ok ? "pass" : "fail",
+        `pending=${pending?.decision || pending?.reason}/${pending?.proposedGrantRoot}/${pending?.grantRootSafety} grant=${store2.sessionReadGrants[0]?.match}/${store2.sessionReadGrants[0]?.path} file=${sameFile.decision} sibling=${sibling.decision} sensitive=${sensitiveSibling.decision} write=${externalWrite.decision} delete=${externalDelete.decision} rename=${externalRename.decision} nonRead=${nonReadPending}`);
+    }
+
+    {
+      const basePolicy = createFileAccessPolicy({ vaultPath: "C:\\Vault" });
+      const dirPending = createPendingExternalReadRequest(
+        basePolicy,
+        { operation: "read", path: "D:\\Work\\LooseDocs" },
+        { pathKind: "directory", now: "2026-06-30T00:02:00.000Z" },
+      );
+      const attachmentPolicy = createFileAccessPolicy({
+        vaultPath: "C:\\Vault",
+        attachmentReadGrants: [{ path: "D:\\Drop\\image.png", scope: "attachment" }],
+      });
+      const attached = evaluateFileAccess(attachmentPolicy, { operation: "read", path: "D:\\Drop\\image.png" });
+      const attachedSibling = evaluateFileAccess(attachmentPolicy, { operation: "read", path: "D:\\Drop\\other.png" });
+      const wideRoot = assessGrantRootSafety("D:\\");
+      const homeRoot = assessGrantRootSafety("C:\\Users\\Ye_Luo");
+      const downloadsRoot = assessGrantRootSafety("C:\\Users\\Ye_Luo\\Downloads");
+      const widePending = createPendingExternalReadRequest(
+        basePolicy,
+        { operation: "read", path: "D:\\" },
+        { pathKind: "directory", now: "2026-06-30T00:03:00.000Z" },
+      );
+      const store = enqueuePendingExternalReadRequest(createSessionReadGrantStore(), widePending);
+      const approvedWide = approvePendingExternalReadRequest(store, widePending?.id || "");
+      const ok = dirPending?.proposedGrantRoot === "d:\\work\\loosedocs"
+        && attached.decision === "allow"
+        && attached.matchedRoot?.match === "file"
+        && attachedSibling.decision === "confirm"
+        && wideRoot === "deny"
+        && homeRoot === "confirm"
+        && downloadsRoot === "confirm"
+        && widePending?.grantRootSafety === "deny"
+        && approvedWide.sessionReadGrants.length === 0;
+      addTest("V2.14.0-D grant root rules: 目录请求直授目录，附件 file-scope，过宽目录不默认授权",
+        ok ? "pass" : "fail",
+        `dir=${dirPending?.proposedGrantRoot} attach=${attached.decision}/${attached.matchedRoot?.match} sibling=${attachedSibling.decision} wide=${wideRoot}/${widePending?.grantRootSafety} home=${homeRoot} downloads=${downloadsRoot} approvedWide=${approvedWide.sessionReadGrants.length}`);
     }
 
     {
