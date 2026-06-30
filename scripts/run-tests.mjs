@@ -1270,33 +1270,28 @@ if (!runUnit) {
           const tempVault = join(runtimeTempRoot, "Vault");
           const siblingRuntime = join(runtimeTempRoot, "LLM-AgentRuntime");
           const siblingClaudeConfig = join(siblingRuntime, "private", "claude-config");
-          const siblingAnthropicConfig = join(siblingRuntime, "private", "anthropic-config");
           mkdirSync(tempVault, { recursive: true });
           mkdirSync(siblingClaudeConfig, { recursive: true });
-          mkdirSync(siblingAnthropicConfig, { recursive: true });
 
           const { env: autoEnv, envKeys: autoKeys } = buildRunEnv(claudeEmpty, tempVault);
           const autoConfigOk = autoEnv.CLAUDE_CONFIG_DIR === siblingClaudeConfig
-            && autoEnv.ANTHROPIC_CONFIG_DIR === siblingAnthropicConfig
             && autoKeys.includes("CLAUDE_CONFIG_DIR")
-            && autoKeys.includes("ANTHROPIC_CONFIG_DIR");
+            && !autoKeys.includes("ANTHROPIC_CONFIG_DIR")
+            && autoEnv.ANTHROPIC_CONFIG_DIR === undefined;
           addTest("buildRunEnv: 自动发现项目级 LLM-AgentRuntime config", autoConfigOk ? "pass" : "fail",
             autoConfigOk ? "" : `claude=${autoEnv.CLAUDE_CONFIG_DIR}, anthropic=${autoEnv.ANTHROPIC_CONFIG_DIR}, keys=${autoKeys.join(",")}`);
 
           const projectClaudeConfig = join(tempVault, ".local-claude", "claude-config");
-          const projectAnthropicConfig = join(tempVault, ".local-claude", "anthropic-config");
           mkdirSync(projectClaudeConfig, { recursive: true });
-          mkdirSync(projectAnthropicConfig, { recursive: true });
           mkdirSync(join(tempVault, ".llm-bridge"), { recursive: true });
           writeFileSync(join(tempVault, ".llm-bridge", "claude-runtime.json"), JSON.stringify({
             version: 1,
             claudeConfigDir: ".local-claude/claude-config",
-            anthropicConfigDir: ".local-claude/anthropic-config",
           }, null, 2), "utf8");
 
           const { env: projectEnv } = buildRunEnv(claudeEmpty, tempVault);
           const projectConfigOk = projectEnv.CLAUDE_CONFIG_DIR === projectClaudeConfig
-            && projectEnv.ANTHROPIC_CONFIG_DIR === projectAnthropicConfig;
+            && projectEnv.ANTHROPIC_CONFIG_DIR === undefined;
           addTest("buildRunEnv: .llm-bridge/claude-runtime.json 优先于自动发现", projectConfigOk ? "pass" : "fail",
             projectConfigOk ? "" : `claude=${projectEnv.CLAUDE_CONFIG_DIR}, anthropic=${projectEnv.ANTHROPIC_CONFIG_DIR}`);
 
@@ -1321,11 +1316,17 @@ if (!runUnit) {
         }
 
         const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
+        const runtimeConfigSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeRuntimeConfig.ts"), "utf8");
         const sdkUsesRuntimeEnv = sdkBackendSrc.includes("resolveClaudeRuntimeConfig(task.cwd)")
           && sdkBackendSrc.includes("applyClaudeRuntimeEnv(runtimeConfig.env, clearInheritedRuntimeEnv)")
           && sdkBackendSrc.includes("restoreRuntimeEnv()");
         addTest("SdkBackend: query 调用使用项目级 Claude runtime env 并恢复", sdkUsesRuntimeEnv ? "pass" : "fail",
           sdkUsesRuntimeEnv ? "" : "未找到 resolve/apply/restore runtime env 调用");
+        const anthropicConfigRemoved = !runtimeConfigSrc.includes("anthropicConfigDir")
+          && !runtimeConfigSrc.includes("env.ANTHROPIC_CONFIG_DIR")
+          && runtimeConfigSrc.includes("ANTHROPIC_CONFIG_DIR");
+        addTest("Claude runtime config: 不再设置 ANTHROPIC_CONFIG_DIR", anthropicConfigRemoved ? "pass" : "fail",
+          anthropicConfigRemoved ? "" : "runtime config 仍在解析或设置 ANTHROPIC_CONFIG_DIR");
       }
 
       // --- resolveCommand ---
@@ -10876,7 +10877,8 @@ if (!runV214BUnit) {
         && reportSrcV214N1.includes("local-config-ok")
         && reportSrcV214N1.includes("sdk-local-config-ok")
         && reportSrcV214N1.includes("90_AI整理待确认/V2.14.0-N1-claude-native-edit.md")
-        && reportSrcV214N1.includes("src/claudeRuntimeConfig.ts");
+        && reportSrcV214N1.includes("src/claudeRuntimeConfig.ts")
+        && reportSrcV214N1.includes("`ANTHROPIC_CONFIG_DIR` is not used");
       const vaultOk = reportSrcV214N1.includes("D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-Wiki")
         && reportSrcV214N1.includes("`pluginVersion` `2.12.1`")
         && reportSrcV214N1.includes("GET /state");

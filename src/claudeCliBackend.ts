@@ -134,9 +134,9 @@ export function buildRunEnv(
 
   if (settings.agentType === "claude") {
     const runtimeConfig = resolveClaudeRuntimeConfig(cwd, env);
+    delete env.ANTHROPIC_CONFIG_DIR;
     if (runtimeConfig.source === "project-json" || runtimeConfig.source === "auto-detected") {
       delete env.CLAUDE_CONFIG_DIR;
-      delete env.ANTHROPIC_CONFIG_DIR;
     }
     Object.assign(env, runtimeConfig.env);
     envKeys.push(...runtimeConfig.envKeys);

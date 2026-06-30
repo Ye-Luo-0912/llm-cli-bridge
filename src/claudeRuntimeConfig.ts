@@ -7,7 +7,6 @@ export interface ClaudeRuntimeConfigFile {
   readonly version?: number;
   readonly runtimeDir?: string;
   readonly claudeConfigDir?: string;
-  readonly anthropicConfigDir?: string;
 }
 
 export interface ClaudeRuntimeConfigResolution {
@@ -55,11 +54,6 @@ function resolveProjectJson(vaultPath: string): ClaudeRuntimeConfigResolution | 
     : privateDir
       ? path.join(privateDir, "claude-config")
       : undefined;
-  const anthropicConfigDir = project.config.anthropicConfigDir
-    ? resolveFromVault(vaultPath, project.config.anthropicConfigDir)
-    : privateDir
-      ? path.join(privateDir, "anthropic-config")
-      : undefined;
 
   const env: NodeJS.ProcessEnv = {};
   const envKeys: string[] = [];
@@ -70,13 +64,6 @@ function resolveProjectJson(vaultPath: string): ClaudeRuntimeConfigResolution | 
     envKeys.push("CLAUDE_CONFIG_DIR");
   } else if (claudeConfigDir) {
     diagnostics.push("CLAUDE_CONFIG_DIR missing");
-  }
-
-  if (anthropicConfigDir && isDirectory(anthropicConfigDir)) {
-    env.ANTHROPIC_CONFIG_DIR = anthropicConfigDir;
-    envKeys.push("ANTHROPIC_CONFIG_DIR");
-  } else if (anthropicConfigDir) {
-    diagnostics.push("ANTHROPIC_CONFIG_DIR missing");
   }
 
   return {
@@ -98,17 +85,12 @@ function resolveAutoDetected(vaultPath: string): ClaudeRuntimeConfigResolution |
   for (const runtimeDir of candidates.map((p) => path.normalize(p))) {
     const privateDir = path.join(runtimeDir, "private");
     const claudeConfigDir = path.join(privateDir, "claude-config");
-    const anthropicConfigDir = path.join(privateDir, "anthropic-config");
     const env: NodeJS.ProcessEnv = {};
     const envKeys: string[] = [];
 
     if (isDirectory(claudeConfigDir)) {
       env.CLAUDE_CONFIG_DIR = claudeConfigDir;
       envKeys.push("CLAUDE_CONFIG_DIR");
-    }
-    if (isDirectory(anthropicConfigDir)) {
-      env.ANTHROPIC_CONFIG_DIR = anthropicConfigDir;
-      envKeys.push("ANTHROPIC_CONFIG_DIR");
     }
     if (envKeys.length > 0) {
       return {
@@ -137,10 +119,6 @@ export function resolveClaudeRuntimeConfig(vaultPath: string, baseEnv: NodeJS.Pr
     env.CLAUDE_CONFIG_DIR = baseEnv.CLAUDE_CONFIG_DIR;
     envKeys.push("CLAUDE_CONFIG_DIR");
   }
-  if (baseEnv.ANTHROPIC_CONFIG_DIR) {
-    env.ANTHROPIC_CONFIG_DIR = baseEnv.ANTHROPIC_CONFIG_DIR;
-    envKeys.push("ANTHROPIC_CONFIG_DIR");
-  }
   if (envKeys.length > 0) {
     return {
       source: "inherited",
@@ -166,7 +144,7 @@ export function applyClaudeRuntimeEnv(env: NodeJS.ProcessEnv, clearMissing: bool
     const value = env[key];
     if (value) {
       process.env[key] = value;
-    } else if (clearMissing) {
+    } else if (clearMissing || key === "ANTHROPIC_CONFIG_DIR") {
       delete process.env[key];
     }
   }
