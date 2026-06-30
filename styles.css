@@ -486,6 +486,7 @@
 
 .llm-bridge-input-row {
   display: block;
+  position: relative;
   width: 100%;
   min-height: 88px;
   background: transparent;
@@ -2894,6 +2895,52 @@
   overflow: auto;
 }
 .llm-bridge-vault-file-picker-empty {
+  padding: 8px;
+  color: var(--text-muted);
+  font-size: var(--font-small);
+}
+/* V2.15-H: @ 提及文件选择器（输入框上方 inline popup） */
+.llm-bridge-mention-picker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  max-height: 280px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+}
+.llm-bridge-mention-picker[hidden] {
+  display: none;
+}
+.llm-bridge-mention-picker-item {
+  width: 100%;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-normal);
+  text-align: left;
+  font-size: var(--font-small);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-mention-picker-item:hover,
+.llm-bridge-mention-picker-item.is-active {
+  background: var(--background-modifier-hover);
+  border-color: rgba(var(--interactive-accent-rgb), 0.45);
+  color: var(--interactive-accent);
+}
+.llm-bridge-mention-picker-empty {
   padding: 8px;
   color: var(--text-muted);
   font-size: var(--font-small);

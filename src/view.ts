@@ -264,6 +264,10 @@ export class LLMBridgeView extends ItemView {
   // V2.7: 长会话旧消息折叠（false=折叠显示最近 N 条；true=展开全部）
   private messagesFoldExpanded = false;
   private inputEl!: HTMLTextAreaElement;
+  // V2.15-H: @ 提及文件选择器（输入框上方 inline popup）
+  private mentionPickerEl: HTMLElement | null = null;
+  private mentionPickerRange: { start: number; end: number } | null = null;
+  private mentionPickerActiveIndex = -1;
   private sendBtn!: HTMLButtonElement;
   private stopBtn!: HTMLButtonElement;
   private clearBtn!: HTMLButtonElement;
@@ -548,24 +552,15 @@ export class LLMBridgeView extends ItemView {
     const attachmentMenu = leftTools.createEl("details", { cls: "llm-bridge-attachment-menu" });
     const attachmentSummary = attachmentMenu.createEl("summary", {
       cls: "llm-bridge-composer-tool-btn llm-bridge-attach-file-btn",
-      attr: { title: "添加附件：Vault 文件、外部路径、剪贴板路径或原生选择器" },
+      attr: { title: "添加附件（输入 @ 选 Vault 文件，或原生选择器）" },
     });
     setIcon(attachmentSummary, "plus");
     const attachmentMenuBody = attachmentMenu.createDiv({ cls: "llm-bridge-attachment-menu-body" });
-    const vaultAttachBtn = attachmentMenuBody.createEl("button", { cls: "llm-bridge-attachment-menu-item", text: "添加 Vault 文件" });
+    // V2.15-H: @ 形式 Vault 文件选择（输入框上方 inline popup）
+    const vaultAttachBtn = attachmentMenuBody.createEl("button", { cls: "llm-bridge-attachment-menu-item", text: "Vault 文件（@）" });
     vaultAttachBtn.addEventListener("click", () => {
       attachmentMenu.removeAttribute("open");
-      this.openVaultFileAttachmentPicker();
-    });
-    const externalPathAttachBtn = attachmentMenuBody.createEl("button", { cls: "llm-bridge-attachment-menu-item", text: "添加外部路径" });
-    externalPathAttachBtn.addEventListener("click", () => {
-      attachmentMenu.removeAttribute("open");
-      void this.promptAndAddAttachmentFile();
-    });
-    const clipboardPathAttachBtn = attachmentMenuBody.createEl("button", { cls: "llm-bridge-attachment-menu-item", text: "从剪贴板路径添加" });
-    clipboardPathAttachBtn.addEventListener("click", () => {
-      attachmentMenu.removeAttribute("open");
-      void this.addAttachmentFromClipboardPath();
+      this.triggerMentionAtCursor();
     });
     const nativeAttachBtn = attachmentMenuBody.createEl("button", { cls: "llm-bridge-attachment-menu-item", text: "原生文件选择器" });
     nativeAttachBtn.addEventListener("click", () => {
@@ -620,10 +615,22 @@ export class LLMBridgeView extends ItemView {
       attr: { placeholder: "输入消息，或使用 / 命令…", rows: "3" },
     });
     this.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (this.mentionPickerEl && !this.mentionPickerEl.hasAttribute("hidden")) {
+        if (this.handleMentionKeydown(e)) return;
+      }
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         void this.run();
       }
+    });
+    // V2.15-H: 监听 input 事件，检测 @ 提及触发 inline 文件选择器
+    this.inputEl.addEventListener("input", () => this.handleMentionInput());
+    this.registerDomEvent(document, "pointerdown", (event) => {
+      if (!this.mentionPickerEl || this.mentionPickerEl.hasAttribute("hidden")) return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".llm-bridge-mention-picker")) return;
+      if (target === this.inputEl) return;
+      this.closeMentionPicker();
     });
 
     const rightTools = composerBar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-right" });
@@ -1053,6 +1060,7 @@ export class LLMBridgeView extends ItemView {
 
   async onClose(): Promise<void> {
     this.closeModelEffortPopover();
+    this.closeMentionPicker();
     if (this.runHandle) {
       this.runHandle.stop();
       this.runHandle = null;
@@ -1457,62 +1465,145 @@ export class LLMBridgeView extends ItemView {
     new Notice(snippet ? `已添加附件并读取 bounded snippet：${ref.displayName}` : `已添加附件引用：${ref.displayName} (${type})`);
   }
 
-  private openVaultFileAttachmentPicker(): void {
-    const files = this.app.vault.getFiles()
-      .filter((file) => file instanceof TFile)
-      .sort((a, b) => a.path.localeCompare(b.path));
-    const modal = new Modal(this.app);
-    modal.titleEl.setText("添加 Vault 文件");
-    modal.contentEl.empty();
-    modal.contentEl.createEl("p", {
-      cls: "llm-bridge-confirm-msg",
-      text: "从当前 Vault 文件列表添加附件；不会授权该文件所在目录。",
-    });
-    const search = modal.contentEl.createEl("input", {
-      cls: "llm-bridge-prompt-input",
-      attr: { type: "text", placeholder: "搜索 Vault 文件路径…" },
-    }) as HTMLInputElement;
-    search.style.width = "100%";
-    const list = modal.contentEl.createDiv({ cls: "llm-bridge-vault-file-picker-list" });
-    const render = () => {
-      list.empty();
-      const query = search.value.trim().toLowerCase();
-      const matches = files.filter((file) => !query || file.path.toLowerCase().includes(query)).slice(0, 50);
-      if (matches.length === 0) {
-        list.createDiv({ cls: "llm-bridge-vault-file-picker-empty", text: "无匹配 Vault 文件" });
-        return;
-      }
-      for (const file of matches) {
-        const row = list.createEl("button", {
-          cls: "llm-bridge-vault-file-picker-item",
-          text: file.path,
-          attr: { title: file.path },
-        });
-        row.addEventListener("click", () => {
-          modal.close();
-          void this.addAttachmentPathWithNotice(file.path);
-        });
-      }
-    };
-    search.addEventListener("input", render);
-    render();
-    modal.open();
-    setTimeout(() => search.focus(), 50);
+  // V2.15-H: @ 提及文件选择器 —— 输入框上方 inline popup（替代独立 Modal）
+  private triggerMentionAtCursor(): void {
+    const ta = this.inputEl;
+    const start = ta.selectionStart ?? ta.value.length;
+    const value = ta.value;
+    const needSpace = start > 0 && !/\s$/.test(value.slice(0, start)) && value[start - 1] !== "@";
+    const insert = needSpace ? " @" : "@";
+    ta.value = value.slice(0, start) + insert + value.slice(start);
+    const cursor = start + insert.length;
+    ta.setSelectionRange(cursor, cursor);
+    ta.focus();
+    this.handleMentionInput();
   }
 
-  private async addAttachmentFromClipboardPath(): Promise<void> {
-    const clipboard = navigator.clipboard;
-    if (!clipboard?.readText) {
-      new Notice("当前环境无法读取剪贴板，请使用添加外部路径");
+  private handleMentionInput(): void {
+    const ta = this.inputEl;
+    const value = ta.value;
+    const cursor = ta.selectionStart ?? value.length;
+    const before = value.slice(0, cursor);
+    const match = before.match(/@([^\s@]*)$/);
+    if (!match) {
+      this.closeMentionPicker();
       return;
     }
-    const text = (await clipboard.readText()).trim();
-    const firstPath = text.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
-    if (!firstPath) {
-      new Notice("剪贴板没有可用路径");
+    this.mentionPickerRange = { start: cursor - match[0].length, end: cursor };
+    this.openMentionPicker(match[1]);
+  }
+
+  private openMentionPicker(query: string): void {
+    const inputRow = this.inputEl.parentElement as HTMLElement | null;
+    if (!inputRow) return;
+    if (!this.mentionPickerEl) {
+      this.mentionPickerEl = inputRow.createDiv({ cls: "llm-bridge-mention-picker" });
+      this.mentionPickerEl.setAttribute("hidden", "");
+    }
+    this.renderMentionList(query);
+    if (this.mentionPickerEl.hasAttribute("hidden")) {
+      this.mentionPickerEl.removeAttribute("hidden");
+      this.mentionPickerEl.classList.add("is-open");
+    }
+  }
+
+  private renderMentionList(query: string): void {
+    const picker = this.mentionPickerEl;
+    if (!picker) return;
+    picker.empty();
+    const q = query.trim().toLowerCase();
+    const files = this.app.vault.getFiles()
+      .filter((file) => file instanceof TFile)
+      .sort((a, b) => a.path.localeCompare(b.path))
+      .filter((file) => !q || file.path.toLowerCase().includes(q))
+      .slice(0, 50);
+    if (files.length === 0) {
+      picker.createDiv({ cls: "llm-bridge-mention-picker-empty", text: "无匹配 Vault 文件" });
+      this.mentionPickerActiveIndex = -1;
       return;
     }
-    await this.addAttachmentPathWithNotice(firstPath);
+    files.forEach((file, index) => {
+      const row = picker.createEl("button", {
+        cls: "llm-bridge-mention-picker-item",
+        text: file.path,
+        attr: { title: file.path, "data-index": String(index), "data-path": file.path },
+      });
+      row.addEventListener("click", (e) => {
+        e.preventDefault();
+        this.selectMention(file.path);
+      });
+      row.addEventListener("mouseenter", () => {
+        this.mentionPickerActiveIndex = index;
+        this.updateMentionActive();
+      });
+    });
+    this.mentionPickerActiveIndex = 0;
+    this.updateMentionActive();
+  }
+
+  private updateMentionActive(): void {
+    const picker = this.mentionPickerEl;
+    if (!picker) return;
+    picker.querySelectorAll<HTMLElement>(".llm-bridge-mention-picker-item").forEach((item, i) => {
+      item.classList.toggle("is-active", i === this.mentionPickerActiveIndex);
+    });
+  }
+
+  private handleMentionKeydown(e: KeyboardEvent): boolean {
+    const picker = this.mentionPickerEl;
+    if (!picker || picker.hasAttribute("hidden")) return false;
+    const items = Array.from(picker.querySelectorAll<HTMLElement>(".llm-bridge-mention-picker-item"));
+    if (e.key === "ArrowDown") {
+      if (items.length === 0) return false;
+      e.preventDefault();
+      this.mentionPickerActiveIndex = (this.mentionPickerActiveIndex + 1) % items.length;
+      this.updateMentionActive();
+      items[this.mentionPickerActiveIndex]?.scrollIntoView({ block: "nearest" });
+      return true;
+    }
+    if (e.key === "ArrowUp") {
+      if (items.length === 0) return false;
+      e.preventDefault();
+      this.mentionPickerActiveIndex = (this.mentionPickerActiveIndex - 1 + items.length) % items.length;
+      this.updateMentionActive();
+      items[this.mentionPickerActiveIndex]?.scrollIntoView({ block: "nearest" });
+      return true;
+    }
+    if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      if (items.length === 0) return false;
+      e.preventDefault();
+      const active = items[this.mentionPickerActiveIndex];
+      const path = active?.getAttribute("data-path") ?? "";
+      if (path) this.selectMention(path);
+      return true;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      this.closeMentionPicker();
+      return true;
+    }
+    return false;
+  }
+
+  private selectMention(filePath: string): void {
+    const range = this.mentionPickerRange;
+    this.closeMentionPicker();
+    if (range) {
+      const value = this.inputEl.value;
+      this.inputEl.value = value.slice(0, range.start) + value.slice(range.end);
+      this.inputEl.setSelectionRange(range.start, range.start);
+    }
+    this.inputEl.focus();
+    void this.addAttachmentPathWithNotice(filePath);
+  }
+
+  private closeMentionPicker(): void {
+    const picker = this.mentionPickerEl;
+    if (!picker) return;
+    picker.setAttribute("hidden", "");
+    picker.classList.remove("is-open");
+    this.mentionPickerRange = null;
+    this.mentionPickerActiveIndex = -1;
   }
 
   private openNativeAttachmentPicker(): void {
@@ -1532,7 +1623,7 @@ export class LLMBridgeView extends ItemView {
       .map((file) => this.extractNativeFilePath(file))
       .filter((filePath): filePath is string => !!filePath);
     if (paths.length === 0) {
-      new Notice("原生文件选择器未返回 path；请使用「添加外部路径」或「从剪贴板路径添加」。");
+      new Notice("原生文件选择器未返回 path；请在输入框使用 @ 选择 Vault 文件。");
       return;
     }
     const refs = await this.addAttachmentFilesWithIngestion(paths);

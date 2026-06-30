@@ -10121,7 +10121,7 @@ if (!runV214BUnit) {
         && viewSrc.includes("dragover")
         && viewSrc.includes("drop")
         && viewSrc.includes("llm-bridge-attachment-menu")
-        && viewSrc.includes("添加外部路径")
+        && viewSrc.includes("Vault 文件（@）")
         && viewSrc.includes("原生文件选择器")
         && viewSrc.includes("refs-only")
         && viewSrc.includes("ref.fileType");
@@ -11059,11 +11059,13 @@ if (!runV214BUnit) {
 
     {
       const attachmentMenuOk = viewSrc.includes("llm-bridge-attachment-menu")
-        && viewSrc.includes("添加 Vault 文件")
-        && viewSrc.includes("添加外部路径")
-        && viewSrc.includes("从剪贴板路径添加")
+        && viewSrc.includes("Vault 文件（@）")
         && viewSrc.includes("原生文件选择器")
-        && viewSrc.includes("openVaultFileAttachmentPicker");
+        && viewSrc.includes("triggerMentionAtCursor")
+        && viewSrc.includes("llm-bridge-mention-picker")
+        && !viewSrc.includes("添加外部路径")
+        && !viewSrc.includes("从剪贴板路径添加")
+        && !viewSrc.includes("openVaultFileAttachmentPicker");
       const nativePathFailureOk = viewSrc.includes("原生文件选择器未返回 path")
         && viewSrc.includes("if (paths.length === 0)")
         && viewSrc.includes("return;");
