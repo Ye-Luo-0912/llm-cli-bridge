@@ -81,10 +81,10 @@ const MODEL_OPTIONS = [
 
 // 思考强度
 const EFFORT_OPTIONS = [
-  { value: "low", label: "Low" },
-  { value: "medium", label: "Medium" },
-  { value: "high", label: "High" },
-  { value: "max", label: "Max" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+  { value: "max", label: "超高" },
 ];
 
 const AGENT_OPTIONS = [
@@ -134,8 +134,6 @@ export class LLMBridgeView extends ItemView {
   private agentSkillsToggleEl!: HTMLElement;
   private agentSkillsBodyEl!: HTMLElement;
   private agentSkillsListEl!: HTMLElement;
-  private agentSkillPreviewEl!: HTMLElement;
-  private selectedAgentSkillId: string | null = null;
   // V2.9: scrollToBottom rAF 批处理定时器（合并同帧多次调用，避免每个 delta 触发 reflow）
   private scrollRafId: number | null = null;
   // V2.5: 历史会话列表
@@ -161,7 +159,9 @@ export class LLMBridgeView extends ItemView {
   private agentChipTextEl!: HTMLElement;
   private modelChipGroup!: HTMLElement;
   private effortChipGroup!: HTMLElement;
-  private modelEffortSelectEl!: HTMLSelectElement;
+  private modelEffortPickerEl!: HTMLElement;
+  private modelEffortButtonEl!: HTMLButtonElement;
+  private modelEffortPopoverEl!: HTMLElement;
   private permissionModeChipEl!: HTMLButtonElement;
   private includeNoteCheckEl!: HTMLInputElement;
   private includeSelectionCheckEl!: HTMLInputElement;
@@ -536,26 +536,7 @@ export class LLMBridgeView extends ItemView {
 
     const rightTools = composerBar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-right" });
     this.agentChipTextEl = agentSelect;
-    this.modelEffortSelectEl = rightTools.createEl("select", {
-      cls: "llm-bridge-model-effort-select",
-      attr: { title: "模型 · 思考强度" },
-    }) as HTMLSelectElement;
-    for (const model of MODEL_OPTIONS) {
-      for (const effort of EFFORT_OPTIONS) {
-        this.modelEffortSelectEl.createEl("option", {
-          value: `${model.value}|||${effort.value}`,
-          text: `${model.label} · ${effort.label}`,
-        });
-      }
-    }
-    this.modelEffortSelectEl.addEventListener("change", async () => {
-      if (this.runHandle) return;
-      const [model, effort] = this.modelEffortSelectEl.value.split("|||");
-      this.plugin.settings.model = model;
-      this.plugin.settings.effortLevel = effort;
-      await this.plugin.saveSettings();
-      this.refreshAllChips();
-    });
+    this.renderModelEffortPicker(rightTools);
     const actionCol = rightTools.createDiv({ cls: "llm-bridge-action-col" });
     // 停止按钮：只在运行中显示
     this.stopBtn = actionCol.createEl("button", {
@@ -834,7 +815,7 @@ export class LLMBridgeView extends ItemView {
     (this.agentChipGroup as HTMLSelectElement).value = this.plugin.settings.agentType;
 
     // V2.15-E: composer 只保留一个 compact 模型/思考强度组合控件。
-    this.refreshModelEffortSelect();
+    this.refreshModelEffortPicker();
     this.refreshPermissionModeChip();
     // V2.4: Mode chip 已移除（仅 Fresh 可用，无需 refresh）
 
@@ -850,13 +831,92 @@ export class LLMBridgeView extends ItemView {
     if (chip) chip.textContent = this.labelForValue(options, v);
   }
 
-  private refreshModelEffortSelect(): void {
-    if (!this.modelEffortSelectEl) return;
-    this.modelEffortSelectEl.value = `${this.plugin.settings.model}|||${this.plugin.settings.effortLevel}`;
-    if (!this.modelEffortSelectEl.value) {
-      const fallback = this.modelEffortSelectEl.options.item(0)?.value;
-      if (fallback) this.modelEffortSelectEl.value = fallback;
+  private renderModelEffortPicker(parent: HTMLElement): void {
+    this.modelEffortPickerEl = parent.createDiv({ cls: "llm-bridge-model-effort-picker" });
+    this.modelEffortButtonEl = this.modelEffortPickerEl.createEl("button", {
+      cls: "llm-bridge-model-effort-chip",
+      attr: { title: "选择模型与推理等级", "aria-haspopup": "true", "aria-expanded": "false" },
+    });
+    this.modelEffortButtonEl.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (this.runHandle) return;
+      this.toggleModelEffortPopover();
+    });
+
+    this.modelEffortPopoverEl = this.modelEffortPickerEl.createDiv({
+      cls: "llm-bridge-model-effort-popover",
+      attr: { hidden: "" },
+    });
+    const modelColumn = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-column llm-bridge-model-list" });
+    modelColumn.createEl("span", { cls: "llm-bridge-model-effort-label", text: "模型" });
+    for (const model of MODEL_OPTIONS) {
+      const option = modelColumn.createEl("button", {
+        cls: "llm-bridge-model-option",
+        text: model.label,
+        attr: { "data-model": model.value },
+      });
+      option.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void this.setModelEffort(model.value, this.plugin.settings.effortLevel);
+      });
     }
+    const effortColumn = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-column llm-bridge-effort-list" });
+    effortColumn.createEl("span", { cls: "llm-bridge-model-effort-label", text: "推理等级" });
+    for (const effort of EFFORT_OPTIONS) {
+      const option = effortColumn.createEl("button", {
+        cls: "llm-bridge-effort-option",
+        text: effort.label,
+        attr: { "data-effort": effort.value },
+      });
+      option.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void this.setModelEffort(this.plugin.settings.model, effort.value);
+      });
+    }
+    this.contentEl.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".llm-bridge-model-effort-picker")) return;
+      this.closeModelEffortPopover();
+    });
+  }
+
+  private async setModelEffort(model: string, effort: string): Promise<void> {
+    if (this.runHandle) return;
+    const nextModel = MODEL_OPTIONS.some((option) => option.value === model) ? model : MODEL_OPTIONS[0].value;
+    const nextEffort = EFFORT_OPTIONS.some((option) => option.value === effort) ? effort : EFFORT_OPTIONS[0].value;
+    this.plugin.settings.model = nextModel;
+    this.plugin.settings.effortLevel = nextEffort;
+    await this.plugin.saveSettings();
+    this.refreshAllChips();
+  }
+
+  private toggleModelEffortPopover(): void {
+    if (!this.modelEffortPopoverEl) return;
+    if (this.modelEffortPopoverEl.hasAttribute("hidden")) {
+      this.modelEffortPopoverEl.removeAttribute("hidden");
+      this.modelEffortButtonEl?.setAttribute("aria-expanded", "true");
+    } else {
+      this.closeModelEffortPopover();
+    }
+  }
+
+  private closeModelEffortPopover(): void {
+    if (!this.modelEffortPopoverEl) return;
+    this.modelEffortPopoverEl.setAttribute("hidden", "");
+    this.modelEffortButtonEl?.setAttribute("aria-expanded", "false");
+  }
+
+  private refreshModelEffortPicker(): void {
+    if (!this.modelEffortButtonEl) return;
+    const model = MODEL_OPTIONS.find((option) => option.value === this.plugin.settings.model) ?? MODEL_OPTIONS[0];
+    const effort = EFFORT_OPTIONS.find((option) => option.value === this.plugin.settings.effortLevel) ?? EFFORT_OPTIONS[0];
+    this.modelEffortButtonEl.textContent = `${model.label} · ${effort.label}`;
+    this.modelEffortPopoverEl?.querySelectorAll<HTMLElement>(".llm-bridge-model-option").forEach((option) => {
+      option.classList.toggle("is-active", option.getAttribute("data-model") === model.value);
+    });
+    this.modelEffortPopoverEl?.querySelectorAll<HTMLElement>(".llm-bridge-effort-option").forEach((option) => {
+      option.classList.toggle("is-active", option.getAttribute("data-effort") === effort.value);
+    });
   }
 
   private permissionModeShortLabel(): string {
@@ -984,7 +1044,7 @@ export class LLMBridgeView extends ItemView {
     this.sendBtn.style.display = running ? "none" : "inline-flex";
     this.sendBtn.disabled = running;
     // 禁用所有 chip 与 agent 下拉
-    const allChips = this.contentEl.querySelectorAll(".llm-bridge-chip, .llm-bridge-agent-select, .llm-bridge-composer-tool-btn, .llm-bridge-command-menu-item, .llm-bridge-permission-chip");
+    const allChips = this.contentEl.querySelectorAll(".llm-bridge-chip, .llm-bridge-agent-select, .llm-bridge-composer-tool-btn, .llm-bridge-command-menu-item, .llm-bridge-permission-chip, .llm-bridge-model-effort-chip, .llm-bridge-model-option, .llm-bridge-effort-option");
     allChips.forEach((c) => {
       (c as HTMLButtonElement).disabled = running;
     });
@@ -2290,7 +2350,7 @@ export class LLMBridgeView extends ItemView {
     const head = wrap.createDiv({ cls: "llm-bridge-skills-head" });
     this.agentSkillsToggleEl = head.createEl("span", {
       cls: "llm-bridge-skills-toggle",
-      text: "▶ Agent Skills",
+      text: "▶ Agent Skills Registry",
       attr: { title: "Agent 可发现/可调用的 runtime capabilities；不会插入输入框" },
     });
     const refreshBtn = head.createEl("button", {
@@ -2303,12 +2363,9 @@ export class LLMBridgeView extends ItemView {
     const body = wrap.createDiv({ cls: "llm-bridge-skills-body llm-bridge-agent-skills-body" });
     body.setAttribute("hidden", "");
     this.agentSkillsBodyEl = body;
-    const help = body.createDiv({ cls: "llm-bridge-skills-empty" });
-    help.createEl("span", { text: "Agent Skills 会物化到 .claude/skills/<slug>/SKILL.md，由 Claude Code/SDK runtime 发现；不会写入 composer。" });
-    const grid = body.createDiv({ cls: "llm-bridge-agent-skills-grid" });
-    this.agentSkillsListEl = grid.createDiv({ cls: "llm-bridge-agent-skills-list-container" });
-    this.agentSkillPreviewEl = grid.createDiv({ cls: "llm-bridge-agent-skill-preview" });
-    this.renderAgentSkillPreview(null);
+    const help = body.createDiv({ cls: "llm-bridge-agent-skills-boundary" });
+    help.createEl("span", { text: "Agent Skills 是 runtime capabilities，会物化到 .claude/skills/<slug>/SKILL.md，由 Claude Code/SDK 发现；不会写入 composer，也不会拼进 promptPackage。" });
+    this.agentSkillsListEl = body.createDiv({ cls: "llm-bridge-agent-skills-list-container" });
 
     this.agentSkillsToggleEl.addEventListener("click", () => {
       const hidden = body.hasAttribute("hidden");
@@ -2713,14 +2770,7 @@ export class LLMBridgeView extends ItemView {
     } catch {
       this.agentSkills = [];
     }
-    if (this.selectedAgentSkillId && !this.agentSkills.some((skill) => skill.id === this.selectedAgentSkillId)) {
-      this.selectedAgentSkillId = null;
-    }
-    if (!this.selectedAgentSkillId && this.agentSkills.length > 0) {
-      this.selectedAgentSkillId = this.agentSkills[0].id;
-    }
     this.renderAgentSkillsList();
-    this.renderAgentSkillPreview(this.getSelectedAgentSkill());
   }
 
   private updateAgentSkillsToggle(): void {
@@ -2728,7 +2778,7 @@ export class LLMBridgeView extends ItemView {
     const enabled = this.agentSkills.filter((skill) => skill.enabled).length;
     const total = this.agentSkills.length;
     const hidden = this.agentSkillsBodyEl.hasAttribute("hidden");
-    this.agentSkillsToggleEl.textContent = `${hidden ? "▶" : "▼"} Agent Skills (${enabled}/${total})`;
+    this.agentSkillsToggleEl.textContent = `${hidden ? "▶" : "▼"} Agent Skills Registry (${enabled}/${total})`;
   }
 
   private renderAgentSkillsList(): void {
@@ -2748,31 +2798,30 @@ export class LLMBridgeView extends ItemView {
       const sorted = this.agentSkills.slice().sort((a, b) => a.slug.localeCompare(b.slug));
       for (const skill of sorted) {
         const item = list.createDiv({
-          cls: `llm-bridge-skill-item llm-bridge-agent-skill-item${skill.enabled ? "" : " is-disabled"}${skill.id === this.selectedAgentSkillId ? " is-selected" : ""}`,
-          attr: { title: `${skill.name}\n${skill.materializedPath}` },
+          cls: `llm-bridge-agent-skill-registry-item${skill.enabled ? "" : " is-disabled"}`,
+          attr: { title: skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md` },
         });
-        const checkLabel = item.createEl("label", {
-          cls: "llm-bridge-skill-check",
-          attr: { title: "启用/禁用此 Agent Skill（控制 runtime 可发现能力）" },
+        const main = item.createEl("button", {
+          cls: "llm-bridge-agent-skill-open",
+          attr: { title: `在 Obsidian 中打开 ${skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md`}` },
         });
-        const check = checkLabel.createEl("input", { type: "checkbox" }) as HTMLInputElement;
-        check.checked = skill.enabled;
-        check.addEventListener("change", () => void this.toggleAgentSkillEnabled(skill.id, check.checked));
+        const titleRow = main.createDiv({ cls: "llm-bridge-agent-skill-title-row" });
+        titleRow.createEl("span", { cls: "llm-bridge-agent-skill-name", text: skill.name || skill.slug });
+        titleRow.createEl("span", { cls: `llm-bridge-agent-skill-badge ${skill.enabled ? "is-enabled" : "is-disabled"}`, text: skill.enabled ? "enabled" : "disabled" });
+        main.createEl("span", { cls: "llm-bridge-agent-skill-desc", text: skill.description || "No description" });
+        const meta = main.createDiv({ cls: "llm-bridge-agent-skill-meta" });
+        meta.createEl("span", { text: `slug: ${skill.slug}` });
+        meta.createEl("span", { text: `source: ${skill.source}` });
+        main.addEventListener("click", () => void this.openAgentSkillFile(skill));
 
-        const main = item.createEl("button", { cls: "llm-bridge-skill-main" });
-        main.createEl("span", { cls: "llm-bridge-skill-name", text: skill.name });
-        main.createEl("span", { cls: "llm-bridge-skill-desc", text: skill.description || skill.slug });
-        main.createEl("span", { cls: "llm-bridge-skill-stats", text: `${skill.slug} · ${skill.source} · ${skill.enabled ? "enabled" : "disabled"}` });
-        main.addEventListener("click", () => this.selectAgentSkill(skill.id));
-
-        const viewBtn = item.createEl("button", {
-          cls: "llm-bridge-skill-view-btn",
-          text: "View",
-          attr: { title: "在右侧内联预览 Agent Skill（不会插入输入框）" },
+        const toggleBtn = item.createEl("button", {
+          cls: `llm-bridge-agent-skill-toggle ${skill.enabled ? "is-enabled" : "is-disabled"}`,
+          text: skill.enabled ? "启用" : "禁用",
+          attr: { title: "启用/禁用此 Agent Skill（只更新 manifest，不插入输入框）" },
         });
-        viewBtn.addEventListener("click", (e) => {
+        toggleBtn.addEventListener("click", (e) => {
           e.stopPropagation();
-          this.selectAgentSkill(skill.id);
+          void this.toggleAgentSkillEnabled(skill.id, !skill.enabled);
         });
       }
       this.updateAgentSkillsToggle();
@@ -2794,89 +2843,58 @@ export class LLMBridgeView extends ItemView {
     }
     this.agentSkills = skills;
     this.renderAgentSkillsList();
-    this.renderAgentSkillPreview(this.getSelectedAgentSkill());
     new Notice(`${enabled ? "已启用" : "已禁用"} Agent Skill`);
   }
 
-  private getSelectedAgentSkill(): AgentSkillRecord | null {
-    if (!this.selectedAgentSkillId) return null;
-    return this.agentSkills.find((skill) => skill.id === this.selectedAgentSkillId) ?? null;
-  }
-
-  private selectAgentSkill(skillId: string): void {
-    this.selectedAgentSkillId = skillId;
-    this.renderAgentSkillsList();
-    this.renderAgentSkillPreview(this.getSelectedAgentSkill());
-  }
-
-  private renderAgentSkillPreview(skill: AgentSkillRecord | null): void {
-    if (!this.agentSkillPreviewEl) return;
-    this.agentSkillPreviewEl.empty();
-    if (!skill) {
-      const empty = this.agentSkillPreviewEl.createDiv({ cls: "llm-bridge-agent-skill-preview-empty" });
-      empty.createEl("span", { text: "选择一个 Agent Skill 查看详情。" });
-      empty.createEl("small", { text: "Agent Skills 是 runtime capabilities；不会插入 composer。" });
+  private async openAgentSkillFile(skill: AgentSkillRecord): Promise<void> {
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const skillPath = this.resolveAgentSkillVaultPath(skill, vaultPath);
+    const fallbackPath = this.resolveAgentSkillDisplayPath(skill, vaultPath);
+    if (!skillPath) {
+      await this.copyAgentSkillPathFallback(fallbackPath);
       return;
     }
 
-    const head = this.agentSkillPreviewEl.createDiv({ cls: "llm-bridge-agent-skill-preview-head" });
-    const titleWrap = head.createDiv({ cls: "llm-bridge-agent-skill-preview-title-wrap" });
-    titleWrap.createEl("span", { cls: "llm-bridge-agent-skill-preview-kicker", text: "Runtime capability" });
-    titleWrap.createEl("strong", { cls: "llm-bridge-agent-skill-preview-title", text: skill.name });
-    const status = head.createEl("span", {
-      cls: `llm-bridge-agent-skill-status ${skill.enabled ? "is-enabled" : "is-disabled"}`,
-      text: skill.enabled ? "enabled" : "disabled",
-    });
-    status.setAttribute("title", "由 .llm-bridge/agent-skills.json 控制；物化由 CLI/SDK runtime preparation 处理");
-
-    this.agentSkillPreviewEl.createDiv({
-      cls: "llm-bridge-agent-skill-boundary",
-      text: "Agent Skill 是 Claude runtime 可发现/可调用的能力，不会写入 composer，也不会拼进 promptPackage。",
-    });
-
-    const desc = this.agentSkillPreviewEl.createDiv({ cls: "llm-bridge-agent-skill-preview-desc" });
-    desc.setText(skill.description || "(no description)");
-
-    const meta = this.agentSkillPreviewEl.createDiv({ cls: "llm-bridge-agent-skill-preview-meta" });
-    const rows: Array<[string, string]> = [
-      ["slug", skill.slug],
-      ["source", skill.source],
-      ["path", skill.materializedPath],
-      ["updated", skill.updatedAt || "(unknown)"],
-    ];
-    for (const [label, value] of rows) {
-      const row = meta.createDiv({ cls: "llm-bridge-agent-skill-preview-row" });
-      row.createEl("span", { cls: "llm-bridge-agent-skill-preview-label", text: label });
-      row.createEl("span", { cls: "llm-bridge-agent-skill-preview-value", text: value });
+    const file = this.app.vault.getAbstractFileByPath(skillPath);
+    if (file instanceof TFile) {
+      await this.app.workspace.getLeaf(true).openFile(file);
+      return;
     }
-
-    const instructionsHead = this.agentSkillPreviewEl.createDiv({ cls: "llm-bridge-agent-skill-instructions-head" });
-    instructionsHead.createEl("span", { text: "Instructions" });
-    instructionsHead.createEl("button", {
-      cls: "llm-bridge-agent-skill-full-btn",
-      text: "完整预览",
-      attr: { title: "辅助打开完整预览；默认交互仍为内联面板" },
-    }).addEventListener("click", () => this.openAgentSkillPreviewModal(skill));
-
-    this.agentSkillPreviewEl.createEl("pre", {
-      cls: "llm-bridge-agent-skill-instructions",
-      text: skill.instructions || "(empty instructions)",
-    });
+    await this.copyAgentSkillPathFallback(fallbackPath);
   }
 
-  private openAgentSkillPreviewModal(skill: AgentSkillRecord): void {
-    const modal = new Modal(this.app);
-    modal.titleEl.setText(`Agent Skill：${skill.name}`);
-    modal.contentEl.empty();
-    const meta = modal.contentEl.createDiv({ cls: "llm-bridge-skill-preview-meta" });
-    meta.createEl("div", { text: `slug: ${skill.slug}` });
-    meta.createEl("div", { text: `status: ${skill.enabled ? "enabled" : "disabled"}` });
-    meta.createEl("div", { text: `path: ${skill.materializedPath}` });
-    meta.createEl("p", { text: skill.description || "(no description)" });
-    modal.contentEl.createEl("pre", { cls: "llm-bridge-skill-preview", text: skill.instructions });
-    const btns = modal.contentEl.createDiv({ cls: "modal-button-container" });
-    btns.createEl("button", { text: "关闭" }).addEventListener("click", () => modal.close());
-    modal.open();
+  private resolveAgentSkillVaultPath(skill: AgentSkillRecord, vaultPath: string): string | null {
+    const fallback = `.claude/skills/${skill.slug}/SKILL.md`;
+    const rawPath = skill.materializedPath || fallback;
+    if (!path.isAbsolute(rawPath)) return rawPath.replace(/\\/g, "/").replace(/^\/+/, "");
+    const relative = path.relative(vaultPath, rawPath);
+    if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
+    return relative.replace(/\\/g, "/");
+  }
+
+  private resolveAgentSkillDisplayPath(skill: AgentSkillRecord, vaultPath: string): string {
+    const rawPath = skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md`;
+    if (path.isAbsolute(rawPath)) return rawPath;
+    return path.join(vaultPath, rawPath);
+  }
+
+  private async copyAgentSkillPathFallback(skillPath: string): Promise<void> {
+    let openedFolder = false;
+    try {
+      const electron = require("electron");
+      if (electron?.shell?.showItemInFolder && path.isAbsolute(skillPath)) {
+        electron.shell.showItemInFolder(skillPath);
+        openedFolder = true;
+      }
+    } catch {
+      openedFolder = false;
+    }
+    try {
+      await navigator.clipboard.writeText(skillPath);
+      new Notice(`无法通过 Vault 索引打开 Agent Skill，路径已复制${openedFolder ? "，并已在文件管理器中定位" : ""}：${skillPath}`, 6000);
+    } catch {
+      new Notice(`无法通过 Vault 索引打开 Agent Skill${openedFolder ? "，已在文件管理器中定位" : ""}：${skillPath}`, 6000);
+    }
   }
 
   // V2.7: 列表渲染失败的 fallback 提示（避免异常导致面板空白）

@@ -9113,8 +9113,8 @@ if (!runV213FUnit) {
       const hasFields = viewSrc.includes("private agentSkills: AgentSkillRecord[]")
         && viewSrc.includes("private agentSkillsToggleEl")
         && viewSrc.includes("private agentSkillsListEl")
-        && viewSrc.includes("private agentSkillPreviewEl")
-        && viewSrc.includes("private selectedAgentSkillId");
+        && !viewSrc.includes("private agentSkillPreviewEl")
+        && !viewSrc.includes("private selectedAgentSkillId");
       addTest("V2.13.0-F UI: view.ts 引入并持有 Agent Skills manifest state",
         hasImport && hasFields ? "pass" : "fail",
         `import=${hasImport} fields=${hasFields}`);
@@ -9136,7 +9136,8 @@ if (!runV213FUnit) {
         && viewSrc.includes("void this.refreshAgentSkills()");
       const hasToggle = /private async toggleAgentSkillEnabled[\s\S]{0,600}saveAgentSkillsManifest/.test(viewSrc)
         && /skill\.id === skillId[\s\S]{0,120}enabled/.test(viewSrc)
-        && /private async toggleAgentSkillEnabled[\s\S]{0,700}renderAgentSkillPreview\(this\.getSelectedAgentSkill\(\)\)/.test(viewSrc);
+        && /private async toggleAgentSkillEnabled[\s\S]{0,700}renderAgentSkillsList\(\)/.test(viewSrc)
+        && !/private async toggleAgentSkillEnabled[\s\S]{0,700}renderAgentSkillPreview/.test(viewSrc);
       addTest("V2.13.0-F UI: Agent Skills 可刷新并通过 manifest 启用/禁用",
         hasRefresh && hasToggle ? "pass" : "fail",
         `refresh=${hasRefresh} toggle=${hasToggle}`);
@@ -9151,12 +9152,12 @@ if (!runV213FUnit) {
       const noPromptInsert = !agentSection.includes("insertPromptSnippetAtCursor")
         && !agentSection.includes("appendPromptSnippetToInput")
         && !agentSection.includes("setInput(");
-      const hasPreview = viewSrc.includes("private renderAgentSkillPreview")
-        && viewSrc.includes("llm-bridge-agent-skill-preview")
-        && viewSrc.includes("skill.instructions");
-      addTest("V2.13.0-F boundary: Agent Skills UI 只预览/启用，不插入 composer",
-        noPromptInsert && hasPreview ? "pass" : "fail",
-        `noPromptInsert=${noPromptInsert} hasPreview=${hasPreview}`);
+      const hasRegistryOpen = viewSrc.includes("private async openAgentSkillFile")
+        && viewSrc.includes("workspace.getLeaf(true).openFile")
+        && viewSrc.includes("resolveAgentSkillVaultPath");
+      addTest("V2.15-F boundary: Agent Skills UI 只打开原生 SKILL.md/启用，不插入 composer",
+        noPromptInsert && hasRegistryOpen ? "pass" : "fail",
+        `noPromptInsert=${noPromptInsert} registryOpen=${hasRegistryOpen}`);
     }
 
     {
@@ -9172,21 +9173,19 @@ if (!runV213FUnit) {
     }
 
     {
-      const hasInlinePreviewDom = viewSrc.includes("this.agentSkillPreviewEl = grid.createDiv")
-        && viewSrc.includes("renderAgentSkillPreview(null)")
-        && viewSrc.includes("llm-bridge-agent-skill-boundary")
-        && viewSrc.includes("materializedPath")
-        && viewSrc.includes("updatedAt");
-      const defaultClickInline = /main\.addEventListener\("click", \(\) => this\.selectAgentSkill\(skill\.id\)\)/.test(viewSrc)
-        && /viewBtn\.addEventListener[\s\S]{0,180}this\.selectAgentSkill\(skill\.id\)/.test(viewSrc);
-      const modalAuxOnly = viewSrc.includes("private openAgentSkillPreviewModal")
-        && viewSrc.includes("辅助打开完整预览；默认交互仍为内联面板");
-      const stylesOk = stylesSrc.includes(".llm-bridge-agent-skills-grid")
-        && stylesSrc.includes(".llm-bridge-agent-skill-preview")
-        && stylesSrc.includes(".llm-bridge-agent-skill-instructions");
-      addTest("V2.13.0-F2 UI: Agent Skills 默认内联预览且 Modal 仅辅助",
-        hasInlinePreviewDom && defaultClickInline && modalAuxOnly && stylesOk ? "pass" : "fail",
-        `dom=${hasInlinePreviewDom} click=${defaultClickInline} modalAux=${modalAuxOnly} styles=${stylesOk}`);
+      const noInlinePreviewDom = !viewSrc.includes("this.agentSkillPreviewEl")
+        && !viewSrc.includes("renderAgentSkillPreview")
+        && !viewSrc.includes("llm-bridge-agent-skill-preview")
+        && !viewSrc.includes("openAgentSkillPreviewModal");
+      const defaultClickOpenFile = /main\.addEventListener\("click", \(\) => void this\.openAgentSkillFile\(skill\)\)/.test(viewSrc)
+        && viewSrc.includes("llm-bridge-agent-skill-registry-item");
+      const stylesOk = stylesSrc.includes(".llm-bridge-agent-skills-boundary")
+        && stylesSrc.includes(".llm-bridge-agent-skill-registry-item")
+        && !stylesSrc.includes(".llm-bridge-agent-skill-preview")
+        && !stylesSrc.includes(".llm-bridge-agent-skill-instructions");
+      addTest("V2.15-F UI: Agent Skills registry 无内联详情/弹窗，点击打开原生文件",
+        noInlinePreviewDom && defaultClickOpenFile && stylesOk ? "pass" : "fail",
+        `noPreview=${noInlinePreviewDom} click=${defaultClickOpenFile} styles=${stylesOk}`);
     }
 
     {
@@ -10926,7 +10925,9 @@ if (!runV214BUnit) {
         && viewSrc.includes("llm-bridge-composer-tools-left")
         && viewSrc.includes("llm-bridge-composer-tools-right")
         && viewSrc.includes("输入消息，或使用 / 命令…")
-        && viewSrc.includes("llm-bridge-model-effort-select")
+        && viewSrc.includes("llm-bridge-model-effort-picker")
+        && viewSrc.includes("llm-bridge-model-list")
+        && viewSrc.includes("llm-bridge-effort-list")
         && !viewSrc.includes("rightTools.appendChild(agentSelect)");
       const workingSetOk = viewSrc.includes("llm-bridge-working-set-strip")
         && viewSrc.includes("llm-bridge-working-set-context")
@@ -11030,7 +11031,8 @@ if (!runV214BUnit) {
         && /@media \(max-width: 720px\)[\s\S]{0,180}width:\s*40px/.test(stylesSrc);
       const composerStillOk = viewSrc.includes("llm-bridge-command-menu")
         && viewSrc.includes("llm-bridge-permission-chip")
-        && viewSrc.includes("llm-bridge-model-effort-select")
+        && viewSrc.includes("llm-bridge-model-effort-picker")
+        && viewSrc.includes("llm-bridge-model-effort-popover")
         && !viewSrc.includes("rightTools.appendChild(agentSelect)");
       const noRuntimeExpansion = !runtimeFileToolAdapterSrc.includes("\"write\"")
         && !runtimeFileToolAdapterSrc.includes("\"delete\"")
@@ -11068,20 +11070,22 @@ if (!runV214BUnit) {
         && !viewSrc.includes("renderSkillsPanel(skillsPanel)")
         && !/renderAgentSkillsList[\s\S]{0,1800}insertPromptSnippetAtCursor/.test(viewSrc)
         && !/renderAgentSkillsList[\s\S]{0,1800}appendPromptSnippetToInput/.test(viewSrc);
-      const skillsLayoutOk = stylesSrc.includes(".llm-bridge-agent-skills-grid")
-        && stylesSrc.includes(".llm-bridge-agent-skill-preview")
-        && stylesSrc.includes(".llm-bridge-agent-skill-instructions")
+      const skillsLayoutOk = stylesSrc.includes(".llm-bridge-agent-skills-boundary")
+        && stylesSrc.includes(".llm-bridge-agent-skill-registry-item")
+        && !stylesSrc.includes(".llm-bridge-agent-skill-preview")
+        && !stylesSrc.includes(".llm-bridge-agent-skill-instructions")
         && !stylesSrc.includes("grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto auto auto");
       const sessionDropdownOk = viewSrc.includes("llm-bridge-session-dropdown")
         && viewSrc.includes("toggleSessionDropdown")
         && viewSrc.includes("查看全部历史")
         && !viewSrc.includes("sessionPreview.addEventListener(\"click\", () => switchTab(\"history\"))");
       const composerOk = !viewSrc.includes("rightTools.appendChild(agentSelect)")
-        && viewSrc.includes("llm-bridge-model-effort-select")
-        && viewSrc.includes("this.modelEffortSelectEl")
-        && stylesSrc.includes("grid-template-areas: \"left input right\"")
+        && viewSrc.includes("llm-bridge-model-effort-picker")
+        && viewSrc.includes("this.modelEffortPickerEl")
+        && stylesSrc.includes(".llm-bridge-composer-tools-left")
+        && stylesSrc.includes("position: absolute")
         && stylesSrc.includes(".llm-bridge-input")
-        && stylesSrc.includes("min-height: 76px");
+        && stylesSrc.includes("padding-bottom: 44px");
       const chatIconOk = viewSrc.includes("\"message-square\"")
         && !viewSrc.includes("text: \"☏\"");
       const detailsCollapsedOk = viewSrc.includes("this.runFlowBody.setAttribute(\"hidden\", \"\")")
@@ -11109,6 +11113,58 @@ if (!runV214BUnit) {
       addTest("V2.15-E RC UI regression: 附件、Skills、session、composer、icon、details 修复",
         ok ? "pass" : "fail",
         `attachment=${attachmentMenuOk} native=${nativePathFailureOk} skills=${skillsNoAutoInsertOk} layout=${skillsLayoutOk} session=${sessionDropdownOk} composer=${composerOk} icon=${chatIconOk} details=${detailsCollapsedOk} runtime=${noRuntimeExpansion} report=${reportOk}`);
+    }
+
+    {
+      const skillsPageOk = viewSrc.includes("Agent Skills Registry")
+        && viewSrc.includes("runtime capabilities")
+        && viewSrc.includes("不会写入 composer")
+        && !viewSrc.includes("Prompt Snippets")
+        && !viewSrc.includes("Insert prompt")
+        && !viewSrc.includes("Insert selected")
+        && !viewSrc.includes("Append");
+      const noInlineDetailOk = !viewSrc.includes("agentSkillPreviewEl")
+        && !viewSrc.includes("renderAgentSkillPreview")
+        && !viewSrc.includes("openAgentSkillPreviewModal")
+        && !stylesSrc.includes(".llm-bridge-agent-skill-preview");
+      const openNativeOk = viewSrc.includes("private async openAgentSkillFile")
+        && viewSrc.includes("resolveAgentSkillVaultPath")
+        && viewSrc.includes("workspace.getLeaf(true).openFile")
+        && viewSrc.includes("copyAgentSkillPathFallback");
+      const agentSectionStart = viewSrc.indexOf("private renderAgentSkillsList");
+      const agentSectionEnd = viewSrc.indexOf("private async toggleAgentSkillEnabled");
+      const agentSection = agentSectionStart >= 0 && agentSectionEnd > agentSectionStart
+        ? viewSrc.slice(agentSectionStart, agentSectionEnd)
+        : "";
+      const clickNoInputOk = agentSection.includes("openAgentSkillFile(skill)")
+        && !agentSection.includes("inputEl")
+        && !agentSection.includes("setInput(")
+        && !agentSection.includes("insertPromptSnippetAtCursor")
+        && !agentSection.includes("appendPromptSnippetToInput");
+      const promptBoundaryOk = !promptPackageSrc.includes("agentSkills")
+        && !promptPackageSrc.includes("Agent Skill")
+        && !promptPackageSrc.includes("activeSkillPrompts");
+      const composerOk = viewSrc.includes("llm-bridge-model-effort-picker")
+        && viewSrc.includes("llm-bridge-model-list")
+        && viewSrc.includes("llm-bridge-effort-list")
+        && !viewSrc.includes("llm-bridge-model-effort-select")
+        && !viewSrc.includes("modelEffortSelectEl")
+        && stylesSrc.includes(".llm-bridge-model-effort-popover")
+        && stylesSrc.includes("padding-bottom: 44px");
+      const reportPath = join(PROJECT_ROOT, "docs", "V2.15-F_AGENT_SKILLS_REGISTRY.md");
+      const reportOk = existsSync(reportPath)
+        && ["AgentSkillsRegistry", "ObsidianNativeDetail", "NoPromptSnippetsRegression", "ComposerFullInput", "ModelEffortPicker", "VisualSmoke", "Tests", "RemainingRisk", "Recommendation"]
+          .every((heading) => readFileSync(reportPath, "utf8").includes(`## ${heading}`));
+      const ok = skillsPageOk
+        && noInlineDetailOk
+        && openNativeOk
+        && clickNoInputOk
+        && promptBoundaryOk
+        && composerOk
+        && reportOk;
+      addTest("V2.15-F Agent Skills registry: 原生 SKILL.md 详情、无 snippets、composer/model picker 修复",
+        ok ? "pass" : "fail",
+        `skills=${skillsPageOk} noDetail=${noInlineDetailOk} native=${openNativeOk} click=${clickNoInputOk} prompt=${promptBoundaryOk} composer=${composerOk} report=${reportOk}`);
     }
   } catch (e) {
     addTest("V2.14.0-B Shared File Access Policy Module 单元测试段", "fail", e?.stack || e?.message || String(e));
