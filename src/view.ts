@@ -28,6 +28,16 @@ import { Skill, loadSkills, seedDefaultSkills, filterEnabledSkills, expandSkillP
 import { SkillsState, SkillMeta, loadSkillsState, saveSkillsState, getSkillMeta, recordSkillApplied, setSkillPinned, recordCombo, formatRelativeTime, createEmptySkillsState, renameSkillMeta } from "./skillsState";
 import { AgentSkillRecord, loadAgentSkillsManifest, saveAgentSkillsManifest } from "./agentSkills";
 import { getPermissionModeInfo, type PermissionChoice } from "./sdkPermission";
+import {
+  approvePendingExternalReadRequest,
+  createFileAccessPolicy,
+  createPendingExternalReadRequest,
+  createSessionReadGrantStore,
+  enqueuePendingExternalReadRequest,
+  PendingExternalReadRequest,
+  SessionReadGrantStore,
+  FileAccessOperation,
+} from "./fileAccessPolicy";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -184,6 +194,9 @@ export class LLMBridgeView extends ItemView {
   // V2.3s: 待决策权限请求面板（运行中实时展示 pending 权限请求，用户点击允许/拒绝）
   private permissionPanelEl!: HTMLElement;
   private pendingPermissions: Map<string, PermissionEvent> = new Map();
+  // V2.14.0-E: 外部 read 授权仅存在于当前 Bridge View/session 生命周期
+  private externalReadGrantStore: SessionReadGrantStore = createSessionReadGrantStore();
+  private externalReadPanelEl!: HTMLElement;
   // V2.13.0-B: 已插入 Prompt Snippets 名称集合（插入 prompt 时添加；发送/清空时重置）
   private insertedSnippetNames: Set<string> = new Set();
   // V2.3: 最近一次 SDK 运行的工具数与 agent 数（用于状态栏展示）
@@ -404,6 +417,9 @@ export class LLMBridgeView extends ItemView {
     // V2.3s: 权限请求面板（运行中实时展示 pending 权限请求，用户点击允许/拒绝）
     this.permissionPanelEl = chatPanel.createDiv({ cls: "llm-bridge-perm-panel" });
     this.permissionPanelEl.style.display = "none";
+    // V2.14.0-E: 外部读取授权请求面板（只管理授权，不读取文件内容）
+    this.externalReadPanelEl = chatPanel.createDiv({ cls: "llm-bridge-external-read-panel" });
+    this.externalReadPanelEl.style.display = "none";
 
     // ===== 底部 composer =====
     const composer = chatPanel.createDiv({ cls: "llm-bridge-composer" });
@@ -750,6 +766,7 @@ export class LLMBridgeView extends ItemView {
     // V2.11.1: flush skills state（立即写入最后一次 state 变更，不丢数据）
     // V2.12.1: 改为调用 flushSkillsStateSave() 复用统一逻辑（openEditSkillDialog 也复用）
     await this.flushSkillsStateSave();
+    this.clearExternalReadRequests();
   }
 
   // ---------- 控件同步 ----------
@@ -1026,6 +1043,95 @@ export class LLMBridgeView extends ItemView {
     }
     this.pendingPermissions.clear();
     this.refreshPermissionPanel();
+  }
+
+  // V2.14.0-E: 将外部文件访问请求转换为 pending read request；非 read 不进入 pending。
+  public queueExternalFileAccessRequest(
+    operation: FileAccessOperation,
+    requestedPath: string,
+    source = "agent",
+  ): PendingExternalReadRequest | null {
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const policy = createFileAccessPolicy({
+      vaultPath,
+      outputDir: this.plugin.settings.outputDir,
+      sessionReadGrants: this.externalReadGrantStore.sessionReadGrants,
+    });
+    const pending = createPendingExternalReadRequest(policy, { operation, path: requestedPath }, { source });
+    this.externalReadGrantStore = enqueuePendingExternalReadRequest(this.externalReadGrantStore, pending);
+    this.refreshExternalReadPanel();
+    return pending;
+  }
+
+  private refreshExternalReadPanel(): void {
+    const panel = this.externalReadPanelEl;
+    panel.empty();
+    const pending = this.externalReadGrantStore.pendingReadRequests;
+    if (pending.length === 0) {
+      panel.style.display = "none";
+      return;
+    }
+
+    panel.style.display = "block";
+    const header = panel.createDiv({ cls: "llm-bridge-external-read-header" });
+    header.createEl("span", { cls: "llm-bridge-external-read-title", text: "External Read Requests" });
+    header.createEl("span", { cls: "llm-bridge-external-read-count", text: `${pending.length} pending` });
+
+    for (const req of pending) {
+      const card = panel.createDiv({ cls: `llm-bridge-external-read-card is-risk-${req.risk} is-safety-${req.grantRootSafety}` });
+      const title = card.createDiv({ cls: "llm-bridge-external-read-card-title" });
+      title.createEl("span", { text: "Agent requested external read" });
+      title.createEl("span", { cls: "llm-bridge-external-read-source", text: req.source });
+
+      const fields = card.createDiv({ cls: "llm-bridge-external-read-fields" });
+      this.renderExternalReadField(fields, "requestedPath", req.requestedPath);
+      this.renderExternalReadField(fields, "proposedGrantRoot", req.proposedGrantRoot || "(none)");
+      this.renderExternalReadField(fields, "risk", req.risk);
+      this.renderExternalReadField(fields, "reason", req.reason);
+      this.renderExternalReadField(fields, "source", req.source);
+
+      if (req.grantRootSafety === "deny") {
+        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "Grant root is too broad or unsafe. Directory approval is disabled." });
+      } else if (req.grantRootSafety === "confirm") {
+        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "Strong confirmation required: this grant root is broad. Review the path before approving." });
+      }
+
+      const btns = card.createDiv({ cls: "llm-bridge-external-read-actions" });
+      if (req.grantRootSafety !== "deny") {
+        const allowDirText = req.grantRootSafety === "confirm" ? "强确认：允许本次会话读取此目录" : "允许本次会话读取此目录";
+        const allowDirBtn = btns.createEl("button", { cls: "llm-bridge-external-read-allow-dir", text: allowDirText });
+        allowDirBtn.addEventListener("click", () => this.approveExternalReadRequest(req.id, false));
+        const allowFileText = req.grantRootSafety === "confirm" ? "强确认：仅允许此文件" : "仅允许此文件";
+        const allowFileBtn = btns.createEl("button", { cls: "llm-bridge-external-read-allow-file", text: allowFileText });
+        allowFileBtn.addEventListener("click", () => this.approveExternalReadRequest(req.id, true));
+      }
+      const denyBtn = btns.createEl("button", { cls: "llm-bridge-external-read-deny", text: "拒绝" });
+      denyBtn.addEventListener("click", () => this.denyExternalReadRequest(req.id));
+    }
+  }
+
+  private renderExternalReadField(parent: HTMLElement, label: string, value: string): void {
+    const row = parent.createDiv({ cls: "llm-bridge-external-read-field" });
+    row.createEl("span", { cls: "llm-bridge-external-read-field-label", text: label });
+    row.createEl("span", { cls: "llm-bridge-external-read-field-value", text: value, attr: { title: value } });
+  }
+
+  private approveExternalReadRequest(requestId: string, forceFileScope: boolean): void {
+    this.externalReadGrantStore = approvePendingExternalReadRequest(this.externalReadGrantStore, requestId, { forceFileScope });
+    this.refreshExternalReadPanel();
+  }
+
+  private denyExternalReadRequest(requestId: string): void {
+    this.externalReadGrantStore = {
+      sessionReadGrants: this.externalReadGrantStore.sessionReadGrants.slice(),
+      pendingReadRequests: this.externalReadGrantStore.pendingReadRequests.filter((req) => req.id !== requestId),
+    };
+    this.refreshExternalReadPanel();
+  }
+
+  private clearExternalReadRequests(): void {
+    this.externalReadGrantStore = createSessionReadGrantStore();
+    if (this.externalReadPanelEl) this.refreshExternalReadPanel();
   }
 
   // V1.1: 运行 preflight 检测（不调用真实模型）
@@ -1820,6 +1926,7 @@ export class LLMBridgeView extends ItemView {
     this.lastSdkAgentCount = 0;
     // V2.3s: 清空待决策权限请求
     this.clearPendingPermissions();
+    this.clearExternalReadRequests();
     this.refreshStatusBar();
   }
 
@@ -2154,6 +2261,7 @@ export class LLMBridgeView extends ItemView {
     this.lastSdkToolCount = 0;
     this.lastSdkAgentCount = 0;
     this.clearPendingPermissions();
+    this.clearExternalReadRequests();
     this.refreshStatusBar();
     this.scrollToBottom(); // V2.8: 恢复后滚到最新消息
     // V2.8: agentType 一致性提示（不强制切换 backend）

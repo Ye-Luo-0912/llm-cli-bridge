@@ -9340,7 +9340,10 @@ if (!runV214BUnit) {
     const reportSrc = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-B_FILE_ACCESS_POLICY_MODULE.md"), "utf8");
     const reportSrcV214C = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-C_ON_DEMAND_EXTERNAL_READ_AUTHORIZATION.md"), "utf8");
     const reportSrcV214D = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-D_SESSION_DIRECTORY_READ_GRANTS.md"), "utf8");
+    const reportSrcV214E = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-E_PENDING_EXTERNAL_READ_APPROVAL_UI.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
+    const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+    const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf8");
     const cliBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeCliBackend.ts"), "utf8");
     const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
     const agentBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "agentBackend.ts"), "utf8");
@@ -9366,9 +9369,11 @@ if (!runV214BUnit) {
         .every((heading) => reportSrcV214C.includes(heading));
       const reportDOk = ["## GrantStore", "## GrantRootInference", "## PendingFlow", "## DirectoryGrantRules", "## SafetyRules", "## Tests", "## RemainingRisk", "## Recommendation"]
         .every((heading) => reportSrcV214D.includes(heading));
-      addTest("V2.14.0-B/C/D exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk && reportDOk ? "pass" : "fail",
-        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk}`);
+      const reportEOk = ["## RuntimeStore", "## ApprovalUI", "## GrantActions", "## SafetyBehavior", "## Tests", "## RemainingRisk", "## Recommendation"]
+        .every((heading) => reportSrcV214E.includes(heading));
+      addTest("V2.14.0-B/C/D/E exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk && reportEOk ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk}`);
     }
 
     {
@@ -9575,6 +9580,30 @@ if (!runV214BUnit) {
         && traversal.reason === "path_traversal";
       addTest("V2.14.0-B path safety: Windows/POSIX containment 与路径遍历",
         ok ? "pass" : "fail", `win=${windowsInside}/${windowsOutside} posix=${posixInside}/${posixOutside} traversal=${traversal.decision}/${traversal.reason}`);
+    }
+
+    {
+      const hasRuntimeStore = viewSrc.includes("externalReadGrantStore: SessionReadGrantStore = createSessionReadGrantStore()")
+        && viewSrc.includes("queueExternalFileAccessRequest")
+        && viewSrc.includes("clearExternalReadRequests");
+      const hasPendingUi = viewSrc.includes("External Read Requests")
+        && ["requestedPath", "proposedGrantRoot", "risk", "reason", "source"].every((needle) => viewSrc.includes(needle))
+        && stylesSrc.includes(".llm-bridge-external-read-panel");
+      const hasGrantActions = viewSrc.includes("允许本次会话读取此目录")
+        && viewSrc.includes("仅允许此文件")
+        && viewSrc.includes("拒绝")
+        && viewSrc.includes("approvePendingExternalReadRequest(this.externalReadGrantStore, requestId, { forceFileScope })")
+        && viewSrc.includes("this.approveExternalReadRequest(req.id, false)")
+        && viewSrc.includes("this.approveExternalReadRequest(req.id, true)");
+      const hasSafetyBehavior = viewSrc.includes("req.grantRootSafety === \"deny\"")
+        && viewSrc.includes("req.grantRootSafety === \"confirm\"")
+        && viewSrc.includes("Strong confirmation required")
+        && viewSrc.includes("if (req.grantRootSafety !== \"deny\")");
+      const nonReadStillNoPending = createPendingExternalReadRequest(createFileAccessPolicy({ vaultPath: "C:\\Vault" }), { operation: "delete", path: "D:\\External\\x.md" }) === null;
+      const ok = hasRuntimeStore && hasPendingUi && hasGrantActions && hasSafetyBehavior && nonReadStillNoPending;
+      addTest("V2.14.0-E runtime UI: pending 文案/授权动作/safety 行为存在，非 read 不入 pending",
+        ok ? "pass" : "fail",
+        `store=${hasRuntimeStore} ui=${hasPendingUi} actions=${hasGrantActions} safety=${hasSafetyBehavior} nonRead=${nonReadStillNoPending}`);
     }
 
     {
