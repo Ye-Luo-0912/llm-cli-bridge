@@ -47,6 +47,7 @@ import {
   createVaultFileRef,
   createWorkingSet,
   classifyFileTypeByPath,
+  buildPromptFileRefIndex,
   FileRef,
   WorkingSet,
 } from "./fileRefs";
@@ -220,6 +221,7 @@ export class LLMBridgeView extends ItemView {
   private fileWorkingSet: WorkingSet = createWorkingSet();
   private attachmentReadGrants: FileAccessReadGrant[] = [];
   private attachmentTextSnippets: AttachmentTextSnippet[] = [];
+  private attachmentFileInputEl!: HTMLInputElement;
   private workingSetEl!: HTMLElement;
   // V2.13.0-B: 已插入 Prompt Snippets 名称集合（插入 prompt 时添加；发送/清空时重置）
   private insertedSnippetNames: Set<string> = new Set();
@@ -523,9 +525,34 @@ export class LLMBridgeView extends ItemView {
     const attachBtn = chipsRow.createEl("button", {
       cls: "llm-bridge-chip llm-bridge-attach-file-btn",
       text: "+ File",
-      attr: { title: "添加用户主动附件路径" },
+      attr: { title: "选择一个或多个用户主动附件" },
     });
-    attachBtn.addEventListener("click", () => void this.promptAndAddAttachmentFile());
+    attachBtn.addEventListener("click", () => this.openNativeAttachmentPicker());
+    this.attachmentFileInputEl = composer.createEl("input", {
+      attr: { type: "file", multiple: "true", tabindex: "-1" },
+    });
+    this.attachmentFileInputEl.addClass("llm-bridge-native-file-input");
+    this.attachmentFileInputEl.addEventListener("change", () => void this.addNativeSelectedAttachments());
+
+    const pathAttachBtn = chipsRow.createEl("button", {
+      cls: "llm-bridge-chip llm-bridge-attach-path-btn",
+      text: "+ Path",
+      attr: { title: "通过路径添加附件（fallback/debug）" },
+    });
+    pathAttachBtn.addEventListener("click", () => void this.promptAndAddAttachmentFile());
+
+    composer.addEventListener("dragover", (event) => {
+      if (!event.dataTransfer?.files?.length) return;
+      event.preventDefault();
+      composer.addClass("is-dragging-file");
+    });
+    composer.addEventListener("dragleave", () => composer.removeClass("is-dragging-file"));
+    composer.addEventListener("drop", (event) => {
+      if (!event.dataTransfer?.files?.length) return;
+      event.preventDefault();
+      composer.removeClass("is-dragging-file");
+      void this.addFilesFromFileList(event.dataTransfer.files);
+    });
 
     this.workingSetEl = composer.createDiv({ cls: "llm-bridge-working-set" });
     this.refreshWorkingSetChips();
@@ -1136,6 +1163,17 @@ export class LLMBridgeView extends ItemView {
     return ref;
   }
 
+  public async addAttachmentFilesWithIngestion(requestedPaths: string[]): Promise<FileRef[]> {
+    const refs: FileRef[] = [];
+    for (const requestedPath of requestedPaths) {
+      const trimmed = requestedPath.trim();
+      if (!trimmed) continue;
+      const ref = await this.addAttachmentFileRefWithIngestion(trimmed);
+      if (ref) refs.push(ref);
+    }
+    return refs;
+  }
+
   public getWorkingSetFileRefs(): FileRef[] {
     return this.fileWorkingSet.refs.slice();
   }
@@ -1167,6 +1205,37 @@ export class LLMBridgeView extends ItemView {
     new Notice(snippet ? `已添加附件并读取 bounded snippet：${ref.displayName}` : `已添加附件引用：${ref.displayName} (${type})`);
   }
 
+  private openNativeAttachmentPicker(): void {
+    if (!this.attachmentFileInputEl) return;
+    this.attachmentFileInputEl.value = "";
+    this.attachmentFileInputEl.click();
+  }
+
+  private async addNativeSelectedAttachments(): Promise<void> {
+    if (!this.attachmentFileInputEl?.files?.length) return;
+    await this.addFilesFromFileList(this.attachmentFileInputEl.files);
+    this.attachmentFileInputEl.value = "";
+  }
+
+  private async addFilesFromFileList(files: FileList): Promise<void> {
+    const paths = Array.from(files)
+      .map((file) => this.extractNativeFilePath(file))
+      .filter((filePath): filePath is string => !!filePath);
+    if (paths.length === 0) {
+      new Notice("未获取到原生文件路径；可使用 + Path fallback 添加。");
+      return;
+    }
+    const refs = await this.addAttachmentFilesWithIngestion(paths);
+    new Notice(`已添加 ${refs.length}/${paths.length} 个附件到 Working Set`);
+  }
+
+  private extractNativeFilePath(file: File): string | null {
+    const electronFile = file as File & { path?: string };
+    return typeof electronFile.path === "string" && electronFile.path.trim().length > 0
+      ? electronFile.path
+      : null;
+  }
+
   private refreshWorkingSetChips(): void {
     if (!this.workingSetEl) return;
     const refs = this.fileWorkingSet.refs;
@@ -1180,9 +1249,9 @@ export class LLMBridgeView extends ItemView {
     for (const ref of refs) {
       const chip = this.workingSetEl.createDiv({ cls: `llm-bridge-working-set-chip is-${ref.kind} is-${ref.status}` });
       chip.createEl("span", { cls: "llm-bridge-working-set-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
-      chip.createEl("span", { cls: "llm-bridge-working-set-meta", text: `${ref.kind} · ${ref.status} · ${ref.source} · ${ref.pathKind}` });
+      chip.createEl("span", { cls: "llm-bridge-working-set-meta", text: `${ref.kind} · ${ref.status} · ${ref.source} · ${ref.pathKind} · ${ref.fileType}` });
       const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id);
-      if (snippet) chip.createEl("span", { cls: "llm-bridge-working-set-ingested", text: "bounded" });
+      chip.createEl("span", { cls: "llm-bridge-working-set-ingested", text: snippet ? "bounded" : "refs-only" });
       const remove = chip.createEl("button", { cls: "llm-bridge-working-set-remove", text: "×", attr: { title: "移除" } });
       remove.addEventListener("click", () => this.removeWorkingSetRef(ref.id));
     }
@@ -3373,6 +3442,7 @@ export class LLMBridgeView extends ItemView {
       activeFilePath: activeFile?.path || null,
       activeFileContent: null,
       selection,
+      fileRefIndex: buildPromptFileRefIndex(this.fileWorkingSet),
       attachmentTextSnippets: this.attachmentTextSnippets.slice(),
       timestamp: new Date().toISOString(),
     };

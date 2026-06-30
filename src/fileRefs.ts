@@ -33,6 +33,15 @@ export interface WorkingSet {
   refs: FileRef[];
 }
 
+export interface PromptFileRefIndexEntry {
+  id: string;
+  displayName: string;
+  path: string;
+  kind: FileRefKind;
+  fileType: FileRefFileType;
+  status: "active";
+}
+
 export interface AttachmentFileRefResult {
   ref: FileRef;
   readGrant: FileAccessReadGrant;
@@ -155,6 +164,22 @@ export function workingSetContainsFileContent(workingSet: WorkingSet): boolean {
     || Object.prototype.hasOwnProperty.call(ref, "text")
     || Object.prototype.hasOwnProperty.call(ref, "body")
   );
+}
+
+export function buildPromptFileRefIndex(workingSet: WorkingSet): PromptFileRefIndexEntry[] {
+  return workingSet.refs
+    .filter((ref) =>
+      ref.status === "active"
+      && (ref.kind === "vault" || ref.kind === "attachment" || ref.grantScope === "session")
+    )
+    .map((ref) => ({
+      id: ref.id,
+      displayName: ref.displayName,
+      path: ref.resolvedPath,
+      kind: ref.kind,
+      fileType: ref.fileType,
+      status: "active" as const,
+    }));
 }
 
 function findReadGrantForPath(grants: FileAccessReadGrant[], resolvedPath: string): FileAccessReadGrant | null {

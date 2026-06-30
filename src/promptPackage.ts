@@ -11,8 +11,18 @@ export interface StateSnapshot {
   activeFilePath: string | null;
   activeFileContent: string | null;
   selection: string | null;
+  fileRefIndex?: PromptFileRefIndexEntry[];
   attachmentTextSnippets?: PromptAttachmentTextSnippet[];
   timestamp: string;
+}
+
+export interface PromptFileRefIndexEntry {
+  id: string;
+  displayName: string;
+  path: string;
+  kind: "vault" | "external" | "attachment";
+  fileType: "image" | "text" | "markdown" | "json" | "pdf" | "binary" | "unknown";
+  status: "active";
 }
 
 export interface PromptAttachmentTextSnippet {
@@ -75,7 +85,22 @@ ${truncated}
 `);
   }
 
-  // 4. 用户主动附件（只包含 bounded text snippets，不包含 external working set 全文）
+  // 4. FileRef metadata index（只列已授权/用户主动 refs；不包含正文）
+  if (snapshot.fileRefIndex && snapshot.fileRefIndex.length > 0) {
+    const rows = snapshot.fileRefIndex.map((ref, idx) =>
+      `${idx + 1}. ${ref.displayName} | kind=${ref.kind} | type=${ref.fileType} | status=${ref.status} | path=${ref.path}`
+    ).join("\n");
+    parts.push(`
+========== FileRef Metadata Index ==========
+以下是已授权或用户主动添加的文件引用索引，只包含 metadata，不包含文件正文。pending / denied / 未授权 external refs 不会出现在本区。
+CLI/Claude Code 路径：如需查看 image/pdf/binary 或 refs-only 文件，可在权限允许时使用 Claude Code Read 读取对应 path。
+SDK 路径：本阶段仅保留 refs，不启用 streaming image。
+
+${rows}
+`);
+  }
+
+  // 5. 用户主动附件（只包含 bounded text snippets，不包含 external working set 全文）
   if (snapshot.attachmentTextSnippets && snapshot.attachmentTextSnippets.length > 0) {
     const snippets = snapshot.attachmentTextSnippets.map((snippet, idx) => {
       const marker = snippet.truncated ? "\n...[attachment truncated by LLM CLI Bridge]" : "";
@@ -96,7 +121,7 @@ ${snippets}
 `);
   }
 
-  // 5. 输出规则（配置驱动 / 项目约定驱动，不硬编码目录名）
+  // 6. 输出规则（配置驱动 / 项目约定驱动，不硬编码目录名）
   const configuredDir = settings.outputDir && settings.outputDir.trim().length > 0
     ? settings.outputDir.trim()
     : "";
@@ -109,7 +134,7 @@ ${snippets}
 - 按配置或项目规则写入文件（输出位置：${outputLocation}）
 - 如果必须输出长内容，写入文件并告知路径`);
 
-  // 6. 用户请求
+  // 7. 用户请求
   parts.push(`
 ========== 用户请求 ==========
 ${userInput}`);

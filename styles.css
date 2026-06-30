@@ -251,6 +251,11 @@
   flex-direction: column;
   gap: 8px;
 }
+.llm-bridge-composer.is-dragging-file {
+  outline: 1px dashed var(--interactive-accent);
+  outline-offset: -5px;
+  background: var(--background-secondary);
+}
 
 .llm-bridge-input-row {
   display: flex;
@@ -388,6 +393,12 @@
 .llm-bridge-attach-file-btn {
   border-style: dashed;
 }
+.llm-bridge-attach-path-btn {
+  opacity: 0.82;
+}
+.llm-bridge-native-file-input {
+  display: none;
+}
 
 .llm-bridge-working-set {
   display: flex;
@@ -442,6 +453,9 @@
 .llm-bridge-working-set-ingested {
   border-left: 1px solid var(--background-modifier-border);
   padding-left: 5px;
+}
+.llm-bridge-working-set-ingested:not(:empty) {
+  color: var(--text-muted);
 }
 
 .llm-bridge-working-set-remove {

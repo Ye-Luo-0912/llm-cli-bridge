@@ -1,20 +1,20 @@
 # LLM CLI Bridge 测试报告
 
-- **测试时间**: 2026-06-30T08:11:10.353Z
+- **测试时间**: 2026-06-30T08:32:44.829Z
 - **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.12.1
-- **main.js 大小**: 366.5 KB
+- **main.js 大小**: 370.8 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 63019
 
 ## 测试汇总
 
-- ✅ **通过**: 633
+- ✅ **通过**: 634
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 22
 - ⚪ **需人工验证**: 0
-- **总计**: 655
+- **总计**: 656
 
 ## 详细结果
 
@@ -1066,7 +1066,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-06-30T08-11-38-494Z-48mptj |
+| ✅ | 返回非空 id | id=s-2026-06-30T08-33-13-937Z-n94rl6 |
 
 ### V2.5 Session 版本
 
@@ -1085,7 +1085,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-06-30T08-11-38-605Z-dhl9g6 second=s-2026-06-30T08-11-38-537Z-x2d5l2 |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-06-30T08-33-14-048Z-du7k9p second=s-2026-06-30T08-33-13-973Z-t208xs |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1112,7 +1112,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-06-30T08-11-38-646Z-krb096 id2=s-2026-06-30T08-11-38-646Z-l3wdwd |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-06-30T08-33-14-085Z-2ellqo id2=s-2026-06-30T08-33-14-085Z-gsip4y |
 
 ### V2.5 Session 上限
 
@@ -1210,7 +1210,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-06-30T08:11:38.738Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-06-30T08:33:14.177Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1298,7 +1298,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-06-30T08:11:38.816Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-06-30T08:33:14.242Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 1
 
@@ -1404,7 +1404,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-06-30T08:11:38.955Z after=2026-06-30T08:11:39.020Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-06-30T08:33:14.367Z after=2026-06-30T08:33:14.432Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -1765,7 +1765,7 @@
 | ✅ | flushSkillsStateSave 总是落盘（移除 timer===null 提前返回） | - |
 | ✅ | flushSkillsStateSave 调用 saveSkillsState 落盘 | - |
 | ✅ | openEditSkillDialog renameSkillMeta 后调用 flushSkillsStateSave | - |
-| ✅ | flushSkillsStateSave 在 refreshSkills 之前（时序正确） | idxRename=137632 idxFlush=137942 idxRefresh=138037 |
+| ✅ | flushSkillsStateSave 在 refreshSkills 之前（时序正确） | idxRename=140410 idxFlush=140720 idxRefresh=140815 |
 | ✅ | renameSkillMeta 后不再调用 scheduleSkillsStateSave | - |
 | ✅ | onClose 复用 flushSkillsStateSave | - |
 | ✅ | onClose 不再内联重复 flush 逻辑 | - |
@@ -1774,13 +1774,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-06-30T08:11:39.966Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-06-30T08:33:15.230Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-06-30T08:11:39.994Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-06-30T08:33:15.251Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -1973,11 +1973,11 @@
 |------|--------|------|
 | ✅ | AgentEvent/CLI/SDK/Skills 主线不变 | agentEvent=true backend=true skills=true |
 
-### V2.14.0-B/C/D/E/E1/F/G exports/report
+### V2.14.0-B/C/D/E/E1/F/G/H exports/report
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | policy 类型与报告章节存在 | exports=true reportB=true reportC=true reportD=true reportE=true reportE1=true reportF=true reportG=true |
+| ✅ | policy 类型与报告章节存在 | exports=true reportB=true reportC=true reportD=true reportE=true reportE1=true reportF=true reportG=true reportH=true |
 
 ### V2.14.0-B roots
 
@@ -2045,6 +2045,12 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | Working Set UI、file-scope grant、bounded ingestion、prompt boundary | grant=file sibling=confirm md=true json=true large=too_large image=not_text pdf=not_text binary=not_text sensitive=sensitive_path external=null type=true prompt=true boundary=true bounded=true ui=true |
+
+### V2.14.0-H native attachments + FileRef index + read tool policy gate
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | V2.14.0-H native attachments + FileRef index + read tool policy gate | index=5 prompt=true policy=true ingestion=true ui=true read=confirm/true stat=confirm/true list=allow/deny sibling=confirm sensitive=deny write=deny |
 
 ### V2.14.0-E runtime UI
 

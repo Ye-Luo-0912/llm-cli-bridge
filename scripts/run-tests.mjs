@@ -9315,6 +9315,7 @@ if (!runV214BUnit) {
     const fileAccessPolicyBundleV214B = join(tmpdir(), `file-access-policy-v214b-${Date.now()}.mjs`);
     const fileRefsBundleV214F = join(tmpdir(), `file-refs-v214f-${Date.now()}.mjs`);
     const fileIngestionBundleV214G = join(tmpdir(), `file-ingestion-v214g-${Date.now()}.mjs`);
+    const fileToolPolicyBundleV214H = join(tmpdir(), `file-tool-policy-v214h-${Date.now()}.mjs`);
     const promptPackageBundleV214G = join(tmpdir(), `prompt-package-v214g-${Date.now()}.mjs`);
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "fileAccessPolicy.ts")],
@@ -9340,6 +9341,15 @@ if (!runV214BUnit) {
       format: "esm",
       platform: "node",
       outfile: fileIngestionBundleV214G,
+      external: ["obsidian"],
+      logLevel: "silent",
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "fileToolPolicy.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: fileToolPolicyBundleV214H,
       external: ["obsidian"],
       logLevel: "silent",
     });
@@ -9375,6 +9385,7 @@ if (!runV214BUnit) {
       createPendingExternalFileRef,
       workingSetContainsFileContent,
       classifyFileTypeByPath,
+      buildPromptFileRefIndex,
     } = await import(pathToFileURL(fileRefsBundleV214F).href);
     const {
       ingestAttachmentTextSnippet,
@@ -9382,6 +9393,7 @@ if (!runV214BUnit) {
       MAX_ATTACHMENT_INGEST_BYTES,
       MAX_ATTACHMENT_INGEST_CHARS,
     } = await import(pathToFileURL(fileIngestionBundleV214G).href);
+    const { evaluateFileToolPolicy } = await import(pathToFileURL(fileToolPolicyBundleV214H).href);
     const { buildPromptPackage: buildPromptPackageV214G } = await import(pathToFileURL(promptPackageBundleV214G).href);
 
     const reportSrc = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-B_FILE_ACCESS_POLICY_MODULE.md"), "utf8");
@@ -9391,6 +9403,7 @@ if (!runV214BUnit) {
     const reportSrcV214E1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-E1_STRONG_CONFIRM_EXTERNAL_READ_APPROVAL.md"), "utf8");
     const reportSrcV214F = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-F_FILE_REFS_WORKING_SET_MODEL.md"), "utf8");
     const reportSrcV214G = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-G_COMPOSER_ATTACHMENTS_WORKING_SET_INGESTION.md"), "utf8");
+    const reportSrcV214H = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-H_NATIVE_ATTACHMENTS_FILEREF_INDEX_READ_POLICY.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
@@ -9421,8 +9434,10 @@ if (!runV214BUnit) {
         createPendingExternalFileRef,
         workingSetContainsFileContent,
         classifyFileTypeByPath,
+        buildPromptFileRefIndex,
         ingestAttachmentTextSnippet,
         isBoundedTextAttachmentType,
+        evaluateFileToolPolicy,
         buildPromptPackageV214G,
       ]
         .every((fn) => typeof fn === "function");
@@ -9440,9 +9455,11 @@ if (!runV214BUnit) {
         .every((heading) => reportSrcV214F.includes(heading));
       const reportGOk = ["## AttachmentFlow", "## WorkingSetUI", "## TypeClassification", "## BoundedIngestion", "## PromptBoundary", "## Tests", "## RemainingRisk", "## Recommendation"]
         .every((heading) => reportSrcV214G.includes(heading));
-      addTest("V2.14.0-B/C/D/E/E1/F/G exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk ? "pass" : "fail",
-        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk}`);
+      const reportHOk = ["## NativeAttachmentEntry", "## WorkingSetUI", "## PromptFileRefIndex", "## ReadToolPolicyGate", "## ClaudeReadHandoff", "## Tests", "## RemainingRisk", "## Recommendation"]
+        .every((heading) => reportSrcV214H.includes(heading));
+      addTest("V2.14.0-B/C/D/E/E1/F/G/H exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk}`);
     }
 
     {
@@ -9732,8 +9749,7 @@ if (!runV214BUnit) {
         && !fileRefsSrc.includes("readdir")
         && !fileRefsSrc.includes("createReadStream")
         && !fileRefsSrc.includes("content:");
-      const promptUnwired = !promptPackageSrc.includes("FileRef")
-        && !promptPackageSrc.includes("WorkingSet")
+      const promptUnwired = !promptPackageSrc.includes("WorkingSet")
         && !promptPackageSrc.includes("fileWorkingSet");
       const viewWiringOk = viewSrc.includes("fileWorkingSet: WorkingSet = createWorkingSet()")
         && viewSrc.includes("attachmentReadGrants: FileAccessReadGrant[] = []")
@@ -9844,7 +9860,6 @@ if (!runV214BUnit) {
         && prompt.includes("未授权 external working set 文件不会出现在本区")
         && !prompt.includes("other.md");
       const noExternalPrompt = !promptPackageSrc.includes("WorkingSet")
-        && !promptPackageSrc.includes("FileRef")
         && !promptPackageSrc.includes("fileWorkingSet")
         && promptPackageSrc.includes("attachmentTextSnippets");
       const boundedOnly = fileIngestionSrc.includes("stat.size > maxBytes")
@@ -9877,6 +9892,126 @@ if (!runV214BUnit) {
       addTest("V2.14.0-G attachments: Working Set UI、file-scope grant、bounded ingestion、prompt boundary",
         ok ? "pass" : "fail",
         `grant=${mdAttachment.readGrant.match} sibling=${siblingStillPending.decision} md=${!!mdIngest.snippet} json=${!!jsonIngest.snippet} large=${largeIngest.skippedReason} image=${imageIngest.skippedReason} pdf=${pdfIngest.skippedReason} binary=${binaryIngest.skippedReason} sensitive=${sensitiveIngest.skippedReason} external=${externalRef} type=${typeOk} prompt=${promptOk} boundary=${noExternalPrompt} bounded=${boundedOnly} ui=${uiOk}`);
+    }
+
+    {
+      const tmp = mkdtempSync(join(tmpdir(), "llm-bridge-h-"));
+      const smallMd = join(tmp, "brief.md");
+      const image = join(tmp, "diagram.png");
+      const pdf = join(tmp, "manual.pdf");
+      const binary = join(tmp, "archive.zip");
+      const sensitive = join(tmp, ".env");
+      writeFileSync(smallMd, "# Brief\nNative attachment", "utf8");
+      writeFileSync(image, "fake-image", "utf8");
+      writeFileSync(pdf, "%PDF-fake", "utf8");
+      writeFileSync(binary, "fake-zip", "utf8");
+      writeFileSync(sensitive, "TOKEN=secret", "utf8");
+
+      const mdAttachment = createAttachmentFileRef("D:\\Vault", smallMd, { now: "2026-06-30T00:07:00.000Z" });
+      const imageAttachment = createAttachmentFileRef("D:\\Vault", image, { now: "2026-06-30T00:07:01.000Z" });
+      const pdfAttachment = createAttachmentFileRef("D:\\Vault", pdf, { now: "2026-06-30T00:07:02.000Z" });
+      const binaryAttachment = createAttachmentFileRef("D:\\Vault", binary, { now: "2026-06-30T00:07:03.000Z" });
+      const sensitiveAttachment = createAttachmentFileRef("D:\\Vault", sensitive, { now: "2026-06-30T00:07:04.000Z" });
+      const mdIngest = await ingestAttachmentTextSnippet(mdAttachment.ref);
+      const imageIngest = await ingestAttachmentTextSnippet(imageAttachment.ref);
+      const pdfIngest = await ingestAttachmentTextSnippet(pdfAttachment.ref);
+      const binaryIngest = await ingestAttachmentTextSnippet(binaryAttachment.ref);
+      const sensitiveIngest = await ingestAttachmentTextSnippet(sensitiveAttachment.ref);
+      const pending = createPendingExternalReadRequest(
+        createFileAccessPolicy({ vaultPath: "D:\\Vault" }),
+        { operation: "read", path: "D:\\External\\pending.md" },
+        { now: "2026-06-30T00:07:05.000Z" },
+      );
+      const pendingRef = createPendingExternalFileRef(pending);
+      const deniedRef = { ...pendingRef, id: "denied-ref", status: "denied" };
+      const approvedStore = approvePendingExternalReadRequest(
+        enqueuePendingExternalReadRequest(createSessionReadGrantStore(), pending),
+        pending?.id || "",
+        { forceFileScope: true },
+      );
+      const externalRef = createExternalFileRefFromApprovedRequest(pending, approvedStore.sessionReadGrants, { now: "2026-06-30T00:07:06.000Z" });
+      const workingSet = [mdAttachment.ref, imageAttachment.ref, pdfAttachment.ref, binaryAttachment.ref, pendingRef, deniedRef, externalRef]
+        .reduce((set, ref) => addFileRefToWorkingSet(set, ref), createWorkingSet());
+      const index = buildPromptFileRefIndex(workingSet);
+      const prompt = buildPromptPackageV214G("Use refs", {
+        vaultPath: "D:\\Vault",
+        activeFilePath: null,
+        activeFileContent: null,
+        selection: null,
+        fileRefIndex: index,
+        attachmentTextSnippets: [mdIngest.snippet],
+        timestamp: "2026-06-30T00:07:07.000Z",
+      }, {
+        includeActiveNote: false,
+        includeSelection: false,
+        maxActiveNoteChars: 10,
+        maxSelectionChars: 10,
+        outputDir: "out",
+      });
+
+      const basePolicy = createFileAccessPolicy({ vaultPath: "D:\\Vault" });
+      const grantedPolicy = createFileAccessPolicy({
+        vaultPath: "D:\\Vault",
+        sessionReadGrants: [{ path: "D:\\External", scope: "session", match: "directory" }],
+        attachmentReadGrants: [mdAttachment.readGrant],
+      });
+      const attachmentOnlyPolicy = createFileAccessPolicy({ vaultPath: "D:\\Vault", attachmentReadGrants: [mdAttachment.readGrant] });
+      const readPending = evaluateFileToolPolicy(basePolicy, { operation: "read", path: "D:\\External\\tool.md", source: "agent" });
+      const statPending = evaluateFileToolPolicy(basePolicy, { operation: "stat", path: "D:\\External\\tool.md", source: "agent" });
+      const readGranted = evaluateFileToolPolicy(grantedPolicy, { operation: "read", path: "D:\\External\\tool.md", fileRefs: workingSet.refs });
+      const statGranted = evaluateFileToolPolicy(grantedPolicy, { operation: "stat", path: "D:\\External\\tool.md", fileRefs: workingSet.refs });
+      const listGranted = evaluateFileToolPolicy(grantedPolicy, { operation: "list", path: "D:\\External" });
+      const searchGranted = evaluateFileToolPolicy(grantedPolicy, { operation: "search", path: "D:\\External" });
+      const listDenied = evaluateFileToolPolicy(basePolicy, { operation: "list", path: "D:\\External" });
+      const siblingStillPending = evaluateFileToolPolicy(attachmentOnlyPolicy, { operation: "read", path: join(tmp, "sibling.md") });
+      const sensitiveDenied = evaluateFileToolPolicy(basePolicy, { operation: "read", path: "D:\\Vault\\.env" });
+      const externalWriteDenied = evaluateFileAccess(grantedPolicy, { operation: "write", path: "D:\\External\\tool.md" });
+      const promptIndexOk = prompt.includes("========== FileRef Metadata Index ==========")
+        && prompt.includes("CLI/Claude Code 路径")
+        && prompt.includes("SDK 路径")
+        && prompt.includes("diagram.png")
+        && prompt.includes("manual.pdf")
+        && prompt.includes("brief.md")
+        && prompt.includes("Native attachment")
+        && !prompt.includes("TOKEN=secret")
+        && index.every((ref) => ref.status === "active")
+        && !index.some((ref) => ref.id === pendingRef.id || ref.id === deniedRef.id);
+      const uiOk = viewSrc.includes("type: \"file\"")
+        && viewSrc.includes("multiple: \"true\"")
+        && viewSrc.includes("addFilesFromFileList")
+        && viewSrc.includes("dragover")
+        && viewSrc.includes("drop")
+        && viewSrc.includes("+ Path")
+        && viewSrc.includes("refs-only")
+        && viewSrc.includes("ref.fileType");
+      const policyOk = readPending.decision === "confirm"
+        && readPending.pendingRequest?.operation === "read"
+        && statPending.decision === "confirm"
+        && statPending.pendingRequest?.operation === "read"
+        && readGranted.decision === "allow"
+        && statGranted.decision === "allow"
+        && listGranted.decision === "allow"
+        && searchGranted.decision === "allow"
+        && listDenied.decision === "deny"
+        && listDenied.pendingRequest === null
+        && siblingStillPending.decision === "confirm"
+        && sensitiveDenied.decision === "deny"
+        && externalWriteDenied.decision === "deny";
+      const ingestionOk = mdIngest.snippet?.content.includes("Native attachment")
+        && imageIngest.skippedReason === "not_text"
+        && pdfIngest.skippedReason === "not_text"
+        && binaryIngest.skippedReason === "not_text"
+        && sensitiveIngest.skippedReason === "sensitive_path";
+      const ok = mdAttachment.readGrant.match === "file"
+        && [mdAttachment, imageAttachment, pdfAttachment, binaryAttachment].every((item) => item.ref.kind === "attachment")
+        && index.length === 5
+        && promptIndexOk
+        && policyOk
+        && ingestionOk
+        && uiOk;
+      addTest("V2.14.0-H native attachments + FileRef index + read tool policy gate",
+        ok ? "pass" : "fail",
+        `index=${index.length} prompt=${promptIndexOk} policy=${policyOk} ingestion=${ingestionOk} ui=${uiOk} read=${readPending.decision}/${!!readPending.pendingRequest} stat=${statPending.decision}/${!!statPending.pendingRequest} list=${listGranted.decision}/${listDenied.decision} sibling=${siblingStillPending.decision} sensitive=${sensitiveDenied.decision} write=${externalWriteDenied.decision}`);
     }
 
     {
