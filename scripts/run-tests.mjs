@@ -10795,11 +10795,14 @@ if (!runV214BUnit) {
         && prompt.includes("SDK 原生能力")
         && prompt.includes("插件不做 OCR")
         && prompt.includes("base64 注入");
-      const workingSetUxOk = viewSrc.includes("No files attached. Add files as native handoff refs")
+      const workingSetUxOk = (viewSrc.includes("添加附件后会显示为 refs")
+          || viewSrc.includes("No files attached. Native handoff refs only"))
+        && viewSrc.includes("llm-bridge-working-set-strip")
         && viewSrc.includes("native ref")
         && viewSrc.includes("bounded text")
         && viewSrc.includes("refs-only native reference; use Claude Code / SDK native read when needed.")
-        && stylesSrc.includes(".llm-bridge-working-set-empty");
+        && stylesSrc.includes(".llm-bridge-working-set-empty")
+        && stylesSrc.includes(".llm-bridge-working-set-strip");
       const reportSmokeOk = reportSrcV214M.includes("bridge offline")
         && reportSrcV214M.includes("Computer Use Node REPL tool was not exposed")
         && reportSrcV214M.includes("No self-hosted write executor was added");
@@ -10939,6 +10942,54 @@ if (!runV214BUnit) {
       addTest("V2.14.0-B boundary: 不接 promptPackage/CLI/SDK，不改 AgentEvent",
         noPromptPackageWire && noBackendWire && agentEventUnchanged ? "pass" : "fail",
         `prompt=${noPromptPackageWire} backend=${noBackendWire} event=${agentEventUnchanged}`);
+    }
+
+    {
+      const shellOk = viewSrc.includes("llm-bridge-shell")
+        && viewSrc.includes("llm-bridge-nav-rail")
+        && ["Chat", "Files", "Skills", "History"].every((label) => viewSrc.includes(label))
+        && !/llm-bridge-nav-label", text: "Settings"/.test(viewSrc);
+      const topBarOk = viewSrc.includes("llm-bridge-topbar")
+        && viewSrc.includes("llm-bridge-session-selector")
+        && viewSrc.includes("+ 新聊天")
+        && viewSrc.includes("llm-bridge-settings-btn")
+        && viewSrc.includes("llm-bridge-runtime-status");
+      const composerOk = viewSrc.includes("llm-bridge-composer-bar")
+        && viewSrc.includes("llm-bridge-composer-tools-left")
+        && viewSrc.includes("llm-bridge-composer-tools-right")
+        && viewSrc.includes("输入消息，或使用 / 命令…")
+        && viewSrc.includes("rightTools.appendChild(agentSelect)")
+        && viewSrc.includes("this.modelChipGroup = this.buildChipGroup(rightTools")
+        && viewSrc.includes("this.effortChipGroup = this.buildChipGroup(rightTools");
+      const workingSetOk = viewSrc.includes("llm-bridge-working-set-strip")
+        && viewSrc.includes("llm-bridge-working-set-context")
+        && viewSrc.includes("llm-bridge-working-set-refs")
+        && viewSrc.includes("renderWorkingSetChipsInto")
+        && viewSrc.includes("this.filesWorkingSetEl");
+      const secondaryOk = viewSrc.includes("llm-bridge-files-page")
+        && viewSrc.includes("FileRef index")
+        && viewSrc.includes("renderAgentSkillsPanel(skillsPanel)")
+        && viewSrc.includes("renderSkillsPanel(skillsPanel)")
+        && viewSrc.includes("renderHistoryPanel(historyPanel)");
+      const stylesOk = stylesSrc.includes(".llm-bridge-nav-rail")
+        && stylesSrc.includes(".llm-bridge-topbar")
+        && stylesSrc.includes(".llm-bridge-composer-bar")
+        && stylesSrc.includes(".llm-bridge-working-set-strip")
+        && stylesSrc.includes(".llm-bridge-files-page");
+      const noRuntimeExpansion = !runtimeFileToolAdapterSrc.includes("\"write\"")
+        && !runtimeFileToolAdapterSrc.includes("\"delete\"")
+        && !runtimeFileToolAdapterSrc.includes("\"rename\"")
+        && !fileToolExecutorSrc.includes("writeFile(")
+        && !fileToolExecutorSrc.includes("unlink(")
+        && !fileToolExecutorSrc.includes("rename(");
+      const reportPath = join(PROJECT_ROOT, "docs", "V2.15-A_CHAT_SHELL_COMPOSER_NAVIGATION.md");
+      const reportOk = existsSync(reportPath)
+        && ["ShellLayout", "TopBar", "ChatStream", "Composer", "WorkingSetStrip", "SecondaryPages", "PreservedBehavior", "Tests", "RemainingRisk", "Recommendation"]
+          .every((heading) => readFileSync(reportPath, "utf8").includes(`## ${heading}`));
+      const ok = shellOk && topBarOk && composerOk && workingSetOk && secondaryOk && stylesOk && noRuntimeExpansion && reportOk;
+      addTest("V2.15-A UI shell: nav/topbar/chat/composer/files pages 存在且未扩展 runtime",
+        ok ? "pass" : "fail",
+        `shell=${shellOk} top=${topBarOk} composer=${composerOk} working=${workingSetOk} secondary=${secondaryOk} styles=${stylesOk} runtime=${noRuntimeExpansion} report=${reportOk}`);
     }
   } catch (e) {
     addTest("V2.14.0-B Shared File Access Policy Module 单元测试段", "fail", e?.stack || e?.message || String(e));

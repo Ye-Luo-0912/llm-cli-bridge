@@ -7,7 +7,126 @@
   padding: 0;
   font-size: var(--font-ui-small);
   overflow: hidden;
-  background: var(--background-primary);
+  background:
+    radial-gradient(circle at 14% 8%, rgba(var(--interactive-accent-rgb), 0.12), transparent 28%),
+    linear-gradient(135deg, var(--background-primary), var(--background-secondary-alt));
+}
+
+.llm-bridge-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.llm-bridge-nav-rail {
+  width: 92px;
+  flex: 0 0 92px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 8px 10px;
+  border-right: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--background-secondary-alt) 80%, transparent);
+}
+
+.llm-bridge-nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 16px;
+  color: var(--text-normal);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.llm-bridge-nav-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 9px;
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+  box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb), 0.14);
+}
+
+.llm-bridge-nav-title {
+  font-size: var(--font-ui-medium);
+}
+
+.llm-bridge-nav-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-height: 62px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.llm-bridge-nav-item:hover {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.llm-bridge-nav-item.is-active {
+  color: var(--interactive-accent);
+  border-color: rgba(var(--interactive-accent-rgb), 0.32);
+  background: linear-gradient(135deg, rgba(var(--interactive-accent-rgb), 0.16), rgba(var(--interactive-accent-rgb), 0.05));
+}
+
+.llm-bridge-nav-item.is-active::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 999px;
+  background: var(--interactive-accent);
+}
+
+.llm-bridge-nav-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.llm-bridge-nav-label {
+  font-size: var(--font-ui-smaller);
+}
+
+.llm-bridge-nav-spacer {
+  flex: 1 1 auto;
+}
+
+.llm-bridge-nav-collapse {
+  border: none;
+  background: transparent;
+  color: var(--text-faint);
+  cursor: default;
+}
+
+.llm-bridge-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: color-mix(in srgb, var(--background-primary) 88%, transparent);
+}
+
+.llm-bridge-page-stack {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ===== header ===== */
@@ -18,6 +137,69 @@
   padding: 8px 12px;
   border-bottom: 1px solid var(--background-modifier-border);
   flex: 0 0 auto;
+}
+
+.llm-bridge-topbar {
+  min-height: 54px;
+  padding: 10px 14px;
+  background: color-mix(in srgb, var(--background-primary) 86%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.llm-bridge-session-selector {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(360px, 44%);
+  padding: 7px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+}
+
+.llm-bridge-session-selector:hover {
+  border-color: rgba(var(--interactive-accent-rgb), 0.45);
+}
+
+.llm-bridge-session-kicker {
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-session-caret {
+  color: var(--text-muted);
+}
+
+.llm-bridge-new-chat-btn {
+  padding: 7px 12px;
+  border: 1px solid rgba(var(--interactive-accent-rgb), 0.55);
+  border-radius: 9px;
+  background: rgba(var(--interactive-accent-rgb), 0.12);
+  color: var(--interactive-accent);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.llm-bridge-new-chat-btn:hover:not(:disabled) {
+  background: rgba(var(--interactive-accent-rgb), 0.2);
+}
+
+.llm-bridge-new-chat-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.llm-bridge-runtime-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 154px;
+  padding: 7px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  background: var(--background-secondary);
 }
 
 .llm-bridge-title {
@@ -93,10 +275,10 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: 12px;
+  padding: 28px 28px 20px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
 }
 
 .llm-bridge-empty {
@@ -115,8 +297,8 @@
   word-break: break-word;
 }
 
-.llm-bridge-msg-user { align-self: flex-end; max-width: 85%; }
-.llm-bridge-msg-assistant { align-self: stretch; max-width: 100%; }
+.llm-bridge-msg-user { align-self: flex-end; max-width: min(680px, 86%); }
+.llm-bridge-msg-assistant { align-self: flex-start; max-width: min(760px, 92%); }
 
 .llm-bridge-msg-head {
   display: flex;
@@ -135,23 +317,29 @@
 
 /* user 消息：浅背景块 */
 .llm-bridge-msg-user .llm-bridge-msg-content {
-  background: var(--background-secondary);
-  padding: 8px 11px;
-  border-radius: 10px;
+  background: linear-gradient(135deg, var(--background-secondary), var(--background-secondary-alt));
+  padding: 12px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 14px;
   font-size: var(--font-small);
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
-/* assistant 输出：直接展示，无标题块 */
+/* assistant 输出：现代聊天卡片，debug 细节仍默认折叠 */
 .llm-bridge-msg-assistant .llm-bridge-msg-content {
-  font-family: var(--font-monospace);
-  font-size: var(--font-smaller);
+  font-family: var(--font-ui);
+  font-size: var(--font-small);
   white-space: pre-wrap;
   word-break: break-word;
   line-height: 1.5;
   min-height: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--background-secondary) 78%, transparent);
 }
 
 /* ===== 折叠区（stderr / log） ===== */
@@ -244,12 +432,12 @@
 /* ===== composer（底部固定） ===== */
 .llm-bridge-composer {
   flex: 0 0 auto;
-  padding: 8px 12px 10px 12px;
+  padding: 8px 20px 18px;
   border-top: 1px solid var(--background-modifier-border);
-  background: var(--background-primary);
+  background: color-mix(in srgb, var(--background-primary) 88%, transparent);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 9px;
 }
 .llm-bridge-composer.is-dragging-file {
   outline: 1px dashed var(--interactive-accent);
@@ -261,28 +449,73 @@
   display: flex;
   align-items: flex-end;
   gap: 6px;
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
-  padding: 6px 6px 6px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
   transition: border-color 0.15s;
 }
-.llm-bridge-input-row:focus-within { border-color: var(--interactive-accent); }
+.llm-bridge-input-row:focus-within { border-color: transparent; }
 
 .llm-bridge-input {
   flex: 1 1 auto;
   resize: none;
-  min-height: 40px;
+  min-height: 54px;
   max-height: 160px;
   font-family: var(--font-ui);
   font-size: var(--font-small);
   border: none;
   background: transparent;
   color: var(--text-normal);
-  padding: 6px 0;
+  padding: 10px 12px;
   line-height: 1.4;
 }
 .llm-bridge-input:focus { outline: none; box-shadow: none; }
+
+.llm-bridge-composer-bar {
+  display: grid;
+  grid-template-columns: auto minmax(180px, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 15px;
+  background: var(--background-secondary);
+  padding: 8px;
+}
+
+.llm-bridge-composer-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.llm-bridge-composer-tools-right {
+  justify-self: end;
+}
+
+.llm-bridge-composer-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  cursor: pointer;
+}
+
+.llm-bridge-composer-tool-btn:hover:not(:disabled) {
+  border-color: rgba(var(--interactive-accent-rgb), 0.45);
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-composer-tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 
 .llm-bridge-action-col { display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
 
@@ -400,12 +633,44 @@
   display: none;
 }
 
+.llm-bridge-working-set-strip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px 20px;
+  border-top: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--background-primary) 84%, transparent);
+}
+
+.llm-bridge-working-set-context {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
 .llm-bridge-working-set {
   display: flex;
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
   min-height: 20px;
+}
+
+.llm-bridge-working-set-refs {
+  flex: 1 1 auto;
+  min-width: 160px;
+}
+
+.llm-bridge-working-set-page {
+  align-items: flex-start;
+  margin: 12px 0;
+  padding: 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
 }
 
 .llm-bridge-working-set-label {
@@ -576,6 +841,10 @@
   font-size: var(--font-ui-smaller);
 }
 
+.llm-bridge-diagnostics-strip {
+  display: none;
+}
+
 .llm-bridge-sb-items {
   display: flex;
   flex: 1;
@@ -626,18 +895,18 @@
 .llm-bridge-presets {
   display: flex;
   gap: 6px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--background-modifier-border);
+  padding: 0;
+  border-bottom: none;
   flex-wrap: wrap;
 }
 
 .llm-bridge-preset-btn {
-  padding: 4px 10px;
+  padding: 5px 8px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
+  border-radius: 8px;
   background: var(--interactive-normal);
   color: var(--text-normal);
-  font-size: var(--font-ui-smaller);
+  font-size: var(--font-smallest);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -2183,4 +2452,83 @@
 .llm-bridge-tab-panel.is-active[data-panel="skills"] .llm-bridge-skills-body[hidden],
 .llm-bridge-tab-panel.is-active[data-panel="history"] .llm-bridge-history-body[hidden] {
   display: flex;
+}
+
+/* === V2.15-A: Chat Shell secondary pages === */
+.llm-bridge-files-page,
+.llm-bridge-skills-page,
+.llm-bridge-history-page {
+  padding: 18px 22px;
+  overflow: auto;
+  gap: 12px;
+}
+
+.llm-bridge-secondary-head {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--background-secondary) 88%, transparent);
+}
+
+.llm-bridge-secondary-head strong {
+  color: var(--text-normal);
+  font-size: var(--font-ui-medium);
+}
+
+.llm-bridge-secondary-head small {
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.llm-bridge-secondary-kicker {
+  color: var(--interactive-accent);
+  font-size: var(--font-smallest);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+}
+
+.llm-bridge-files-page .llm-bridge-pending-wrap,
+.llm-bridge-files-page .llm-bridge-external-read-panel {
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
+  overflow: hidden;
+}
+
+@media (max-width: 720px) {
+  .llm-bridge-nav-rail {
+    width: 64px;
+    flex-basis: 64px;
+    padding-inline: 6px;
+  }
+
+  .llm-bridge-nav-title,
+  .llm-bridge-nav-label {
+    display: none;
+  }
+
+  .llm-bridge-session-selector {
+    max-width: 48%;
+  }
+
+  .llm-bridge-runtime-status {
+    min-width: 0;
+  }
+
+  .llm-bridge-composer-bar {
+    grid-template-columns: 1fr;
+  }
+
+  .llm-bridge-composer-tools-right {
+    justify-self: stretch;
+    flex-wrap: wrap;
+  }
+
+  .llm-bridge-messages {
+    padding: 18px 14px;
+  }
 }

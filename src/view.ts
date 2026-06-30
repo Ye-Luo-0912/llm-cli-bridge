@@ -1,6 +1,6 @@
 // LLM CLI Bridge — 右侧 Chat View（Codex / Claude Code 风格紧凑工作台）
 
-import { ItemView, MarkdownView, Modal, Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { App, ItemView, MarkdownView, Modal, Notice, TFile, WorkspaceLeaf } from "obsidian";
 import * as fs from "fs";
 import * as path from "path";
 import type LLMBridgePlugin from "../main";
@@ -187,9 +187,9 @@ export class LLMBridgeView extends ItemView {
   private includeNoteCheckEl!: HTMLInputElement;
   private includeSelectionCheckEl!: HTMLInputElement;
   private messagesEl!: HTMLElement;
-  // V2.12.1 UI Refactor: 标签页三分布
-  private tabPanels!: { chat: HTMLElement; skills: HTMLElement; history: HTMLElement };
-  private activeTab: "chat" | "skills" | "history" = "chat";
+  // V2.15-A: Chat shell 页面分区。Files 只展示 refs/approval 状态，不执行文件 runtime。
+  private tabPanels!: { chat: HTMLElement; files: HTMLElement; skills: HTMLElement; history: HTMLElement };
+  private activeTab: "chat" | "files" | "skills" | "history" = "chat";
   // V2.7: 长会话旧消息折叠（false=折叠显示最近 N 条；true=展开全部）
   private messagesFoldExpanded = false;
   private inputEl!: HTMLTextAreaElement;
@@ -226,6 +226,7 @@ export class LLMBridgeView extends ItemView {
   private attachmentTextSnippets: AttachmentTextSnippet[] = [];
   private attachmentFileInputEl!: HTMLInputElement;
   private workingSetEl!: HTMLElement;
+  private filesWorkingSetEl!: HTMLElement;
   // V2.13.0-B: 已插入 Prompt Snippets 名称集合（插入 prompt 时添加；发送/清空时重置）
   private insertedSnippetNames: Set<string> = new Set();
   // V2.3: 最近一次 SDK 运行的工具数与 agent 数（用于状态栏展示）
@@ -252,12 +253,47 @@ export class LLMBridgeView extends ItemView {
     root.empty();
     root.addClass("llm-bridge-view");
 
-    // ===== 顶部 header（单行：左标题 / 中 agent 下拉 / 右状态点+刷新） =====
-    const header = root.createDiv({ cls: "llm-bridge-header" });
-    header.createEl("span", { cls: "llm-bridge-title", text: "Bridge" });
+    const shell = root.createDiv({ cls: "llm-bridge-shell" });
+    const nav = shell.createDiv({ cls: "llm-bridge-nav-rail" });
+    const brand = nav.createDiv({ cls: "llm-bridge-nav-brand" });
+    brand.createEl("span", { cls: "llm-bridge-nav-logo", text: "⌘" });
+    brand.createEl("span", { cls: "llm-bridge-nav-title", text: "Bridge" });
 
-    // agent 下拉（header 中间）
-    const agentSelect = header.createEl("select", { cls: "llm-bridge-agent-select" });
+    const main = shell.createDiv({ cls: "llm-bridge-main" });
+
+    // ===== 顶部栏：会话 / 新聊天 / 设置 / compact runtime status =====
+    const header = main.createDiv({ cls: "llm-bridge-header llm-bridge-topbar" });
+    const sessionPreview = header.createEl("button", {
+      cls: "llm-bridge-session-selector",
+      attr: { title: "当前会话预览；完整历史在 History 页面" },
+    });
+    sessionPreview.createEl("span", { cls: "llm-bridge-session-kicker", text: "当前会话" });
+    this.sessionTitleEl = sessionPreview.createEl("span", { cls: "llm-bridge-sb-session-title", text: this.sessionState.title });
+    sessionPreview.createEl("span", { cls: "llm-bridge-session-caret", text: "⌄" });
+
+    const headerRight = header.createDiv({ cls: "llm-bridge-header-right" });
+    this.clearBtn = headerRight.createEl("button", {
+      cls: "llm-bridge-new-chat-btn",
+      text: "+ 新聊天",
+      attr: { title: "新建会话（清空消息）" },
+    });
+    this.clearBtn.addEventListener("click", () => this.newSession());
+    const settingsBtn = headerRight.createEl("button", { cls: "llm-bridge-icon-btn llm-bridge-settings-btn", attr: { title: "打开插件设置" } });
+    settingsBtn.createEl("span", { cls: "llm-bridge-icon", text: "⚙" });
+    settingsBtn.addEventListener("click", () => this.openPluginSettings());
+    const runtimeStatus = headerRight.createDiv({ cls: "llm-bridge-runtime-status", attr: { title: "Runtime status" } });
+    this.statusDotEl = runtimeStatus.createEl("span", {
+      cls: "llm-bridge-status-dot llm-bridge-status-dot-idle",
+      attr: { title: STATUS_LABEL.idle },
+    });
+    this.statusLabelEl = runtimeStatus.createEl("span", {
+      cls: "llm-bridge-status-text",
+      text: "Claude Code · 待命",
+    });
+
+    // agent selector 迁入 composer 右侧；header 只保留 compact runtime status。
+    const agentSelect = document.createElement("select");
+    agentSelect.className = "llm-bridge-agent-select";
     for (const a of AGENT_OPTIONS) {
       agentSelect.createEl("option", { value: a.value, text: a.label });
     }
@@ -269,19 +305,9 @@ export class LLMBridgeView extends ItemView {
       this.refreshModeOptions();
       this.refreshAllChips();
     });
-    // 复用 agentChipGroup 字段保存下拉，refreshChipGroup 不作用于它；agentChipGroup 保留给底部 chip
     this.agentChipGroup = agentSelect;
 
-    const headerRight = header.createDiv({ cls: "llm-bridge-header-right" });
-    this.statusDotEl = headerRight.createEl("span", {
-      cls: "llm-bridge-status-dot llm-bridge-status-dot-idle",
-      attr: { title: STATUS_LABEL.idle },
-    });
-    this.statusLabelEl = headerRight.createEl("span", {
-      cls: "llm-bridge-status-text",
-      text: STATUS_LABEL.idle,
-    });
-    const refreshBtn = headerRight.createEl("button", { cls: "llm-bridge-icon-btn", attr: { title: "刷新" } });
+    const refreshBtn = headerRight.createEl("button", { cls: "llm-bridge-icon-btn", attr: { title: "刷新上下文" } });
     refreshBtn.createEl("span", { cls: "llm-bridge-icon", text: "↻" });
     refreshBtn.addEventListener("click", () => {
       this.lastPreflightResult = null; // V2.4: 手动刷新时失效 preflight 缓存
@@ -289,19 +315,37 @@ export class LLMBridgeView extends ItemView {
       this.syncControlsFromSettings();
     });
 
-    // ===== V2.12.1 UI Refactor: 标签页三分布（Chat / Prompt Snippets / History） =====
-    const tabBar = root.createDiv({ cls: "llm-bridge-tab-bar" });
-    const chatTab = tabBar.createEl("button", { cls: "llm-bridge-tab is-active", text: "Chat", attr: { "data-tab": "chat", title: "对话主链路" } });
-    const skillsTab = tabBar.createEl("button", { cls: "llm-bridge-tab", text: "Prompt Snippets", attr: { "data-tab": "skills", title: "Prompt Snippets 管理" } });
-    const historyTab = tabBar.createEl("button", { cls: "llm-bridge-tab", text: "History", attr: { "data-tab": "history", title: "历史会话" } });
-    const chatPanel = root.createDiv({ cls: "llm-bridge-tab-panel is-active", attr: { "data-panel": "chat" } });
-    const skillsPanel = root.createDiv({ cls: "llm-bridge-tab-panel", attr: { "data-panel": "skills" } });
-    const historyPanel = root.createDiv({ cls: "llm-bridge-tab-panel", attr: { "data-panel": "history" } });
-    this.tabPanels = { chat: chatPanel, skills: skillsPanel, history: historyPanel };
-    const switchTab = (tab: "chat" | "skills" | "history") => {
-      for (const t of [chatTab, skillsTab, historyTab]) t.classList.remove("is-active");
-      for (const p of [chatPanel, skillsPanel, historyPanel]) p.classList.remove("is-active");
+    // ===== V2.15-A: 左侧 slim navigation rail（无 Settings 入口） =====
+    const chatTab = nav.createEl("button", { cls: "llm-bridge-nav-item is-active", attr: { "data-tab": "chat", title: "Chat" } });
+    chatTab.createEl("span", { cls: "llm-bridge-nav-icon", text: "☏" });
+    chatTab.createEl("span", { cls: "llm-bridge-nav-label", text: "Chat" });
+    const filesTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "files", title: "Files" } });
+    filesTab.createEl("span", { cls: "llm-bridge-nav-icon", text: "▤" });
+    filesTab.createEl("span", { cls: "llm-bridge-nav-label", text: "Files" });
+    const skillsTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "skills", title: "Skills / Snippets" } });
+    skillsTab.createEl("span", { cls: "llm-bridge-nav-icon", text: "◇" });
+    skillsTab.createEl("span", { cls: "llm-bridge-nav-label", text: "Skills" });
+    const historyTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "history", title: "History" } });
+    historyTab.createEl("span", { cls: "llm-bridge-nav-icon", text: "◷" });
+    historyTab.createEl("span", { cls: "llm-bridge-nav-label", text: "History" });
+    nav.createDiv({ cls: "llm-bridge-nav-spacer" });
+    nav.createEl("button", {
+      cls: "llm-bridge-nav-collapse",
+      text: "»",
+      attr: { title: "Navigation rail" },
+    });
+
+    const pageStack = main.createDiv({ cls: "llm-bridge-page-stack" });
+    const chatPanel = pageStack.createDiv({ cls: "llm-bridge-tab-panel llm-bridge-chat-page is-active", attr: { "data-panel": "chat" } });
+    const filesPanel = pageStack.createDiv({ cls: "llm-bridge-tab-panel llm-bridge-files-page", attr: { "data-panel": "files" } });
+    const skillsPanel = pageStack.createDiv({ cls: "llm-bridge-tab-panel llm-bridge-skills-page", attr: { "data-panel": "skills" } });
+    const historyPanel = pageStack.createDiv({ cls: "llm-bridge-tab-panel llm-bridge-history-page", attr: { "data-panel": "history" } });
+    this.tabPanels = { chat: chatPanel, files: filesPanel, skills: skillsPanel, history: historyPanel };
+    const switchTab = (tab: "chat" | "files" | "skills" | "history") => {
+      for (const t of [chatTab, filesTab, skillsTab, historyTab]) t.classList.remove("is-active");
+      for (const p of [chatPanel, filesPanel, skillsPanel, historyPanel]) p.classList.remove("is-active");
       if (tab === "chat") { chatTab.classList.add("is-active"); chatPanel.classList.add("is-active"); }
+      else if (tab === "files") { filesTab.classList.add("is-active"); filesPanel.classList.add("is-active"); }
       else if (tab === "skills") { skillsTab.classList.add("is-active"); skillsPanel.classList.add("is-active"); }
       else { historyTab.classList.add("is-active"); historyPanel.classList.add("is-active"); }
       this.activeTab = tab;
@@ -314,16 +358,29 @@ export class LLMBridgeView extends ItemView {
         if (hBody && hBody.hasAttribute("hidden")) hBody.removeAttribute("hidden");
         if (this.historyToggleEl) this.historyToggleEl.textContent = "\u25BC History";
         void this.refreshHistory();
+      } else if (tab === "files") {
+        this.refreshWorkingSetChips();
+        this.refreshPendingActions();
+        this.refreshExternalReadPanel();
       }
     };
+    sessionPreview.addEventListener("click", () => switchTab("history"));
     chatTab.addEventListener("click", () => switchTab("chat"));
+    filesTab.addEventListener("click", () => switchTab("files"));
     skillsTab.addEventListener("click", () => switchTab("skills"));
     historyTab.addEventListener("click", () => switchTab("history"));
 
-    // ===== Pending Actions 区域（最小化折叠） =====
-    this.pendingActionsEl = chatPanel.createDiv({ cls: "llm-bridge-pending-wrap" });
+    // ===== Files page: Working Set / attachments / FileRef index / approvals =====
+    const filesHead = filesPanel.createDiv({ cls: "llm-bridge-secondary-head" });
+    filesHead.createEl("span", { cls: "llm-bridge-secondary-kicker", text: "Files" });
+    filesHead.createEl("strong", { text: "Working Set、附件与 FileRef index" });
+    filesHead.createEl("small", { text: "这里只管理文件引用和授权状态；文件执行交给 Claude Code / SDK native handoff。" });
+    this.filesWorkingSetEl = filesPanel.createDiv({ cls: "llm-bridge-working-set llm-bridge-working-set-page" });
+
+    // ===== Pending Actions 区域（在 Files 页默认折叠） =====
+    this.pendingActionsEl = filesPanel.createDiv({ cls: "llm-bridge-pending-wrap" });
     const pendingHead = this.pendingActionsEl.createDiv({ cls: "llm-bridge-pending-head" });
-    const pendingToggle = pendingHead.createEl("span", { cls: "llm-bridge-pending-toggle", text: "▶ Pending (0)" });
+    const pendingToggle = pendingHead.createEl("span", { cls: "llm-bridge-pending-toggle", text: "▶ Action approvals (0)" });
     this.pendingActionsCountEl = pendingHead.createEl("span", { cls: "llm-bridge-pending-count", text: "" });
     const pendingBody = this.pendingActionsEl.createDiv({ cls: "llm-bridge-pending-body" });
     pendingBody.setAttribute("hidden", "");
@@ -332,31 +389,18 @@ export class LLMBridgeView extends ItemView {
       const hidden = pendingBody.hasAttribute("hidden");
       if (hidden) {
         pendingBody.removeAttribute("hidden");
-        pendingToggle.textContent = "▼ Pending";
+        pendingToggle.textContent = "▼ Action approvals";
       } else {
         pendingBody.setAttribute("hidden", "");
-        pendingToggle.textContent = "▶ Pending";
+        pendingToggle.textContent = "▶ Action approvals";
       }
     });
-    this.pendingActionsEl.appendChild(pendingHead);
-    this.pendingActionsEl.appendChild(pendingBody);
-
-    // 注册 pending action 回调
-    this.registerPendingActionCallback();
 
     // ===== V2.0: 会话状态区（Session State） =====
-    // 会话标题 + 运行状态 + Backend/Agent/上下文指标
-    this.statusBarEl = chatPanel.createDiv({ cls: "llm-bridge-status-bar" });
-    // 会话标题行（左侧标题 + 右侧 New Session 按钮）
+    // 保留隐藏 diagnostics 状态栏供现有状态刷新逻辑使用；不常驻展示 backend/cwd/preflight 细节。
+    this.statusBarEl = chatPanel.createDiv({ cls: "llm-bridge-status-bar llm-bridge-diagnostics-strip" });
     const sbTitleRow = this.statusBarEl.createDiv({ cls: "llm-bridge-sb-title-row" });
-    this.sessionTitleEl = sbTitleRow.createEl("span", { cls: "llm-bridge-sb-session-title", text: this.sessionState.title, attr: { title: "当前会话" } });
-    // V2.4: 状态栏 New 按钮复用 clearBtn 字段（移除 chips 行重复按钮）
-    this.clearBtn = sbTitleRow.createEl("button", {
-      cls: "llm-bridge-sb-new-session",
-      text: "New",
-      attr: { title: "新建会话（清空消息）" },
-    });
-    this.clearBtn.addEventListener("click", () => this.newSession());
+    sbTitleRow.createEl("span", { cls: "llm-bridge-sb-session-title-shadow", text: this.sessionState.title });
     const sbItems = this.statusBarEl.createDiv({ cls: "llm-bridge-sb-items" });
     this.statusBackendEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item", attr: { title: "Backend 模式" } });
     this.statusBackendEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Backend" });
@@ -405,25 +449,6 @@ export class LLMBridgeView extends ItemView {
     this.statusPermModeEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Mode" });
     this.statusPermModeEl.createEl("span", { cls: "llm-bridge-sb-value", text: "默认询问" });
 
-    // Preflight 按钮（不调用真实模型，只探测 command 可用性）
-    this.preflightBtn = this.statusBarEl.createEl("button", {
-      cls: "llm-bridge-sb-btn",
-      text: "Preflight",
-      attr: { title: "检测 agent 命令是否可用（不调用真实模型）" },
-    });
-    this.preflightBtn.addEventListener("click", () => void this.runPreflightCheck());
-
-    // ===== V1.1: 常用操作按钮行（上下文选择区一部分） =====
-    this.presetBtnsEl = chatPanel.createDiv({ cls: "llm-bridge-presets" });
-    for (const preset of PRESETS) {
-      const btn = this.presetBtnsEl.createEl("button", {
-        cls: "llm-bridge-preset-btn",
-        text: preset.label,
-        attr: { title: preset.hint, "data-preset": preset.type },
-      });
-      btn.addEventListener("click", () => void this.applyPreset(preset.type));
-    }
-
     // ===== V2.13.0-F: Agent Skills runtime capabilities（独立于 Prompt Snippets） =====
     this.renderAgentSkillsPanel(skillsPanel);
 
@@ -447,17 +472,52 @@ export class LLMBridgeView extends ItemView {
     this.permissionPanelEl = chatPanel.createDiv({ cls: "llm-bridge-perm-panel" });
     this.permissionPanelEl.style.display = "none";
     // V2.14.0-E: 外部读取授权请求面板（只管理授权，不读取文件内容）
-    this.externalReadPanelEl = chatPanel.createDiv({ cls: "llm-bridge-external-read-panel" });
+    this.externalReadPanelEl = filesPanel.createDiv({ cls: "llm-bridge-external-read-panel" });
     this.externalReadPanelEl.style.display = "none";
+
+    // Working Set strip 位于 composer 上方，空态保持紧凑。
+    const workingSetStrip = chatPanel.createDiv({ cls: "llm-bridge-working-set-strip" });
+    workingSetStrip.createEl("span", { cls: "llm-bridge-working-set-label", text: "工作集" });
+    const contextChipsRow = workingSetStrip.createDiv({ cls: "llm-bridge-working-set-context" });
+    this.workingSetEl = workingSetStrip.createDiv({ cls: "llm-bridge-working-set llm-bridge-working-set-refs" });
 
     // ===== 底部 composer =====
     const composer = chatPanel.createDiv({ cls: "llm-bridge-composer" });
 
-    // 输入框（大）+ 右侧发送/停止
-    const inputRow = composer.createDiv({ cls: "llm-bridge-input-row" });
+    const composerBar = composer.createDiv({ cls: "llm-bridge-composer-bar" });
+    const leftTools = composerBar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-left" });
+    const attachBtn = leftTools.createEl("button", {
+      cls: "llm-bridge-composer-tool-btn llm-bridge-attach-file-btn",
+      text: "+",
+      attr: { title: "上传/选择一个或多个用户主动附件" },
+    });
+    attachBtn.addEventListener("click", () => this.openNativeAttachmentPicker());
+    const pathAttachBtn = leftTools.createEl("button", {
+      cls: "llm-bridge-composer-tool-btn llm-bridge-attach-path-btn",
+      text: "⌁",
+      attr: { title: "通过路径添加附件（fallback/debug）" },
+    });
+    pathAttachBtn.addEventListener("click", () => void this.promptAndAddAttachmentFile());
+    this.preflightBtn = leftTools.createEl("button", {
+      cls: "llm-bridge-composer-tool-btn",
+      text: "⌘",
+      attr: { title: "检测 agent 命令是否可用（不调用真实模型）" },
+    });
+    this.preflightBtn.addEventListener("click", () => void this.runPreflightCheck());
+    this.presetBtnsEl = leftTools.createDiv({ cls: "llm-bridge-presets" });
+    for (const preset of PRESETS) {
+      const btn = this.presetBtnsEl.createEl("button", {
+        cls: "llm-bridge-preset-btn",
+        text: preset.label,
+        attr: { title: preset.hint, "data-preset": preset.type },
+      });
+      btn.addEventListener("click", () => void this.applyPreset(preset.type));
+    }
+
+    const inputRow = composerBar.createDiv({ cls: "llm-bridge-input-row" });
     this.inputEl = inputRow.createEl("textarea", {
       cls: "llm-bridge-input",
-      attr: { placeholder: "Ask Claude Code…", rows: "3" },
+      attr: { placeholder: "输入消息，或使用 / 命令…", rows: "3" },
     });
     this.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -466,7 +526,18 @@ export class LLMBridgeView extends ItemView {
       }
     });
 
-    const actionCol = inputRow.createDiv({ cls: "llm-bridge-action-col" });
+    const rightTools = composerBar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-right" });
+    rightTools.appendChild(agentSelect);
+    this.agentChipTextEl = agentSelect;
+    this.modelChipGroup = this.buildChipGroup(rightTools, MODEL_OPTIONS, () => this.plugin.settings.model, async (v) => {
+      this.plugin.settings.model = v;
+      await this.plugin.saveSettings();
+    });
+    this.effortChipGroup = this.buildChipGroup(rightTools, EFFORT_OPTIONS, () => this.plugin.settings.effortLevel, async (v) => {
+      this.plugin.settings.effortLevel = v;
+      await this.plugin.saveSettings();
+    });
+    const actionCol = rightTools.createDiv({ cls: "llm-bridge-action-col" });
     // 停止按钮：只在运行中显示
     this.stopBtn = actionCol.createEl("button", {
       cls: "llm-bridge-stop-btn",
@@ -483,35 +554,8 @@ export class LLMBridgeView extends ItemView {
     this.sendBtn.createEl("span", { cls: "llm-bridge-send-icon", text: "↑" });
     this.sendBtn.addEventListener("click", () => void this.run());
 
-    // compact chips 行（输入框下方）：Claude Code / gpt-5.5 / High / Fresh / Note / Selection
-    const chipsRow = composer.createDiv({ cls: "llm-bridge-chips-row" });
-
-    // agent chip（与 header 下拉同步，纯显示当前选中）
-    const agentChipWrap = chipsRow.createDiv({ cls: "llm-bridge-chip-wrap" });
-    const agentChipLabel = agentChipWrap.createEl("button", {
-      cls: "llm-bridge-chip-readonly",
-      text: "Claude Code",
-      attr: { "data-chip": "agent" },
-    });
-    agentChipLabel.addEventListener("click", () => {
-      // 点击聚焦到 header 下拉
-      (this.agentChipGroup as HTMLSelectElement).focus();
-    });
-    this.agentChipGroup = agentSelect; // 保持引用 header 下拉
-    // 用单独字段保存 agent chip 文本节点
-    this.agentChipTextEl = agentChipLabel;
-
-    this.modelChipGroup = this.buildChipGroup(chipsRow, MODEL_OPTIONS, () => this.plugin.settings.model, async (v) => {
-      this.plugin.settings.model = v;
-      await this.plugin.saveSettings();
-    });
-    this.effortChipGroup = this.buildChipGroup(chipsRow, EFFORT_OPTIONS, () => this.plugin.settings.effortLevel, async (v) => {
-      this.plugin.settings.effortLevel = v;
-      await this.plugin.saveSettings();
-    });
-    // V2.4: 移除 Mode chip（仅 Fresh 可用，Continue/Resume 永久 disabled，点击 no-op 易误导）
-
-    // Note / Selection 上下文 chips（可点击切换，带勾选态）
+    // Note / Selection 上下文 chips：作为 Working Set strip 的 compact refs。
+    const chipsRow = contextChipsRow;
     this.includeNoteCheckEl = this.buildContextChip(chipsRow, "Note", () => this.plugin.settings.includeActiveNote, async (on) => {
       this.plugin.settings.includeActiveNote = on;
       await this.plugin.saveSettings();
@@ -523,26 +567,11 @@ export class LLMBridgeView extends ItemView {
       await this.plugin.saveSettings();
     });
     this.selectionLabelEl = this.includeSelectionCheckEl.parentElement!.createEl("span", { cls: "llm-bridge-chip-file", text: "" });
-
-    // V2.4: 移除 chips 行重复的 New 按钮（状态栏已有，避免误导）
-    const attachBtn = chipsRow.createEl("button", {
-      cls: "llm-bridge-chip llm-bridge-attach-file-btn",
-      text: "+ File",
-      attr: { title: "选择一个或多个用户主动附件" },
-    });
-    attachBtn.addEventListener("click", () => this.openNativeAttachmentPicker());
     this.attachmentFileInputEl = composer.createEl("input", {
       attr: { type: "file", multiple: "true", tabindex: "-1" },
     });
     this.attachmentFileInputEl.addClass("llm-bridge-native-file-input");
     this.attachmentFileInputEl.addEventListener("change", () => void this.addNativeSelectedAttachments());
-
-    const pathAttachBtn = chipsRow.createEl("button", {
-      cls: "llm-bridge-chip llm-bridge-attach-path-btn",
-      text: "+ Path",
-      attr: { title: "通过路径添加附件（fallback/debug）" },
-    });
-    pathAttachBtn.addEventListener("click", () => void this.promptAndAddAttachmentFile());
 
     composer.addEventListener("dragover", (event) => {
       if (!event.dataTransfer?.files?.length) return;
@@ -556,8 +585,6 @@ export class LLMBridgeView extends ItemView {
       composer.removeClass("is-dragging-file");
       void this.addFilesFromFileList(event.dataTransfer.files);
     });
-
-    this.workingSetEl = composer.createDiv({ cls: "llm-bridge-working-set" });
     this.refreshWorkingSetChips();
 
     // 初始化
@@ -784,11 +811,8 @@ export class LLMBridgeView extends ItemView {
   }
 
   private refreshAllChips(): void {
-    // header agent 下拉
+    // composer agent 下拉
     (this.agentChipGroup as HTMLSelectElement).value = this.plugin.settings.agentType;
-    // 底部 agent chip 文本
-    const agentLabel = AGENT_OPTIONS.find((a) => a.value === this.plugin.settings.agentType)?.label ?? this.plugin.settings.agentType;
-    this.agentChipTextEl.textContent = agentLabel;
 
     // cycle chips：显示当前选中标签
     this.refreshCycleChip(this.modelChipGroup, MODEL_OPTIONS, this.plugin.settings.model);
@@ -856,6 +880,12 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
+  private openPluginSettings(): void {
+    const appWithSettings = this.app as App & { setting?: { open: () => void; openTabById?: (id: string) => void } };
+    appWithSettings.setting?.open();
+    appWithSettings.setting?.openTabById?.(this.plugin.manifest.id);
+  }
+
   private updateContextDisplay(): void {
     const f = this.app.workspace.getActiveFile();
     this.activeFileLabelEl.textContent = f ? f.path : "";
@@ -892,7 +922,10 @@ export class LLMBridgeView extends ItemView {
   }
 
   private setGlobalStatus(status: RunStatus): void {
-    this.statusLabelEl.textContent = STATUS_LABEL[status];
+    const agentLabel = AGENT_OPTIONS.find((a) => a.value === this.plugin.settings.agentType)?.label ?? this.plugin.settings.agentType;
+    const runtimeLabel = this.plugin.settings.backendMode === "sdk-experimental" ? "SDK" : agentLabel;
+    const runtimeState = status === "failed" ? "失败" : status === "running" ? "运行中" : "已连接";
+    this.statusLabelEl.textContent = `${runtimeLabel} · ${runtimeState}`;
     this.statusDotEl.className = `llm-bridge-status-dot llm-bridge-status-dot-${status}`;
     this.statusDotEl.setAttribute("title", STATUS_LABEL[status]);
     const running = status === "running";
@@ -928,6 +961,9 @@ export class LLMBridgeView extends ItemView {
     // Agent 类型
     const agentLabel = AGENT_OPTIONS.find((a) => a.value === s.agentType)?.label ?? s.agentType;
     this.statusAgentEl.querySelector(".llm-bridge-sb-value")!.textContent = agentLabel;
+    const runtimeLabel = s.backendMode === "sdk-experimental" ? "SDK" : agentLabel;
+    const runtimeState = this.sessionState.status === "failed" ? "失败" : this.sessionState.status === "running" ? "运行中" : "已连接";
+    this.statusLabelEl.textContent = `${runtimeLabel} · ${runtimeState}`;
     // Cwd（Vault 根目录）— getBasePath 运行时存在但类型未声明，用 as 绕过
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     // 只显示最后两级目录，避免过长
@@ -1256,22 +1292,30 @@ export class LLMBridgeView extends ItemView {
   }
 
   private refreshWorkingSetChips(): void {
-    if (!this.workingSetEl) return;
+    if (this.workingSetEl) this.renderWorkingSetChipsInto(this.workingSetEl, "strip");
+    if (this.filesWorkingSetEl) this.renderWorkingSetChipsInto(this.filesWorkingSetEl, "page");
+  }
+
+  private renderWorkingSetChipsInto(container: HTMLElement, mode: "strip" | "page"): void {
     const refs = this.fileWorkingSet.refs;
-    this.workingSetEl.empty();
+    container.empty();
     if (refs.length === 0) {
-      this.workingSetEl.style.display = "flex";
-      this.workingSetEl.createEl("span", { cls: "llm-bridge-working-set-label", text: "Working Set" });
-      this.workingSetEl.createEl("span", {
+      container.style.display = "flex";
+      if (mode === "page") {
+        container.createEl("span", { cls: "llm-bridge-working-set-label", text: "Working Set" });
+      }
+      container.createEl("span", {
         cls: "llm-bridge-working-set-empty",
-        text: "No files attached. Add files as native handoff refs; small text/md/json can include bounded text.",
+        text: mode === "strip" ? "添加附件后会显示为 refs；小文本可 bounded 进入上下文。" : "No files attached. Native handoff refs only; small text/md/json attachments can include bounded text.",
       });
       return;
     }
-    this.workingSetEl.style.display = "flex";
-    this.workingSetEl.createEl("span", { cls: "llm-bridge-working-set-label", text: "Working Set" });
+    container.style.display = "flex";
+    if (mode === "page") {
+      container.createEl("span", { cls: "llm-bridge-working-set-label", text: "Working Set" });
+    }
     for (const ref of refs) {
-      const chip = this.workingSetEl.createDiv({ cls: `llm-bridge-working-set-chip is-${ref.kind} is-${ref.status}` });
+      const chip = container.createDiv({ cls: `llm-bridge-working-set-chip is-${ref.kind} is-${ref.status}` });
       chip.createEl("span", { cls: "llm-bridge-working-set-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
       chip.createEl("span", { cls: "llm-bridge-working-set-meta", text: `${ref.kind} · ${ref.status} · ${ref.source} · ${ref.pathKind} · ${ref.fileType}` });
       const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id);
@@ -2181,6 +2225,14 @@ export class LLMBridgeView extends ItemView {
   private refreshSessionState(): void {
     if (this.sessionTitleEl) {
       this.sessionTitleEl.textContent = this.sessionState.title;
+    }
+    const shadowTitle = this.statusBarEl?.querySelector(".llm-bridge-sb-session-title-shadow");
+    if (shadowTitle) {
+      shadowTitle.textContent = this.sessionState.title;
+    }
+    const sessionSelector = this.sessionTitleEl?.closest(".llm-bridge-session-selector");
+    if (sessionSelector) {
+      sessionSelector.className = `llm-bridge-session-selector ${sessionStatusClass(this.sessionState.status)}`;
     }
     // 会话标题行着色（按状态）
     const titleRow = this.statusBarEl.querySelector(".llm-bridge-sb-title-row");
