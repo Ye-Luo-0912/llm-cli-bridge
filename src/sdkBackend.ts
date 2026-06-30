@@ -16,6 +16,7 @@ import {
   AgentSkillsRuntimePreparationResult,
   prepareAgentSkillsForClaudeRuntimeSync,
 } from "./agentSkills";
+import { applyClaudeRuntimeEnv, resolveClaudeRuntimeConfig } from "./claudeRuntimeConfig";
 import { LLMBridgeSettings } from "./types";
 import {
   MessageEvent,
@@ -545,6 +546,9 @@ async function runRealSdkQuery(
   }
 
   const options = buildSdkOptions(task, settings, agentSkillsOptions);
+  const runtimeConfig = resolveClaudeRuntimeConfig(task.cwd);
+  const clearInheritedRuntimeEnv = runtimeConfig.source === "project-json" || runtimeConfig.source === "auto-detected";
+  const restoreRuntimeEnv = applyClaudeRuntimeEnv(runtimeConfig.env, clearInheritedRuntimeEnv);
   let msgCount = 0;
   let wfEventCount = 0;
   let partialCount = 0;
@@ -754,6 +758,8 @@ async function runRealSdkQuery(
       exitCode: 1,
       diagnostics: finalDiagnostics,
     };
+  } finally {
+    restoreRuntimeEnv();
   }
 }
 

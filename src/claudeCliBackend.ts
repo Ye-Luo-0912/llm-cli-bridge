@@ -9,6 +9,7 @@ import { AgentBackend, AgentEvent, AgentEventHandler, AgentRunHandle, AgentTask 
 import { AgentType, LLMBridgeSettings } from "./types";
 import { buildCommandLine } from "./commandProfile";
 import { AgentSkillsRuntimePreparationResult, prepareAgentSkillsForClaudeRuntimeSync } from "./agentSkills";
+import { resolveClaudeRuntimeConfig } from "./claudeRuntimeConfig";
 import { RuntimeFileToolAdapterResult, RuntimeFileToolCall, describeRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
 
 // ---------- PATH 增强工具函数（从 runner.ts 迁移） ----------
@@ -119,7 +120,7 @@ export function buildEnhancedPath(cwd: string): string {
 
 /**
  * 构造运行环境变量（不泄露 secret 值）
- * - 保留便携版注入的 CLAUDE_CONFIG_DIR / ANTHROPIC_CONFIG_DIR
+ * - 优先使用项目级 Claude runtime config，其次自动发现 Vault 局部 runtime，再继承进程环境
  * - 用 UI 选择的 model / effort 覆盖（仅 claude）
  * - 增强 PATH：Vault 局部优先
  * @returns env 和诊断用的 envKey 列表（只含 key 名，不含 value）
@@ -132,6 +133,14 @@ export function buildRunEnv(
   const envKeys: string[] = [];
 
   if (settings.agentType === "claude") {
+    const runtimeConfig = resolveClaudeRuntimeConfig(cwd, env);
+    if (runtimeConfig.source === "project-json" || runtimeConfig.source === "auto-detected") {
+      delete env.CLAUDE_CONFIG_DIR;
+      delete env.ANTHROPIC_CONFIG_DIR;
+    }
+    Object.assign(env, runtimeConfig.env);
+    envKeys.push(...runtimeConfig.envKeys);
+
     if (settings.model) {
       env.ANTHROPIC_MODEL = settings.model;
       envKeys.push("ANTHROPIC_MODEL");
@@ -141,10 +150,6 @@ export function buildRunEnv(
       envKeys.push("CLAUDE_CODE_EFFORT_LEVEL");
     }
   }
-
-  // 便携版配置目录（只记录存在性，不输出 value）
-  if (env.CLAUDE_CONFIG_DIR) envKeys.push("CLAUDE_CONFIG_DIR");
-  if (env.ANTHROPIC_CONFIG_DIR) envKeys.push("ANTHROPIC_CONFIG_DIR");
 
   // 增强 PATH
   const extraPath = buildEnhancedPath(cwd);

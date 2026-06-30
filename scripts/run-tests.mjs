@@ -1264,6 +1264,68 @@ if (!runUnit) {
         const secretsInKeys = keys3.filter((k) => /token|secret|password|key\s*=/i.test(k));
         addTest("buildRunEnv: envKeys 不含 secret 值", secretsInKeys.length === 0 ? "pass" : "fail",
           secretsInKeys.length === 0 ? "" : `疑似泄露: ${secretsInKeys.join(",")}`);
+
+        const runtimeTempRoot = mkdtempSync(join(tmpdir(), "llm-bridge-runtime-config-"));
+        try {
+          const tempVault = join(runtimeTempRoot, "Vault");
+          const siblingRuntime = join(runtimeTempRoot, "LLM-AgentRuntime");
+          const siblingClaudeConfig = join(siblingRuntime, "private", "claude-config");
+          const siblingAnthropicConfig = join(siblingRuntime, "private", "anthropic-config");
+          mkdirSync(tempVault, { recursive: true });
+          mkdirSync(siblingClaudeConfig, { recursive: true });
+          mkdirSync(siblingAnthropicConfig, { recursive: true });
+
+          const { env: autoEnv, envKeys: autoKeys } = buildRunEnv(claudeEmpty, tempVault);
+          const autoConfigOk = autoEnv.CLAUDE_CONFIG_DIR === siblingClaudeConfig
+            && autoEnv.ANTHROPIC_CONFIG_DIR === siblingAnthropicConfig
+            && autoKeys.includes("CLAUDE_CONFIG_DIR")
+            && autoKeys.includes("ANTHROPIC_CONFIG_DIR");
+          addTest("buildRunEnv: 自动发现项目级 LLM-AgentRuntime config", autoConfigOk ? "pass" : "fail",
+            autoConfigOk ? "" : `claude=${autoEnv.CLAUDE_CONFIG_DIR}, anthropic=${autoEnv.ANTHROPIC_CONFIG_DIR}, keys=${autoKeys.join(",")}`);
+
+          const projectClaudeConfig = join(tempVault, ".local-claude", "claude-config");
+          const projectAnthropicConfig = join(tempVault, ".local-claude", "anthropic-config");
+          mkdirSync(projectClaudeConfig, { recursive: true });
+          mkdirSync(projectAnthropicConfig, { recursive: true });
+          mkdirSync(join(tempVault, ".llm-bridge"), { recursive: true });
+          writeFileSync(join(tempVault, ".llm-bridge", "claude-runtime.json"), JSON.stringify({
+            version: 1,
+            claudeConfigDir: ".local-claude/claude-config",
+            anthropicConfigDir: ".local-claude/anthropic-config",
+          }, null, 2), "utf8");
+
+          const { env: projectEnv } = buildRunEnv(claudeEmpty, tempVault);
+          const projectConfigOk = projectEnv.CLAUDE_CONFIG_DIR === projectClaudeConfig
+            && projectEnv.ANTHROPIC_CONFIG_DIR === projectAnthropicConfig;
+          addTest("buildRunEnv: .llm-bridge/claude-runtime.json 优先于自动发现", projectConfigOk ? "pass" : "fail",
+            projectConfigOk ? "" : `claude=${projectEnv.CLAUDE_CONFIG_DIR}, anthropic=${projectEnv.ANTHROPIC_CONFIG_DIR}`);
+
+          const previousAnthropicConfigDir = process.env.ANTHROPIC_CONFIG_DIR;
+          try {
+            process.env.ANTHROPIC_CONFIG_DIR = join(runtimeTempRoot, "global-anthropic-config");
+            writeFileSync(join(tempVault, ".llm-bridge", "claude-runtime.json"), JSON.stringify({
+              version: 1,
+              claudeConfigDir: ".local-claude/claude-config",
+            }, null, 2), "utf8");
+            const { env: partialProjectEnv } = buildRunEnv(claudeEmpty, tempVault);
+            const noInheritedLeak = partialProjectEnv.CLAUDE_CONFIG_DIR === projectClaudeConfig
+              && partialProjectEnv.ANTHROPIC_CONFIG_DIR === undefined;
+            addTest("buildRunEnv: 项目配置命中时未声明 config 不混入全局环境", noInheritedLeak ? "pass" : "fail",
+              noInheritedLeak ? "" : `claude=${partialProjectEnv.CLAUDE_CONFIG_DIR}, anthropic=${partialProjectEnv.ANTHROPIC_CONFIG_DIR}`);
+          } finally {
+            if (previousAnthropicConfigDir === undefined) delete process.env.ANTHROPIC_CONFIG_DIR;
+            else process.env.ANTHROPIC_CONFIG_DIR = previousAnthropicConfigDir;
+          }
+        } finally {
+          rmSync(runtimeTempRoot, { recursive: true, force: true });
+        }
+
+        const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
+        const sdkUsesRuntimeEnv = sdkBackendSrc.includes("resolveClaudeRuntimeConfig(task.cwd)")
+          && sdkBackendSrc.includes("applyClaudeRuntimeEnv(runtimeConfig.env, clearInheritedRuntimeEnv)")
+          && sdkBackendSrc.includes("restoreRuntimeEnv()");
+        addTest("SdkBackend: query 调用使用项目级 Claude runtime env 并恢复", sdkUsesRuntimeEnv ? "pass" : "fail",
+          sdkUsesRuntimeEnv ? "" : "未找到 resolve/apply/restore runtime env 调用");
       }
 
       // --- resolveCommand ---
@@ -10800,6 +10862,7 @@ if (!runV214BUnit) {
         "SdkSmoke",
         "VaultSelection",
         "NativeReadEditResult",
+        "ProjectRuntimeConfigPatch",
         "RemainingRisk",
         "Recommendation",
       ].every((heading) => reportSrcV214N1.includes(`## ${heading}`));
@@ -10809,11 +10872,11 @@ if (!runV214BUnit) {
         && reportSrcV214N1.includes("NODE_USE_SYSTEM_CA=1")
         && reportSrcV214N1.includes("NODE_EXTRA_CA_CERTS")
         && reportSrcV214N1.includes("NODE_TLS_REJECT_UNAUTHORIZED=0");
-      const failureEvidenceOk = reportSrcV214N1.includes("ark.cn-beijing.volces.com")
-        && reportSrcV214N1.includes("ECONNRESET")
-        && reportSrcV214N1.includes("TLS handshake")
-        && reportSrcV214N1.includes("Connection error")
-        && reportSrcV214N1.includes("TARGET_EXISTS=False");
+      const localConfigEvidenceOk = reportSrcV214N1.includes("D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-AgentRuntime\\private\\claude-config")
+        && reportSrcV214N1.includes("local-config-ok")
+        && reportSrcV214N1.includes("sdk-local-config-ok")
+        && reportSrcV214N1.includes("90_AI整理待确认/V2.14.0-N1-claude-native-edit.md")
+        && reportSrcV214N1.includes("src/claudeRuntimeConfig.ts");
       const vaultOk = reportSrcV214N1.includes("D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-Wiki")
         && reportSrcV214N1.includes("`pluginVersion` `2.12.1`")
         && reportSrcV214N1.includes("GET /state");
@@ -10823,10 +10886,10 @@ if (!runV214BUnit) {
         && !runtimeFileToolAdapterSrc.includes("writeFile")
         && !runtimeFileToolAdapterSrc.includes("unlink")
         && !runtimeFileToolAdapterSrc.includes("rename(");
-      const ok = sectionsOk && diagnosisOk && failureEvidenceOk && vaultOk && noRuntimeExpansionOk;
-      addTest("V2.14.0-N1 native cert rerun: TLS 诊断、CLI/SDK 明确 fail 证据、唯一测试 Vault 且未扩展 runtime",
+      const ok = sectionsOk && diagnosisOk && localConfigEvidenceOk && vaultOk && noRuntimeExpansionOk;
+      addTest("V2.14.0-N1 native config rerun: CLI/SDK 使用本地配置通过，唯一测试 Vault 且未扩展 runtime",
         ok ? "pass" : "fail",
-        `sections=${sectionsOk} diagnosis=${diagnosisOk} fail=${failureEvidenceOk} vault=${vaultOk} runtime=${noRuntimeExpansionOk}`);
+        `sections=${sectionsOk} diagnosis=${diagnosisOk} localConfig=${localConfigEvidenceOk} vault=${vaultOk} runtime=${noRuntimeExpansionOk}`);
     }
 
     {
