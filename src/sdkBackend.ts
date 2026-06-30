@@ -53,6 +53,7 @@ import {
   type SessionPermissionAllow,
   type SessionPermissionDeny,
 } from "./sdkPermission";
+import { RuntimeFileToolAdapterResult, RuntimeFileToolCall, describeRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
 
 // ---------- SDK 可用性探测 ----------
 
@@ -478,6 +479,25 @@ export function buildSdkOptions(
   return options;
 }
 
+export async function executeSdkRuntimeFileTool(task: AgentTask, call: RuntimeFileToolCall): Promise<RuntimeFileToolAdapterResult> {
+  if (!task.runtimeFileToolAdapter) {
+    return buildMissingRuntimeFileToolAdapterResult("sdk", call.toolName);
+  }
+  return task.runtimeFileToolAdapter.execute(call);
+}
+
+function buildMissingRuntimeFileToolAdapterResult(kind: "sdk", toolName: string): RuntimeFileToolAdapterResult {
+  return {
+    adapterKind: kind,
+    toolName,
+    status: "deny",
+    reason: "runtime_file_tool_adapter_missing",
+    output: JSON.stringify({ toolName, status: "deny", reason: "runtime_file_tool_adapter_missing" }, null, 2),
+    isError: true,
+    routeResult: { toolName, status: "deny", reason: "runtime_file_tool_adapter_missing" },
+  };
+}
+
 /**
  * 调用真实 SDK query 并映射事件流
  * @returns 终态信息 { status, text, exitCode, diagnostics }
@@ -533,6 +553,17 @@ async function runRealSdkQuery(
   let terminalExitCode = 0;
 
   try {
+    if (onWorkflowEvent) {
+      const adapterEv: MessageEvent = {
+        type: "message",
+        timestamp: new Date().toISOString(),
+        role: "system",
+        text: describeRuntimeFileToolAdapter(task.runtimeFileToolAdapter),
+      };
+      onWorkflowEvent(redactWorkflowEvent(adapterEv));
+      wfEventCount++;
+    }
+
     // V2.3.2: canUseTool 回调 —— decideByMode 为唯一真相源
     // 1. 评估工具风险（assessToolRisk）
     // 2. 检查会话级允许/拒绝缓存

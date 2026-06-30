@@ -9,6 +9,7 @@ import { AgentBackend, AgentEvent, AgentEventHandler, AgentRunHandle, AgentTask 
 import { AgentType, LLMBridgeSettings } from "./types";
 import { buildCommandLine } from "./commandProfile";
 import { AgentSkillsRuntimePreparationResult, prepareAgentSkillsForClaudeRuntimeSync } from "./agentSkills";
+import { RuntimeFileToolAdapterResult, RuntimeFileToolCall, describeRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
 
 // ---------- PATH 增强工具函数（从 runner.ts 迁移） ----------
 
@@ -153,6 +154,25 @@ export function buildRunEnv(
   }
 
   return { env, envKeys };
+}
+
+export async function executeCliRuntimeFileTool(task: AgentTask, call: RuntimeFileToolCall): Promise<RuntimeFileToolAdapterResult> {
+  if (!task.runtimeFileToolAdapter) {
+    return buildMissingRuntimeFileToolAdapterResult("cli", call.toolName);
+  }
+  return task.runtimeFileToolAdapter.execute(call);
+}
+
+function buildMissingRuntimeFileToolAdapterResult(kind: "cli", toolName: string): RuntimeFileToolAdapterResult {
+  return {
+    adapterKind: kind,
+    toolName,
+    status: "deny",
+    reason: "runtime_file_tool_adapter_missing",
+    output: JSON.stringify({ toolName, status: "deny", reason: "runtime_file_tool_adapter_missing" }, null, 2),
+    isError: true,
+    routeResult: { toolName, status: "deny", reason: "runtime_file_tool_adapter_missing" },
+  };
 }
 
 // ---------- 诊断日志写入 ----------
@@ -321,6 +341,7 @@ export class ClaudeCliBackend implements AgentBackend {
     // 构造启动诊断并写入 debug log
     const startDiag = buildStartDiagnostic(command, args, task.cwd, envKeys, injectedPaths, startTime);
     debugLog += startDiag;
+    debugLog += `\n=== Runtime File Tools ===\n${describeRuntimeFileToolAdapter(task.runtimeFileToolAdapter)}\n`;
 
     // spawn 前检查 cwd
     if (!fs.existsSync(task.cwd)) {

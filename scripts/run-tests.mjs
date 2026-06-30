@@ -9318,6 +9318,9 @@ if (!runV214BUnit) {
     const fileToolPolicyBundleV214H = join(tmpdir(), `file-tool-policy-v214h-${Date.now()}.mjs`);
     const fileToolExecutorBundleV214I = join(tmpdir(), `file-tool-executor-v214i-${Date.now()}.mjs`);
     const agentFileToolBridgeBundleV214J = join(tmpdir(), `agent-file-tool-bridge-v214j-${Date.now()}.mjs`);
+    const runtimeFileToolAdapterBundleV214K = join(tmpdir(), `runtime-file-tool-adapter-v214k-${Date.now()}.mjs`);
+    const cliBackendBundleV214K = join(tmpdir(), `claude-cli-backend-v214k-${Date.now()}.mjs`);
+    const sdkBackendBundleV214K = join(tmpdir(), `sdk-backend-v214k-${Date.now()}.mjs`);
     const promptPackageBundleV214G = join(tmpdir(), `prompt-package-v214g-${Date.now()}.mjs`);
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "fileAccessPolicy.ts")],
@@ -9374,6 +9377,33 @@ if (!runV214BUnit) {
       logLevel: "silent",
     });
     await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtimeFileToolAdapter.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: runtimeFileToolAdapterBundleV214K,
+      external: ["obsidian"],
+      logLevel: "silent",
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: cliBackendBundleV214K,
+      external: ["obsidian"],
+      logLevel: "silent",
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sdkBackend.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: sdkBackendBundleV214K,
+      external: ["obsidian"],
+      logLevel: "silent",
+    });
+    await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "promptPackage.ts")],
       bundle: true,
       format: "esm",
@@ -9425,6 +9455,14 @@ if (!runV214BUnit) {
       formatAgentFileToolRouteResult,
       isReadOnlyAgentFileTool,
     } = await import(pathToFileURL(agentFileToolBridgeBundleV214J).href);
+    const {
+      createRuntimeFileToolAdapter,
+      executeRuntimeFileToolAdapterCall,
+      normalizeRuntimeFileToolCall,
+      describeRuntimeFileToolAdapter,
+    } = await import(pathToFileURL(runtimeFileToolAdapterBundleV214K).href);
+    const { executeCliRuntimeFileTool } = await import(pathToFileURL(cliBackendBundleV214K).href);
+    const { executeSdkRuntimeFileTool } = await import(pathToFileURL(sdkBackendBundleV214K).href);
     const { buildPromptPackage: buildPromptPackageV214G } = await import(pathToFileURL(promptPackageBundleV214G).href);
 
     const reportSrc = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-B_FILE_ACCESS_POLICY_MODULE.md"), "utf8");
@@ -9438,12 +9476,14 @@ if (!runV214BUnit) {
     const reportSrcV214I = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-I_REAL_FILE_TOOL_EXECUTION.md"), "utf8");
     const reportSrcV214I1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-I1_FILE_TOOL_REALPATH_SYMLINK_HARDENING.md"), "utf8");
     const reportSrcV214J = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-J_AGENT_FILE_TOOL_ROUTING.md"), "utf8");
+    const reportSrcV214K = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-K_RUNTIME_TOOL_ADAPTER.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
     const fileIngestionSrc = readFileSync(join(PROJECT_ROOT, "src", "fileIngestion.ts"), "utf8");
     const fileToolExecutorSrc = readFileSync(join(PROJECT_ROOT, "src", "fileToolExecutor.ts"), "utf8");
     const agentFileToolBridgeSrc = readFileSync(join(PROJECT_ROOT, "src", "agentFileToolBridge.ts"), "utf8");
+    const runtimeFileToolAdapterSrc = readFileSync(join(PROJECT_ROOT, "src", "runtimeFileToolAdapter.ts"), "utf8");
     const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf8");
     const cliBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeCliBackend.ts"), "utf8");
     const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
@@ -9478,6 +9518,12 @@ if (!runV214BUnit) {
         executeAgentFileToolRoute,
         formatAgentFileToolRouteResult,
         isReadOnlyAgentFileTool,
+        createRuntimeFileToolAdapter,
+        executeRuntimeFileToolAdapterCall,
+        normalizeRuntimeFileToolCall,
+        describeRuntimeFileToolAdapter,
+        executeCliRuntimeFileTool,
+        executeSdkRuntimeFileTool,
         buildPromptPackageV214G,
       ]
         .every((fn) => typeof fn === "function");
@@ -9503,9 +9549,11 @@ if (!runV214BUnit) {
         .every((heading) => reportSrcV214I1.includes(heading));
       const reportJOk = ["## ToolRouting", "## PolicyGateIntegration", "## PendingFlow", "## ResultSurface", "## NoWriteBoundary", "## Tests", "## RemainingRisk", "## Recommendation"]
         .every((heading) => reportSrcV214J.includes(heading));
-      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I/I1/J exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk && reportI1Ok && reportJOk ? "pass" : "fail",
-        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk} reportI1=${reportI1Ok} reportJ=${reportJOk}`);
+      const reportKOk = ["## RuntimeAdapter", "## RouteBoundary", "## PendingFlow", "## ResultSurface", "## NoWriteBoundary", "## Tests", "## RemainingRisk", "## Recommendation"]
+        .every((heading) => reportSrcV214K.includes(heading));
+      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I/I1/J/K exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk && reportI1Ok && reportJOk && reportKOk ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk} reportI1=${reportI1Ok} reportJ=${reportJOk} reportK=${reportKOk}`);
     }
 
     {
@@ -10349,6 +10397,133 @@ if (!runV214BUnit) {
           && agentFileToolBridgeSrc.includes("runner({");
         addTest("V2.14.0-J route symlink escape runtime test", staticHardening ? "skip" : "fail",
           `当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=${staticHardening}: ${error?.message || String(error)}`);
+      }
+    }
+
+    {
+      const vault = mkdtempSync(join(tmpdir(), "llm-bridge-k-vault-"));
+      const external = mkdtempSync(join(tmpdir(), "llm-bridge-k-external-"));
+      const docsDir = join(vault, "docs");
+      mkdirSync(docsDir, { recursive: true });
+      const note = join(docsDir, "note.md");
+      const large = join(docsDir, "large.txt");
+      const image = join(docsDir, "image.png");
+      const pdf = join(docsDir, "manual.pdf");
+      const sensitive = join(vault, ".env");
+      const externalFile = join(external, "outside.md");
+      writeFileSync(note, "# Adapter\nneedle from adapter", "utf8");
+      writeFileSync(large, "0123456789abcdef".repeat(200), "utf8");
+      writeFileSync(image, "fake image bytes", "utf8");
+      writeFileSync(pdf, "%PDF fake", "utf8");
+      writeFileSync(sensitive, "TOKEN=secret", "utf8");
+      writeFileSync(externalFile, "external pending", "utf8");
+
+      const policy = createFileAccessPolicy({ vaultPath: vault });
+      const routeCalls = [];
+      const routeRunner = async (request) => {
+        routeCalls.push(request);
+        return await executeAgentFileToolRoute(request, async (toolRequest) => executeFileTool(policy, toolRequest));
+      };
+      const cliAdapter = createRuntimeFileToolAdapter("cli", routeRunner);
+      const sdkAdapter = createRuntimeFileToolAdapter("sdk", routeRunner);
+      const cliTask = {
+        id: "cli-task",
+        userMessage: "cli",
+        prompt: "",
+        cwd: vault,
+        createdAt: "2026-06-30T00:09:00.000Z",
+        includeActiveNote: false,
+        includeSelection: false,
+        runtimeFileToolAdapter: cliAdapter,
+      };
+      const sdkTask = {
+        ...cliTask,
+        id: "sdk-task",
+        runtimeFileToolAdapter: sdkAdapter,
+      };
+
+      const cliStat = await executeCliRuntimeFileTool(cliTask, { toolName: "stat", input: { path: note } });
+      const cliRead = await executeCliRuntimeFileTool(cliTask, { toolName: "read", input: { file_path: note } });
+      const cliList = await executeCliRuntimeFileTool(cliTask, { toolName: "list", input: { directory: docsDir, maxListEntries: 2, maxListDepth: 1 } });
+      const cliSearch = await executeCliRuntimeFileTool(cliTask, { toolName: "search", input: { path: docsDir, query: "needle", maxSearchFiles: 5, maxSearchResults: 1 } });
+      const sdkRead = await executeSdkRuntimeFileTool(sdkTask, { toolName: "read", input: { path: note } });
+      const sdkConfirm = await executeSdkRuntimeFileTool(sdkTask, { toolName: "read", input: { path: externalFile } });
+      const sdkDeny = await executeSdkRuntimeFileTool(sdkTask, { toolName: "read", input: { path: sensitive } });
+      const sdkImage = await executeSdkRuntimeFileTool(sdkTask, { toolName: "read", input: { path: image } });
+      const sdkPdf = await executeSdkRuntimeFileTool(sdkTask, { toolName: "read", input: { path: pdf } });
+      const sdkLarge = await executeSdkRuntimeFileTool(sdkTask, { toolName: "read", input: { path: large, maxReadBytes: 64, maxReadChars: 32 } });
+      const cliWrite = await executeCliRuntimeFileTool(cliTask, { toolName: "write", input: { path: note } });
+      const sdkDelete = await executeSdkRuntimeFileTool(sdkTask, { toolName: "delete", input: { path: note } });
+      const missing = await executeSdkRuntimeFileTool({ ...sdkTask, runtimeFileToolAdapter: undefined }, { toolName: "read", input: { path: note } });
+      const normalized = normalizeRuntimeFileToolCall("sdk", { toolName: "search", input: { file_path: docsDir, pattern: "needle", searchExtensions: [".md"] } });
+      const directCall = await executeRuntimeFileToolAdapterCall("cli", { toolName: "stat", input: { path: note } }, routeRunner);
+
+      const adapterOk = cliAdapter.kind === "cli"
+        && sdkAdapter.kind === "sdk"
+        && describeRuntimeFileToolAdapter(cliAdapter).includes("stat, read, list, search")
+        && normalized.toolName === "search"
+        && normalized.path === docsDir
+        && normalized.query === "needle"
+        && normalized.limits.searchExtensions[0] === ".md";
+      const cliOk = cliStat.status === "allow"
+        && cliStat.routeResult.result?.operation === "stat"
+        && cliRead.status === "allow"
+        && cliRead.output.includes("needle from adapter")
+        && cliList.status === "allow"
+        && cliList.routeResult.result.entries.length <= 2
+        && cliSearch.status === "allow"
+        && cliSearch.routeResult.result.matches.length === 1;
+      const sdkOk = sdkRead.status === "allow"
+        && sdkRead.output.includes("needle from adapter")
+        && directCall.status === "allow"
+        && directCall.routeResult.result?.operation === "stat";
+      const pendingOk = sdkConfirm.status === "confirm"
+        && sdkConfirm.routeResult.result?.pendingRequest?.operation === "read"
+        && routeCalls.some((call) => call.source === "sdk-runtime-file-tool");
+      const denyOk = sdkDeny.status === "deny"
+        && sdkDeny.reason === "sensitive_path"
+        && missing.status === "deny"
+        && missing.reason === "runtime_file_tool_adapter_missing";
+      const resultOk = sdkImage.routeResult.result?.readMode === "refs-only"
+        && sdkImage.output.includes("Claude Code")
+        && sdkPdf.routeResult.result?.readMode === "refs-only"
+        && sdkLarge.routeResult.result?.truncated === true
+        && sdkLarge.routeResult.result.content.length <= 32;
+      const noWrite = cliWrite.status === "deny"
+        && cliWrite.reason === "unsupported_file_tool"
+        && sdkDelete.status === "deny"
+        && sdkDelete.reason === "unsupported_file_tool"
+        && routeCalls.every((call) => ["stat", "read", "list", "search", "write", "delete"].includes(call.toolName));
+      const staticBoundary = runtimeFileToolAdapterSrc.includes("routeRunner(routeRequest)")
+        && !runtimeFileToolAdapterSrc.includes("fs.")
+        && !runtimeFileToolAdapterSrc.includes("readFile")
+        && !runtimeFileToolAdapterSrc.includes("readdir")
+        && !runtimeFileToolAdapterSrc.includes("stat(")
+        && cliBackendSrc.includes("executeCliRuntimeFileTool")
+        && sdkBackendSrc.includes("executeSdkRuntimeFileTool")
+        && viewSrc.includes("runtimeFileToolAdapter")
+        && viewSrc.includes("createRuntimeFileToolAdapter")
+        && !cliBackendSrc.includes("executeFileTool(")
+        && !sdkBackendSrc.includes("executeFileTool(");
+      const ok = adapterOk && cliOk && sdkOk && pendingOk && denyOk && resultOk && noWrite && staticBoundary;
+      addTest("V2.14.0-K runtime file tool adapter: SDK/CLI route through read-only bridge",
+        ok ? "pass" : "fail",
+        `adapter=${adapterOk} cli=${cliOk} sdk=${sdkOk} pending=${pendingOk} deny=${denyOk} result=${resultOk} noWrite=${noWrite} boundary=${staticBoundary}`);
+
+      const linkPath = join(vault, "link-out.md");
+      try {
+        symlinkSync(externalFile, linkPath, "file");
+        const linkRoute = await executeCliRuntimeFileTool(cliTask, { toolName: "read", input: { path: linkPath } });
+        addTest("V2.14.0-K runtime adapter symlink escape: executor realpath guard 仍生效",
+          linkRoute.status === "confirm" ? "pass" : "fail",
+          `status=${linkRoute.status} reason=${linkRoute.reason}`);
+      } catch (error) {
+        const staticHardening = fileToolExecutorSrc.includes("fs.promises.lstat")
+          && fileToolExecutorSrc.includes("fs.promises.realpath")
+          && fileToolExecutorSrc.includes("resolveRealExecutionTarget")
+          && runtimeFileToolAdapterSrc.includes("routeRunner(routeRequest)");
+        addTest("V2.14.0-K runtime adapter symlink escape runtime test", staticHardening ? "skip" : "fail",
+          `当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=${staticHardening}: ${error?.message || String(error)}`);
       }
     }
 

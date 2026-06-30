@@ -3,6 +3,7 @@
 // 当前仅实现 ClaudeCliBackend，UI 层通过此接口与 agent 交互
 
 import { LLMBridgeSettings } from "./types";
+import type { RuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
 import type { WorkflowEventHandler } from "./workflowEvent";
 
 /**
@@ -23,6 +24,8 @@ export interface AgentTask {
   includeActiveNote: boolean;
   /** 是否包含选区上下文 */
   includeSelection: boolean;
+  /** V2.14.0-K: runtime read-only file tool adapter（不改 AgentEvent v0.1） */
+  runtimeFileToolAdapter?: RuntimeFileToolAdapter;
 }
 
 /**

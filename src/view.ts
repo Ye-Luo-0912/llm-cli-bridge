@@ -54,6 +54,7 @@ import {
 import { AttachmentTextSnippet, ingestAttachmentTextSnippet } from "./fileIngestion";
 import { FileToolExecutionRequest, FileToolResult, executeFileTool } from "./fileToolExecutor";
 import { AgentFileToolRouteRequest, AgentFileToolRouteResult, executeAgentFileToolRoute as routeAgentFileTool } from "./agentFileToolBridge";
+import { createRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -3520,6 +3521,12 @@ export class LLMBridgeView extends ItemView {
       commandPreview: commandPreviewRows,
     });
 
+    const backend = this.getBackend();
+    const runtimeFileToolAdapter = createRuntimeFileToolAdapter(
+      backend instanceof SdkBackend ? "sdk" : "cli",
+      (request) => this.executeAgentFileToolRoute(request),
+    );
+
     // 构造 AgentTask 并通过 AgentBackend 启动
     const task: AgentTask = {
       id: assistantId,
@@ -3529,9 +3536,10 @@ export class LLMBridgeView extends ItemView {
       createdAt: new Date().toISOString(),
       includeActiveNote: settings.includeActiveNote,
       includeSelection: settings.includeSelection,
+      runtimeFileToolAdapter,
     };
 
-    this.runHandle = this.getBackend().run(task, settings, (event) => {
+    this.runHandle = backend.run(task, settings, (event) => {
       switch (event.type) {
         case "started":
           // 任务已启动，无需额外处理（状态已在前面设置）
