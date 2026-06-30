@@ -10154,7 +10154,9 @@ if (!runV214BUnit) {
         && viewSrc.includes("addFilesFromFileList")
         && viewSrc.includes("dragover")
         && viewSrc.includes("drop")
-        && viewSrc.includes("+ Path")
+        && viewSrc.includes("llm-bridge-attachment-menu")
+        && viewSrc.includes("添加外部路径")
+        && viewSrc.includes("原生文件选择器")
         && viewSrc.includes("refs-only")
         && viewSrc.includes("ref.fileType");
       const policyOk = readPending.decision === "confirm"
@@ -10958,9 +10960,8 @@ if (!runV214BUnit) {
         && viewSrc.includes("llm-bridge-composer-tools-left")
         && viewSrc.includes("llm-bridge-composer-tools-right")
         && viewSrc.includes("输入消息，或使用 / 命令…")
-        && viewSrc.includes("rightTools.appendChild(agentSelect)")
-        && viewSrc.includes("this.modelChipGroup = this.buildChipGroup(rightTools")
-        && viewSrc.includes("this.effortChipGroup = this.buildChipGroup(rightTools");
+        && viewSrc.includes("llm-bridge-model-effort-select")
+        && !viewSrc.includes("rightTools.appendChild(agentSelect)");
       const workingSetOk = viewSrc.includes("llm-bridge-working-set-strip")
         && viewSrc.includes("llm-bridge-working-set-context")
         && viewSrc.includes("llm-bridge-working-set-refs")
@@ -11062,9 +11063,8 @@ if (!runV214BUnit) {
         && /@media \(max-width: 720px\)[\s\S]{0,180}width:\s*40px/.test(stylesSrc);
       const composerStillOk = viewSrc.includes("llm-bridge-command-menu")
         && viewSrc.includes("llm-bridge-permission-chip")
-        && viewSrc.includes("rightTools.appendChild(agentSelect)")
-        && viewSrc.includes("this.modelChipGroup = this.buildChipGroup(rightTools")
-        && viewSrc.includes("this.effortChipGroup = this.buildChipGroup(rightTools");
+        && viewSrc.includes("llm-bridge-model-effort-select")
+        && !viewSrc.includes("rightTools.appendChild(agentSelect)");
       const noRuntimeExpansion = !runtimeFileToolAdapterSrc.includes("\"write\"")
         && !runtimeFileToolAdapterSrc.includes("\"delete\"")
         && !runtimeFileToolAdapterSrc.includes("\"rename\"")
@@ -11085,6 +11085,57 @@ if (!runV214BUnit) {
       addTest("V2.15-C compact shell: 左侧 icon-only rail，Bridge 移至 topbar，runtime 未扩展",
         ok ? "pass" : "fail",
         `rail=${iconOnlyRailOk} left=${noLeftSettingsOrBrand} topbar=${topbarBrandOk} styles=${compactStylesOk} composer=${composerStillOk} runtime=${noRuntimeExpansion} report=${reportOk}`);
+    }
+
+    {
+      const attachmentMenuOk = viewSrc.includes("llm-bridge-attachment-menu")
+        && viewSrc.includes("添加 Vault 文件")
+        && viewSrc.includes("添加外部路径")
+        && viewSrc.includes("从剪贴板路径添加")
+        && viewSrc.includes("原生文件选择器")
+        && viewSrc.includes("openVaultFileAttachmentPicker");
+      const nativePathFailureOk = viewSrc.includes("原生文件选择器未返回 path")
+        && viewSrc.includes("if (paths.length === 0)")
+        && viewSrc.includes("return;");
+      const skillsNoAutoInsertOk = /main\.addEventListener\("click", \(\) => \{[\s\S]{0,80}this\.viewPromptSnippet\(skill\);[\s\S]{0,40}\}\);/.test(viewSrc)
+        && viewSrc.includes("text: \"Insert prompt\"")
+        && !/main\.addEventListener\("click"[\s\S]{0,220}insertPromptSnippetAtCursor\(skill\)/.test(viewSrc);
+      const sessionDropdownOk = viewSrc.includes("llm-bridge-session-dropdown")
+        && viewSrc.includes("toggleSessionDropdown")
+        && viewSrc.includes("查看全部历史")
+        && !viewSrc.includes("sessionPreview.addEventListener(\"click\", () => switchTab(\"history\"))");
+      const composerOk = !viewSrc.includes("rightTools.appendChild(agentSelect)")
+        && viewSrc.includes("llm-bridge-model-effort-select")
+        && viewSrc.includes("this.modelEffortSelectEl")
+        && stylesSrc.includes("grid-template-areas: \"left input right\"")
+        && stylesSrc.includes(".llm-bridge-input")
+        && stylesSrc.includes("min-height: 76px");
+      const chatIconOk = viewSrc.includes("\"message-square\"")
+        && !viewSrc.includes("text: \"☏\"");
+      const detailsCollapsedOk = viewSrc.includes("this.runFlowBody.setAttribute(\"hidden\", \"\")")
+        && !viewSrc.includes("this.runFlowBody.removeAttribute(\"hidden\");\n    this.runFlowToggle.textContent = \"▼ 运行流程\";");
+      const noRuntimeExpansion = !runtimeFileToolAdapterSrc.includes("\"write\"")
+        && !runtimeFileToolAdapterSrc.includes("\"delete\"")
+        && !runtimeFileToolAdapterSrc.includes("\"rename\"")
+        && !fileToolExecutorSrc.includes("writeFile(")
+        && !fileToolExecutorSrc.includes("unlink(")
+        && !fileToolExecutorSrc.includes("rename(");
+      const reportPath = join(PROJECT_ROOT, "docs", "V2.15-E_RC_UI_REGRESSION_FIX.md");
+      const reportOk = existsSync(reportPath)
+        && ["AttachmentRepair", "SkillsRegressionFix", "SessionDropdown", "ComposerInputArea", "ModelEffortDropdown", "IconPolish", "DetailsCollapse", "VisualSmoke", "Tests", "RemainingRisk", "Recommendation"]
+          .every((heading) => readFileSync(reportPath, "utf8").includes(`## ${heading}`));
+      const ok = attachmentMenuOk
+        && nativePathFailureOk
+        && skillsNoAutoInsertOk
+        && sessionDropdownOk
+        && composerOk
+        && chatIconOk
+        && detailsCollapsedOk
+        && noRuntimeExpansion
+        && reportOk;
+      addTest("V2.15-E RC UI regression: 附件、Skills、session、composer、icon、details 修复",
+        ok ? "pass" : "fail",
+        `attachment=${attachmentMenuOk} native=${nativePathFailureOk} skills=${skillsNoAutoInsertOk} session=${sessionDropdownOk} composer=${composerOk} icon=${chatIconOk} details=${detailsCollapsedOk} runtime=${noRuntimeExpansion} report=${reportOk}`);
     }
   } catch (e) {
     addTest("V2.14.0-B Shared File Access Policy Module 单元测试段", "fail", e?.stack || e?.message || String(e));

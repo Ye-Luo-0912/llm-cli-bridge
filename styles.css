@@ -2664,3 +2664,208 @@
     padding: 18px 14px;
   }
 }
+
+/* ===== V2.15-E RC UI regression fixes ===== */
+.llm-bridge-topbar { position: relative; }
+
+.llm-bridge-nav-icon svg,
+.llm-bridge-composer-tool-btn svg,
+.llm-bridge-send-icon svg {
+  width: 17px;
+  height: 17px;
+  stroke-width: 2;
+}
+
+.llm-bridge-session-dropdown {
+  position: absolute;
+  top: calc(100% - 6px);
+  left: 126px;
+  z-index: 30;
+  width: min(340px, calc(100% - 220px));
+  max-height: 360px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.22);
+}
+.llm-bridge-session-dropdown[hidden] { display: none; }
+.llm-bridge-session-dropdown-title {
+  padding: 4px 6px 7px;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.llm-bridge-session-dropdown-item,
+.llm-bridge-session-dropdown-history {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--text-normal);
+  text-align: left;
+  cursor: pointer;
+}
+.llm-bridge-session-dropdown-item:hover,
+.llm-bridge-session-dropdown-history:hover {
+  background: var(--background-modifier-hover);
+  border-color: rgba(var(--interactive-accent-rgb), 0.35);
+}
+.llm-bridge-session-dropdown-item.is-current {
+  border-color: rgba(var(--interactive-accent-rgb), 0.45);
+}
+.llm-bridge-session-dropdown-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-session-dropdown-meta,
+.llm-bridge-session-dropdown-empty {
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+}
+.llm-bridge-session-dropdown-history {
+  margin-top: 5px;
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-composer-bar {
+  grid-template-columns: auto minmax(220px, 1fr) auto;
+  grid-template-areas: "left input right";
+  align-items: end;
+  min-height: 94px;
+  cursor: text;
+}
+.llm-bridge-composer-tools-left { grid-area: left; align-self: end; }
+.llm-bridge-input-row {
+  grid-area: input;
+  align-self: stretch;
+  min-width: 0;
+}
+.llm-bridge-input {
+  min-height: 76px;
+  width: 100%;
+}
+.llm-bridge-composer-tools-right { grid-area: right; align-self: end; }
+.llm-bridge-agent-select { display: none; }
+.llm-bridge-model-effort-select {
+  max-width: 156px;
+  height: 30px;
+  padding: 0 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-attachment-menu,
+.llm-bridge-command-menu {
+  position: relative;
+  flex: 0 0 auto;
+}
+.llm-bridge-attachment-menu summary {
+  list-style: none;
+}
+.llm-bridge-attachment-menu summary::-webkit-details-marker {
+  display: none;
+}
+.llm-bridge-attachment-menu[open] .llm-bridge-attach-file-btn {
+  border-color: rgba(var(--interactive-accent-rgb), 0.55);
+  color: var(--interactive-accent);
+}
+.llm-bridge-attachment-menu-body {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 24;
+  min-width: 190px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+.llm-bridge-attachment-menu-item,
+.llm-bridge-vault-file-picker-item {
+  width: 100%;
+  padding: 6px 9px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-normal);
+  text-align: left;
+  cursor: pointer;
+}
+.llm-bridge-attachment-menu-item:hover,
+.llm-bridge-vault-file-picker-item:hover {
+  background: var(--background-modifier-hover);
+  border-color: rgba(var(--interactive-accent-rgb), 0.35);
+}
+.llm-bridge-vault-file-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 320px;
+  margin-top: 8px;
+  overflow: auto;
+}
+.llm-bridge-vault-file-picker-empty {
+  padding: 8px;
+  color: var(--text-muted);
+  font-size: var(--font-small);
+}
+
+.llm-bridge-skill-item {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto auto auto;
+  align-items: start;
+}
+.llm-bridge-agent-skill-item {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+}
+.llm-bridge-skill-main {
+  min-width: 0;
+}
+.llm-bridge-skill-name,
+.llm-bridge-skill-desc {
+  overflow-wrap: anywhere;
+}
+.llm-bridge-skill-insert-btn,
+.llm-bridge-skill-append-btn,
+.llm-bridge-skill-view-btn,
+.llm-bridge-skill-edit-btn,
+.llm-bridge-skill-del-btn,
+.llm-bridge-skill-pin-btn {
+  min-height: 26px;
+}
+
+@media (max-width: 720px) {
+  .llm-bridge-session-dropdown {
+    left: 48px;
+    width: calc(100% - 64px);
+  }
+  .llm-bridge-composer-bar {
+    grid-template-columns: 1fr;
+    grid-template-areas:
+      "input"
+      "left"
+      "right";
+  }
+  .llm-bridge-composer-tools-left,
+  .llm-bridge-composer-tools-right {
+    justify-self: stretch;
+    flex-wrap: wrap;
+  }
+}

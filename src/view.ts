@@ -1,6 +1,6 @@
 // LLM CLI Bridge — 右侧 Chat View（Codex / Claude Code 风格紧凑工作台）
 
-import { App, ItemView, MarkdownView, Modal, Notice, TFile, WorkspaceLeaf } from "obsidian";
+import { App, ItemView, MarkdownView, Modal, Notice, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import * as fs from "fs";
 import * as path from "path";
 import type LLMBridgePlugin from "../main";
@@ -184,6 +184,7 @@ export class LLMBridgeView extends ItemView {
   private agentChipTextEl!: HTMLElement;
   private modelChipGroup!: HTMLElement;
   private effortChipGroup!: HTMLElement;
+  private modelEffortSelectEl!: HTMLSelectElement;
   private permissionModeChipEl!: HTMLButtonElement;
   private includeNoteCheckEl!: HTMLInputElement;
   private includeSelectionCheckEl!: HTMLInputElement;
@@ -268,11 +269,13 @@ export class LLMBridgeView extends ItemView {
     this.pageTitleEl = topbarBrand.createEl("span", { cls: "llm-bridge-page-title", text: "Chat" });
     const sessionPreview = header.createEl("button", {
       cls: "llm-bridge-session-selector",
-      attr: { title: "当前会话预览；完整历史在 History 页面" },
+      attr: { title: "打开最近会话下拉；完整历史在 History 页面" },
     });
     sessionPreview.createEl("span", { cls: "llm-bridge-session-kicker", text: "当前会话" });
     this.sessionTitleEl = sessionPreview.createEl("span", { cls: "llm-bridge-sb-session-title", text: this.sessionState.title });
     sessionPreview.createEl("span", { cls: "llm-bridge-session-caret", text: "⌄" });
+    const sessionDropdown = header.createDiv({ cls: "llm-bridge-session-dropdown" });
+    sessionDropdown.setAttribute("hidden", "");
 
     const headerRight = header.createDiv({ cls: "llm-bridge-header-right" });
     this.clearBtn = headerRight.createEl("button", {
@@ -312,13 +315,13 @@ export class LLMBridgeView extends ItemView {
 
     // ===== V2.15-A: 左侧 slim navigation rail（无 Settings 入口） =====
     const chatTab = nav.createEl("button", { cls: "llm-bridge-nav-item is-active", attr: { "data-tab": "chat", title: "Chat", "aria-label": "Chat" } });
-    chatTab.createEl("span", { cls: "llm-bridge-nav-icon", text: "☏" });
+    setIcon(chatTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "message-square");
     const filesTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "files", title: "Files", "aria-label": "Files" } });
-    filesTab.createEl("span", { cls: "llm-bridge-nav-icon", text: "▤" });
+    setIcon(filesTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "files");
     const skillsTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "skills", title: "Skills / Snippets", "aria-label": "Skills" } });
-    skillsTab.createEl("span", { cls: "llm-bridge-nav-icon", text: "◇" });
+    setIcon(skillsTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "sparkles");
     const historyTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "history", title: "History", "aria-label": "History" } });
-    historyTab.createEl("span", { cls: "llm-bridge-nav-icon", text: "◷" });
+    setIcon(historyTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "history");
 
     const pageStack = main.createDiv({ cls: "llm-bridge-page-stack" });
     const chatPanel = pageStack.createDiv({ cls: "llm-bridge-tab-panel llm-bridge-chat-page is-active", attr: { "data-panel": "chat" } });
@@ -352,7 +355,11 @@ export class LLMBridgeView extends ItemView {
         this.refreshExternalReadPanel();
       }
     };
-    sessionPreview.addEventListener("click", () => switchTab("history"));
+    sessionPreview.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.toggleSessionDropdown(sessionDropdown, () => switchTab("history"));
+    });
+    sessionDropdown.addEventListener("click", (e) => e.stopPropagation());
     chatTab.addEventListener("click", () => switchTab("chat"));
     filesTab.addEventListener("click", () => switchTab("files"));
     skillsTab.addEventListener("click", () => switchTab("skills"));
@@ -473,19 +480,45 @@ export class LLMBridgeView extends ItemView {
     const composer = chatPanel.createDiv({ cls: "llm-bridge-composer" });
 
     const composerBar = composer.createDiv({ cls: "llm-bridge-composer-bar" });
-    const leftTools = composerBar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-left" });
-    const attachBtn = leftTools.createEl("button", {
-      cls: "llm-bridge-composer-tool-btn llm-bridge-attach-file-btn",
-      text: "+",
-      attr: { title: "上传/选择一个或多个用户主动附件" },
+    composerBar.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest("button, select, summary, details, input, textarea")) return;
+      this.inputEl.focus();
     });
-    attachBtn.addEventListener("click", () => this.openNativeAttachmentPicker());
+    const leftTools = composerBar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-left" });
+    const attachmentMenu = leftTools.createEl("details", { cls: "llm-bridge-attachment-menu" });
+    const attachmentSummary = attachmentMenu.createEl("summary", {
+      cls: "llm-bridge-composer-tool-btn llm-bridge-attach-file-btn",
+      attr: { title: "添加附件：Vault 文件、外部路径、剪贴板路径或原生选择器" },
+    });
+    setIcon(attachmentSummary, "plus");
+    const attachmentMenuBody = attachmentMenu.createDiv({ cls: "llm-bridge-attachment-menu-body" });
+    const vaultAttachBtn = attachmentMenuBody.createEl("button", { cls: "llm-bridge-attachment-menu-item", text: "添加 Vault 文件" });
+    vaultAttachBtn.addEventListener("click", () => {
+      attachmentMenu.removeAttribute("open");
+      this.openVaultFileAttachmentPicker();
+    });
+    const externalPathAttachBtn = attachmentMenuBody.createEl("button", { cls: "llm-bridge-attachment-menu-item", text: "添加外部路径" });
+    externalPathAttachBtn.addEventListener("click", () => {
+      attachmentMenu.removeAttribute("open");
+      void this.promptAndAddAttachmentFile();
+    });
+    const clipboardPathAttachBtn = attachmentMenuBody.createEl("button", { cls: "llm-bridge-attachment-menu-item", text: "从剪贴板路径添加" });
+    clipboardPathAttachBtn.addEventListener("click", () => {
+      attachmentMenu.removeAttribute("open");
+      void this.addAttachmentFromClipboardPath();
+    });
+    const nativeAttachBtn = attachmentMenuBody.createEl("button", { cls: "llm-bridge-attachment-menu-item", text: "原生文件选择器" });
+    nativeAttachBtn.addEventListener("click", () => {
+      attachmentMenu.removeAttribute("open");
+      this.openNativeAttachmentPicker();
+    });
     const commandMenu = leftTools.createEl("details", { cls: "llm-bridge-command-menu" });
-    commandMenu.createEl("summary", {
+    const commandSummary = commandMenu.createEl("summary", {
       cls: "llm-bridge-composer-tool-btn llm-bridge-command-menu-summary",
-      text: "⌘",
       attr: { title: "命令入口：预设、检测、路径附件、刷新上下文" },
     });
+    setIcon(commandSummary, "terminal");
     const commandMenuBody = commandMenu.createDiv({ cls: "llm-bridge-command-menu-body" });
     this.preflightBtn = commandMenuBody.createEl("button", {
       cls: "llm-bridge-command-menu-item",
@@ -548,15 +581,26 @@ export class LLMBridgeView extends ItemView {
     });
 
     const rightTools = composerBar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-right" });
-    rightTools.appendChild(agentSelect);
     this.agentChipTextEl = agentSelect;
-    this.modelChipGroup = this.buildChipGroup(rightTools, MODEL_OPTIONS, () => this.plugin.settings.model, async (v) => {
-      this.plugin.settings.model = v;
+    this.modelEffortSelectEl = rightTools.createEl("select", {
+      cls: "llm-bridge-model-effort-select",
+      attr: { title: "模型 · 思考强度" },
+    }) as HTMLSelectElement;
+    for (const model of MODEL_OPTIONS) {
+      for (const effort of EFFORT_OPTIONS) {
+        this.modelEffortSelectEl.createEl("option", {
+          value: `${model.value}|||${effort.value}`,
+          text: `${model.label} · ${effort.label}`,
+        });
+      }
+    }
+    this.modelEffortSelectEl.addEventListener("change", async () => {
+      if (this.runHandle) return;
+      const [model, effort] = this.modelEffortSelectEl.value.split("|||");
+      this.plugin.settings.model = model;
+      this.plugin.settings.effortLevel = effort;
       await this.plugin.saveSettings();
-    });
-    this.effortChipGroup = this.buildChipGroup(rightTools, EFFORT_OPTIONS, () => this.plugin.settings.effortLevel, async (v) => {
-      this.plugin.settings.effortLevel = v;
-      await this.plugin.saveSettings();
+      this.refreshAllChips();
     });
     const actionCol = rightTools.createDiv({ cls: "llm-bridge-action-col" });
     // 停止按钮：只在运行中显示
@@ -572,7 +616,7 @@ export class LLMBridgeView extends ItemView {
       cls: "llm-bridge-send-btn",
       attr: { title: "发送 (Ctrl/Cmd+Enter)", "aria-label": "发送" },
     });
-    this.sendBtn.createEl("span", { cls: "llm-bridge-send-icon", text: "↑" });
+    setIcon(this.sendBtn.createEl("span", { cls: "llm-bridge-send-icon" }), "send");
     this.sendBtn.addEventListener("click", () => void this.run());
 
     // Note / Selection 上下文 chips：作为 Working Set strip 的 compact refs。
@@ -835,9 +879,8 @@ export class LLMBridgeView extends ItemView {
     // composer agent 下拉
     (this.agentChipGroup as HTMLSelectElement).value = this.plugin.settings.agentType;
 
-    // cycle chips：显示当前选中标签
-    this.refreshCycleChip(this.modelChipGroup, MODEL_OPTIONS, this.plugin.settings.model);
-    this.refreshCycleChip(this.effortChipGroup, EFFORT_OPTIONS, this.plugin.settings.effortLevel);
+    // V2.15-E: composer 只保留一个 compact 模型/思考强度组合控件。
+    this.refreshModelEffortSelect();
     this.refreshPermissionModeChip();
     // V2.4: Mode chip 已移除（仅 Fresh 可用，无需 refresh）
 
@@ -851,6 +894,15 @@ export class LLMBridgeView extends ItemView {
   private refreshCycleChip(wrap: HTMLElement, options: { value: string; label: string }[], v: string): void {
     const chip = wrap.querySelector(".llm-bridge-chip") as HTMLButtonElement | null;
     if (chip) chip.textContent = this.labelForValue(options, v);
+  }
+
+  private refreshModelEffortSelect(): void {
+    if (!this.modelEffortSelectEl) return;
+    this.modelEffortSelectEl.value = `${this.plugin.settings.model}|||${this.plugin.settings.effortLevel}`;
+    if (!this.modelEffortSelectEl.value) {
+      const fallback = this.modelEffortSelectEl.options.item(0)?.value;
+      if (fallback) this.modelEffortSelectEl.value = fallback;
+    }
   }
 
   private permissionModeShortLabel(): string {
@@ -1302,6 +1354,10 @@ export class LLMBridgeView extends ItemView {
     const input = await this.promptDialog("添加文件附件", "输入文件路径。小型 text / markdown / json 会进入 bounded text；图片/PDF/binary 只作为 native handoff 引用。", "");
     const requestedPath = (input || "").trim();
     if (!requestedPath) return;
+    await this.addAttachmentPathWithNotice(requestedPath);
+  }
+
+  private async addAttachmentPathWithNotice(requestedPath: string): Promise<void> {
     const ref = await this.addAttachmentFileRefWithIngestion(requestedPath);
     if (!ref) {
       new Notice("附件路径无效，未加入 Working Set");
@@ -1310,6 +1366,64 @@ export class LLMBridgeView extends ItemView {
     const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id);
     const type = classifyFileTypeByPath(ref.resolvedPath);
     new Notice(snippet ? `已添加附件并读取 bounded snippet：${ref.displayName}` : `已添加附件引用：${ref.displayName} (${type})`);
+  }
+
+  private openVaultFileAttachmentPicker(): void {
+    const files = this.app.vault.getFiles()
+      .filter((file) => file instanceof TFile)
+      .sort((a, b) => a.path.localeCompare(b.path));
+    const modal = new Modal(this.app);
+    modal.titleEl.setText("添加 Vault 文件");
+    modal.contentEl.empty();
+    modal.contentEl.createEl("p", {
+      cls: "llm-bridge-confirm-msg",
+      text: "从当前 Vault 文件列表添加附件；不会授权该文件所在目录。",
+    });
+    const search = modal.contentEl.createEl("input", {
+      cls: "llm-bridge-prompt-input",
+      attr: { type: "text", placeholder: "搜索 Vault 文件路径…" },
+    }) as HTMLInputElement;
+    search.style.width = "100%";
+    const list = modal.contentEl.createDiv({ cls: "llm-bridge-vault-file-picker-list" });
+    const render = () => {
+      list.empty();
+      const query = search.value.trim().toLowerCase();
+      const matches = files.filter((file) => !query || file.path.toLowerCase().includes(query)).slice(0, 50);
+      if (matches.length === 0) {
+        list.createDiv({ cls: "llm-bridge-vault-file-picker-empty", text: "无匹配 Vault 文件" });
+        return;
+      }
+      for (const file of matches) {
+        const row = list.createEl("button", {
+          cls: "llm-bridge-vault-file-picker-item",
+          text: file.path,
+          attr: { title: file.path },
+        });
+        row.addEventListener("click", () => {
+          modal.close();
+          void this.addAttachmentPathWithNotice(file.path);
+        });
+      }
+    };
+    search.addEventListener("input", render);
+    render();
+    modal.open();
+    setTimeout(() => search.focus(), 50);
+  }
+
+  private async addAttachmentFromClipboardPath(): Promise<void> {
+    const clipboard = navigator.clipboard;
+    if (!clipboard?.readText) {
+      new Notice("当前环境无法读取剪贴板，请使用添加外部路径");
+      return;
+    }
+    const text = (await clipboard.readText()).trim();
+    const firstPath = text.split(/\r?\n/).map((line) => line.trim()).find(Boolean);
+    if (!firstPath) {
+      new Notice("剪贴板没有可用路径");
+      return;
+    }
+    await this.addAttachmentPathWithNotice(firstPath);
   }
 
   private openNativeAttachmentPicker(): void {
@@ -1329,7 +1443,7 @@ export class LLMBridgeView extends ItemView {
       .map((file) => this.extractNativeFilePath(file))
       .filter((filePath): filePath is string => !!filePath);
     if (paths.length === 0) {
-      new Notice("未获取到原生文件路径；可使用 + Path fallback 添加。");
+      new Notice("原生文件选择器未返回 path；请使用「添加外部路径」或「从剪贴板路径添加」。");
       return;
     }
     const refs = await this.addAttachmentFilesWithIngestion(paths);
@@ -2472,6 +2586,46 @@ export class LLMBridgeView extends ItemView {
     listContainer.createDiv({ cls: "llm-bridge-history-empty", text: "暂无历史会话" });
   }
 
+  private async toggleSessionDropdown(dropdown: HTMLElement, openHistory: () => void): Promise<void> {
+    if (!dropdown.hasAttribute("hidden")) {
+      dropdown.setAttribute("hidden", "");
+      return;
+    }
+    await this.refreshHistory();
+    this.renderRecentSessionDropdown(dropdown, openHistory);
+    dropdown.removeAttribute("hidden");
+  }
+
+  private renderRecentSessionDropdown(dropdown: HTMLElement, openHistory: () => void): void {
+    dropdown.empty();
+    dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-title", text: "最近会话" });
+    const recent = this.historyItems.slice(0, 6);
+    if (recent.length === 0) {
+      dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-empty", text: "暂无历史会话" });
+    } else {
+      for (const item of recent) {
+        const row = dropdown.createEl("button", {
+          cls: `llm-bridge-session-dropdown-item${item.id === this.currentSessionId ? " is-current" : ""}`,
+          attr: { title: `${item.title} · ${item.messageCount} 条消息` },
+        });
+        row.createEl("span", { cls: "llm-bridge-session-dropdown-name", text: item.title });
+        row.createEl("span", { cls: "llm-bridge-session-dropdown-meta", text: `${item.messageCount} 条 · ${this.formatHistoryTime(item.savedAt)}` });
+        row.addEventListener("click", async () => {
+          dropdown.setAttribute("hidden", "");
+          await this.restoreSession(item.id);
+        });
+      }
+    }
+    const historyBtn = dropdown.createEl("button", {
+      cls: "llm-bridge-session-dropdown-history",
+      text: "查看全部历史",
+    });
+    historyBtn.addEventListener("click", () => {
+      dropdown.setAttribute("hidden", "");
+      openHistory();
+    });
+  }
+
   // V2.5: 从 .llm-bridge/sessions/ 加载历史会话列表并渲染
   // V2.9: 加 5s 缓存守卫——非强制调用在缓存有效期内跳过全量读盘，仅重渲染；↻ 按钮与运行后保存传 force=true
   private async refreshHistory(force = false): Promise<void> {
@@ -3053,7 +3207,7 @@ export class LLMBridgeView extends ItemView {
         e.stopPropagation();
         void this.toggleSkillPinned(skill.name, !isPinned);
       });
-      // 名称 + 描述 + 标签（点击 Insert prompt 到光标位置；禁用时不响应）
+      // 名称 + 描述 + 标签（点击只预览；明确按钮才允许 Insert prompt）
       const main = item.createEl("button", { cls: "llm-bridge-skill-main" });
       main.createEl("span", { cls: "llm-bridge-skill-name", text: skill.name });
       if (skill.description) {
@@ -3073,8 +3227,17 @@ export class LLMBridgeView extends ItemView {
         statsEl.createEl("span", { cls: "llm-bridge-skill-last", text: formatRelativeTime(meta.lastUsedAt), attr: { title: `最近使用：${meta.lastUsedAt || "未使用"}` } });
       }
       main.addEventListener("click", () => {
+        this.viewPromptSnippet(skill);
+      });
+      const insertBtn = item.createEl("button", {
+        cls: "llm-bridge-skill-insert-btn",
+        text: "Insert prompt",
+        attr: { title: "显式插入此 Prompt Snippet 到光标位置" },
+      });
+      insertBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
         if (isDisabled) {
-          new Notice("该 Prompt Snippet 已禁用，请在 Prompt Snippets 面板勾选启用");
+          new Notice("该 Prompt Snippet 已禁用");
           return;
         }
         this.insertPromptSnippetAtCursor(skill);
@@ -3464,9 +3627,8 @@ export class LLMBridgeView extends ItemView {
     this.runFlowBody.empty();
     this.runFlowEl.classList.remove("is-completed", "is-failed", "is-stopped");
     this.runFlowEl.classList.add("is-running");
-    // 自动展开运行流程区
-    this.runFlowBody.removeAttribute("hidden");
-    this.runFlowToggle.textContent = "▼ 运行流程";
+    this.runFlowBody.setAttribute("hidden", "");
+    this.runFlowToggle.textContent = "▶ 运行流程";
 
     const steps = [
       { label: "准备上下文", detail: "已导出 Obsidian 状态", status: "done" },
@@ -3490,9 +3652,8 @@ export class LLMBridgeView extends ItemView {
     this.runFlowBody.empty();
     this.runFlowEl.classList.remove("is-running");
     this.runFlowEl.classList.add(`is-${finalStatus}`);
-    // 自动展开
-    this.runFlowBody.removeAttribute("hidden");
-    this.runFlowToggle.textContent = "▼ 运行流程";
+    this.runFlowBody.setAttribute("hidden", "");
+    this.runFlowToggle.textContent = "▶ 运行流程";
 
     // 6 步流程标签映射（workflowTrace stage → 用户可读步骤名）
     const stepLabels: Record<string, string> = {
