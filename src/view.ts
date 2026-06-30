@@ -858,6 +858,7 @@ export class LLMBridgeView extends ItemView {
       option.addEventListener("click", (event) => {
         event.stopPropagation();
         void this.setModelEffort(model.value, this.plugin.settings.effortLevel);
+        this.closeModelEffortPopover();
       });
     }
     const effortColumn = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-column llm-bridge-effort-list" });
@@ -871,8 +872,12 @@ export class LLMBridgeView extends ItemView {
       option.addEventListener("click", (event) => {
         event.stopPropagation();
         void this.setModelEffort(this.plugin.settings.model, effort.value);
+        this.closeModelEffortPopover();
       });
     }
+    this.modelEffortPickerEl.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") this.closeModelEffortPopover();
+    });
     this.contentEl.addEventListener("click", (event) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest(".llm-bridge-model-effort-picker")) return;
@@ -2794,7 +2799,7 @@ export class LLMBridgeView extends ItemView {
         return;
       }
 
-      const list = this.agentSkillsListEl.createDiv({ cls: "llm-bridge-skills-list llm-bridge-agent-skills-list" });
+      const list = this.agentSkillsListEl.createDiv({ cls: "llm-bridge-agent-skills-list" });
       const sorted = this.agentSkills.slice().sort((a, b) => a.slug.localeCompare(b.slug));
       for (const skill of sorted) {
         const item = list.createDiv({
@@ -2807,7 +2812,7 @@ export class LLMBridgeView extends ItemView {
         });
         const titleRow = main.createDiv({ cls: "llm-bridge-agent-skill-title-row" });
         titleRow.createEl("span", { cls: "llm-bridge-agent-skill-name", text: skill.name || skill.slug });
-        titleRow.createEl("span", { cls: `llm-bridge-agent-skill-badge ${skill.enabled ? "is-enabled" : "is-disabled"}`, text: skill.enabled ? "enabled" : "disabled" });
+        titleRow.createEl("span", { cls: `llm-bridge-agent-skill-badge ${skill.enabled ? "is-enabled" : "is-disabled"}`, text: skill.enabled ? "已启用" : "已禁用" });
         main.createEl("span", { cls: "llm-bridge-agent-skill-desc", text: skill.description || "No description" });
         const meta = main.createDiv({ cls: "llm-bridge-agent-skill-meta" });
         meta.createEl("span", { text: `slug: ${skill.slug}` });
@@ -2816,7 +2821,7 @@ export class LLMBridgeView extends ItemView {
 
         const toggleBtn = item.createEl("button", {
           cls: `llm-bridge-agent-skill-toggle ${skill.enabled ? "is-enabled" : "is-disabled"}`,
-          text: skill.enabled ? "启用" : "禁用",
+          text: skill.enabled ? "关闭" : "启用",
           attr: { title: "启用/禁用此 Agent Skill（只更新 manifest，不插入输入框）" },
         });
         toggleBtn.addEventListener("click", (e) => {
@@ -2891,9 +2896,9 @@ export class LLMBridgeView extends ItemView {
     }
     try {
       await navigator.clipboard.writeText(skillPath);
-      new Notice(`无法通过 Vault 索引打开 Agent Skill，路径已复制${openedFolder ? "，并已在文件管理器中定位" : ""}：${skillPath}`, 6000);
+      new Notice(`SKILL.md 位于 .claude 隐藏目录，路径已复制${openedFolder ? "，并已在文件管理器中定位" : ""}。`, 5000);
     } catch {
-      new Notice(`无法通过 Vault 索引打开 Agent Skill${openedFolder ? "，已在文件管理器中定位" : ""}：${skillPath}`, 6000);
+      new Notice(`SKILL.md 位于 .claude 隐藏目录${openedFolder ? "，已在文件管理器中定位" : "，请手动打开路径"}。`, 5000);
     }
   }
 
