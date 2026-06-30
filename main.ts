@@ -4,7 +4,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { DataAdapter, Editor, Notice, Plugin, TFile, TFolder, WorkspaceLeaf } from "obsidian";
 import { LLMBridgeSettingTab } from "./src/settings";
-import { LLMBridgeView, VIEW_TYPE_LLM_BRIDGE } from "./src/view";
+import { AgentSkillDocumentView, LLMBridgeView, VIEW_TYPE_AGENT_SKILL_DOCUMENT, VIEW_TYPE_LLM_BRIDGE } from "./src/view";
 import { DEFAULT_SETTINGS, LLMBridgeSettings } from "./src/types";
 import { OutboxWatcher } from "./src/outbox";
 import { BridgeInfo, BridgeWriteResult, HttpBridge } from "./src/httpServer";
@@ -49,6 +49,7 @@ export default class LLMBridgePlugin extends Plugin {
     await this.loadSettings();
 
     this.registerView(VIEW_TYPE_LLM_BRIDGE, (leaf) => new LLMBridgeView(leaf, this));
+    this.registerView(VIEW_TYPE_AGENT_SKILL_DOCUMENT, (leaf) => new AgentSkillDocumentView(leaf));
 
     this.addRibbonIcon("bot", "打开 LLM CLI Bridge", () => {
       void this.activateView();

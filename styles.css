@@ -1939,6 +1939,58 @@
   background: var(--interactive-hover);
 }
 
+.llm-bridge-agent-skill-doc {
+  padding: 22px 28px 40px;
+  overflow: auto;
+  background: var(--background-primary);
+}
+.llm-bridge-agent-skill-doc-head {
+  max-width: 880px;
+  margin: 0 auto 18px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+.llm-bridge-agent-skill-doc-kicker {
+  display: inline-flex;
+  margin-bottom: 6px;
+  color: var(--interactive-accent);
+  font-size: var(--font-smallest);
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.llm-bridge-agent-skill-doc-head h2 {
+  margin: 0 0 8px;
+  font-size: var(--font-ui-large);
+}
+.llm-bridge-agent-skill-doc-path {
+  max-width: 100%;
+  margin-bottom: 8px;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-agent-skill-doc-copy {
+  min-height: 28px;
+  padding: 3px 9px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--interactive-normal);
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  cursor: pointer;
+}
+.llm-bridge-agent-skill-doc-copy:hover {
+  background: var(--interactive-hover);
+}
+.llm-bridge-agent-skill-doc-body {
+  max-width: 880px;
+  margin: 0 auto;
+}
+
 /* === V2.0: 运行流程区（Run Flow） === */
 
 .llm-bridge-run-flow {

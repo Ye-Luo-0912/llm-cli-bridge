@@ -1,6 +1,6 @@
 // LLM CLI Bridge — 右侧 Chat View（Codex / Claude Code 风格紧凑工作台）
 
-import { App, ItemView, MarkdownView, Modal, Notice, setIcon, TFile, WorkspaceLeaf } from "obsidian";
+import { App, ItemView, MarkdownRenderer, MarkdownView, Modal, Notice, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import * as fs from "fs";
 import * as path from "path";
 import type LLMBridgePlugin from "../main";
@@ -54,6 +54,97 @@ import { AgentFileToolRouteRequest, AgentFileToolRouteResult, executeAgentFileTo
 import { createRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
+export const VIEW_TYPE_AGENT_SKILL_DOCUMENT = "llm-cli-bridge-agent-skill-document";
+
+interface AgentSkillDocumentState {
+  skillPath?: string;
+  displayPath?: string;
+  title?: string;
+}
+
+export class AgentSkillDocumentView extends ItemView {
+  private state: AgentSkillDocumentState = {};
+
+  constructor(leaf: WorkspaceLeaf) {
+    super(leaf);
+    this.navigation = true;
+    this.icon = "sparkles";
+  }
+
+  getViewType(): string {
+    return VIEW_TYPE_AGENT_SKILL_DOCUMENT;
+  }
+
+  getDisplayText(): string {
+    return this.state.title ? `Skill: ${this.state.title}` : "Agent Skill";
+  }
+
+  getState(): Record<string, unknown> {
+    return { ...this.state };
+  }
+
+  async setState(state: unknown, result: Parameters<ItemView["setState"]>[1]): Promise<void> {
+    await super.setState(state, result);
+    const next = (state && typeof state === "object" ? state : {}) as AgentSkillDocumentState;
+    this.state = {
+      skillPath: typeof next.skillPath === "string" ? next.skillPath : "",
+      displayPath: typeof next.displayPath === "string" ? next.displayPath : "",
+      title: typeof next.title === "string" ? next.title : "Agent Skill",
+    };
+    await this.renderSkillDocument();
+  }
+
+  protected async onOpen(): Promise<void> {
+    await this.renderSkillDocument();
+  }
+
+  private async renderSkillDocument(): Promise<void> {
+    const root = this.contentEl;
+    root.empty();
+    root.addClass("llm-bridge-agent-skill-doc");
+    const skillPath = this.state.skillPath || "";
+    const displayPath = this.state.displayPath || skillPath;
+    const header = root.createDiv({ cls: "llm-bridge-agent-skill-doc-head" });
+    header.createEl("span", { cls: "llm-bridge-agent-skill-doc-kicker", text: "Agent Skill" });
+    header.createEl("h2", { text: this.state.title || path.basename(path.dirname(displayPath)) || "Agent Skill" });
+    header.createEl("div", {
+      cls: "llm-bridge-agent-skill-doc-path",
+      text: displayPath || "No SKILL.md path",
+      attr: { title: displayPath || "" },
+    });
+    const copyBtn = header.createEl("button", { cls: "llm-bridge-agent-skill-doc-copy", text: "复制路径" });
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(displayPath || skillPath);
+        new Notice("已复制 Skill 路径");
+      } catch {
+        new Notice("复制 Skill 路径失败");
+      }
+    });
+
+    const body = root.createDiv({ cls: "llm-bridge-agent-skill-doc-body" });
+    if (!skillPath) {
+      body.createDiv({ cls: "llm-bridge-list-error", text: "缺少 SKILL.md 路径" });
+      return;
+    }
+    try {
+      const markdown = await this.readSkillMarkdown(skillPath);
+      await MarkdownRenderer.render(this.app, markdown, body, skillPath.replace(/\\/g, "/"), this);
+    } catch (error) {
+      const err = body.createDiv({ cls: "llm-bridge-list-error" });
+      err.createEl("span", { text: "无法读取 Agent Skill 文档" });
+      err.createEl("pre", { cls: "llm-bridge-error-detail", text: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  private async readSkillMarkdown(skillPath: string): Promise<string> {
+    const normalized = skillPath.replace(/\\/g, "/");
+    if (!path.isAbsolute(skillPath)) {
+      return this.app.vault.adapter.read(normalized);
+    }
+    return fs.promises.readFile(skillPath, "utf8");
+  }
+}
 
 // V0.9: FileSnapshot / snapshotVaultMarkdownFiles / diffSnapshots 已抽取到 fileDiff.ts
 
@@ -303,6 +394,7 @@ export class LLMBridgeView extends ItemView {
     const historyPanel = pageStack.createDiv({ cls: "llm-bridge-tab-panel llm-bridge-history-page", attr: { "data-panel": "history" } });
     this.tabPanels = { chat: chatPanel, files: filesPanel, skills: skillsPanel, history: historyPanel };
     const switchTab = (tab: "chat" | "files" | "skills" | "history") => {
+      this.closeModelEffortPopover();
       for (const t of [chatTab, filesTab, skillsTab, historyTab]) t.classList.remove("is-active");
       for (const p of [chatPanel, filesPanel, skillsPanel, historyPanel]) p.classList.remove("is-active");
       if (tab === "chat") { chatTab.classList.add("is-active"); chatPanel.classList.add("is-active"); }
@@ -878,7 +970,7 @@ export class LLMBridgeView extends ItemView {
     this.modelEffortPickerEl.addEventListener("keydown", (event) => {
       if (event.key === "Escape") this.closeModelEffortPopover();
     });
-    this.contentEl.addEventListener("click", (event) => {
+    this.registerDomEvent(document, "click", (event) => {
       const target = event.target as HTMLElement | null;
       if (target?.closest(".llm-bridge-model-effort-picker")) return;
       this.closeModelEffortPopover();
@@ -955,6 +1047,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   async onClose(): Promise<void> {
+    this.closeModelEffortPopover();
     if (this.runHandle) {
       this.runHandle.stop();
       this.runHandle = null;
@@ -2856,7 +2949,7 @@ export class LLMBridgeView extends ItemView {
     const skillPath = this.resolveAgentSkillVaultPath(skill, vaultPath);
     const fallbackPath = this.resolveAgentSkillDisplayPath(skill, vaultPath);
     if (!skillPath) {
-      await this.copyAgentSkillPathFallback(fallbackPath);
+      await this.openAgentSkillDocumentLeaf(skill, fallbackPath, fallbackPath);
       return;
     }
 
@@ -2865,7 +2958,25 @@ export class LLMBridgeView extends ItemView {
       await this.app.workspace.getLeaf(true).openFile(file);
       return;
     }
-    await this.copyAgentSkillPathFallback(fallbackPath);
+    await this.openAgentSkillDocumentLeaf(skill, skillPath, fallbackPath);
+  }
+
+  private async openAgentSkillDocumentLeaf(skill: AgentSkillRecord, skillPath: string, displayPath: string): Promise<void> {
+    const existingLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SKILL_DOCUMENT);
+    const leaf = existingLeaves[0] ?? this.app.workspace.getLeaf(true);
+    for (const duplicateLeaf of existingLeaves.slice(1)) {
+      duplicateLeaf.detach();
+    }
+    await leaf.setViewState({
+      type: VIEW_TYPE_AGENT_SKILL_DOCUMENT,
+      active: true,
+      state: {
+        skillPath,
+        displayPath,
+        title: skill.name || skill.slug,
+      },
+    });
+    this.app.workspace.revealLeaf(leaf);
   }
 
   private resolveAgentSkillVaultPath(skill: AgentSkillRecord, vaultPath: string): string | null {
@@ -2881,25 +2992,6 @@ export class LLMBridgeView extends ItemView {
     const rawPath = skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md`;
     if (path.isAbsolute(rawPath)) return rawPath;
     return path.join(vaultPath, rawPath);
-  }
-
-  private async copyAgentSkillPathFallback(skillPath: string): Promise<void> {
-    let openedFolder = false;
-    try {
-      const electron = require("electron");
-      if (electron?.shell?.showItemInFolder && path.isAbsolute(skillPath)) {
-        electron.shell.showItemInFolder(skillPath);
-        openedFolder = true;
-      }
-    } catch {
-      openedFolder = false;
-    }
-    try {
-      await navigator.clipboard.writeText(skillPath);
-      new Notice(`SKILL.md 位于 .claude 隐藏目录，路径已复制${openedFolder ? "，并已在文件管理器中定位" : ""}。`, 5000);
-    } catch {
-      new Notice(`SKILL.md 位于 .claude 隐藏目录${openedFolder ? "，已在文件管理器中定位" : "，请手动打开路径"}。`, 5000);
-    }
   }
 
   // V2.7: 列表渲染失败的 fallback 提示（避免异常导致面板空白）

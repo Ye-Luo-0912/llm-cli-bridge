@@ -9517,6 +9517,7 @@ if (!runV214BUnit) {
     const reportSrcV214N1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-N1_NATIVE_RUNTIME_CERTIFICATE_FIX_SMOKE_RERUN.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+    const mainTsSrc = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf8");
     const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
     const fileIngestionSrc = readFileSync(join(PROJECT_ROOT, "src", "fileIngestion.ts"), "utf8");
     const fileToolExecutorSrc = readFileSync(join(PROJECT_ROOT, "src", "fileToolExecutor.ts"), "utf8");
@@ -11130,7 +11131,13 @@ if (!runV214BUnit) {
       const openNativeOk = viewSrc.includes("private async openAgentSkillFile")
         && viewSrc.includes("resolveAgentSkillVaultPath")
         && viewSrc.includes("workspace.getLeaf(true).openFile")
-        && viewSrc.includes("copyAgentSkillPathFallback");
+        && viewSrc.includes("VIEW_TYPE_AGENT_SKILL_DOCUMENT")
+        && viewSrc.includes("openAgentSkillDocumentLeaf")
+        && viewSrc.includes("const existingLeaves = this.app.workspace.getLeavesOfType(VIEW_TYPE_AGENT_SKILL_DOCUMENT)")
+        && viewSrc.includes("existingLeaves[0] ?? this.app.workspace.getLeaf(true)")
+        && viewSrc.includes("existingLeaves.slice(1)")
+        && viewSrc.includes("duplicateLeaf.detach()")
+        && mainTsSrc.includes("registerView(VIEW_TYPE_AGENT_SKILL_DOCUMENT");
       const agentSectionStart = viewSrc.indexOf("private renderAgentSkillsList");
       const agentSectionEnd = viewSrc.indexOf("private async toggleAgentSkillEnabled");
       const agentSection = agentSectionStart >= 0 && agentSectionEnd > agentSectionStart
