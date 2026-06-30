@@ -9316,6 +9316,7 @@ if (!runV214BUnit) {
     const fileRefsBundleV214F = join(tmpdir(), `file-refs-v214f-${Date.now()}.mjs`);
     const fileIngestionBundleV214G = join(tmpdir(), `file-ingestion-v214g-${Date.now()}.mjs`);
     const fileToolPolicyBundleV214H = join(tmpdir(), `file-tool-policy-v214h-${Date.now()}.mjs`);
+    const fileToolExecutorBundleV214I = join(tmpdir(), `file-tool-executor-v214i-${Date.now()}.mjs`);
     const promptPackageBundleV214G = join(tmpdir(), `prompt-package-v214g-${Date.now()}.mjs`);
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "fileAccessPolicy.ts")],
@@ -9350,6 +9351,15 @@ if (!runV214BUnit) {
       format: "esm",
       platform: "node",
       outfile: fileToolPolicyBundleV214H,
+      external: ["obsidian"],
+      logLevel: "silent",
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "fileToolExecutor.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: fileToolExecutorBundleV214I,
       external: ["obsidian"],
       logLevel: "silent",
     });
@@ -9394,6 +9404,12 @@ if (!runV214BUnit) {
       MAX_ATTACHMENT_INGEST_CHARS,
     } = await import(pathToFileURL(fileIngestionBundleV214G).href);
     const { evaluateFileToolPolicy } = await import(pathToFileURL(fileToolPolicyBundleV214H).href);
+    const {
+      executeFileTool,
+      DEFAULT_FILE_TOOL_MAX_READ_BYTES,
+      DEFAULT_FILE_TOOL_MAX_LIST_ENTRIES,
+      DEFAULT_FILE_TOOL_MAX_SEARCH_RESULTS,
+    } = await import(pathToFileURL(fileToolExecutorBundleV214I).href);
     const { buildPromptPackage: buildPromptPackageV214G } = await import(pathToFileURL(promptPackageBundleV214G).href);
 
     const reportSrc = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-B_FILE_ACCESS_POLICY_MODULE.md"), "utf8");
@@ -9404,10 +9420,12 @@ if (!runV214BUnit) {
     const reportSrcV214F = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-F_FILE_REFS_WORKING_SET_MODEL.md"), "utf8");
     const reportSrcV214G = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-G_COMPOSER_ATTACHMENTS_WORKING_SET_INGESTION.md"), "utf8");
     const reportSrcV214H = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-H_NATIVE_ATTACHMENTS_FILEREF_INDEX_READ_POLICY.md"), "utf8");
+    const reportSrcV214I = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-I_REAL_FILE_TOOL_EXECUTION.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
     const fileIngestionSrc = readFileSync(join(PROJECT_ROOT, "src", "fileIngestion.ts"), "utf8");
+    const fileToolExecutorSrc = readFileSync(join(PROJECT_ROOT, "src", "fileToolExecutor.ts"), "utf8");
     const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf8");
     const cliBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeCliBackend.ts"), "utf8");
     const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
@@ -9438,6 +9456,7 @@ if (!runV214BUnit) {
         ingestAttachmentTextSnippet,
         isBoundedTextAttachmentType,
         evaluateFileToolPolicy,
+        executeFileTool,
         buildPromptPackageV214G,
       ]
         .every((fn) => typeof fn === "function");
@@ -9457,9 +9476,11 @@ if (!runV214BUnit) {
         .every((heading) => reportSrcV214G.includes(heading));
       const reportHOk = ["## NativeAttachmentEntry", "## WorkingSetUI", "## PromptFileRefIndex", "## ReadToolPolicyGate", "## ClaudeReadHandoff", "## Tests", "## RemainingRisk", "## Recommendation"]
         .every((heading) => reportSrcV214H.includes(heading));
-      addTest("V2.14.0-B/C/D/E/E1/F/G/H exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk ? "pass" : "fail",
-        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk}`);
+      const reportIOk = ["## FileToolExecutor", "## PolicyGateFlow", "## BoundedRead", "## ListSearchLimits", "## ClaudeReadHandoff", "## WorkingSetIntegration", "## Tests", "## RemainingRisk", "## Recommendation"]
+        .every((heading) => reportSrcV214I.includes(heading));
+      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk}`);
     }
 
     {
@@ -10012,6 +10033,127 @@ if (!runV214BUnit) {
       addTest("V2.14.0-H native attachments + FileRef index + read tool policy gate",
         ok ? "pass" : "fail",
         `index=${index.length} prompt=${promptIndexOk} policy=${policyOk} ingestion=${ingestionOk} ui=${uiOk} read=${readPending.decision}/${!!readPending.pendingRequest} stat=${statPending.decision}/${!!statPending.pendingRequest} list=${listGranted.decision}/${listDenied.decision} sibling=${siblingStillPending.decision} sensitive=${sensitiveDenied.decision} write=${externalWriteDenied.decision}`);
+    }
+
+    {
+      const vault = mkdtempSync(join(tmpdir(), "llm-bridge-i-vault-"));
+      const external = mkdtempSync(join(tmpdir(), "llm-bridge-i-external-"));
+      const docsDir = join(vault, "docs");
+      mkdirSync(docsDir, { recursive: true });
+      const note = join(docsDir, "note.md");
+      const logFile = join(docsDir, "run.log");
+      const large = join(docsDir, "large.txt");
+      const image = join(docsDir, "diagram.png");
+      const pdf = join(docsDir, "manual.pdf");
+      const binary = join(docsDir, "archive.zip");
+      const sensitive = join(vault, ".env");
+      const externalFile = join(external, "external.md");
+      writeFileSync(note, "# Note\nneedle inside note", "utf8");
+      writeFileSync(logFile, "needle in log\nanother line", "utf8");
+      writeFileSync(large, "0123456789".repeat(200), "utf8");
+      writeFileSync(image, "fake-image", "utf8");
+      writeFileSync(pdf, "%PDF-fake", "utf8");
+      writeFileSync(binary, "fake-zip", "utf8");
+      writeFileSync(sensitive, "TOKEN=secret", "utf8");
+      writeFileSync(externalFile, "external approved content", "utf8");
+
+      const vaultPolicy = createFileAccessPolicy({ vaultPath: vault });
+      const statAllowed = await executeFileTool(vaultPolicy, { operation: "stat", path: note });
+      const statConfirm = await executeFileTool(vaultPolicy, { operation: "stat", path: externalFile, source: "agent" });
+      const statDeny = await executeFileTool(vaultPolicy, { operation: "stat", path: sensitive });
+      const readAllowed = await executeFileTool(vaultPolicy, { operation: "read", path: note });
+      const readLarge = await executeFileTool(vaultPolicy, { operation: "read", path: large, limits: { maxReadBytes: 64, maxReadChars: 32 } });
+      const readImage = await executeFileTool(vaultPolicy, { operation: "read", path: image });
+      const readPdf = await executeFileTool(vaultPolicy, { operation: "read", path: pdf });
+      const readBinary = await executeFileTool(vaultPolicy, { operation: "read", path: binary });
+      const listAllowed = await executeFileTool(vaultPolicy, { operation: "list", path: docsDir, limits: { maxListEntries: 4, maxListDepth: 1 } });
+      const listDenied = await executeFileTool(vaultPolicy, { operation: "list", path: external });
+      const searchAllowed = await executeFileTool(vaultPolicy, {
+        operation: "search",
+        path: docsDir,
+        query: "needle",
+        limits: { maxSearchFiles: 5, maxSearchResults: 1, searchExtensions: [".md", ".log"] },
+      });
+      const readSensitive = await executeFileTool(vaultPolicy, { operation: "read", path: sensitive });
+      const pending = statConfirm.pendingRequest;
+      const store = enqueuePendingExternalReadRequest(createSessionReadGrantStore(), pending);
+      const approved = approvePendingExternalReadRequest(store, pending?.id || "", { forceFileScope: true, grantedAt: "2026-06-30T00:08:00.000Z" });
+      const grantedPolicy = createFileAccessPolicy({ vaultPath: vault, sessionReadGrants: approved.sessionReadGrants });
+      const externalReadApproved = await executeFileTool(grantedPolicy, { operation: "read", path: externalFile });
+      const externalRef = createExternalFileRefFromApprovedRequest(pending, approved.sessionReadGrants, { now: "2026-06-30T00:08:01.000Z" });
+      const pendingRef = createPendingExternalFileRef(pending);
+      const workingSet = addFileRefToWorkingSet(addFileRefToWorkingSet(createWorkingSet(), pendingRef), externalRef);
+      const index = buildPromptFileRefIndex(workingSet);
+      const prompt = buildPromptPackageV214G("Use approved external", {
+        vaultPath: vault,
+        activeFilePath: null,
+        activeFileContent: null,
+        selection: null,
+        fileRefIndex: index,
+        attachmentTextSnippets: [],
+        timestamp: "2026-06-30T00:08:02.000Z",
+      }, {
+        includeActiveNote: false,
+        includeSelection: false,
+        maxActiveNoteChars: 10,
+        maxSelectionChars: 10,
+        outputDir: "out",
+      });
+
+      const gateFirst = fileToolExecutorSrc.indexOf("evaluateFileToolPolicy") < fileToolExecutorSrc.indexOf("fs.promises");
+      const noWriteOps = !fileToolExecutorSrc.includes("writeFile")
+        && !fileToolExecutorSrc.includes("unlink")
+        && !fileToolExecutorSrc.includes("rename(")
+        && !fileToolExecutorSrc.includes("rm(");
+      const staticLimits = fileToolExecutorSrc.includes("DEFAULT_FILE_TOOL_MAX_READ_BYTES")
+        && fileToolExecutorSrc.includes("maxListEntries")
+        && fileToolExecutorSrc.includes("maxSearchResults")
+        && fileToolExecutorSrc.includes("maxSearchFiles");
+      const viewCaller = viewSrc.includes("executeFileToolRequest")
+        && viewSrc.includes("executeFileTool(this.createCurrentFileAccessPolicy()")
+        && viewSrc.includes("enqueuePendingExternalReadRequest(this.externalReadGrantStore, result.pendingRequest)");
+      const statOk = statAllowed.status === "allow"
+        && statAllowed.stat?.isFile === true
+        && statConfirm.status === "confirm"
+        && statConfirm.pendingRequest?.operation === "read"
+        && statDeny.status === "deny";
+      const readOk = readAllowed.status === "allow"
+        && readAllowed.content.includes("needle inside note")
+        && readLarge.status === "allow"
+        && readLarge.truncated === true
+        && readLarge.content.length <= 32
+        && readImage.readMode === "refs-only"
+        && readImage.handoffHint.includes("Claude Code")
+        && readPdf.readMode === "refs-only"
+        && readBinary.readMode === "refs-only"
+        && readSensitive.status === "deny";
+      const listSearchOk = listAllowed.status === "allow"
+        && listAllowed.entries.length <= 4
+        && listAllowed.truncated === true
+        && listDenied.status === "deny"
+        && !listDenied.pendingRequest
+        && searchAllowed.status === "allow"
+        && searchAllowed.matches.length === 1
+        && searchAllowed.filesScanned <= 5
+        && searchAllowed.truncated === true;
+      const externalOk = pending
+        && store.pendingReadRequests.length === 1
+        && approved.sessionReadGrants.length === 1
+        && externalReadApproved.status === "allow"
+        && externalReadApproved.content.includes("external approved content")
+        && externalRef?.status === "active"
+        && index.length === 1
+        && index[0].path === externalRef.resolvedPath
+        && !index.some((ref) => ref.id === pendingRef.id)
+        && prompt.includes("external.md")
+        && !prompt.includes("external approved content");
+      const constantsOk = DEFAULT_FILE_TOOL_MAX_READ_BYTES > 0
+        && DEFAULT_FILE_TOOL_MAX_LIST_ENTRIES > 0
+        && DEFAULT_FILE_TOOL_MAX_SEARCH_RESULTS > 0;
+      const ok = statOk && readOk && listSearchOk && externalOk && gateFirst && noWriteOps && staticLimits && viewCaller && constantsOk;
+      addTest("V2.14.0-I real file tool executor: policy gate、bounded read、safe list/search、Claude Read handoff",
+        ok ? "pass" : "fail",
+        `stat=${statOk} read=${readOk} listSearch=${listSearchOk} external=${externalOk} gate=${gateFirst} noWrite=${noWriteOps} limits=${staticLimits} view=${viewCaller}`);
     }
 
     {

@@ -52,6 +52,7 @@ import {
   WorkingSet,
 } from "./fileRefs";
 import { AttachmentTextSnippet, ingestAttachmentTextSnippet } from "./fileIngestion";
+import { FileToolExecutionRequest, FileToolResult, executeFileTool } from "./fileToolExecutor";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -1176,6 +1177,18 @@ export class LLMBridgeView extends ItemView {
 
   public getWorkingSetFileRefs(): FileRef[] {
     return this.fileWorkingSet.refs.slice();
+  }
+
+  public async executeFileToolRequest(request: FileToolExecutionRequest): Promise<FileToolResult> {
+    const result = await executeFileTool(this.createCurrentFileAccessPolicy(), {
+      ...request,
+      fileRefs: request.fileRefs || this.fileWorkingSet.refs,
+    });
+    if (result.status === "confirm" && result.pendingRequest) {
+      this.externalReadGrantStore = enqueuePendingExternalReadRequest(this.externalReadGrantStore, result.pendingRequest);
+      this.refreshExternalReadPanel();
+    }
+    return result;
   }
 
   private createCurrentFileAccessPolicy() {
