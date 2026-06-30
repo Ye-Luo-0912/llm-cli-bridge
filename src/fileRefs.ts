@@ -13,6 +13,7 @@ export type FileRefKind = "vault" | "external" | "attachment";
 export type FileRefSource = "agent" | "user" | "attachment" | string;
 export type FileRefGrantScope = "none" | "session" | "attachment";
 export type FileRefStatus = "active" | "pending" | "denied";
+export type FileRefFileType = "image" | "text" | "markdown" | "json" | "pdf" | "binary" | "unknown";
 
 export interface FileRef {
   id: string;
@@ -21,6 +22,7 @@ export interface FileRef {
   requestedPath: string;
   resolvedPath: string;
   pathKind: FileAccessPathKind;
+  fileType: FileRefFileType;
   source: FileRefSource;
   grantScope: FileRefGrantScope;
   createdAt: string;
@@ -61,6 +63,7 @@ export function createVaultFileRef(
     requestedPath,
     resolvedPath: evaluation.resolvedPath,
     pathKind: options.pathKind || "file",
+    fileType: classifyFileTypeByPath(evaluation.resolvedPath),
     source: options.source || "user",
     grantScope: "none",
     status: "active",
@@ -82,6 +85,7 @@ export function createAttachmentFileRef(
     requestedPath,
     resolvedPath,
     pathKind: options.pathKind || "file",
+    fileType: classifyFileTypeByPath(resolvedPath),
     source,
     grantScope: "attachment",
     status: "active",
@@ -112,6 +116,7 @@ export function createExternalFileRefFromApprovedRequest(
     requestedPath: pending.requestedPath,
     resolvedPath: pending.resolvedPath,
     pathKind: pending.pathKind,
+    fileType: classifyFileTypeByPath(pending.resolvedPath),
     source: pending.source,
     grantScope: "session",
     status: "active",
@@ -125,11 +130,23 @@ export function createPendingExternalFileRef(pending: PendingExternalReadRequest
     requestedPath: pending.requestedPath,
     resolvedPath: pending.resolvedPath,
     pathKind: pending.pathKind,
+    fileType: classifyFileTypeByPath(pending.resolvedPath),
     source: pending.source,
     grantScope: "none",
     status: "pending",
     createdAt: pending.createdAt,
   });
+}
+
+export function classifyFileTypeByPath(filePath: string): FileRefFileType {
+  const ext = path.extname(filePath).toLowerCase();
+  if ([".md", ".markdown", ".mdown", ".mkd"].includes(ext)) return "markdown";
+  if (ext === ".json" || ext === ".jsonc") return "json";
+  if ([".txt", ".text", ".csv", ".tsv", ".log", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf"].includes(ext)) return "text";
+  if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif"].includes(ext)) return "image";
+  if (ext === ".pdf") return "pdf";
+  if ([".zip", ".7z", ".rar", ".gz", ".tar", ".exe", ".dll", ".bin", ".wasm", ".class"].includes(ext)) return "binary";
+  return "unknown";
 }
 
 export function workingSetContainsFileContent(workingSet: WorkingSet): boolean {

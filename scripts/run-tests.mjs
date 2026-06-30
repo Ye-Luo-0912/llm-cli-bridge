@@ -9314,6 +9314,8 @@ if (!runV214BUnit) {
     const esbuild = (await import("esbuild")).default;
     const fileAccessPolicyBundleV214B = join(tmpdir(), `file-access-policy-v214b-${Date.now()}.mjs`);
     const fileRefsBundleV214F = join(tmpdir(), `file-refs-v214f-${Date.now()}.mjs`);
+    const fileIngestionBundleV214G = join(tmpdir(), `file-ingestion-v214g-${Date.now()}.mjs`);
+    const promptPackageBundleV214G = join(tmpdir(), `prompt-package-v214g-${Date.now()}.mjs`);
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "fileAccessPolicy.ts")],
       bundle: true,
@@ -9329,6 +9331,24 @@ if (!runV214BUnit) {
       format: "esm",
       platform: "node",
       outfile: fileRefsBundleV214F,
+      external: ["obsidian"],
+      logLevel: "silent",
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "fileIngestion.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: fileIngestionBundleV214G,
+      external: ["obsidian"],
+      logLevel: "silent",
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "promptPackage.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: promptPackageBundleV214G,
       external: ["obsidian"],
       logLevel: "silent",
     });
@@ -9354,7 +9374,15 @@ if (!runV214BUnit) {
       createExternalFileRefFromApprovedRequest,
       createPendingExternalFileRef,
       workingSetContainsFileContent,
+      classifyFileTypeByPath,
     } = await import(pathToFileURL(fileRefsBundleV214F).href);
+    const {
+      ingestAttachmentTextSnippet,
+      isBoundedTextAttachmentType,
+      MAX_ATTACHMENT_INGEST_BYTES,
+      MAX_ATTACHMENT_INGEST_CHARS,
+    } = await import(pathToFileURL(fileIngestionBundleV214G).href);
+    const { buildPromptPackage: buildPromptPackageV214G } = await import(pathToFileURL(promptPackageBundleV214G).href);
 
     const reportSrc = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-B_FILE_ACCESS_POLICY_MODULE.md"), "utf8");
     const reportSrcV214C = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-C_ON_DEMAND_EXTERNAL_READ_AUTHORIZATION.md"), "utf8");
@@ -9362,9 +9390,11 @@ if (!runV214BUnit) {
     const reportSrcV214E = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-E_PENDING_EXTERNAL_READ_APPROVAL_UI.md"), "utf8");
     const reportSrcV214E1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-E1_STRONG_CONFIRM_EXTERNAL_READ_APPROVAL.md"), "utf8");
     const reportSrcV214F = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-F_FILE_REFS_WORKING_SET_MODEL.md"), "utf8");
+    const reportSrcV214G = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-G_COMPOSER_ATTACHMENTS_WORKING_SET_INGESTION.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
+    const fileIngestionSrc = readFileSync(join(PROJECT_ROOT, "src", "fileIngestion.ts"), "utf8");
     const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf8");
     const cliBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeCliBackend.ts"), "utf8");
     const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
@@ -9390,6 +9420,10 @@ if (!runV214BUnit) {
         createExternalFileRefFromApprovedRequest,
         createPendingExternalFileRef,
         workingSetContainsFileContent,
+        classifyFileTypeByPath,
+        ingestAttachmentTextSnippet,
+        isBoundedTextAttachmentType,
+        buildPromptPackageV214G,
       ]
         .every((fn) => typeof fn === "function");
       const reportOk = ["## PolicyTypes", "## Decisions", "## PathSafety", "## Tests", "## RemainingRisk", "## Recommendation"]
@@ -9404,9 +9438,11 @@ if (!runV214BUnit) {
         .every((heading) => reportSrcV214E1.includes(heading));
       const reportFOk = ["## FileRefModel", "## WorkingSetRules", "## GrantIntegration", "## PromptBoundary", "## Tests", "## RemainingRisk", "## Recommendation"]
         .every((heading) => reportSrcV214F.includes(heading));
-      addTest("V2.14.0-B/C/D/E/E1/F exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk ? "pass" : "fail",
-        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk}`);
+      const reportGOk = ["## AttachmentFlow", "## WorkingSetUI", "## TypeClassification", "## BoundedIngestion", "## PromptBoundary", "## Tests", "## RemainingRisk", "## Recommendation"]
+        .every((heading) => reportSrcV214G.includes(heading));
+      addTest("V2.14.0-B/C/D/E/E1/F/G exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk}`);
     }
 
     {
@@ -9694,8 +9730,8 @@ if (!runV214BUnit) {
       const noFileBodyFields = !workingSetContainsFileContent(workingSet)
         && !fileRefsSrc.includes("readFile")
         && !fileRefsSrc.includes("readdir")
-        && !fileRefsSrc.includes("pdf")
-        && !fileRefsSrc.includes("image");
+        && !fileRefsSrc.includes("createReadStream")
+        && !fileRefsSrc.includes("content:");
       const promptUnwired = !promptPackageSrc.includes("FileRef")
         && !promptPackageSrc.includes("WorkingSet")
         && !promptPackageSrc.includes("fileWorkingSet");
@@ -9728,6 +9764,119 @@ if (!runV214BUnit) {
       addTest("V2.14.0-F FileRef/Working Set: refs only，授权衔接，不读正文不接 prompt",
         ok ? "pass" : "fail",
         `vault=${vaultRef?.kind}/${vaultRef?.status} pending=${pending?.reason}/${pendingRef.status} before=${noExternalRefBeforeApproval.refs.length} external=${externalRef?.kind}/${externalRef?.grantScope} attachment=${attachment?.ref.kind}/${attachment?.readGrant.match} reads=${attachmentRead.decision}/${attachmentSibling.decision} refs=${workingSet.refs.length} fields=${hasRequiredFields} body=${noFileBodyFields} prompt=${promptUnwired} view=${viewWiringOk}`);
+    }
+
+    {
+      const tmp = mkdtempSync(join(tmpdir(), "llm-bridge-g-"));
+      const smallMd = join(tmp, "note.md");
+      const smallJson = join(tmp, "data.json");
+      const largeTxt = join(tmp, "large.txt");
+      const image = join(tmp, "image.png");
+      const pdf = join(tmp, "paper.pdf");
+      const binary = join(tmp, "blob.bin");
+      const sensitive = join(tmp, ".env");
+      writeFileSync(smallMd, "# Hello\nSmall attachment", "utf8");
+      writeFileSync(smallJson, "{\"ok\":true}", "utf8");
+      writeFileSync(largeTxt, "x".repeat(MAX_ATTACHMENT_INGEST_BYTES + 1), "utf8");
+      writeFileSync(image, "fake-image", "utf8");
+      writeFileSync(pdf, "%PDF-fake", "utf8");
+      writeFileSync(binary, "fake-bin", "utf8");
+      writeFileSync(sensitive, "TOKEN=secret", "utf8");
+
+      const mdAttachment = createAttachmentFileRef(tmp, smallMd, { now: "2026-06-30T00:06:00.000Z" });
+      const jsonAttachment = createAttachmentFileRef(tmp, smallJson, { now: "2026-06-30T00:06:01.000Z" });
+      const largeAttachment = createAttachmentFileRef(tmp, largeTxt, { now: "2026-06-30T00:06:02.000Z" });
+      const imageAttachment = createAttachmentFileRef(tmp, image, { now: "2026-06-30T00:06:03.000Z" });
+      const pdfAttachment = createAttachmentFileRef(tmp, pdf, { now: "2026-06-30T00:06:04.000Z" });
+      const binaryAttachment = createAttachmentFileRef(tmp, binary, { now: "2026-06-30T00:06:05.000Z" });
+      const sensitiveAttachment = createAttachmentFileRef(tmp, sensitive, { now: "2026-06-30T00:06:06.000Z" });
+      const mdIngest = await ingestAttachmentTextSnippet(mdAttachment.ref);
+      const jsonIngest = await ingestAttachmentTextSnippet(jsonAttachment.ref);
+      const largeIngest = await ingestAttachmentTextSnippet(largeAttachment.ref);
+      const imageIngest = await ingestAttachmentTextSnippet(imageAttachment.ref);
+      const pdfIngest = await ingestAttachmentTextSnippet(pdfAttachment.ref);
+      const binaryIngest = await ingestAttachmentTextSnippet(binaryAttachment.ref);
+      const sensitiveIngest = await ingestAttachmentTextSnippet(sensitiveAttachment.ref);
+
+      const attachmentPolicy = createFileAccessPolicy({ vaultPath: "D:\\Vault", attachmentReadGrants: [mdAttachment.readGrant] });
+      const attachmentFileAllowed = evaluateFileAccess(attachmentPolicy, { operation: "read", path: smallMd });
+      const siblingStillPending = evaluateFileAccess(attachmentPolicy, { operation: "read", path: smallJson });
+      const prompt = buildPromptPackageV214G("Use attachment", {
+        vaultPath: "D:\\Vault",
+        activeFilePath: null,
+        activeFileContent: null,
+        selection: null,
+        attachmentTextSnippets: [mdIngest.snippet],
+        timestamp: "2026-06-30T00:06:07.000Z",
+      }, {
+        includeActiveNote: false,
+        includeSelection: false,
+        maxActiveNoteChars: 10,
+        maxSelectionChars: 10,
+        outputDir: "out",
+      });
+      const externalRef = createExternalFileRefFromApprovedRequest({
+        id: "pending-external",
+        requestedPath: "D:\\External\\other.md",
+        resolvedPath: "d:\\external\\other.md",
+        proposedGrantRoot: "d:\\external",
+        pathKind: "file",
+        operation: "read",
+        risk: "medium",
+        reason: "pending_read_request",
+        createdAt: "2026-06-30T00:06:08.000Z",
+        source: "agent",
+        grantRootSafety: "allow",
+      }, []);
+      const typeOk = classifyFileTypeByPath(smallMd) === "markdown"
+        && classifyFileTypeByPath(smallJson) === "json"
+        && classifyFileTypeByPath(image) === "image"
+        && classifyFileTypeByPath(pdf) === "pdf"
+        && classifyFileTypeByPath(binary) === "binary";
+      const uiOk = viewSrc.includes("llm-bridge-attach-file-btn")
+        && viewSrc.includes("promptAndAddAttachmentFile")
+        && viewSrc.includes("refreshWorkingSetChips")
+        && viewSrc.includes("removeWorkingSetRef")
+        && stylesSrc.includes(".llm-bridge-working-set-chip");
+      const promptOk = prompt.includes("========== 用户主动附件（bounded text snippets） ==========")
+        && prompt.includes("note.md")
+        && prompt.includes("# Hello")
+        && prompt.includes("未授权 external working set 文件不会出现在本区")
+        && !prompt.includes("other.md");
+      const noExternalPrompt = !promptPackageSrc.includes("WorkingSet")
+        && !promptPackageSrc.includes("FileRef")
+        && !promptPackageSrc.includes("fileWorkingSet")
+        && promptPackageSrc.includes("attachmentTextSnippets");
+      const boundedOnly = fileIngestionSrc.includes("stat.size > maxBytes")
+        && fileIngestionSrc.includes("fs.promises.readFile")
+        && fileIngestionSrc.includes("isSensitivePath")
+        && !fileIngestionSrc.includes("readdir")
+        && !fileIngestionSrc.includes("createReadStream");
+      const ok = mdAttachment.ref.kind === "attachment"
+        && mdAttachment.readGrant.scope === "attachment"
+        && mdAttachment.readGrant.match === "file"
+        && attachmentFileAllowed.decision === "allow"
+        && siblingStillPending.decision === "confirm"
+        && mdIngest.snippet?.content.includes("Small attachment")
+        && jsonIngest.snippet?.content.includes("\"ok\"")
+        && largeIngest.snippet === null
+        && largeIngest.skippedReason === "too_large"
+        && imageIngest.skippedReason === "not_text"
+        && pdfIngest.skippedReason === "not_text"
+        && binaryIngest.skippedReason === "not_text"
+        && sensitiveIngest.skippedReason === "sensitive_path"
+        && externalRef === null
+        && typeOk
+        && promptOk
+        && noExternalPrompt
+        && boundedOnly
+        && uiOk
+        && isBoundedTextAttachmentType("markdown")
+        && !isBoundedTextAttachmentType("pdf")
+        && MAX_ATTACHMENT_INGEST_CHARS > 0;
+      addTest("V2.14.0-G attachments: Working Set UI、file-scope grant、bounded ingestion、prompt boundary",
+        ok ? "pass" : "fail",
+        `grant=${mdAttachment.readGrant.match} sibling=${siblingStillPending.decision} md=${!!mdIngest.snippet} json=${!!jsonIngest.snippet} large=${largeIngest.skippedReason} image=${imageIngest.skippedReason} pdf=${pdfIngest.skippedReason} binary=${binaryIngest.skippedReason} sensitive=${sensitiveIngest.skippedReason} external=${externalRef} type=${typeOk} prompt=${promptOk} boundary=${noExternalPrompt} bounded=${boundedOnly} ui=${uiOk}`);
     }
 
     {

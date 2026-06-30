@@ -11,7 +11,20 @@ export interface StateSnapshot {
   activeFilePath: string | null;
   activeFileContent: string | null;
   selection: string | null;
+  attachmentTextSnippets?: PromptAttachmentTextSnippet[];
   timestamp: string;
+}
+
+export interface PromptAttachmentTextSnippet {
+  refId: string;
+  displayName: string;
+  resolvedPath: string;
+  fileType: "text" | "markdown" | "json";
+  content: string;
+  bytesRead: number;
+  maxBytes: number;
+  maxChars: number;
+  truncated: boolean;
 }
 
 /**
@@ -62,7 +75,28 @@ ${truncated}
 `);
   }
 
-  // 4. 输出规则（配置驱动 / 项目约定驱动，不硬编码目录名）
+  // 4. 用户主动附件（只包含 bounded text snippets，不包含 external working set 全文）
+  if (snapshot.attachmentTextSnippets && snapshot.attachmentTextSnippets.length > 0) {
+    const snippets = snapshot.attachmentTextSnippets.map((snippet, idx) => {
+      const marker = snippet.truncated ? "\n...[attachment truncated by LLM CLI Bridge]" : "";
+      return `--- Attachment ${idx + 1}: ${snippet.displayName} ---
+type: ${snippet.fileType}
+path: ${snippet.resolvedPath}
+bytesRead: ${snippet.bytesRead}/${snippet.maxBytes}
+charsIncluded: ${snippet.content.length}/${snippet.maxChars}
+truncated: ${snippet.truncated ? "yes" : "no"}
+
+${snippet.content}${marker}`;
+    }).join("\n\n");
+    parts.push(`
+========== 用户主动附件（bounded text snippets） ==========
+以下内容仅来自用户主动添加的 text / markdown / json 小文件。未授权 external working set 文件不会出现在本区。
+
+${snippets}
+`);
+  }
+
+  // 5. 输出规则（配置驱动 / 项目约定驱动，不硬编码目录名）
   const configuredDir = settings.outputDir && settings.outputDir.trim().length > 0
     ? settings.outputDir.trim()
     : "";
@@ -75,7 +109,7 @@ ${truncated}
 - 按配置或项目规则写入文件（输出位置：${outputLocation}）
 - 如果必须输出长内容，写入文件并告知路径`);
 
-  // 5. 用户请求
+  // 6. 用户请求
   parts.push(`
 ========== 用户请求 ==========
 ${userInput}`);

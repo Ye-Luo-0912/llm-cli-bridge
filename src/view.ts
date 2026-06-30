@@ -46,9 +46,11 @@ import {
   createExternalFileRefFromApprovedRequest,
   createVaultFileRef,
   createWorkingSet,
+  classifyFileTypeByPath,
   FileRef,
   WorkingSet,
 } from "./fileRefs";
+import { AttachmentTextSnippet, ingestAttachmentTextSnippet } from "./fileIngestion";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 
@@ -217,6 +219,8 @@ export class LLMBridgeView extends ItemView {
   // V2.14.0-F: Working Set 只保存文件引用和授权状态，不保存文件正文
   private fileWorkingSet: WorkingSet = createWorkingSet();
   private attachmentReadGrants: FileAccessReadGrant[] = [];
+  private attachmentTextSnippets: AttachmentTextSnippet[] = [];
+  private workingSetEl!: HTMLElement;
   // V2.13.0-B: 已插入 Prompt Snippets 名称集合（插入 prompt 时添加；发送/清空时重置）
   private insertedSnippetNames: Set<string> = new Set();
   // V2.3: 最近一次 SDK 运行的工具数与 agent 数（用于状态栏展示）
@@ -516,6 +520,15 @@ export class LLMBridgeView extends ItemView {
     this.selectionLabelEl = this.includeSelectionCheckEl.parentElement!.createEl("span", { cls: "llm-bridge-chip-file", text: "" });
 
     // V2.4: 移除 chips 行重复的 New 按钮（状态栏已有，避免误导）
+    const attachBtn = chipsRow.createEl("button", {
+      cls: "llm-bridge-chip llm-bridge-attach-file-btn",
+      text: "+ File",
+      attr: { title: "添加用户主动附件路径" },
+    });
+    attachBtn.addEventListener("click", () => void this.promptAndAddAttachmentFile());
+
+    this.workingSetEl = composer.createDiv({ cls: "llm-bridge-working-set" });
+    this.refreshWorkingSetChips();
 
     // 初始化
     this.syncControlsFromSettings();
@@ -1093,6 +1106,7 @@ export class LLMBridgeView extends ItemView {
       source: options.source || "user",
     });
     this.fileWorkingSet = addFileRefToWorkingSet(this.fileWorkingSet, ref);
+    this.refreshWorkingSetChips();
     return ref;
   }
 
@@ -1106,7 +1120,20 @@ export class LLMBridgeView extends ItemView {
       .filter((grant) => grant.path !== result.readGrant.path || grant.scope !== result.readGrant.scope);
     this.attachmentReadGrants.push(result.readGrant);
     this.fileWorkingSet = addFileRefToWorkingSet(this.fileWorkingSet, result.ref);
+    this.refreshWorkingSetChips();
     return result.ref;
+  }
+
+  public async addAttachmentFileRefWithIngestion(requestedPath: string): Promise<FileRef | null> {
+    const ref = this.addAttachmentFileRef(requestedPath, { source: "attachment" });
+    if (!ref) return null;
+    const result = await ingestAttachmentTextSnippet(ref);
+    this.attachmentTextSnippets = this.attachmentTextSnippets.filter((snippet) => snippet.refId !== ref.id);
+    if (result.snippet) {
+      this.attachmentTextSnippets.push(result.snippet);
+    }
+    this.refreshWorkingSetChips();
+    return ref;
   }
 
   public getWorkingSetFileRefs(): FileRef[] {
@@ -1124,6 +1151,51 @@ export class LLMBridgeView extends ItemView {
 
   private getVaultPath(): string {
     return (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+  }
+
+  private async promptAndAddAttachmentFile(): Promise<void> {
+    const input = await this.promptDialog("添加文件附件", "输入文件路径。小型 text / markdown / json 会被 bounded ingestion；图片/PDF/binary 只作为引用。", "");
+    const requestedPath = (input || "").trim();
+    if (!requestedPath) return;
+    const ref = await this.addAttachmentFileRefWithIngestion(requestedPath);
+    if (!ref) {
+      new Notice("附件路径无效，未加入 Working Set");
+      return;
+    }
+    const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id);
+    const type = classifyFileTypeByPath(ref.resolvedPath);
+    new Notice(snippet ? `已添加附件并读取 bounded snippet：${ref.displayName}` : `已添加附件引用：${ref.displayName} (${type})`);
+  }
+
+  private refreshWorkingSetChips(): void {
+    if (!this.workingSetEl) return;
+    const refs = this.fileWorkingSet.refs;
+    this.workingSetEl.empty();
+    if (refs.length === 0) {
+      this.workingSetEl.style.display = "none";
+      return;
+    }
+    this.workingSetEl.style.display = "flex";
+    this.workingSetEl.createEl("span", { cls: "llm-bridge-working-set-label", text: "Working Set" });
+    for (const ref of refs) {
+      const chip = this.workingSetEl.createDiv({ cls: `llm-bridge-working-set-chip is-${ref.kind} is-${ref.status}` });
+      chip.createEl("span", { cls: "llm-bridge-working-set-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
+      chip.createEl("span", { cls: "llm-bridge-working-set-meta", text: `${ref.kind} · ${ref.status} · ${ref.source} · ${ref.pathKind}` });
+      const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id);
+      if (snippet) chip.createEl("span", { cls: "llm-bridge-working-set-ingested", text: "bounded" });
+      const remove = chip.createEl("button", { cls: "llm-bridge-working-set-remove", text: "×", attr: { title: "移除" } });
+      remove.addEventListener("click", () => this.removeWorkingSetRef(ref.id));
+    }
+  }
+
+  private removeWorkingSetRef(refId: string): void {
+    const ref = this.fileWorkingSet.refs.find((item) => item.id === refId) || null;
+    this.fileWorkingSet = { refs: this.fileWorkingSet.refs.filter((item) => item.id !== refId) };
+    this.attachmentTextSnippets = this.attachmentTextSnippets.filter((snippet) => snippet.refId !== refId);
+    if (ref?.kind === "attachment") {
+      this.attachmentReadGrants = this.attachmentReadGrants.filter((grant) => grant.path !== ref.resolvedPath || grant.scope !== "attachment");
+    }
+    this.refreshWorkingSetChips();
   }
 
   private refreshExternalReadPanel(): void {
@@ -1185,6 +1257,7 @@ export class LLMBridgeView extends ItemView {
     if (pending && nextStore !== this.externalReadGrantStore) {
       const ref = createExternalFileRefFromApprovedRequest(pending, nextStore.sessionReadGrants);
       this.fileWorkingSet = addFileRefToWorkingSet(this.fileWorkingSet, ref);
+      this.refreshWorkingSetChips();
     }
     this.externalReadGrantStore = nextStore;
     this.refreshExternalReadPanel();
@@ -1206,6 +1279,8 @@ export class LLMBridgeView extends ItemView {
   private clearFileWorkingSet(): void {
     this.fileWorkingSet = createWorkingSet();
     this.attachmentReadGrants = [];
+    this.attachmentTextSnippets = [];
+    this.refreshWorkingSetChips();
   }
 
   // V1.1: 运行 preflight 检测（不调用真实模型）
@@ -3298,6 +3373,7 @@ export class LLMBridgeView extends ItemView {
       activeFilePath: activeFile?.path || null,
       activeFileContent: null,
       selection,
+      attachmentTextSnippets: this.attachmentTextSnippets.slice(),
       timestamp: new Date().toISOString(),
     };
 
