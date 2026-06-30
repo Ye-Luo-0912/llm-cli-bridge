@@ -5,7 +5,17 @@ import {
   formatAgentFileToolRouteResult,
   isReadOnlyAgentFileTool,
 } from "./agentFileToolBridge";
-import { FileToolExecutorLimits } from "./fileToolExecutor";
+import {
+  DEFAULT_FILE_TOOL_MAX_LIST_DEPTH,
+  DEFAULT_FILE_TOOL_MAX_LIST_ENTRIES,
+  DEFAULT_FILE_TOOL_MAX_READ_BYTES,
+  DEFAULT_FILE_TOOL_MAX_READ_CHARS,
+  DEFAULT_FILE_TOOL_MAX_SEARCH_FILES,
+  DEFAULT_FILE_TOOL_MAX_SEARCH_RESULTS,
+  DEFAULT_FILE_TOOL_SEARCH_BYTES_PER_FILE,
+  DEFAULT_FILE_TOOL_SEARCH_EXTENSIONS,
+  FileToolExecutorLimits,
+} from "./fileToolExecutor";
 
 export type RuntimeFileToolAdapterKind = "cli" | "sdk";
 
@@ -116,18 +126,35 @@ function extractStringArray(input: Record<string, unknown>, key: string): string
 
 function extractLimits(input: Record<string, unknown>): FileToolExecutorLimits {
   return {
-    maxReadBytes: extractPositiveInteger(input, "maxReadBytes"),
-    maxReadChars: extractPositiveInteger(input, "maxReadChars"),
-    maxListEntries: extractPositiveInteger(input, "maxListEntries"),
-    maxListDepth: extractPositiveInteger(input, "maxListDepth"),
-    maxSearchFiles: extractPositiveInteger(input, "maxSearchFiles"),
-    maxSearchResults: extractPositiveInteger(input, "maxSearchResults"),
-    maxSearchBytesPerFile: extractPositiveInteger(input, "maxSearchBytesPerFile"),
-    searchExtensions: extractStringArray(input, "searchExtensions"),
+    maxReadBytes: extractClampedPositiveInteger(input, "maxReadBytes", DEFAULT_FILE_TOOL_MAX_READ_BYTES),
+    maxReadChars: extractClampedPositiveInteger(input, "maxReadChars", DEFAULT_FILE_TOOL_MAX_READ_CHARS),
+    maxListEntries: extractClampedPositiveInteger(input, "maxListEntries", DEFAULT_FILE_TOOL_MAX_LIST_ENTRIES),
+    maxListDepth: extractClampedPositiveInteger(input, "maxListDepth", DEFAULT_FILE_TOOL_MAX_LIST_DEPTH),
+    maxSearchFiles: extractClampedPositiveInteger(input, "maxSearchFiles", DEFAULT_FILE_TOOL_MAX_SEARCH_FILES),
+    maxSearchResults: extractClampedPositiveInteger(input, "maxSearchResults", DEFAULT_FILE_TOOL_MAX_SEARCH_RESULTS),
+    maxSearchBytesPerFile: extractClampedPositiveInteger(input, "maxSearchBytesPerFile", DEFAULT_FILE_TOOL_SEARCH_BYTES_PER_FILE),
+    searchExtensions: extractAllowedSearchExtensions(input),
   };
 }
 
-function extractPositiveInteger(input: Record<string, unknown>, key: string): number | undefined {
+function extractClampedPositiveInteger(input: Record<string, unknown>, key: string, max: number): number | undefined {
   const value = input[key];
-  return typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined;
+  if (typeof value !== "number" || !Number.isInteger(value) || value <= 0) return undefined;
+  return Math.min(value, max);
+}
+
+function extractAllowedSearchExtensions(input: Record<string, unknown>): string[] | undefined {
+  const requested = extractStringArray(input, "searchExtensions");
+  if (!requested) return undefined;
+  const allowed = new Set(DEFAULT_FILE_TOOL_SEARCH_EXTENSIONS.map((ext) => ext.toLowerCase()));
+  const filtered = requested
+    .map((ext) => normalizeExtension(ext))
+    .filter((ext): ext is string => !!ext && allowed.has(ext));
+  return [...new Set(filtered)];
+}
+
+function normalizeExtension(input: string): string | null {
+  const trimmed = input.trim().toLowerCase();
+  if (!trimmed) return null;
+  return trimmed.startsWith(".") ? trimmed : `.${trimmed}`;
 }

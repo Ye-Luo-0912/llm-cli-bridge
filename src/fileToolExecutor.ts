@@ -99,7 +99,7 @@ export interface FileToolSearchResult extends FileToolResultBase {
 export type FileToolResult = FileToolStatResult | FileToolReadResult | FileToolListResult | FileToolSearchResult;
 
 const READABLE_TEXT_TYPES = new Set<FileRefFileType>(["text", "markdown", "json"]);
-const DEFAULT_SEARCH_EXTENSIONS = [".md", ".markdown", ".txt", ".log", ".json", ".jsonc", ".csv", ".tsv", ".yaml", ".yml", ".toml"];
+export const DEFAULT_FILE_TOOL_SEARCH_EXTENSIONS = [".md", ".markdown", ".txt", ".log", ".json", ".jsonc", ".csv", ".tsv", ".yaml", ".yml", ".toml"];
 
 export async function executeFileTool(policy: FileAccessPolicy, request: FileToolExecutionRequest): Promise<FileToolResult> {
   const gate = evaluateFileToolPolicy(policy, {
@@ -350,7 +350,7 @@ async function executeSearch(
   const maxFiles = limits.maxSearchFiles ?? DEFAULT_FILE_TOOL_MAX_SEARCH_FILES;
   const maxResults = limits.maxSearchResults ?? DEFAULT_FILE_TOOL_MAX_SEARCH_RESULTS;
   const maxBytes = limits.maxSearchBytesPerFile ?? DEFAULT_FILE_TOOL_SEARCH_BYTES_PER_FILE;
-  const allowedExts = new Set((limits.searchExtensions || DEFAULT_SEARCH_EXTENSIONS).map((ext) => ext.toLowerCase()));
+  const allowedExts = new Set((limits.searchExtensions || DEFAULT_FILE_TOOL_SEARCH_EXTENSIONS).map((ext) => ext.toLowerCase()));
   const files = await collectSearchFiles(resolvedPath, allowedExts, maxFiles);
   const matches: NonNullable<FileToolSearchResult["matches"]> = [];
 

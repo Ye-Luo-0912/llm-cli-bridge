@@ -9447,8 +9447,13 @@ if (!runV214BUnit) {
     const {
       executeFileTool,
       DEFAULT_FILE_TOOL_MAX_READ_BYTES,
+      DEFAULT_FILE_TOOL_MAX_READ_CHARS,
       DEFAULT_FILE_TOOL_MAX_LIST_ENTRIES,
+      DEFAULT_FILE_TOOL_MAX_LIST_DEPTH,
+      DEFAULT_FILE_TOOL_MAX_SEARCH_FILES,
       DEFAULT_FILE_TOOL_MAX_SEARCH_RESULTS,
+      DEFAULT_FILE_TOOL_SEARCH_BYTES_PER_FILE,
+      DEFAULT_FILE_TOOL_SEARCH_EXTENSIONS,
     } = await import(pathToFileURL(fileToolExecutorBundleV214I).href);
     const {
       executeAgentFileToolRoute,
@@ -9477,6 +9482,7 @@ if (!runV214BUnit) {
     const reportSrcV214I1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-I1_FILE_TOOL_REALPATH_SYMLINK_HARDENING.md"), "utf8");
     const reportSrcV214J = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-J_AGENT_FILE_TOOL_ROUTING.md"), "utf8");
     const reportSrcV214K = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-K_RUNTIME_TOOL_ADAPTER.md"), "utf8");
+    const reportSrcV214K1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-K1_RUNTIME_ADAPTER_LIMITS_HARDENING.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
@@ -9551,9 +9557,11 @@ if (!runV214BUnit) {
         .every((heading) => reportSrcV214J.includes(heading));
       const reportKOk = ["## RuntimeAdapter", "## RouteBoundary", "## PendingFlow", "## ResultSurface", "## NoWriteBoundary", "## Tests", "## RemainingRisk", "## Recommendation"]
         .every((heading) => reportSrcV214K.includes(heading));
-      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I/I1/J/K exports/report: policy 类型与报告章节存在",
-        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk && reportI1Ok && reportJOk && reportKOk ? "pass" : "fail",
-        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk} reportI1=${reportI1Ok} reportJ=${reportJOk} reportK=${reportKOk}`);
+      const reportK1Ok = ["## LimitClamp", "## SearchExtensionPolicy", "## NoWriteBoundary", "## Tests", "## Recommendation"]
+        .every((heading) => reportSrcV214K1.includes(heading));
+      addTest("V2.14.0-B/C/D/E/E1/F/G/H/I/I1/J/K/K1 exports/report: policy 类型与报告章节存在",
+        exportsOk && reportOk && reportCOk && reportDOk && reportEOk && reportE1Ok && reportFOk && reportGOk && reportHOk && reportIOk && reportI1Ok && reportJOk && reportKOk && reportK1Ok ? "pass" : "fail",
+        `exports=${exportsOk} reportB=${reportOk} reportC=${reportCOk} reportD=${reportDOk} reportE=${reportEOk} reportE1=${reportE1Ok} reportF=${reportFOk} reportG=${reportGOk} reportH=${reportHOk} reportI=${reportIOk} reportI1=${reportI1Ok} reportJ=${reportJOk} reportK=${reportKOk} reportK1=${reportK1Ok}`);
     }
 
     {
@@ -10525,6 +10533,108 @@ if (!runV214BUnit) {
         addTest("V2.14.0-K runtime adapter symlink escape runtime test", staticHardening ? "skip" : "fail",
           `当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=${staticHardening}: ${error?.message || String(error)}`);
       }
+    }
+
+    {
+      const vault = mkdtempSync(join(tmpdir(), "llm-bridge-k1-vault-"));
+      const docsDir = join(vault, "docs");
+      mkdirSync(docsDir, { recursive: true });
+      const large = join(docsDir, "large.txt");
+      writeFileSync(large, "0123456789abcdef".repeat(8192), "utf8");
+
+      const hugeInput = {
+        path: large,
+        maxReadBytes: DEFAULT_FILE_TOOL_MAX_READ_BYTES * 100,
+        maxReadChars: DEFAULT_FILE_TOOL_MAX_READ_CHARS * 100,
+        maxListEntries: DEFAULT_FILE_TOOL_MAX_LIST_ENTRIES * 100,
+        maxListDepth: DEFAULT_FILE_TOOL_MAX_LIST_DEPTH + 100,
+        maxSearchFiles: DEFAULT_FILE_TOOL_MAX_SEARCH_FILES * 100,
+        maxSearchResults: DEFAULT_FILE_TOOL_MAX_SEARCH_RESULTS * 100,
+        maxSearchBytesPerFile: DEFAULT_FILE_TOOL_SEARCH_BYTES_PER_FILE * 100,
+        searchExtensions: [".md", "json", ".pdf", ".png", ".bin", ".exe", ".log", ""],
+      };
+      const normalizedHuge = normalizeRuntimeFileToolCall("sdk", { toolName: "search", input: hugeInput });
+      const lowered = normalizeRuntimeFileToolCall("cli", {
+        toolName: "read",
+        input: { path: large, maxReadBytes: 128, maxReadChars: 40, maxListEntries: 3, maxListDepth: 1, maxSearchFiles: 4, maxSearchResults: 2, maxSearchBytesPerFile: 256 },
+      });
+      const invalid = normalizeRuntimeFileToolCall("sdk", {
+        toolName: "search",
+        input: { path: docsDir, maxReadBytes: -1, maxReadChars: 0, maxListEntries: 1.5, maxSearchFiles: "100", searchExtensions: [".pdf", ".png", ".exe"] },
+      });
+      const writeRoute = normalizeRuntimeFileToolCall("cli", { toolName: "write", input: { path: large, maxReadBytes: DEFAULT_FILE_TOOL_MAX_READ_BYTES * 100 } });
+
+      const routeCalls = [];
+      const policy = createFileAccessPolicy({ vaultPath: vault });
+      const adapter = createRuntimeFileToolAdapter("sdk", async (request) => {
+        routeCalls.push(request);
+        return await executeAgentFileToolRoute(request, async (toolRequest) => executeFileTool(policy, toolRequest));
+      });
+      const hugeRead = await adapter.execute({
+        toolName: "read",
+        input: {
+          path: large,
+          maxReadBytes: DEFAULT_FILE_TOOL_MAX_READ_BYTES * 100,
+          maxReadChars: DEFAULT_FILE_TOOL_MAX_READ_CHARS * 100,
+        },
+      });
+      const loweredRead = await adapter.execute({
+        toolName: "read",
+        input: {
+          path: large,
+          maxReadBytes: 128,
+          maxReadChars: 40,
+        },
+      });
+      const unsupportedWrite = await adapter.execute({ toolName: "rename", input: { path: large, maxReadBytes: DEFAULT_FILE_TOOL_MAX_READ_BYTES * 100 } });
+
+      const clampOk = normalizedHuge.limits.maxReadBytes === DEFAULT_FILE_TOOL_MAX_READ_BYTES
+        && normalizedHuge.limits.maxReadChars === DEFAULT_FILE_TOOL_MAX_READ_CHARS
+        && normalizedHuge.limits.maxListEntries === DEFAULT_FILE_TOOL_MAX_LIST_ENTRIES
+        && normalizedHuge.limits.maxListDepth === DEFAULT_FILE_TOOL_MAX_LIST_DEPTH
+        && normalizedHuge.limits.maxSearchFiles === DEFAULT_FILE_TOOL_MAX_SEARCH_FILES
+        && normalizedHuge.limits.maxSearchResults === DEFAULT_FILE_TOOL_MAX_SEARCH_RESULTS
+        && normalizedHuge.limits.maxSearchBytesPerFile === DEFAULT_FILE_TOOL_SEARCH_BYTES_PER_FILE;
+      const lowerOk = lowered.limits.maxReadBytes === 128
+        && lowered.limits.maxReadChars === 40
+        && lowered.limits.maxListEntries === 3
+        && lowered.limits.maxListDepth === 1
+        && lowered.limits.maxSearchFiles === 4
+        && lowered.limits.maxSearchResults === 2
+        && lowered.limits.maxSearchBytesPerFile === 256;
+      const extOk = normalizedHuge.limits.searchExtensions.includes(".md")
+        && normalizedHuge.limits.searchExtensions.includes(".json")
+        && normalizedHuge.limits.searchExtensions.includes(".log")
+        && !normalizedHuge.limits.searchExtensions.includes(".pdf")
+        && !normalizedHuge.limits.searchExtensions.includes(".png")
+        && !normalizedHuge.limits.searchExtensions.includes(".bin")
+        && !normalizedHuge.limits.searchExtensions.includes(".exe")
+        && normalizedHuge.limits.searchExtensions.every((ext) => DEFAULT_FILE_TOOL_SEARCH_EXTENSIONS.includes(ext))
+        && invalid.limits.searchExtensions.length === 0;
+      const invalidOk = invalid.limits.maxReadBytes === undefined
+        && invalid.limits.maxReadChars === undefined
+        && invalid.limits.maxListEntries === undefined
+        && invalid.limits.maxSearchFiles === undefined;
+      const executionOk = hugeRead.status === "allow"
+        && hugeRead.routeResult.result.bytesRead <= DEFAULT_FILE_TOOL_MAX_READ_BYTES
+        && hugeRead.routeResult.result.content.length <= DEFAULT_FILE_TOOL_MAX_READ_CHARS
+        && loweredRead.status === "allow"
+        && loweredRead.routeResult.result.bytesRead <= 128
+        && loweredRead.routeResult.result.content.length <= 40
+        && routeCalls.some((call) => call.limits.maxReadBytes === DEFAULT_FILE_TOOL_MAX_READ_BYTES)
+        && routeCalls.some((call) => call.limits.maxReadBytes === 128);
+      const noWriteOk = writeRoute.toolName === "write"
+        && unsupportedWrite.status === "deny"
+        && unsupportedWrite.reason === "unsupported_file_tool";
+      const staticOk = runtimeFileToolAdapterSrc.includes("extractClampedPositiveInteger")
+        && runtimeFileToolAdapterSrc.includes("DEFAULT_FILE_TOOL_MAX_READ_BYTES")
+        && runtimeFileToolAdapterSrc.includes("DEFAULT_FILE_TOOL_SEARCH_EXTENSIONS")
+        && fileToolExecutorSrc.includes("export const DEFAULT_FILE_TOOL_SEARCH_EXTENSIONS")
+        && !runtimeFileToolAdapterSrc.includes("fs.");
+      const ok = clampOk && lowerOk && extOk && invalidOk && executionOk && noWriteOk && staticOk;
+      addTest("V2.14.0-K1 runtime adapter limits clamp: 只能收窄不能放大",
+        ok ? "pass" : "fail",
+        `clamp=${clampOk} lower=${lowerOk} ext=${extOk} invalid=${invalidOk} execution=${executionOk} noWrite=${noWriteOk} static=${staticOk}`);
     }
 
     {
