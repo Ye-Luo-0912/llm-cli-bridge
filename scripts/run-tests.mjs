@@ -9485,6 +9485,7 @@ if (!runV214BUnit) {
     const reportSrcV214K1 = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-K1_RUNTIME_ADAPTER_LIMITS_HARDENING.md"), "utf8");
     const reportSrcV214L = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-L_CLI_SDK_NATIVE_HANDOFF_SIMPLIFICATION.md"), "utf8");
     const reportSrcV214M = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-M_REAL_OBSIDIAN_SMOKE_NATIVE_HANDOFF_UX.md"), "utf8");
+    const reportSrcV214N = readFileSync(join(PROJECT_ROOT, "docs", "V2.14.0-N_REAL_OBSIDIAN_RUNTIME_SMOKE_RELEASE_UX.md"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
     const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
     const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
@@ -10751,6 +10752,44 @@ if (!runV214BUnit) {
       addTest("V2.14.0-M smoke/UX: native handoff refs、Working Set 状态、外部边界与 read-only runtime 不回归",
         ok ? "pass" : "fail",
         `handoff=${attachmentHandoffOk} ux=${workingSetUxOk} smoke=${reportSmokeOk} external=${externalBoundaryOk} runtime=${runtimeBoundaryOk}`);
+    }
+
+    {
+      const sectionsOk = [
+        "PluginArtifactFreshness",
+        "BridgeConnectivity",
+        "ObsidianViewSmoke",
+        "AttachmentSmoke",
+        "NativeFileReadSmoke",
+        "NativeVaultEditSmoke",
+        "ExternalBoundary",
+        "UXFixes",
+        "Tests",
+        "RemainingRisk",
+        "Recommendation",
+      ].every((heading) => reportSrcV214N.includes(`## ${heading}`));
+      const realSmokeEvidenceOk = reportSrcV214N.includes("D:\\Users\\Ye_Luo\\APP\\Obsidian\\LLM-Wiki")
+        && reportSrcV214N.includes("`pluginVersion` `2.12.1`")
+        && reportSrcV214N.includes("GET /state")
+        && reportSrcV214N.includes("show_notice")
+        && reportSrcV214N.includes("append_to_note")
+        && reportSrcV214N.includes("create_note");
+      const honestNativeLimitOk = reportSrcV214N.includes("UNKNOWN_CERTIFICATE_VERIFICATION_ERROR")
+        && reportSrcV214N.includes("environment-limited")
+        && !reportSrcV214N.includes("Native Claude Code execution passed");
+      const boundaryEvidenceOk = reportSrcV214N.includes("拒绝绝对路径")
+        && reportSrcV214N.includes("拒绝写入敏感路径")
+        && reportSrcV214N.includes("external write/delete/rename remains hard denied");
+      const noRuntimeExpansionOk = !runtimeFileToolAdapterSrc.includes("\"write\"")
+        && !runtimeFileToolAdapterSrc.includes("\"delete\"")
+        && !runtimeFileToolAdapterSrc.includes("\"rename\"")
+        && !runtimeFileToolAdapterSrc.includes("writeFile")
+        && !runtimeFileToolAdapterSrc.includes("unlink")
+        && !runtimeFileToolAdapterSrc.includes("rename(");
+      const ok = sectionsOk && realSmokeEvidenceOk && honestNativeLimitOk && boundaryEvidenceOk && noRuntimeExpansionOk;
+      addTest("V2.14.0-N real runtime smoke: artifact freshness、bridge 在线、边界真实验证且未扩展 runtime",
+        ok ? "pass" : "fail",
+        `sections=${sectionsOk} smoke=${realSmokeEvidenceOk} nativeLimit=${honestNativeLimitOk} boundary=${boundaryEvidenceOk} runtime=${noRuntimeExpansionOk}`);
     }
 
     {
