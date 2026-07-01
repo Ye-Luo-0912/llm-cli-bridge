@@ -539,7 +539,11 @@ export class LLMBridgeView extends ItemView {
 
     // 轻量 Context toggles；不再常驻展示空附件区域。
     const contextToggles = chatPanel.createDiv({ cls: "llm-bridge-context-toggles" });
-    contextToggles.createEl("span", { cls: "llm-bridge-context-toggles-label", text: "Context" });
+    contextToggles.createEl("span", {
+      cls: "llm-bridge-context-toggles-label",
+      text: "Sources",
+      attr: { title: "当前消息可启用的上下文来源" },
+    });
     const contextChipsRow = contextToggles.createDiv({ cls: "llm-bridge-context-toggle-chips" });
     this.pinnedContextEl = chatPanel.createEl("details", { cls: "llm-bridge-pinned-context" });
     this.pinnedContextEl.setAttribute("hidden", "");
@@ -547,7 +551,7 @@ export class LLMBridgeView extends ItemView {
     // V2.16-D: Context indicator（composer 上方轻量条，点击展开明细）
     const contextStrip = chatPanel.createDiv({ cls: "llm-bridge-context-strip" });
     this.contextRingEl = contextStrip.createDiv({ cls: "llm-bridge-context-ring" });
-    this.contextLabelEl = contextStrip.createDiv({ cls: "llm-bridge-context-label", text: "Context: —" });
+    this.contextLabelEl = contextStrip.createDiv({ cls: "llm-bridge-context-label", text: "Context estimate" });
     this.contextDetailEl = contextStrip.createDiv({ cls: "llm-bridge-context-detail" });
     this.contextDetailEl.setAttribute("hidden", "");
     contextStrip.addEventListener("click", (e) => {
@@ -916,11 +920,13 @@ export class LLMBridgeView extends ItemView {
     const chip = wrap.createEl("button", {
       cls: "llm-bridge-chip llm-bridge-chip-toggle",
       text: label,
+      attr: { "aria-pressed": String(check.checked) },
     });
     chip.addEventListener("click", async (e) => {
       e.preventDefault();
       if (this.runHandle) return;
       check.checked = !check.checked;
+      chip.setAttribute("aria-pressed", String(check.checked));
       await onToggle(check.checked);
       this.refreshAllChips();
     });
@@ -943,9 +949,15 @@ export class LLMBridgeView extends ItemView {
 
     // 上下文 chip 勾选态
     const noteChip = this.includeNoteCheckEl.parentElement?.querySelector(".llm-bridge-chip-toggle");
-    if (noteChip) noteChip.classList.toggle("is-active", this.plugin.settings.includeActiveNote);
+    if (noteChip) {
+      noteChip.classList.toggle("is-active", this.plugin.settings.includeActiveNote);
+      noteChip.setAttribute("aria-pressed", String(this.plugin.settings.includeActiveNote));
+    }
     const selChip = this.includeSelectionCheckEl.parentElement?.querySelector(".llm-bridge-chip-toggle");
-    if (selChip) selChip.classList.toggle("is-active", this.plugin.settings.includeSelection);
+    if (selChip) {
+      selChip.classList.toggle("is-active", this.plugin.settings.includeSelection);
+      selChip.setAttribute("aria-pressed", String(this.plugin.settings.includeSelection));
+    }
   }
 
   private refreshCycleChip(wrap: HTMLElement, options: { value: string; label: string }[], v: string): void {
@@ -1218,12 +1230,20 @@ export class LLMBridgeView extends ItemView {
 
   private updateContextDisplay(): void {
     const f = this.app.workspace.getActiveFile();
-    this.activeFileLabelEl.textContent = f ? f.path : "";
+    this.activeFileLabelEl.textContent = f ? path.basename(f.path) : "";
     const sel = this.getSelection();
     if (sel) {
-      this.selectionLabelEl.textContent = `${sel.length} chars`;
+      this.selectionLabelEl.textContent = `${sel.length}c`;
     } else {
       this.selectionLabelEl.textContent = "";
+    }
+    const noteChip = this.includeNoteCheckEl.parentElement?.querySelector<HTMLElement>(".llm-bridge-chip-toggle");
+    if (noteChip) {
+      noteChip.setAttribute("title", f ? `当前笔记：${f.path}` : "当前没有活动笔记");
+    }
+    const selectionChip = this.includeSelectionCheckEl.parentElement?.querySelector<HTMLElement>(".llm-bridge-chip-toggle");
+    if (selectionChip) {
+      selectionChip.setAttribute("title", sel ? `当前选区：${sel.length} chars` : "当前没有选区");
     }
   }
 
@@ -3662,7 +3682,7 @@ export class LLMBridgeView extends ItemView {
       this.lastContextMetrics = displayMetrics;
       this.renderContextMetrics(displayMetrics);
     } catch {
-      this.contextLabelEl.textContent = "Context: —";
+      this.contextLabelEl.textContent = "Context estimate";
     }
   }
 
@@ -3676,15 +3696,15 @@ export class LLMBridgeView extends ItemView {
     this.contextRingEl.classList.add(`is-${metrics.precision}`);
     this.contextRingEl.style.cssText = `background: conic-gradient(${color} ${pct * 3.6}deg, var(--background-modifier-border) ${pct * 3.6}deg);`;
     if (metrics.precision === "unavailable") {
-      this.contextLabelEl.textContent = `Context: unavailable · local estimate in details`;
+      this.contextLabelEl.textContent = "Context estimate";
     } else {
-      const precisionTag = metrics.precision === "estimated" ? " · estimated" : " · exact";
-      this.contextLabelEl.textContent = `Context: ${formatTokens(total)} / ${formatTokens(win)}${precisionTag}`;
+      const precisionTag = metrics.precision === "estimated" ? " · estimated" : "";
+      this.contextLabelEl.textContent = `Context ${formatTokens(total)} / ${formatTokens(win)}${precisionTag}`;
     }
     this.contextLabelEl.setAttribute("title", `Exact runtime usage: ${metrics.precision === "exact" ? "available" : "unavailable"}\nLocal estimate: ${metrics.total.tokens} tokens (${metrics.total.chars} chars)\nWindow: ${formatTokens(win)}\nPrecision: ${metrics.precision}`);
     this.contextDetailEl.empty();
     const precisionRow = this.contextDetailEl.createDiv({ cls: "llm-bridge-context-detail-row" });
-    precisionRow.createEl("span", { cls: "llm-bridge-context-detail-label", text: "Usage source" });
+    precisionRow.createEl("span", { cls: "llm-bridge-context-detail-label", text: "Source" });
     precisionRow.createEl("span", {
       cls: "llm-bridge-context-detail-value",
       text: metrics.precision === "exact" ? "exact runtime usage" : metrics.precision === "estimated" ? "local estimate" : "unavailable; showing local estimated breakdown",

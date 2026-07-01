@@ -12232,8 +12232,8 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 12: context 主显示不再把本地 estimated 当 exact usage ----
   {
     const ok = viewSrc.includes('precision: "unavailable"')
-      && viewSrc.includes("local estimate in details")
-      && viewSrc.includes("Usage source")
+      && viewSrc.includes('this.contextLabelEl.textContent = "Context estimate"')
+      && viewSrc.includes('text: "Source"')
       && viewSrc.includes("is-unavailable")
       && contextMetricsSrc.includes('precision: "exact" | "estimated" | "unavailable"');
     addTest("V2.16-D context: exact/unavailable/estimated 状态区分", ok ? "pass" : "fail", "");
@@ -12309,6 +12309,15 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("Developer mode keeps the legacy global Run Flow")
       && viewSrc.includes("if (this.plugin.settings.developerMode) {\n      this.renderRunFlowPanel(chatPanel);");
     addTest("V2.16-F assistant turn: Markdown 输出 + 内联过程 + 用户态无全局 Run Flow", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 19: 聊天 Markdown 代码块复制按钮隐藏；Context 源显示改为更轻量文案 ----
+  {
+    const ok = stylesSrc.includes(".llm-bridge-msg-markdown .copy-code-button")
+      && stylesSrc.includes("display: none !important;")
+      && viewSrc.includes('text: "Sources"')
+      && viewSrc.includes('text: "Context estimate"');
+    addTest("V2.16-F chat/context polish: 隐藏复制按钮并压缩 Context 文案", ok ? "pass" : "fail", "");
   }
 }
 
