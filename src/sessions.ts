@@ -18,7 +18,7 @@ import { SessionState } from "./session";
 export const SESSIONS_DIR_REL = ".llm-bridge/sessions";
 
 /** session 文件 schema 版本（升级时递增，配合迁移逻辑） */
-export const SESSION_SCHEMA_VERSION = 1;
+export const SESSION_SCHEMA_VERSION = 2;
 
 /** 历史会话列表上限（超过时按 savedAt 升序淘汰最旧；防止目录膨胀） */
 export const MAX_SESSIONS_KEPT = 50;
@@ -40,6 +40,19 @@ export interface PersistedSession {
   savedAt: string;
   agentType: string;
   messages: ChatMessage[];
+  // V2.16-D: 运行时状态持久化（v2 新增，可选字段；v1 文件迁移时填充默认值）
+  /** working set 文件引用（恢复会话时还原） */
+  workingSetRefs?: unknown[];
+  /** 会话模式 fresh/continue/resume */
+  sessionMode?: string;
+  /** 模型 id */
+  model?: string;
+  /** effort level */
+  effortLevel?: string;
+  /** backend 模式 auto/cli/sdk/mock */
+  backendMode?: string;
+  /** SDK 权限模式 */
+  permissionMode?: string;
 }
 
 /**
@@ -53,8 +66,25 @@ export interface SessionListItem {
   startedAt: string | null;
   savedAt: string;
   agentType: string;
+  /** 首条用户请求摘要，用于最近会话下拉辨识 */
+  firstUserSummary: string;
+  /** 最后一条 assistant 回复摘要，用于最近会话下拉辨识 */
+  lastAssistantSummary: string;
   /** 文件大小（字节，用于 UI 提示） */
   sizeBytes: number;
+}
+
+/**
+ * V2.16-D: 会话运行时状态快照（保存时由 view 传入，恢复时还原）
+ * 这些字段可选；不传时 session 文件不记录对应状态
+ */
+export interface SessionExtras {
+  workingSetRefs?: unknown[];
+  sessionMode?: string;
+  model?: string;
+  effortLevel?: string;
+  backendMode?: string;
+  permissionMode?: string;
 }
 
 /**
@@ -64,6 +94,23 @@ export function generateSessionId(): string {
   const ts = new Date().toISOString().replace(/[:.]/g, "-");
   const rand = Math.random().toString(36).slice(2, 8);
   return `s-${ts}-${rand}`;
+}
+
+function summarizeSessionText(value: unknown, maxLen = 96): string {
+  const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  if (!text) return "";
+  return text.length > maxLen ? `${text.slice(0, maxLen - 1)}…` : text;
+}
+
+function extractSessionSummaries(messages: unknown): { firstUserSummary: string; lastAssistantSummary: string } {
+  if (!Array.isArray(messages)) return { firstUserSummary: "", lastAssistantSummary: "" };
+  const firstUser = messages.find((msg) => msg && typeof msg === "object" && (msg as { role?: unknown }).role === "user") as { content?: unknown } | undefined;
+  const assistantMessages = messages.filter((msg) => msg && typeof msg === "object" && (msg as { role?: unknown }).role === "assistant") as Array<{ content?: unknown }>;
+  const lastAssistant = assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1] : undefined;
+  return {
+    firstUserSummary: summarizeSessionText(firstUser?.content),
+    lastAssistantSummary: summarizeSessionText(lastAssistant?.content),
+  };
 }
 
 /**
@@ -135,6 +182,7 @@ export async function saveSession(
   messages: ReadonlyArray<ChatMessage>,
   agentType: string,
   sessionId?: string,
+  extras?: SessionExtras,
 ): Promise<string | null> {
   try {
     const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
@@ -154,6 +202,13 @@ export async function saveSession(
       savedAt: new Date().toISOString(),
       agentType,
       messages: redactSessionMessages(messages),
+      // V2.16-D: 运行时状态快照（可选；存在则恢复时还原）
+      ...(extras?.workingSetRefs ? { workingSetRefs: extras.workingSetRefs } : {}),
+      ...(extras?.sessionMode ? { sessionMode: extras.sessionMode } : {}),
+      ...(extras?.model ? { model: extras.model } : {}),
+      ...(extras?.effortLevel ? { effortLevel: extras.effortLevel } : {}),
+      ...(extras?.backendMode ? { backendMode: extras.backendMode } : {}),
+      ...(extras?.permissionMode ? { permissionMode: extras.permissionMode } : {}),
     };
 
     // 原子写：tmp + rename
@@ -195,6 +250,7 @@ export async function listSessions(vaultPath: string): Promise<SessionListItem[]
       const parsed = JSON.parse(content) as Partial<PersistedSession>;
       // 基本字段校验
       if (!parsed.id || typeof parsed.messageCount !== "number") continue;
+      const summaries = extractSessionSummaries(parsed.messages);
       items.push({
         id: parsed.id,
         title: parsed.title || "新会话",
@@ -203,6 +259,8 @@ export async function listSessions(vaultPath: string): Promise<SessionListItem[]
         startedAt: parsed.startedAt || null,
         savedAt: parsed.savedAt || new Date(stat.mtimeMs).toISOString(),
         agentType: parsed.agentType || "claude",
+        firstUserSummary: summaries.firstUserSummary,
+        lastAssistantSummary: summaries.lastAssistantSummary,
         sizeBytes: stat.size,
       });
     } catch {
@@ -242,7 +300,7 @@ export function migrateSession(parsed: unknown): PersistedSession | null {
   if (typeof p.version !== "number") return null;
   // 高版本不降级
   if (p.version > SESSION_SCHEMA_VERSION) return null;
-  // 迁移步骤占位（v1 → v1 直通；未来 v1 → v2 在此添加）
+  // V2.16-D: v1 → v2 迁移（运行时状态字段为可选，v1 文件无需补字段；读取时按需提供默认值）
   // 迁移后必需字段校验
   if (typeof p.id !== "string" || !p.id) return null;
   if (!Array.isArray(p.messages)) return null;
@@ -257,6 +315,13 @@ export function migrateSession(parsed: unknown): PersistedSession | null {
     savedAt: typeof p.savedAt === "string" ? p.savedAt : new Date().toISOString(),
     agentType: typeof p.agentType === "string" ? p.agentType : "claude",
     messages: p.messages as ChatMessage[],
+    // V2.16-D: 可选运行时状态字段（v1 文件无此字段，留空；恢复时若缺失则保留当前设置）
+    ...(Array.isArray(p.workingSetRefs) ? { workingSetRefs: p.workingSetRefs } : {}),
+    ...(typeof p.sessionMode === "string" ? { sessionMode: p.sessionMode } : {}),
+    ...(typeof p.model === "string" ? { model: p.model } : {}),
+    ...(typeof p.effortLevel === "string" ? { effortLevel: p.effortLevel } : {}),
+    ...(typeof p.backendMode === "string" ? { backendMode: p.backendMode } : {}),
+    ...(typeof p.permissionMode === "string" ? { permissionMode: p.permissionMode } : {}),
   };
 }
 

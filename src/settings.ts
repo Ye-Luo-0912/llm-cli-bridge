@@ -121,6 +121,17 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
+      .setName("保持上次会话")
+      .setDesc("插件重载、视图关闭再打开、Obsidian 重启后自动恢复上次活动会话（消息、working set、模式、模型/effort、backend、权限模式）。新聊天按钮才创建新会话。")
+      .addToggle((t) =>
+        t.setValue(s.keepLastSession).onChange(async (v) => {
+          s.keepLastSession = v;
+          if (!v) s.lastActiveSessionId = "";
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
       .setName("权限模式 (--permission-mode)")
       .setDesc("SDK 与 CLI 共用的权限模式。default=默认询问；acceptEdits=自动接受编辑；plan=只读规划；auto=自动决策；dontAsk=不询问；bypassPermissions=跳过所有权限（危险）。默认 default。风险说明见面板状态栏。")
       .addDropdown((d) => {
@@ -283,6 +294,17 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         t.setValue(s.devTestMode).onChange(async (v) => {
           s.devTestMode = v;
           await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Developer mode")
+      .setDesc("默认关闭。开启后在聊天消息中显示 raw command、workflow trace、debug log 与完整 SDK raw log。普通用户界面保持精简。")
+      .addToggle((t) =>
+        t.setValue(s.developerMode).onChange(async (v) => {
+          s.developerMode = v;
+          await this.plugin.saveSettings();
+          this.plugin.refreshBridgeView();
         }),
       );
 

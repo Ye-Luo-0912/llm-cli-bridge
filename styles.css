@@ -142,8 +142,8 @@
 }
 
 .llm-bridge-topbar {
-  min-height: 54px;
-  padding: 10px 14px;
+  min-height: 44px;
+  padding: 6px 12px;
   background: color-mix(in srgb, var(--background-primary) 86%, transparent);
   backdrop-filter: blur(12px);
 }
@@ -188,9 +188,10 @@
 .llm-bridge-session-selector {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  max-width: min(360px, 44%);
-  padding: 7px 12px;
+  gap: 6px;
+  max-width: min(280px, 40%);
+  min-width: 0;
+  padding: 4px 10px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 9px;
   background: var(--background-secondary);
@@ -233,11 +234,11 @@
 .llm-bridge-runtime-status {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  min-width: 154px;
-  padding: 7px 12px;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 10px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 9px;
+  border-radius: 999px;
   background: var(--background-secondary);
 }
 
@@ -780,6 +781,70 @@
   padding: 8px 20px;
   border-top: 1px solid var(--background-modifier-border);
   background: color-mix(in srgb, var(--background-primary) 84%, transparent);
+}
+
+/* V2.16-D: Context indicator strip（composer 上方轻量条） */
+.llm-bridge-context-strip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 20px;
+  border-top: 1px solid var(--background-modifier-border);
+  background: color-mix(in srgb, var(--background-primary) 80%, transparent);
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+}
+.llm-bridge-context-strip:hover {
+  background: var(--background-modifier-hover);
+}
+.llm-bridge-context-ring {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--background-modifier-border);
+  border: 1.5px solid var(--background-primary);
+  box-shadow: 0 0 0 1px var(--background-modifier-border);
+}
+.llm-bridge-context-label {
+  flex: 0 0 auto;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.llm-bridge-context-detail {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-left: auto;
+}
+.llm-bridge-context-detail[hidden] { display: none; }
+.llm-bridge-context-detail-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--background-secondary);
+}
+.llm-bridge-context-detail-label {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.llm-bridge-context-detail-value {
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+}
+.llm-bridge-context-detail-chars {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+.llm-bridge-context-compression {
+  border: 1px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
 }
 
 .llm-bridge-working-set-context {
@@ -1687,6 +1752,7 @@
   font-weight: 600;
   color: var(--text-normal);
   flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2666,6 +2732,20 @@
     min-width: 0;
   }
 
+  /* V2.16-D: 窄屏 header 压缩 — 隐藏 kicker，缩短新聊天按钮 */
+  .llm-bridge-session-kicker {
+    display: none;
+  }
+
+  .llm-bridge-new-chat-btn {
+    padding: 4px 8px;
+    font-size: var(--font-smallest);
+  }
+
+  .llm-bridge-topbar-title {
+    display: none;
+  }
+
   .llm-bridge-composer-bar {
     grid-template-columns: 1fr;
   }
@@ -2735,12 +2815,31 @@
 }
 .llm-bridge-session-dropdown-item.is-current {
   border-color: rgba(var(--interactive-accent-rgb), 0.45);
+  background: rgba(var(--interactive-accent-rgb), 0.08);
 }
 .llm-bridge-session-dropdown-name {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.llm-bridge-session-dropdown-request,
+.llm-bridge-session-dropdown-reply {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  line-height: 1.35;
+}
+.llm-bridge-session-dropdown-request::before {
+  content: "User: ";
+  color: var(--text-faint);
+}
+.llm-bridge-session-dropdown-reply::before {
+  content: "Agent: ";
+  color: var(--text-faint);
 }
 .llm-bridge-session-dropdown-meta,
 .llm-bridge-session-dropdown-empty {

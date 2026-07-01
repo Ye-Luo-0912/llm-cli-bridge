@@ -23,8 +23,9 @@ import { SdkBackend, isSdkAvailable } from "./sdkBackend";
 import { getRuntimeModelCatalog, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
 import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
 import { adaptEventsToTimeline, computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, truncatePath, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
+import { computeContextMetrics, formatTokens, formatCompressionRatio, type ContextMetrics, type CompressionInfo } from "./contextMetrics";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
-import { PersistedSession, SessionListItem, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
+import { PersistedSession, SessionListItem, SessionExtras, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
 import { AgentSkillRecord, loadAgentSkillsManifest, saveAgentSkillsManifest } from "./agentSkills";
 import { getPermissionModeInfo, type PermissionChoice } from "./sdkPermission";
 import {
@@ -294,6 +295,11 @@ export class LLMBridgeView extends ItemView {
   private attachmentFileInputEl!: HTMLInputElement;
   private workingSetEl!: HTMLElement;
   private filesWorkingSetEl!: HTMLElement;
+  // V2.16-D: Context metrics UI 元素
+  private contextRingEl!: HTMLElement;
+  private contextLabelEl!: HTMLElement;
+  private contextDetailEl!: HTMLElement;
+  private lastContextMetrics: ContextMetrics | null = null;
   // V2.3: 最近一次 SDK 运行的工具数与 agent 数（用于状态栏展示）
   private lastSdkToolCount = 0;
   private lastSdkAgentCount = 0;
@@ -356,7 +362,7 @@ export class LLMBridgeView extends ItemView {
     });
     this.statusLabelEl = runtimeStatus.createEl("span", {
       cls: "llm-bridge-status-text",
-      text: "Claude Code fallback · 待命",
+      text: "SDK · ready",
     });
 
     // agent selector 迁入 composer 右侧；header 只保留 compact runtime status。
@@ -533,6 +539,22 @@ export class LLMBridgeView extends ItemView {
     const contextChipsRow = workingSetStrip.createDiv({ cls: "llm-bridge-working-set-context" });
     this.workingSetEl = workingSetStrip.createDiv({ cls: "llm-bridge-working-set llm-bridge-working-set-refs" });
 
+    // V2.16-D: Context indicator（composer 上方轻量条，点击展开明细）
+    const contextStrip = chatPanel.createDiv({ cls: "llm-bridge-context-strip" });
+    this.contextRingEl = contextStrip.createDiv({ cls: "llm-bridge-context-ring" });
+    this.contextLabelEl = contextStrip.createDiv({ cls: "llm-bridge-context-label", text: "Context: —" });
+    this.contextDetailEl = contextStrip.createDiv({ cls: "llm-bridge-context-detail" });
+    this.contextDetailEl.setAttribute("hidden", "");
+    contextStrip.addEventListener("click", (e) => {
+      const target = e.target as HTMLElement;
+      if (target.closest(".llm-bridge-context-detail")) return;
+      if (this.contextDetailEl.hasAttribute("hidden")) {
+        this.contextDetailEl.removeAttribute("hidden");
+      } else {
+        this.contextDetailEl.setAttribute("hidden", "");
+      }
+    });
+
     // ===== 底部 composer =====
     const composer = chatPanel.createDiv({ cls: "llm-bridge-composer" });
 
@@ -619,6 +641,9 @@ export class LLMBridgeView extends ItemView {
     });
     // V2.15-H: 监听 input 事件，检测 @ 提及触发 inline 文件选择器
     this.inputEl.addEventListener("input", () => this.handleMentionInput());
+    this.inputEl.addEventListener("paste", (event) => {
+      void this.handleComposerPaste(event);
+    });
     this.registerDomEvent(document, "pointerdown", (event) => {
       if (!this.mentionPickerEl || this.mentionPickerEl.hasAttribute("hidden")) return;
       const target = event.target as HTMLElement | null;
@@ -688,15 +713,21 @@ export class LLMBridgeView extends ItemView {
     this.refreshSessionState();
     void this.refreshAgentSkills();
     void this.refreshHistory();
+    // V2.16-D: 会话保持 — onOpen 时若启用 keepLastSession 且存在 lastActiveSessionId，自动恢复
+    void this.restoreLastActiveSessionIfNeeded();
+    // V2.16-D: 初始 context metrics 估算
+    void this.refreshContextMetrics();
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
       this.updateContextDisplay();
       this.refreshStatusBar();
+      void this.refreshContextMetrics();
     }));
     // V2.10 (B-001): 订阅 file-open 事件，确保同一 pane 内切换文件时 chip 立即更新
     // active-leaf-change 在某些场景（如快速切换同 pane 文件）可能延迟或不触发，file-open 更可靠
     this.registerEvent(this.app.workspace.on("file-open", () => {
       this.updateContextDisplay();
+      void this.refreshContextMetrics();
     }));
 
     // 注册 pending action 回调到 httpBridge
@@ -1291,7 +1322,8 @@ export class LLMBridgeView extends ItemView {
       runtimeLabel = "Mock";
     }
     this.actualRuntimeLabel = runtimeLabel;
-    const runtimeState = this.sessionState.status === "failed" ? "失败" : this.sessionState.status === "running" ? "运行中" : "已连接";
+    // V2.16-D: runtime status 缩成 pill（简短英文：SDK · ready / running / error）
+    const runtimeState = this.sessionState.status === "failed" ? "error" : this.sessionState.status === "running" ? "running" : "ready";
     this.statusLabelEl.textContent = `${runtimeLabel} · ${runtimeState}`;
     // Cwd（Vault 根目录）— getBasePath 运行时存在但类型未声明，用 as 绕过
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
@@ -1502,8 +1534,14 @@ export class LLMBridgeView extends ItemView {
     return result.ref;
   }
 
-  public async addAttachmentFileRefWithIngestion(requestedPath: string): Promise<FileRef | null> {
-    const ref = this.addAttachmentFileRef(requestedPath, { source: "attachment" });
+  public async addAttachmentFileRefWithIngestion(
+    requestedPath: string,
+    options: { pathKind?: FileAccessPathKind; source?: string } = {},
+  ): Promise<FileRef | null> {
+    const ref = this.addAttachmentFileRef(requestedPath, {
+      pathKind: options.pathKind || "file",
+      source: options.source || "attachment",
+    });
     if (!ref) return null;
     const result = await ingestAttachmentTextSnippet(ref);
     this.attachmentTextSnippets = this.attachmentTextSnippets.filter((snippet) => snippet.refId !== ref.id);
@@ -1566,14 +1604,16 @@ export class LLMBridgeView extends ItemView {
   }
 
   private async addAttachmentPathWithNotice(requestedPath: string): Promise<void> {
-    const ref = await this.addAttachmentFileRefWithIngestion(requestedPath);
+    const refs = await this.addUserFilePathsToWorkingSet([requestedPath], "path");
+    const ref = refs[0];
     if (!ref) {
-      new Notice("附件路径无效，未加入 Working Set");
+      new Notice(`文件路径无效或不可访问，未加入 Working Set：${requestedPath}`);
       return;
     }
     const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id);
     const type = classifyFileTypeByPath(ref.resolvedPath);
-    new Notice(snippet ? `已添加附件并读取 bounded snippet：${ref.displayName}` : `已添加附件引用：${ref.displayName} (${type})`);
+    const kindLabel = ref.kind === "vault" ? "Vault 文件" : "附件引用";
+    new Notice(snippet ? `已添加${kindLabel}并读取 bounded snippet：${ref.displayName}` : `已添加${kindLabel}：${ref.displayName} (${type})`);
   }
 
   // V2.15-H: @ 提及文件选择器 —— 输入框上方 inline popup（替代独立 Modal）
@@ -1734,11 +1774,75 @@ export class LLMBridgeView extends ItemView {
       .map((file) => this.extractNativeFilePath(file))
       .filter((filePath): filePath is string => !!filePath);
     if (paths.length === 0) {
-      new Notice("原生文件选择器未返回 path；请在输入框使用 @ 选择 Vault 文件。");
+      new Notice("原生文件选择器未返回 path；请使用 @ 选择 Vault 文件，或粘贴/输入文件路径。");
       return;
     }
-    const refs = await this.addAttachmentFilesWithIngestion(paths);
+    const refs = await this.addUserFilePathsToWorkingSet(paths, "native-picker");
     new Notice(`已添加 ${refs.length}/${paths.length} 个附件到 Working Set`);
+  }
+
+  private async handleComposerPaste(event: ClipboardEvent): Promise<void> {
+    const files = event.clipboardData?.files;
+    if (files && files.length > 0) {
+      event.preventDefault();
+      await this.addFilesFromFileList(files);
+      return;
+    }
+
+    const text = event.clipboardData?.getData("text/plain") || "";
+    const paths = this.extractPastedFilePaths(text);
+    if (paths.length === 0) return;
+    event.preventDefault();
+    const refs = await this.addUserFilePathsToWorkingSet(paths, "paste");
+    if (refs.length === 0) {
+      new Notice(`未能添加粘贴的文件路径：${paths[0]}`);
+      return;
+    }
+    new Notice(`已从粘贴内容添加 ${refs.length}/${paths.length} 个文件到 Working Set`);
+  }
+
+  private async addUserFilePathsToWorkingSet(requestedPaths: string[], source: string): Promise<FileRef[]> {
+    const refs: FileRef[] = [];
+    for (const rawPath of requestedPaths) {
+      const requestedPath = rawPath.trim();
+      if (!requestedPath) continue;
+      const vaultRef = this.addVaultFileRef(requestedPath, { source });
+      if (vaultRef) {
+        refs.push(vaultRef);
+        continue;
+      }
+      const attachmentRef = await this.addAttachmentFileRefWithIngestion(requestedPath, { source });
+      if (attachmentRef) refs.push(attachmentRef);
+    }
+    return refs;
+  }
+
+  private extractPastedFilePaths(text: string): string[] {
+    const seen = new Set<string>();
+    const paths: string[] = [];
+    for (const rawLine of text.split(/\r?\n/)) {
+      let candidate = rawLine.trim();
+      if (!candidate) continue;
+      candidate = candidate.replace(/^file:\/\//i, "");
+      candidate = candidate.replace(/^["'`]+|["'`]+$/g, "");
+      try {
+        candidate = decodeURIComponent(candidate);
+      } catch {
+        // Keep the original text if it is not URL encoded.
+      }
+      const looksLikePath = path.isAbsolute(candidate)
+        || /^[A-Za-z]:[\\/]/.test(candidate)
+        || candidate.startsWith("./")
+        || candidate.startsWith("../")
+        || candidate.includes("\\")
+        || /\/[^/\s]+/.test(candidate);
+      if (!looksLikePath) continue;
+      if (!seen.has(candidate)) {
+        seen.add(candidate);
+        paths.push(candidate);
+      }
+    }
+    return paths;
   }
 
   private extractNativeFilePath(file: File): string | null {
@@ -2065,17 +2169,18 @@ export class LLMBridgeView extends ItemView {
   private appendMsgDetails(block: HTMLElement, msg: ChatMessage): void {
     const details = block.createDiv({ cls: "llm-bridge-msg-details" });
     const failed = msg.status === "failed";
+    const developerMode = !!this.plugin.settings.developerMode;
 
     // V1.5: 命令预览区（UI-only，展示本次实际执行的 command/args/cwd/上下文）
-    if (msg.role === "assistant" && msg.commandPreview && msg.commandPreview.length > 0) {
+    if (developerMode && msg.role === "assistant" && msg.commandPreview && msg.commandPreview.length > 0) {
       this.appendCommandPreview(details, msg.commandPreview);
     }
 
     // V1.5: Workflow Trace 区域（UI-only，比 V1.2 timeline 更细粒度）
     // 优先显示 workflowTrace；若不存在则回退到 V1.2 timeline
-    if (msg.role === "assistant" && msg.workflowTrace && msg.workflowTrace.length > 0) {
+    if (developerMode && msg.role === "assistant" && msg.workflowTrace && msg.workflowTrace.length > 0) {
       this.appendWorkflowTrace(details, msg.workflowTrace);
-    } else if (msg.role === "assistant" && msg.timeline && msg.timeline.length > 0) {
+    } else if (developerMode && msg.role === "assistant" && msg.timeline && msg.timeline.length > 0) {
       // V1.2: 运行过程时间线（向后兼容）
       this.appendTimeline(details, msg.timeline);
     }
@@ -2088,11 +2193,11 @@ export class LLMBridgeView extends ItemView {
       this.updateLastSdkStats(msg.sdkEvents);
     }
 
-    if (msg.stderr) {
+    if (msg.stderr && (failed || developerMode)) {
       const startOpen = false;
       this.appendCollapsible(details, failed ? "查看详情" : "stderr", msg.stderr, "llm-bridge-stderr-text", startOpen, failed);
       // V1.2/V1.5: 失败时提取 debug log 路径，提供可点击/复制/打开按钮
-      if (failed) {
+      if (failed && developerMode) {
         const logPathMatch = msg.stderr.match(/Debug log:\s*(.+)/);
         if (logPathMatch && logPathMatch[1]) {
           const debugLogBody = this.createCollapsibleSection(details, "debug log", "llm-bridge-debug-log-collapse", false);
@@ -2100,7 +2205,7 @@ export class LLMBridgeView extends ItemView {
         }
       }
     }
-    if (msg.log) {
+    if (developerMode && msg.log) {
       this.appendCollapsible(details, "log", msg.log, "llm-bridge-log-text", false, false);
     }
     if (msg.generatedFiles.length > 0) {
@@ -2252,7 +2357,7 @@ export class LLMBridgeView extends ItemView {
     if (!liveEl) {
       liveEl = block.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-live", attr: { "data-live": "true" } });
     }
-    const nodes = adaptEventsToTimeline(this.liveTimelineEvents);
+    const nodes = this.filterUserFacingTimelineNodes(adaptEventsToTimeline(this.liveTimelineEvents));
     liveEl.empty();
     for (const node of nodes) {
       this.renderTimelineNode(liveEl, node, true);
@@ -2296,6 +2401,19 @@ export class LLMBridgeView extends ItemView {
   /**
    * V2.16-C: 渲染单个 timeline node（现代 Claude/Codex 风格垂直节点）
    */
+  private filterUserFacingTimelineNodes(nodes: TimelineNode[]): TimelineNode[] {
+    if (this.plugin.settings.developerMode) return nodes;
+    return nodes.filter((node) => {
+      if (node.kind === "session_started" || node.kind === "thought") return false;
+      if (node.kind === "tool_call" && node.toolInput) {
+        const toolPath = extractToolPath(node.toolName ?? "", node.toolInput);
+        if (toolPath && isInternalFilePath(toolPath)) return false;
+      }
+      if (node.kind === "file_change" && node.filePath && isInternalFilePath(node.filePath)) return false;
+      return true;
+    });
+  }
+
   private renderTimelineNode(parent: HTMLElement, node: TimelineNode, isLive: boolean): void {
     const item = parent.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-" + node.kind });
     item.createDiv({ cls: "llm-bridge-tl-dot" });
@@ -2358,13 +2476,19 @@ export class LLMBridgeView extends ItemView {
   private appendSdkWorkflow(parent: HTMLElement, events: ReadonlyArray<WorkflowEvent>): void {
     // V2.16-C: 现代 Claude/Codex 风格 timeline + 折叠行为
     // 用 timelineAdapter 转换事件为分类合并的 node 列表
-    const nodes = adaptEventsToTimeline(events);
+    const nodes = this.filterUserFacingTimelineNodes(adaptEventsToTimeline(events));
     const stats = computeTimelineStats(nodes);
     const hasFailed = nodes.some((n) => n.kind === "failed" || n.kind === "error");
     const summary = hasFailed ? formatFailedSummary(nodes) : formatCompletedSummary(stats);
 
     // 折叠区容器：completed 后默认折叠（只保留摘要），failed 时展开错误
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap" });
+    // V2.16-D: completed 后隐藏 live timeline（仅保留折叠摘要），避免过程与摘要同时展示
+    const block = parent.parentElement;
+    if (block) {
+      const liveSibling = block.querySelector<HTMLElement>(".llm-bridge-timeline-live");
+      if (liveSibling) liveSibling.setAttribute("hidden", "");
+    }
     const headEl = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
     headEl.createEl("span", { cls: "llm-bridge-timeline-toggle", text: hasFailed ? "▶ " : "▶ " });
     headEl.createEl("span", { cls: "llm-bridge-timeline-summary", text: summary });
@@ -2379,12 +2503,17 @@ export class LLMBridgeView extends ItemView {
       this.renderTimelineNode(timelineEl, node, false);
     }
 
-    // raw log 默认折叠（保留在独立折叠区）
-    const rawBody = bodyEl.createDiv({ cls: "llm-bridge-timeline-raw" });
-    const rawHead = rawBody.createDiv({ cls: "llm-bridge-timeline-raw-head" });
-    rawHead.createEl("span", { cls: "llm-bridge-timeline-raw-toggle", text: "▶ Raw log" });
-    const rawContent = rawBody.createDiv({ cls: "llm-bridge-timeline-raw-body", attr: { hidden: "" } });
-    rawContent.createEl("pre", { cls: "llm-bridge-timeline-raw-text", text: JSON.stringify(events, null, 2) });
+    let rawToggle: Element | null = null;
+    let rawContent: HTMLElement | null = null;
+    if (this.plugin.settings.developerMode) {
+      // raw log 默认折叠；普通用户态不渲染
+      const rawBody = bodyEl.createDiv({ cls: "llm-bridge-timeline-raw" });
+      const rawHead = rawBody.createDiv({ cls: "llm-bridge-timeline-raw-head" });
+      rawHead.createEl("span", { cls: "llm-bridge-timeline-raw-toggle", text: "▶ Raw log" });
+      rawContent = rawBody.createDiv({ cls: "llm-bridge-timeline-raw-body", attr: { hidden: "" } });
+      rawContent.createEl("pre", { cls: "llm-bridge-timeline-raw-text", text: JSON.stringify(events, null, 2) });
+      rawToggle = rawHead.querySelector(".llm-bridge-timeline-raw-toggle");
+    }
 
     // 折叠交互
     const toggle = headEl.querySelector(".llm-bridge-timeline-toggle")!;
@@ -2398,8 +2527,8 @@ export class LLMBridgeView extends ItemView {
         toggle.textContent = "▶ ";
       }
     });
-    const rawToggle = rawHead.querySelector(".llm-bridge-timeline-raw-toggle")!;
-    rawToggle.addEventListener("click", () => {
+    rawToggle?.addEventListener("click", () => {
+      if (!rawContent) return;
       const hidden = rawContent.hasAttribute("hidden");
       if (hidden) {
         rawContent.removeAttribute("hidden");
@@ -2753,6 +2882,11 @@ export class LLMBridgeView extends ItemView {
     this.currentSessionId = null; // 新会话不绑定旧 id，下次运行将生成新 id
     this.messagesFoldExpanded = false; // V2.7: 重置折叠状态
     this.sessionState = createNewSession();
+    // V2.16-D: 新聊天清除 lastActiveSessionId（新会话不自动恢复）
+    if (this.plugin.settings.keepLastSession) {
+      this.plugin.settings.lastActiveSessionId = "";
+      void this.plugin.saveSettings();
+    }
     this.renderEmptyState();
     this.refreshSessionState();
     this.clearRunFlow();
@@ -2778,11 +2912,98 @@ export class LLMBridgeView extends ItemView {
     const sessionSelector = this.sessionTitleEl?.closest(".llm-bridge-session-selector");
     if (sessionSelector) {
       sessionSelector.className = `llm-bridge-session-selector ${sessionStatusClass(this.sessionState.status)}`;
+      // V2.16-D: title 属性显示完整 session title（hover 查看截断的完整内容）
+      (sessionSelector as HTMLElement).setAttribute("title", this.sessionState.title || "当前会话");
     }
     // 会话标题行着色（按状态）
     const titleRow = this.statusBarEl.querySelector(".llm-bridge-sb-title-row");
     if (titleRow) {
       titleRow.className = `llm-bridge-sb-title-row ${sessionStatusClass(this.sessionState.status)}`;
+    }
+  }
+
+  // V2.16-D: 刷新 context metrics（估算 prompt/active note/selection/working set/history/remaining）
+  // - 异步：需要读取 active note 内容
+  // - 标注 estimated（字符估算，非精确 token）
+  // - 更新 ring + label + detail
+  private async refreshContextMetrics(): Promise<void> {
+    if (!this.contextLabelEl || !this.contextRingEl || !this.contextDetailEl) return;
+    try {
+      const settings = this.plugin.settings;
+      const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      const activeFile = this.app.workspace.getActiveFile();
+      const selection = this.getSelection();
+      let activeNoteContent = "";
+      if (settings.includeActiveNote && activeFile) {
+        try {
+          activeNoteContent = await this.app.vault.read(activeFile);
+        } catch { /* 读取失败用空字符串 */ }
+      }
+      const snapshot: StateSnapshot = {
+        vaultPath,
+        activeFilePath: activeFile?.path || null,
+        activeFileContent: activeNoteContent || null,
+        selection,
+        fileRefIndex: buildPromptFileRefIndex(this.fileWorkingSet),
+        attachmentTextSnippets: this.attachmentTextSnippets.slice(),
+        timestamp: new Date().toISOString(),
+      };
+      const promptPackageText = buildPromptPackage("", snapshot, settings);
+      const workingSetText = this.fileWorkingSet.refs.map((r) => r.resolvedPath).join("\n");
+      const historyText = this.messages.map((m) => m.content || "").join("\n");
+      const metrics = computeContextMetrics(
+        promptPackageText, activeNoteContent, selection || "",
+        workingSetText, historyText, settings.model,
+      );
+      const displayMetrics: ContextMetrics = { ...metrics, precision: "unavailable" };
+      this.lastContextMetrics = displayMetrics;
+      this.renderContextMetrics(displayMetrics);
+    } catch {
+      this.contextLabelEl.textContent = "Context: —";
+    }
+  }
+
+  // V2.16-D: 渲染 context metrics 到 UI
+  private renderContextMetrics(metrics: ContextMetrics): void {
+    const total = metrics.total.tokens;
+    const win = metrics.contextWindow;
+    const pct = win > 0 ? Math.min(100, (total / win) * 100) : 0;
+    const color = metrics.precision === "unavailable" ? "var(--text-faint)" : pct > 80 ? "#e53935" : pct > 50 ? "#f59e0b" : "var(--interactive-accent)";
+    this.contextRingEl.classList.remove("is-exact", "is-estimated", "is-unavailable");
+    this.contextRingEl.classList.add(`is-${metrics.precision}`);
+    this.contextRingEl.style.cssText = `background: conic-gradient(${color} ${pct * 3.6}deg, var(--background-modifier-border) ${pct * 3.6}deg);`;
+    if (metrics.precision === "unavailable") {
+      this.contextLabelEl.textContent = `Context: unavailable · local estimate in details`;
+    } else {
+      const precisionTag = metrics.precision === "estimated" ? " · estimated" : " · exact";
+      this.contextLabelEl.textContent = `Context: ${formatTokens(total)} / ${formatTokens(win)}${precisionTag}`;
+    }
+    this.contextLabelEl.setAttribute("title", `Exact runtime usage: ${metrics.precision === "exact" ? "available" : "unavailable"}\nLocal estimate: ${metrics.total.tokens} tokens (${metrics.total.chars} chars)\nWindow: ${formatTokens(win)}\nPrecision: ${metrics.precision}`);
+    this.contextDetailEl.empty();
+    const precisionRow = this.contextDetailEl.createDiv({ cls: "llm-bridge-context-detail-row" });
+    precisionRow.createEl("span", { cls: "llm-bridge-context-detail-label", text: "Usage source" });
+    precisionRow.createEl("span", {
+      cls: "llm-bridge-context-detail-value",
+      text: metrics.precision === "exact" ? "exact runtime usage" : metrics.precision === "estimated" ? "local estimate" : "unavailable; showing local estimated breakdown",
+    });
+    const parts = [metrics.promptPackage, metrics.activeNote, metrics.selection, metrics.workingSet, metrics.history, metrics.remaining];
+    for (const part of parts) {
+      const row = this.contextDetailEl.createDiv({ cls: "llm-bridge-context-detail-row" });
+      row.createEl("span", { cls: "llm-bridge-context-detail-label", text: part.label });
+      row.createEl("span", { cls: "llm-bridge-context-detail-value", text: `${formatTokens(part.tokens)} tokens estimated` });
+      if (part.chars > 0) {
+        row.createEl("span", { cls: "llm-bridge-context-detail-chars", text: `${part.chars} chars` });
+      }
+    }
+    if (metrics.compression) {
+      const comp = metrics.compression;
+      const compRow = this.contextDetailEl.createDiv({ cls: "llm-bridge-context-detail-row llm-bridge-context-compression" });
+      compRow.createEl("span", { cls: "llm-bridge-context-detail-label", text: "Compression" });
+      compRow.createEl("span", {
+        cls: "llm-bridge-context-detail-value",
+        text: `${formatTokens(comp.beforeTokens)} → ${formatTokens(comp.afterTokens)} (${formatCompressionRatio(comp.ratio)})`,
+      });
+      compRow.setAttribute("title", `Source: ${comp.source}\nReason: ${comp.reason}`);
     }
   }
 
@@ -2906,10 +3127,12 @@ export class LLMBridgeView extends ItemView {
       for (const item of recent) {
         const row = dropdown.createEl("button", {
           cls: `llm-bridge-session-dropdown-item${item.id === this.currentSessionId ? " is-current" : ""}`,
-          attr: { title: `${item.title} · ${item.messageCount} 条消息` },
+          attr: { title: `${item.title}\n${item.firstUserSummary || "无用户请求摘要"}\n${item.lastAssistantSummary || "无回复摘要"}\n${item.messageCount} 条消息 · ${item.savedAt}` },
         });
         row.createEl("span", { cls: "llm-bridge-session-dropdown-name", text: item.title });
-        row.createEl("span", { cls: "llm-bridge-session-dropdown-meta", text: `${item.messageCount} 条 · ${this.formatHistoryTime(item.savedAt)}` });
+        row.createEl("span", { cls: "llm-bridge-session-dropdown-request", text: item.firstUserSummary || "无用户请求摘要" });
+        row.createEl("span", { cls: "llm-bridge-session-dropdown-reply", text: item.lastAssistantSummary || "无回复摘要" });
+        row.createEl("span", { cls: "llm-bridge-session-dropdown-meta", text: `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条` });
         row.addEventListener("click", async () => {
           dropdown.setAttribute("hidden", "");
           await this.restoreSession(item.id);
@@ -3060,6 +3283,50 @@ export class LLMBridgeView extends ItemView {
       messageCount: session.messageCount,
       startedAt: session.startedAt,
     };
+    // V2.16-D: 还原运行时状态 + 更新 lastActiveSessionId
+    const s = this.plugin.settings;
+    if (session.model) s.model = session.model;
+    if (session.effortLevel) s.effortLevel = session.effortLevel;
+    if (session.backendMode) s.backendMode = session.backendMode as typeof s.backendMode;
+    if (session.permissionMode) s.claudePermissionMode = session.permissionMode as typeof s.claudePermissionMode;
+    if (session.sessionMode) s.sessionMode = session.sessionMode as typeof s.sessionMode;
+    this.fileWorkingSet = createWorkingSet();
+    this.attachmentTextSnippets = [];
+    this.attachmentReadGrants = [];
+    if (Array.isArray(session.workingSetRefs) && session.workingSetRefs.length > 0) {
+      try {
+        const refs = session.workingSetRefs as Array<Record<string, unknown>>;
+        this.fileWorkingSet = {
+          refs: refs.map((r) => ({
+            id: String(r.id || ""), kind: String(r.kind || "file"),
+            displayName: String(r.displayName || r.requestedPath || ""),
+            requestedPath: String(r.requestedPath || ""),
+            resolvedPath: String(r.resolvedPath || r.requestedPath || ""),
+            pathKind: String(r.pathKind || "vault"), fileType: String(r.fileType || "md"),
+            source: String(r.source || "manual"), grantScope: String(r.grantScope || "session"),
+            createdAt: String(r.createdAt || new Date().toISOString()),
+            status: "active",
+          }) as unknown as FileRef),
+        };
+        this.attachmentReadGrants = this.fileWorkingSet.refs
+          .filter((ref) => ref.kind === "attachment")
+          .map((ref) => ({
+            path: ref.resolvedPath,
+            scope: "attachment",
+            match: "file",
+            grantedAt: ref.createdAt,
+            source: ref.source,
+          }));
+      } catch { /* working set 恢复失败不阻断 */ }
+    }
+    this.refreshWorkingSetChips();
+    this.cachedBackend = null;
+    this.cachedBackendMode = null;
+    this.refreshAllChips();
+    if (s.keepLastSession) {
+      s.lastActiveSessionId = session.id;
+      await this.plugin.saveSettings();
+    }
     this.renderMessagesFromHistory();
     this.refreshSessionState();
     this.clearRunFlow();
@@ -3067,7 +3334,6 @@ export class LLMBridgeView extends ItemView {
     this.lastSdkAgentCount = 0;
     this.clearPendingPermissions();
     this.clearExternalReadRequests();
-    this.clearFileWorkingSet();
     this.refreshStatusBar();
     this.scrollToBottom(); // V2.8: 恢复后滚到最新消息
     // V2.8: agentType 一致性提示（不强制切换 backend）
@@ -3078,6 +3344,89 @@ export class LLMBridgeView extends ItemView {
     } else {
       new Notice(`已恢复会话：${session.title}`);
     }
+  }
+
+  // V2.16-D: 会话保持 — onOpen 时静默恢复上次活动会话（不弹确认对话框）
+  // - 仅在 keepLastSession=true 且 lastActiveSessionId 非空时触发
+  // - 旧 session 文件不存在时清除 lastActiveSessionId，fallback 到新会话
+  // - 还原消息 + working set + 模式 + 模型/effort + backend + 权限模式
+  private async restoreLastActiveSessionIfNeeded(): Promise<void> {
+    const s = this.plugin.settings;
+    if (!s.keepLastSession || !s.lastActiveSessionId) return;
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const session = await loadSession(vaultPath, s.lastActiveSessionId);
+    if (!session) {
+      // 旧 session 文件不存在（被删除/清理），清除 id 静默 fallback 到新会话
+      s.lastActiveSessionId = "";
+      await this.plugin.saveSettings();
+      return;
+    }
+    // 静默恢复（不弹确认对话框，因为 onOpen 时无消息）
+    this.messages = session.messages.slice();
+    this.currentAssistantId = null;
+    this.currentSessionId = session.id;
+    this.messagesFoldExpanded = false;
+    this.sessionState = {
+      title: session.title,
+      status: session.status,
+      messageCount: session.messageCount,
+      startedAt: session.startedAt,
+    };
+    // V2.16-D: 还原运行时状态（仅在 session 文件中记录了对应字段时）
+    if (session.model) s.model = session.model;
+    if (session.effortLevel) s.effortLevel = session.effortLevel;
+    if (session.backendMode) s.backendMode = session.backendMode as typeof s.backendMode;
+    if (session.permissionMode) s.claudePermissionMode = session.permissionMode as typeof s.claudePermissionMode;
+    if (session.sessionMode) s.sessionMode = session.sessionMode as typeof s.sessionMode;
+    // V2.16-D: 还原 working set（refs 数组）；没有 refs 的会话必须清空旧工作集
+    this.fileWorkingSet = createWorkingSet();
+    this.attachmentTextSnippets = [];
+    this.attachmentReadGrants = [];
+    if (Array.isArray(session.workingSetRefs) && session.workingSetRefs.length > 0) {
+      try {
+        const refs = session.workingSetRefs as Array<Record<string, unknown>>;
+        this.fileWorkingSet = {
+          refs: refs.map((r) => ({
+            id: String(r.id || ""),
+            kind: String(r.kind || "file"),
+            displayName: String(r.displayName || r.requestedPath || ""),
+            requestedPath: String(r.requestedPath || ""),
+            resolvedPath: String(r.resolvedPath || r.requestedPath || ""),
+            pathKind: String(r.pathKind || "vault"),
+            fileType: String(r.fileType || "md"),
+            source: String(r.source || "manual"),
+            grantScope: String(r.grantScope || "session"),
+            createdAt: String(r.createdAt || new Date().toISOString()),
+            status: "active",
+          }) as unknown as FileRef),
+        };
+        this.attachmentReadGrants = this.fileWorkingSet.refs
+          .filter((ref) => ref.kind === "attachment")
+          .map((ref) => ({
+            path: ref.resolvedPath,
+            scope: "attachment",
+            match: "file",
+            grantedAt: ref.createdAt,
+            source: ref.source,
+          }));
+      } catch {
+        // working set 恢复失败不阻断主流程
+      }
+    }
+    this.refreshWorkingSetChips();
+    await this.plugin.saveSettings();
+    this.cachedBackend = null;
+    this.cachedBackendMode = null;
+    this.refreshAllChips();
+    this.renderMessagesFromHistory();
+    this.refreshSessionState();
+    this.clearRunFlow();
+    this.lastSdkToolCount = 0;
+    this.lastSdkAgentCount = 0;
+    this.clearPendingPermissions();
+    this.clearExternalReadRequests();
+    this.refreshStatusBar();
+    this.scrollToBottom();
   }
 
   // V2.5: 从历史会话渲染消息列表（复用 renderMessage 渲染逻辑）
@@ -3748,15 +4097,36 @@ export class LLMBridgeView extends ItemView {
 
     // V2.5: 运行结束后保存会话到历史（失败不阻断；同一会话 id 复用）
     try {
+      const s = this.plugin.settings;
+      // V2.16-D: 传入运行时状态快照（working set/mode/model/effort/backend/permission）
+      const extras: SessionExtras = {
+        workingSetRefs: this.fileWorkingSet.refs.map((r) => ({
+          id: r.id, kind: r.kind, displayName: r.displayName,
+          requestedPath: r.requestedPath, resolvedPath: r.resolvedPath,
+          pathKind: r.pathKind, fileType: r.fileType, source: r.source,
+          grantScope: r.grantScope, createdAt: r.createdAt, status: r.status,
+        })),
+        sessionMode: s.sessionMode,
+        model: s.model,
+        effortLevel: s.effortLevel,
+        backendMode: s.backendMode,
+        permissionMode: s.claudePermissionMode,
+      };
       const savedId = await saveSession(
         vaultPath,
         this.sessionState,
         this.messages,
-        this.plugin.settings.agentType,
+        s.agentType,
         this.currentSessionId || undefined,
+        extras,
       );
       if (savedId) {
         this.currentSessionId = savedId;
+        // V2.16-D: 更新 lastActiveSessionId 用于会话保持
+        if (s.keepLastSession) {
+          s.lastActiveSessionId = savedId;
+          await this.plugin.saveSettings();
+        }
         // V2.9: 强制重载（force=true），确保新保存的会话立即出现，不被 5s 缓存拦截
         void this.refreshHistory(true);
       }

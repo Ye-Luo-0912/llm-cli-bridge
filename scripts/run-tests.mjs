@@ -5576,8 +5576,8 @@ if (!runV25Unit) {
       const state = { title: "版本测试", status: "idle", messageCount: 0, startedAt: null };
       const id = await saveSession(tempSessionsV25Dir, state, [], "claude");
       const session = await loadSession(tempSessionsV25Dir, id);
-      addTest("V2.5 Session 版本: loadSession 返回 version=1",
-        session && session.version === SESSION_SCHEMA_VERSION && session.version === 1 ? "pass" : "fail",
+      addTest("V2.5 Session 版本: loadSession 返回 version=2",
+        session && session.version === SESSION_SCHEMA_VERSION && session.version === 2 ? "pass" : "fail",
         `version=${session?.version} expected=${SESSION_SCHEMA_VERSION}`);
     }
 
@@ -5684,10 +5684,10 @@ if (!runV25Unit) {
 
     // ===== Session schema 版本字段 =====
 
-    // ---- Test 23: SESSION_SCHEMA_VERSION = 1 ----
+    // ---- Test 23: SESSION_SCHEMA_VERSION = 2 ----
     {
-      addTest("V2.5 Session 版本: SESSION_SCHEMA_VERSION = 1",
-        SESSION_SCHEMA_VERSION === 1 ? "pass" : "fail",
+      addTest("V2.5 Session 版本: SESSION_SCHEMA_VERSION = 2",
+        SESSION_SCHEMA_VERSION === 2 ? "pass" : "fail",
         `version=${SESSION_SCHEMA_VERSION}`);
     }
 
@@ -6248,7 +6248,7 @@ if (!runV27Unit) {
         agentType: "claude", messages: [{ role: "user", content: "hi", id: "m1", timestamp: "2026-06-29T00:00:00Z" }],
       };
       const out = migrateSession(input);
-      const ok = out !== null && out.version === 1 && out.id === "s-test-1" && out.title === "测试会话" && out.messageCount === 3 && out.messages.length === 1;
+      const ok = out !== null && out.version === 2 && out.id === "s-test-1" && out.title === "测试会话" && out.messageCount === 3 && out.messages.length === 1;
       addTest("V2.7 migrateSession: 有效 v1 完整对象返回规整结果", ok ? "pass" : "fail", ok ? "" : `out=${JSON.stringify(out)}`);
     }
 
@@ -6331,10 +6331,10 @@ if (!runV27Unit) {
       addTest("V2.7 migrateSession: savedAt 非字符串用当前时间", ok ? "pass" : "fail", `savedAt=${out?.savedAt}`);
     }
 
-    // ---- Test 14: SESSION_SCHEMA_VERSION = 1 ----
+    // ---- Test 14: SESSION_SCHEMA_VERSION = 2 ----
     {
-      addTest("V2.7 SESSION_SCHEMA_VERSION = 1",
-        SESSION_SCHEMA_VERSION === 1 ? "pass" : "fail",
+      addTest("V2.7 SESSION_SCHEMA_VERSION = 2",
+        SESSION_SCHEMA_VERSION === 2 ? "pass" : "fail",
         `version=${SESSION_SCHEMA_VERSION}`);
     }
 
@@ -6859,10 +6859,10 @@ if (!runV28Unit) {
         `mode=${DEFAULT_SETTINGS.backendMode}`);
     }
 
-    // ---- Test 19: SESSION_SCHEMA_VERSION 仍为 1（V2.8 不改 schema）----
+    // ---- Test 19: SESSION_SCHEMA_VERSION 仍为 2（V2.8 不改 schema）----
     {
-      addTest("V2.8 schema 不变: SESSION_SCHEMA_VERSION = 1",
-        SESSION_SCHEMA_VERSION === 1 ? "pass" : "fail",
+      addTest("V2.8 schema 不变: SESSION_SCHEMA_VERSION = 2",
+        SESSION_SCHEMA_VERSION === 2 ? "pass" : "fail",
         `version=${SESSION_SCHEMA_VERSION}`);
     }
 
@@ -7128,10 +7128,10 @@ if (!runV29Unit) {
         `mode=${DEFAULT_SETTINGS.backendMode}`);
     }
 
-    // ---- Test 23: SESSION_SCHEMA_VERSION 仍为 1（V2.9 不改 schema）----
+    // ---- Test 23: SESSION_SCHEMA_VERSION 仍为 2（V2.9 不改 schema）----
     {
-      addTest("V2.9 schema 不变: SESSION_SCHEMA_VERSION = 1",
-        SESSION_SCHEMA_VERSION === 1 ? "pass" : "fail",
+      addTest("V2.9 schema 不变: SESSION_SCHEMA_VERSION = 2",
+        SESSION_SCHEMA_VERSION === 2 ? "pass" : "fail",
         `version=${SESSION_SCHEMA_VERSION}`);
     }
 
@@ -7374,12 +7374,12 @@ if (!runV210Unit) {
         ok ? "pass" : "fail", `backendMode=${DEFAULT_SETTINGS.backendMode}`);
     }
 
-    // ---- Test 17: SESSION_SCHEMA_VERSION 仍为 1（V2.10 不改 schema）----
+    // ---- Test 17: SESSION_SCHEMA_VERSION 仍为 2（V2.10 不改 schema）----
     {
       const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
       const match = sessionsSrc.match(/SESSION_SCHEMA_VERSION\s*=\s*(\d+)/);
-      const ok = match && match[1] === "1";
-      addTest("V2.10 schema 不变: SESSION_SCHEMA_VERSION = 1",
+      const ok = match && match[1] === "2";
+      addTest("V2.10 schema 不变: SESSION_SCHEMA_VERSION = 2",
         ok ? "pass" : "fail", `value=${match?.[1] ?? "not found"}`);
     }
 
@@ -7667,12 +7667,12 @@ if (!runV211Unit) {
         ok ? "pass" : "fail", `backendMode=${DEFAULT_SETTINGS.backendMode}`);
     }
 
-    // ---- Test 17: SESSION_SCHEMA_VERSION 仍为 1（V2.11 不改 schema）----
+    // ---- Test 17: SESSION_SCHEMA_VERSION 仍为 2（V2.11 不改 schema）----
     {
       const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
       const match = sessionsSrc.match(/SESSION_SCHEMA_VERSION\s*=\s*(\d+)/);
-      const ok = match && match[1] === "1";
-      addTest("V2.11 schema 不变: SESSION_SCHEMA_VERSION = 1",
+      const ok = match && match[1] === "2";
+      addTest("V2.11 schema 不变: SESSION_SCHEMA_VERSION = 2",
         ok ? "pass" : "fail", `value=${match?.[1] ?? "not found"}`);
     }
 
@@ -8018,12 +8018,12 @@ if (!runV2111Unit) {
         ok ? "pass" : "fail", `backendMode=${DEFAULT_SETTINGS.backendMode}`);
     }
 
-    // ---- Test 23: SESSION_SCHEMA_VERSION 仍为 1 ----
+    // ---- Test 23: SESSION_SCHEMA_VERSION 仍为 2 ----
     {
       const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
       const match = sessionsSrc.match(/SESSION_SCHEMA_VERSION\s*=\s*(\d+)/);
-      const ok = match && match[1] === "1";
-      addTest("V2.11.1 schema 不变: SESSION_SCHEMA_VERSION = 1",
+      const ok = match && match[1] === "2";
+      addTest("V2.11.1 schema 不变: SESSION_SCHEMA_VERSION = 2",
         ok ? "pass" : "fail", `value=${match?.[1] ?? "not found"}`);
     }
 
@@ -8532,10 +8532,10 @@ if (!runV2121Unit) {
       addTest("V2.12.1 约束: sdk-experimental 仍默认关闭", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 19: schema 不变（SESSION_SCHEMA_VERSION = 1, SKILLS_STATE_VERSION = 1）----
+    // ---- Test 19: schema 不变（SESSION_SCHEMA_VERSION = 2, SKILLS_STATE_VERSION = 1）----
     {
       const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
-      const ok = sessionsSrc.includes("SESSION_SCHEMA_VERSION = 1")
+      const ok = sessionsSrc.includes("SESSION_SCHEMA_VERSION = 2")
         && readFileSync(join(PROJECT_ROOT, "src", "skillsState.ts"), "utf-8").includes("SKILLS_STATE_VERSION = 1");
       addTest("V2.12.1 约束: schema 不变（SESSION/SCILLS_STATE = 1）", ok ? "pass" : "fail", "");
     }
@@ -12026,6 +12026,153 @@ if (!runNoteSummarizeSmoke) {
     try { if (noteSummarizeBundle) rmSync(noteSummarizeBundle, { force: true }); } catch {}
     try { if (noteSummarizePreflightBundle) rmSync(noteSummarizePreflightBundle, { force: true }); } catch {}
     try { if (noteSummarizePromptPackageBundle) rmSync(noteSummarizePromptPackageBundle, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
+// V2.16-D — User-facing Agent UX / Context API / File Input
+// ============================================================
+{
+  console.log("\n=== V2.16-D: User-facing Agent UX / Context API / File Input ===");
+
+  const contextMetricsSrc = readFileSync(join(PROJECT_ROOT, "src", "contextMetrics.ts"), "utf-8");
+  const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+  const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
+  const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf-8");
+  const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
+  const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf-8");
+
+  // ---- Test 1: contextMetrics.ts 模块存在且导出核心函数 ----
+  {
+    const ok = contextMetricsSrc.includes("export function computeContextMetrics")
+      && contextMetricsSrc.includes("export function estimateTokens")
+      && contextMetricsSrc.includes("export interface ContextMetrics")
+      && contextMetricsSrc.includes("export interface CompressionInfo");
+    addTest("V2.16-D contextMetrics.ts: 核心函数与接口存在", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 2: view.ts 包含 refreshContextMetrics + renderContextMetrics ----
+  {
+    const ok = viewSrc.includes("private async refreshContextMetrics()")
+      && viewSrc.includes("private renderContextMetrics(")
+      && viewSrc.includes("contextRingEl") && viewSrc.includes("contextLabelEl") && viewSrc.includes("contextDetailEl");
+    addTest("V2.16-D view.ts: context metrics UI 方法与元素存在", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 3: view.ts 包含 restoreLastActiveSessionIfNeeded ----
+  {
+    const ok = viewSrc.includes("private async restoreLastActiveSessionIfNeeded()")
+      && viewSrc.includes("keepLastSession") && viewSrc.includes("lastActiveSessionId");
+    addTest("V2.16-D view.ts: 会话保持 restoreLastActiveSessionIfNeeded 存在", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 4: sessions.ts SESSION_SCHEMA_VERSION = 2 + PersistedSession 扩展 ----
+  {
+    const ok = sessionsSrc.includes("SESSION_SCHEMA_VERSION = 2")
+      && sessionsSrc.includes("workingSetRefs") && sessionsSrc.includes("sessionMode")
+      && sessionsSrc.includes("effortLevel") && sessionsSrc.includes("backendMode") && sessionsSrc.includes("permissionMode")
+      && sessionsSrc.includes("SessionExtras");
+    addTest("V2.16-D sessions.ts: schema v2 + 运行时状态字段 + SessionExtras", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 5: types.ts 包含 keepLastSession + lastActiveSessionId ----
+  {
+    const ok = typesSrc.includes("keepLastSession: boolean;") && typesSrc.includes("lastActiveSessionId: string;")
+      && typesSrc.includes("keepLastSession: true");
+    addTest("V2.16-D types.ts: keepLastSession 设置项 + 默认值", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 6: settings.ts 包含"保持上次会话"UI toggle ----
+  {
+    const ok = settingsSrc.includes("保持上次会话") && settingsSrc.includes("keepLastSession");
+    addTest("V2.16-D settings.ts: 会话保持 toggle UI", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 7: styles.css 包含 context-strip + runtime-status pill ----
+  {
+    const ok = stylesSrc.includes("llm-bridge-context-strip") && stylesSrc.includes("llm-bridge-context-ring")
+      && stylesSrc.includes("llm-bridge-context-detail") && stylesSrc.includes("llm-bridge-context-compression")
+      && stylesSrc.includes("border-radius: 999px;");
+    addTest("V2.16-D styles.css: context strip + runtime pill 样式", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 8: view.ts runtime status 改为英文 pill 格式 ----
+  {
+    const ok = viewSrc.includes('"error" : this.sessionState.status === "running" ? "running" : "ready"')
+      && viewSrc.includes('"SDK · ready"');
+    addTest("V2.16-D view.ts: runtime status 英文 pill 格式", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 9: view.ts saveSession 传入 SessionExtras ----
+  {
+    const ok = viewSrc.includes("const extras: SessionExtras =") && viewSrc.includes("workingSetRefs: this.fileWorkingSet.refs.map");
+    addTest("V2.16-D view.ts: saveSession 传入运行时状态快照", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 10: view.ts doNewSession 清除 lastActiveSessionId ----
+  {
+    const ok = viewSrc.includes('this.plugin.settings.lastActiveSessionId = ""');
+    addTest("V2.16-D view.ts: doNewSession 清除 lastActiveSessionId", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 11: 会话下拉包含请求/回复摘要，并点击恢复而非跳 History ----
+  {
+    const ok = sessionsSrc.includes("firstUserSummary")
+      && sessionsSrc.includes("lastAssistantSummary")
+      && viewSrc.includes("llm-bridge-session-dropdown-request")
+      && viewSrc.includes("llm-bridge-session-dropdown-reply")
+      && viewSrc.includes("await this.restoreSession(item.id)")
+      && viewSrc.includes("查看全部历史");
+    addTest("V2.16-D sessions/view.ts: 最近会话摘要下拉与恢复入口", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 12: context 主显示不再把本地 estimated 当 exact usage ----
+  {
+    const ok = viewSrc.includes('precision: "unavailable"')
+      && viewSrc.includes("local estimate in details")
+      && viewSrc.includes("Usage source")
+      && viewSrc.includes("is-unavailable")
+      && contextMetricsSrc.includes('precision: "exact" | "estimated" | "unavailable"');
+    addTest("V2.16-D context: exact/unavailable/estimated 状态区分", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13: composer 支持 drag/drop、clipboard file、粘贴路径文本 ----
+  {
+    const ok = viewSrc.includes('this.inputEl.addEventListener("paste"')
+      && viewSrc.includes("private async handleComposerPaste")
+      && viewSrc.includes("extractPastedFilePaths")
+      && viewSrc.includes("addUserFilePathsToWorkingSet")
+      && viewSrc.includes('composer.addEventListener("drop"');
+    addTest("V2.16-D composer: 拖拽/粘贴文件和路径入口存在", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----
+  {
+    const ok = viewSrc.includes("const vaultRef = this.addVaultFileRef")
+      && viewSrc.includes("addAttachmentFileRefWithIngestion(requestedPath, { source })")
+      && viewSrc.includes('scope: "attachment"')
+      && viewSrc.includes('match: "file"');
+    addTest("V2.16-D file input: Vault ref + external attachment grant 分流", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 15: Developer mode 默认关闭，raw log/command 只在开发态展示 ----
+  {
+    const ok = typesSrc.includes("developerMode: boolean;")
+      && typesSrc.includes("developerMode: false")
+      && settingsSrc.includes("Developer mode")
+      && viewSrc.includes("const developerMode = !!this.plugin.settings.developerMode")
+      && viewSrc.includes("if (this.plugin.settings.developerMode) {");
+    addTest("V2.16-D developer mode: 用户态隐藏 raw log/command", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 16: 用户态 timeline 过滤内部/private runtime 文件和 raw 噪音 ----
+  {
+    const ok = viewSrc.includes("filterUserFacingTimelineNodes")
+      && viewSrc.includes('node.kind === "session_started"')
+      && viewSrc.includes('node.kind === "thought"')
+      && viewSrc.includes("isInternalFilePath(toolPath)")
+      && viewSrc.includes("adaptEventsToTimeline(events)");
+    addTest("V2.16-D timeline: 用户态过滤 raw/internal 节点", ok ? "pass" : "fail", "");
   }
 }
 

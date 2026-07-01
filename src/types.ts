@@ -89,6 +89,12 @@ export interface LLMBridgeSettings {
   disabledSkills: string[];
   // V2.3: 权限策略（low/medium/high，控制修改类操作的授权门槛）
   permissionPolicy: PermissionPolicy;
+  // V2.16-D: 会话保持 — 插件重载/视图重开/Obsidian 重启后恢复上次活动会话
+  keepLastSession: boolean;
+  // V2.16-D: 上次活动会话 id（运行/保存时更新；onOpen 时据此恢复）
+  lastActiveSessionId: string;
+  // V2.16-D: 开发者模式。默认关闭；开启后才展示 raw command/workflow/log。
+  developerMode: boolean;
 }
 
 export const DEFAULT_SETTINGS: LLMBridgeSettings = {
@@ -120,6 +126,10 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   disabledSkills: [],
   // V2.3: 默认标准策略（medium 风险需本轮授权，读操作自动允许）
   permissionPolicy: "medium",
+  // V2.16-D: 默认启用会话保持
+  keepLastSession: true,
+  lastActiveSessionId: "",
+  developerMode: false,
 };
 
 // 写入到 .llm-bridge/state/current.json 的内容
