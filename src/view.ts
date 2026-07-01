@@ -3277,6 +3277,7 @@ export class LLMBridgeView extends ItemView {
     this.appendUserMessage(userInput);
     const assistantId = this.appendAssistantPlaceholder();
     this.inputEl.value = "";
+    this.closeMentionPicker();
 
     // V2.0: 首条用户消息生成会话标题 + 更新消息数
     if (this.sessionState.messageCount === 0) {

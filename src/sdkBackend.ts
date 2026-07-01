@@ -86,6 +86,62 @@ export function resolveRuntimeDirs(cwd: string): string[] {
 }
 
 /**
+ * V2.16-A: 安装 Node 兼容的 AbortController，使 SDK 的 setMaxListeners(n, signal) 不抛错。
+ *
+ * 根因：SDK 源码 `import{setMaxListeners as Wz}from"events"` → `Ws()` 内部 `new AbortController()`
+ * → `Wz(e, t.signal)` 传入 browser AbortSignal。Node 的 setMaxListeners 检查
+ * `instanceof EventEmitter` 或 `isEventTarget(target)`，Electron renderer 的 browser AbortSignal
+ * 不被识别（ESM 内置 events 与 CJS require('events') 绑定独立，CJS patch 无效）。
+ *
+ * 方案：在 SDK query 调用前，将 globalThis.AbortController 替换为 EventEmitter-based 版本。
+ * SDK 的 `Ws()` 做 `new AbortController()`，得到 EventEmitter-based signal，通过 instanceof 检查。
+ * query 结束后恢复原始 AbortController。
+ *
+ * @returns 恢复函数（调用后还原 globalThis.AbortController）
+ */
+function installNodeCompatibleAbortController(): () => void {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { EventEmitter } = require("events");
+  const originalAC = globalThis.AbortController;
+
+  // EventEmitter-based AbortSignal：通过 instanceof EventEmitter 检查
+  class NodeCompatAbortSignal extends EventEmitter {
+    public _aborted = false;
+    public _abortReason: unknown = undefined;
+    get aborted(): boolean { return this._aborted; }
+    get reason(): unknown { return this._abortReason; }
+    throwIfAborted(): void { if (this._aborted) throw new Error("The operation was aborted."); }
+    addEventListener(type: string, listener: (...args: unknown[]) => void): void {
+      if (type === "abort") this.on("abort", listener);
+    }
+    removeEventListener(type: string, listener: (...args: unknown[]) => void): void {
+      if (type === "abort") this.off("abort", listener);
+    }
+    dispatchEvent(event: { type: string }): boolean {
+      if (event && event.type === "abort") {
+        this._aborted = true;
+        this.emit("abort", event);
+      }
+      return true;
+    }
+  }
+
+  class NodeCompatAbortController {
+    public signal: NodeCompatAbortSignal;
+    constructor() { this.signal = new NodeCompatAbortSignal(); }
+    abort(reason?: unknown): void {
+      if (this.signal._aborted) return;
+      this.signal._aborted = true;
+      this.signal._abortReason = reason;
+      this.signal.emit("abort", { type: "abort" });
+    }
+  }
+
+  globalThis.AbortController = NodeCompatAbortController as unknown as typeof AbortController;
+  return () => { globalThis.AbortController = originalAC; };
+}
+
+/**
  * 尝试加载 Claude Agent SDK
  * 优先从候选运行时目录（vault 内 + sibling）的 node_modules 加载，再尝试全局 require
  * @returns 加载结果（含包名与版本），不可用时返回 null
@@ -549,6 +605,7 @@ async function runRealSdkQuery(
   const runtimeConfig = resolveClaudeRuntimeConfig(task.cwd);
   const clearInheritedRuntimeEnv = runtimeConfig.source === "project-json" || runtimeConfig.source === "auto-detected";
   const restoreRuntimeEnv = applyClaudeRuntimeEnv(runtimeConfig.env, clearInheritedRuntimeEnv);
+  let restoreAbortController: (() => void) | null = null;
   let msgCount = 0;
   let wfEventCount = 0;
   let partialCount = 0;
@@ -667,6 +724,9 @@ async function runRealSdkQuery(
     };
     options.canUseTool = canUseTool;
 
+    // V2.16-A: 安装 Node 兼容 AbortController（SDK 内部 setMaxListeners 需要 EventEmitter-based signal）
+    restoreAbortController = installNodeCompatibleAbortController();
+
     // 调用 query
     const queryResult = (queryFn as (params: { prompt: string; options: Record<string, unknown> }) => AsyncIterable<SdkMessage>)({
       prompt: task.prompt,
@@ -759,6 +819,7 @@ async function runRealSdkQuery(
       diagnostics: finalDiagnostics,
     };
   } finally {
+    if (restoreAbortController) restoreAbortController();
     restoreRuntimeEnv();
   }
 }
