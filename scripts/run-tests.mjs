@@ -7008,10 +7008,10 @@ if (!runV29Unit) {
 
     // ===== 源码检查：view.ts findParent 优化 =====
 
-    // ---- Test 7: appendSdkWorkflow 用 entry.parentToolUseId 分组 ----
+    // ---- Test 7: appendSdkWorkflow 用 timelineAdapter（V2.16-C 重构） ----
     {
-      const ok = viewSrc.includes("!t.parentToolUseId") && viewSrc.includes("!!t.parentToolUseId");
-      addTest("V2.9 view.ts: appendSdkWorkflow 用 entry.parentToolUseId O(1) 分组", ok ? "pass" : "fail", "");
+      const ok = viewSrc.includes("adaptEventsToTimeline") && viewSrc.includes("formatCompletedSummary") && viewSrc.includes("llm-bridge-timeline-wrap");
+      addTest("V2.9 view.ts: appendSdkWorkflow 用 timelineAdapter O(1) 分组", ok ? "pass" : "fail", "");
     }
 
     // ---- Test 8: findToolParentAgent 方法已移除 ----
@@ -10969,10 +10969,12 @@ if (!runV214BUnit) {
         && !viewSrc.includes("this.presetBtnsEl = commandMenuBody.createDiv")
         && !viewSrc.includes("llm-bridge-preset-btn");
       const permissionChipOk = viewSrc.includes("permissionModeChipEl")
-        && viewSrc.includes("permissionModeShortLabel")
-        && viewSrc.includes("cyclePermissionMode")
-        && viewSrc.includes("权限：")
-        && viewSrc.includes("\"plan\", \"default\", \"acceptEdits\"");
+        && viewSrc.includes("renderPermissionPopover")
+        && viewSrc.includes("togglePermissionPopover")
+        && viewSrc.includes("Ask before edits")
+        && viewSrc.includes("Edit automatically")
+        && viewSrc.includes("Plan mode")
+        && viewSrc.includes("Auto mode");
       const topbarOk = !viewSrc.includes("const refreshBtn = headerRight.createEl")
         && viewSrc.includes("llm-bridge-runtime-status")
         && viewSrc.includes("llm-bridge-settings-btn")

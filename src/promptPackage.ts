@@ -147,5 +147,14 @@ ${snippets}
 ========== 用户请求 ==========
 ${userInput}`);
 
+  // V2.16-C: Tool steering 指引
+  parts.push(`
+========== Tool Steering ==========
+- 只读请求（查看文件、读取配置、搜索内容）优先使用 Read / Glob / Grep，不要使用 Write / Edit / MultiEdit。
+- 读取 manifest.json / package.json / 配置文件等只读任务，不得创建任何 user-visible 文件。
+- 找不到文件时必须明确告知用户文件不存在，不要静默创建空文件或猜测内容。
+- 仅在用户明确要求创建或修改文件时才使用 Write / Edit。
+- 不要为读取操作创建临时文件或中间产物。`);
+
   return parts.join("\n");
 }

@@ -22,6 +22,7 @@ import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalW
 import { SdkBackend, isSdkAvailable } from "./sdkBackend";
 import { getRuntimeModelCatalog, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
 import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
+import { adaptEventsToTimeline, computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, truncatePath, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
 import { PersistedSession, SessionListItem, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
 import { AgentSkillRecord, loadAgentSkillsManifest, saveAgentSkillsManifest } from "./agentSkills";
@@ -191,6 +192,8 @@ export class LLMBridgeView extends ItemView {
   private runHandle: AgentRunHandle | null = null;
   private messages: ChatMessage[] = [];
   private currentAssistantId: string | null = null;
+  /** V2.16-C: 当前运行的累积 SDK 事件（用于实时 timeline 渲染） */
+  private liveTimelineEvents: WorkflowEvent[] = [];
   private beforeFiles: Map<string, FileSnapshot> = new Map();
   private pendingActions: PendingActionEntry[] = [];
 
@@ -243,6 +246,8 @@ export class LLMBridgeView extends ItemView {
   /** V2.16-C: 运行时模型目录（不再硬编码） */
   private modelCatalog: RuntimeModelCatalog = getRuntimeModelCatalog();
   private permissionModeChipEl!: HTMLButtonElement;
+  /** V2.16-C: permission mode popover 容器 */
+  private permissionPopoverEl!: HTMLDivElement;
   private includeNoteCheckEl!: HTMLInputElement;
   private includeSelectionCheckEl!: HTMLInputElement;
   private messagesEl!: HTMLElement;
@@ -596,7 +601,7 @@ export class LLMBridgeView extends ItemView {
       cls: "llm-bridge-permission-chip",
       attr: { title: "切换权限模式：受限 / 默认 / acceptEdits" },
     });
-    this.permissionModeChipEl.addEventListener("click", () => void this.cyclePermissionMode());
+    this.permissionModeChipEl.addEventListener("click", () => void this.togglePermissionPopover());
 
     const inputRow = composerBar.createDiv({ cls: "llm-bridge-input-row" });
     this.inputEl = inputRow.createEl("textarea", {
@@ -905,6 +910,7 @@ export class LLMBridgeView extends ItemView {
     // V2.15-E: composer 只保留一个 compact 模型/思考强度组合控件。
     this.refreshModelEffortPicker();
     this.refreshPermissionModeChip();
+    this.renderPermissionPopover();
     // V2.4: Mode chip 已移除（仅 Fresh 可用，无需 refresh）
 
     // 上下文 chip 勾选态
@@ -973,9 +979,14 @@ export class LLMBridgeView extends ItemView {
       const target = event.target as HTMLElement | null;
       if (target?.closest(".llm-bridge-model-effort-picker")) return;
       this.closeModelEffortPopover();
+      if (target?.closest(".llm-bridge-permission-chip")) return;
+      this.closePermissionPopover();
     });
     this.registerDomEvent(document, "keydown", (event) => {
-      if (event.key === "Escape") this.closeModelEffortPopover();
+      if (event.key === "Escape") {
+        this.closeModelEffortPopover();
+        this.closePermissionPopover();
+      }
     });
   }
 
@@ -1034,11 +1045,83 @@ export class LLMBridgeView extends ItemView {
     return mode;
   }
 
+  /**
+   * V2.16-C: 渲染 Claude 风格 permission mode popover（四模式）
+   */
+  private renderPermissionPopover(): void {
+    if (!this.permissionModeChipEl) return;
+    // 移除旧 popover
+    this.permissionPopoverEl?.remove();
+    this.permissionPopoverEl = this.permissionModeChipEl.createDiv({
+      cls: "llm-bridge-perm-popover",
+      attr: { hidden: "" },
+    });
+    const modes: Array<{ value: string; icon: string; title: string; desc: string }> = [
+      { value: "default", icon: "✓", title: "Ask before edits", desc: "编辑前询问确认" },
+      { value: "acceptEdits", icon: "✎", title: "Edit automatically", desc: "自动接受文件编辑" },
+      { value: "plan", icon: "☐", title: "Plan mode", desc: "只读规划，不执行修改" },
+      { value: "auto", icon: "⚡", title: "Auto mode", desc: "自动决策，低风险自动允许" },
+    ];
+    const current = this.plugin.settings.claudePermissionMode;
+    for (const mode of modes) {
+      const opt = this.permissionPopoverEl.createDiv({
+        cls: "llm-bridge-perm-option" + (current === mode.value ? " is-active" : ""),
+      });
+      opt.createEl("span", { cls: "llm-bridge-perm-option-icon", text: mode.icon });
+      const text = opt.createDiv({ cls: "llm-bridge-perm-option-text" });
+      text.createEl("div", { cls: "llm-bridge-perm-option-title", text: mode.title });
+      text.createEl("div", { cls: "llm-bridge-perm-option-desc", text: mode.desc });
+      opt.createEl("span", { cls: "llm-bridge-perm-option-check", text: "✓" });
+      opt.addEventListener("click", async () => {
+        await this.setPermissionMode(mode.value);
+        this.closePermissionPopover();
+      });
+    }
+  }
+
+  /**
+   * V2.16-C: 打开/关闭 permission mode popover
+   */
+  private togglePermissionPopover(): void {
+    if (!this.permissionPopoverEl) return;
+    const hidden = this.permissionPopoverEl.hasAttribute("hidden");
+    if (hidden) {
+      this.closeModelEffortPopover();
+      this.renderPermissionPopover();
+      this.permissionPopoverEl.removeAttribute("hidden");
+    } else {
+      this.closePermissionPopover();
+    }
+  }
+
+  /**
+   * V2.16-C: 关闭 permission mode popover
+   */
+  private closePermissionPopover(): void {
+    this.permissionPopoverEl?.setAttribute("hidden", "");
+  }
+
+  /**
+   * V2.16-C: 设置 permission mode（Claude 风格四模式）
+   */
+  private async setPermissionMode(mode: string): Promise<void> {
+    if (this.runHandle) return;
+    this.plugin.settings.claudePermissionMode = mode as never;
+    await this.plugin.saveSettings();
+    this.refreshPermissionModeChip();
+    this.refreshStatusBar();
+  }
+
   private refreshPermissionModeChip(): void {
     if (!this.permissionModeChipEl) return;
     const mode = this.plugin.settings.claudePermissionMode ?? "default";
     const info = getPermissionModeInfo(mode);
-    this.permissionModeChipEl.textContent = `权限：${this.permissionModeShortLabel()}`;
+    const claudeLabel = mode === "default" ? "Ask before edits"
+      : mode === "acceptEdits" ? "Edit automatically"
+      : mode === "plan" ? "Plan mode"
+      : mode === "auto" ? "Auto mode"
+      : mode;
+    this.permissionModeChipEl.textContent = claudeLabel;
     this.permissionModeChipEl.setAttribute("title", `权限模式：${info.label}\n${info.risk}\n点击切换：受限 / 默认 / acceptEdits`);
     this.permissionModeChipEl.classList.remove("is-safe", "is-caution", "is-danger");
     this.permissionModeChipEl.classList.add(`is-${info.level}`);
@@ -1915,6 +1998,7 @@ export class LLMBridgeView extends ItemView {
     };
     this.messages.push(msg);
     this.currentAssistantId = id;
+    this.liveTimelineEvents = []; // V2.16-C: 清空实时 timeline 事件
     this.renderMessage(msg);
     return id;
   }
@@ -1931,7 +2015,7 @@ export class LLMBridgeView extends ItemView {
 
       // 消息头：角色 + 状态（失败时高亮）+ 时间
       const head = block.createDiv({ cls: "llm-bridge-msg-head" });
-      head.createEl("span", { cls: "llm-bridge-msg-role", text: msg.role === "user" ? "You" : "Claude Code" });
+      head.createEl("span", { cls: "llm-bridge-msg-role", text: msg.role === "user" ? "You" : this.actualRuntimeLabel });
       if (msg.role === "assistant") {
         head.createEl("span", {
           cls: `llm-bridge-msg-status is-${msg.status}`,
@@ -2142,125 +2226,149 @@ export class LLMBridgeView extends ItemView {
   // V1.8: 默认折叠（SDK experimental 为开发者功能，减少主 UI 噪音）
   // V2.3: 按 agent/subagent 分组展示（主 agent vs subagent，工具与消息附带 agent 标签）
   /**
-   * V2.16-C: 实时追加 SDK 事件到当前 assistant message 的 live progress 区域
+   * V2.16-C: 实时追加 SDK 事件到当前 assistant message 的 timeline 区域
    *
-   * 精简 progress 展示：session started / tool_start / tool_result / file_change / permission / message delta / completed/failed
-   * 合并同一次 SDK 输出，避免重复 Assistant message
-   * 详细 JSON/log 继续折叠（运行结束后 appendSdkWorkflow 展示完整 SDK Workflow）
+   * 基于 timelineAdapter 将事件分类合并为现代 Claude/Codex 风格垂直 timeline
+   * 运行中 timeline 始终展开；终态后由 appendSdkWorkflow 渲染折叠摘要
    */
   private appendLiveSdkEvent(ev: WorkflowEvent): void {
     if (!this.currentAssistantId) return;
-    const block = this.messagesEl.querySelector<HTMLElement>(`[data-msg-id="${this.currentAssistantId}"]`);
+    this.liveTimelineEvents.push(ev);
+    if (ev.type === "completed" || ev.type === "failed") return;
+    this.renderLiveTimeline();
+  }
+
+  /**
+   * V2.16-C: 渲染实时 timeline（运行中，始终展开当前步骤）
+   */
+  private renderLiveTimeline(): void {
+    if (!this.currentAssistantId) return;
+    const block = this.messagesEl.querySelector<HTMLElement>('[data-msg-id="' + this.currentAssistantId + '"]');
     if (!block) return;
-    // 查找或创建 live progress 区域
-    let liveEl = block.querySelector<HTMLElement>(".llm-bridge-live-progress");
+    let liveEl = block.querySelector<HTMLElement>(".llm-bridge-timeline-live");
     if (!liveEl) {
-      liveEl = block.createDiv({ cls: "llm-bridge-live-progress", attr: { "data-live": "true" } });
-      liveEl.createEl("div", { cls: "llm-bridge-live-progress-title", text: "Live" });
+      liveEl = block.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-live", attr: { "data-live": "true" } });
     }
-    // 终态事件清理 live progress（运行结束后由 appendSdkWorkflow 展示完整）
-    if (ev.type === "completed" || ev.type === "failed") {
-      liveEl.style.display = "none";
-      return;
+    const nodes = adaptEventsToTimeline(this.liveTimelineEvents);
+    liveEl.empty();
+    for (const node of nodes) {
+      this.renderTimelineNode(liveEl, node, true);
     }
-    // V2.16-C-DEDUP-ANCHOR
-    // V2.16-C: 先计算事件详情摘要（用于展示与去重判断）
-    let detail = "";
-    if (ev.type === "message") {
-      const text = (ev as { text?: string }).text ?? "";
-      detail = truncateText(text, 80);
-    } else if (ev.type === "tool_start") {
-      const toolName = (ev as { toolName?: string }).toolName ?? "";
-      detail = toolName;
-    } else if (ev.type === "tool_result") {
-      const output = (ev as { output?: string }).output ?? "";
-      detail = truncateText(output, 60);
-    } else if (ev.type === "file_change") {
-      const path = (ev as { path?: string }).path ?? "";
-      detail = path;
-    } else if (ev.type === "permission") {
-      const toolName = (ev as { toolName?: string }).toolName ?? "";
-      detail = toolName;
-    } else if (ev.type === "thinking") {
-      const text = (ev as { text?: string }).text ?? "";
-      detail = truncateText(text, 80);
-    } else if (ev.type === "error") {
-      const message = (ev as { message?: string }).message ?? "";
-      detail = truncateText(message, 80);
-    }
-    // V2.16-C: 合并同一次 SDK 输出，避免重复 Assistant message
-    // 当 SDKAssistantMessage 与 SDKResultMessage 携带相同文本时，跳过重复的 message 项
-    if (ev.type === "message" && detail.length > 0) {
-      const lastItem = liveEl.querySelector<HTMLElement>(".llm-bridge-live-progress-item:last-child");
-      if (lastItem && lastItem.classList.contains("llm-bridge-live-message")) {
-        const lastDetail = lastItem.querySelector<HTMLElement>(".llm-bridge-live-progress-detail")?.textContent ?? "";
-        if (lastDetail === detail) return;
-      }
-    }
-    // 精简展示每个事件
-    const item = liveEl.createDiv({ cls: `llm-bridge-live-progress-item llm-bridge-live-${ev.type}` });
-    const icon = workflowEventIcon(ev);
-    const label = workflowEventLabel(ev);
-    item.createEl("span", { cls: "llm-bridge-live-progress-icon", text: icon });
-    item.createEl("span", { cls: "llm-bridge-live-progress-label", text: label });
-    if (detail) {
-      item.createEl("span", { cls: "llm-bridge-live-progress-detail", text: detail, attr: { title: detail } });
-    }
-    // 自动滚动到底部
     liveEl.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "end" });
   }
 
+  /**
+   * V2.16-C: 渲染单个 timeline node（现代 Claude/Codex 风格垂直节点）
+   */
+  private renderTimelineNode(parent: HTMLElement, node: TimelineNode, isLive: boolean): void {
+    const item = parent.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-" + node.kind });
+    item.createDiv({ cls: "llm-bridge-tl-dot" });
+    const content = item.createDiv({ cls: "llm-bridge-tl-content" });
+    if (node.kind === "session_started") {
+      content.createEl("div", { cls: "llm-bridge-tl-title", text: "Session started" });
+      if (node.text) content.createEl("div", { cls: "llm-bridge-tl-detail", text: node.text, attr: { title: node.text } });
+    } else if (node.kind === "thought") {
+      content.createEl("div", { cls: "llm-bridge-tl-title", text: "Thought" });
+      const detailText = node.text ?? "";
+      content.createEl("div", { cls: "llm-bridge-tl-detail llm-bridge-tl-thought-text", text: truncateText(detailText, 120), attr: { title: detailText } });
+    } else if (node.kind === "agent") {
+      if (node.isSubagent) content.createEl("span", { cls: "llm-bridge-tl-agent-tag is-subagent", text: "Subagent" });
+      content.createEl("div", { cls: "llm-bridge-tl-agent-text", text: truncateText(node.text ?? "", 200), attr: { title: node.text ?? "" } });
+    } else if (node.kind === "tool_call") {
+      const headEl = content.createDiv({ cls: "llm-bridge-tl-tool-head" });
+      headEl.createEl("span", { cls: "llm-bridge-tl-tool-icon", text: node.toolError ? "✗" : "✓" });
+      headEl.createEl("span", { cls: "llm-bridge-tl-tool-name", text: node.toolName ?? "unknown" });
+      if (node.durationMs !== undefined && node.durationMs > 0) {
+        headEl.createEl("span", { cls: "llm-bridge-tl-tool-duration", text: this.formatDurationMs(node.durationMs) });
+      }
+      if (node.toolInput) {
+        const path = extractToolPath(node.toolName ?? "", node.toolInput);
+        if (path) {
+          const shortPath = truncatePath(path);
+          content.createEl("code", { cls: "llm-bridge-tl-tool-path", text: shortPath, attr: { title: path } });
+        }
+      }
+      if (node.toolOutput) {
+        const outputText = truncateText(node.toolOutput, 200);
+        const outputEl = content.createEl("pre", { cls: "llm-bridge-tl-tool-output", text: outputText, attr: { title: node.toolOutput } });
+        if (node.toolError) outputEl.addClass("is-error");
+      }
+    } else if (node.kind === "file_change") {
+      const verb = node.fileAction === "create" ? "Created" : node.fileAction === "modify" ? "Modified" : "Deleted";
+      content.createEl("span", { cls: "llm-bridge-tl-file-action", text: verb });
+      const shortPath = truncatePath(node.filePath ?? "");
+      content.createEl("code", { cls: "llm-bridge-tl-file-path", text: shortPath, attr: { title: node.filePath ?? "" } });
+    } else if (node.kind === "final_message") {
+      content.createEl("div", { cls: "llm-bridge-tl-final-text", text: truncateText(node.text ?? "", 300), attr: { title: node.text ?? "" } });
+    } else if (node.kind === "warning") {
+      content.createEl("span", { cls: "llm-bridge-tl-warning-icon", text: "⚠" });
+      content.createEl("span", { cls: "llm-bridge-tl-warning-text", text: truncateText(node.message ?? "", 120), attr: { title: node.message ?? "" } });
+    } else if (node.kind === "error") {
+      content.createEl("span", { cls: "llm-bridge-tl-error-icon", text: "✗" });
+      content.createEl("span", { cls: "llm-bridge-tl-error-text", text: truncateText(node.message ?? "", 200), attr: { title: node.message ?? "" } });
+    } else if (node.kind === "completed") {
+      const stats = computeTimelineStats(adaptEventsToTimeline(this.liveTimelineEvents));
+      content.createEl("div", { cls: "llm-bridge-tl-completed", text: formatCompletedSummary(stats) });
+    } else if (node.kind === "failed") {
+      const allNodes = adaptEventsToTimeline(this.liveTimelineEvents);
+      content.createEl("div", { cls: "llm-bridge-tl-failed", text: formatFailedSummary(allNodes), attr: { title: node.message ?? "" } });
+    }
+  }
+
   private appendSdkWorkflow(parent: HTMLElement, events: ReadonlyArray<WorkflowEvent>): void {
-    const body = this.createCollapsibleSection(parent, "SDK Workflow", "llm-bridge-sdk-workflow");
+    // V2.16-C: 现代 Claude/Codex 风格 timeline + 折叠行为
+    // 用 timelineAdapter 转换事件为分类合并的 node 列表
+    const nodes = adaptEventsToTimeline(events);
+    const stats = computeTimelineStats(nodes);
+    const hasFailed = nodes.some((n) => n.kind === "failed" || n.kind === "error");
+    const summary = hasFailed ? formatFailedSummary(nodes) : formatCompletedSummary(stats);
 
-    // V2.3: 提取所有 agent 实例（按 sessionId 区分，主 agent 无 parentToolUseId）
-    const agents = this.extractAgentInstances(events);
-    if (agents.length > 0) {
-      const agentGroup = this.createSdkGroup(body, "Agents", agents.length);
-      const agentList = agentGroup.createDiv({ cls: "llm-bridge-sdk-agent-list" });
-      for (const agent of agents) {
-        const item = agentList.createDiv({ cls: `llm-bridge-sdk-agent-item ${agent.isMain ? "is-main" : "is-subagent"}` });
-        item.createEl("span", { cls: "llm-bridge-sdk-agent-icon", text: agent.isMain ? "★" : "↳" });
-        const text = item.createDiv({ cls: "llm-bridge-sdk-agent-text" });
-        text.createEl("span", { cls: "llm-bridge-sdk-agent-name", text: agent.isMain ? "Main agent" : "Subagent" });
-        if (agent.sessionId) {
-          text.createEl("span", { cls: "llm-bridge-sdk-agent-session", text: truncateText(agent.sessionId, 12), attr: { title: agent.sessionId } });
-        }
-        if (!agent.isMain && agent.parentToolUseId) {
-          text.createEl("span", { cls: "llm-bridge-sdk-agent-parent", text: `parent: ${truncateText(agent.parentToolUseId, 12)}`, attr: { title: agent.parentToolUseId } });
-        }
-        text.createEl("span", { cls: "llm-bridge-sdk-agent-count", text: `${agent.eventCount} events` });
-      }
+    // 折叠区容器：completed 后默认折叠（只保留摘要），failed 时展开错误
+    const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap" });
+    const headEl = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
+    headEl.createEl("span", { cls: "llm-bridge-timeline-toggle", text: hasFailed ? "▶ " : "▶ " });
+    headEl.createEl("span", { cls: "llm-bridge-timeline-summary", text: summary });
+
+    // timeline body：completed 默认折叠，failed 默认展开
+    const bodyEl = wrap.createDiv({ cls: "llm-bridge-timeline-body" });
+    if (!hasFailed) bodyEl.setAttribute("hidden", "");
+
+    // 渲染完整 timeline
+    const timelineEl = bodyEl.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-final" });
+    for (const node of nodes) {
+      this.renderTimelineNode(timelineEl, node, false);
     }
 
-    // V2.0: 按阶段顺序分组渲染（空分组跳过）
-    this.appendSdkEventGroup(body, "Thinking", events.filter((e) => e.type === "thinking"));
-    this.appendSdkEventGroup(body, "Messages", events.filter((e) => e.type === "message"));
+    // raw log 默认折叠（保留在独立折叠区）
+    const rawBody = bodyEl.createDiv({ cls: "llm-bridge-timeline-raw" });
+    const rawHead = rawBody.createDiv({ cls: "llm-bridge-timeline-raw-head" });
+    rawHead.createEl("span", { cls: "llm-bridge-timeline-raw-toggle", text: "▶ Raw log" });
+    const rawContent = rawBody.createDiv({ cls: "llm-bridge-timeline-raw-body", attr: { hidden: "" } });
+    rawContent.createEl("pre", { cls: "llm-bridge-timeline-raw-text", text: JSON.stringify(events, null, 2) });
 
-    // Tools 分组（tool timeline，含 durationMs / 结果状态 / 长内容截断）
-    // V2.3: 按主 agent / subagent 分组展示工具调用
-    const toolTimeline = buildToolTimeline(events);
-    if (toolTimeline.length > 0) {
-      // V2.9: 直接用 entry.parentToolUseId 分组（O(1) 查表），替代 findToolParentAgent 对每个 tool 线性扫描 events（原 O(N²)）
-      const mainTools = toolTimeline.filter((t) => !t.parentToolUseId);
-      const subTools = toolTimeline.filter((t) => !!t.parentToolUseId);
-      if (mainTools.length > 0) {
-        this.renderToolTimelineGroup(body, "Tools — Main agent", mainTools);
+    // 折叠交互
+    const toggle = headEl.querySelector(".llm-bridge-timeline-toggle")!;
+    toggle.addEventListener("click", () => {
+      const hidden = bodyEl.hasAttribute("hidden");
+      if (hidden) {
+        bodyEl.removeAttribute("hidden");
+        toggle.textContent = "▼ ";
+      } else {
+        bodyEl.setAttribute("hidden", "");
+        toggle.textContent = "▶ ";
       }
-      if (subTools.length > 0) {
-        this.renderToolTimelineGroup(body, "Tools — Subagents", subTools);
+    });
+    const rawToggle = rawHead.querySelector(".llm-bridge-timeline-raw-toggle")!;
+    rawToggle.addEventListener("click", () => {
+      const hidden = rawContent.hasAttribute("hidden");
+      if (hidden) {
+        rawContent.removeAttribute("hidden");
+        rawToggle.textContent = "▼ Raw log";
+      } else {
+        rawContent.setAttribute("hidden", "");
+        rawToggle.textContent = "▶ Raw log";
       }
-      // 兜底：若两者都为空（理论上不会发生，但保守处理）
-      if (mainTools.length === 0 && subTools.length === 0) {
-        this.renderToolTimelineGroup(body, "Tools", toolTimeline);
-      }
-    }
-
-    this.appendSdkEventGroup(body, "File changes", events.filter((e) => e.type === "file_change"));
-    // V2.3s: 权限事件分组（展示工具名/风险等级/决策来源/来源 agent/参数摘要）
-    this.renderPermissionHistory(body, events.filter((e): e is PermissionEvent => e.type === "permission"));
-    this.appendSdkEventGroup(body, "Errors", events.filter((e) => e.type === "error"));
-    this.appendSdkEventGroup(body, "Terminal", events.filter((e) => e.type === "completed" || e.type === "failed"));
+    });
   }
 
   // V2.3: 从事件中提取 agent 实例列表（主 agent + subagent）
