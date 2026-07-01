@@ -4983,8 +4983,8 @@ if (!runV23sUnit) {
     // ---- Test 24: SdkBackend 实例化且 name 正确 ----
     {
       const backend = new SdkBackend();
-      addTest("V2.3s SdkBackend: 实例化且 name='sdk-experimental'",
-        backend.name === "sdk-experimental" ? "pass" : "fail",
+      addTest("V2.3s SdkBackend: 实例化且 name='sdk'",
+        backend.name === "sdk" ? "pass" : "fail",
         `name=${backend.name}`);
     }
 

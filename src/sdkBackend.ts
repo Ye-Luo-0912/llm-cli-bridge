@@ -827,24 +827,33 @@ async function runRealSdkQuery(
 // ---------- SdkBackend 实现 ----------
 
 /**
- * SDK Backend（实验性，V1.7 增强）
+ * SDK Backend（V2.16-B: SDK primary runtime）
  *
  * 行为：
  * - 尝试加载真实 Claude Agent SDK（新/旧包名）
  * - 若可用：调用 SDK query()，用 mapSdkMessageToWorkflowEvents 映射事件流
- * - 若不可用：fallback mock workflow，模拟工具调用序列 + AgentEvent v0.1
+ * - 若不可用：
+ *   - strict=false（auto 模式）：fallback mock workflow，模拟工具调用序列 + AgentEvent v0.1
+ *   - strict=true（显式 sdk 模式）：发 failed 事件，显示明确错误，不静默 fallback
  *
  * AgentEvent v0.1 不变；工具级事件通过 onWorkflowEvent 传递
  * SDK diagnostics 收集可用性/包名/版本/事件数/fallback 原因，日志脱敏
  */
 export class SdkBackend implements AgentBackend {
-  readonly name = "sdk-experimental";
+  readonly name = "sdk";
 
   /** 最近一次运行的诊断信息（供 UI/日志读取，不含 secret） */
   lastDiagnostics: SdkDiagnostics | null = null;
 
   /** V2.3s: 权限状态（会话级允许/拒绝缓存 + 待决策请求） */
   private permissionState: PermissionState = createPermissionState();
+
+  /**
+   * V2.16-B: strict 模式（显式选 sdk 时）
+   * - true: SDK 不可用时发 failed 事件，不静默 fallback mock
+   * - false: SDK 不可用时 fallback mock workflow（auto 模式默认行为）
+   */
+  constructor(private readonly strict: boolean = false) {}
 
   /**
    * V2.3s: 解析待决策的权限请求（由 UI 调用）
@@ -938,7 +947,7 @@ export class SdkBackend implements AgentBackend {
 
         this.lastDiagnostics = result.diagnostics;
         // 记录诊断日志（脱敏，不含 secret）
-        console.log(`[sdk-experimental] ${formatDiagnosticsForLog(result.diagnostics)}`);
+        console.log(`[sdk] ${formatDiagnosticsForLog(result.diagnostics)}`);
 
         stopped = true;
         cleanup();
@@ -950,7 +959,7 @@ export class SdkBackend implements AgentBackend {
             durationMs,
             stdout: result.text,
             stderr: "",
-            command: "sdk-experimental",
+            command: "sdk",
             args: [],
           });
         } else {
@@ -960,20 +969,66 @@ export class SdkBackend implements AgentBackend {
             durationMs,
             stdout: "",
             stderr: result.text,
-            command: "sdk-experimental",
+            command: "sdk",
             args: [],
           });
         }
       };
       void runAsync();
     } else {
-      // Mock fallback 路径
+      // SDK 不可用
       diagnostics = updateDiagnostics(diagnostics, {
         available: false,
         fallbackReason: "SDK package not found (@anthropic-ai/claude-agent-sdk / @anthropic-ai/claude-code)",
       });
       this.lastDiagnostics = diagnostics;
 
+      // V2.16-B: strict 模式（显式选 sdk）— 发 failed 事件，不静默 fallback
+      if (this.strict) {
+        const durationMs = Date.now() - startedAt;
+        const errMsg = "SDK 不可用：未找到 @anthropic-ai/claude-agent-sdk 包。请在 LLM-AgentRuntime/node_modules 安装 SDK，或切换 backend 为 auto/cli。";
+        if (onWorkflowEvent) {
+          const errEv: ErrorEvent = {
+            type: "error",
+            timestamp: new Date().toISOString(),
+            message: errMsg,
+            recoverable: false,
+          };
+          onWorkflowEvent(redactWorkflowEvent(errEv));
+        }
+        onEvent({
+          type: "failed",
+          exitCode: 1,
+          durationMs,
+          stdout: "",
+          stderr: errMsg,
+          command: "sdk",
+          args: [],
+        });
+        stopped = true;
+        return {
+          get running(): boolean {
+            return !stopped;
+          },
+          stop: (): void => {
+            if (stopped) return;
+            stopped = true;
+            cleanup();
+            this.clearSessionPermissions();
+            onEvent({
+              type: "stopped",
+              exitCode: null,
+              durationMs: Date.now() - startedAt,
+              stdout: "",
+              stderr: "",
+              command: "sdk",
+              args: [],
+            });
+          },
+        };
+      }
+
+      // 非严格模式（auto fallback）：mock workflow
       if (onWorkflowEvent) {
         // 发一条系统消息说明 SDK 不可用
         const now = () => new Date().toISOString();
@@ -1008,7 +1063,7 @@ export class SdkBackend implements AgentBackend {
           durationMs,
           stdout,
           stderr: "",
-          command: "sdk-experimental",
+          command: "sdk",
           args: [],
         });
       }, 1500);
@@ -1031,7 +1086,7 @@ export class SdkBackend implements AgentBackend {
           durationMs: Date.now() - startedAt,
           stdout: "",
           stderr: "",
-          command: "sdk-experimental",
+          command: "sdk",
           args: [],
         });
       },

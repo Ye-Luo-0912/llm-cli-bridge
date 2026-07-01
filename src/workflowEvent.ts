@@ -1,6 +1,6 @@
 // LLM CLI Bridge — Workflow Event (V2.0 SDK Workflow Deepening)
 // UI-only 工具级事件模型，不混入 AgentEvent v0.1
-// 用于 sdk-experimental backend 展示结构化工具调用流程
+// 用于 sdk backend 展示结构化工具调用流程
 //
 // 事件类型：
 // - thinking:      模型思考过程摘要（V2.0 新增）

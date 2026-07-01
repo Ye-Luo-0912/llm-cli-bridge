@@ -295,6 +295,11 @@ export default class LLMBridgePlugin extends Plugin {
 
   async loadSettings(): Promise<void> {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+    // V2.16-B: 迁移旧的 "sdk-experimental" → "sdk"
+    if ((this.settings as { backendMode?: string }).backendMode === "sdk-experimental") {
+      this.settings.backendMode = "sdk";
+      await this.saveData(this.settings);
+    }
   }
 
   async saveSettings(): Promise<void> {

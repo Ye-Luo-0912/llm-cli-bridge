@@ -259,13 +259,14 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Backend 模式（Mock / Demo）")
-      .setDesc("auto=使用真实 ClaudeCliBackend（默认生产，日常使用）；mock-success / mock-failure=使用 MockAgentBackend 驱动 UI 演示，不调用真实 CLI，仅用于离线测试；sdk-experimental=实验性 SDK backend，尝试加载 Claude Agent SDK，不可用时 fallback mock workflow，在消息中展示结构化工具调用流程。")
+      .setName("Backend 模式")
+      .setDesc("auto=SDK-first + Claude Code CLI fallback（默认生产）；cli=始终使用 Claude Code CLI；sdk=始终使用 SDK（不可用时显示错误，不 fallback）；mock-success / mock-failure=离线测试用。")
       .addDropdown((d) => {
-        d.addOption("auto", "auto（真实 CLI）");
+        d.addOption("auto", "auto（SDK-first + CLI fallback）");
+        d.addOption("cli", "cli（Claude Code CLI）");
+        d.addOption("sdk", "sdk（Claude Agent SDK）");
         d.addOption("mock-success", "mock-success（演示成功流程）");
         d.addOption("mock-failure", "mock-failure（演示失败流程）");
-        d.addOption("sdk-experimental", "sdk-experimental（实验性 SDK workflow）");
         d.setValue(s.backendMode);
         d.onChange(async (v) => {
           s.backendMode = v as BackendMode;

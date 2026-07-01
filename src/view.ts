@@ -19,7 +19,7 @@ import { buildFirstUseGuide, shouldShowFirstUseGuide } from "./firstUseGuide";
 import { buildTimeline, isTerminalTimelineType, timelineTypeClass, timelineTypeLabel, TimelineEventType } from "./runTimeline";
 import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, previewToRows, CommandPreview } from "./commandProfile";
 import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
-import { SdkBackend } from "./sdkBackend";
+import { SdkBackend, isSdkAvailable } from "./sdkBackend";
 import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
 import { PersistedSession, SessionListItem, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
@@ -201,6 +201,8 @@ export class LLMBridgeView extends ItemView {
   // backend 实例缓存：按 settings.backendMode 选择 real / mock
   private cachedBackend: AgentBackend | null = null;
   private cachedBackendMode: BackendMode | null = null;
+  /** V2.16-B: 实际 runtime 标签（供 UI 显示，区分 auto→SDK / auto→CLI fallback） */
+  private actualRuntimeLabel: string = "Claude Code";
   private runHandle: AgentRunHandle | null = null;
   private messages: ChatMessage[] = [];
   private currentAssistantId: string | null = null;
@@ -362,7 +364,7 @@ export class LLMBridgeView extends ItemView {
     });
     this.statusLabelEl = runtimeStatus.createEl("span", {
       cls: "llm-bridge-status-text",
-      text: "Claude Code · 待命",
+      text: "Claude Code fallback · 待命",
     });
 
     // agent selector 迁入 composer 右侧；header 只保留 compact runtime status。
@@ -1119,9 +1121,11 @@ export class LLMBridgeView extends ItemView {
   }
 
   // 按 settings.backendMode 获取 backend 实例（带缓存）
-  // - auto: 真实 ClaudeCliBackend（默认生产行为）
+  // V2.16-B: auto = SDK-first + CLI fallback；显式选择不静默 fallback
+  // - auto: SDK 可用→SdkBackend(strict=false)，不可用→ClaudeCliBackend
+  // - cli: 始终 ClaudeCliBackend
+  // - sdk: SdkBackend(strict=true)，SDK 不可用时发 error 不 fallback
   // - mock-success / mock-failure: MockAgentBackend（开发/测试用）
-  // - sdk-experimental: V1.6 SdkBackend（尝试真实 SDK，不可用时 fallback mock workflow）
   private getBackend(): AgentBackend {
     const mode = this.plugin.settings.backendMode;
     if (this.cachedBackend && this.cachedBackendMode === mode) {
@@ -1130,12 +1134,26 @@ export class LLMBridgeView extends ItemView {
     let backend: AgentBackend;
     if (mode === "mock-success") {
       backend = new MockAgentBackend("success");
+      this.actualRuntimeLabel = "Mock";
     } else if (mode === "mock-failure") {
       backend = new MockAgentBackend("failure");
-    } else if (mode === "sdk-experimental") {
-      backend = new SdkBackend();
-    } else {
+      this.actualRuntimeLabel = "Mock";
+    } else if (mode === "sdk") {
+      backend = new SdkBackend(true);
+      this.actualRuntimeLabel = "SDK";
+    } else if (mode === "cli") {
       backend = new ClaudeCliBackend();
+      this.actualRuntimeLabel = "Claude Code";
+    } else {
+      // auto: SDK-first + CLI fallback
+      const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      if (isSdkAvailable(vaultPath)) {
+        backend = new SdkBackend(false);
+        this.actualRuntimeLabel = "SDK";
+      } else {
+        backend = new ClaudeCliBackend();
+        this.actualRuntimeLabel = "Claude Code fallback";
+      }
     }
     this.cachedBackend = backend;
     this.cachedBackendMode = mode;
@@ -1143,8 +1161,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   private setGlobalStatus(status: RunStatus): void {
-    const agentLabel = AGENT_OPTIONS.find((a) => a.value === this.plugin.settings.agentType)?.label ?? this.plugin.settings.agentType;
-    const runtimeLabel = this.plugin.settings.backendMode === "sdk-experimental" ? "SDK" : agentLabel;
+    const runtimeLabel = this.actualRuntimeLabel;
     const runtimeState = status === "failed" ? "失败" : status === "running" ? "运行中" : "已连接";
     this.statusLabelEl.textContent = `${runtimeLabel} · ${runtimeState}`;
     this.statusDotEl.className = `llm-bridge-status-dot llm-bridge-status-dot-${status}`;
@@ -1171,15 +1188,30 @@ export class LLMBridgeView extends ItemView {
 
   // V1.1: 刷新状态栏（Backend 模式 / Agent / cwd / Preflight 状态）
   // V2.3: 新增权限策略 / 工具步骤 / agent 计数
+  // V2.16-B: runtime status 显示实际 backend（SDK / Claude Code fallback / Claude Code / SDK unavailable）
   private refreshStatusBar(): void {
     const s = this.plugin.settings;
-    // Backend 模式
-    const backendLabel = s.backendMode === "auto" ? "auto" : s.backendMode;
+    // Backend 模式（配置值）
+    const backendLabel = s.backendMode;
     this.statusBackendEl.querySelector(".llm-bridge-sb-value")!.textContent = backendLabel;
     // Agent 类型
     const agentLabel = AGENT_OPTIONS.find((a) => a.value === s.agentType)?.label ?? s.agentType;
     this.statusAgentEl.querySelector(".llm-bridge-sb-value")!.textContent = agentLabel;
-    const runtimeLabel = s.backendMode === "sdk-experimental" ? "SDK" : agentLabel;
+    // V2.16-B: 顶部 runtime status 显示实际 backend
+    // auto: 主动检查 SDK 可用性决定 label（不依赖 getBackend 调用）
+    let runtimeLabel: string;
+    if (s.backendMode === "auto") {
+      const vp = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      runtimeLabel = isSdkAvailable(vp) ? "SDK" : "Claude Code fallback";
+    } else if (s.backendMode === "cli") {
+      runtimeLabel = "Claude Code";
+    } else if (s.backendMode === "sdk") {
+      const vp = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      runtimeLabel = isSdkAvailable(vp) ? "SDK" : "SDK unavailable";
+    } else {
+      runtimeLabel = "Mock";
+    }
+    this.actualRuntimeLabel = runtimeLabel;
     const runtimeState = this.sessionState.status === "failed" ? "失败" : this.sessionState.status === "running" ? "运行中" : "已连接";
     this.statusLabelEl.textContent = `${runtimeLabel} · ${runtimeState}`;
     // Cwd（Vault 根目录）— getBasePath 运行时存在但类型未声明，用 as 绕过
@@ -1966,7 +1998,7 @@ export class LLMBridgeView extends ItemView {
     }
 
     // V1.6: SDK 工作流事件（工具级：tool_start/tool_result/file_change/permission/error/message）
-    // 仅 sdk-experimental backend 产生；CLI/mock backend 无此数据
+    // 仅 sdk backend 产生；CLI/mock backend 无此数据
     if (msg.role === "assistant" && msg.sdkEvents && msg.sdkEvents.length > 0) {
       this.appendSdkWorkflow(details, msg.sdkEvents);
       // V2.3: 更新状态栏工具步骤/agent 计数

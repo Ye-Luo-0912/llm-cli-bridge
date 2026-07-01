@@ -4,7 +4,7 @@
 //
 // 设计原则：
 // - 不改 AgentEvent v0.1，不新增 tool event
-// - CLI/auto 主线不受影响（仅 sdk-experimental 启用 canUseTool 回调）
+// - CLI/auto 主线不受影响（仅 sdk 启用 canUseTool 回调）
 // - high-risk 操作必须明确提示（删除/shell/Vault外/.obsidian/env/网络）
 // - subagent 权限继承较宽时 UI 提示风险（只展示，不自研编排）
 // - 相同工具/同类请求合并，避免频繁弹窗

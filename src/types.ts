@@ -19,13 +19,16 @@ export type RunStatus = "idle" | "running" | "completed" | "failed" | "stopped";
 export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "auto" | "dontAsk" | "bypassPermissions";
 
 /**
- * Backend 选择（V0.2 UI Mock Wiring / Demo Mode）
- * - auto: 默认生产行为，使用 ClaudeCliBackend
+ * Backend 选择（V2.16-B: SDK primary runtime）
+ * - auto: SDK-first + Claude Code CLI fallback（默认生产行为）
+ * - cli: 始终使用 ClaudeCliBackend（显式选择，不走 SDK）
+ * - sdk: 始终使用 SdkBackend（显式选择，SDK 不可用时显示明确错误，不静默 fallback）
  * - mock-success: 开发/测试用，使用 MockAgentBackend(success)
  * - mock-failure: 开发/测试用，使用 MockAgentBackend(failure)
- * - sdk-experimental: V1.6 实验性，使用 SdkBackend（尝试真实 SDK，不可用时 fallback mock workflow）
+ *
+ * V2.16-B 迁移：旧的 "sdk-experimental" 自动迁移为 "sdk"
  */
-export type BackendMode = "auto" | "mock-success" | "mock-failure" | "sdk-experimental";
+export type BackendMode = "auto" | "cli" | "sdk" | "mock-success" | "mock-failure";
 
 // V2.3: 权限策略（low=宽松 / medium=默认 / high=严格）
 export type PermissionPolicy = "low" | "medium" | "high";
@@ -53,7 +56,7 @@ export interface ChatMessage {
   // V1.5: 运行过程中收集的 workflow 事件，用于构造 workflowTrace
   workflowEvents?: Array<{ stage: string; detail: string; timestamp: string }>;
   // V1.6: SDK 工作流事件（UI-only，工具级：tool_start/tool_result/file_change/permission/error/message）
-  // 仅 sdk-experimental backend 产生；CLI/mock backend 不产生
+  // 仅 sdk backend 产生；CLI/mock backend 不产生
   sdkEvents?: ReadonlyArray<import("./workflowEvent").WorkflowEvent>;
 }
 
