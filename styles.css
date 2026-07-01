@@ -2805,6 +2805,27 @@
 .llm-bridge-model-effort-popover[hidden] {
   display: none !important;
 }
+/* V2.16-C: 单列紧凑 popover */
+.llm-bridge-model-effort-popover-single {
+  width: min(220px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.llm-bridge-model-effort-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.llm-bridge-model-effort-section-title {
+  padding: 2px 4px;
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 2px;
+}
 .llm-bridge-model-effort-column {
   display: flex;
   flex-direction: column;
@@ -3005,4 +3026,55 @@
     right: -4px;
     grid-template-columns: 1fr 0.8fr;
   }
+}
+
+/* V2.16-C: SDK Live Progress 实时过程展示 */
+.llm-bridge-live-progress {
+  margin: 4px 0;
+  padding: 6px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary-alt);
+  font-size: var(--font-smallest);
+}
+.llm-bridge-live-progress-title {
+  color: var(--text-faint);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  margin-bottom: 4px;
+}
+.llm-bridge-live-progress-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 0;
+  color: var(--text-normal);
+  line-height: 1.4;
+}
+.llm-bridge-live-progress-icon {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  color: var(--interactive-accent);
+}
+.llm-bridge-live-progress-label {
+  flex-shrink: 0;
+  font-weight: 500;
+  min-width: 64px;
+}
+.llm-bridge-live-progress-detail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-muted);
+}
+.llm-bridge-live-progress-item.llm-bridge-live-error .llm-bridge-live-progress-icon,
+.llm-bridge-live-progress-item.llm-bridge-live-failed .llm-bridge-live-progress-icon {
+  color: var(--text-error);
+}
+.llm-bridge-live-progress-item.llm-bridge-live-completed .llm-bridge-live-progress-icon {
+  color: var(--text-success);
 }

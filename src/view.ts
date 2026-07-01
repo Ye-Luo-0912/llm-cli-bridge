@@ -20,6 +20,7 @@ import { buildTimeline, isTerminalTimelineType, timelineTypeClass, timelineTypeL
 import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, previewToRows, CommandPreview } from "./commandProfile";
 import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
 import { SdkBackend, isSdkAvailable } from "./sdkBackend";
+import { getRuntimeModelCatalog, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
 import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
 import { PersistedSession, SessionListItem, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
@@ -162,22 +163,6 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   stopped: "Stopped",
 };
 
-// 模型选项（对应中转支持的模型）
-const MODEL_OPTIONS = [
-  { value: "gpt-5.5", label: "gpt-5.5" },
-  { value: "gpt-5.4", label: "gpt-5.4" },
-  { value: "glm-5.2", label: "glm-5.2" },
-  { value: "deepseek-v4", label: "deepseek-v4" },
-];
-
-// 思考强度
-const EFFORT_OPTIONS = [
-  { value: "low", label: "低" },
-  { value: "medium", label: "中" },
-  { value: "high", label: "高" },
-  { value: "max", label: "超高" },
-];
-
 const AGENT_OPTIONS = [
   { value: "claude", label: "Claude Code" },
   { value: "codex", label: "Codex CLI" },
@@ -255,6 +240,8 @@ export class LLMBridgeView extends ItemView {
   private modelEffortPickerEl!: HTMLElement;
   private modelEffortButtonEl!: HTMLButtonElement;
   private modelEffortPopoverEl!: HTMLElement;
+  /** V2.16-C: 运行时模型目录（不再硬编码） */
+  private modelCatalog: RuntimeModelCatalog = getRuntimeModelCatalog();
   private permissionModeChipEl!: HTMLButtonElement;
   private includeNoteCheckEl!: HTMLInputElement;
   private includeSelectionCheckEl!: HTMLInputElement;
@@ -944,14 +931,16 @@ export class LLMBridgeView extends ItemView {
       this.toggleModelEffortPopover();
     });
 
+    // V2.16-C: 单列紧凑 popover，上半模型下半推理等级
     this.modelEffortPopoverEl = this.modelEffortPickerEl.createDiv({
-      cls: "llm-bridge-model-effort-popover",
+      cls: "llm-bridge-model-effort-popover llm-bridge-model-effort-popover-single",
       attr: { hidden: "" },
     });
-    const modelColumn = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-column llm-bridge-model-list" });
-    modelColumn.createEl("span", { cls: "llm-bridge-model-effort-label", text: "模型" });
-    for (const model of MODEL_OPTIONS) {
-      const option = modelColumn.createEl("button", {
+    // 上半部分：模型
+    const modelSection = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-model-list" });
+    modelSection.createEl("div", { cls: "llm-bridge-model-effort-section-title", text: "Model" });
+    for (const model of this.modelCatalog.models) {
+      const option = modelSection.createEl("button", {
         cls: "llm-bridge-model-option",
         text: model.label,
         attr: { "data-model": model.value },
@@ -962,10 +951,11 @@ export class LLMBridgeView extends ItemView {
         void this.setModelEffort(model.value, this.plugin.settings.effortLevel);
       });
     }
-    const effortColumn = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-column llm-bridge-effort-list" });
-    effortColumn.createEl("span", { cls: "llm-bridge-model-effort-label", text: "推理等级" });
-    for (const effort of EFFORT_OPTIONS) {
-      const option = effortColumn.createEl("button", {
+    // 下半部分：推理等级（使用原始名称，不中文化）
+    const effortSection = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-effort-list" });
+    effortSection.createEl("div", { cls: "llm-bridge-model-effort-section-title", text: "Effort" });
+    for (const effort of this.modelCatalog.efforts) {
+      const option = effortSection.createEl("button", {
         cls: "llm-bridge-effort-option",
         text: effort.label,
         attr: { "data-effort": effort.value },
@@ -991,8 +981,9 @@ export class LLMBridgeView extends ItemView {
 
   private async setModelEffort(model: string, effort: string): Promise<void> {
     if (this.runHandle) return;
-    const nextModel = MODEL_OPTIONS.some((option) => option.value === model) ? model : MODEL_OPTIONS[0].value;
-    const nextEffort = EFFORT_OPTIONS.some((option) => option.value === effort) ? effort : EFFORT_OPTIONS[0].value;
+    // V2.16-C: 使用 catalog 归一化，不再依赖硬编码 MODEL_OPTIONS/EFFORT_OPTIONS
+    const nextModel = normalizeModelValue(this.modelCatalog, model);
+    const nextEffort = normalizeEffortValue(this.modelCatalog, effort);
     this.plugin.settings.model = nextModel;
     this.plugin.settings.effortLevel = nextEffort;
     await this.plugin.saveSettings();
@@ -1019,14 +1010,19 @@ export class LLMBridgeView extends ItemView {
 
   private refreshModelEffortPicker(): void {
     if (!this.modelEffortButtonEl) return;
-    const model = MODEL_OPTIONS.find((option) => option.value === this.plugin.settings.model) ?? MODEL_OPTIONS[0];
-    const effort = EFFORT_OPTIONS.find((option) => option.value === this.plugin.settings.effortLevel) ?? EFFORT_OPTIONS[0];
-    this.modelEffortButtonEl.textContent = `${model.label} · ${effort.label}`;
+    // V2.16-C: 从 catalog 读取 label，不再依赖硬编码列表
+    const model = findModelEntry(this.modelCatalog, this.plugin.settings.model);
+    const effort = findEffortEntry(this.modelCatalog, this.plugin.settings.effortLevel);
+    const modelLabel = model?.label ?? this.plugin.settings.model ?? "unknown";
+    const effortLabel = effort?.label ?? this.plugin.settings.effortLevel ?? "unknown";
+    this.modelEffortButtonEl.textContent = `${modelLabel} · ${effortLabel}`;
+    const currentModelValue = model?.value ?? this.plugin.settings.model;
+    const currentEffortValue = effort?.value ?? this.plugin.settings.effortLevel;
     this.modelEffortPopoverEl?.querySelectorAll<HTMLElement>(".llm-bridge-model-option").forEach((option) => {
-      option.classList.toggle("is-active", option.getAttribute("data-model") === model.value);
+      option.classList.toggle("is-active", option.getAttribute("data-model") === currentModelValue);
     });
     this.modelEffortPopoverEl?.querySelectorAll<HTMLElement>(".llm-bridge-effort-option").forEach((option) => {
-      option.classList.toggle("is-active", option.getAttribute("data-effort") === effort.value);
+      option.classList.toggle("is-active", option.getAttribute("data-effort") === currentEffortValue);
     });
   }
 
@@ -2145,6 +2141,75 @@ export class LLMBridgeView extends ItemView {
   // V2.0: 渲染 SDK 工作流事件（按阶段分组：thinking/message/tool/file/permission/error/terminal）
   // V1.8: 默认折叠（SDK experimental 为开发者功能，减少主 UI 噪音）
   // V2.3: 按 agent/subagent 分组展示（主 agent vs subagent，工具与消息附带 agent 标签）
+  /**
+   * V2.16-C: 实时追加 SDK 事件到当前 assistant message 的 live progress 区域
+   *
+   * 精简 progress 展示：session started / tool_start / tool_result / file_change / permission / message delta / completed/failed
+   * 合并同一次 SDK 输出，避免重复 Assistant message
+   * 详细 JSON/log 继续折叠（运行结束后 appendSdkWorkflow 展示完整 SDK Workflow）
+   */
+  private appendLiveSdkEvent(ev: WorkflowEvent): void {
+    if (!this.currentAssistantId) return;
+    const block = this.messagesEl.querySelector<HTMLElement>(`[data-msg-id="${this.currentAssistantId}"]`);
+    if (!block) return;
+    // 查找或创建 live progress 区域
+    let liveEl = block.querySelector<HTMLElement>(".llm-bridge-live-progress");
+    if (!liveEl) {
+      liveEl = block.createDiv({ cls: "llm-bridge-live-progress", attr: { "data-live": "true" } });
+      liveEl.createEl("div", { cls: "llm-bridge-live-progress-title", text: "Live" });
+    }
+    // 终态事件清理 live progress（运行结束后由 appendSdkWorkflow 展示完整）
+    if (ev.type === "completed" || ev.type === "failed") {
+      liveEl.style.display = "none";
+      return;
+    }
+    // V2.16-C-DEDUP-ANCHOR
+    // V2.16-C: 先计算事件详情摘要（用于展示与去重判断）
+    let detail = "";
+    if (ev.type === "message") {
+      const text = (ev as { text?: string }).text ?? "";
+      detail = truncateText(text, 80);
+    } else if (ev.type === "tool_start") {
+      const toolName = (ev as { toolName?: string }).toolName ?? "";
+      detail = toolName;
+    } else if (ev.type === "tool_result") {
+      const output = (ev as { output?: string }).output ?? "";
+      detail = truncateText(output, 60);
+    } else if (ev.type === "file_change") {
+      const path = (ev as { path?: string }).path ?? "";
+      detail = path;
+    } else if (ev.type === "permission") {
+      const toolName = (ev as { toolName?: string }).toolName ?? "";
+      detail = toolName;
+    } else if (ev.type === "thinking") {
+      const text = (ev as { text?: string }).text ?? "";
+      detail = truncateText(text, 80);
+    } else if (ev.type === "error") {
+      const message = (ev as { message?: string }).message ?? "";
+      detail = truncateText(message, 80);
+    }
+    // V2.16-C: 合并同一次 SDK 输出，避免重复 Assistant message
+    // 当 SDKAssistantMessage 与 SDKResultMessage 携带相同文本时，跳过重复的 message 项
+    if (ev.type === "message" && detail.length > 0) {
+      const lastItem = liveEl.querySelector<HTMLElement>(".llm-bridge-live-progress-item:last-child");
+      if (lastItem && lastItem.classList.contains("llm-bridge-live-message")) {
+        const lastDetail = lastItem.querySelector<HTMLElement>(".llm-bridge-live-progress-detail")?.textContent ?? "";
+        if (lastDetail === detail) return;
+      }
+    }
+    // 精简展示每个事件
+    const item = liveEl.createDiv({ cls: `llm-bridge-live-progress-item llm-bridge-live-${ev.type}` });
+    const icon = workflowEventIcon(ev);
+    const label = workflowEventLabel(ev);
+    item.createEl("span", { cls: "llm-bridge-live-progress-icon", text: icon });
+    item.createEl("span", { cls: "llm-bridge-live-progress-label", text: label });
+    if (detail) {
+      item.createEl("span", { cls: "llm-bridge-live-progress-detail", text: detail, attr: { title: detail } });
+    }
+    // 自动滚动到底部
+    liveEl.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }
+
   private appendSdkWorkflow(parent: HTMLElement, events: ReadonlyArray<WorkflowEvent>): void {
     const body = this.createCollapsibleSection(parent, "SDK Workflow", "llm-bridge-sdk-workflow");
 
@@ -3413,6 +3478,8 @@ export class LLMBridgeView extends ItemView {
     }, (wfEvent: WorkflowEvent) => {
       // V1.6: 收集 SDK 工作流事件（工具级），用于 UI 渲染
       sdkEvents.push(wfEvent);
+      // V2.16-C: 实时渲染 SDK live progress（不等到运行结束）
+      this.appendLiveSdkEvent(wfEvent);
       // V2.3s: 实时处理权限请求事件（pending=true 时加入面板等待用户决策）
       if (wfEvent.type === "permission") {
         const permEv = wfEvent as PermissionEvent;

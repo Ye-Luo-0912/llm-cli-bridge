@@ -514,7 +514,10 @@ export function buildSdkOptions(
 ): Record<string, unknown> {
   const options: Record<string, unknown> = {
     cwd: task.cwd,
-    // 不设置 model（让 SDK 使用默认/配置）；settings.model 主要给 CLI backend 用
+    // V2.16-C: 传入 model 与 effortLevel，使 UI 选择与 SDK query 一致
+    model: settings.model || undefined,
+    // V2.16-C: SDK query 使用 reasoningEffort 传递推理等级
+    ...(settings.effortLevel ? { reasoningEffort: settings.effortLevel } : {}),
     permissionMode: settings.claudePermissionMode ?? "default",
     // V1.7: 不启用 includePartialMessages（避免 partial 噪音，终态消息已足够）
     includePartialMessages: false,
