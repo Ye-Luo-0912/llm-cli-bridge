@@ -204,9 +204,9 @@ export class LLMBridgeView extends ItemView {
   // V2.0: 会话状态（UI-only，不持久化）
   private sessionState: SessionState = createNewSession();
   // V2.0: 运行流程区（最新一次运行的 workflow trace）
-  private runFlowEl!: HTMLElement;
-  private runFlowBody!: HTMLElement;
-  private runFlowToggle!: HTMLElement;
+  private runFlowEl: HTMLElement | null = null;
+  private runFlowBody: HTMLElement | null = null;
+  private runFlowToggle: HTMLElement | null = null;
   // V2.0: 会话标题展示
   private sessionTitleEl!: HTMLElement;
   // V2.13.0-F: Agent Skills 是 runtime capability，不插入 composer。
@@ -521,8 +521,10 @@ export class LLMBridgeView extends ItemView {
     // ===== V1.2: 首次使用提示（可关闭，关闭后不再显示） =====
     this.renderFirstUseGuide(chatPanel);
 
-    // ===== V2.0: 运行流程区（Run Flow，展示最新一次运行的 6 步流程） =====
-    this.renderRunFlowPanel(chatPanel);
+    // Developer mode keeps the legacy global Run Flow; user mode shows process inside each assistant turn.
+    if (this.plugin.settings.developerMode) {
+      this.renderRunFlowPanel(chatPanel);
+    }
 
     // ===== 消息流（对话区） =====
     this.messagesEl = chatPanel.createDiv({ cls: "llm-bridge-messages" });
@@ -2674,20 +2676,45 @@ export class LLMBridgeView extends ItemView {
       }
       head.createEl("span", { cls: "llm-bridge-msg-time", text: new Date(msg.timestamp).toLocaleTimeString() });
 
-      // 内容
       const content = block.createEl("div", { cls: "llm-bridge-msg-content" });
-      content.textContent = msg.content || (msg.role === "assistant" && msg.status === "running" ? "…" : "");
+      this.renderMessageContent(content, msg);
       if (msg.role === "user" && msg.fileRefs && msg.fileRefs.length > 0) {
         this.renderMessageFileRefs(block, msg.fileRefs);
       }
 
       if (msg.role === "assistant") {
-        this.appendMsgDetails(block, msg);
+        this.appendMsgDetails(block, msg, content);
       }
       this.scrollToBottom();
     } catch (e) {
       // V2.7: 单条消息渲染失败不影响其他消息
       this.renderMessageError(msg, e);
+    }
+  }
+
+  private renderMessageContent(content: HTMLElement, msg: ChatMessage): void {
+    const text = msg.content || (msg.role === "assistant" && msg.status === "running" ? "" : "");
+    content.empty();
+    if (!text) {
+      if (msg.role === "assistant" && msg.status === "running") {
+        content.createEl("span", { cls: "llm-bridge-msg-pending-text", text: "正在等待首次输出..." });
+      }
+      return;
+    }
+    if (msg.role !== "assistant") {
+      content.textContent = text;
+      return;
+    }
+
+    content.addClass("llm-bridge-msg-markdown");
+    const fallback = () => {
+      content.empty();
+      content.textContent = text;
+    };
+    try {
+      void MarkdownRenderer.render(this.app, text, content, "", this).catch(fallback);
+    } catch {
+      fallback();
     }
   }
 
@@ -2730,7 +2757,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   // stderr / log / 生成文件，默认折叠；失败或有新文件时显著
-  private appendMsgDetails(block: HTMLElement, msg: ChatMessage): void {
+  private appendMsgDetails(block: HTMLElement, msg: ChatMessage, beforeEl?: Element | null): void {
     const failed = msg.status === "failed";
     const developerMode = !!this.plugin.settings.developerMode;
     const terminalSuccess = msg.status === "completed" || msg.status === "stopped";
@@ -2738,14 +2765,28 @@ export class LLMBridgeView extends ItemView {
     if (msg.role === "assistant" && terminalSuccess && !developerMode) {
       block.querySelector<HTMLElement>(".llm-bridge-timeline-live")?.remove();
       if (msg.sdkEvents && msg.sdkEvents.length > 0) {
-        const details = block.createDiv({ cls: "llm-bridge-msg-details" });
+        const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
+        if (beforeEl) block.insertBefore(details, beforeEl);
         this.appendSdkWorkflow(details, msg.sdkEvents, { processOnly: true });
         this.updateLastSdkStats(msg.sdkEvents);
+      } else if (msg.workflowTrace && msg.workflowTrace.length > 0) {
+        const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
+        if (beforeEl) block.insertBefore(details, beforeEl);
+        this.appendWorkflowProcess(details, msg.workflowTrace, msg.status);
       }
       return;
     }
 
-    const details = block.createDiv({ cls: "llm-bridge-msg-details" });
+    const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
+    if (beforeEl) block.insertBefore(details, beforeEl);
+    if (msg.role === "assistant" && msg.status === "running" && (!msg.sdkEvents || msg.sdkEvents.length === 0)) {
+      if (this.liveTimelineEvents.length === 0) {
+        this.appendRunningProcessPlaceholder(details);
+      } else if (!developerMode) {
+        details.remove();
+        return;
+      }
+    }
 
     // V1.5: 命令预览区（UI-only，展示本次实际执行的 command/args/cwd/上下文）
     if (developerMode && msg.role === "assistant" && msg.commandPreview && msg.commandPreview.length > 0) {
@@ -2794,6 +2835,63 @@ export class LLMBridgeView extends ItemView {
         item.addEventListener("click", () => void this.openGeneratedFile(name));
       }
     }
+  }
+
+  private appendWorkflowProcess(
+    parent: HTMLElement,
+    trace: ReadonlyArray<{ stage: string; timestamp: string; detail: string; status: string }>,
+    status: RunStatus,
+  ): void {
+    const visible = trace.filter((entry) => entry.stage !== "preflight" && entry.stage !== "build_prompt");
+    if (visible.length === 0) return;
+    const summary = `过程 · ${status === "completed" ? "Completed" : STATUS_LABEL[status]} · ${visible.length} steps`;
+    const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap" });
+    const head = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
+    const toggle = head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: "▶ " });
+    head.createEl("span", { cls: "llm-bridge-timeline-summary", text: summary });
+    const body = wrap.createDiv({ cls: "llm-bridge-timeline-body", attr: { hidden: "" } });
+    const timeline = body.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-final" });
+    const stepLabels: Record<string, string> = {
+      spawn: "启动 agent",
+      stdout: "读取输出",
+      stderr: "读取错误",
+      file_diff_scan: "检测文件变化",
+      completed: "完成",
+      failed: "失败",
+      stopped: "停止",
+    };
+    for (const entry of visible) {
+      const item = timeline.createDiv({ cls: `llm-bridge-tl-node llm-bridge-tl-${entry.status}` });
+      item.createDiv({ cls: "llm-bridge-tl-dot" });
+      const content = item.createDiv({ cls: "llm-bridge-tl-content" });
+      content.createEl("div", { cls: "llm-bridge-tl-title", text: stepLabels[entry.stage] ?? workflowStageLabel(entry.stage as WorkflowTraceStage) });
+      if (entry.detail) {
+        content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(entry.detail, 160), attr: { title: entry.detail } });
+      }
+    }
+    head.addEventListener("click", () => {
+      const hidden = body.hasAttribute("hidden");
+      if (hidden) {
+        body.removeAttribute("hidden");
+        toggle.textContent = "▼ ";
+      } else {
+        body.setAttribute("hidden", "");
+        toggle.textContent = "▶ ";
+      }
+    });
+  }
+
+  private appendRunningProcessPlaceholder(parent: HTMLElement): void {
+    const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap llm-bridge-process-placeholder" });
+    const head = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
+    head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: "▼ " });
+    head.createEl("span", { cls: "llm-bridge-timeline-summary", text: "过程 · 正在启动" });
+    const body = wrap.createDiv({ cls: "llm-bridge-timeline-body" });
+    const timeline = body.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-live" });
+    const node = timeline.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-agent is-active" });
+    node.createDiv({ cls: "llm-bridge-tl-dot" });
+    const content = node.createDiv({ cls: "llm-bridge-tl-content" });
+    content.createEl("div", { cls: "llm-bridge-tl-agent-text", text: "正在连接 runtime，等待首个事件..." });
   }
 
   // V1.5: 渲染命令预览区（command / args / cwd / model / stdin / selection / note / env）
@@ -2929,14 +3027,24 @@ export class LLMBridgeView extends ItemView {
     if (!this.currentAssistantId) return;
     const block = this.messagesEl.querySelector<HTMLElement>('[data-msg-id="' + this.currentAssistantId + '"]');
     if (!block) return;
-    let liveEl = block.querySelector<HTMLElement>(".llm-bridge-timeline-live");
+    block.querySelector<HTMLElement>(".llm-bridge-process-placeholder")?.remove();
+    let liveEl = Array.from(block.children).find((el) => el instanceof HTMLElement && el.hasClass("llm-bridge-timeline-live")) as HTMLElement | undefined;
     if (!liveEl) {
       liveEl = block.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-live", attr: { "data-live": "true" } });
     }
+    const contentEl = block.querySelector<HTMLElement>(".llm-bridge-msg-content");
+    if (contentEl && liveEl.parentElement === block && liveEl.nextElementSibling !== contentEl) {
+      block.insertBefore(liveEl, contentEl);
+    }
     const nodes = this.filterUserFacingTimelineNodes(adaptEventsToTimeline(this.liveTimelineEvents));
     liveEl.empty();
+    liveEl.createDiv({
+      cls: "llm-bridge-timeline-live-head",
+      text: `过程 · 运行中${nodes.length > 0 ? ` · ${nodes.length} steps` : ""}`,
+    });
+    const nodeHost = liveEl.createDiv({ cls: "llm-bridge-timeline-live-nodes" });
     for (const node of nodes) {
-      this.renderTimelineNode(liveEl, node, true);
+      this.renderTimelineNode(nodeHost, node, true);
     }
     liveEl.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "end" });
   }
@@ -2980,7 +3088,7 @@ export class LLMBridgeView extends ItemView {
   private filterUserFacingTimelineNodes(nodes: TimelineNode[]): TimelineNode[] {
     if (this.plugin.settings.developerMode) return nodes;
     return nodes.filter((node) => {
-      if (node.kind === "session_started" || node.kind === "thought") return false;
+      if (node.kind === "session_started") return false;
       if (node.kind === "tool_call" && node.toolInput) {
         const toolPath = extractToolPath(node.toolName ?? "", node.toolInput);
         if (toolPath && isInternalFilePath(toolPath)) return false;
@@ -2998,7 +3106,7 @@ export class LLMBridgeView extends ItemView {
       content.createEl("div", { cls: "llm-bridge-tl-title", text: "Session started" });
       if (node.text) content.createEl("div", { cls: "llm-bridge-tl-detail", text: node.text, attr: { title: node.text } });
     } else if (node.kind === "thought") {
-      content.createEl("div", { cls: "llm-bridge-tl-title", text: "Thought" });
+      content.createEl("div", { cls: "llm-bridge-tl-title", text: "思考" });
       const detailText = node.text ?? "";
       const thoughtEl = content.createEl("div", { cls: "llm-bridge-tl-detail llm-bridge-tl-thought-text llm-bridge-tl-expandable" });
       this.makeExpandable(thoughtEl, truncateText(detailText, 120), detailText);
@@ -3419,15 +3527,15 @@ export class LLMBridgeView extends ItemView {
     }
 
     // 内容
-    const contentEl = block.querySelector(".llm-bridge-msg-content");
+    const contentEl = block.querySelector<HTMLElement>(".llm-bridge-msg-content");
     if (contentEl) {
-      contentEl.textContent = msg.content || "";
+      this.renderMessageContent(contentEl, msg);
     }
 
     // 重建 details（stderr / log / files）
     const oldDetails = block.querySelector(".llm-bridge-msg-details");
     if (oldDetails) oldDetails.remove();
-    this.appendMsgDetails(block as HTMLElement, msg);
+    this.appendMsgDetails(block as HTMLElement, msg, contentEl);
     this.scrollToBottom();
   }
 
@@ -4317,6 +4425,7 @@ export class LLMBridgeView extends ItemView {
     this.runFlowBody = this.runFlowEl.createDiv({ cls: "llm-bridge-run-flow-body" });
     this.runFlowBody.setAttribute("hidden", "");
     this.runFlowToggle.addEventListener("click", () => {
+      if (!this.runFlowBody || !this.runFlowToggle) return;
       const hidden = this.runFlowBody.hasAttribute("hidden");
       if (hidden) {
         this.runFlowBody.removeAttribute("hidden");
@@ -4331,7 +4440,7 @@ export class LLMBridgeView extends ItemView {
 
   // V2.0: 清空运行流程区
   private clearRunFlow(): void {
-    if (!this.runFlowBody) return;
+    if (!this.runFlowBody || !this.runFlowEl) return;
     this.runFlowBody.empty();
     this.runFlowBody.createEl("div", { cls: "llm-bridge-run-flow-empty", text: "暂无运行" });
     this.runFlowEl.classList.remove("is-running", "is-completed", "is-failed", "is-stopped");
@@ -4339,7 +4448,7 @@ export class LLMBridgeView extends ItemView {
 
   // V2.0: 运行开始时展示前 3 步（准备上下文 → 构建 prompt → 启动 agent）
   private showRunFlowStarted(promptLength: number): void {
-    if (!this.runFlowBody) return;
+    if (!this.runFlowBody || !this.runFlowEl || !this.runFlowToggle) return;
     this.runFlowBody.empty();
     this.runFlowEl.classList.remove("is-completed", "is-failed", "is-stopped");
     this.runFlowEl.classList.add("is-running");
@@ -4364,7 +4473,7 @@ export class LLMBridgeView extends ItemView {
 
   // V2.0: 运行完成后展示完整 6 步流程（复用 workflowTrace 渲染逻辑）
   private showRunFlowTrace(trace: ReadonlyArray<{ stage: string; timestamp: string; detail: string; status: string }>, finalStatus: RunStatus): void {
-    if (!this.runFlowBody) return;
+    if (!this.runFlowBody || !this.runFlowEl || !this.runFlowToggle) return;
     this.runFlowBody.empty();
     this.runFlowEl.classList.remove("is-running");
     this.runFlowEl.classList.add(`is-${finalStatus}`);

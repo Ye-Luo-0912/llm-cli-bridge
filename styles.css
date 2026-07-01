@@ -368,7 +368,7 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
-/* assistant 输出：默认无气泡框；过程细节在结果后折叠 */
+/* assistant 输出：默认无气泡框；过程与结果属于同一个 turn */
 .llm-bridge-msg-assistant .llm-bridge-msg-content {
   font-family: var(--font-ui);
   font-size: var(--font-small);
@@ -381,13 +381,34 @@
   border-radius: 0;
   background: transparent;
 }
+.llm-bridge-msg-assistant .llm-bridge-msg-markdown {
+  white-space: normal;
+}
+.llm-bridge-msg-markdown p {
+  margin: 0.35em 0;
+}
+.llm-bridge-msg-markdown ul,
+.llm-bridge-msg-markdown ol {
+  margin-top: 0.35em;
+  margin-bottom: 0.35em;
+}
+.llm-bridge-msg-markdown pre {
+  white-space: pre-wrap;
+}
+.llm-bridge-msg-pending-text {
+  color: var(--text-muted);
+  font-style: italic;
+}
 
 /* ===== 折叠区（stderr / log） ===== */
 .llm-bridge-msg-details {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin-top: 2px;
+  margin: 2px 0 4px;
+}
+.llm-bridge-msg-process {
+  order: 0;
 }
 
 .llm-bridge-collapse {
@@ -3455,6 +3476,24 @@
   border-left: 2px solid rgba(var(--interactive-accent-rgb), 0.3);
   padding-left: 12px;
   margin-left: 4px;
+}
+.llm-bridge-timeline-live-head {
+  color: var(--interactive-accent);
+  font-size: var(--font-smallest);
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.llm-bridge-timeline-live-nodes {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.llm-bridge-process-placeholder .llm-bridge-timeline-body {
+  margin-top: 2px;
+}
+.llm-bridge-process-placeholder .llm-bridge-tl-dot,
+.llm-bridge-tl-node.is-active .llm-bridge-tl-dot {
+  animation: llm-bridge-pulse 1.2s infinite;
 }
 .llm-bridge-tl-node {
   position: relative;

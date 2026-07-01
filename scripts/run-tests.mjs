@@ -12274,27 +12274,41 @@ if (!runNoteSummarizeSmoke) {
     addTest("V2.16-D developer mode: 用户态隐藏 raw log/command", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 16: 用户态 timeline 过滤内部/private runtime 文件和 raw 噪音 ----
+  // ---- Test 16: 用户态 timeline 过滤内部/private runtime 文件和 raw 噪音，但保留 thinking 摘要 ----
   {
     const ok = viewSrc.includes("filterUserFacingTimelineNodes")
       && viewSrc.includes('node.kind === "session_started"')
-      && viewSrc.includes('node.kind === "thought"')
+      && !viewSrc.includes('node.kind === "session_started" || node.kind === "thought"')
       && viewSrc.includes("isInternalFilePath(toolPath)")
-      && viewSrc.includes("adaptEventsToTimeline(events)");
-    addTest("V2.16-D timeline: 用户态过滤 raw/internal 节点", ok ? "pass" : "fail", "");
+      && viewSrc.includes("adaptEventsToTimeline(events)")
+      && viewSrc.includes('text: "思考"');
+    addTest("V2.16-F timeline: 用户态保留 thinking，过滤 raw/internal 节点", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 17: completed 用户态显示最终输出，并在结果后保留 processOnly 折叠过程 ----
+  // ---- Test 17: completed 用户态显示最终输出，并在结果前保留 processOnly 折叠过程 ----
   {
     const ok = viewSrc.includes("terminalSuccess")
       && viewSrc.includes('msg.status === "completed" || msg.status === "stopped"')
       && viewSrc.includes('block.querySelector<HTMLElement>(".llm-bridge-timeline-live")?.remove()')
+      && viewSrc.includes("this.appendMsgDetails(block, msg, content)")
+      && viewSrc.includes("block.insertBefore(details, beforeEl)")
       && viewSrc.includes("processOnly")
       && viewSrc.includes('node.kind !== "final_message" && node.kind !== "completed"')
       && viewSrc.includes("formatProcessSummary")
       && !viewSrc.includes("llm-bridge-msg-final-output")
       && !stylesSrc.includes("llm-bridge-msg-final-output");
-    addTest("V2.16-D completed UI: 结果后折叠过程且不重复答案", ok ? "pass" : "fail", "");
+    addTest("V2.16-F completed UI: 结果前折叠过程且不重复答案", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 18: assistant 正文使用 MarkdownRenderer，运行中有 process placeholder，默认不渲染全局 Run Flow ----
+  {
+    const ok = viewSrc.includes("private renderMessageContent")
+      && viewSrc.includes("MarkdownRenderer.render(this.app, text, content")
+      && viewSrc.includes("appendRunningProcessPlaceholder")
+      && viewSrc.includes("正在连接 runtime，等待首个事件")
+      && viewSrc.includes("Developer mode keeps the legacy global Run Flow")
+      && viewSrc.includes("if (this.plugin.settings.developerMode) {\n      this.renderRunFlowPanel(chatPanel);");
+    addTest("V2.16-F assistant turn: Markdown 输出 + 内联过程 + 用户态无全局 Run Flow", ok ? "pass" : "fail", "");
   }
 }
 
