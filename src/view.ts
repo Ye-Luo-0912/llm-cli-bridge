@@ -2257,6 +2257,20 @@ export class LLMBridgeView extends ItemView {
     liveEl.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "end" });
   }
 
+  /** V2.16-C: 工具图标 + 颜色分类（read/write/bash/search/skill/other） */
+  private getToolIconAndCategory(toolName: string): { icon: string; category: string } {
+    const n = (toolName || "").toLowerCase();
+    if (n === "bash") return { icon: "$", category: "bash" };
+    if (n === "read") return { icon: "R", category: "read" };
+    if (n === "write") return { icon: "W", category: "write" };
+    if (n === "edit" || n === "multiedit") return { icon: "E", category: "write" };
+    if (n === "glob") return { icon: "G", category: "search" };
+    if (n === "grep") return { icon: "F", category: "search" };
+    if (n === "skill") return { icon: "S", category: "skill" };
+    if (n === "notebookedit") return { icon: "N", category: "write" };
+    return { icon: "\u2022", category: "other" };
+  }
+
   /**
    * V2.16-C: 渲染单个 timeline node（现代 Claude/Codex 风格垂直节点）
    */
@@ -2275,9 +2289,12 @@ export class LLMBridgeView extends ItemView {
       if (node.isSubagent) content.createEl("span", { cls: "llm-bridge-tl-agent-tag is-subagent", text: "Subagent" });
       content.createEl("div", { cls: "llm-bridge-tl-agent-text", text: truncateText(node.text ?? "", 200), attr: { title: node.text ?? "" } });
     } else if (node.kind === "tool_call") {
+      const toolInfo = this.getToolIconAndCategory(node.toolName ?? "");
+      item.addClass("llm-bridge-tl-tool-cat-" + toolInfo.category);
       const headEl = content.createDiv({ cls: "llm-bridge-tl-tool-head" });
-      headEl.createEl("span", { cls: "llm-bridge-tl-tool-icon", text: node.toolError ? "✗" : "✓" });
+      headEl.createEl("span", { cls: "llm-bridge-tl-tool-badge", text: toolInfo.icon });
       headEl.createEl("span", { cls: "llm-bridge-tl-tool-name", text: node.toolName ?? "unknown" });
+      if (node.toolError) headEl.createEl("span", { cls: "llm-bridge-tl-tool-err", text: "✗" });
       if (node.durationMs !== undefined && node.durationMs > 0) {
         headEl.createEl("span", { cls: "llm-bridge-tl-tool-duration", text: this.formatDurationMs(node.durationMs) });
       }
