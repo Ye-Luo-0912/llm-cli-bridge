@@ -304,7 +304,7 @@ async function sdkLiveProgressSmoke(client) {
       plugin.settings.backendMode = "auto";
       plugin.settings.model = "gpt-5.4";
       plugin.settings.effortLevel = "high";
-      plugin.settings.claudePermissionMode = "plan";
+      plugin.settings.claudePermissionMode = "auto";
       await plugin.saveSettings();
       view.cachedBackend = null;
       view.cachedBackendMode = null;
@@ -326,13 +326,13 @@ async function sdkLiveProgressSmoke(client) {
       while (Date.now() < deadline) {
         await new Promise(r => setTimeout(r, 1000));
         // 在运行期间采样 live progress 项数
-        const liveEl = view.messagesEl.querySelector(".llm-bridge-live-progress");
+        const liveEl = view.messagesEl.querySelector(".llm-bridge-timeline-live");
         if (liveEl) {
-          const items = liveEl.querySelectorAll(".llm-bridge-live-progress-item");
+          const items = liveEl.querySelectorAll(".llm-bridge-tl-node");
           if (items.length > 0) {
             liveItemsDuringRun = Math.max(liveItemsDuringRun, items.length);
             // 检查是否有 tool_start 项
-            if (liveEl.querySelector(".llm-bridge-live-tool_start")) toolStartSeen = true;
+            if (liveEl.querySelector(".llm-bridge-tl-tool_call")) toolStartSeen = true;
             polled = true;
           }
         }
@@ -343,9 +343,9 @@ async function sdkLiveProgressSmoke(client) {
       await new Promise(r => setTimeout(r, 500));
 
       // 运行结束后，live progress 被隐藏（display:none）但 DOM 项仍在
-      const liveElAfter = view.messagesEl.querySelector(".llm-bridge-live-progress");
-      const liveItemsAfter = liveElAfter ? liveElAfter.querySelectorAll(".llm-bridge-live-progress-item").length : 0;
-      const messageItems = liveElAfter ? Array.from(liveElAfter.querySelectorAll(".llm-bridge-live-message")).map(el => el.querySelector(".llm-bridge-live-progress-detail")?.textContent || "") : [];
+      const liveElAfter = view.messagesEl.querySelector(".llm-bridge-timeline-live");
+      const liveItemsAfter = liveElAfter ? liveElAfter.querySelectorAll(".llm-bridge-tl-node").length : 0;
+      const messageItems = liveElAfter ? Array.from(liveElAfter.querySelectorAll(".llm-bridge-tl-agent")).map(el => el.querySelector(".llm-bridge-tl-agent-text")?.textContent || "") : [];
 
       // 检查相邻 message 项是否有重复文本
       let duplicate = false;
