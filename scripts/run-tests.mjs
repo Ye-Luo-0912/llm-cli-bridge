@@ -12174,6 +12174,16 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("adaptEventsToTimeline(events)");
     addTest("V2.16-D timeline: 用户态过滤 raw/internal 节点", ok ? "pass" : "fail", "");
   }
+
+  // ---- Test 17: completed 用户态只显示最终输出，不渲染折叠 workflow 卡或底部结果框 ----
+  {
+    const ok = viewSrc.includes("terminalSuccess")
+      && viewSrc.includes('msg.status === "completed" || msg.status === "stopped"')
+      && viewSrc.includes('block.querySelector<HTMLElement>(".llm-bridge-timeline-live")?.remove()')
+      && !viewSrc.includes("llm-bridge-msg-final-output")
+      && !stylesSrc.includes("llm-bridge-msg-final-output");
+    addTest("V2.16-D completed UI: 用户态只显示最终输出", ok ? "pass" : "fail", "");
+  }
 }
 
 // ============================================================

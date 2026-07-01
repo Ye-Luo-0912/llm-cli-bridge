@@ -13,7 +13,7 @@
 //  6. no compression 状态正确 (无 .llm-bridge-context-compression)
 //  7. SDK context metrics 显示 (backendMode=auto)
 //  8. CLI context metrics 显示 (backendMode=cli)
-//  9. completed timeline 自动折叠 (live body hidden)
+//  9. completed 后只显示最终输出 (no workflow wrap/live timeline)
 
 const CDP_HOST = "127.0.0.1";
 const CDP_PORT = 9223;
@@ -198,17 +198,18 @@ async function cliContextSmoke(client) {
   else fail("CLI context metrics 显示", JSON.stringify(r));
 }
 
-async function completedTimelineCollapseSmoke(client) {
-  console.log("\n=== Phase 9: completed timeline 自动折叠 ===");
-  // 最终折叠 timeline 在 .llm-bridge-timeline-wrap > .llm-bridge-timeline-body（body hidden）
-  // 且 completed 后 live timeline (.llm-bridge-timeline-live) 应被隐藏
-  const expr = "(async () => { try { const app = window.app || globalThis.app; const plugin = app.plugins.plugins['" + PLUGIN_ID + "']; const view = app.workspace.getLeavesOfType('" + VIEW_TYPE + "')[0].view; plugin.settings.claudePermissionMode = 'auto'; plugin.settings.backendMode = 'auto'; await plugin.saveSettings(); view.cachedBackend = null; view.cachedBackendMode = null; view.inputEl.value = '只回复 OK 两个字，不要使用任何工具。'; const runPromise = view.run(); const deadline = Date.now() + 60000; while (Date.now() < deadline) { await new Promise(r => setTimeout(r, 700)); if (!view.runHandle) break; } try { await runPromise; } catch {} await new Promise(r => setTimeout(r, 800)); const allBlocks = view.messagesEl.querySelectorAll('[data-msg-id]'); const msgBlock = allBlocks.length > 0 ? allBlocks[allBlocks.length - 1] : null; const wrap = msgBlock ? msgBlock.querySelector('.llm-bridge-timeline-wrap') : null; const body = wrap ? wrap.querySelector('.llm-bridge-timeline-body') : null; const bodyHidden = body ? body.hasAttribute('hidden') : false; const liveEl = msgBlock ? msgBlock.querySelector('.llm-bridge-timeline-live') : null; const liveHidden = liveEl ? liveEl.hasAttribute('hidden') : false; plugin.settings.claudePermissionMode = 'default'; await plugin.saveSettings(); view.cachedBackend = null; view.cachedBackendMode = null; view.inputEl.value = ''; return { wrapFound: !!wrap, bodyFound: !!body, bodyHidden, liveFound: !!liveEl, liveHidden }; } catch (e) { return { error: String(e && e.message || e) }; } })()";
+async function completedFinalOutputOnlySmoke(client) {
+  console.log("\n=== Phase 9: completed 后只显示最终输出 ===");
+  const expr = "(async () => { try { const app = window.app || globalThis.app; const plugin = app.plugins.plugins['" + PLUGIN_ID + "']; const view = app.workspace.getLeavesOfType('" + VIEW_TYPE + "')[0].view; plugin.settings.developerMode = false; plugin.settings.claudePermissionMode = 'auto'; plugin.settings.backendMode = 'auto'; await plugin.saveSettings(); view.cachedBackend = null; view.cachedBackendMode = null; view.inputEl.value = '只回复 OK 两个字，不要使用任何工具。'; const runPromise = view.run(); const deadline = Date.now() + 60000; while (Date.now() < deadline) { await new Promise(r => setTimeout(r, 700)); if (!view.runHandle) break; } try { await runPromise; } catch {} await new Promise(r => setTimeout(r, 800)); const allBlocks = view.messagesEl.querySelectorAll('[data-msg-id]'); const msgBlock = allBlocks.length > 0 ? allBlocks[allBlocks.length - 1] : null; const wrap = msgBlock ? msgBlock.querySelector('.llm-bridge-timeline-wrap') : null; const liveEl = msgBlock ? msgBlock.querySelector('.llm-bridge-timeline-live') : null; const details = msgBlock ? msgBlock.querySelector('.llm-bridge-msg-details') : null; const content = msgBlock ? msgBlock.querySelector('.llm-bridge-msg-content') : null; const finalOutputBox = msgBlock ? msgBlock.querySelector('.llm-bridge-msg-final-output') : null; plugin.settings.claudePermissionMode = 'default'; await plugin.saveSettings(); view.cachedBackend = null; view.cachedBackendMode = null; view.inputEl.value = ''; return { wrapFound: !!wrap, liveFound: !!liveEl, detailsFound: !!details, contentText: content ? content.textContent : '', finalOutputBoxFound: !!finalOutputBox }; } catch (e) { return { error: String(e && e.message || e) }; } })()";
   const res = await client.evaluate(expr, true);
   const r = res.result.value;
-  if (r.error) { fail("completed timeline 自动折叠", r.error); return; }
-  // 最终 timeline body 折叠 + live 被隐藏 = completed 后仅保留摘要
-  if (r.bodyFound && r.bodyHidden && r.liveHidden) pass("completed timeline 自动折叠", "wrap=" + r.wrapFound + " bodyHidden=" + r.bodyHidden + " liveHidden=" + r.liveHidden);
-  else fail("completed timeline 自动折叠", JSON.stringify(r));
+  if (r.error) { fail("completed 后只显示最终输出", r.error); return; }
+  const hasFinalText = /ok/i.test(r.contentText || "") || (r.contentText || "").trim().length > 0;
+  if (!r.wrapFound && !r.liveFound && !r.detailsFound && !r.finalOutputBoxFound && hasFinalText) {
+    pass("completed 后只显示最终输出", "content=\"" + r.contentText + "\"");
+  } else {
+    fail("completed 后只显示最终输出", JSON.stringify(r));
+  }
 }
 
 async function restoreSettings(client) {
@@ -237,7 +238,7 @@ async function main() {
   await noCompressionSmoke(client);
   await sdkContextSmoke(client);
   await cliContextSmoke(client);
-  await completedTimelineCollapseSmoke(client);
+  await completedFinalOutputOnlySmoke(client);
   await restoreSettings(client);
   client.close();
   const passed = results.filter(r => r.status === "PASS").length;

@@ -2134,9 +2134,6 @@ export class LLMBridgeView extends ItemView {
 
       if (msg.role === "assistant") {
         this.appendMsgDetails(block, msg);
-        // V2.16-C: 最终输出移到底部（process 在上，answer 在下）
-        content.addClass("llm-bridge-msg-final-output");
-        block.appendChild(content);
       }
       this.scrollToBottom();
     } catch (e) {
@@ -2167,9 +2164,16 @@ export class LLMBridgeView extends ItemView {
 
   // stderr / log / 生成文件，默认折叠；失败或有新文件时显著
   private appendMsgDetails(block: HTMLElement, msg: ChatMessage): void {
-    const details = block.createDiv({ cls: "llm-bridge-msg-details" });
     const failed = msg.status === "failed";
     const developerMode = !!this.plugin.settings.developerMode;
+    const terminalSuccess = msg.status === "completed" || msg.status === "stopped";
+
+    if (msg.role === "assistant" && terminalSuccess && !developerMode) {
+      block.querySelector<HTMLElement>(".llm-bridge-timeline-live")?.remove();
+      return;
+    }
+
+    const details = block.createDiv({ cls: "llm-bridge-msg-details" });
 
     // V1.5: 命令预览区（UI-only，展示本次实际执行的 command/args/cwd/上下文）
     if (developerMode && msg.role === "assistant" && msg.commandPreview && msg.commandPreview.length > 0) {
@@ -2830,9 +2834,6 @@ export class LLMBridgeView extends ItemView {
     const oldDetails = block.querySelector(".llm-bridge-msg-details");
     if (oldDetails) oldDetails.remove();
     this.appendMsgDetails(block as HTMLElement, msg);
-    // V2.16-C: 保持 content 在底部（process 在上，answer 在下）
-    const contentEl2 = block.querySelector(".llm-bridge-msg-content");
-    if (contentEl2) block.appendChild(contentEl2);
     this.scrollToBottom();
   }
 

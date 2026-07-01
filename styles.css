@@ -3458,12 +3458,7 @@
   border: 1px solid var(--background-modifier-border);
 }
 
-/* ===== V2.16-C: Final output at bottom + expandable + font size ===== */
-.llm-bridge-msg-final-output {
-  margin-top: 8px;
-  padding-top: 8px;
-  border-top: 1px solid var(--background-modifier-border);
-}
+/* ===== V2.16-C: Timeline expandable + font size ===== */
 .llm-bridge-tl-expandable {
   cursor: pointer;
   user-select: text;
