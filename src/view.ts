@@ -2030,6 +2030,9 @@ export class LLMBridgeView extends ItemView {
 
       if (msg.role === "assistant") {
         this.appendMsgDetails(block, msg);
+        // V2.16-C: 最终输出移到底部（process 在上，answer 在下）
+        content.addClass("llm-bridge-msg-final-output");
+        block.appendChild(content);
       }
       this.scrollToBottom();
     } catch (e) {
@@ -2271,6 +2274,25 @@ export class LLMBridgeView extends ItemView {
     return { icon: "\u2022", category: "other" };
   }
 
+  /** V2.16-C: 让元素可点击展开/收起（shortText 截断版，fullText 全文） */
+  private makeExpandable(el: HTMLElement, shortText: string, fullText: string): void {
+    if (fullText.length <= shortText.length) return;
+    el.textContent = shortText;
+    el.addClass("is-collapsed");
+    el.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (el.hasClass("is-collapsed")) {
+        el.textContent = fullText;
+        el.removeClass("is-collapsed");
+        el.addClass("is-expanded");
+      } else {
+        el.textContent = shortText;
+        el.removeClass("is-expanded");
+        el.addClass("is-collapsed");
+      }
+    });
+  }
+
   /**
    * V2.16-C: 渲染单个 timeline node（现代 Claude/Codex 风格垂直节点）
    */
@@ -2284,7 +2306,8 @@ export class LLMBridgeView extends ItemView {
     } else if (node.kind === "thought") {
       content.createEl("div", { cls: "llm-bridge-tl-title", text: "Thought" });
       const detailText = node.text ?? "";
-      content.createEl("div", { cls: "llm-bridge-tl-detail llm-bridge-tl-thought-text", text: truncateText(detailText, 120), attr: { title: detailText } });
+      const thoughtEl = content.createEl("div", { cls: "llm-bridge-tl-detail llm-bridge-tl-thought-text llm-bridge-tl-expandable" });
+      this.makeExpandable(thoughtEl, truncateText(detailText, 120), detailText);
     } else if (node.kind === "agent") {
       if (node.isSubagent) content.createEl("span", { cls: "llm-bridge-tl-agent-tag is-subagent", text: "Subagent" });
       content.createEl("div", { cls: "llm-bridge-tl-agent-text", text: truncateText(node.text ?? "", 200), attr: { title: node.text ?? "" } });
@@ -2306,8 +2329,8 @@ export class LLMBridgeView extends ItemView {
         }
       }
       if (node.toolOutput) {
-        const outputText = truncateText(node.toolOutput, 200);
-        const outputEl = content.createEl("pre", { cls: "llm-bridge-tl-tool-output", text: outputText, attr: { title: node.toolOutput } });
+        const outputEl = content.createEl("pre", { cls: "llm-bridge-tl-tool-output llm-bridge-tl-expandable" });
+        this.makeExpandable(outputEl, truncateText(node.toolOutput, 200), node.toolOutput);
         if (node.toolError) outputEl.addClass("is-error");
       }
     } else if (node.kind === "file_change") {
@@ -2678,6 +2701,9 @@ export class LLMBridgeView extends ItemView {
     const oldDetails = block.querySelector(".llm-bridge-msg-details");
     if (oldDetails) oldDetails.remove();
     this.appendMsgDetails(block as HTMLElement, msg);
+    // V2.16-C: 保持 content 在底部（process 在上，answer 在下）
+    const contentEl2 = block.querySelector(".llm-bridge-msg-content");
+    if (contentEl2) block.appendChild(contentEl2);
     this.scrollToBottom();
   }
 

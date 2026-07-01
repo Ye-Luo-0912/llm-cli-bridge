@@ -3359,6 +3359,39 @@
   border: 1px solid var(--background-modifier-border);
 }
 
+/* ===== V2.16-C: Final output at bottom + expandable + font size ===== */
+.llm-bridge-msg-final-output {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+.llm-bridge-tl-expandable {
+  cursor: pointer;
+  user-select: text;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.llm-bridge-tl-expandable.is-collapsed::after {
+  content: " …";
+  color: var(--text-faint);
+  font-weight: 600;
+}
+.llm-bridge-tl-expandable:hover {
+  background: var(--background-modifier-hover);
+}
+.llm-bridge-tl-content {
+  user-select: text;
+}
+.llm-bridge-timeline {
+  font-size: var(--font-small);
+}
+.llm-bridge-tl-tool-output {
+  font-size: 11px;
+}
+.llm-bridge-tl-tool-duration {
+  font-size: 11px;
+}
+
 /* ===== V2.16-C: Permission mode popover ===== */
 .llm-bridge-perm-popover {
   position: absolute;
