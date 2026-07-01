@@ -10120,9 +10120,10 @@ if (!runV214BUnit) {
         && viewSrc.includes("addFilesFromFileList")
         && viewSrc.includes("dragover")
         && viewSrc.includes("drop")
-        && viewSrc.includes("llm-bridge-attachment-menu")
-        && viewSrc.includes("Vault 文件（@）")
-        && viewSrc.includes("原生文件选择器")
+        && viewSrc.includes("webUtils")
+        && viewSrc.includes("getPathForFile")
+        && viewSrc.includes("直接拖拽文件")
+        && viewSrc.includes("粘贴文件/路径")
         && viewSrc.includes("refs-only")
         && viewSrc.includes("ref.fileType");
       const policyOk = readPending.decision === "confirm"
@@ -11060,17 +11061,30 @@ if (!runV214BUnit) {
     }
 
     {
-      const attachmentMenuOk = viewSrc.includes("llm-bridge-attachment-menu")
-        && viewSrc.includes("Vault 文件（@）")
-        && viewSrc.includes("原生文件选择器")
-        && viewSrc.includes("triggerMentionAtCursor")
+      const attachmentMenuOk = viewSrc.includes("llm-bridge-attach-file-btn")
+        && viewSrc.includes("直接拖拽文件")
+        && viewSrc.includes("粘贴文件/路径")
+        && viewSrc.includes("webUtils")
+        && viewSrc.includes("getPathForFile")
         && viewSrc.includes("llm-bridge-mention-picker")
         && !viewSrc.includes("添加外部路径")
         && !viewSrc.includes("从剪贴板路径添加")
         && !viewSrc.includes("openVaultFileAttachmentPicker");
-      const nativePathFailureOk = viewSrc.includes("原生文件选择器未返回 path")
-        && viewSrc.includes("if (paths.length === 0)")
-        && viewSrc.includes("return;");
+      const nativePathFailureOk = viewSrc.includes("collectFilePathsFromClipboardEvent")
+        && viewSrc.includes("collectFilePathsFromDataTransfer")
+        && viewSrc.includes("readElectronClipboardFilePaths")
+        && viewSrc.includes("persistBlobAttachmentToVault")
+        && viewSrc.includes("persistElectronClipboardImageToVault")
+        && viewSrc.includes("readImage")
+        && viewSrc.includes("toPNG")
+        && viewSrc.includes("LLM-Bridge Attachments")
+        && viewSrc.includes("createBinary")
+        && viewSrc.includes("file.arrayBuffer()")
+        && viewSrc.includes("availableFormats")
+        && viewSrc.includes("readBuffer?.(format)")
+        && viewSrc.includes("\"FileNameW\"")
+        && viewSrc.includes("没有可缓存的文件内容")
+        && viewSrc.includes("拖拽内容没有可用文件 path");
       const skillsNoAutoInsertOk = viewSrc.includes("renderAgentSkillsPanel(skillsPanel)")
         && !viewSrc.includes("renderSkillsPanel(skillsPanel)")
         && !/renderAgentSkillsList[\s\S]{0,1800}insertPromptSnippetAtCursor/.test(viewSrc)
@@ -12142,7 +12156,13 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private async handleComposerPaste")
       && viewSrc.includes("extractPastedFilePaths")
       && viewSrc.includes("addUserFilePathsToWorkingSet")
-      && viewSrc.includes('composer.addEventListener("drop"');
+      && viewSrc.includes('composer.addEventListener("drop"')
+      && viewSrc.includes("composerFileRefsEl")
+      && viewSrc.includes("openFileRefPreview")
+      && viewSrc.includes("getIndexedVaultFile")
+      && viewSrc.includes("findLeafForFile")
+      && viewSrc.includes("llm-bridge-composer-file-image")
+      && stylesSrc.includes(".llm-bridge-composer-file-chip");
     addTest("V2.16-D composer: 拖拽/粘贴文件和路径入口存在", ok ? "pass" : "fail", "");
   }
 
@@ -12175,14 +12195,17 @@ if (!runNoteSummarizeSmoke) {
     addTest("V2.16-D timeline: 用户态过滤 raw/internal 节点", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 17: completed 用户态只显示最终输出，不渲染折叠 workflow 卡或底部结果框 ----
+  // ---- Test 17: completed 用户态显示最终输出，并在结果后保留 processOnly 折叠过程 ----
   {
     const ok = viewSrc.includes("terminalSuccess")
       && viewSrc.includes('msg.status === "completed" || msg.status === "stopped"')
       && viewSrc.includes('block.querySelector<HTMLElement>(".llm-bridge-timeline-live")?.remove()')
+      && viewSrc.includes("processOnly")
+      && viewSrc.includes('node.kind !== "final_message" && node.kind !== "completed"')
+      && viewSrc.includes("formatProcessSummary")
       && !viewSrc.includes("llm-bridge-msg-final-output")
       && !stylesSrc.includes("llm-bridge-msg-final-output");
-    addTest("V2.16-D completed UI: 用户态只显示最终输出", ok ? "pass" : "fail", "");
+    addTest("V2.16-D completed UI: 结果后折叠过程且不重复答案", ok ? "pass" : "fail", "");
   }
 }
 

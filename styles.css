@@ -368,7 +368,7 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
 }
 
-/* assistant 输出：现代聊天卡片，debug 细节仍默认折叠 */
+/* assistant 输出：默认无气泡框；过程细节在结果后折叠 */
 .llm-bridge-msg-assistant .llm-bridge-msg-content {
   font-family: var(--font-ui);
   font-size: var(--font-small);
@@ -376,10 +376,10 @@
   word-break: break-word;
   line-height: 1.5;
   min-height: 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--background-secondary) 78%, transparent);
+  padding: 4px 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
 }
 
 /* ===== 折叠区（stderr / log） ===== */
@@ -497,6 +497,90 @@
   transition: border-color 0.15s;
 }
 .llm-bridge-input-row:focus-within { border-color: transparent; }
+
+.llm-bridge-composer-file-refs {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  padding: 3px 8px 0;
+}
+.llm-bridge-composer-file-refs[hidden] {
+  display: none;
+}
+.llm-bridge-composer-file-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--background-primary) 72%, transparent);
+  color: var(--text-normal);
+  cursor: pointer;
+  overflow: visible;
+}
+.llm-bridge-composer-file-chip:hover {
+  border-color: rgba(var(--interactive-accent-rgb), 0.45);
+  background: var(--background-modifier-hover);
+}
+.llm-bridge-composer-file-chip.is-attachment {
+  border-color: rgba(var(--color-green-rgb), 0.35);
+}
+.llm-bridge-composer-file-chip.is-external {
+  border-color: rgba(var(--color-orange-rgb), 0.35);
+}
+.llm-bridge-composer-file-thumb {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+  background: var(--background-secondary);
+}
+.llm-bridge-composer-file-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.llm-bridge-composer-file-ext {
+  font-family: var(--font-monospace);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: var(--text-faint);
+  text-transform: uppercase;
+}
+.llm-bridge-composer-file-remove {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-remove {
+  opacity: 1;
+}
+.llm-bridge-composer-file-remove:hover {
+  color: var(--text-error);
+  border-color: rgba(var(--color-red-rgb), 0.35);
+}
 
 .llm-bridge-input {
   resize: none;

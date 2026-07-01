@@ -4,7 +4,7 @@
 //
 // 前置: 已运行 Obsidian 并开启 CDP 远程调试 (端口 9223)
 //
-// 验证项 (9 项):
+// 验证项 (10 项):
 //  1. reload 后恢复 last active session (消息 / 会话 id / 运行时 model)
 //  2. 新聊天后才新建 session (messages=0 / currentSessionId=null / lastActiveSessionId="")
 //  3. topbar 不溢出 (scrollWidth <= clientWidth + 1)
@@ -13,7 +13,8 @@
 //  6. no compression 状态正确 (无 .llm-bridge-context-compression)
 //  7. SDK context metrics 显示 (backendMode=auto)
 //  8. CLI context metrics 显示 (backendMode=cli)
-//  9. completed 后只显示最终输出 (no workflow wrap/live timeline)
+//  9. composer 内显示 FileRef chip, 点击后用 Obsidian 预览
+// 10. completed 后只显示最终输出 (no workflow wrap/live timeline)
 
 const CDP_HOST = "127.0.0.1";
 const CDP_PORT = 9223;
@@ -199,16 +200,30 @@ async function cliContextSmoke(client) {
 }
 
 async function completedFinalOutputOnlySmoke(client) {
-  console.log("\n=== Phase 9: completed 后只显示最终输出 ===");
-  const expr = "(async () => { try { const app = window.app || globalThis.app; const plugin = app.plugins.plugins['" + PLUGIN_ID + "']; const view = app.workspace.getLeavesOfType('" + VIEW_TYPE + "')[0].view; plugin.settings.developerMode = false; plugin.settings.claudePermissionMode = 'auto'; plugin.settings.backendMode = 'auto'; await plugin.saveSettings(); view.cachedBackend = null; view.cachedBackendMode = null; view.inputEl.value = '只回复 OK 两个字，不要使用任何工具。'; const runPromise = view.run(); const deadline = Date.now() + 60000; while (Date.now() < deadline) { await new Promise(r => setTimeout(r, 700)); if (!view.runHandle) break; } try { await runPromise; } catch {} await new Promise(r => setTimeout(r, 800)); const allBlocks = view.messagesEl.querySelectorAll('[data-msg-id]'); const msgBlock = allBlocks.length > 0 ? allBlocks[allBlocks.length - 1] : null; const wrap = msgBlock ? msgBlock.querySelector('.llm-bridge-timeline-wrap') : null; const liveEl = msgBlock ? msgBlock.querySelector('.llm-bridge-timeline-live') : null; const details = msgBlock ? msgBlock.querySelector('.llm-bridge-msg-details') : null; const content = msgBlock ? msgBlock.querySelector('.llm-bridge-msg-content') : null; const finalOutputBox = msgBlock ? msgBlock.querySelector('.llm-bridge-msg-final-output') : null; plugin.settings.claudePermissionMode = 'default'; await plugin.saveSettings(); view.cachedBackend = null; view.cachedBackendMode = null; view.inputEl.value = ''; return { wrapFound: !!wrap, liveFound: !!liveEl, detailsFound: !!details, contentText: content ? content.textContent : '', finalOutputBoxFound: !!finalOutputBox }; } catch (e) { return { error: String(e && e.message || e) }; } })()";
+  console.log("\n=== Phase 10: completed 后只显示最终输出 ===");
+  const expr = "(async () => { try { const app = window.app || globalThis.app; const plugin = app.plugins.plugins['" + PLUGIN_ID + "']; const view = app.workspace.getLeavesOfType('" + VIEW_TYPE + "')[0].view; plugin.settings.developerMode = false; plugin.settings.claudePermissionMode = 'auto'; plugin.settings.backendMode = 'auto'; await plugin.saveSettings(); view.cachedBackend = null; view.cachedBackendMode = null; view.inputEl.value = '只回复 OK 两个字，不要使用任何工具。'; const runPromise = view.run(); const deadline = Date.now() + 60000; while (Date.now() < deadline) { await new Promise(r => setTimeout(r, 700)); if (!view.runHandle) break; } try { await runPromise; } catch {} await new Promise(r => setTimeout(r, 800)); const allBlocks = view.messagesEl.querySelectorAll('[data-msg-id]'); const msgBlock = allBlocks.length > 0 ? allBlocks[allBlocks.length - 1] : null; const wrap = msgBlock ? msgBlock.querySelector('.llm-bridge-timeline-wrap') : null; const body = wrap ? wrap.querySelector('.llm-bridge-timeline-body') : null; const nodes = wrap ? Array.from(wrap.querySelectorAll('.llm-bridge-tl-node')).map(n => n.textContent || '') : []; const liveEl = msgBlock ? msgBlock.querySelector('.llm-bridge-timeline-live') : null; const details = msgBlock ? msgBlock.querySelector('.llm-bridge-msg-details') : null; const content = msgBlock ? msgBlock.querySelector('.llm-bridge-msg-content') : null; const finalOutputBox = msgBlock ? msgBlock.querySelector('.llm-bridge-msg-final-output') : null; plugin.settings.claudePermissionMode = 'default'; await plugin.saveSettings(); view.cachedBackend = null; view.cachedBackendMode = null; view.inputEl.value = ''; return { wrapFound: !!wrap, liveFound: !!liveEl, detailsFound: !!details, bodyCollapsed: body ? body.hasAttribute('hidden') : true, contentText: content ? content.textContent : '', finalOutputBoxFound: !!finalOutputBox, nodes }; } catch (e) { return { error: String(e && e.message || e) }; } })()";
   const res = await client.evaluate(expr, true);
   const r = res.result.value;
   if (r.error) { fail("completed 后只显示最终输出", r.error); return; }
   const hasFinalText = /ok/i.test(r.contentText || "") || (r.contentText || "").trim().length > 0;
-  if (!r.wrapFound && !r.liveFound && !r.detailsFound && !r.finalOutputBoxFound && hasFinalText) {
+  const processOk = !r.wrapFound || (r.bodyCollapsed && !r.nodes.some((text) => /Completed|^\\s*OK\\s*$/i.test(text)));
+  if (!r.liveFound && !r.finalOutputBoxFound && hasFinalText && processOk) {
     pass("completed 后只显示最终输出", "content=\"" + r.contentText + "\"");
   } else {
     fail("completed 后只显示最终输出", JSON.stringify(r));
+  }
+}
+
+async function composerFileRefPreviewSmoke(client) {
+  console.log("\n=== Phase 9: composer FileRef chip + Obsidian 预览 ===");
+  const expr = "(async () => { try { const app = window.app || globalThis.app; const view = app.workspace.getLeavesOfType('" + VIEW_TYPE + "')[0].view; view.fileWorkingSet = { refs: [] }; view.attachmentTextSnippets = []; view.attachmentReadGrants = []; view.refreshWorkingSetChips(); const files = app.vault.getMarkdownFiles(); const file = files.find(f => !/^\\.obsidian\\//.test(f.path)) || files[0]; if (!file) return { error: 'no markdown file in vault' }; await view.addAttachmentPathWithNotice(file.path); await new Promise(r => setTimeout(r, 500)); const chip = view.composerFileRefsEl ? view.composerFileRefsEl.querySelector('.llm-bridge-composer-file-chip') : null; const textExtFound = !!(chip && chip.querySelector('.llm-bridge-composer-file-ext')); if (chip) chip.click(); await new Promise(r => setTimeout(r, 1200)); const opened = app.workspace.getLeavesOfType('markdown').some(leaf => leaf.view && leaf.view.file && leaf.view.file.path === file.path); const pngBase64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII='; const pngBytes = Uint8Array.from(atob(pngBase64), c => c.charCodeAt(0)); const blobFile = new File([pngBytes], 'clipboard-smoke.png', { type: 'image/png' }); const cached = await view.persistBlobAttachmentToVault(blobFile, 'cdp-smoke'); if (cached) await view.addAttachmentPathWithNotice(cached); const electron = require('electron'); const image = electron.nativeImage.createFromBuffer(Buffer.from(pngBytes)); electron.clipboard.writeImage(image); const screenshotCached = await view.persistElectronClipboardImageToVault(); if (screenshotCached) await view.addAttachmentPathWithNotice(screenshotCached); await new Promise(r => setTimeout(r, 700)); const chips = Array.from(view.composerFileRefsEl.querySelectorAll('.llm-bridge-composer-file-chip')); const imageThumbFound = chips.some(el => !!el.querySelector('.llm-bridge-composer-file-image')); const cachedExists = cached ? await app.vault.adapter.exists(cached) : false; const screenshotExists = screenshotCached ? await app.vault.adapter.exists(screenshotCached) : false; const cachedIndexed = cached ? !!app.vault.getAbstractFileByPath(cached) : false; return { chipFound: !!chip, textExtFound, opened, file: file.path, cached, cachedExists, cachedIndexed, screenshotCached, screenshotExists, imageThumbFound, chipCount: chips.length }; } catch (e) { return { error: String(e && e.message || e) }; } })()";
+  const res = await client.evaluate(expr, true);
+  const r = res.result.value;
+  if (r.error) { fail("composer FileRef chip + Obsidian 预览", r.error); return; }
+  if (r.chipFound && r.textExtFound && r.opened && r.cachedExists && r.screenshotExists && r.imageThumbFound) {
+    pass("composer FileRef chip + Obsidian 预览", "file=" + r.file + " cached=" + r.cached + " screenshot=" + r.screenshotCached);
+  } else {
+    fail("composer FileRef chip + Obsidian 预览", JSON.stringify(r));
   }
 }
 
@@ -238,6 +253,7 @@ async function main() {
   await noCompressionSmoke(client);
   await sdkContextSmoke(client);
   await cliContextSmoke(client);
+  await composerFileRefPreviewSmoke(client);
   await completedFinalOutputOnlySmoke(client);
   await restoreSettings(client);
   client.close();

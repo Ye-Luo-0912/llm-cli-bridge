@@ -1,6 +1,6 @@
 // LLM CLI Bridge — 右侧 Chat View（Codex / Claude Code 风格紧凑工作台）
 
-import { App, ItemView, MarkdownRenderer, MarkdownView, Modal, Notice, setIcon, TFile, WorkspaceLeaf } from "obsidian";
+import { App, ItemView, MarkdownRenderer, MarkdownView, Modal, Notice, normalizePath, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import * as fs from "fs";
 import * as path from "path";
 import type LLMBridgePlugin from "../main";
@@ -294,7 +294,9 @@ export class LLMBridgeView extends ItemView {
   private attachmentTextSnippets: AttachmentTextSnippet[] = [];
   private attachmentFileInputEl!: HTMLInputElement;
   private workingSetEl!: HTMLElement;
+  private composerFileRefsEl!: HTMLElement;
   private filesWorkingSetEl!: HTMLElement;
+  private filePreviewLeaf: WorkspaceLeaf | null = null;
   // V2.16-D: Context metrics UI 元素
   private contextRingEl!: HTMLElement;
   private contextLabelEl!: HTMLElement;
@@ -565,23 +567,14 @@ export class LLMBridgeView extends ItemView {
       this.inputEl.focus();
     });
     const leftTools = composerBar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-left" });
-    const attachmentMenu = leftTools.createEl("details", { cls: "llm-bridge-attachment-menu" });
-    const attachmentSummary = attachmentMenu.createEl("summary", {
+    const attachmentBtn = leftTools.createEl("button", {
       cls: "llm-bridge-composer-tool-btn llm-bridge-attach-file-btn",
-      attr: { title: "添加附件（输入 @ 选 Vault 文件，或原生选择器）" },
+      attr: { title: "直接拖拽文件、粘贴文件或粘贴路径；输入 @ 选择 Vault 文件" },
     });
-    setIcon(attachmentSummary, "plus");
-    const attachmentMenuBody = attachmentMenu.createDiv({ cls: "llm-bridge-attachment-menu-body" });
-    // V2.15-H: @ 形式 Vault 文件选择（输入框上方 inline popup）
-    const vaultAttachBtn = attachmentMenuBody.createEl("button", { cls: "llm-bridge-attachment-menu-item", text: "Vault 文件（@）" });
-    vaultAttachBtn.addEventListener("click", () => {
-      attachmentMenu.removeAttribute("open");
-      this.triggerMentionAtCursor();
-    });
-    const nativeAttachBtn = attachmentMenuBody.createEl("button", { cls: "llm-bridge-attachment-menu-item", text: "原生文件选择器" });
-    nativeAttachBtn.addEventListener("click", () => {
-      attachmentMenu.removeAttribute("open");
-      this.openNativeAttachmentPicker();
+    setIcon(attachmentBtn, "plus");
+    attachmentBtn.addEventListener("click", () => {
+      this.inputEl.focus();
+      new Notice("直接拖拽文件到输入框、粘贴文件/路径，或输入 @ 选择 Vault 文件。", 3500);
     });
     const commandMenu = leftTools.createEl("details", { cls: "llm-bridge-command-menu" });
     const commandSummary = commandMenu.createEl("summary", {
@@ -626,6 +619,7 @@ export class LLMBridgeView extends ItemView {
     this.permissionModeChipEl.addEventListener("click", () => void this.togglePermissionPopover());
 
     const inputRow = composerBar.createDiv({ cls: "llm-bridge-input-row" });
+    this.composerFileRefsEl = inputRow.createDiv({ cls: "llm-bridge-composer-file-refs" });
     this.inputEl = inputRow.createEl("textarea", {
       cls: "llm-bridge-input",
       attr: { placeholder: "输入消息，或使用 / 命令…", rows: "3" },
@@ -692,16 +686,16 @@ export class LLMBridgeView extends ItemView {
     this.attachmentFileInputEl.addEventListener("change", () => void this.addNativeSelectedAttachments());
 
     composer.addEventListener("dragover", (event) => {
-      if (!event.dataTransfer?.files?.length) return;
+      const hasFiles = !!event.dataTransfer?.files?.length || Array.from(event.dataTransfer?.types ?? []).some((type) => /files|uri-list|plain/i.test(type));
+      if (!hasFiles) return;
       event.preventDefault();
       composer.addClass("is-dragging-file");
     });
     composer.addEventListener("dragleave", () => composer.removeClass("is-dragging-file"));
     composer.addEventListener("drop", (event) => {
-      if (!event.dataTransfer?.files?.length) return;
       event.preventDefault();
       composer.removeClass("is-dragging-file");
-      void this.addFilesFromFileList(event.dataTransfer.files);
+      void this.handleComposerDrop(event);
     });
     this.refreshWorkingSetChips();
 
@@ -1769,28 +1763,28 @@ export class LLMBridgeView extends ItemView {
     this.attachmentFileInputEl.value = "";
   }
 
-  private async addFilesFromFileList(files: FileList): Promise<void> {
-    const paths = Array.from(files)
-      .map((file) => this.extractNativeFilePath(file))
-      .filter((filePath): filePath is string => !!filePath);
+  private async addFilesFromFileList(files: FileList, source = "native-picker"): Promise<FileRef[]> {
+    const paths = await this.collectPathsAndCacheBlobsFromFileList(files, source);
     if (paths.length === 0) {
-      new Notice("原生文件选择器未返回 path；请使用 @ 选择 Vault 文件，或粘贴/输入文件路径。");
-      return;
+      new Notice("未拿到文件 path，也没有可缓存的文件内容；请使用 @ 选择 Vault 文件，或粘贴/输入文件路径。");
+      return [];
     }
-    const refs = await this.addUserFilePathsToWorkingSet(paths, "native-picker");
+    const refs = await this.addUserFilePathsToWorkingSet(paths, source);
     new Notice(`已添加 ${refs.length}/${paths.length} 个附件到 Working Set`);
+    return refs;
   }
 
   private async handleComposerPaste(event: ClipboardEvent): Promise<void> {
-    const files = event.clipboardData?.files;
-    if (files && files.length > 0) {
-      event.preventDefault();
-      await this.addFilesFromFileList(files);
-      return;
+    const paths = this.collectFilePathsFromClipboardEvent(event);
+    const hasClipboardFiles = !!event.clipboardData?.files?.length || Array.from(event.clipboardData?.types ?? []).some((type) => /files|uri-list/i.test(type));
+    if (paths.length > 0 || hasClipboardFiles) event.preventDefault();
+    for (const cachedPath of await this.cachePathlessFilesFromFileList(event.clipboardData?.files, "paste")) {
+      if (!paths.includes(cachedPath)) paths.push(cachedPath);
     }
-
-    const text = event.clipboardData?.getData("text/plain") || "";
-    const paths = this.extractPastedFilePaths(text);
+    if (paths.length === 0) {
+      const imagePath = await this.persistElectronClipboardImageToVault();
+      if (imagePath) paths.push(imagePath);
+    }
     if (paths.length === 0) return;
     event.preventDefault();
     const refs = await this.addUserFilePathsToWorkingSet(paths, "paste");
@@ -1799,6 +1793,175 @@ export class LLMBridgeView extends ItemView {
       return;
     }
     new Notice(`已从粘贴内容添加 ${refs.length}/${paths.length} 个文件到 Working Set`);
+  }
+
+  private async handleComposerDrop(event: DragEvent): Promise<void> {
+    const paths = this.collectFilePathsFromDataTransfer(event.dataTransfer);
+    for (const cachedPath of await this.cachePathlessFilesFromFileList(event.dataTransfer?.files, "drop")) {
+      if (!paths.includes(cachedPath)) paths.push(cachedPath);
+    }
+    if (paths.length === 0) {
+      new Notice("拖拽内容没有可用文件 path。");
+      return;
+    }
+    const refs = await this.addUserFilePathsToWorkingSet(paths, "drop");
+    new Notice(`已从拖拽添加 ${refs.length}/${paths.length} 个文件到 Working Set`);
+  }
+
+  private collectFilePathsFromClipboardEvent(event: ClipboardEvent): string[] {
+    const paths = this.collectFilePathsFromDataTransfer(event.clipboardData);
+    for (const filePath of this.readElectronClipboardFilePaths()) {
+      if (!paths.includes(filePath)) paths.push(filePath);
+    }
+    return paths;
+  }
+
+  private collectFilePathsFromDataTransfer(data: DataTransfer | null): string[] {
+    const seen = new Set<string>();
+    const paths: string[] = [];
+    const addPath = (filePath: string | null | undefined) => {
+      const trimmed = filePath?.trim();
+      if (!trimmed || seen.has(trimmed)) return;
+      seen.add(trimmed);
+      paths.push(trimmed);
+    };
+
+    if (!data) return paths;
+    for (const filePath of this.extractPathsFromFileList(data.files)) addPath(filePath);
+
+    const uriList = data.getData("text/uri-list");
+    for (const filePath of this.extractPastedFilePaths(uriList)) addPath(filePath);
+
+    const text = data.getData("text/plain");
+    for (const filePath of this.extractPastedFilePaths(text)) addPath(filePath);
+
+    return paths;
+  }
+
+  private extractPathsFromFileList(files: FileList | null | undefined): string[] {
+    if (!files?.length) return [];
+    return Array.from(files)
+      .map((file) => this.extractNativeFilePath(file))
+      .filter((filePath): filePath is string => !!filePath);
+  }
+
+  private async collectPathsAndCacheBlobsFromFileList(files: FileList | null | undefined, source: string): Promise<string[]> {
+    const paths = this.extractPathsFromFileList(files);
+    for (const cachedPath of await this.cachePathlessFilesFromFileList(files, source)) {
+      if (!paths.includes(cachedPath)) paths.push(cachedPath);
+    }
+    return paths;
+  }
+
+  private async cachePathlessFilesFromFileList(files: FileList | null | undefined, source: string): Promise<string[]> {
+    if (!files?.length) return [];
+    const paths: string[] = [];
+    for (const file of Array.from(files)) {
+      if (this.extractNativeFilePath(file)) continue;
+      const cachedPath = await this.persistBlobAttachmentToVault(file, source);
+      if (cachedPath) paths.push(cachedPath);
+    }
+    return paths;
+  }
+
+  private async persistBlobAttachmentToVault(file: File, source: string): Promise<string | null> {
+    if (!file || file.size <= 0) return null;
+    try {
+      const folder = normalizePath("LLM-Bridge Attachments");
+      await this.ensureVaultFolder(folder);
+      const safeName = this.sanitizeAttachmentFileName(file.name || this.defaultAttachmentFileName(file.type));
+      const relPath = await this.allocateAttachmentPath(folder, safeName);
+      const data = await file.arrayBuffer();
+      await this.app.vault.createBinary(relPath, data);
+      new Notice(`已缓存 ${source} 附件：${safeName}`, 2500);
+      return relPath;
+    } catch (error) {
+      new Notice(`缓存附件失败：${error instanceof Error ? error.message : String(error)}`, 5000);
+      return null;
+    }
+  }
+
+  private async persistElectronClipboardImageToVault(): Promise<string | null> {
+    try {
+      const requireFn = (window as unknown as { require?: (moduleName: string) => unknown }).require;
+      const electron = requireFn?.("electron") as {
+        clipboard?: {
+          readImage?: () => {
+            isEmpty?: () => boolean;
+            toPNG?: () => Buffer;
+          };
+        };
+      } | undefined;
+      const image = electron?.clipboard?.readImage?.();
+      if (!image || image.isEmpty?.()) return null;
+      const png = image.toPNG?.();
+      if (!png || png.length === 0) return null;
+      return await this.persistBinaryAttachmentToVault(png, `screenshot-${Date.now()}.png`, "paste");
+    } catch {
+      return null;
+    }
+  }
+
+  private async persistBinaryAttachmentToVault(data: ArrayBuffer | Uint8Array, fileName: string, source: string): Promise<string | null> {
+    try {
+      const folder = normalizePath("LLM-Bridge Attachments");
+      await this.ensureVaultFolder(folder);
+      const safeName = this.sanitizeAttachmentFileName(fileName);
+      const relPath = await this.allocateAttachmentPath(folder, safeName);
+      const binary = data instanceof ArrayBuffer
+        ? data
+        : new Uint8Array(data).slice().buffer;
+      await this.app.vault.createBinary(relPath, binary);
+      new Notice(`已缓存 ${source} 图片：${safeName}`, 2500);
+      return relPath;
+    } catch (error) {
+      new Notice(`缓存图片失败：${error instanceof Error ? error.message : String(error)}`, 5000);
+      return null;
+    }
+  }
+
+  private async ensureVaultFolder(folder: string): Promise<void> {
+    const parts = folder.split("/").filter(Boolean);
+    let current = "";
+    for (const part of parts) {
+      current = current ? `${current}/${part}` : part;
+      if (this.app.vault.getAbstractFileByPath(current)) continue;
+      try {
+        await this.app.vault.createFolder(current);
+      } catch {
+        // Another event may have created it between the existence check and createFolder.
+      }
+    }
+  }
+
+  private async allocateAttachmentPath(folder: string, fileName: string): Promise<string> {
+    const ext = path.extname(fileName);
+    const base = path.basename(fileName, ext) || "attachment";
+    for (let index = 0; index < 1000; index++) {
+      const suffix = index === 0 ? "" : `-${index + 1}`;
+      const relPath = normalizePath(`${folder}/${Date.now()}-${base}${suffix}${ext}`);
+      if (!this.app.vault.getAbstractFileByPath(relPath)) return relPath;
+    }
+    return normalizePath(`${folder}/${Date.now()}-${Math.random().toString(16).slice(2)}-${fileName}`);
+  }
+
+  private sanitizeAttachmentFileName(fileName: string): string {
+    const trimmed = fileName.trim() || "attachment";
+    return trimmed
+      .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
+      .replace(/\s+/g, " ")
+      .slice(0, 120);
+  }
+
+  private defaultAttachmentFileName(mimeType: string): string {
+    if (/png/i.test(mimeType)) return "pasted-image.png";
+    if (/jpe?g/i.test(mimeType)) return "pasted-image.jpg";
+    if (/gif/i.test(mimeType)) return "pasted-image.gif";
+    if (/webp/i.test(mimeType)) return "pasted-image.webp";
+    if (/pdf/i.test(mimeType)) return "pasted-document.pdf";
+    if (/json/i.test(mimeType)) return "pasted-data.json";
+    if (/text|plain/i.test(mimeType)) return "pasted-text.txt";
+    return "pasted-file.bin";
   }
 
   private async addUserFilePathsToWorkingSet(requestedPaths: string[], source: string): Promise<FileRef[]> {
@@ -1845,16 +2008,137 @@ export class LLMBridgeView extends ItemView {
     return paths;
   }
 
+  private readElectronClipboardFilePaths(): string[] {
+    try {
+      const requireFn = (window as unknown as { require?: (moduleName: string) => unknown }).require;
+      const electron = requireFn?.("electron") as {
+        clipboard?: {
+          availableFormats?: () => string[];
+          readText?: (type?: string) => string;
+          readBuffer?: (format: string) => Buffer;
+        };
+      } | undefined;
+      const clipboard = electron?.clipboard;
+      if (!clipboard) return [];
+
+      const values: string[] = [];
+      const addText = (text: string | undefined) => {
+        if (!text) return;
+        for (const filePath of this.extractPastedFilePaths(text)) values.push(filePath);
+      };
+
+      addText(clipboard.readText?.());
+      for (const format of clipboard.availableFormats?.() ?? []) {
+        if (/text\/uri-list|file/i.test(format)) {
+          try {
+            addText(clipboard.readText?.(format));
+          } catch {
+            // Some native formats are buffer-only.
+          }
+        }
+      }
+
+      for (const format of ["FileNameW", "FileName", "text/uri-list"]) {
+        try {
+          const buffer = clipboard.readBuffer?.(format);
+          if (!buffer || buffer.length === 0) continue;
+          const text = format === "FileNameW" ? buffer.toString("utf16le") : buffer.toString("utf8");
+          addText(text.replace(/\0/g, "\n"));
+        } catch {
+          // Native clipboard formats vary by OS/Electron version.
+        }
+      }
+
+      return Array.from(new Set(values));
+    } catch {
+      return [];
+    }
+  }
+
   private extractNativeFilePath(file: File): string | null {
     const electronFile = file as File & { path?: string };
-    return typeof electronFile.path === "string" && electronFile.path.trim().length > 0
-      ? electronFile.path
-      : null;
+    if (typeof electronFile.path === "string" && electronFile.path.trim().length > 0) {
+      return electronFile.path;
+    }
+    try {
+      const requireFn = (window as unknown as { require?: (moduleName: string) => unknown }).require;
+      const electron = requireFn?.("electron") as { webUtils?: { getPathForFile?: (file: File) => string } } | undefined;
+      const filePath = electron?.webUtils?.getPathForFile?.(file);
+      return typeof filePath === "string" && filePath.trim().length > 0 ? filePath : null;
+    } catch {
+      return null;
+    }
   }
 
   private refreshWorkingSetChips(): void {
     if (this.workingSetEl) this.renderWorkingSetChipsInto(this.workingSetEl, "strip");
     if (this.filesWorkingSetEl) this.renderWorkingSetChipsInto(this.filesWorkingSetEl, "page");
+    if (this.composerFileRefsEl) this.renderComposerFileRefs();
+  }
+
+  private renderComposerFileRefs(): void {
+    const container = this.composerFileRefsEl;
+    container.empty();
+    const refs = this.fileWorkingSet.refs.filter((ref) => ref.kind === "vault" || ref.kind === "attachment" || ref.kind === "external");
+    if (refs.length === 0) {
+      container.setAttribute("hidden", "");
+      return;
+    }
+    container.removeAttribute("hidden");
+    for (const ref of refs) {
+      const chip = container.createEl("button", {
+        cls: `llm-bridge-composer-file-chip is-${ref.kind} is-${ref.fileType}`,
+        attr: { title: `预览：${ref.displayName}\n${ref.resolvedPath}`, "aria-label": `预览 ${ref.displayName}` },
+      });
+      const thumb = chip.createEl("span", { cls: "llm-bridge-composer-file-thumb" });
+      const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
+      if (thumbnailUrl) {
+        thumb.createEl("img", {
+          cls: "llm-bridge-composer-file-image",
+          attr: { src: thumbnailUrl, alt: ref.displayName },
+        });
+      } else {
+        thumb.createEl("span", { cls: "llm-bridge-composer-file-ext", text: this.getFileRefShortLabel(ref) });
+      }
+      chip.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void this.openFileRefPreview(ref);
+      });
+      const remove = chip.createEl("span", { cls: "llm-bridge-composer-file-remove", text: "×", attr: { title: "移除" } });
+      remove.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.removeWorkingSetRef(ref.id);
+      });
+    }
+  }
+
+  private getFileRefShortLabel(ref: FileRef): string {
+    const ext = path.extname(ref.displayName).replace(".", "").trim();
+    if (ext) return ext.slice(0, 4).toUpperCase();
+    if (ref.fileType === "markdown") return "MD";
+    if (ref.fileType === "text") return "TXT";
+    if (ref.fileType === "json") return "JSON";
+    if (ref.fileType === "pdf") return "PDF";
+    if (ref.fileType === "binary") return "BIN";
+    return "FILE";
+  }
+
+  private getFileRefThumbnailUrl(ref: FileRef): string | null {
+    const vaultRelPath = this.resolveFileRefVaultPath(ref);
+    if (vaultRelPath) {
+      const file = this.app.vault.getAbstractFileByPath(vaultRelPath);
+      if (file instanceof TFile) return this.app.vault.getResourcePath(file);
+      return this.filePathToUrl(path.join(this.getVaultPath(), vaultRelPath));
+    }
+    if (path.isAbsolute(ref.resolvedPath)) return this.filePathToUrl(ref.resolvedPath);
+    return null;
+  }
+
+  private filePathToUrl(filePath: string): string {
+    const normalized = path.resolve(filePath).replace(/\\/g, "/");
+    return `file:///${normalized.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
   }
 
   private renderWorkingSetChipsInto(container: HTMLElement, mode: "strip" | "page"): void {
@@ -1898,6 +2182,94 @@ export class LLMBridgeView extends ItemView {
       this.attachmentReadGrants = this.attachmentReadGrants.filter((grant) => grant.path !== ref.resolvedPath || grant.scope !== "attachment");
     }
     this.refreshWorkingSetChips();
+  }
+
+  private async openFileRefPreview(ref: FileRef): Promise<void> {
+    const vaultRelPath = this.resolveFileRefVaultPath(ref);
+    if (!vaultRelPath) {
+      await this.openPathWithSystemDefault(ref.resolvedPath);
+      return;
+    }
+
+    const file = await this.getIndexedVaultFile(vaultRelPath);
+    if (!(file instanceof TFile)) {
+      new Notice(`Obsidian 尚未索引该 Vault 文件，暂无法预览：${vaultRelPath}`, 5000);
+      return;
+    }
+
+    try {
+      const existingLeaf = this.findLeafForFile(file);
+      const cachedLeafStillUsable = this.filePreviewLeaf && this.filePreviewLeaf.view.getViewType() !== VIEW_TYPE_LLM_BRIDGE;
+      const leaf = existingLeaf ?? (cachedLeafStillUsable ? this.filePreviewLeaf : null) ?? this.app.workspace.getLeaf("tab");
+      this.filePreviewLeaf = leaf;
+      await leaf.openFile(file);
+      this.app.workspace.revealLeaf(leaf);
+    } catch (error) {
+      const opened = await this.openPathWithSystemDefault(path.join(this.getVaultPath(), file.path), false);
+      if (!opened) {
+        new Notice(`Obsidian 预览失败：${error instanceof Error ? error.message : String(error)}`, 5000);
+      }
+    }
+  }
+
+  private async getIndexedVaultFile(vaultRelPath: string): Promise<TFile | null> {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const file = this.app.vault.getAbstractFileByPath(vaultRelPath);
+      if (file instanceof TFile) return file;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
+    return null;
+  }
+
+  private findLeafForFile(file: TFile): WorkspaceLeaf | null {
+    let found: WorkspaceLeaf | null = null;
+    const workspace = this.app.workspace as unknown as { iterateAllLeaves?: (callback: (leaf: WorkspaceLeaf) => void) => void };
+    workspace.iterateAllLeaves?.((leaf) => {
+      const view = leaf.view as unknown as { file?: TFile | null };
+      if (!found && view.file?.path === file.path) found = leaf;
+    });
+    if (found) return found;
+    return this.app.workspace.getLeavesOfType("markdown").find((leaf) => {
+      const view = leaf.view as unknown as { file?: TFile | null };
+      return view.file?.path === file.path;
+    }) ?? null;
+  }
+
+  private async openPathWithSystemDefault(filePath: string, showNotice = true): Promise<boolean> {
+    try {
+      const requireFn = (window as unknown as { require?: (moduleName: string) => unknown }).require;
+      const electron = requireFn?.("electron") as { shell?: { openPath?: (path: string) => Promise<string> } } | undefined;
+      const result = await electron?.shell?.openPath?.(filePath);
+      if (result === "") {
+        if (showNotice) new Notice(`已用系统默认应用打开：${filePath}`, 3000);
+        return true;
+      }
+    } catch {
+      // Fall through to the quiet failure path below.
+    }
+
+    if (showNotice) new Notice(`无法预览该文件：${filePath}`, 5000);
+    return false;
+  }
+
+  private resolveFileRefVaultPath(ref: FileRef): string | null {
+    const vaultPath = this.getVaultPath();
+    const candidates = [ref.requestedPath, ref.resolvedPath].filter((value) => value && value.trim().length > 0);
+    let fallbackRelPath: string | null = null;
+    for (const rawPath of candidates) {
+      if (!path.isAbsolute(rawPath)) {
+        const rel = rawPath.replace(/\\/g, "/").replace(/^\/+/, "");
+        if (this.app.vault.getAbstractFileByPath(rel) instanceof TFile) return rel;
+        fallbackRelPath ??= rel;
+        continue;
+      }
+      const relative = path.relative(vaultPath, rawPath);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) continue;
+      const rel = relative.replace(/\\/g, "/");
+      if (this.app.vault.getAbstractFileByPath(rel) instanceof TFile) return rel;
+      fallbackRelPath ??= rel;
+    }
+    return fallbackRelPath;
   }
 
   private refreshExternalReadPanel(): void {
@@ -2170,6 +2542,11 @@ export class LLMBridgeView extends ItemView {
 
     if (msg.role === "assistant" && terminalSuccess && !developerMode) {
       block.querySelector<HTMLElement>(".llm-bridge-timeline-live")?.remove();
+      if (msg.sdkEvents && msg.sdkEvents.length > 0) {
+        const details = block.createDiv({ cls: "llm-bridge-msg-details" });
+        this.appendSdkWorkflow(details, msg.sdkEvents, { processOnly: true });
+        this.updateLastSdkStats(msg.sdkEvents);
+      }
       return;
     }
 
@@ -2477,13 +2854,23 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  private appendSdkWorkflow(parent: HTMLElement, events: ReadonlyArray<WorkflowEvent>): void {
+  private appendSdkWorkflow(
+    parent: HTMLElement,
+    events: ReadonlyArray<WorkflowEvent>,
+    options: { processOnly?: boolean } = {},
+  ): void {
     // V2.16-C: 现代 Claude/Codex 风格 timeline + 折叠行为
     // 用 timelineAdapter 转换事件为分类合并的 node 列表
     const nodes = this.filterUserFacingTimelineNodes(adaptEventsToTimeline(events));
+    const visibleNodes = options.processOnly
+      ? nodes.filter((node) => node.kind !== "final_message" && node.kind !== "completed")
+      : nodes;
+    if (visibleNodes.length === 0 && options.processOnly) return;
     const stats = computeTimelineStats(nodes);
     const hasFailed = nodes.some((n) => n.kind === "failed" || n.kind === "error");
-    const summary = hasFailed ? formatFailedSummary(nodes) : formatCompletedSummary(stats);
+    const summary = options.processOnly
+      ? this.formatProcessSummary(stats)
+      : hasFailed ? formatFailedSummary(nodes) : formatCompletedSummary(stats);
 
     // 折叠区容器：completed 后默认折叠（只保留摘要），failed 时展开错误
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap" });
@@ -2503,7 +2890,7 @@ export class LLMBridgeView extends ItemView {
 
     // 渲染完整 timeline
     const timelineEl = bodyEl.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-final" });
-    for (const node of nodes) {
+    for (const node of visibleNodes) {
       this.renderTimelineNode(timelineEl, node, false);
     }
 
@@ -2542,6 +2929,18 @@ export class LLMBridgeView extends ItemView {
         rawToggle.textContent = "▶ Raw log";
       }
     });
+  }
+
+  private formatProcessSummary(stats: ReturnType<typeof computeTimelineStats>): string {
+    const parts = ["过程"];
+    if (stats.thoughtCount > 0) parts.push(`${stats.thoughtCount} thinking`);
+    if (stats.toolCount > 0) parts.push(`${stats.toolCount} tool${stats.toolCount > 1 ? "s" : ""}`);
+    if (stats.fileChangeCount > 0) parts.push(`${stats.fileChangeCount} file change${stats.fileChangeCount > 1 ? "s" : ""}`);
+    if (stats.durationMs !== undefined && stats.durationMs > 0) {
+      const secs = Math.round(stats.durationMs / 1000);
+      if (secs > 0) parts.push(`${secs}s`);
+    }
+    return parts.join(" · ");
   }
 
   // V2.3: 从事件中提取 agent 实例列表（主 agent + subagent）
