@@ -8,7 +8,7 @@ import { buildPrompt } from "./prompt";
 import { buildPromptPackage, StateSnapshot } from "./promptPackage";
 import { ClaudeCliBackend } from "./claudeCliBackend";
 import { MockAgentBackend } from "./mockAgentBackend";
-import { AgentBackend, AgentRunHandle, AgentTask } from "./agentBackend";
+import { AgentBackend, AgentRunHandle, AgentTask, SdkImageContentBlock, SdkStreamingInput } from "./agentBackend";
 import { exportState } from "./state";
 import { diffSnapshots, extractRelPath, FileSnapshot, snapshotVaultMarkdownFiles } from "./fileDiff";
 import { AgentType, BackendMode, ChatMessage, RunResult, RunStatus, SessionMode } from "./types";
@@ -41,17 +41,15 @@ import {
   FileAccessOperation,
 } from "./fileAccessPolicy";
 import {
-  addFileRefToWorkingSet,
   createAttachmentFileRef,
   createExternalFileRefFromApprovedRequest,
   createVaultFileRef,
-  createWorkingSet,
   classifyFileTypeByPath,
   buildPromptFileRefIndex,
   FileRef,
-  WorkingSet,
 } from "./fileRefs";
 import { AttachmentTextSnippet, ingestAttachmentTextSnippet } from "./fileIngestion";
+import { DEFAULT_ATTACHMENT_PACKING_POLICY } from "./attachmentPackingPolicy";
 import { FileToolExecutionRequest, FileToolResult, executeFileTool } from "./fileToolExecutor";
 import { AgentFileToolRouteRequest, AgentFileToolRouteResult, executeAgentFileToolRoute as routeAgentFileTool } from "./agentFileToolBridge";
 import { createRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
@@ -288,14 +286,16 @@ export class LLMBridgeView extends ItemView {
   // V2.14.0-E: 外部 read 授权仅存在于当前 Bridge View/session 生命周期
   private externalReadGrantStore: SessionReadGrantStore = createSessionReadGrantStore();
   private externalReadPanelEl!: HTMLElement;
-  // V2.14.0-F: Working Set 只保存文件引用和授权状态，不保存文件正文
-  private fileWorkingSet: WorkingSet = createWorkingSet();
+  // V2.16-E: 普通附件只属于本轮消息；只有 pinned context 跨轮保留。
+  private messageFileRefs: FileRef[] = [];
+  private pinnedFileRefs: FileRef[] = [];
+  private sessionFileRefs: FileRef[] = [];
   private attachmentReadGrants: FileAccessReadGrant[] = [];
   private attachmentTextSnippets: AttachmentTextSnippet[] = [];
   private attachmentFileInputEl!: HTMLInputElement;
-  private workingSetEl!: HTMLElement;
+  private pinnedContextEl!: HTMLElement;
   private composerFileRefsEl!: HTMLElement;
-  private filesWorkingSetEl!: HTMLElement;
+  private filesContextEl!: HTMLElement;
   private filePreviewLeaf: WorkspaceLeaf | null = null;
   // V2.16-D: Context metrics UI 元素
   private contextRingEl!: HTMLElement;
@@ -421,7 +421,7 @@ export class LLMBridgeView extends ItemView {
         if (this.historyToggleEl) this.historyToggleEl.textContent = "\u25BC History";
         void this.refreshHistory();
       } else if (tab === "files") {
-        this.refreshWorkingSetChips();
+        this.refreshContextRefs();
         this.refreshPendingActions();
         this.refreshExternalReadPanel();
       }
@@ -436,12 +436,12 @@ export class LLMBridgeView extends ItemView {
     skillsTab.addEventListener("click", () => switchTab("skills"));
     historyTab.addEventListener("click", () => switchTab("history"));
 
-    // ===== Files page: Working Set / attachments / FileRef index / approvals =====
+    // ===== Files page: attachments / pinned context / FileRef index / approvals =====
     const filesHead = filesPanel.createDiv({ cls: "llm-bridge-secondary-head" });
     filesHead.createEl("span", { cls: "llm-bridge-secondary-kicker", text: "Files" });
-    filesHead.createEl("strong", { text: "Working Set、附件与 FileRef index" });
+    filesHead.createEl("strong", { text: "Attachments、Pinned context 与 FileRef index" });
     filesHead.createEl("small", { text: "这里只管理文件引用和授权状态；文件执行交给 Claude Code / SDK native handoff。" });
-    this.filesWorkingSetEl = filesPanel.createDiv({ cls: "llm-bridge-working-set llm-bridge-working-set-page" });
+    this.filesContextEl = filesPanel.createDiv({ cls: "llm-bridge-context-refs llm-bridge-context-refs-page" });
 
     // ===== Pending Actions 区域（在 Files 页默认折叠） =====
     this.pendingActionsEl = filesPanel.createDiv({ cls: "llm-bridge-pending-wrap" });
@@ -535,11 +535,12 @@ export class LLMBridgeView extends ItemView {
     this.externalReadPanelEl = filesPanel.createDiv({ cls: "llm-bridge-external-read-panel" });
     this.externalReadPanelEl.style.display = "none";
 
-    // Working Set strip 位于 composer 上方，空态保持紧凑。
-    const workingSetStrip = chatPanel.createDiv({ cls: "llm-bridge-working-set-strip" });
-    workingSetStrip.createEl("span", { cls: "llm-bridge-working-set-label", text: "工作集" });
-    const contextChipsRow = workingSetStrip.createDiv({ cls: "llm-bridge-working-set-context" });
-    this.workingSetEl = workingSetStrip.createDiv({ cls: "llm-bridge-working-set llm-bridge-working-set-refs" });
+    // 轻量 Context toggles；不再常驻展示空附件区域。
+    const contextToggles = chatPanel.createDiv({ cls: "llm-bridge-context-toggles" });
+    contextToggles.createEl("span", { cls: "llm-bridge-context-toggles-label", text: "Context" });
+    const contextChipsRow = contextToggles.createDiv({ cls: "llm-bridge-context-toggle-chips" });
+    this.pinnedContextEl = chatPanel.createEl("details", { cls: "llm-bridge-pinned-context" });
+    this.pinnedContextEl.setAttribute("hidden", "");
 
     // V2.16-D: Context indicator（composer 上方轻量条，点击展开明细）
     const contextStrip = chatPanel.createDiv({ cls: "llm-bridge-context-strip" });
@@ -666,7 +667,7 @@ export class LLMBridgeView extends ItemView {
     setIcon(this.sendBtn.createEl("span", { cls: "llm-bridge-send-icon" }), "send");
     this.sendBtn.addEventListener("click", () => void this.run());
 
-    // Note / Selection 上下文 chips：作为 Working Set strip 的 compact refs。
+    // Note / Selection 上下文 toggles：只按开关进入当前 run。
     const chipsRow = contextChipsRow;
     this.includeNoteCheckEl = this.buildContextChip(chipsRow, "Note", () => this.plugin.settings.includeActiveNote, async (on) => {
       this.plugin.settings.includeActiveNote = on;
@@ -697,7 +698,7 @@ export class LLMBridgeView extends ItemView {
       composer.removeClass("is-dragging-file");
       void this.handleComposerDrop(event);
     });
-    this.refreshWorkingSetChips();
+    this.refreshContextRefs();
 
     // 初始化
     this.syncControlsFromSettings();
@@ -1181,7 +1182,7 @@ export class LLMBridgeView extends ItemView {
       this.historySearchDebounceTimer = null;
     }
     this.clearExternalReadRequests();
-    this.clearFileWorkingSet();
+    this.clearFileContext();
   }
 
   // ---------- 控件同步 ----------
@@ -1504,27 +1505,29 @@ export class LLMBridgeView extends ItemView {
     return pending;
   }
 
-  public addVaultFileRef(requestedPath: string, options: { pathKind?: FileAccessPathKind; source?: string } = {}): FileRef | null {
+  public addVaultFileRef(requestedPath: string, options: { pathKind?: FileAccessPathKind; source?: string; scope?: "message" | "pinned" | "session" } = {}): FileRef | null {
     const ref = createVaultFileRef(this.createCurrentFileAccessPolicy(), requestedPath, {
       pathKind: options.pathKind || "file",
       source: options.source || "user",
+      scope: options.scope || "message",
     });
-    this.fileWorkingSet = addFileRefToWorkingSet(this.fileWorkingSet, ref);
-    this.refreshWorkingSetChips();
+    this.addScopedFileRef(ref);
+    this.refreshContextRefs();
     return ref;
   }
 
-  public addAttachmentFileRef(requestedPath: string, options: { pathKind?: FileAccessPathKind; source?: string } = {}): FileRef | null {
+  public addAttachmentFileRef(requestedPath: string, options: { pathKind?: FileAccessPathKind; source?: string; scope?: "message" | "pinned" | "session" } = {}): FileRef | null {
     const result = createAttachmentFileRef(this.getVaultPath(), requestedPath, {
       pathKind: options.pathKind || "file",
       source: options.source || "attachment",
+      scope: options.scope || "message",
     });
     if (!result) return null;
     this.attachmentReadGrants = this.attachmentReadGrants
       .filter((grant) => grant.path !== result.readGrant.path || grant.scope !== result.readGrant.scope);
     this.attachmentReadGrants.push(result.readGrant);
-    this.fileWorkingSet = addFileRefToWorkingSet(this.fileWorkingSet, result.ref);
-    this.refreshWorkingSetChips();
+    this.addScopedFileRef(result.ref);
+    this.refreshContextRefs();
     return result.ref;
   }
 
@@ -1542,7 +1545,7 @@ export class LLMBridgeView extends ItemView {
     if (result.snippet) {
       this.attachmentTextSnippets.push(result.snippet);
     }
-    this.refreshWorkingSetChips();
+    this.refreshContextRefs();
     return ref;
   }
 
@@ -1558,13 +1561,13 @@ export class LLMBridgeView extends ItemView {
   }
 
   public getWorkingSetFileRefs(): FileRef[] {
-    return this.fileWorkingSet.refs.slice();
+    return this.getAllContextFileRefs();
   }
 
   public async executeFileToolRequest(request: FileToolExecutionRequest): Promise<FileToolResult> {
     const result = await executeFileTool(this.createCurrentFileAccessPolicy(), {
       ...request,
-      fileRefs: request.fileRefs || this.fileWorkingSet.refs,
+      fileRefs: request.fileRefs || this.getAllContextFileRefs(),
     });
     if (result.status === "confirm" && result.pendingRequest) {
       this.externalReadGrantStore = enqueuePendingExternalReadRequest(this.externalReadGrantStore, result.pendingRequest);
@@ -1598,16 +1601,16 @@ export class LLMBridgeView extends ItemView {
   }
 
   private async addAttachmentPathWithNotice(requestedPath: string): Promise<void> {
-    const refs = await this.addUserFilePathsToWorkingSet([requestedPath], "path");
+    const refs = await this.addUserFilePathsToContext([requestedPath], "path");
     const ref = refs[0];
     if (!ref) {
-      new Notice(`文件路径无效或不可访问，未加入 Working Set：${requestedPath}`);
+      new Notice(`文件路径无效或不可访问，未加入本轮附件：${requestedPath}`);
       return;
     }
     const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id);
     const type = classifyFileTypeByPath(ref.resolvedPath);
     const kindLabel = ref.kind === "vault" ? "Vault 文件" : "附件引用";
-    new Notice(snippet ? `已添加${kindLabel}并读取 bounded snippet：${ref.displayName}` : `已添加${kindLabel}：${ref.displayName} (${type})`);
+    new Notice(snippet ? `已添加本轮${kindLabel}并读取 bounded snippet：${ref.displayName}` : `已添加本轮${kindLabel}：${ref.displayName} (${type})`);
   }
 
   // V2.15-H: @ 提及文件选择器 —— 输入框上方 inline popup（替代独立 Modal）
@@ -1769,8 +1772,8 @@ export class LLMBridgeView extends ItemView {
       new Notice("未拿到文件 path，也没有可缓存的文件内容；请使用 @ 选择 Vault 文件，或粘贴/输入文件路径。");
       return [];
     }
-    const refs = await this.addUserFilePathsToWorkingSet(paths, source);
-    new Notice(`已添加 ${refs.length}/${paths.length} 个附件到 Working Set`);
+    const refs = await this.addUserFilePathsToContext(paths, source);
+    new Notice(`已添加 ${refs.length}/${paths.length} 个本轮附件`);
     return refs;
   }
 
@@ -1787,12 +1790,12 @@ export class LLMBridgeView extends ItemView {
     }
     if (paths.length === 0) return;
     event.preventDefault();
-    const refs = await this.addUserFilePathsToWorkingSet(paths, "paste");
+    const refs = await this.addUserFilePathsToContext(paths, "paste");
     if (refs.length === 0) {
       new Notice(`未能添加粘贴的文件路径：${paths[0]}`);
       return;
     }
-    new Notice(`已从粘贴内容添加 ${refs.length}/${paths.length} 个文件到 Working Set`);
+    new Notice(`已从粘贴内容添加 ${refs.length}/${paths.length} 个本轮附件`);
   }
 
   private async handleComposerDrop(event: DragEvent): Promise<void> {
@@ -1804,8 +1807,8 @@ export class LLMBridgeView extends ItemView {
       new Notice("拖拽内容没有可用文件 path。");
       return;
     }
-    const refs = await this.addUserFilePathsToWorkingSet(paths, "drop");
-    new Notice(`已从拖拽添加 ${refs.length}/${paths.length} 个文件到 Working Set`);
+    const refs = await this.addUserFilePathsToContext(paths, "drop");
+    new Notice(`已从拖拽添加 ${refs.length}/${paths.length} 个本轮附件`);
   }
 
   private collectFilePathsFromClipboardEvent(event: ClipboardEvent): string[] {
@@ -1964,7 +1967,7 @@ export class LLMBridgeView extends ItemView {
     return "pasted-file.bin";
   }
 
-  private async addUserFilePathsToWorkingSet(requestedPaths: string[], source: string): Promise<FileRef[]> {
+  private async addUserFilePathsToContext(requestedPaths: string[], source: string): Promise<FileRef[]> {
     const refs: FileRef[] = [];
     for (const rawPath of requestedPaths) {
       const requestedPath = rawPath.trim();
@@ -1978,6 +1981,91 @@ export class LLMBridgeView extends ItemView {
       if (attachmentRef) refs.push(attachmentRef);
     }
     return refs;
+  }
+
+  private addScopedFileRef(ref: FileRef | null): void {
+    if (!ref) return;
+    if (ref.scope === "pinned") {
+      this.pinnedFileRefs = this.upsertFileRef(this.pinnedFileRefs, ref);
+    } else if (ref.scope === "session") {
+      this.sessionFileRefs = this.upsertFileRef(this.sessionFileRefs, ref);
+    } else {
+      this.messageFileRefs = this.upsertFileRef(this.messageFileRefs, ref);
+    }
+  }
+
+  private upsertFileRef(refs: FileRef[], ref: FileRef): FileRef[] {
+    return [...refs.filter((item) => item.id !== ref.id), ref];
+  }
+
+  private withFileRefScope(ref: FileRef, scope: "message" | "pinned" | "session"): FileRef {
+    return { ...ref, id: `${ref.id}-${scope}`, scope };
+  }
+
+  private getAllContextFileRefs(): FileRef[] {
+    return [...this.pinnedFileRefs, ...this.messageFileRefs, ...this.sessionFileRefs];
+  }
+
+  private getPromptFileRefs(messageRefs: ReadonlyArray<FileRef> = this.messageFileRefs): FileRef[] {
+    return [...this.pinnedFileRefs, ...messageRefs].filter((ref) => ref.status === "active");
+  }
+
+  private getPromptAttachmentSnippets(refs: ReadonlyArray<FileRef>): AttachmentTextSnippet[] {
+    const ids = new Set(refs.map((ref) => ref.id.replace(/-(message|pinned|session)$/, "")));
+    return this.attachmentTextSnippets.filter((snippet) => ids.has(snippet.refId) || refs.some((ref) => ref.id === snippet.refId));
+  }
+
+  private async buildSdkStreamingInput(prompt: string, refs: ReadonlyArray<FileRef>): Promise<SdkStreamingInput | undefined> {
+    const imageBlocks: SdkImageContentBlock[] = [];
+    for (const ref of refs) {
+      if (ref.fileType !== "image" || ref.status !== "active") continue;
+      const block = await this.createSdkImageContentBlock(ref);
+      if (block) imageBlocks.push(block);
+    }
+    if (imageBlocks.length === 0) return undefined;
+    return {
+      reason: "message attachments include image/blob refs; SDK query uses Streaming Input instead of string prompt",
+      content: [
+        { type: "text", text: prompt },
+        ...imageBlocks,
+      ],
+    };
+  }
+
+  private async createSdkImageContentBlock(ref: FileRef): Promise<SdkImageContentBlock | null> {
+    const mediaType = this.getImageMediaType(ref.resolvedPath);
+    if (!mediaType) return null;
+    const filePath = this.resolveFileRefAbsolutePath(ref);
+    if (!filePath) return null;
+    try {
+      const data = await fs.promises.readFile(filePath);
+      return {
+        type: "image",
+        source: {
+          type: "base64",
+          media_type: mediaType,
+          data: data.toString("base64"),
+        },
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  private resolveFileRefAbsolutePath(ref: FileRef): string | null {
+    if (path.isAbsolute(ref.resolvedPath)) return ref.resolvedPath;
+    const vaultRelPath = this.resolveFileRefVaultPath(ref);
+    if (vaultRelPath) return path.join(this.getVaultPath(), vaultRelPath);
+    return null;
+  }
+
+  private getImageMediaType(filePath: string): string | null {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === ".png") return "image/png";
+    if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+    if (ext === ".gif") return "image/gif";
+    if (ext === ".webp") return "image/webp";
+    return null;
   }
 
   private extractPastedFilePaths(text: string): string[] {
@@ -2070,16 +2158,16 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  private refreshWorkingSetChips(): void {
-    if (this.workingSetEl) this.renderWorkingSetChipsInto(this.workingSetEl, "strip");
-    if (this.filesWorkingSetEl) this.renderWorkingSetChipsInto(this.filesWorkingSetEl, "page");
+  private refreshContextRefs(): void {
+    if (this.pinnedContextEl) this.renderPinnedContext();
+    if (this.filesContextEl) this.renderFilesContext();
     if (this.composerFileRefsEl) this.renderComposerFileRefs();
   }
 
   private renderComposerFileRefs(): void {
     const container = this.composerFileRefsEl;
     container.empty();
-    const refs = this.fileWorkingSet.refs.filter((ref) => ref.kind === "vault" || ref.kind === "attachment" || ref.kind === "external");
+    const refs = this.messageFileRefs.filter((ref) => ref.kind === "vault" || ref.kind === "attachment" || ref.kind === "external");
     if (refs.length === 0) {
       container.setAttribute("hidden", "");
       return;
@@ -2109,7 +2197,14 @@ export class LLMBridgeView extends ItemView {
       remove.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
-        this.removeWorkingSetRef(ref.id);
+        this.removeMessageFileRef(ref.id);
+      });
+      const pin = chip.createEl("span", { cls: "llm-bridge-composer-file-pin", attr: { title: "Pin 到后续对话" } });
+      setIcon(pin, "pin");
+      pin.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.pinFileRef(ref.id);
       });
     }
   }
@@ -2141,47 +2236,114 @@ export class LLMBridgeView extends ItemView {
     return `file:///${normalized.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
   }
 
-  private renderWorkingSetChipsInto(container: HTMLElement, mode: "strip" | "page"): void {
-    const refs = this.fileWorkingSet.refs;
+  private renderPinnedContext(): void {
+    const container = this.pinnedContextEl;
     container.empty();
-    if (refs.length === 0) {
-      container.style.display = "flex";
-      if (mode === "page") {
-        container.createEl("span", { cls: "llm-bridge-working-set-label", text: "Working Set" });
-      }
-      container.createEl("span", {
-        cls: "llm-bridge-working-set-empty",
-        text: mode === "strip" ? "添加附件后会显示为 refs；小文本可 bounded 进入上下文。" : "No files attached. Native handoff refs only; small text/md/json attachments can include bounded text.",
-      });
+    if (this.pinnedFileRefs.length === 0) {
+      container.setAttribute("hidden", "");
       return;
     }
-    container.style.display = "flex";
-    if (mode === "page") {
-      container.createEl("span", { cls: "llm-bridge-working-set-label", text: "Working Set" });
-    }
-    for (const ref of refs) {
-      const chip = container.createDiv({ cls: `llm-bridge-working-set-chip is-${ref.kind} is-${ref.status}` });
-      chip.createEl("span", { cls: "llm-bridge-working-set-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
-      chip.createEl("span", { cls: "llm-bridge-working-set-meta", text: `${ref.kind} · ${ref.status} · ${ref.source} · ${ref.pathKind} · ${ref.fileType}` });
-      const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id);
-      chip.createEl("span", {
-        cls: "llm-bridge-working-set-ingested",
-        text: snippet ? "bounded text" : "native ref",
-        attr: { title: snippet ? "Bounded text is included in prompt." : "refs-only native reference; use Claude Code / SDK native read when needed." },
-      });
-      const remove = chip.createEl("button", { cls: "llm-bridge-working-set-remove", text: "×", attr: { title: "移除" } });
-      remove.addEventListener("click", () => this.removeWorkingSetRef(ref.id));
+    container.removeAttribute("hidden");
+    container.createEl("summary", { text: `Pinned context (${this.pinnedFileRefs.length})` });
+    const body = container.createDiv({ cls: "llm-bridge-pinned-context-body" });
+    for (const ref of this.pinnedFileRefs) {
+      this.renderContextRefChip(body, ref, { allowUnpin: true, allowRemove: true });
     }
   }
 
-  private removeWorkingSetRef(refId: string): void {
-    const ref = this.fileWorkingSet.refs.find((item) => item.id === refId) || null;
-    this.fileWorkingSet = { refs: this.fileWorkingSet.refs.filter((item) => item.id !== refId) };
+  private renderFilesContext(): void {
+    const container = this.filesContextEl;
+    container.empty();
+    const pinned = container.createEl("details", { cls: "llm-bridge-context-section" });
+    pinned.createEl("summary", { text: `Pinned context (${this.pinnedFileRefs.length})` });
+    const pinnedBody = pinned.createDiv({ cls: "llm-bridge-context-section-body" });
+    if (this.pinnedFileRefs.length === 0) {
+      pinnedBody.createEl("span", { cls: "llm-bridge-context-empty", text: "Pin 附件后才会跨轮保留。" });
+    } else {
+      for (const ref of this.pinnedFileRefs) this.renderContextRefChip(pinnedBody, ref, { allowUnpin: true, allowRemove: true });
+    }
+
+    const current = container.createEl("details", { cls: "llm-bridge-context-section", attr: { open: "" } });
+    current.createEl("summary", { text: `Current message attachments (${this.messageFileRefs.length})` });
+    const currentBody = current.createDiv({ cls: "llm-bridge-context-section-body" });
+    if (this.messageFileRefs.length === 0) {
+      currentBody.createEl("span", { cls: "llm-bridge-context-empty", text: "拖拽、粘贴、@ 选择或输入路径后，附件只用于下一次发送。" });
+    } else {
+      for (const ref of this.messageFileRefs) this.renderContextRefChip(currentBody, ref, { allowPin: true, allowRemove: true });
+    }
+
+    const session = container.createEl("details", { cls: "llm-bridge-context-section" });
+    session.createEl("summary", { text: `Session grants / refs (${this.sessionFileRefs.length})` });
+    const sessionBody = session.createDiv({ cls: "llm-bridge-context-section-body" });
+    if (this.sessionFileRefs.length === 0) {
+      sessionBody.createEl("span", { cls: "llm-bridge-context-empty", text: "外部读取授权会话内有效，但不会自动变成 prompt 附件。" });
+    } else {
+      for (const ref of this.sessionFileRefs) this.renderContextRefChip(sessionBody, ref, { allowPin: true, allowRemove: true });
+    }
+  }
+
+  private renderContextRefChip(container: HTMLElement, ref: FileRef, options: { allowPin?: boolean; allowUnpin?: boolean; allowRemove?: boolean }): void {
+    const chip = container.createDiv({ cls: `llm-bridge-context-ref-chip is-${ref.kind} is-${ref.status}` });
+    chip.addEventListener("click", () => void this.openFileRefPreview(ref));
+    chip.createEl("span", { cls: "llm-bridge-context-ref-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
+    chip.createEl("span", { cls: "llm-bridge-context-ref-meta", text: `${ref.kind} · ${ref.scope} · ${ref.fileType}` });
+    const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id || ref.id.startsWith(item.refId));
+    chip.createEl("span", { cls: "llm-bridge-context-ref-mode", text: snippet ? "bounded text" : "native ref" });
+    if (options.allowPin) {
+      chip.createEl("button", { cls: "llm-bridge-context-ref-action", text: "Pin" }).addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.pinFileRef(ref.id);
+      });
+    }
+    if (options.allowUnpin) {
+      chip.createEl("button", { cls: "llm-bridge-context-ref-action", text: "Unpin" }).addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.unpinFileRef(ref.id);
+      });
+    }
+    if (options.allowRemove) {
+      chip.createEl("button", { cls: "llm-bridge-context-ref-remove", text: "×", attr: { title: "移除" } }).addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.removeContextFileRef(ref.id);
+      });
+    }
+  }
+
+  private removeMessageFileRef(refId: string): void {
+    const ref = this.messageFileRefs.find((item) => item.id === refId) || null;
+    this.messageFileRefs = this.messageFileRefs.filter((item) => item.id !== refId);
     this.attachmentTextSnippets = this.attachmentTextSnippets.filter((snippet) => snippet.refId !== refId);
     if (ref?.kind === "attachment") {
       this.attachmentReadGrants = this.attachmentReadGrants.filter((grant) => grant.path !== ref.resolvedPath || grant.scope !== "attachment");
     }
-    this.refreshWorkingSetChips();
+    this.refreshContextRefs();
+  }
+
+  private removeContextFileRef(refId: string): void {
+    this.messageFileRefs = this.messageFileRefs.filter((item) => item.id !== refId);
+    this.pinnedFileRefs = this.pinnedFileRefs.filter((item) => item.id !== refId);
+    this.sessionFileRefs = this.sessionFileRefs.filter((item) => item.id !== refId);
+    this.attachmentTextSnippets = this.attachmentTextSnippets.filter((snippet) => snippet.refId !== refId);
+    this.refreshContextRefs();
+  }
+
+  private pinFileRef(refId: string): void {
+    const ref = this.getAllContextFileRefs().find((item) => item.id === refId);
+    if (!ref) return;
+    const pinnedRef = this.withFileRefScope(ref, "pinned");
+    this.pinnedFileRefs = this.upsertFileRef(this.pinnedFileRefs, pinnedRef);
+    const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id);
+    if (snippet && !this.attachmentTextSnippets.some((item) => item.refId === pinnedRef.id)) {
+      this.attachmentTextSnippets.push({ ...snippet, refId: pinnedRef.id });
+    }
+    this.refreshContextRefs();
+    new Notice(`已 Pin：${ref.displayName}`);
+  }
+
+  private unpinFileRef(refId: string): void {
+    this.pinnedFileRefs = this.pinnedFileRefs.filter((item) => item.id !== refId);
+    this.attachmentTextSnippets = this.attachmentTextSnippets.filter((snippet) => snippet.refId !== refId);
+    this.refreshContextRefs();
   }
 
   private async openFileRefPreview(ref: FileRef): Promise<void> {
@@ -2330,8 +2492,8 @@ export class LLMBridgeView extends ItemView {
     const nextStore = approvePendingExternalReadRequest(this.externalReadGrantStore, requestId, { forceFileScope, strongConfirm });
     if (pending && nextStore !== this.externalReadGrantStore) {
       const ref = createExternalFileRefFromApprovedRequest(pending, nextStore.sessionReadGrants);
-      this.fileWorkingSet = addFileRefToWorkingSet(this.fileWorkingSet, ref);
-      this.refreshWorkingSetChips();
+      this.addScopedFileRef(ref);
+      this.refreshContextRefs();
     }
     this.externalReadGrantStore = nextStore;
     this.refreshExternalReadPanel();
@@ -2350,11 +2512,22 @@ export class LLMBridgeView extends ItemView {
     if (this.externalReadPanelEl) this.refreshExternalReadPanel();
   }
 
-  private clearFileWorkingSet(): void {
-    this.fileWorkingSet = createWorkingSet();
+  private clearFileContext(): void {
+    this.messageFileRefs = [];
+    this.pinnedFileRefs = [];
+    this.sessionFileRefs = [];
     this.attachmentReadGrants = [];
     this.attachmentTextSnippets = [];
-    this.refreshWorkingSetChips();
+    this.refreshContextRefs();
+  }
+
+  private clearMessageContext(): void {
+    const messageAttachmentPaths = new Set(this.messageFileRefs.filter((ref) => ref.kind === "attachment").map((ref) => ref.resolvedPath));
+    const messageIds = new Set(this.messageFileRefs.map((ref) => ref.id));
+    this.messageFileRefs = [];
+    this.attachmentTextSnippets = this.attachmentTextSnippets.filter((snippet) => !messageIds.has(snippet.refId));
+    this.attachmentReadGrants = this.attachmentReadGrants.filter((grant) => !messageAttachmentPaths.has(grant.path));
+    this.refreshContextRefs();
   }
 
   // V1.1: 运行 preflight 检测（不调用真实模型）
@@ -2439,7 +2612,7 @@ export class LLMBridgeView extends ItemView {
     wrap.createEl("div", { cls: "llm-bridge-empty-subtitle", text: "或点击上方按钮选择预设功能（自由提问 / 解释选区 / 总结当前笔记）" });
   }
 
-  private appendUserMessage(text: string): string {
+  private appendUserMessage(text: string, fileRefs: ReadonlyArray<FileRef> = []): string {
     const id = nextMsgId();
     const msg: ChatMessage = {
       id,
@@ -2452,6 +2625,7 @@ export class LLMBridgeView extends ItemView {
       exitCode: null,
       durationMs: 0,
       timestamp: new Date().toISOString(),
+      fileRefs: fileRefs.length > 0 ? fileRefs.map((ref) => ({ ...ref })) : undefined,
     };
     this.messages.push(msg);
     this.renderMessage(msg);
@@ -2503,6 +2677,9 @@ export class LLMBridgeView extends ItemView {
       // 内容
       const content = block.createEl("div", { cls: "llm-bridge-msg-content" });
       content.textContent = msg.content || (msg.role === "assistant" && msg.status === "running" ? "…" : "");
+      if (msg.role === "user" && msg.fileRefs && msg.fileRefs.length > 0) {
+        this.renderMessageFileRefs(block, msg.fileRefs);
+      }
 
       if (msg.role === "assistant") {
         this.appendMsgDetails(block, msg);
@@ -2511,6 +2688,24 @@ export class LLMBridgeView extends ItemView {
     } catch (e) {
       // V2.7: 单条消息渲染失败不影响其他消息
       this.renderMessageError(msg, e);
+    }
+  }
+
+  private renderMessageFileRefs(block: HTMLElement, refs: ReadonlyArray<FileRef>): void {
+    const wrap = block.createDiv({ cls: "llm-bridge-msg-attachments" });
+    for (const ref of refs) {
+      const chip = wrap.createEl("button", {
+        cls: `llm-bridge-msg-attachment-chip is-${ref.kind} is-${ref.fileType}`,
+        attr: { title: `${ref.displayName}\n${ref.resolvedPath}` },
+      });
+      const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
+      if (thumbnailUrl) {
+        chip.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });
+      } else {
+        chip.createEl("span", { cls: "llm-bridge-msg-attachment-ext", text: this.getFileRefShortLabel(ref) });
+      }
+      chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });
+      chip.addEventListener("click", () => void this.openFileRefPreview(ref));
     }
   }
 
@@ -3296,7 +3491,7 @@ export class LLMBridgeView extends ItemView {
     // V2.3s: 清空待决策权限请求
     this.clearPendingPermissions();
     this.clearExternalReadRequests();
-    this.clearFileWorkingSet();
+    this.clearFileContext();
     this.refreshStatusBar();
   }
 
@@ -3322,7 +3517,7 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  // V2.16-D: 刷新 context metrics（估算 prompt/active note/selection/working set/history/remaining）
+  // V2.16-D/E: 刷新 context metrics（估算 prompt/active note/selection/attachments/history/remaining）
   // - 异步：需要读取 active note 内容
   // - 标注 estimated（字符估算，非精确 token）
   // - 更新 ring + label + detail
@@ -3344,12 +3539,12 @@ export class LLMBridgeView extends ItemView {
         activeFilePath: activeFile?.path || null,
         activeFileContent: activeNoteContent || null,
         selection,
-        fileRefIndex: buildPromptFileRefIndex(this.fileWorkingSet),
-        attachmentTextSnippets: this.attachmentTextSnippets.slice(),
+        fileRefIndex: buildPromptFileRefIndex({ refs: this.getPromptFileRefs() }),
+        attachmentTextSnippets: this.getPromptAttachmentSnippets(this.getPromptFileRefs()),
         timestamp: new Date().toISOString(),
       };
       const promptPackageText = buildPromptPackage("", snapshot, settings);
-      const workingSetText = this.fileWorkingSet.refs.map((r) => r.resolvedPath).join("\n");
+      const workingSetText = this.getPromptFileRefs().map((r) => r.resolvedPath).join("\n");
       const historyText = this.messages.map((m) => m.content || "").join("\n");
       const metrics = computeContextMetrics(
         promptPackageText, activeNoteContent, selection || "",
@@ -3690,25 +3885,31 @@ export class LLMBridgeView extends ItemView {
     if (session.backendMode) s.backendMode = session.backendMode as typeof s.backendMode;
     if (session.permissionMode) s.claudePermissionMode = session.permissionMode as typeof s.claudePermissionMode;
     if (session.sessionMode) s.sessionMode = session.sessionMode as typeof s.sessionMode;
-    this.fileWorkingSet = createWorkingSet();
+    this.messageFileRefs = [];
+    this.pinnedFileRefs = [];
+    this.sessionFileRefs = [];
     this.attachmentTextSnippets = [];
     this.attachmentReadGrants = [];
-    if (Array.isArray(session.workingSetRefs) && session.workingSetRefs.length > 0) {
+    const persistedPinnedRefs = Array.isArray(session.pinnedContextRefs)
+      ? session.pinnedContextRefs
+      : Array.isArray(session.workingSetRefs)
+        ? session.workingSetRefs
+        : [];
+    if (persistedPinnedRefs.length > 0) {
       try {
-        const refs = session.workingSetRefs as Array<Record<string, unknown>>;
-        this.fileWorkingSet = {
-          refs: refs.map((r) => ({
+        const refs = persistedPinnedRefs as Array<Record<string, unknown>>;
+        this.pinnedFileRefs = refs.map((r) => ({
             id: String(r.id || ""), kind: String(r.kind || "file"),
             displayName: String(r.displayName || r.requestedPath || ""),
             requestedPath: String(r.requestedPath || ""),
             resolvedPath: String(r.resolvedPath || r.requestedPath || ""),
             pathKind: String(r.pathKind || "vault"), fileType: String(r.fileType || "md"),
             source: String(r.source || "manual"), grantScope: String(r.grantScope || "session"),
+            scope: "pinned",
             createdAt: String(r.createdAt || new Date().toISOString()),
             status: "active",
-          }) as unknown as FileRef),
-        };
-        this.attachmentReadGrants = this.fileWorkingSet.refs
+          }) as unknown as FileRef);
+        this.attachmentReadGrants = this.pinnedFileRefs
           .filter((ref) => ref.kind === "attachment")
           .map((ref) => ({
             path: ref.resolvedPath,
@@ -3717,9 +3918,9 @@ export class LLMBridgeView extends ItemView {
             grantedAt: ref.createdAt,
             source: ref.source,
           }));
-      } catch { /* working set 恢复失败不阻断 */ }
+      } catch { /* pinned context 恢复失败不阻断 */ }
     }
-    this.refreshWorkingSetChips();
+    this.refreshContextRefs();
     this.cachedBackend = null;
     this.cachedBackendMode = null;
     this.refreshAllChips();
@@ -3749,7 +3950,7 @@ export class LLMBridgeView extends ItemView {
   // V2.16-D: 会话保持 — onOpen 时静默恢复上次活动会话（不弹确认对话框）
   // - 仅在 keepLastSession=true 且 lastActiveSessionId 非空时触发
   // - 旧 session 文件不存在时清除 lastActiveSessionId，fallback 到新会话
-  // - 还原消息 + working set + 模式 + 模型/effort + backend + 权限模式
+  // - 还原消息 + pinned context + 模式 + 模型/effort + backend + 权限模式
   private async restoreLastActiveSessionIfNeeded(): Promise<void> {
     const s = this.plugin.settings;
     if (!s.keepLastSession || !s.lastActiveSessionId) return;
@@ -3778,15 +3979,21 @@ export class LLMBridgeView extends ItemView {
     if (session.backendMode) s.backendMode = session.backendMode as typeof s.backendMode;
     if (session.permissionMode) s.claudePermissionMode = session.permissionMode as typeof s.claudePermissionMode;
     if (session.sessionMode) s.sessionMode = session.sessionMode as typeof s.sessionMode;
-    // V2.16-D: 还原 working set（refs 数组）；没有 refs 的会话必须清空旧工作集
-    this.fileWorkingSet = createWorkingSet();
+    // V2.16-E: 只还原 pinned context；普通 message attachments 已保存在各 user message 内。
+    this.messageFileRefs = [];
+    this.pinnedFileRefs = [];
+    this.sessionFileRefs = [];
     this.attachmentTextSnippets = [];
     this.attachmentReadGrants = [];
-    if (Array.isArray(session.workingSetRefs) && session.workingSetRefs.length > 0) {
+    const persistedPinnedRefs = Array.isArray(session.pinnedContextRefs)
+      ? session.pinnedContextRefs
+      : Array.isArray(session.workingSetRefs)
+        ? session.workingSetRefs
+        : [];
+    if (persistedPinnedRefs.length > 0) {
       try {
-        const refs = session.workingSetRefs as Array<Record<string, unknown>>;
-        this.fileWorkingSet = {
-          refs: refs.map((r) => ({
+        const refs = persistedPinnedRefs as Array<Record<string, unknown>>;
+        this.pinnedFileRefs = refs.map((r) => ({
             id: String(r.id || ""),
             kind: String(r.kind || "file"),
             displayName: String(r.displayName || r.requestedPath || ""),
@@ -3796,11 +4003,11 @@ export class LLMBridgeView extends ItemView {
             fileType: String(r.fileType || "md"),
             source: String(r.source || "manual"),
             grantScope: String(r.grantScope || "session"),
+            scope: "pinned",
             createdAt: String(r.createdAt || new Date().toISOString()),
             status: "active",
-          }) as unknown as FileRef),
-        };
-        this.attachmentReadGrants = this.fileWorkingSet.refs
+          }) as unknown as FileRef);
+        this.attachmentReadGrants = this.pinnedFileRefs
           .filter((ref) => ref.kind === "attachment")
           .map((ref) => ({
             path: ref.resolvedPath,
@@ -3810,10 +4017,10 @@ export class LLMBridgeView extends ItemView {
             source: ref.source,
           }));
       } catch {
-        // working set 恢复失败不阻断主流程
+        // pinned context 恢复失败不阻断主流程
       }
     }
-    this.refreshWorkingSetChips();
+    this.refreshContextRefs();
     await this.plugin.saveSettings();
     this.cachedBackend = null;
     this.cachedBackendMode = null;
@@ -4236,6 +4443,9 @@ export class LLMBridgeView extends ItemView {
     }
 
     this.beforeFiles = await snapshotVaultMarkdownFiles(vaultPath);
+    const messageRefsForRun = this.messageFileRefs.map((ref) => ({ ...ref, scope: "message" as const }));
+    const promptFileRefsForRun = this.getPromptFileRefs(messageRefsForRun);
+    const promptAttachmentSnippetsForRun = this.getPromptAttachmentSnippets(promptFileRefsForRun);
 
     // 构建 State Snapshot（用于 prompt package）
     const snapshot: StateSnapshot = {
@@ -4243,8 +4453,9 @@ export class LLMBridgeView extends ItemView {
       activeFilePath: activeFile?.path || null,
       activeFileContent: null,
       selection,
-      fileRefIndex: buildPromptFileRefIndex(this.fileWorkingSet),
-      attachmentTextSnippets: this.attachmentTextSnippets.slice(),
+      fileRefIndex: buildPromptFileRefIndex({ refs: promptFileRefsForRun }),
+      attachmentTextSnippets: promptAttachmentSnippetsForRun,
+      attachmentPackingPolicy: DEFAULT_ATTACHMENT_PACKING_POLICY,
       timestamp: new Date().toISOString(),
     };
 
@@ -4260,6 +4471,7 @@ export class LLMBridgeView extends ItemView {
 
     // 使用 prompt package builder（V0.7）
     const prompt = buildPromptPackage(userInput, snapshot, settings);
+    const sdkStreamingInput = await this.buildSdkStreamingInput(prompt, promptFileRefsForRun);
 
     // V1.5: 构造命令预览（UI-only，展示本次实际执行的 command/args/cwd/上下文）
     const commandPreviewRows = previewToRows(buildCommandPreview(settings, vaultPath, {
@@ -4271,10 +4483,11 @@ export class LLMBridgeView extends ItemView {
     }));
 
     // 渲染用户消息 + assistant 占位
-    this.appendUserMessage(userInput);
+    this.appendUserMessage(userInput, messageRefsForRun);
     const assistantId = this.appendAssistantPlaceholder();
     this.inputEl.value = "";
     this.closeMentionPicker();
+    this.clearMessageContext();
 
     // V2.0: 首条用户消息生成会话标题 + 更新消息数
     if (this.sessionState.messageCount === 0) {
@@ -4319,6 +4532,7 @@ export class LLMBridgeView extends ItemView {
       createdAt: new Date().toISOString(),
       includeActiveNote: settings.includeActiveNote,
       includeSelection: settings.includeSelection,
+      sdkStreamingInput,
       runtimeFileToolAdapter,
     };
 
@@ -4498,13 +4712,13 @@ export class LLMBridgeView extends ItemView {
     // V2.5: 运行结束后保存会话到历史（失败不阻断；同一会话 id 复用）
     try {
       const s = this.plugin.settings;
-      // V2.16-D: 传入运行时状态快照（working set/mode/model/effort/backend/permission）
+      // V2.16-E: 只保存 pinned context；普通 message attachments 已在对应 user message 上。
       const extras: SessionExtras = {
-        workingSetRefs: this.fileWorkingSet.refs.map((r) => ({
+        pinnedContextRefs: this.pinnedFileRefs.map((r) => ({
           id: r.id, kind: r.kind, displayName: r.displayName,
           requestedPath: r.requestedPath, resolvedPath: r.resolvedPath,
           pathKind: r.pathKind, fileType: r.fileType, source: r.source,
-          grantScope: r.grantScope, createdAt: r.createdAt, status: r.status,
+          grantScope: r.grantScope, scope: r.scope, createdAt: r.createdAt, status: r.status,
         })),
         sessionMode: s.sessionMode,
         model: s.model,

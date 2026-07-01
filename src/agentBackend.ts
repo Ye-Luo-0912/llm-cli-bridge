@@ -6,6 +6,25 @@ import { LLMBridgeSettings } from "./types";
 import type { RuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
 import type { WorkflowEventHandler } from "./workflowEvent";
 
+export interface SdkImageContentBlock {
+  type: "image";
+  source: {
+    type: "base64";
+    media_type: string;
+    data: string;
+  };
+}
+
+export interface SdkTextContentBlock {
+  type: "text";
+  text: string;
+}
+
+export interface SdkStreamingInput {
+  content: Array<SdkTextContentBlock | SdkImageContentBlock>;
+  reason: string;
+}
+
 /**
  * 一次 agent 任务的定义
  */
@@ -24,6 +43,8 @@ export interface AgentTask {
   includeActiveNote: boolean;
   /** 是否包含选区上下文 */
   includeSelection: boolean;
+  /** V2.16-E: 有图片/blob 附件时 SDK 使用 Streaming Input；CLI 忽略此字段。 */
+  sdkStreamingInput?: SdkStreamingInput;
   /** V2.14.0-K: runtime read-only file tool adapter（不改 AgentEvent v0.1） */
   runtimeFileToolAdapter?: RuntimeFileToolAdapter;
 }

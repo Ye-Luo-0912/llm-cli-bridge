@@ -41,7 +41,7 @@ export interface ContextMetrics {
   activeNote: ContextMetricPart;
   /** selection 部分 */
   selection: ContextMetricPart;
-  /** working set 部分 */
+  /** attachments / pinned context 部分 */
   workingSet: ContextMetricPart;
   /** history/session 部分（历史消息） */
   history: ContextMetricPart;
@@ -110,7 +110,7 @@ function partFromText(text: string, label: string): ContextMetricPart {
  * @param promptPackageText prompt package 全文
  * @param activeNoteText active note 内容（可能为空）
  * @param selectionText selection 内容（可能为空）
- * @param workingSetText working set 文件路径拼接（可能为空）
+ * @param workingSetText attachments / pinned context 文件路径拼接（可能为空）
  * @param historyText 历史消息拼接文本
  * @param model 当前模型 id（用于查 context window）
  * @param compression 压缩信息（可选）
@@ -127,7 +127,7 @@ export function computeContextMetrics(
   const promptPackage = partFromText(promptPackageText, "Prompt");
   const activeNote = partFromText(activeNoteText, "Active note");
   const selection = partFromText(selectionText, "Selection");
-  const workingSet = partFromText(workingSetText, "Working set");
+  const workingSet = partFromText(workingSetText, "Attachments");
   const history = partFromText(historyText, "History");
 
   const totalTokens = promptPackage.tokens + activeNote.tokens + selection.tokens + workingSet.tokens + history.tokens;

@@ -73,7 +73,7 @@ claude --version
 左侧是窄图标 rail，只负责切换页面：
 
 - `Chat`：聊天主界面。
-- `Files`：Working Set、附件、FileRef index、外部读取授权。
+- `Files`：本轮附件、Pinned context、FileRef index、外部读取授权。
 - `Skills`：Agent Skills runtime capabilities。
 - `History`：历史会话列表和恢复。
 
@@ -112,31 +112,31 @@ Chat 页只保留主消息流和必要状态：
 
 preflight、路径 fallback 等入口已收进命令菜单或二级区域，不再铺满输入区下方。
 
-### Working Set
+### Context / Attachments
 
-Working Set strip 位于 composer 上方，以紧凑 chips 展示：
+主界面不再常驻展示空的工作集区域：
 
-- `AGENTS.md`
-- 当前 Note
-- Selection
-- 用户添加的 FileRefs / attachments
-
-空态只显示短提示，不占大面积。
+- `Note` / `Selection` 是轻量 context toggles。
+- 拖拽、粘贴、`@` 选择或输入路径添加的文件默认是本轮 attachments。
+- 本轮 attachments 显示在输入框内，发送后移动到对应用户消息气泡。
+- 下一轮 composer 默认清空，不自动带入上一轮普通附件。
+- 只有点击 `Pin` 的文件会进入 Pinned context，并跨轮保留。
 
 ---
 
 ## 四、附件与文件边界
 
-用户主动添加附件后会进入 Working Set：
+用户主动添加附件后默认只服务当前消息：
 
-- text / markdown / json 小文件可做 bounded ingestion。
-- image / pdf / binary / unknown 只作为 refs，不在插件侧解析。
-- 删除 attachment chip 会同步清理对应 attachment grant。
+- text / markdown / json 小文件会在当次请求中 bounded inline 打包给 agent。
+- image / 截图 / blob 会写入本地 attachment cache；SDK 可用时优先走 Streaming Input image block，否则作为 path ref。
+- 大文件、PDF、binary、unknown 默认只作为 refs，不在插件侧解析。
+- 删除 attachment chip 会同步清理对应本轮 attachment grant。
 
 Claude Code / SDK native handoff：
 
 - Vault 内普通文件读写交给 Claude Code / SDK 原生能力。
-- 插件在 prompt / handoff 中说明 Vault 根目录、Working Set、附件路径和限制。
+- 插件在 prompt / handoff 中说明 Vault 根目录、当前附件、Pinned context 和限制。
 - 如需查看图片或 PDF，让 Claude Code / SDK 用原生能力读取对应路径。
 
 安全边界：

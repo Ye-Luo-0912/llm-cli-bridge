@@ -72,6 +72,16 @@ export interface SdkLoadResult {
   readonly version: string | null;
 }
 
+async function* createSdkUserMessageStream(content: unknown[]): AsyncIterable<unknown> {
+  yield {
+    type: "user",
+    message: {
+      role: "user",
+      content,
+    },
+  };
+}
+
 /**
  * 候选运行时根目录（V2.4 修正：支持 vault 内 + sibling 两种布局）
  * 1. <vault>/LLM-AgentRuntime — vault 内子目录（原有布局）
@@ -730,9 +740,12 @@ async function runRealSdkQuery(
     // V2.16-A: 安装 Node 兼容 AbortController（SDK 内部 setMaxListeners 需要 EventEmitter-based signal）
     restoreAbortController = installNodeCompatibleAbortController();
 
-    // 调用 query
-    const queryResult = (queryFn as (params: { prompt: string; options: Record<string, unknown> }) => AsyncIterable<SdkMessage>)({
-      prompt: task.prompt,
+    // 调用 query。V2.16-E: 有图片/blob 附件时使用 SDK Streaming Input。
+    const promptInput = task.sdkStreamingInput
+      ? createSdkUserMessageStream(task.sdkStreamingInput.content)
+      : task.prompt;
+    const queryResult = (queryFn as (params: { prompt: string | AsyncIterable<unknown>; options: Record<string, unknown> }) => AsyncIterable<SdkMessage>)({
+      prompt: promptInput,
       options,
     });
 

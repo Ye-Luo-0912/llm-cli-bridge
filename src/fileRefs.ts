@@ -12,6 +12,7 @@ import {
 export type FileRefKind = "vault" | "external" | "attachment";
 export type FileRefSource = "agent" | "user" | "attachment" | string;
 export type FileRefGrantScope = "none" | "session" | "attachment";
+export type FileRefScope = "message" | "pinned" | "session";
 export type FileRefStatus = "active" | "pending" | "denied";
 export type FileRefFileType = "image" | "text" | "markdown" | "json" | "pdf" | "binary" | "unknown";
 
@@ -25,6 +26,7 @@ export interface FileRef {
   fileType: FileRefFileType;
   source: FileRefSource;
   grantScope: FileRefGrantScope;
+  scope: FileRefScope;
   createdAt: string;
   status: FileRefStatus;
 }
@@ -39,6 +41,7 @@ export interface PromptFileRefIndexEntry {
   path: string;
   kind: FileRefKind;
   fileType: FileRefFileType;
+  scope: FileRefScope;
   status: "active";
 }
 
@@ -60,7 +63,7 @@ export function addFileRefToWorkingSet(workingSet: WorkingSet, ref: FileRef | nu
 export function createVaultFileRef(
   policy: FileAccessPolicy,
   requestedPath: string,
-  options: { pathKind?: FileAccessPathKind; source?: FileRefSource; now?: string } = {},
+  options: { pathKind?: FileAccessPathKind; source?: FileRefSource; scope?: FileRefScope; now?: string } = {},
 ): FileRef | null {
   const evaluation = evaluateFileAccess(policy, { operation: "read", path: requestedPath });
   if (evaluation.decision !== "allow" || evaluation.matchedRoot?.kind !== "vault" || !evaluation.resolvedPath) {
@@ -75,6 +78,7 @@ export function createVaultFileRef(
     fileType: classifyFileTypeByPath(evaluation.resolvedPath),
     source: options.source || "user",
     grantScope: "none",
+    scope: options.scope || "message",
     status: "active",
     createdAt: options.now,
   });
@@ -83,7 +87,7 @@ export function createVaultFileRef(
 export function createAttachmentFileRef(
   vaultPath: string,
   requestedPath: string,
-  options: { pathKind?: FileAccessPathKind; source?: FileRefSource; now?: string } = {},
+  options: { pathKind?: FileAccessPathKind; source?: FileRefSource; scope?: FileRefScope; now?: string } = {},
 ): AttachmentFileRefResult | null {
   const resolvedPath = normalizeFileAccessPath(requestedPath, vaultPath);
   if (!resolvedPath) return null;
@@ -97,6 +101,7 @@ export function createAttachmentFileRef(
     fileType: classifyFileTypeByPath(resolvedPath),
     source,
     grantScope: "attachment",
+    scope: options.scope || "message",
     status: "active",
     createdAt,
   });
@@ -116,7 +121,7 @@ export function createAttachmentFileRef(
 export function createExternalFileRefFromApprovedRequest(
   pending: PendingExternalReadRequest,
   sessionReadGrants: FileAccessReadGrant[],
-  options: { now?: string } = {},
+  options: { scope?: FileRefScope; now?: string } = {},
 ): FileRef | null {
   const grant = findReadGrantForPath(sessionReadGrants, pending.resolvedPath);
   if (!grant || grant.scope !== "session") return null;
@@ -128,6 +133,7 @@ export function createExternalFileRefFromApprovedRequest(
     fileType: classifyFileTypeByPath(pending.resolvedPath),
     source: pending.source,
     grantScope: "session",
+    scope: options.scope || "session",
     status: "active",
     createdAt: options.now,
   });
@@ -142,6 +148,7 @@ export function createPendingExternalFileRef(pending: PendingExternalReadRequest
     fileType: classifyFileTypeByPath(pending.resolvedPath),
     source: pending.source,
     grantScope: "none",
+    scope: "session",
     status: "pending",
     createdAt: pending.createdAt,
   });
@@ -178,6 +185,7 @@ export function buildPromptFileRefIndex(workingSet: WorkingSet): PromptFileRefIn
       path: ref.resolvedPath,
       kind: ref.kind,
       fileType: ref.fileType,
+      scope: ref.scope || "message",
       status: "active" as const,
     }));
 }
@@ -195,7 +203,7 @@ function buildFileRef(input: Omit<FileRef, "id" | "displayName" | "createdAt"> &
   const createdAt = input.createdAt || new Date().toISOString();
   return {
     ...input,
-    id: stableFileRefId(input.kind, input.resolvedPath, input.source, input.grantScope),
+    id: stableFileRefId(input.kind, input.resolvedPath, input.source, input.grantScope, input.scope),
     displayName: displayNameForPath(input.resolvedPath),
     createdAt,
   };
@@ -207,8 +215,8 @@ function displayNameForPath(resolvedPath: string): string {
   return basename || resolvedPath;
 }
 
-function stableFileRefId(kind: FileRefKind, resolvedPath: string, source: FileRefSource, grantScope: FileRefGrantScope): string {
-  const raw = `${kind}|${resolvedPath}|${source}|${grantScope}`;
+function stableFileRefId(kind: FileRefKind, resolvedPath: string, source: FileRefSource, grantScope: FileRefGrantScope, scope: FileRefScope): string {
+  const raw = `${kind}|${resolvedPath}|${source}|${grantScope}|${scope}`;
   let hash = 2166136261;
   for (let i = 0; i < raw.length; i++) {
     hash ^= raw.charCodeAt(i);

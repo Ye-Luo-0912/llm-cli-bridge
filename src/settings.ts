@@ -122,7 +122,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("保持上次会话")
-      .setDesc("插件重载、视图关闭再打开、Obsidian 重启后自动恢复上次活动会话（消息、working set、模式、模型/effort、backend、权限模式）。新聊天按钮才创建新会话。")
+      .setDesc("插件重载、视图关闭再打开、Obsidian 重启后自动恢复上次活动会话（消息、Pinned context、模式、模型/effort、backend、权限模式）。新聊天按钮才创建新会话。")
       .addToggle((t) =>
         t.setValue(s.keepLastSession).onChange(async (v) => {
           s.keepLastSession = v;

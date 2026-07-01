@@ -8557,6 +8557,95 @@ if (!runV2121Unit) {
 }
 
 // ============================================================
+// V2.16-E — Message Attachments / Pinned Context / SDK Streaming Input
+// ============================================================
+{
+  console.log("\n=== V2.16-E: Message Attachments / Pinned Context / SDK Streaming Input ===");
+
+  const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+  const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf-8");
+  const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf-8");
+  const agentBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "agentBackend.ts"), "utf-8");
+  const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf-8");
+  const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
+  const policySrc = readFileSync(join(PROJECT_ROOT, "src", "attachmentPackingPolicy.ts"), "utf-8");
+  const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf-8");
+
+  {
+    const ok = fileRefsSrc.includes('export type FileRefScope = "message" | "pinned" | "session"')
+      && fileRefsSrc.includes("scope: FileRefScope")
+      && fileRefsSrc.includes('scope: options.scope || "message"');
+    addTest("V2.16-E FileRef: scope 支持 message/pinned/session 且默认 message", ok ? "pass" : "fail", "");
+  }
+
+  {
+    const ok = viewSrc.includes("private messageFileRefs: FileRef[] = []")
+      && viewSrc.includes("private pinnedFileRefs: FileRef[] = []")
+      && viewSrc.includes("this.clearMessageContext()")
+      && viewSrc.includes("appendUserMessage(userInput, messageRefsForRun)")
+      && viewSrc.includes("renderMessageFileRefs");
+    addTest("V2.16-E UI: 本轮附件发送后挂到 user message 并清空 composer", ok ? "pass" : "fail", "");
+  }
+
+  {
+    const ok = viewSrc.includes("private pinFileRef")
+      && viewSrc.includes("private unpinFileRef")
+      && viewSrc.includes("llm-bridge-pinned-context")
+      && sessionsSrc.includes("pinnedContextRefs")
+      && viewSrc.includes("pinnedContextRefs: this.pinnedFileRefs.map");
+    addTest("V2.16-E pinned context: Pin 后跨轮保留，Unpin 后移除", ok ? "pass" : "fail", "");
+  }
+
+  {
+    const ok = policySrc.includes("smallTextInlineMaxBytes")
+      && policySrc.includes("smallTextInlineMaxChars")
+      && policySrc.includes("allowedTextExtensions")
+      && policySrc.includes("binaryAsNativeRef")
+      && policySrc.includes("imageAsSdkAttachmentIfSupported")
+      && policySrc.includes("sdkDirectAttachmentSupported");
+    addTest("V2.16-E AttachmentPackingPolicy: policy 字段完整", ok ? "pass" : "fail", "");
+  }
+
+  {
+    const ok = promptPackageSrc.includes("Message Attachments Inline")
+      && promptPackageSrc.includes("Message attachment refs")
+      && promptPackageSrc.includes("Pinned context refs")
+      && promptPackageSrc.includes("Attachment Packing Policy")
+      && promptPackageSrc.includes("普通 message 附件只进入当前 run");
+    addTest("V2.16-E promptPackage: 区分 message inline / message refs / pinned refs", ok ? "pass" : "fail", "");
+  }
+
+  {
+    const ok = agentBackendSrc.includes("export interface SdkStreamingInput")
+      && viewSrc.includes("buildSdkStreamingInput(prompt, promptFileRefsForRun)")
+      && viewSrc.includes("createSdkImageContentBlock")
+      && sdkBackendSrc.includes("createSdkUserMessageStream")
+      && sdkBackendSrc.includes("prompt: string | AsyncIterable<unknown>")
+      && sdkBackendSrc.includes("task.sdkStreamingInput");
+    addTest("V2.16-E SDK: 有图片附件时自动使用 Streaming Input", ok ? "pass" : "fail", "");
+  }
+
+  {
+    const ok = viewSrc.includes("getImageMediaType")
+      && viewSrc.includes('return "image/png"')
+      && viewSrc.includes('return "image/jpeg"')
+      && viewSrc.includes('data.toString("base64")')
+      && promptPackageSrc.includes("PDF")
+      && promptPackageSrc.includes("path ref");
+    addTest("V2.16-E attachments: 图片 content block，PDF/大文件 refs-only", ok ? "pass" : "fail", "");
+  }
+
+  {
+    const ok = !viewSrc.includes("llm-bridge-working-set-strip")
+      && !viewSrc.includes('text: "工作集"')
+      && stylesSrc.includes("llm-bridge-context-toggles")
+      && stylesSrc.includes("llm-bridge-msg-attachments")
+      && stylesSrc.includes("llm-bridge-composer-file-pin");
+    addTest("V2.16-E UI: 不再常驻空工作集，附件显示在 composer/user message", ok ? "pass" : "fail", "");
+  }
+}
+
+// ============================================================
 // 8.22 V2.13.0-C Agent Skill Manifest + Materialization 单元测试
 // ============================================================
 console.log("\n=== V2.13.0-C Agent Skill Manifest + Materialization 单元测试 ===");
@@ -9890,7 +9979,8 @@ if (!runV214BUnit) {
         && !fileRefsSrc.includes("content:");
       const promptUnwired = !promptPackageSrc.includes("WorkingSet")
         && !promptPackageSrc.includes("fileWorkingSet");
-      const viewWiringOk = viewSrc.includes("fileWorkingSet: WorkingSet = createWorkingSet()")
+      const viewWiringOk = viewSrc.includes("private messageFileRefs: FileRef[] = []")
+        && viewSrc.includes("private pinnedFileRefs: FileRef[] = []")
         && viewSrc.includes("attachmentReadGrants: FileAccessReadGrant[] = []")
         && viewSrc.includes("addVaultFileRef")
         && viewSrc.includes("addAttachmentFileRef")
@@ -9990,13 +10080,13 @@ if (!runV214BUnit) {
         && classifyFileTypeByPath(binary) === "binary";
       const uiOk = viewSrc.includes("llm-bridge-attach-file-btn")
         && viewSrc.includes("promptAndAddAttachmentFile")
-        && viewSrc.includes("refreshWorkingSetChips")
-        && viewSrc.includes("removeWorkingSetRef")
-        && stylesSrc.includes(".llm-bridge-working-set-chip");
-      const promptOk = prompt.includes("========== 用户主动附件（bounded text snippets） ==========")
+        && viewSrc.includes("refreshContextRefs")
+        && viewSrc.includes("removeMessageFileRef")
+        && stylesSrc.includes(".llm-bridge-context-ref-chip");
+      const promptOk = prompt.includes("========== Message Attachments Inline（bounded text snippets） ==========")
         && prompt.includes("note.md")
         && prompt.includes("# Hello")
-        && prompt.includes("未授权 external working set 文件不会出现在本区")
+        && prompt.includes("普通 message 附件只进入当前 run")
         && !prompt.includes("other.md");
       const noExternalPrompt = !promptPackageSrc.includes("WorkingSet")
         && !promptPackageSrc.includes("fileWorkingSet")
@@ -10028,7 +10118,7 @@ if (!runV214BUnit) {
         && isBoundedTextAttachmentType("markdown")
         && !isBoundedTextAttachmentType("pdf")
         && MAX_ATTACHMENT_INGEST_CHARS > 0;
-      addTest("V2.14.0-G attachments: Working Set UI、file-scope grant、bounded ingestion、prompt boundary",
+      addTest("V2.14.0-G attachments: Context UI、file-scope grant、bounded ingestion、prompt boundary",
         ok ? "pass" : "fail",
         `grant=${mdAttachment.readGrant.match} sibling=${siblingStillPending.decision} md=${!!mdIngest.snippet} json=${!!jsonIngest.snippet} large=${largeIngest.skippedReason} image=${imageIngest.skippedReason} pdf=${pdfIngest.skippedReason} binary=${binaryIngest.skippedReason} sensitive=${sensitiveIngest.skippedReason} external=${externalRef} type=${typeOk} prompt=${promptOk} boundary=${noExternalPrompt} bounded=${boundedOnly} ui=${uiOk}`);
     }
@@ -10124,7 +10214,7 @@ if (!runV214BUnit) {
         && viewSrc.includes("getPathForFile")
         && viewSrc.includes("直接拖拽文件")
         && viewSrc.includes("粘贴文件/路径")
-        && viewSrc.includes("refs-only")
+        && viewSrc.includes("native ref")
         && viewSrc.includes("ref.fileType");
       const policyOk = readPending.decision === "confirm"
         && readPending.pendingRequest?.operation === "read"
@@ -10764,14 +10854,13 @@ if (!runV214BUnit) {
         && prompt.includes("SDK 原生能力")
         && prompt.includes("插件不做 OCR")
         && prompt.includes("base64 注入");
-      const workingSetUxOk = (viewSrc.includes("添加附件后会显示为 refs")
-          || viewSrc.includes("No files attached. Native handoff refs only"))
-        && viewSrc.includes("llm-bridge-working-set-strip")
+      const workingSetUxOk = viewSrc.includes("llm-bridge-context-toggles")
+        && viewSrc.includes("llm-bridge-pinned-context")
+        && viewSrc.includes("Current message attachments")
         && viewSrc.includes("native ref")
         && viewSrc.includes("bounded text")
-        && viewSrc.includes("refs-only native reference; use Claude Code / SDK native read when needed.")
-        && stylesSrc.includes(".llm-bridge-working-set-empty")
-        && stylesSrc.includes(".llm-bridge-working-set-strip");
+        && stylesSrc.includes(".llm-bridge-context-empty")
+        && stylesSrc.includes(".llm-bridge-context-toggles");
       const reportSmokeOk = reportSrcV214M.includes("bridge offline")
         && reportSrcV214M.includes("Computer Use Node REPL tool was not exposed")
         && reportSrcV214M.includes("No self-hosted write executor was added");
@@ -10785,7 +10874,7 @@ if (!runV214BUnit) {
         && !runtimeFileToolAdapterSrc.includes("unlink")
         && !runtimeFileToolAdapterSrc.includes("rename(");
       const ok = attachmentHandoffOk && workingSetUxOk && reportSmokeOk && externalBoundaryOk && runtimeBoundaryOk;
-      addTest("V2.14.0-M smoke/UX: native handoff refs、Working Set 状态、外部边界与 read-only runtime 不回归",
+      addTest("V2.14.0-M smoke/UX: native handoff refs、Context 状态、外部边界与 read-only runtime 不回归",
         ok ? "pass" : "fail",
         `handoff=${attachmentHandoffOk} ux=${workingSetUxOk} smoke=${reportSmokeOk} external=${externalBoundaryOk} runtime=${runtimeBoundaryOk}`);
     }
@@ -10931,11 +11020,11 @@ if (!runV214BUnit) {
         && viewSrc.includes("llm-bridge-model-list")
         && viewSrc.includes("llm-bridge-effort-list")
         && !viewSrc.includes("rightTools.appendChild(agentSelect)");
-      const workingSetOk = viewSrc.includes("llm-bridge-working-set-strip")
-        && viewSrc.includes("llm-bridge-working-set-context")
-        && viewSrc.includes("llm-bridge-working-set-refs")
-        && viewSrc.includes("renderWorkingSetChipsInto")
-        && viewSrc.includes("this.filesWorkingSetEl");
+      const workingSetOk = viewSrc.includes("llm-bridge-context-toggles")
+        && viewSrc.includes("llm-bridge-context-toggle-chips")
+        && viewSrc.includes("llm-bridge-pinned-context")
+        && viewSrc.includes("renderFilesContext")
+        && viewSrc.includes("this.filesContextEl");
       const secondaryOk = viewSrc.includes("llm-bridge-files-page")
         && viewSrc.includes("FileRef index")
         && viewSrc.includes("renderAgentSkillsPanel(skillsPanel)")
@@ -10944,7 +11033,7 @@ if (!runV214BUnit) {
       const stylesOk = stylesSrc.includes(".llm-bridge-nav-rail")
         && stylesSrc.includes(".llm-bridge-topbar")
         && stylesSrc.includes(".llm-bridge-composer-bar")
-        && stylesSrc.includes(".llm-bridge-working-set-strip")
+        && stylesSrc.includes(".llm-bridge-context-toggles")
         && stylesSrc.includes(".llm-bridge-files-page");
       const noRuntimeExpansion = !runtimeFileToolAdapterSrc.includes("\"write\"")
         && !runtimeFileToolAdapterSrc.includes("\"delete\"")
@@ -12119,7 +12208,7 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 9: view.ts saveSession 传入 SessionExtras ----
   {
-    const ok = viewSrc.includes("const extras: SessionExtras =") && viewSrc.includes("workingSetRefs: this.fileWorkingSet.refs.map");
+    const ok = viewSrc.includes("const extras: SessionExtras =") && viewSrc.includes("pinnedContextRefs: this.pinnedFileRefs.map");
     addTest("V2.16-D view.ts: saveSession 传入运行时状态快照", ok ? "pass" : "fail", "");
   }
 
@@ -12155,7 +12244,7 @@ if (!runNoteSummarizeSmoke) {
     const ok = viewSrc.includes('this.inputEl.addEventListener("paste"')
       && viewSrc.includes("private async handleComposerPaste")
       && viewSrc.includes("extractPastedFilePaths")
-      && viewSrc.includes("addUserFilePathsToWorkingSet")
+      && viewSrc.includes("addUserFilePathsToContext")
       && viewSrc.includes('composer.addEventListener("drop"')
       && viewSrc.includes("composerFileRefsEl")
       && viewSrc.includes("openFileRefPreview")

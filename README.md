@@ -2,7 +2,7 @@
 
 LLM CLI Bridge is an Obsidian desktop plugin that turns a Vault into a compact Claude Code / Claude SDK workbench.
 
-The plugin is a context and permission bridge: it manages the chat UI, Working Set, attachments, Agent Skills status, external read approvals, and native handoff guidance. Claude Code / SDK keep responsibility for native file execution inside the Vault.
+The plugin is a context and permission bridge: it manages the chat UI, message attachments, pinned context, Agent Skills status, external read approvals, and native handoff guidance. Claude Code / SDK keep responsibility for native file execution inside the Vault.
 
 Current release candidate: `2.15.0`.
 
@@ -40,8 +40,9 @@ V2.15 uses a compact Obsidian panel shell:
 - Topbar: `Bridge`, current session selector, new chat, settings gear, and compact runtime status.
 - Chat: message stream, thinking/status cards, collapsed command/workflow/debug details, and concise error cards.
 - Composer: upload, command menu, permission chip, input, model/effort selector, and send/stop.
-- Working Set strip: compact chips for `AGENTS.md`, active note, selection, and FileRefs.
-- Files page: Working Set, attachments, FileRef index, and external read requests.
+- Context toggles: lightweight `Note` / `Selection` controls.
+- Composer attachments: current-message FileRefs shown inside the input area.
+- Files page: current attachments, pinned context, FileRef index, and external read requests.
 - Skills page: Agent Skills runtime capabilities only. Clicking a skill previews/toggles state and never inserts text into the composer.
 - History page: session list, preview, restore, rename, and delete.
 
@@ -83,16 +84,16 @@ The plugin does not try to replace Claude Code / SDK file capabilities.
 Allowed direction:
 
 - Claude Code / SDK handle native Vault file reads and edits.
-- The plugin tells the runtime the Vault root, Working Set, attachment paths, and boundary guidance.
-- Small user-added text / markdown / json attachments may be bounded into prompt context.
-- Image, PDF, binary, and unknown files stay as refs / native handoff paths.
+- The plugin tells the runtime the Vault root, message attachments, pinned context paths, and boundary guidance.
+- Small user-added text / markdown / json attachments are bounded into the current run only.
+- Image attachments use SDK Streaming Input image blocks when SDK direct attachment input is available; otherwise they stay as refs / native handoff paths. PDF, binary, and unknown files stay as refs unless explicitly supported and tested.
 
 Closed direction:
 
 - No plugin-owned Vault write executor.
 - No backup / rollback / audit transaction layer.
 - No external write / delete / rename.
-- No OCR, PDF parser, image parser, base64 image injection, or SDK image streaming.
+- No OCR, PDF parser, or plugin-side PDF/image parser.
 - No complex custom runtime tool registration expansion.
 
 External reads require explicit approval. Sensitive paths such as `.env`, credentials, `.ssh`, private keys, `.git/config`, `.obsidian`, and credential-bearing `.llm-bridge` paths remain denied or strong-risk gated.

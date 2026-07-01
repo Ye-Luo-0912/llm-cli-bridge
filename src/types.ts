@@ -58,6 +58,8 @@ export interface ChatMessage {
   // V1.6: SDK 工作流事件（UI-only，工具级：tool_start/tool_result/file_change/permission/error/message）
   // 仅 sdk backend 产生；CLI/mock backend 不产生
   sdkEvents?: ReadonlyArray<import("./workflowEvent").WorkflowEvent>;
+  // V2.16-E: 用户本轮附件/refs。普通附件只绑定到这条 user message，不跨轮保留。
+  fileRefs?: ReadonlyArray<import("./fileRefs").FileRef>;
 }
 
 export interface LLMBridgeSettings {

@@ -1029,6 +1029,189 @@
   color: var(--text-error);
 }
 
+.llm-bridge-context-toggles,
+.llm-bridge-pinned-context,
+.llm-bridge-context-refs {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.llm-bridge-context-toggles {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.llm-bridge-context-toggles-label {
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.llm-bridge-context-toggle-chips,
+.llm-bridge-pinned-context-body,
+.llm-bridge-context-section-body {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.llm-bridge-pinned-context[hidden] {
+  display: none;
+}
+
+.llm-bridge-pinned-context summary,
+.llm-bridge-context-section summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  font-weight: 600;
+}
+
+.llm-bridge-context-section {
+  display: block;
+  width: 100%;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+}
+
+.llm-bridge-context-section:last-child {
+  border-bottom: none;
+}
+
+.llm-bridge-context-empty {
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-context-ref-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  cursor: pointer;
+}
+
+.llm-bridge-context-ref-chip:hover {
+  background: var(--background-modifier-hover);
+}
+
+.llm-bridge-context-ref-name {
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+}
+
+.llm-bridge-context-ref-meta,
+.llm-bridge-context-ref-mode {
+  color: var(--text-faint);
+}
+
+.llm-bridge-context-ref-action,
+.llm-bridge-context-ref-remove {
+  border: none;
+  background: transparent;
+  color: var(--interactive-accent);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-context-ref-remove {
+  color: var(--text-faint);
+}
+
+.llm-bridge-context-ref-remove:hover {
+  color: var(--text-error);
+}
+
+.llm-bridge-composer-file-pin {
+  position: absolute;
+  left: -5px;
+  bottom: -5px;
+  width: 15px;
+  height: 15px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-faint);
+  opacity: 0;
+}
+
+.llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-pin {
+  opacity: 1;
+}
+
+.llm-bridge-composer-file-pin:hover {
+  color: var(--interactive-accent);
+  border-color: rgba(var(--interactive-accent-rgb), 0.45);
+}
+
+.llm-bridge-msg-attachments {
+  margin-top: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.llm-bridge-msg-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 210px;
+  padding: 3px 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.llm-bridge-msg-attachment-image {
+  width: 24px;
+  height: 24px;
+  border-radius: 5px;
+  object-fit: cover;
+}
+
+.llm-bridge-msg-attachment-ext {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: var(--background-primary);
+  color: var(--text-faint);
+  font-family: var(--font-monospace);
+  font-size: 8px;
+  font-weight: 700;
+}
+
+.llm-bridge-msg-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+}
+
 /* ===== Pending Actions 区域 ===== */
 .llm-bridge-pending-wrap {
   flex: 0 0 auto;

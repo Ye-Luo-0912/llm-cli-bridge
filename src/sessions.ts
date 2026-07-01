@@ -41,8 +41,10 @@ export interface PersistedSession {
   agentType: string;
   messages: ChatMessage[];
   // V2.16-D: 运行时状态持久化（v2 新增，可选字段；v1 文件迁移时填充默认值）
-  /** working set 文件引用（恢复会话时还原） */
+  /** Legacy working set refs（兼容旧 session 文件；新版本优先使用 pinnedContextRefs） */
   workingSetRefs?: unknown[];
+  /** V2.16-E: 只有用户显式 Pin 的 context 跨轮恢复 */
+  pinnedContextRefs?: unknown[];
   /** 会话模式 fresh/continue/resume */
   sessionMode?: string;
   /** 模型 id */
@@ -80,6 +82,7 @@ export interface SessionListItem {
  */
 export interface SessionExtras {
   workingSetRefs?: unknown[];
+  pinnedContextRefs?: unknown[];
   sessionMode?: string;
   model?: string;
   effortLevel?: string;
@@ -204,6 +207,7 @@ export async function saveSession(
       messages: redactSessionMessages(messages),
       // V2.16-D: 运行时状态快照（可选；存在则恢复时还原）
       ...(extras?.workingSetRefs ? { workingSetRefs: extras.workingSetRefs } : {}),
+      ...(extras?.pinnedContextRefs ? { pinnedContextRefs: extras.pinnedContextRefs } : {}),
       ...(extras?.sessionMode ? { sessionMode: extras.sessionMode } : {}),
       ...(extras?.model ? { model: extras.model } : {}),
       ...(extras?.effortLevel ? { effortLevel: extras.effortLevel } : {}),
@@ -317,6 +321,7 @@ export function migrateSession(parsed: unknown): PersistedSession | null {
     messages: p.messages as ChatMessage[],
     // V2.16-D: 可选运行时状态字段（v1 文件无此字段，留空；恢复时若缺失则保留当前设置）
     ...(Array.isArray(p.workingSetRefs) ? { workingSetRefs: p.workingSetRefs } : {}),
+    ...(Array.isArray(p.pinnedContextRefs) ? { pinnedContextRefs: p.pinnedContextRefs } : {}),
     ...(typeof p.sessionMode === "string" ? { sessionMode: p.sessionMode } : {}),
     ...(typeof p.model === "string" ? { model: p.model } : {}),
     ...(typeof p.effortLevel === "string" ? { effortLevel: p.effortLevel } : {}),
