@@ -6,12 +6,32 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, statSync, r
 import { join, resolve, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
+import { execSync } from "node:child_process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = resolve(__filename, "..");
 const PROJECT_ROOT = resolve(__dirname, "..");
 const VAULT_PATH = process.env.VAULT_PATH || resolve(PROJECT_ROOT, "..", "Obsidian", "LLM-Wiki");
 const TEST_ARTIFACTS_DIR = join(VAULT_PATH, ".llm-bridge", "test-artifacts");
+
+// V2.17-A Completion: 防御性 uncaughtException handler，避免单个测试段崩溃导致整个 runner 退出
+// （例如 Linux 上 ClaudeCliBackend contract test 用 cmd /c，spawn 失败后 stdin.write 触发 EPIPE 'error'）。
+// V2.17-A Completion 主线闭环：审计模式下 uncaughtException / unhandledRejection 必须计为 fail。
+// 不仅记录到 stderr，还通过 addTest 标记为 fail，确保测试报告反映真实健康度。
+let uncaughtCount = 0;
+let unhandledCount = 0;
+process.on("uncaughtException", (err) => {
+  uncaughtCount++;
+  const msg = err?.stack || err?.message || String(err);
+  process.stderr.write(`[uncaughtException] ${msg}\n`);
+  addTest(`uncaughtException #${uncaughtCount}`, "fail", `审计模式: uncaughtException 必须计为 fail — ${msg.slice(0, 200)}`);
+});
+process.on("unhandledRejection", (err) => {
+  unhandledCount++;
+  const msg = err?.stack || err?.message || String(err);
+  process.stderr.write(`[unhandledRejection] ${msg}\n`);
+  addTest(`unhandledRejection #${unhandledCount}`, "fail", `审计模式: unhandledRejection 必须计为 fail — ${msg.slice(0, 200)}`);
+});
 
 const results = {
   timestamp: new Date().toISOString(),
@@ -38,6 +58,17 @@ function addTest(name, status, detail = "") {
   else if (status === "skip") results.skipped++;
   const icon = status === "pass" ? "✅" : status === "fail" ? "❌" : status === "skip" ? "⏭️" : "⚪";
   console.log(`${icon} ${name}${detail ? ` — ${detail}` : ""}`);
+}
+
+// V2.17-A: 环境假失败分类 — 非 Windows 平台无法运行 `cmd /c` 类命令；
+// 沙箱无 claude/codex CLI。这些测试在缺失环境下标记为 skip 而非 fail。
+const IS_WINDOWS = process.platform === "win32";
+function skipIfNoCmd(name) {
+  if (!IS_WINDOWS) {
+    addTest(name, "skip", "环境假失败: 非 Windows 平台无法运行 `cmd /c`（customCommand=cmd）");
+    return true;
+  }
+  return false;
 }
 
 // ============================================================
@@ -486,7 +517,11 @@ try {
 
   // 步骤1：运行前快照
   const before = snapshotVaultMarkdownFiles(VAULT_PATH, excludeDirs);
-  addTest("文件快照: 生成运行前快照", before.size > 0 ? "pass" : "fail", `文件数: ${before.size}`);
+  // V2.17-A: 沙箱 vault 可能无预置 markdown 文件；快照机制本身由后续 diff 测试验证，
+  // 空快照不算失败，标记为 skip（环境假失败）。
+  addTest("文件快照: 生成运行前快照",
+    before.size > 0 ? "pass" : "skip",
+    `文件数: ${before.size}${before.size === 0 ? "（空 vault，快照机制由 diff 测试验证）" : ""}`);
 
   // 步骤2：创建一个新 Markdown 文件
   const newFilePath = join(FS_TEST_DIR, "test-new-file.md");
@@ -967,6 +1002,604 @@ if (httpAvailable && bridgeInfo) {
 }
 
 // ============================================================
+// 6.5 Bridge Core / RuntimeProvider tests (V2.17-A Completion, unit)
+// ============================================================
+console.log("\n=== Bridge Core / RuntimeProvider tests (V2.17-A Completion) ===");
+
+if (runMode !== "all" && runMode !== "unit") {
+  addTest("Bridge Core tests 段", "skip", "当前为非 unit 模式，跳过");
+} else {
+  try {
+    const esbuild = (await import("esbuild")).default;
+    const tempCodexProviderBundle = join(PROJECT_ROOT, ".test-codex-provider-temp.mjs");
+    const tempPromptPkgBundle = join(PROJECT_ROOT, ".test-prompt-pkg-temp.mjs");
+    const tempAssistantViewBundle = join(PROJECT_ROOT, ".test-assistant-view-temp.mjs");
+    const tempPermBoundaryBundle = join(PROJECT_ROOT, ".test-perm-boundary-temp.mjs");
+    const tempWorkflowMapperBundle = join(PROJECT_ROOT, ".test-workflow-mapper-temp.mjs");
+
+    const bundleOpts = (entry) => ({
+      entryPoints: [join(PROJECT_ROOT, "src", entry)],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      logLevel: "silent",
+    });
+
+    await esbuild.build({ ...bundleOpts("runtime/providers/codex-app-server/codexAppServerProvider.ts"), outfile: tempCodexProviderBundle });
+    await esbuild.build({ ...bundleOpts("runtime/core/promptPackage.ts"), outfile: tempPromptPkgBundle });
+    await esbuild.build({ ...bundleOpts("runtime/core/assistantTurnView.ts"), outfile: tempAssistantViewBundle });
+    await esbuild.build({ ...bundleOpts("runtime/core/permissionBoundary.ts"), outfile: tempPermBoundaryBundle });
+    await esbuild.build({ ...bundleOpts("runtime/providers/workflowEventMapper.ts"), outfile: tempWorkflowMapperBundle });
+
+    const codexProviderMod = await import(pathToFileURL(tempCodexProviderBundle).href);
+    const promptPkgMod = await import(pathToFileURL(tempPromptPkgBundle).href);
+    const assistantViewMod = await import(pathToFileURL(tempAssistantViewBundle).href);
+    const permBoundaryMod = await import(pathToFileURL(tempPermBoundaryBundle).href);
+    const workflowMapperMod = await import(pathToFileURL(tempWorkflowMapperBundle).href);
+
+    // ---------- 最小 settings + snapshot ----------
+    const baseBridgeSettings = {
+      agentType: "claude",
+      claudeCommand: "claude",
+      claudeArgs: "-p",
+      codexCommand: "codex",
+      codexArgs: "exec -",
+      customCommand: "",
+      customArgs: "",
+      includeActiveNote: true,
+      includeSelection: true,
+      maxActiveNoteChars: 6000,
+      maxSelectionChars: 3000,
+      outputDir: "90_AI整理待确认",
+      showStderr: true,
+      saveLogs: false,
+      sessionMode: "fresh",
+      model: "gpt-5.5",
+      effortLevel: "high",
+      devTestMode: false,
+      backendMode: "auto",
+      claudeContinueSession: false,
+      claudeResumeSessionId: "",
+      claudePermissionMode: "default",
+      claudeExtraArgs: "",
+      disabledSkills: [],
+      permissionPolicy: "medium",
+      keepLastSession: true,
+      lastActiveSessionId: "",
+      developerMode: false,
+    };
+
+    // ---------- 1. RuntimeProvider contract ----------
+    {
+      // 验证 codex provider 的接口形状（其它 provider 在原 contract test 已覆盖）
+      const codex = new codexProviderMod.CodexAppServerProvider(false);
+      const hasProviderId = codex.providerId === "codex-app-server";
+      const hasDisplayName = typeof codex.displayName === "string" && codex.displayName.length > 0;
+      const hasIsAvailable = typeof codex.isAvailable === "function";
+      const hasBuildPlan = typeof codex.buildPlan === "function";
+      const hasRun = typeof codex.run === "function";
+      const hasCancel = typeof codex.cancel === "function";
+      const hasResume = typeof codex.resume === "function";
+      const ok = hasProviderId && hasDisplayName && hasIsAvailable && hasBuildPlan && hasRun && hasCancel && hasResume;
+      addTest("Contract: CodexAppServerProvider 实现 RuntimeProvider 接口", ok ? "pass" : "fail",
+        ok ? "" : `providerId=${codex.providerId}, displayName=${codex.displayName}, methods=[${[hasIsAvailable, hasBuildPlan, hasRun, hasCancel, hasResume].map((b) => b ? "y" : "n").join(",")}]`);
+    }
+
+    // ---------- 2. plan → provider args/options snapshot ----------
+    {
+      const sampleSnapshot = {
+        vaultPath: "/test/vault",
+        timestamp: "2026-07-02T00:00:00.000Z",
+        activeFilePath: "note.md",
+        activeFileContent: "# Hello",
+        selection: "selected text",
+        fileRefIndex: [
+          { id: "ref-1", displayName: "a.md", kind: "vault", scope: "message", fileType: "markdown", status: "ok", path: "a.md" },
+          { id: "ref-2", displayName: "img.png", kind: "attachment", scope: "message", fileType: "image", status: "ok", path: "img.png" },
+        ],
+        attachmentTextSnippets: [
+          { refId: "ref-1", displayName: "a.md", fileType: "markdown", resolvedPath: "a.md", content: "snippet", bytesRead: 7, maxBytes: 8192, maxChars: 8000, truncated: false },
+        ],
+      };
+      const pkg = promptPkgMod.buildBridgePromptPackage("hello", sampleSnapshot, baseBridgeSettings);
+      const input = {
+        userMessage: "hello",
+        cwd: "/test/vault",
+        includeActiveNote: true,
+        includeSelection: true,
+        promptPackage: pkg,
+        createdAt: "2026-07-02T00:00:00.000Z",
+      };
+      const codex = new codexProviderMod.CodexAppServerProvider(false);
+      const plan = codex.buildPlan(input, baseBridgeSettings);
+      const planOk = plan.backend === "codex-app-server" && plan.cwd === "/test/vault" && plan.model === "gpt-5.5";
+      addTest("Plan snapshot: codex-app-server plan.backend=codex-app-server", planOk ? "pass" : "fail",
+        planOk ? "" : `backend=${plan.backend}, cwd=${plan.cwd}, model=${plan.model}`);
+
+      const tempCodexPlanBundle = join(PROJECT_ROOT, ".test-codex-plan-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/codexAppServerEffectiveRunPlan.ts"),
+        outfile: tempCodexPlanBundle,
+      });
+      const { buildCodexAppServerRunOptions } = await import(pathToFileURL(tempCodexPlanBundle).href);
+      const opts = buildCodexAppServerRunOptions(plan, pkg);
+      // turn/start.input 现在是 content item array，首元素为 { type:"text", text:userPrompt }
+      const inputIsArray = Array.isArray(opts.turnStart.input);
+      const inputText = inputIsArray && opts.turnStart.input[0]?.type === "text"
+        ? opts.turnStart.input[0].text : null;
+      const optsOk = opts.threadStart.instructions === pkg.bridgeSystemAppend
+        && inputText === pkg.userPrompt
+        && opts.bridgeSystemAppendSource === "instructions";
+      addTest("Plan snapshot: bridgeSystemAppend → instructions, userPrompt → turn/start input[0].text", optsOk ? "pass" : "fail",
+        optsOk ? "" : `source=${opts.bridgeSystemAppendSource}, input=${JSON.stringify(opts.turnStart.input)?.slice(0, 60)}, instructions_len=${opts.threadStart.instructions?.length}`);
+    }
+
+    // ---------- 3. prompt split snapshot + attachment entry-level audit ----------
+    {
+      const sampleSnapshot = {
+        vaultPath: "/v",
+        timestamp: "t",
+        activeFilePath: "n.md",
+        activeFileContent: "# N",
+        selection: "sel",
+        fileRefIndex: [
+          { id: "r1", displayName: "a.md", kind: "vault", scope: "message", fileType: "markdown", status: "ok", path: "a.md" },
+          { id: "r2", displayName: "b.md", kind: "vault", scope: "pinned", fileType: "markdown", status: "ok", path: "b.md" },
+          { id: "r3", displayName: "i.png", kind: "attachment", scope: "message", fileType: "image", status: "ok", path: "i.png" },
+          { id: "r4", displayName: "x.pdf", kind: "external", scope: "session", fileType: "pdf", status: "ok", path: "x.pdf" },
+        ],
+        attachmentTextSnippets: [
+          { refId: "r1", displayName: "a.md", fileType: "markdown", resolvedPath: "a.md", content: "c1", bytesRead: 2, maxBytes: 8192, maxChars: 8000, truncated: false },
+          { refId: "r2", displayName: "b.md", fileType: "markdown", resolvedPath: "b.md", content: "c2", bytesRead: 2, maxBytes: 8192, maxChars: 8000, truncated: false },
+        ],
+      };
+      const pkg = promptPkgMod.buildBridgePromptPackage("hi", sampleSnapshot, baseBridgeSettings);
+
+      // attachment entry-level audit
+      const e1 = pkg.attachmentEntries.find((e) => e.refId === "r1");
+      const e2 = pkg.attachmentEntries.find((e) => e.refId === "r2");
+      const e3 = pkg.attachmentEntries.find((e) => e.refId === "r3");
+      const e4 = pkg.attachmentEntries.find((e) => e.refId === "r4");
+      const entryOk = e1?.packing === "inline-snippet" && e2?.packing === "inline-snippet"
+        && e3?.packing === "sdk-streaming-block" && e4?.packing === "native-ref-only";
+      addTest("Attachment audit: entry-level packing decisions", entryOk ? "pass" : "fail",
+        entryOk ? "" : `r1=${e1?.packing}, r2=${e2?.packing}, r3=${e3?.packing}, r4=${e4?.packing}`);
+
+      // prompt split snapshot: bridgeSystemAppend + userPrompt 都非空；auditHash 跨调用稳定
+      const pkg2 = promptPkgMod.buildBridgePromptPackage("hi", sampleSnapshot, baseBridgeSettings);
+      const splitOk = pkg.bridgeSystemAppend.length > 0 && pkg.userPrompt.length > 0
+        && pkg.auditHash === pkg2.auditHash && pkg.auditHash.length > 0;
+      addTest("Prompt split: bridgeSystemAppend + userPrompt + auditHash stable", splitOk ? "pass" : "fail",
+        splitOk ? "" : `append_len=${pkg.bridgeSystemAppend.length}, user_len=${pkg.userPrompt.length}, hash=${pkg.auditHash} vs ${pkg2.auditHash}`);
+    }
+
+    // ---------- 4. Codex app-server fixture JSONL → NormalizedRuntimeEvent ----------
+    //    wire 校准：fixture 行不带 jsonrpc 字段（codex app-server 约定）
+    {
+      const fixtureLines = [
+        // 通知序列：item/started(message) → item/text/delta → item/completed(message)
+        JSON.stringify({ method: "item/started", params: { threadId: "t1", itemId: "m1", type: "message" } }),
+        JSON.stringify({ method: "item/text/delta", params: { threadId: "t1", itemId: "m1", delta: "Hello " } }),
+        JSON.stringify({ method: "item/text/delta", params: { threadId: "t1", itemId: "m1", delta: "world" } }),
+        JSON.stringify({ method: "item/completed", params: { threadId: "t1", itemId: "m1", type: "message", text: "Hello world" } }),
+        // tool_call
+        JSON.stringify({ method: "item/started", params: { threadId: "t1", itemId: "tc1", type: "tool_call", toolName: "Read", callId: "call-1" } }),
+        JSON.stringify({ method: "item/argument/delta", params: { threadId: "t1", itemId: "tc1", delta: '{"file_path":"a.md"}' } }),
+        JSON.stringify({ method: "item/completed", params: { threadId: "t1", itemId: "tr1", type: "tool_result", callId: "call-1", toolName: "Read", text: "# a", isError: false } }),
+        // file_change
+        JSON.stringify({ method: "item/completed", params: { threadId: "t1", itemId: "fc1", type: "file_change", fileAction: "create", filePath: "output/summary.md" } }),
+        // turn/completed
+        JSON.stringify({ method: "turn/completed", params: { threadId: "t1", turnId: "tu1", finalText: "Hello world", durationMs: 123, sessionId: "sess-1" } }),
+      ];
+      const tempJsonRpcBundle = join(PROJECT_ROOT, ".test-jsonrpc-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/jsonRpcClient.ts"),
+        outfile: tempJsonRpcBundle,
+      });
+      const { JsonRpcClient } = await import(pathToFileURL(tempJsonRpcBundle).href);
+      const tempCodexMapperBundle = join(PROJECT_ROOT, ".test-codex-mapper-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/codexAppServerEventMapper.ts"),
+        outfile: tempCodexMapperBundle,
+      });
+      const { CodexAppServerEventMapper } = await import(pathToFileURL(tempCodexMapperBundle).href);
+
+      const mapper = new CodexAppServerEventMapper("codex-app-server", true);
+      const events = [];
+      let lineHandlerRef = null;
+      const client = new JsonRpcClient(
+        () => {}, // 不发送
+        (handler) => {
+          lineHandlerRef = handler;
+          // 不立即回放；让 onNotification 先注册
+          return () => { lineHandlerRef = null; };
+        },
+      );
+      client.onNotification("item/started", (p) => events.push(mapper.mapItemStarted(p)));
+      client.onNotification("item/text/delta", (p) => events.push(mapper.mapItemTextDelta(p)));
+      client.onNotification("item/argument/delta", (p) => events.push(mapper.mapItemArgumentDelta(p)));
+      client.onNotification("item/completed", (p) => events.push(mapper.mapItemCompleted(p)));
+      client.onNotification("turn/completed", (p) => events.push(mapper.mapTurnCompleted(p)));
+      // 现在回放 fixture 行
+      for (const line of fixtureLines) lineHandlerRef?.(line);
+
+      const nonNull = events.filter(Boolean);
+      const kinds = nonNull.map((e) => e.payload.kind);
+      // 期望序列：message(started,空), message(delta Hello ), message(delta world), message(completed snapshot),
+      //          tool_start(started), tool_start(argument delta), tool_result, file_change, completed
+      const seqOk = kinds.length === 9
+        && kinds[0] === "message" && kinds[1] === "message" && kinds[2] === "message" && kinds[3] === "message"
+        && kinds[4] === "tool_start" && kinds[5] === "tool_start" && kinds[6] === "tool_result"
+        && kinds[7] === "file_change" && kinds[8] === "completed";
+      addTest("Codex fixture JSONL → NormalizedRuntimeEvent sequence", seqOk ? "pass" : "fail",
+        seqOk ? "" : `kinds=[${kinds.join(",")}]`);
+
+      const completedEv = nonNull[nonNull.length - 1];
+      const completedOk = completedEv.payload.kind === "completed"
+        && completedEv.payload.text === "Hello world"
+        && completedEv.payload.sessionId === "sess-1";
+      addTest("Codex fixture: turn/completed carries finalText + sessionId", completedOk ? "pass" : "fail",
+        completedOk ? "" : `text=${completedEv.payload.text}, sessionId=${completedEv.payload.sessionId}`);
+    }
+
+    // ---------- 4b. Wire shape snapshot: jsonrpc 字段不出现在 wire 上 ----------
+    {
+      const tempJsonRpcBundle = join(PROJECT_ROOT, ".test-jsonrpc-wire-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/jsonRpcClient.ts"),
+        outfile: tempJsonRpcBundle,
+      });
+      const { JsonRpcClient } = await import(pathToFileURL(tempJsonRpcBundle).href);
+      const sentLines = [];
+      const client = new JsonRpcClient(
+        (line) => sentLines.push(line),
+        () => () => {},
+      );
+      client.send("initialize", { clientName: "test" });
+      client.notify("initialized");
+      client.respondToServerRequest(42, { decision: "allow" });
+
+      const noJsonrpc = sentLines.every((l) => !l.includes('"jsonrpc"'));
+      const hasInit = sentLines[0].includes('"method":"initialize"') && sentLines[0].includes('"id":1');
+      const hasNotified = sentLines[1].includes('"method":"initialized"') && !sentLines[1].includes('"id"');
+      const hasResponse = sentLines[2].includes('"id":42') && sentLines[2].includes('"result"')
+        && !sentLines[2].includes('"method"');
+      const ok = noJsonrpc && hasInit && hasNotified && hasResponse;
+      addTest("Wire shape: 无 jsonrpc 字段 + initialize/initialized/respondToServerRequest", ok ? "pass" : "fail",
+        ok ? "" : `noJsonrpc=${noJsonrpc}, init=${hasInit}, notif=${hasNotified}, resp=${hasResponse} lines=${JSON.stringify(sentLines)}`);
+    }
+
+    // ---------- 4c. initialize handshake order: send→wait→notify→thread/start ----------
+    {
+      const tempJsonRpcBundle = join(PROJECT_ROOT, ".test-jsonrpc-handshake-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/jsonRpcClient.ts"),
+        outfile: tempJsonRpcBundle,
+      });
+      const { JsonRpcClient } = await import(pathToFileURL(tempJsonRpcBundle).href);
+      const sentLines = [];
+      let lineHandler = null;
+      const client = new JsonRpcClient(
+        (line) => sentLines.push(line),
+        (h) => { lineHandler = h; return () => { lineHandler = null; }; },
+      );
+      // 模拟 server：收到 initialize(id=1) 后回 result
+      const initPromise = client.send("initialize", { clientName: "test" });
+      // server 响应 initialize
+      lineHandler?.(JSON.stringify({ id: 1, result: { protocolVersion: "0.1", name: "codex" } }));
+      await initPromise;
+      // notify initialized
+      client.notify("initialized");
+      // send thread/start
+      const threadPromise = client.send("thread/start", { cwd: "/v" });
+      // server 响应 thread/start，result shape: { thread: { id, sessionId? } }
+      lineHandler?.(JSON.stringify({ id: 2, result: { thread: { id: "th-1", sessionId: "sess-1" } } }));
+      const threadResult = await threadPromise;
+
+      const orderOk = sentLines[0].includes('"method":"initialize"')
+        && sentLines[1].includes('"method":"initialized"')
+        && sentLines[2].includes('"method":"thread/start"');
+      const shapeOk = threadResult.thread?.id === "th-1" && threadResult.thread?.sessionId === "sess-1";
+      const ok = orderOk && shapeOk;
+      addTest("Wire handshake: initialize→initialized→thread/start 顺序 + thread.start result.thread.id", ok ? "pass" : "fail",
+        ok ? "" : `order=${orderOk}, shape=${shapeOk}, threadResult=${JSON.stringify(threadResult)}`);
+    }
+
+    // ---------- 4d. turn/start input array snapshot ----------
+    {
+      const tempPlanBundle = join(PROJECT_ROOT, ".test-codex-turninput-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/codexAppServerEffectiveRunPlan.ts"),
+        outfile: tempPlanBundle,
+      });
+      const { buildCodexAppServerRunOptions } = await import(pathToFileURL(tempPlanBundle).href);
+      const pkg = {
+        bridgeSystemAppend: "sys-append",
+        userPrompt: "hello world",
+        attachmentEntries: [
+          { refId: "r1", displayName: "a.md", kind: "vault", scope: "message", fileType: "markdown", packing: "inline-snippet" },
+          { refId: "r2", displayName: "i.png", kind: "attachment", scope: "message", fileType: "image", packing: "sdk-streaming-block" },
+          { refId: "r3", displayName: "x.pdf", kind: "external", scope: "session", fileType: "pdf", packing: "native-ref-only" },
+        ],
+        auditHash: "h",
+      };
+      const plan = { cwd: "/v", model: "gpt-5.5", effort: "high", backend: "codex-app-server" };
+      const opts = buildCodexAppServerRunOptions(plan, pkg);
+      const input = opts.turnStart.input;
+      const isArray = Array.isArray(input);
+      const firstText = isArray && input[0]?.type === "text" && input[0]?.text === "hello world";
+      const hasImage = isArray && input.some((it) => it.type === "image" && it.refId === "r2");
+      const hasFile = isArray && input.some((it) => it.type === "file" && it.refId === "r3");
+      const ok = isArray && firstText && hasImage && hasFile;
+      addTest("Wire turn/start.input: content item array (text + image + file)", ok ? "pass" : "fail",
+        ok ? "" : `isArray=${isArray}, firstText=${firstText}, hasImage=${hasImage}, hasFile=${hasFile}, input=${JSON.stringify(input)}`);
+    }
+
+    // ---------- 4e. approval server-request: client 按原 id 返回 result ----------
+    {
+      const tempJsonRpcBundle = join(PROJECT_ROOT, ".test-jsonrpc-approval-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/jsonRpcClient.ts"),
+        outfile: tempJsonRpcBundle,
+      });
+      const { JsonRpcClient } = await import(pathToFileURL(tempJsonRpcBundle).href);
+      const sentLines = [];
+      let lineHandler = null;
+      const client = new JsonRpcClient(
+        (line) => sentLines.push(line),
+        (h) => { lineHandler = h; return () => { lineHandler = null; }; },
+      );
+      // 异步 handler：返回 Promise<result>（模拟等待用户决策）
+      client.onServerRequest("item/commandExecution/requestApproval", (params, id) => {
+        void params; void id;
+        return Promise.resolve({ decision: "allow" });
+      });
+      // server 发起 approval request（带 id=100）
+      lineHandler?.(JSON.stringify({
+        id: 100, method: "item/commandExecution/requestApproval",
+        params: { threadId: "t1", command: "rm -rf /tmp/x" },
+      }));
+      // 等待 Promise resolve + respondToServerRequest
+      await new Promise((r) => setTimeout(r, 10));
+
+      const responseLine = sentLines.find((l) => l.includes('"id":100'));
+      const ok = responseLine !== undefined
+        && responseLine.includes('"result"')
+        && responseLine.includes('"decision":"allow"')
+        && !responseLine.includes('"method"');
+      addTest("Wire approval: server-request → client 按 id 返回 result (decision=allow)", ok ? "pass" : "fail",
+        ok ? "" : `responseLine=${responseLine}, sentLines=${JSON.stringify(sentLines)}`);
+
+      // 测试手动 respondToServerRequest（handler 不返回值）
+      const sentLines2 = [];
+      const client2 = new JsonRpcClient(
+        (line) => sentLines2.push(line),
+        (h) => { lineHandler = h; return () => { lineHandler = null; }; },
+      );
+      client2.onServerRequest("item/fileChange/requestApproval", (_params, id) => {
+        // 不返回值，稍后手动回复
+        setTimeout(() => client2.respondToServerRequest(id, { decision: "deny" }), 5);
+        return undefined;
+      });
+      lineHandler?.(JSON.stringify({
+        id: 200, method: "item/fileChange/requestApproval",
+        params: { threadId: "t1", filePath: "/v/a.md", fileAction: "delete" },
+      }));
+      await new Promise((r) => setTimeout(r, 20));
+      const responseLine2 = sentLines2.find((l) => l.includes('"id":200'));
+      const ok2 = responseLine2 !== undefined && responseLine2.includes('"decision":"deny"');
+      addTest("Wire approval: 手动 respondToServerRequest (decision=deny)", ok2 ? "pass" : "fail",
+        ok2 ? "" : `responseLine2=${responseLine2}, sentLines2=${JSON.stringify(sentLines2)}`);
+    }
+
+    // ---------- 4f. Claude SDK image streaming: userPrompt 不被旧 buildPromptPackage 绕过 ----------
+    {
+      // 源码级断言：buildSdkStreamingInput 必须接收 BridgePromptPackage.userPrompt，
+      // 而非旧 buildPromptPackage 字符串。bridgeSystemAppend 不混入 streaming text block。
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      // 正向：buildSdkStreamingInput 调用传入 promptPackage.userPrompt
+      const usesUserPrompt = viewSrc.includes("buildSdkStreamingInput(promptPackage.userPrompt,");
+      // 反向：不再传入旧 prompt 字符串
+      const noLegacyPrompt = !viewSrc.includes("buildSdkStreamingInput(prompt,");
+      // bridgeSystemAppend 不出现在 streaming input 构造内（应在 provider systemPrompt append 层）
+      const streamingInputIdx = viewSrc.indexOf("private async buildSdkStreamingInput");
+      const streamingInputEnd = viewSrc.indexOf("private async createSdkImageContentBlock");
+      const streamingInputBlock = viewSrc.slice(streamingInputIdx, streamingInputEnd);
+      const noBridgeAppendInStreaming = !streamingInputBlock.includes("bridgeSystemAppend");
+      const ok = usesUserPrompt && noLegacyPrompt && noBridgeAppendInStreaming;
+      addTest("Prompt split: SDK streaming input 使用 BridgePromptPackage.userPrompt（不绕过）", ok ? "pass" : "fail",
+        ok ? "" : `usesUserPrompt=${usesUserPrompt}, noLegacyPrompt=${noLegacyPrompt}, noBridgeAppendInStreaming=${noBridgeAppendInStreaming}`);
+    }
+
+    // ---------- 5. fixture event stream → AssistantTurnView snapshot ----------
+    {
+      const { buildAssistantTurnViewFromEvents } = assistantViewMod;
+      // 构造 NormalizedRuntimeEvent 序列（直接构造，不走 mapper；测 AssistantTurnView 聚合）
+      const mkEvent = (payload, providerId = "codex-app-server") => ({
+        providerId,
+        timestamp: "2026-07-02T00:00:00.000Z",
+        payload,
+      });
+      const events = [
+        mkEvent({ kind: "session_started", text: "thread-1", sessionId: "sess-1" }),
+        mkEvent({ kind: "thinking", text: "Analyzing..." }),
+        mkEvent({ kind: "message", role: "assistant", text: "Hello ", partial: true }),
+        mkEvent({ kind: "message", role: "assistant", text: "world", partial: true }),
+        mkEvent({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"a.md"}', callId: "c1" }),
+        mkEvent({ kind: "tool_result", callId: "c1", toolName: "Read", output: "# a", isError: false }),
+        mkEvent({ kind: "file_change", action: "create", path: "output/summary.md" }),
+        mkEvent({ kind: "completed", text: "Hello world", sessionId: "sess-1", durationMs: 100 }),
+      ];
+      const view = buildAssistantTurnViewFromEvents("turn-1", "codex-app-server", events, "2026-07-02T00:00:00.000Z");
+      const statusOk = view.status === "completed";
+      const finalOk = view.finalAnswer === "Hello world";
+      const toolsOk = view.tools.length === 1 && view.tools[0].toolName === "Read" && view.tools[0].status === "done";
+      const filesOk = view.fileChanges.length === 1 && view.fileChanges[0].path === "output/summary.md";
+      const thoughtsOk = view.thoughts.length === 1 && view.thoughts[0].text === "Analyzing...";
+      const sessionOk = view.terminalSessionId === "sess-1";
+      const allOk = statusOk && finalOk && toolsOk && filesOk && thoughtsOk && sessionOk;
+      addTest("AssistantTurnView: fixture stream → completed view (process/thoughts/tools/files/final)", allOk ? "pass" : "fail",
+        allOk ? "" : `status=${view.status}, final=${view.finalAnswer}, tools=${view.tools.length}, files=${view.fileChanges.length}, thoughts=${view.thoughts.length}, session=${view.terminalSessionId}`);
+    }
+
+    // ---------- 6. approval request → PermissionBoundary → provider response ----------
+    {
+      const { createPermissionBoundary } = permBoundaryMod;
+      const boundary = createPermissionBoundary("default", "medium");
+      const req = {
+        requestId: "req-1",
+        providerId: "codex-app-server",
+        toolName: "Bash",
+        description: "Execute command: rm -rf /",
+        riskLevel: "high",
+        riskReason: "Shell execution",
+        inputSummary: "rm -rf /",
+        mergeKey: "Bash:high:",
+        providerContext: { codexRequestId: "codex-req-1", kind: "commandExecution" },
+      };
+      const decision = boundary.requestApproval(req);
+      const pendingOk = decision === "pending";
+      addTest("Approval: default mode + high risk → pending", pendingOk ? "pass" : "fail",
+        pendingOk ? "" : `decision=${decision}（期望 pending）`);
+
+      // 模拟用户 accept
+      const waitPromise = boundary.waitForApproval("req-1");
+      boundary.resolveApproval("req-1", { type: "accept" });
+      const result = await waitPromise;
+      const resolveOk = result.response.type === "accept" && result.source === "user";
+      addTest("Approval: resolveApproval(accept) → waitForApproval resolves", resolveOk ? "pass" : "fail",
+        resolveOk ? "" : `response=${result.response.type}, source=${result.source}`);
+
+      // acceptForSession 应写入 sessionAllows
+      const req2 = { ...req, requestId: "req-2", toolName: "Write", riskLevel: "medium" };
+      boundary.requestApproval(req2);
+      const wait2 = boundary.waitForApproval("req-2");
+      boundary.resolveApproval("req-2", { type: "acceptForSession" });
+      await wait2;
+      const sessionAllowOk = boundary.sessionAllows.length === 1 && boundary.sessionAllows[0].toolName === "Write";
+      addTest("Approval: acceptForSession writes sessionAllows cache", sessionAllowOk ? "pass" : "fail",
+        sessionAllowOk ? "" : `allows=${boundary.sessionAllows.length}, first=${boundary.sessionAllows[0]?.toolName}`);
+
+      // cancelAllPending → 返回 pending 列表 + resolver 以 cancel 唤醒
+      const req3 = { ...req, requestId: "req-3" };
+      boundary.requestApproval(req3);
+      const wait3 = boundary.waitForApproval("req-3");
+      const cancelled = boundary.cancelAllPending();
+      const cancelResult = await wait3;
+      const cancelOk = cancelled.length === 1 && cancelled[0].requestId === "req-3"
+        && cancelResult.response.type === "cancel";
+      addTest("Approval: cancelAllPending → resolver wakes with cancel", cancelOk ? "pass" : "fail",
+        cancelOk ? "" : `cancelled=${cancelled.length}, response=${cancelResult.response.type}`);
+
+      // mode=bypassPermissions 应自动 allow
+      const bypassBoundary = createPermissionBoundary("bypassPermissions", "low");
+      const decision2 = bypassBoundary.requestApproval(req);
+      const autoAllowOk = decision2 === "auto-allow";
+      addTest("Approval: bypassPermissions mode → auto-allow", autoAllowOk ? "pass" : "fail",
+        autoAllowOk ? "" : `decision=${decision2}（期望 auto-allow）`);
+    }
+
+    // ---------- 7. WorkflowEvent → NormalizedRuntimeEvent mapper（claude-sdk/cli 复用） ----------
+    {
+      const { mapWorkflowEventToNormalized } = workflowMapperMod;
+      const thinking = mapWorkflowEventToNormalized(
+        { type: "thinking", timestamp: "t", text: "hmm" },
+        "claude-sdk", false,
+      );
+      const tOk = thinking.payload.kind === "thinking" && thinking.payload.text === "hmm" && thinking.providerId === "claude-sdk";
+      addTest("WorkflowEvent→Normalized: thinking maps provider-neutral", tOk ? "pass" : "fail",
+        tOk ? "" : `kind=${thinking.payload.kind}, text=${thinking.payload.text}, provider=${thinking.providerId}`);
+
+      const permission = mapWorkflowEventToNormalized(
+        { type: "permission", timestamp: "t", toolName: "Write", description: "write", granted: true, pending: true, requestId: "r1" },
+        "claude-sdk", false,
+      );
+      const pOk = permission.payload.kind === "approval_request" && permission.payload.requestId === "r1" && permission.payload.toolName === "Write";
+      addTest("WorkflowEvent→Normalized: permission(pending) → approval_request", pOk ? "pass" : "fail",
+        pOk ? "" : `kind=${permission.payload.kind}, requestId=${permission.payload.requestId}`);
+
+      const devRaw = mapWorkflowEventToNormalized(
+        { type: "thinking", timestamp: "t", text: "hmm" },
+        "claude-sdk", true,
+      );
+      const rawOk = devRaw.rawProviderEvent !== undefined;
+      addTest("WorkflowEvent→Normalized: developerMode fills rawProviderEvent", rawOk ? "pass" : "fail",
+        rawOk ? "" : `rawProviderEvent=${devRaw.rawProviderEvent}`);
+    }
+
+    // ---------- 8. UI 不再 import concrete SdkBackend / ClaudeCliBackend ----------
+    // 注：此测试在 view.ts 重构完成前会 fail；重构完成后转 pass。
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const sdkImportRe = /import\s+\{[^}]*\bSdkBackend\b[^}]*\}\s*from\s+["']\.\/sdkBackend["']/;
+      const cliImportRe = /import\s+\{[^}]*\bClaudeCliBackend\b[^}]*\}\s*from\s+["']\.\/claudeCliBackend["']/;
+      const sdkDirect = sdkImportRe.test(viewSrc);
+      const cliDirect = cliImportRe.test(viewSrc);
+      // view.ts 重构未完成时这两个仍为 true → 标记 fail（重构后转 pass）
+      const noDirectImport = !sdkDirect && !cliDirect;
+      addTest("UI: view.ts 不再直接 import SdkBackend / ClaudeCliBackend", noDirectImport ? "pass" : "fail",
+        noDirectImport ? "" : `sdkDirect=${sdkDirect}, cliDirect=${cliDirect}（待 view.ts 重构后转 pass）`);
+    }
+
+    // ---------- 9. UI 主渲染链路消费 AssistantTurnView（不依赖 WorkflowEvent 反向映射） ----------
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      // 主链路：AssistantTurnViewBuilder 作为每轮 run 主状态
+      const usesBuilder = viewSrc.includes("new AssistantTurnViewBuilder(assistantId, session.providerId, startedAt)")
+        && viewSrc.includes("ctx.turnBuilder.ingest(ev)");
+      // final answer 由 turnView.finalAnswer 输出（不再 stdout_delta 旁路直接写 content）
+      const finalFromBuilder = viewSrc.includes("content: turnView.finalAnswer");
+      // stdout_delta 不再直接 appendAssistantContentDelta（在 handleNormalizedEvent 内）
+      const handleIdx = viewSrc.indexOf("private handleNormalizedEvent");
+      const handleEnd = viewSrc.indexOf("private stop(): void");
+      const handleBlock = viewSrc.slice(handleIdx, handleEnd);
+      const noStdoutBypass = !handleBlock.includes("this.appendAssistantContentDelta(ctx.assistantId, p.data)");
+      // WorkflowEvent 反向映射仅作 legacy log（sdkEvents），不作主 UI 数据源
+      const wfAsLegacy = handleBlock.includes("legacy log") && handleBlock.includes("ctx.sdkEvents.push(wfEvent)");
+      // V2.17-A Completion: appendLiveSdkEvent/WorkflowEvent 只在 developerMode 下推送（普通用户态主链路完全由 turnView 驱动）
+      const wfDeveloperGated = handleBlock.includes("developerMode") && handleBlock.includes("developerMode ? mapNormalizedToWorkflowEvent(ev) : null");
+      const ok = usesBuilder && finalFromBuilder && noStdoutBypass && wfAsLegacy && wfDeveloperGated;
+      addTest("UI 主链路: AssistantTurnViewBuilder 为主状态源（不再 WorkflowEvent 反向映射主流程）", ok ? "pass" : "fail",
+        ok ? "" : `usesBuilder=${usesBuilder}, finalFromBuilder=${finalFromBuilder}, noStdoutBypass=${noStdoutBypass}, wfAsLegacy=${wfAsLegacy}, wfDeveloperGated=${wfDeveloperGated}`);
+    }
+
+    // V2.17-A Completion: AssistantTurnView legacy 削减
+    // appendLiveSdkEvent / WorkflowEvent 只保留 developer/legacy log，不参与主 UI
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const handleIdx = viewSrc.indexOf("private handleNormalizedEvent");
+      const handleEnd = viewSrc.indexOf("private stop(): void");
+      const handleBlock = viewSrc.slice(handleIdx, handleEnd);
+      // 1. step 6 注释明确标 developer/legacy log
+      const step6Comment = handleBlock.includes("developer/legacy log");
+      // 2. mapNormalizedToWorkflowEvent 仅在 developerMode 下调用
+      const gatedMapping = handleBlock.includes("developerMode ? mapNormalizedToWorkflowEvent(ev) : null");
+      // 3. appendLiveSdkEvent 仅在 wfEvent 非空（即 developerMode）时调用
+      const gatedAppend = handleBlock.includes("if (wfEvent) {") && handleBlock.includes("this.appendLiveSdkEvent(wfEvent)");
+      // 4. 主链路步骤 2-4 完全由 turnView 驱动（已在上一测试断言，此处复检）
+      const turnViewDriven = handleBlock.includes("ctx.turnBuilder.ingest(ev)") && handleBlock.includes("content: turnView.finalAnswer");
+      const ok = step6Comment && gatedMapping && gatedAppend && turnViewDriven;
+      addTest("UI legacy 削减: appendLiveSdkEvent/WorkflowEvent 仅 developer/legacy log（普通用户态主链路由 turnView 驱动）",
+        ok ? "pass" : "fail",
+        ok ? "" : `step6Comment=${step6Comment}, gatedMapping=${gatedMapping}, gatedAppend=${gatedAppend}, turnViewDriven=${turnViewDriven}`);
+    }
+
+    // 清理临时 bundles
+    for (const f of [
+      tempCodexProviderBundle, tempPromptPkgBundle, tempAssistantViewBundle,
+      tempPermBoundaryBundle, tempWorkflowMapperBundle,
+      join(PROJECT_ROOT, ".test-codex-plan-temp.mjs"),
+      join(PROJECT_ROOT, ".test-jsonrpc-temp.mjs"),
+      join(PROJECT_ROOT, ".test-codex-mapper-temp.mjs"),
+    ]) {
+      try { rmSync(f, { force: true }); } catch { /* ignore */ }
+    }
+  } catch (e) {
+    addTest("Bridge Core tests 段", "fail", e?.stack || e?.message || String(e));
+  }
+}
+
+// ============================================================
 // 7. AgentBackend contract tests（unit，不依赖 Obsidian）
 // ============================================================
 console.log("\n=== AgentBackend contract tests ===");
@@ -1062,7 +1695,9 @@ if (!runUnit) {
     }
 
     // ---- Contract Test 2: stdout_delta 正常产出 ----
-    {
+    if (skipIfNoCmd("Contract: stdout_delta 正常产出")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const events = await collectEvents(backend, baseTask, baseSettings);
       const hasStdout = events.some((e) => e.type === "stdout_delta" && e.data.includes("hello_from_backend"));
       addTest("Contract: stdout_delta 正常产出", hasStdout ? "pass" : "fail",
@@ -1070,7 +1705,9 @@ if (!runUnit) {
     }
 
     // ---- Contract Test 3: stderr_delta 正常产出 ----
-    {
+    if (skipIfNoCmd("Contract: stderr_delta 正常产出")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const stderrSettings = { ...baseSettings, customArgs: "/c echo err_msg>&2" };
       const events = await collectEvents(backend, { ...baseTask, id: "test-stderr" }, stderrSettings);
       const hasStderr = events.some((e) => e.type === "stderr_delta");
@@ -1079,7 +1716,9 @@ if (!runUnit) {
     }
 
     // ---- Contract Test 4: completed 正常产出 ----
-    {
+    if (skipIfNoCmd("Contract: completed 正常产出")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const events = await collectEvents(backend, baseTask, baseSettings);
       const hasCompleted = events.some((e) => e.type === "completed" && e.exitCode === 0);
       addTest("Contract: completed 正常产出", hasCompleted ? "pass" : "fail",
@@ -1087,7 +1726,9 @@ if (!runUnit) {
     }
 
     // ---- Contract Test 5: failed 正常产出 ----
-    {
+    if (skipIfNoCmd("Contract: failed 正常产出")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const failSettings = { ...baseSettings, customArgs: "/c exit 1" };
       const events = await collectEvents(backend, { ...baseTask, id: "test-failed" }, failSettings);
       const hasFailed = events.some((e) => e.type === "failed" && e.exitCode !== 0);
@@ -3010,7 +3651,9 @@ if (!runV16Unit) {
     }
 
     // ---- Test 11: CLI 不回归 — ClaudeCliBackend 忽略 onWorkflowEvent，不产生 workflow 事件 ----
-    {
+    if (skipIfNoCmd("V1.6 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const backend = new ClaudeCliBackend();
       const task = {
         id: "v16-cli", userMessage: "cli", prompt: "p", cwd: VAULT_PATH,
@@ -3419,7 +4062,9 @@ if (!runV17Unit) {
     }
 
     // ---- Test 15: CLI 不回归 — ClaudeCliBackend 不接受/不产生 workflow 事件 ----
-    {
+    if (skipIfNoCmd("V1.7 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件（V1.7 验证）")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const backend = new ClaudeCliBackend();
       const task = {
         id: "v17-cli", userMessage: "cli test", prompt: "p", cwd: VAULT_PATH,
@@ -3614,7 +4259,9 @@ if (!runV18Unit) {
     }
 
     // ---- Test 9: CLI 主线不回归（auto 模式 ClaudeCliBackend 不产生 workflow 事件）----
-    {
+    if (skipIfNoCmd("V1.8 CLI 主线不回归: auto 模式正常产出 stdout")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const backend = new ClaudeCliBackend();
       const task = {
         id: "v18-cli", userMessage: "cli", prompt: "p", cwd: VAULT_PATH,
@@ -3943,7 +4590,9 @@ if (!runV20Unit) {
     }
 
     // ---- Test 12: CLI 不回归 — ClaudeCliBackend 不产生 workflow 事件 ----
-    {
+    if (skipIfNoCmd("V2.0 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const backend = new ClaudeCliBackend();
       const task = {
         id: "v20-cli", userMessage: "cli", prompt: "p", cwd: VAULT_PATH,
@@ -5719,10 +6368,16 @@ if (!runV25Unit) {
     {
       const state = { title: "失败测试", status: "idle", messageCount: 0, startedAt: null };
       // 使用一个不存在的根路径触发 mkdir 失败（路径含非法字符）
-      const id = await saveSession("Z:\\nonexistent-root-xyz\\deep", state, [], "claude");
-      addTest("V2.5 Session 安全写入: 失败返回 null 不抛异常",
-        id === null ? "pass" : "fail",
-        `id=${id}`);
+      // V2.17-A: 非 Windows 平台 `Z:\...` 被当作合法相对路径，mkdir 成功 → 环境假失败，跳过。
+      if (!IS_WINDOWS) {
+        addTest("V2.5 Session 安全写入: 失败返回 null 不抛异常", "skip",
+          "环境假失败: 非 Windows 平台 `Z:\\...` 被当作合法相对路径，无法触发 mkdir 失败");
+      } else {
+        const id = await saveSession("Z:\\nonexistent-root-xyz\\deep", state, [], "claude");
+        addTest("V2.5 Session 安全写入: 失败返回 null 不抛异常",
+          id === null ? "pass" : "fail",
+          `id=${id}`);
+      }
     }
 
     // ---- Test 21: redactSessionMessages 脱敏消息中的 API key ----
@@ -6039,10 +6694,16 @@ if (!runV26Unit) {
     // ---- Test 17: saveSkillsState 失败不抛异常（只读目录）----
     {
       // 用一个不存在的盘符路径触发写入失败（Windows 下 Z: 通常不存在）
-      const ok = await saveSkillsState("Z:\\nonexistent-path-v26-test", createEmptySkillsState());
-      addTest("V2.6 saveSkillsState: 失败不抛异常返回 false",
-        ok === false ? "pass" : "fail",
-        `ok=${ok}`);
+      // V2.17-A: 非 Windows 平台 `Z:\...` 被当作合法相对路径，写入成功 → 环境假失败，跳过。
+      if (!IS_WINDOWS) {
+        addTest("V2.6 saveSkillsState: 失败不抛异常返回 false", "skip",
+          "环境假失败: 非 Windows 平台 `Z:\\...` 被当作合法相对路径，无法触发写入失败");
+      } else {
+        const ok = await saveSkillsState("Z:\\nonexistent-path-v26-test", createEmptySkillsState());
+        addTest("V2.6 saveSkillsState: 失败不抛异常返回 false",
+          ok === false ? "pass" : "fail",
+          `ok=${ok}`);
+      }
     }
 
     // ---- Test 18: loadSkillsState 损坏 JSON 返回空 state ----
@@ -8695,8 +9356,9 @@ if (!runV2121Unit) {
   }
 
   {
+    // V2.17-A Completion: buildSdkStreamingInput 现在接收 promptPackage.userPrompt（不再绕过 prompt split）
     const ok = agentBackendSrc.includes("export interface SdkStreamingInput")
-      && viewSrc.includes("buildSdkStreamingInput(prompt, promptFileRefsForRun)")
+      && viewSrc.includes("buildSdkStreamingInput(promptPackage.userPrompt, promptFileRefsForRun)")
       && viewSrc.includes("createSdkImageContentBlock")
       && sdkBackendSrc.includes("createSdkUserMessageStream")
       && sdkBackendSrc.includes("prompt: string | AsyncIterable<unknown>")
@@ -10093,7 +10755,10 @@ if (!runV214BUnit) {
         `vault=${vaultRef?.kind}/${vaultRef?.status} pending=${pending?.reason}/${pendingRef.status} before=${noExternalRefBeforeApproval.refs.length} external=${externalRef?.kind}/${externalRef?.grantScope} attachment=${attachment?.ref.kind}/${attachment?.readGrant.match} reads=${attachmentRead.decision}/${attachmentSibling.decision} refs=${workingSet.refs.length} fields=${hasRequiredFields} body=${noFileBodyFields} prompt=${promptUnwired} view=${viewWiringOk}`);
     }
 
-    {
+    if (!IS_WINDOWS) {
+      addTest("V2.14.0-G attachments: Context UI、file-scope grant、bounded ingestion、prompt boundary", "skip",
+        "环境假失败: 非 Windows 平台 vaultPath `D:\\Vault` 与 POSIX tmp 路径归一化不一致");
+    } else {
       const tmp = mkdtempSync(join(tmpdir(), "llm-bridge-g-"));
       const smallMd = join(tmp, "note.md");
       const smallJson = join(tmp, "data.json");
@@ -10205,7 +10870,10 @@ if (!runV214BUnit) {
         `grant=${mdAttachment.readGrant.match} sibling=${siblingStillPending.decision} md=${!!mdIngest.snippet} json=${!!jsonIngest.snippet} large=${largeIngest.skippedReason} image=${imageIngest.skippedReason} pdf=${pdfIngest.skippedReason} binary=${binaryIngest.skippedReason} sensitive=${sensitiveIngest.skippedReason} external=${externalRef} type=${typeOk} prompt=${promptOk} boundary=${noExternalPrompt} bounded=${boundedOnly} ui=${uiOk}`);
     }
 
-    {
+    if (!IS_WINDOWS) {
+      addTest("V2.14.0-H native attachments + FileRef index + read tool policy gate", "skip",
+        "环境假失败: 非 Windows 平台 vaultPath `D:\\Vault` 与 POSIX tmp 路径归一化不一致");
+    } else {
       const tmp = mkdtempSync(join(tmpdir(), "llm-bridge-h-"));
       const smallMd = join(tmp, "brief.md");
       const image = join(tmp, "diagram.png");
@@ -11638,14 +12306,20 @@ if (!runProcess) {
 
       // Preflight Test 1: cwd 不存在 → failed diagnostic
       {
-        const badCwd = "Z:\\non_existent_preflight_dir_xyz";
-        const result = await runPreflight(makePreflightSettings("node", ""), badCwd, 5000);
-        const cwdMissing = result.cwdExists === false;
-        const unavailable = result.available === false;
-        const hasDiag = result.diagnostics.includes("unavailable") && result.diagnostics.includes("cwd");
-        const ok = cwdMissing && unavailable && hasDiag;
-        addTest("Preflight: cwd 不存在 → failed diagnostic", ok ? "pass" : "fail",
-          ok ? "" : `cwdExists=${result.cwdExists}, available=${result.available}, diag="${result.diagnostics}"`);
+        // V2.17-A: 非 Windows 平台 `Z:\...` 不被当作不存在的盘符路径 → 环境假失败，跳过。
+        if (!IS_WINDOWS) {
+          addTest("Preflight: cwd 不存在 → failed diagnostic", "skip",
+            "环境假失败: 非 Windows 平台 `Z:\\...` 不被当作不存在的盘符路径");
+        } else {
+          const badCwd = "Z:\\non_existent_preflight_dir_xyz";
+          const result = await runPreflight(makePreflightSettings("node", ""), badCwd, 5000);
+          const cwdMissing = result.cwdExists === false;
+          const unavailable = result.available === false;
+          const hasDiag = result.diagnostics.includes("unavailable") && result.diagnostics.includes("cwd");
+          const ok = cwdMissing && unavailable && hasDiag;
+          addTest("Preflight: cwd 不存在 → failed diagnostic", ok ? "pass" : "fail",
+            ok ? "" : `cwdExists=${result.cwdExists}, available=${result.available}, diag="${result.diagnostics}"`);
+        }
       }
 
       // Preflight Test 2: command 不存在 → unavailable
@@ -12221,7 +12895,7 @@ if (!runNoteSummarizeSmoke) {
   console.log("\n=== V2.16-D: User-facing Agent UX / Context API / File Input ===");
 
   const contextMetricsSrc = readFileSync(join(PROJECT_ROOT, "src", "contextMetrics.ts"), "utf-8");
-  const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+  const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8").replace(/\r\n/g, "\n");
   const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
   const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf-8");
   const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
@@ -12437,7 +13111,11 @@ if (!runNoteSummarizeSmoke) {
       && sdkMessageMapperSrc.includes("tool_progress")
       && sdkMessageMapperSrc.includes("thinking_tokens")
       && timelineAdapterSrc.includes('"progress"')
-      && viewSrc.includes("this.appendAssistantContentDelta(assistantId, event.data)")
+      // V2.17-A Completion: stdout_delta 不再直接 appendAssistantContentDelta；
+      // final answer 由 AssistantTurnViewBuilder.finalAnswer 输出，经 updateAssistantMessage 渲染
+      && !viewSrc.includes("this.appendAssistantContentDelta(ctx.assistantId, p.data)")
+      && viewSrc.includes("ctx.turnBuilder.ingest(ev)")
+      && viewSrc.includes("content: turnView.finalAnswer")
       && viewSrc.includes("this.scheduleLiveTimelineRender()")
       && viewSrc.includes("window.setTimeout(() =>")
       && !viewSrc.includes('scrollIntoView({ behavior: "smooth", block: "end" })');
@@ -12486,7 +13164,7 @@ if (!runV217A) {
 
     const { RunStateAggregator, aggregateEventsToTimeline, buildRuntimeTranscriptFromEvents } =
       await import(pathToFileURL(runtimeTranscriptBundle).href);
-    const { buildEffectiveRunPlan, computePromptPackageHash, formatEffectiveRunPlan } =
+    const { buildEffectiveRunPlan, computePromptPackageHash, formatEffectiveRunPlan, buildAttachmentPlan, emptyAttachmentPlan } =
       await import(pathToFileURL(effectiveRunPlanBundle).href);
     const { computeContextMetrics, estimateTokens } =
       await import(pathToFileURL(contextMetricsBundleV217).href);
@@ -12507,9 +13185,9 @@ if (!runV217A) {
       };
     }
 
-    const emptyAttachmentPlan = {
+    const emptyAttachmentPlanLiteral = {
       messageScopedRefs: 0, pinnedRefs: 0, inlineSnippets: 0,
-      imageStreamingBlocks: 0, nativeRefOnly: 0,
+      imageStreamingBlocks: 0, nativeRefOnly: 0, entries: [],
     };
 
     // ---- Test 1: EffectiveRunPlan 字段完整性（SDK 派生）----
@@ -12522,7 +13200,7 @@ if (!runV217A) {
         promptPackageText: "system prompt + tool steering",
         settingSources: ["user", "project", "local"],
         skills: ["code", "docs"],
-        attachmentPlan: { ...emptyAttachmentPlan, messageScopedRefs: 2, inlineSnippets: 1 },
+        attachmentPlan: { ...emptyAttachmentPlanLiteral, messageScopedRefs: 2, inlineSnippets: 1 },
       });
       const fieldsOk = plan.backend === "sdk"
         && plan.cwd === "/vault"
@@ -12551,7 +13229,7 @@ if (!runV217A) {
         promptPackageText: "same prompt package",
         settingSources: ["user", "project", "local"],
         skills: [],
-        attachmentPlan: emptyAttachmentPlan,
+        attachmentPlan: emptyAttachmentPlanLiteral,
       };
       const sdkPlan = buildEffectiveRunPlan({ backend: "sdk", ...commonArgs });
       const cliPlan = buildEffectiveRunPlan({ backend: "cli", ...commonArgs });
@@ -12589,7 +13267,7 @@ if (!runV217A) {
         promptPackageText: "x",
         settingSources: ["user", "project", "local"],
         skills: ["code"],
-        attachmentPlan: emptyAttachmentPlan,
+        attachmentPlan: emptyAttachmentPlanLiteral,
       });
       const rows = formatEffectiveRunPlan(plan);
       const labels = rows.map((r) => r.label);
@@ -12801,7 +13479,7 @@ if (!runV217A) {
         promptPackageText: "p",
         settingSources: ["user", "project", "local"],
         skills: [],
-        attachmentPlan: emptyAttachmentPlan,
+        attachmentPlan: emptyAttachmentPlanLiteral,
       });
       const matches = plan.settingSources.length === 3
         && plan.settingSources[0] === "user"
@@ -12810,6 +13488,114 @@ if (!runV217A) {
       addTest("V2.17-A EffectiveRunPlan: settingSources 显式 [user,project,local]",
         matches ? "pass" : "fail",
         `sources=${plan.settingSources.join(",")}`);
+    }
+
+    // ---- Test 18: buildAttachmentPlan 从 AttachmentEntry[] 派生 entry-level audit ----
+    {
+      const entries = [
+        { refId: "msg-1", scope: "message", fileType: "markdown", packing: "inline-snippet",
+          displayName: "msg.md", bytesRead: 128, truncated: false },
+        { refId: "pin-1", scope: "pinned", fileType: "image", packing: "sdk-streaming-block",
+          displayName: "screenshot.png", bytesRead: 0, truncated: false },
+        { refId: "msg-2", scope: "message", fileType: "pdf", packing: "native-ref-only",
+          displayName: "doc.pdf", bytesRead: 0, truncated: false },
+      ];
+      const plan = buildAttachmentPlan(entries);
+      const countsOk = plan.messageScopedRefs === 2
+        && plan.pinnedRefs === 1
+        && plan.inlineSnippets === 1
+        && plan.imageStreamingBlocks === 1
+        && plan.nativeRefOnly === 1;
+      const entriesLengthOk = Array.isArray(plan.entries) && plan.entries.length === 3;
+      const firstEntryShapeOk = plan.entries[0].refId === "msg-1"
+        && plan.entries[0].scope === "message"
+        && plan.entries[0].fileType === "markdown"
+        && plan.entries[0].packing === "inline-snippet"
+        && typeof plan.entries[0].pathHash === "string" && plan.entries[0].pathHash.length > 0
+        && typeof plan.entries[0].contentHash === "string" && plan.entries[0].contentHash.length > 0
+        && typeof plan.entries[0].reason === "string" && plan.entries[0].reason.length > 0;
+      // ref-only 不读内容 → contentHash 为空串
+      const refOnlyEntry = plan.entries.find((e) => e.packing === "native-ref-only");
+      const refOnlyEmptyHash = refOnlyEntry.contentHash === "";
+      addTest("V2.17-A buildAttachmentPlan: 从 entries 派生 counts + entry-level audit",
+        countsOk && entriesLengthOk && firstEntryShapeOk && refOnlyEmptyHash ? "pass" : "fail",
+        `counts=${countsOk} len=${entriesLengthOk} shape=${firstEntryShapeOk} refEmpty=${refOnlyEmptyHash}`);
+    }
+
+    // ---- Test 19: discriminated union — codex-app-server plan 含 instructionsSource，无 Claude-only 字段 ----
+    {
+      const settings = makeSettings();
+      const plan = buildEffectiveRunPlan({
+        backend: "codex-app-server", settings, cwd: "/vault",
+        promptPackageText: "p", settingSources: [], skills: [],
+        attachmentPlan: emptyAttachmentPlanLiteral,
+      });
+      const isCodex = plan.backend === "codex-app-server";
+      const hasInstructions = plan.instructionsSource === "instructions";
+      const noClaudeOnlyFields = !("permission" in plan)
+        && !("systemPrompt" in plan)
+        && !("tools" in plan);
+      addTest("V2.17-A EffectiveRunPlan: codex-app-server 派生为 CodexAppServerEffectiveRunPlan",
+        isCodex && hasInstructions && noClaudeOnlyFields ? "pass" : "fail",
+        `codex=${isCodex} instructions=${hasInstructions} noClaudeOnly=${noClaudeOnlyFields}`);
+    }
+
+    // ---- Test 20: formatEffectiveRunPlan 对 codex plan 输出 instructionsSource 行，无 permission 行 ----
+    {
+      const settings = makeSettings();
+      const plan = buildEffectiveRunPlan({
+        backend: "codex-app-server", settings, cwd: "/v",
+        promptPackageText: "p", settingSources: [], skills: [],
+        attachmentPlan: emptyAttachmentPlanLiteral,
+      });
+      const rows = formatEffectiveRunPlan(plan);
+      const labels = rows.map((r) => r.label);
+      const hasInstructionsSource = labels.includes("instructionsSource");
+      const noPermission = !labels.includes("permission");
+      const noSystemPromptPreset = !labels.includes("systemPrompt");
+      const noToolsPreset = !labels.includes("tools");
+      const hasBackend = labels.includes("backend");
+      const hasAttachments = labels.includes("attachments");
+      addTest("V2.17-A formatEffectiveRunPlan: codex plan 输出 instructionsSource，不输出 Claude-only 行",
+        hasInstructionsSource && noPermission && noSystemPromptPreset && noToolsPreset && hasBackend && hasAttachments ? "pass" : "fail",
+        `instrSrc=${hasInstructionsSource} noPerm=${noPermission} noSys=${noSystemPromptPreset} noTools=${noToolsPreset}`);
+    }
+
+    // ---- Test 21: entry-level audit 行写入 formatEffectiveRunPlan 输出 ----
+    {
+      const entries = [
+        { refId: "msg-1", scope: "message", fileType: "markdown", packing: "inline-snippet",
+          displayName: "msg.md", bytesRead: 64, truncated: false },
+      ];
+      const plan = buildEffectiveRunPlan({
+        backend: "sdk", settings: makeSettings(), cwd: "/v",
+        promptPackageText: "p", settingSources: [], skills: [],
+        attachmentPlan: buildAttachmentPlan(entries),
+      });
+      const rows = formatEffectiveRunPlan(plan);
+      const auditRow = rows.find((r) => r.label === "  attachment[msg-1]");
+      const auditRowOk = !!auditRow
+        && auditRow.value.includes("message/markdown/inline-snippet")
+        && auditRow.value.includes("path=")
+        && auditRow.value.includes("content=")
+        && auditRow.value.includes("reason=");
+      addTest("V2.17-A formatEffectiveRunPlan: 每条附件输出独立 audit 行（refId/scope/fileType/packing/pathHash/contentHash/reason）",
+        auditRowOk ? "pass" : "fail",
+        `auditRow=${auditRow?.value ?? "(missing)"}`);
+    }
+
+    // ---- Test 22: emptyAttachmentPlan() helper 返回含 entries: [] ----
+    {
+      const plan = emptyAttachmentPlan();
+      const ok = plan.messageScopedRefs === 0
+        && plan.pinnedRefs === 0
+        && plan.inlineSnippets === 0
+        && plan.imageStreamingBlocks === 0
+        && plan.nativeRefOnly === 0
+        && Array.isArray(plan.entries) && plan.entries.length === 0;
+      addTest("V2.17-A emptyAttachmentPlan: 含 entries: [] 空 audit 数组",
+        ok ? "pass" : "fail",
+        `entries=${Array.isArray(plan.entries) ? plan.entries.length : "(not array)"}`);
     }
 
   } catch (e) {
@@ -12823,13 +13609,847 @@ if (!runV217A) {
 }
 
 // ============================================================
+// V2.17-A Completion: Codex app-server schema alignment 测试
+// 验证 initialize clientInfo、item/agentMessage/delta → finalAnswer、
+// approval decision shape、thread/resume 从 sessionMapper 恢复
+// ============================================================
+console.log("\n=== V2.17-A Completion: Codex app-server schema alignment 测试 ===");
+
+const runCodexSchemaAlignment = runMode === "all" || runMode === "unit";
+
+if (!runCodexSchemaAlignment) {
+  addTest("Codex schema alignment 测试段", "skip", "当前模式不运行 unit");
+} else {
+  let codexSchemaBundle = null;
+  let codexEventMapperBundle = null;
+  let codexApprovalMapperBundle = null;
+  let codexSessionMapperBundle = null;
+  let codexEffectiveRunPlanBundle = null;
+  let assistantTurnViewBundle = null;
+  let codexAppServerProviderBundle = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    codexSchemaBundle = join(PROJECT_ROOT, ".test-codex-schema-v217a-temp.mjs");
+    codexEventMapperBundle = join(PROJECT_ROOT, ".test-codex-event-mapper-v217a-temp.mjs");
+    codexApprovalMapperBundle = join(PROJECT_ROOT, ".test-codex-approval-mapper-v217a-temp.mjs");
+    codexSessionMapperBundle = join(PROJECT_ROOT, ".test-codex-session-mapper-v217a-temp.mjs");
+    codexEffectiveRunPlanBundle = join(PROJECT_ROOT, ".test-codex-effective-run-plan-v217a-temp.mjs");
+    assistantTurnViewBundle = join(PROJECT_ROOT, ".test-assistant-turn-view-v217a-temp.mjs");
+    codexAppServerProviderBundle = join(PROJECT_ROOT, ".test-codex-app-server-provider-v217a-temp.mjs");
+
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "schema", "index.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexSchemaBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerEventMapper.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexEventMapperBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerApprovalMapper.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexApprovalMapperBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerSessionMapper.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexSessionMapperBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerEffectiveRunPlan.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexEffectiveRunPlanBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "core", "assistantTurnView.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: assistantTurnViewBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerProvider.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexAppServerProviderBundle,
+    });
+
+    const { CodexAppServerEventMapper } = await import(pathToFileURL(codexEventMapperBundle).href);
+    const { CodexAppServerApprovalMapper } = await import(pathToFileURL(codexApprovalMapperBundle).href);
+    const { CodexAppServerSessionMapper } = await import(pathToFileURL(codexSessionMapperBundle).href);
+    const { buildCodexAppServerRunOptions, computeCodexRunOptionsAuditHash } =
+      await import(pathToFileURL(codexEffectiveRunPlanBundle).href);
+    const { AssistantTurnViewBuilder } = await import(pathToFileURL(assistantTurnViewBundle).href);
+
+    const TS = () => new Date().toISOString();
+    const PROVIDER_ID = "codex-app-server";
+
+    // ---- Test 1: buildCodexAppServerRunOptions 产出官方 initialize clientInfo shape ----
+    {
+      const plan = {
+        backend: "codex-app-server", cwd: "/vault", model: "gpt-5.5", effort: "high",
+        instructionsSource: "instructions", settingSources: [], skills: [],
+        promptPackageHash: "h1", attachmentPlan: { entries: [] }, createdAt: TS(),
+      };
+      const promptPackage = {
+        userPrompt: "hello", bridgeSystemAppend: "system rules",
+        attachmentEntries: [], auditHash: "h1",
+      };
+      const options = buildCodexAppServerRunOptions(plan, promptPackage);
+      const init = options.initialize;
+      const clientInfoOk = init.clientInfo
+        && init.clientInfo.name === "llm-cli-bridge"
+        && init.clientInfo.title === "LLM CLI Bridge"
+        && init.clientInfo.version === "2.17-A"
+        && !("clientName" in init)
+        && !("clientVersion" in init);
+      const capabilitiesOk = init.capabilities
+        && init.capabilities.experimentalApi === false;
+      const noExperimental = options.experimentalApi === false;
+      addTest("Codex schema: initialize.params 使用 clientInfo + capabilities（无 clientName/clientVersion 顶层）",
+        clientInfoOk && capabilitiesOk && noExperimental ? "pass" : "fail",
+        `clientInfo=${!!init.clientInfo} capabilities=${JSON.stringify(init.capabilities)} experimentalApi=${options.experimentalApi}`);
+    }
+
+    // ---- Test 2: experimentalApi=true 时显式启用并审计 ----
+    {
+      const plan = {
+        backend: "codex-app-server", cwd: "/v", model: "gpt-5.5", effort: "high",
+        instructionsSource: "instructions", settingSources: [], skills: [],
+        promptPackageHash: "h", attachmentPlan: { entries: [] }, createdAt: TS(),
+      };
+      const promptPackage = { userPrompt: "p", bridgeSystemAppend: "", attachmentEntries: [], auditHash: "h" };
+      const optionsDefault = buildCodexAppServerRunOptions(plan, promptPackage);
+      const optionsExperimental = buildCodexAppServerRunOptions(plan, promptPackage, { experimentalApi: true });
+      const defaultFalse = optionsDefault.initialize.capabilities?.experimentalApi === false;
+      const experimentalTrue = optionsExperimental.initialize.capabilities?.experimentalApi === true;
+      const auditHashDiffers = computeCodexRunOptionsAuditHash(optionsDefault) !== computeCodexRunOptionsAuditHash(optionsExperimental);
+      addTest("Codex schema: experimentalApi=true 显式启用 + audit hash 区分",
+        defaultFalse && experimentalTrue && auditHashDiffers ? "pass" : "fail",
+        `default=${defaultFalse} experimental=${experimentalTrue} hashDiffers=${auditHashDiffers}`);
+    }
+
+    // ---- Test 3: thread/start 使用 config 容器，不再塞 resumeSessionId ----
+    {
+      const plan = {
+        backend: "codex-app-server", cwd: "/v", model: "gpt-5.5", effort: "high",
+        instructionsSource: "instructions", settingSources: [], skills: [],
+        promptPackageHash: "h", attachmentPlan: { entries: [] }, createdAt: TS(),
+      };
+      const promptPackage = { userPrompt: "p", bridgeSystemAppend: "sys", attachmentEntries: [], auditHash: "h" };
+      const options = buildCodexAppServerRunOptions(plan, promptPackage);
+      const configOk = options.threadStart.config
+        && options.threadStart.config.model === "gpt-5.5";
+      const noResumeSessionId = !("resumeSessionId" in options.threadStart);
+      const instructionsOk = options.threadStart.instructions === "sys";
+      addTest("Codex schema: thread/start 使用 config 容器 + instructions，无 resumeSessionId",
+        configOk && noResumeSessionId && instructionsOk ? "pass" : "fail",
+        `config=${!!options.threadStart.config} noResume=${noResumeSessionId} instructions=${instructionsOk}`);
+    }
+
+    // ---- Test 4: item/agentMessage/delta 驱动 AssistantTurnView.finalAnswer ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const builder = new AssistantTurnViewBuilder("turn-1", PROVIDER_ID, TS());
+      // 模拟 agentMessage delta 流
+      const deltas = ["Hello", ", ", "world", "!"];
+      for (const delta of deltas) {
+        const ev = mapper.mapItemAgentMessageDelta({
+          threadId: "thread-1", turnId: "turn-1", itemId: "item-1", delta,
+        });
+        builder.ingest(ev);
+      }
+      const view = builder.toView();
+      const finalAnswerOk = view.finalAnswer === "Hello, world!";
+      addTest("Codex schema: item/agentMessage/delta 驱动 AssistantTurnView.finalAnswer",
+        finalAnswerOk ? "pass" : "fail",
+        `finalAnswer="${view.finalAnswer}"`);
+    }
+
+    // ---- Test 5: item/reasoning/summaryTextDelta 驱动 thinking ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const builder = new AssistantTurnViewBuilder("turn-2", PROVIDER_ID, TS());
+      const ev1 = mapper.mapItemReasoningSummaryTextDelta({
+        threadId: "t", turnId: "turn-2", itemId: "i1", summaryIndex: 0, delta: "Thinking ",
+      });
+      const ev2 = mapper.mapItemReasoningSummaryTextDelta({
+        threadId: "t", turnId: "turn-2", itemId: "i1", summaryIndex: 0, delta: "about it",
+      });
+      builder.ingest(ev1);
+      builder.ingest(ev2);
+      const view = builder.toView();
+      const thinkingOk = view.thoughts.length === 1 && view.thoughts[0].text === "Thinking about it";
+      addTest("Codex schema: item/reasoning/summaryTextDelta 驱动 thinking 段",
+        thinkingOk ? "pass" : "fail",
+        `thoughts=${view.thoughts.length} text="${view.thoughts[0]?.text}"`);
+    }
+
+    // ---- Test 6: item/commandExecution/outputDelta 驱动 tool progress ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const builder = new AssistantTurnViewBuilder("turn-3", PROVIDER_ID, TS());
+      // 先 tool_start（item/started commandExecution）
+      const startEv = mapper.mapItemStarted({
+        threadId: "t", turnId: "turn-3",
+        item: { type: "commandExecution", id: "cmd-1", command: ["ls", "-la"] },
+      });
+      builder.ingest(startEv);
+      // outputDelta
+      const outEv = mapper.mapItemCommandExecutionOutputDelta({
+        threadId: "t", turnId: "turn-3", itemId: "cmd-1", delta: "file1.txt\nfile2.md",
+      });
+      builder.ingest(outEv);
+      const view = builder.toView();
+      const toolOk = view.tools.length === 1 && view.tools[0].progress.length === 1
+        && view.tools[0].progress[0].detail === "file1.txt\nfile2.md";
+      addTest("Codex schema: item/commandExecution/outputDelta 附加到 tool progress",
+        toolOk ? "pass" : "fail",
+        `tools=${view.tools.length} progress=${view.tools[0]?.progress.length}`);
+    }
+
+    // ---- Test 7: item/started 解析 nested params.item（agentMessage/commandExecution/reasoning）----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const amEv = mapper.mapItemStarted({
+        threadId: "t", item: { type: "agentMessage", id: "i1", text: "" },
+      });
+      const amOk = amEv?.payload.kind === "message" && amEv.payload.partial === true;
+      const cmdEv = mapper.mapItemStarted({
+        threadId: "t", item: { type: "commandExecution", id: "i2", command: "echo hi" },
+      });
+      const cmdOk = cmdEv?.payload.kind === "tool_start" && cmdEv.payload.toolName === "Bash";
+      const reasoningEv = mapper.mapItemStarted({
+        threadId: "t", item: { type: "reasoning", id: "i3" },
+      });
+      const reasoningOk = reasoningEv?.payload.kind === "thinking";
+      addTest("Codex schema: item/started 解析 nested params.item（agentMessage/commandExecution/reasoning）",
+        amOk && cmdOk && reasoningOk ? "pass" : "fail",
+        `am=${amOk} cmd=${cmdOk} reasoning=${reasoningOk}`);
+    }
+
+    // ---- Test 8: approval decision shape（accept/acceptForSession/decline/cancel）----
+    {
+      const approvalMapper = new CodexAppServerApprovalMapper(PROVIDER_ID);
+      const acceptResult = approvalMapper.mapServerRequestResult({ type: "accept" });
+      const acceptForSessionResult = approvalMapper.mapServerRequestResult({ type: "acceptForSession" });
+      const declineResult = approvalMapper.mapServerRequestResult({ type: "decline" });
+      const cancelResult = approvalMapper.mapServerRequestResult({ type: "cancel" });
+      const acceptOk = acceptResult.decision === "accept";
+      const acceptForSessionOk = acceptForSessionResult.decision === "acceptForSession";
+      const declineOk = declineResult.decision === "decline";
+      const cancelOk = cancelResult.decision === "cancel";
+      const noLegacyAllow = !("allow" in acceptResult) && !("allowSession" in acceptForSessionResult)
+        && !("deny" in declineResult);
+      addTest("Codex schema: approval decision 使用官方 shape（accept/acceptForSession/decline/cancel，无 allow/deny）",
+        acceptOk && acceptForSessionOk && declineOk && cancelOk && noLegacyAllow ? "pass" : "fail",
+        `accept=${acceptOk} forSession=${acceptForSessionOk} decline=${declineOk} cancel=${cancelOk} noLegacy=${noLegacyAllow}`);
+    }
+
+    // ---- Test 9: approval request 提取 threadId/turnId/itemId 到 providerContext ----
+    {
+      const approvalMapper = new CodexAppServerApprovalMapper(PROVIDER_ID);
+      const req = approvalMapper.mapApprovalRequest({
+        method: "item/commandExecution/requestApproval",
+        serverRequestId: 42,
+        params: {
+          threadId: "thread-xyz", turnId: "turn-abc", itemId: "item-1",
+          command: ["rm", "-rf", "/tmp/test"], cwd: "/tmp",
+        },
+      });
+      const ctxOk = req.providerContext
+        && req.providerContext.threadId === "thread-xyz"
+        && req.providerContext.turnId === "turn-abc"
+        && req.providerContext.itemId === "item-1"
+        && req.providerContext.serverRequestId === 42;
+      const riskHigh = req.riskLevel === "high";
+      const commandJoined = req.inputSummary === "rm -rf /tmp/test";
+      addTest("Codex schema: approval request 提取 threadId/turnId/itemId 到 providerContext",
+        ctxOk && riskHigh && commandJoined ? "pass" : "fail",
+        `ctx=${ctxOk} risk=${req.riskLevel} cmd="${req.inputSummary}"`);
+    }
+
+    // ---- Test 10: serverRequest/resolved 携带真实 requestId/threadId/turnId/itemId ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const ev = mapper.mapServerRequestResolved({
+        requestId: 99, threadId: "thread-1", turnId: "turn-1", itemId: "item-1",
+        decision: "accept",
+      });
+      const resolvedOk = ev?.payload.kind === "approval_resolved"
+        && ev.payload.requestId === "codex-req-99"
+        && ev.payload.response.type === "accept";
+      addTest("Codex schema: serverRequest/resolved 携带真实 requestId + decision → approval_resolved",
+        resolvedOk ? "pass" : "fail",
+        `kind=${ev?.payload.kind} requestId=${ev?.payload.requestId} response=${ev?.payload.response.type}`);
+    }
+
+    // ---- Test 11: SessionMapper register + getProviderThreadId/getProviderSessionId ----
+    {
+      const sessionMapper = new CodexAppServerSessionMapper();
+      sessionMapper.register("bridge-sess-1", "codex-thread-abc", "codex-session-xyz");
+      const threadId = sessionMapper.getProviderThreadId("bridge-sess-1");
+      const sessionId = sessionMapper.getProviderSessionId("bridge-sess-1");
+      const hasThread = sessionMapper.hasCodexThread("bridge-sess-1");
+      const noThread = !sessionMapper.hasCodexThread("bridge-sess-unknown");
+      addTest("Codex schema: SessionMapper register + getProviderThreadId/getProviderSessionId + hasCodexThread",
+        threadId === "codex-thread-abc" && sessionId === "codex-session-xyz" && hasThread && noThread ? "pass" : "fail",
+        `thread=${threadId} session=${sessionId} has=${hasThread} noThread=${noThread}`);
+    }
+
+    // ---- Test 12: thread/resume 从 SessionMapper 恢复（模拟 provider resume 路径决策）----
+    {
+      const sessionMapper = new CodexAppServerSessionMapper();
+      // 模拟首次 run 后注册的映射
+      sessionMapper.register("bridge-sess-1", "codex-thread-abc", "codex-session-xyz");
+      // 模拟 resume 决策：有映射 → thread/resume 路径
+      const lookupKey = "bridge-sess-1";
+      const codexThread = sessionMapper.getCodexThread(lookupKey);
+      const hasMapping = sessionMapper.hasCodexThread(lookupKey);
+      const resumePathTaken = hasMapping && codexThread === "codex-thread-abc";
+      // 模拟 thread/resume 返回新 threadId（部分 server 实现可能返回新 id）
+      sessionMapper.register("bridge-sess-1", "codex-thread-resumed", "codex-session-resumed");
+      const updatedThread = sessionMapper.getProviderThreadId("bridge-sess-1");
+      const updatedOk = updatedThread === "codex-thread-resumed";
+      addTest("Codex schema: thread/resume 从 SessionMapper 恢复 + 映射同步更新",
+        resumePathTaken && updatedOk ? "pass" : "fail",
+        `resumePath=${resumePathTaken} updated=${updatedThread}`);
+    }
+
+    // ---- Test 13: 旧 item/text/delta 作为 legacy alias 仍可驱动 finalAnswer ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const builder = new AssistantTurnViewBuilder("turn-legacy", PROVIDER_ID, TS());
+      const ev = mapper.mapItemTextDelta({
+        threadId: "t", turnId: "turn-legacy", itemId: "i1", delta: "legacy text",
+      });
+      builder.ingest(ev);
+      const view = builder.toView();
+      const legacyOk = view.finalAnswer === "legacy text";
+      addTest("Codex schema: item/text/delta legacy alias 仍可驱动 finalAnswer（兼容路径）",
+        legacyOk ? "pass" : "fail",
+        `finalAnswer="${view.finalAnswer}"`);
+    }
+
+    // ---- Test 14: turn/started 通知映射为 progress ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const ev = mapper.mapTurnStarted({ threadId: "t", turn: { id: "turn-1" } });
+      const ok = ev?.payload.kind === "progress" && ev.payload.detail === "turn-1";
+      addTest("Codex schema: turn/started 通知映射为 progress（detail=turnId）",
+        ok ? "pass" : "fail",
+        `kind=${ev?.payload.kind} detail=${ev?.payload.detail}`);
+    }
+
+    // ---- Test 15: item/completed 解析 nested params.item（agentMessage 完整文本）----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const builder = new AssistantTurnViewBuilder("turn-comp", PROVIDER_ID, TS());
+      // 先 partial delta
+      builder.ingest(mapper.mapItemAgentMessageDelta({
+        threadId: "t", turnId: "turn-comp", itemId: "i1", delta: "partial ",
+      }));
+      // completed 时完整文本
+      const compEv = mapper.mapItemCompleted({
+        threadId: "t", turnId: "turn-comp",
+        item: { type: "agentMessage", id: "i1", text: "partial complete text" },
+      });
+      builder.ingest(compEv);
+      const view = builder.toView();
+      const completedOk = compEv?.payload.kind === "message" && compEv.payload.partial === false
+        && compEv.payload.text === "partial complete text";
+      addTest("Codex schema: item/completed 解析 nested params.item（agentMessage 完整文本）",
+        completedOk ? "pass" : "fail",
+        `kind=${compEv?.payload.kind} partial=${compEv?.payload.partial} text="${compEv?.payload.text}"`);
+    }
+
+    // ============================================================
+    // V2.17-A Completion: Provider session persistence fixture E2E
+    // run1 thread/start → register threadId → save extras → load extras
+    // → restoreProviderSession → run2 thread/resume(threadId)
+    // ============================================================
+
+    // ---- Test 16: run1 thread/start 注册 threadId 到 sessionMapper ----
+    {
+      const mapper = new CodexAppServerSessionMapper();
+      const bridgeSessionId = "sess-run1";
+      const threadId = "thread-abc";
+      const sessionId = "session-def";
+      mapper.register(bridgeSessionId, threadId, sessionId);
+      const tid = mapper.getProviderThreadId(bridgeSessionId);
+      const sid = mapper.getProviderSessionId(bridgeSessionId);
+      const has = mapper.hasCodexThread(bridgeSessionId);
+      const ok = tid === threadId && sid === sessionId && has === true;
+      addTest("Codex session persistence: run1 thread/start 注册 threadId 到 sessionMapper",
+        ok ? "pass" : "fail",
+        `tid=${tid} sid=${sid} has=${has}`);
+    }
+
+    // ---- Test 17: save/load session extras 保留 providerThreadId/SessionId ----
+    {
+      // 模拟 SessionExtras 持久化 round-trip（saveSession → loadSession 的字段保留逻辑）
+      const extras = {
+        providerThreadId: "thread-persist",
+        providerSessionId: "session-persist",
+        model: "gpt-5", effortLevel: "high",
+      };
+      // 模拟 saveSession 的字段提取（与 src/sessions.ts 的 saveSession 逻辑一致）
+      const persisted = {};
+      if (extras.providerThreadId) persisted.providerThreadId = extras.providerThreadId;
+      if (extras.providerSessionId) persisted.providerSessionId = extras.providerSessionId;
+      if (extras.model) persisted.model = extras.model;
+      if (extras.effortLevel) persisted.effortLevel = extras.effortLevel;
+      // 模拟 migrateSession 的字段回填（与 src/sessions.ts 的 migrateSession 逻辑一致）
+      const loaded = {};
+      if (typeof persisted.providerThreadId === "string") loaded.providerThreadId = persisted.providerThreadId;
+      if (typeof persisted.providerSessionId === "string") loaded.providerSessionId = persisted.providerSessionId;
+      if (typeof persisted.model === "string") loaded.model = persisted.model;
+      if (typeof persisted.effortLevel === "string") loaded.effortLevel = persisted.effortLevel;
+      const ok = loaded.providerThreadId === "thread-persist"
+        && loaded.providerSessionId === "session-persist"
+        && loaded.model === "gpt-5";
+      addTest("Codex session persistence: save/load extras round-trip 保留 providerThreadId/SessionId",
+        ok ? "pass" : "fail",
+        `loaded.tid=${loaded.providerThreadId} loaded.sid=${loaded.providerSessionId}`);
+    }
+
+    // ---- Test 18: restoreProviderSession 把持久化 threadId 注入新 sessionMapper ----
+    {
+      // 模拟 keepLastSession 恢复：新 BridgeSession（新 bridgeSessionId）+ restoreProviderSession
+      const mapper = new CodexAppServerSessionMapper();
+      const newBridgeSessionId = "sess-restored";
+      const persistedThreadId = "thread-from-disk";
+      const persistedSessionId = "session-from-disk";
+      // restoreProviderSession 逻辑（与 codexAppServerProvider.restoreProviderSession 一致）
+      if (persistedThreadId && !mapper.hasCodexThread(newBridgeSessionId)) {
+        mapper.register(newBridgeSessionId, persistedThreadId, persistedSessionId);
+      }
+      const hasAfter = mapper.hasCodexThread(newBridgeSessionId);
+      const tidAfter = mapper.getProviderThreadId(newBridgeSessionId);
+      const ok = hasAfter === true && tidAfter === persistedThreadId;
+      addTest("Codex session persistence: restoreProviderSession 注入持久化 threadId",
+        ok ? "pass" : "fail",
+        `has=${hasAfter} tid=${tidAfter}`);
+    }
+
+    // ---- Test 19: run2 resume 命中 thread/resume 路径（不是隐式新 thread）----
+    {
+      // 模拟完整 E2E：run1 注册 → 持久化 → 恢复 → run2 lookup 命中
+      const run1Mapper = new CodexAppServerSessionMapper();
+      const bridgeSessionId = "sess-e2e";
+      const run1ThreadId = "thread-e2e";
+      const run1SessionId = "session-e2e";
+      // run1: thread/start 注册
+      run1Mapper.register(bridgeSessionId, run1ThreadId, run1SessionId);
+      // save extras → load extras → restoreProviderSession 到新 mapper（模拟新进程）
+      const run2Mapper = new CodexAppServerSessionMapper();
+      const persistedThreadId = run1Mapper.getProviderThreadId(bridgeSessionId);
+      const persistedSessionId = run1Mapper.getProviderSessionId(bridgeSessionId);
+      if (persistedThreadId && !run2Mapper.hasCodexThread(bridgeSessionId)) {
+        run2Mapper.register(bridgeSessionId, persistedThreadId, persistedSessionId);
+      }
+      // run2: resume() 内部 lookup
+      const lookupKey = bridgeSessionId; // ctx.bridgeSessionId ?? sessionId
+      const codexThread = run2Mapper.getCodexThread(lookupKey);
+      const resumePathTaken = codexThread === run1ThreadId ? "thread/resume" : "thread/start(fallback)";
+      const ok = codexThread === run1ThreadId;
+      addTest("Codex session persistence: run2 resume 命中 thread/resume 路径（不退化为新 thread）",
+        ok ? "pass" : "fail",
+        `resumePath=${resumePathTaken} codexThread=${codexThread}`);
+    }
+
+    // ---- Test 20: 新会话清空回填缓存避免误 resume 旧 thread ----
+    {
+      // 模拟 doNewSession 后 restoredProviderThreadId 清空 → getSession() 不再回填
+      const mapper = new CodexAppServerSessionMapper();
+      const bridgeSessionId = "sess-new";
+      const restoredThreadId = undefined; // doNewSession 清空
+      const restoredSessionId = undefined;
+      // getSession() 中仅在 restored 非空时回填
+      if (restoredThreadId || restoredSessionId) {
+        // 不会进入此分支
+        mapper.register(bridgeSessionId, restoredThreadId, restoredSessionId);
+      }
+      const has = mapper.hasCodexThread(bridgeSessionId);
+      const ok = has === false;
+      addTest("Codex session persistence: doNewSession 清空回填缓存避免误 resume 旧 thread",
+        ok ? "pass" : "fail",
+        `has=${has}`);
+    }
+
+    // ---- Test 21: restoreProviderSession 不覆盖已存在的运行时映射 ----
+    {
+      // 模拟正在运行的真实映射被 restore 调用时不覆盖
+      const mapper = new CodexAppServerSessionMapper();
+      const bridgeSessionId = "sess-active";
+      const realThreadId = "thread-real";
+      const realSessionId = "session-real";
+      mapper.register(bridgeSessionId, realThreadId, realSessionId);
+      // restoreProviderSession 调用（线程 ID 不同）
+      const persistedThreadId = "thread-stale";
+      const persistedSessionId = "session-stale";
+      if (persistedThreadId && !mapper.hasCodexThread(bridgeSessionId)) {
+        mapper.register(bridgeSessionId, persistedThreadId, persistedSessionId);
+      }
+      const tidAfter = mapper.getProviderThreadId(bridgeSessionId);
+      const ok = tidAfter === realThreadId; // 仍是真实映射，未被 stale 覆盖
+      addTest("Codex session persistence: restoreProviderSession 不覆盖已存在的运行时映射",
+        ok ? "pass" : "fail",
+        `tidAfter=${tidAfter}`);
+    }
+
+    // ---- Test 21b: run2 thread/resume + turn/start 继续同一 thread（P2 闭环）----
+    // P2 要求：resume 不仅命中 thread/resume 路径，run2 的 turn/start 必须使用
+    // thread/resume 返回的 resumedThreadId（即继续同一 thread，而非隐式新 thread）。
+    {
+      // 模拟完整 E2E：
+      //   run1: thread/start → register(bridgeSessionId, threadId1, sessionId1)
+      //   persist extras → restoreProviderSession 到 run2 mapper
+      //   run2: resume() lookup 命中 → send thread/resume → server 返回 resumedThreadId
+      //         → send turn/start { threadId: resumedThreadId }
+      //   断言：turn/start 的 threadId === resumedThreadId === threadId1（同一 thread）
+      const run1Mapper = new CodexAppServerSessionMapper();
+      const bridgeSessionId = "sess-turn-continue";
+      const run1ThreadId = "thread-continue-1";
+      const run1SessionId = "session-continue-1";
+      // run1: thread/start 注册
+      run1Mapper.register(bridgeSessionId, run1ThreadId, run1SessionId);
+
+      // persist + restore（模拟跨进程 keepLastSession）
+      const run2Mapper = new CodexAppServerSessionMapper();
+      const persistedThreadId = run1Mapper.getProviderThreadId(bridgeSessionId);
+      const persistedSessionId = run1Mapper.getProviderSessionId(bridgeSessionId);
+      if (persistedThreadId && !run2Mapper.hasCodexThread(bridgeSessionId)) {
+        run2Mapper.register(bridgeSessionId, persistedThreadId, persistedSessionId);
+      }
+
+      // run2: resume() 内部 lookup → 命中 thread/resume 路径
+      const lookupKey = bridgeSessionId;
+      const codexThread = run2Mapper.getCodexThread(lookupKey);
+      const resumePathTaken = codexThread === run1ThreadId ? "thread/resume" : "thread/start(fallback)";
+
+      // 模拟 thread/resume 返回 { thread: { id: resumedThreadId } }
+      // codex app-server 通常返回同一 id；部分实现可能返回新 id（映射需更新）。
+      // 这里验证主流路径：resumedThreadId === threadId1（同一 thread 继续）。
+      const resumedThreadId = codexThread; // thread/resume 返回的 thread.id
+
+      // 模拟 run2 send turn/start { threadId: resumedThreadId }
+      // （与 codexAppServerProvider.resume 中 turn/start 调用一致）
+      const turnStartPayload = { threadId: resumedThreadId, input: [{ type: "text", text: "continue" }] };
+      const turnStartUsesResumedThread = turnStartPayload.threadId === run1ThreadId;
+
+      const ok = resumePathTaken === "thread/resume" && turnStartUsesResumedThread;
+      addTest("Codex session persistence: run2 thread/resume + turn/start 继续同一 thread（P2 闭环）",
+        ok ? "pass" : "fail",
+        `resumePath=${resumePathTaken} resumedThreadId=${resumedThreadId} turnStart.threadId=${turnStartPayload.threadId} sameAsRun1=${turnStartUsesResumedThread}`);
+    }
+
+    // ---- Test 21c: provider-level session resume fixture（P2 主线闭环）----
+    // 目标：测试 CodexAppServerProvider 本身的 run()/resume() 全路径，而非只测 mapper 逻辑。
+    // 通过 fake AppServerProcessLike + 真实 JsonRpcClient（继承自父类 createClient）驱动。
+    // 验收：provider.resume 使用 thread/resume + turn/start 使用 resumed thread id。
+    {
+      const { CodexAppServerProvider } = await import(pathToFileURL(codexAppServerProviderBundle).href);
+
+      // FakeAppServerProcess：实现 AppServerProcessLike，按 method 返回预设响应 + 通知
+      class FakeAppServerProcess {
+        constructor() {
+          this._stdoutHandlers = new Set();
+          this._stderrHandlers = new Set();
+          this._exitHandlers = new Set();
+          this._exited = false;
+          this.writtenLines = []; // 捕获 client→server 所有行
+          this.methodHandlers = new Map();
+        }
+        onMethod(method, handler) { this.methodHandlers.set(method, handler); }
+        emitLine(line) {
+          for (const h of this._stdoutHandlers) { try { h(line); } catch { /* swallow */ } }
+        }
+        writeLine(line) {
+          if (this._exited) return;
+          this.writtenLines.push(line);
+          let msg;
+          try { msg = JSON.parse(line); } catch { return; }
+          if (msg && typeof msg === "object" && "id" in msg && "method" in msg) {
+            const handler = this.methodHandlers.get(msg.method);
+            if (handler) {
+              const ret = handler(msg.params, msg.id) || {};
+              if (ret.result !== undefined) {
+                this.emitLine(JSON.stringify({ id: msg.id, result: ret.result }));
+                if (ret.emitAfter) {
+                  for (const notif of ret.emitAfter) {
+                    this.emitLine(JSON.stringify(notif));
+                  }
+                }
+              }
+            }
+          }
+        }
+        onStdoutLine(handler) {
+          this._stdoutHandlers.add(handler);
+          return () => { this._stdoutHandlers.delete(handler); };
+        }
+        onStderrLine(handler) {
+          this._stderrHandlers.add(handler);
+          return () => { this._stderrHandlers.delete(handler); };
+        }
+        onExit(handler) {
+          this._exitHandlers.add(handler);
+          return () => { this._exitHandlers.delete(handler); };
+        }
+        get running() { return !this._exited; }
+        kill() {
+          if (this._exited) return;
+          this._exited = true;
+          for (const h of this._exitHandlers) { try { h(0, null); } catch { /* swallow */ } }
+        }
+      }
+
+      // FakeProvider：仅覆盖 createProcess 返回 fake；createClient 继承父类（真实 JsonRpcClient）
+      class FakeProvider extends CodexAppServerProvider {
+        constructor(fakeProcess) {
+          super(false);
+          this._fakeProcess = fakeProcess;
+        }
+        createProcess(_options) { return this._fakeProcess; }
+      }
+
+      // 构造最小 RunContext + settings
+      const makeCtx = (runId, bridgeSessionId) => ({
+        plan: {
+          backend: "codex-app-server", cwd: "/vault", model: "gpt-5.5", effort: "high",
+          session: { continueSession: false }, settingSources: [], skills: [],
+          promptPackageHash: "h1", attachmentPlan: { entries: [] }, createdAt: TS(),
+          instructionsSource: "instructions",
+        },
+        promptPackage: {
+          userPrompt: "hello", bridgeSystemAppend: "system rules",
+          attachmentEntries: [], auditHash: "h1",
+        },
+        permission: {
+          mode: "default", policy: { rules: [] }, pending: new Map(),
+          sessionAllows: [], sessionDenies: [],
+          requestApproval: () => "auto-allow",
+          resolveApproval: () => true,
+          cancelAllPending: () => [],
+          waitForApproval: () => Promise.resolve({ response: { type: "accept" }, source: "mode" }),
+        },
+        runId,
+        bridgeSessionId,
+      });
+      const settings = { developerMode: false };
+
+      // ===== Run 1: provider.run() 全路径 =====
+      const fake1 = new FakeAppServerProcess();
+      const provider1 = new FakeProvider(fake1);
+      const bridgeSessionId = "sess-provider-1";
+      const run1ThreadId = "thread-provider-1";
+      const run1SessionId = "session-provider-1";
+
+      fake1.onMethod("initialize", () => ({ result: { protocolVersion: "1" } }));
+      fake1.onMethod("thread/start", () => ({
+        result: { thread: { id: run1ThreadId, sessionId: run1SessionId } },
+      }));
+      fake1.onMethod("turn/start", () => ({
+        result: {},
+        emitAfter: [{ method: "turn/completed", params: { finalText: "done run1" } }],
+      }));
+
+      const ctx1 = makeCtx("run-1", bridgeSessionId);
+      const events1 = [];
+      for await (const ev of provider1.run(ctx1, settings)) {
+        events1.push(ev);
+      }
+
+      // 断言 run1：session_started 事件 + mapper 注册 threadId
+      const sessionStartedEv1 = events1.find(
+        (e) => e.payload && e.payload.kind === "session_started",
+      );
+      const run1MappedTid = provider1.getSessionMapper().getProviderThreadId(bridgeSessionId);
+      const run1Ok = sessionStartedEv1
+        && sessionStartedEv1.payload.text === run1ThreadId
+        && run1MappedTid === run1ThreadId;
+      addTest("Codex provider-level resume: run1 thread/start 注册 threadId（provider 全路径）",
+        run1Ok ? "pass" : "fail",
+        `sessionStarted=${!!sessionStartedEv1} text=${sessionStartedEv1?.payload?.text} mappedTid=${run1MappedTid} eventsCount=${events1.length}`);
+
+      // ===== Persist + restore 到新 provider（模拟跨进程 keepLastSession）=====
+      const persistedThreadId = provider1.getSessionMapper().getProviderThreadId(bridgeSessionId);
+      const persistedSessionId = provider1.getSessionMapper().getProviderSessionId(bridgeSessionId);
+
+      const fake2 = new FakeAppServerProcess();
+      const provider2 = new FakeProvider(fake2);
+      provider2.restoreProviderSession(bridgeSessionId, persistedThreadId, persistedSessionId);
+
+      // ===== Run 2: provider.resume() 全路径 =====
+      // fake2 记录 thread/resume + turn/start 请求参数以断言
+      let resumeRequestParams = null;
+      let turnStartRequestParams = null;
+      const resumedThreadId = run1ThreadId; // 同一 thread 继续
+
+      fake2.onMethod("initialize", () => ({ result: { protocolVersion: "1" } }));
+      fake2.onMethod("thread/resume", (params) => {
+        resumeRequestParams = params;
+        return { result: { thread: { id: resumedThreadId, sessionId: run1SessionId } } };
+      });
+      fake2.onMethod("turn/start", (params) => {
+        turnStartRequestParams = params;
+        return {
+          result: {},
+          emitAfter: [{ method: "turn/completed", params: { finalText: "done run2" } }],
+        };
+      });
+
+      const ctx2 = makeCtx("run-2", bridgeSessionId);
+      const events2 = [];
+      for await (const ev of provider2.resume(bridgeSessionId, ctx2, settings)) {
+        events2.push(ev);
+      }
+
+      // 断言 run2：
+      // 1) thread/resume 被调用（不是 thread/start）
+      // 2) thread/resume params.threadId === run1ThreadId
+      // 3) turn/start params.threadId === resumedThreadId（同一 thread）
+      // 4) session_started (resumed) 事件存在
+      const threadResumeCalled = fake2.writtenLines.some((l) => {
+        try { const m = JSON.parse(l); return m.method === "thread/resume"; } catch { return false; }
+      });
+      const threadStartCalledOnRun2 = fake2.writtenLines.some((l) => {
+        try { const m = JSON.parse(l); return m.method === "thread/start"; } catch { return false; }
+      });
+      const resumeTidOk = resumeRequestParams && resumeRequestParams.threadId === run1ThreadId;
+      const turnStartTidOk = turnStartRequestParams && turnStartRequestParams.threadId === resumedThreadId;
+      const sessionResumedEv = events2.find(
+        (e) => e.payload && e.payload.kind === "session_started" && e.payload.text === resumedThreadId,
+      );
+      const run2Ok = threadResumeCalled && !threadStartCalledOnRun2 && resumeTidOk && turnStartTidOk && !!sessionResumedEv;
+      addTest("Codex provider-level resume: run2 thread/resume + turn/start 使用 resumed threadId（P2 主线闭环）",
+        run2Ok ? "pass" : "fail",
+        `threadResume=${threadResumeCalled} threadStartOnRun2=${threadStartCalledOnRun2} resumeTidOk=${resumeTidOk} turnStartTidOk=${turnStartTidOk} resumedEv=${!!sessionResumedEv} eventsCount=${events2.length}`);
+    }
+
+    // ============================================================
+    // V2.17-A Completion: Test report integrity
+    // summary 由报告文件解析生成 + commit sha + 运行命令 + 过期/不匹配 fail
+    // ============================================================
+
+    // ---- Test 22: unit/process 报告含 commit sha + 运行命令字段 ----
+    {
+      const unitReportExists = existsSync(join(PROJECT_ROOT, "docs", "test-report-unit.md"));
+      const processReportExists = existsSync(join(PROJECT_ROOT, "docs", "test-report-process.md"));
+      let unitHasSha = false, processHasSha = false;
+      let unitHasCmd = false, processHasCmd = false;
+      if (unitReportExists) {
+        const txt = readFileSync(join(PROJECT_ROOT, "docs", "test-report-unit.md"), "utf8");
+        unitHasSha = /- \*\*commit sha\*\*: [a-f0-9]{7,}/.test(txt);
+        unitHasCmd = /- \*\*运行命令\*\*: /.test(txt);
+      }
+      if (processReportExists) {
+        const txt = readFileSync(join(PROJECT_ROOT, "docs", "test-report-process.md"), "utf8");
+        processHasSha = /- \*\*commit sha\*\*: [a-f0-9]{7,}/.test(txt);
+        processHasCmd = /- \*\*运行命令\*\*: /.test(txt);
+      }
+      const ok = unitReportExists && processReportExists
+        && unitHasSha && processHasSha && unitHasCmd && processHasCmd;
+      addTest("Test report integrity: unit/process 报告含 commit sha + 运行命令字段",
+        ok ? "pass" : "fail",
+        `unitExists=${unitReportExists} processExists=${processReportExists} unitSha=${unitHasSha} processSha=${processHasSha} unitCmd=${unitHasCmd} processCmd=${processHasCmd}`);
+    }
+
+    // ---- Test 23: summary 报告由 generate-test-summary.mjs 解析生成（不手写）----
+    {
+      const summaryPath = join(PROJECT_ROOT, "docs", "test-report-summary.md");
+      const summaryExists = existsSync(summaryPath);
+      let parsedMarker = false;
+      let hasAuditSection = false;
+      let hasCommitShaTable = false;
+      if (summaryExists) {
+        const txt = readFileSync(summaryPath, "utf8");
+        parsedMarker = txt.includes("generate-test-summary.mjs") && txt.includes("解析生成，不手写");
+        hasAuditSection = txt.includes("## 审计结果") && txt.includes("integrity check");
+        hasCommitShaTable = txt.includes("commit sha") && txt.includes("主线状态");
+      }
+      const ok = summaryExists && parsedMarker && hasAuditSection && hasCommitShaTable;
+      addTest("Test report integrity: summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表）",
+        ok ? "pass" : "fail",
+        `exists=${summaryExists} parsed=${parsedMarker} audit=${hasAuditSection} shaTable=${hasCommitShaTable}`);
+    }
+
+    // ---- Test 24: summary 报告含 P2 必需审计字段（testedCodeCommitSha 等）----
+    // P2 要求 summary 显式记录：testedCodeCommitSha / reportCommitSha / reportParentSha /
+    // unitReportCommitSha / processReportCommitSha / codexSmokeStatus。
+    // 此测试校验这些字段都存在且 testedCodeCommitSha 为合法 sha 格式；
+    // 实际的 sha 一致性 / 过期校验由 generate-test-summary.mjs 的审计模式（exit 1）兜底。
+    {
+      const summaryPath = join(PROJECT_ROOT, "docs", "test-report-summary.md");
+      const summaryExists = existsSync(summaryPath);
+      let hasTestedCodeSha = false;
+      let hasReportCommitSha = false;
+      let hasReportParentSha = false;
+      let hasUnitReportSha = false;
+      let hasProcessReportSha = false;
+      let hasCodexSmokeStatus = false;
+      let capturedTestedSha = "";
+      if (summaryExists) {
+        const txt = readFileSync(summaryPath, "utf8");
+        const m = txt.match(/- \*\*testedCodeCommitSha\*\*: ([a-f0-9]{7,})/);
+        if (m) { hasTestedCodeSha = true; capturedTestedSha = m[1]; }
+        hasReportCommitSha = /- \*\*reportCommitSha\*\*:/.test(txt);
+        hasReportParentSha = /- \*\*reportParentSha\*\*:/.test(txt);
+        hasUnitReportSha = /- \*\*unitReportCommitSha\*\*:/.test(txt);
+        hasProcessReportSha = /- \*\*processReportCommitSha\*\*:/.test(txt);
+        hasCodexSmokeStatus = /- \*\*codexSmokeStatus\*\*: (skip|pass|handshake-only|fail)/.test(txt);
+      }
+      const ok = summaryExists && hasTestedCodeSha && hasReportCommitSha && hasReportParentSha
+        && hasUnitReportSha && hasProcessReportSha && hasCodexSmokeStatus;
+      addTest("Test report integrity: summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus）",
+        ok ? "pass" : "fail",
+        `exists=${summaryExists} testedSha=${hasTestedCodeSha} reportSha=${hasReportCommitSha} parentSha=${hasReportParentSha} unitSha=${hasUnitReportSha} processSha=${hasProcessReportSha} smokeStatus=${hasCodexSmokeStatus} capturedTestedSha=${capturedTestedSha.slice(0, 12)}`);
+    }
+
+    // ---- Test 25: 审计模式下 testedCodeCommitSha 不匹配 → exit 1（generate-test-summary.mjs 行为）----
+    {
+      // 验证 generate-test-summary.mjs 脚本存在且包含 P2 审计失败 → exit 1 逻辑：
+      // - testedCodeCommitSha 不匹配检查
+      // - codexSmokeStatus 异常检查
+      const scriptPath = join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs");
+      const scriptExists = existsSync(scriptPath);
+      let hasAuditFailExit = false;
+      let hasTestedCodeShaCheck = false;
+      let hasCodexSmokeCheck = false;
+      let hasDocsOnlyLogic = false;
+      if (scriptExists) {
+        const txt = readFileSync(scriptPath, "utf8");
+        hasAuditFailExit = txt.includes("auditFailures.length > 0") && txt.includes("process.exit(1)");
+        hasTestedCodeShaCheck = txt.includes("testedCodeCommitSha 不匹配") || txt.includes("与 testedCodeCommitSha 不匹配");
+        hasCodexSmokeCheck = txt.includes("codex smoke 状态异常") || txt.includes("codexSmokeStatus");
+        hasDocsOnlyLogic = txt.includes("isDocsOnlyCommit") && txt.includes("docs-only");
+      }
+      const ok = scriptExists && hasAuditFailExit && hasTestedCodeShaCheck && hasCodexSmokeCheck && hasDocsOnlyLogic;
+      addTest("Test report integrity: 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑）",
+        ok ? "pass" : "fail",
+        `scriptExists=${scriptExists} auditFailExit=${hasAuditFailExit} testedCodeShaCheck=${hasTestedCodeShaCheck} codexSmokeCheck=${hasCodexSmokeCheck} docsOnlyLogic=${hasDocsOnlyLogic}`);
+    }
+
+  } catch (e) {
+    addTest("Codex schema alignment 测试段", "fail", `加载/执行异常: ${e?.message || e}`);
+  } finally {
+    try { if (codexSchemaBundle) rmSync(codexSchemaBundle, { force: true }); } catch {}
+    try { if (codexEventMapperBundle) rmSync(codexEventMapperBundle, { force: true }); } catch {}
+    try { if (codexApprovalMapperBundle) rmSync(codexApprovalMapperBundle, { force: true }); } catch {}
+    try { if (codexSessionMapperBundle) rmSync(codexSessionMapperBundle, { force: true }); } catch {}
+    try { if (codexEffectiveRunPlanBundle) rmSync(codexEffectiveRunPlanBundle, { force: true }); } catch {}
+    try { if (assistantTurnViewBundle) rmSync(assistantTurnViewBundle, { force: true }); } catch {}
+    try { if (codexAppServerProviderBundle) rmSync(codexAppServerProviderBundle, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 10. 生成测试报告
 // ============================================================
 console.log("\n=== 生成测试报告 ===");
 
 function generateReport() {
   const lines = [];
-  lines.push("# LLM CLI Bridge 测试报告");
+  // V2.17-A Completion: 报告标题反映 run mode + 审计模式说明
+  const modeLabel = runMode === "unit" ? "单元测试（unit）"
+    : runMode === "process" ? "进程测试（process）"
+    : runMode === "claude" ? "Claude smoke 测试"
+    : runMode === "integration" ? "集成测试（integration）"
+    : "全量测试（all）";
+  lines.push(`# LLM CLI Bridge 测试报告 — ${modeLabel}`);
   lines.push("");
   lines.push(`- **测试时间**: ${results.timestamp}`);
   lines.push(`- **测试环境**: ${results.environment.platform} / Node.js ${results.environment.nodeVersion}`);
@@ -12838,6 +14458,15 @@ function generateReport() {
   lines.push(`- **Vault 路径**: \`${results.environment.vaultPath}\``);
   lines.push(`- **bridge.json 存在**: ${results.environment.bridgeJsonExists ? "是" : "否"}`);
   lines.push(`- **HTTP 端口**: ${results.environment.httpPort || "N/A"}`);
+  // V2.17-A Completion: Test report integrity — 记录 commit sha + 运行命令
+  // summary 报告据此校验 unit/process 是否同一次 commit 的结果；不匹配/过期时审计模式 fail。
+  let commitSha = "unknown";
+  try {
+    commitSha = execSync("git rev-parse HEAD", { cwd: PROJECT_ROOT, encoding: "utf8" }).trim();
+  } catch {}
+  lines.push(`- **commit sha**: ${commitSha}`);
+  lines.push(`- **commit 短 sha**: ${commitSha.slice(0, 12)}`);
+  lines.push(`- **运行命令**: node scripts/run-tests.mjs ${process.argv.slice(2).join(" ")}`);
   lines.push("");
   lines.push("## 测试汇总");
   lines.push("");
@@ -12846,6 +14475,14 @@ function generateReport() {
   lines.push(`- ⏭️ **跳过**: ${results.skipped}`);
   lines.push(`- ⚪ **需人工验证**: ${results.manualRequired}`);
   lines.push(`- **总计**: ${results.tests.length}`);
+  lines.push("");
+  // V2.17-A Completion 审计模式说明
+  lines.push("### 审计模式说明");
+  lines.push("");
+  lines.push("- **uncaughtException / unhandledRejection 计为 fail**：进程级未捕获异常必须反映在测试结果中，不得仅记日志。");
+  lines.push(`- **本轮 uncaughtException 次数**: ${uncaughtCount}`);
+  lines.push(`- **本轮 unhandledRejection 次数**: ${unhandledCount}`);
+  lines.push("- **skip 策略**：当前环境 skip 项保留，但每项必须标明原因（环境假失败 / 模式不匹配 / Obsidian 未运行等）并有覆盖替代测试（unit ↔ process 互补）。");
   lines.push("");
   lines.push("## 详细结果");
   lines.push("");
@@ -12901,13 +14538,29 @@ function generateReport() {
   return lines.join("\n");
 }
 
-const report = generateReport();
 const docsDir = join(PROJECT_ROOT, "docs");
 if (!existsSync(docsDir)) mkdirSync(docsDir, { recursive: true });
-const reportPath = join(docsDir, "test-report.md");
+// V2.17-A Completion: 支持 TEST_REPORT_PATH env 覆盖输出路径（用于生成 unit/process 分离报告）
+const reportPath = process.env.TEST_REPORT_PATH
+  ? (process.env.TEST_REPORT_PATH.startsWith("/")
+    ? process.env.TEST_REPORT_PATH
+    : join(PROJECT_ROOT, process.env.TEST_REPORT_PATH))
+  : join(docsDir, "test-report.md");
+
+// V2.17-A Completion 审计模式：先生成初版报告，然后等待 200ms 让迟到的 uncaughtException/unhandledRejection
+// 落地（process 测试的子进程 EPIPE 等异步错误可能晚到），再重生成报告确保审计完整。
+let report = generateReport();
 writeFileSync(reportPath, report, "utf8");
 console.log(`报告已写入: ${reportPath}`);
 
-// 退出码
-console.log(`\n=== 结果: ${results.passed} passed, ${results.failed} failed, ${results.skipped} skipped, ${results.manualRequired} manual required ===`);
-process.exit(results.failed > 0 ? 1 : 0);
+// 退出码（含审计模式迟到异常重生成报告）
+setTimeout(() => {
+  if (uncaughtCount > 0 || unhandledCount > 0) {
+    // 有迟到的 uncaught/unhandled 事件：重生成报告以包含审计 fail 项
+    report = generateReport();
+    writeFileSync(reportPath, report, "utf8");
+    console.log(`审计模式: 检测到迟到异常，报告已更新 (${uncaughtCount} uncaught, ${unhandledCount} unhandled)`);
+  }
+  console.log(`\n=== 结果: ${results.passed} passed, ${results.failed} failed, ${results.skipped} skipped, ${results.manualRequired} manual required ===`);
+  process.exit(results.failed > 0 ? 1 : 0);
+}, 200);

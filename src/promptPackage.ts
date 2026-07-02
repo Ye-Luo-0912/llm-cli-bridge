@@ -141,8 +141,11 @@ ${sessionRefs.length > 0 ? rowsFor(sessionRefs) : "(none)"}
   }
 
   // 5. 本轮/Pin 附件（只包含 bounded text snippets，不包含未授权 external 全文）
-  if (snapshot.attachmentTextSnippets && snapshot.attachmentTextSnippets.length > 0) {
-    const snippets = snapshot.attachmentTextSnippets.map((snippet, idx) => {
+  // V2.17-A: 调用方可能传入 [ingestResult.snippet] 其中 snippet 为 null（ingestion 被跳过），
+  // 这里过滤掉 null/undefined 条目，避免 TypeError；空数组不输出该区。
+  const validSnippets = (snapshot.attachmentTextSnippets ?? []).filter((s) => s != null);
+  if (validSnippets.length > 0) {
+    const snippets = validSnippets.map((snippet, idx) => {
       const marker = snippet.truncated ? "\n...[attachment truncated by LLM CLI Bridge]" : "";
       return `--- Attachment ${idx + 1}: ${snippet.displayName} ---
 type: ${snippet.fileType}

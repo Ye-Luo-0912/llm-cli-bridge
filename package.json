@@ -11,6 +11,10 @@
     "test:process": "node scripts/run-tests.mjs --process",
     "test:claude": "node scripts/run-tests.mjs --claude",
     "test:integration": "node scripts/run-tests.mjs --integration",
+    "test:codex-app-server": "node scripts/codex-app-server-smoke.mjs",
+    "smoke:codex-app-server": "node scripts/codex-app-server-smoke.mjs",
+    "test:summary": "node scripts/generate-test-summary.mjs",
+    "codex:schema": "node scripts/generate-codex-schema.mjs",
     "release": "node scripts/build-release.mjs"
   },
   "keywords": [

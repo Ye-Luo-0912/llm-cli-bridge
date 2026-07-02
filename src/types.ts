@@ -34,33 +34,85 @@ export type BackendMode = "auto" | "cli" | "sdk" | "mock-success" | "mock-failur
 export type PermissionPolicy = "low" | "medium" | "high";
 
 // V2.17-A: 附件打包计划（审计用，记录本轮附件分布）
+// V2.17-A Completion: 从 count-only 升级到 entry-level（每条附件单独审计）。
 export interface AttachmentPlan {
   messageScopedRefs: number;
   pinnedRefs: number;
   inlineSnippets: number;
   imageStreamingBlocks: number;
   nativeRefOnly: number;
+  /** entry-level 审计：每条附件的 refId/scope/fileType/packing/pathHash/contentHash/reason */
+  entries: ReadonlyArray<AttachmentAuditEntry>;
+}
+
+/**
+ * 单条附件的审计条目（entry-level）。
+ *
+ * 记录每个附件的 packing 决策与内容指纹，便于：
+ * - 跨 provider 一致性校验（同一附件在 Claude/Codex 路径下 packing 是否一致）
+ * - prompt split 闭环验证（inline-snippet 必须出现在 userPrompt；sdk-streaming-block 必须进 image block）
+ * - 审计回溯（哪个附件走了哪条路径，原因是什么）
+ */
+export interface AttachmentAuditEntry {
+  refId: string;
+  scope: "message" | "pinned" | "session";
+  fileType: "image" | "text" | "markdown" | "json" | "pdf" | "binary" | "unknown";
+  packing: "inline-snippet" | "sdk-streaming-block" | "native-ref-only";
+  /** 路径指纹（djb2 变体，非加密强度；用于跨 run 比对同一附件） */
+  pathHash: string;
+  /** 内容指纹（djb2 变体；inline-snippet 记录实际内容哈希，ref-only 记录空串） */
+  contentHash: string;
+  /** packing 决策原因（为何走该 packing 路径） */
+  reason: string;
 }
 
 // V2.17-A: EffectiveRunPlan —— 每次运行的单一真相源
 // CLI 与 SDK 都从同一个 plan 派生 options / env；Developer mode 可查看，普通用户隐藏。
-export interface EffectiveRunPlan {
-  backend: "sdk" | "cli";
+//
+// V2.17-A Completion: 拆分为 Base / Claude / Codex 三层，去掉 Claude-only 顶层语义。
+// - BaseEffectiveRunPlan: provider-neutral 公共字段
+// - ClaudeEffectiveRunPlan: backend=sdk|cli，含 permission/systemPrompt/tools preset
+// - CodexAppServerEffectiveRunPlan: backend=codex-app-server，含 codex 专用 instructionsSource
+// EffectiveRunPlan 是两者的联合；消费方按 backend 收窄。
+
+/** provider-neutral 公共字段（CLI/SDK/Codex 共享） */
+export interface BaseEffectiveRunPlan {
   cwd: string;
   model: string;
   // 官方字段名 effort（不再用未确认的 reasoningEffort）
   effort: string;
-  permission: ClaudePermissionMode;
   session: { continueSession: boolean; resumeId?: string };
-  // 显式 claude_code preset
-  systemPrompt: { preset: "claude_code" };
-  tools: { preset: "claude_code" };
   settingSources: readonly string[];
   skills: readonly string[];
   promptPackageHash: string;
   attachmentPlan: AttachmentPlan;
   createdAt: string;
 }
+
+/** Claude SDK/CLI 专用 plan（含 Claude-only 顶层语义：permission/systemPrompt/tools preset） */
+export interface ClaudeEffectiveRunPlan extends BaseEffectiveRunPlan {
+  backend: "sdk" | "cli";
+  permission: ClaudePermissionMode;
+  // 显式 claude_code preset
+  systemPrompt: { preset: "claude_code" };
+  tools: { preset: "claude_code" };
+}
+
+/**
+ * Codex app-server 专用 plan。
+ *
+ * codex-app-server 不读 systemPrompt/tools preset 字段（这些是 Claude 专用），
+ * 由 CodexAppServerEffectiveRunPlan.buildRunOptions 派生 codex instructions/config/rules。
+ * bridgeSystemAppend 走 instructions 层（见 codexAppServerEffectiveRunPlan.ts）。
+ */
+export interface CodexAppServerEffectiveRunPlan extends BaseEffectiveRunPlan {
+  backend: "codex-app-server";
+  /** bridgeSystemAppend 的承载层（审计用：标记它走了哪个 codex 字段） */
+  instructionsSource: "instructions" | "config" | "rules" | "provider-preamble";
+}
+
+/** EffectiveRunPlan 联合类型（按 backend 收窄） */
+export type EffectiveRunPlan = ClaudeEffectiveRunPlan | CodexAppServerEffectiveRunPlan;
 
 // 单条聊天消息
 export interface ChatMessage {
