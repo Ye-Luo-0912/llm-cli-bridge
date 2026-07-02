@@ -10,7 +10,7 @@
 // - SDKResultMessage(error)    → error(fatal) + failed(UI-only 终态)；调用方另发 AgentEvent failed
 // - SDKPermissionDeniedMessage → permission(denied)
 // - 文件变更：从 tool_use 的 Edit/Write/MultiEdit/NotebookEdit 检测 → file_change
-// - SDKPartialAssistantMessage → 标记 partial，不产出事件（不伪造工具过程）
+// - SDKPartialAssistantMessage → 映射 partial text/thinking/progress，保留 SDK 原始过程
 //
 // 不改 AgentEvent v0.1；所有映射结果为 WorkflowEvent（UI-only）
 
@@ -20,6 +20,7 @@ import {
   ToolResultEvent,
   FileChangeEvent,
   PermissionEvent,
+  ProgressEvent,
   ErrorEvent,
   ThinkingEvent,
   CompletedEvent,
@@ -53,8 +54,11 @@ export interface SdkTextBlock {
 
 /** SDK content block: thinking（V2.0：模型思考过程） */
 export interface SdkThinkingBlock {
-  readonly type: "thinking";
-  readonly thinking: string;
+  readonly type: "thinking" | "redacted_thinking";
+  readonly thinking?: string;
+  readonly summary?: string;
+  readonly text?: string;
+  readonly summaries?: ReadonlyArray<string | { readonly text?: string; readonly summary?: string }>;
 }
 
 export type SdkContentBlock = SdkToolUseBlock | SdkToolResultBlock | SdkTextBlock | SdkThinkingBlock | { readonly type: string };
@@ -109,10 +113,28 @@ export interface SdkResultMessage {
   readonly session_id?: string;
 }
 
-/** SDKPartialAssistantMessage：流式增量（V1.7 标记 partial，不深度解析） */
+/** SDKPartialAssistantMessage：流式增量（V2.16-G 映射 text/thinking/progress） */
 export interface SdkPartialAssistantMessage {
   readonly type: "stream_event";
-  readonly parent_tool_use_id?: string;
+  readonly event?: {
+    readonly type?: string;
+    readonly index?: number;
+    readonly delta?: {
+      readonly type?: string;
+      readonly text?: string;
+      readonly thinking?: string;
+      readonly estimated_tokens?: number | null;
+      readonly partial_json?: string;
+    };
+    readonly content_block?: {
+      readonly type?: string;
+      readonly id?: string;
+      readonly name?: string;
+    };
+  };
+  readonly parent_tool_use_id?: string | null;
+  readonly session_id?: string;
+  readonly ttft_ms?: number;
 }
 
 /** 所有 SDK 消息的联合类型（鸭子类型子集） */
@@ -196,6 +218,114 @@ export function serializeToolResultContent(
   return "";
 }
 
+function truncateDetail(text: string, maxLen = 120): string {
+  return text.length <= maxLen ? text : text.slice(0, maxLen - 1) + "…";
+}
+
+function createProgressEvent(
+  timestamp: string,
+  label: string,
+  detail?: string,
+  category: ProgressEvent["category"] = "status",
+): ProgressEvent {
+  return {
+    type: "progress",
+    timestamp,
+    label,
+    ...(detail ? { detail } : {}),
+    category,
+  };
+}
+
+function extractDisplayableThinking(block: unknown): string {
+  if (!block || typeof block !== "object") return "";
+  const record = block as Record<string, unknown>;
+  for (const key of ["thinking", "summary", "text"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  const summaries = record.summaries;
+  if (Array.isArray(summaries)) {
+    const parts = summaries
+      .map((item) => {
+        if (typeof item === "string") return item;
+        if (item && typeof item === "object") {
+          const entry = item as Record<string, unknown>;
+          if (typeof entry.text === "string") return entry.text;
+          if (typeof entry.summary === "string") return entry.summary;
+        }
+        return "";
+      })
+      .filter((part) => part.trim().length > 0);
+    if (parts.length > 0) return parts.join("\n");
+  }
+  return "";
+}
+
+function mapPartialStreamEvent(pm: SdkPartialAssistantMessage, timestamp: string): WorkflowEvent[] {
+  const events: WorkflowEvent[] = [];
+  const raw = pm.event;
+  if (!raw) {
+    events.push(createProgressEvent(timestamp, "Receiving stream event"));
+    return events;
+  }
+
+  if (raw.type === "message_start") {
+    const detail = typeof pm.ttft_ms === "number" ? `first token ${pm.ttft_ms}ms` : undefined;
+    events.push(createProgressEvent(timestamp, "Response started", detail, "request"));
+    return events;
+  }
+
+  if (raw.type === "content_block_start") {
+    const block = raw.content_block;
+    if (block?.type === "thinking" || block?.type === "redacted_thinking") {
+      events.push(createProgressEvent(timestamp, "Thinking started", undefined, "thinking"));
+    } else if (block?.type === "tool_use" || block?.type === "server_tool_use" || block?.type === "mcp_tool_use") {
+      events.push(createProgressEvent(timestamp, `Preparing ${block.name ?? "tool"}`, undefined, "tool"));
+    } else {
+      events.push(createProgressEvent(timestamp, `Receiving ${block?.type ?? "content"}`));
+    }
+    return events;
+  }
+
+  if (raw.type === "content_block_delta") {
+    const delta = raw.delta;
+    if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
+      events.push({
+        type: "message",
+        timestamp,
+        role: "assistant",
+        text: delta.text,
+        parentToolUseId: typeof pm.parent_tool_use_id === "string" ? pm.parent_tool_use_id : undefined,
+        sessionId: typeof pm.session_id === "string" ? pm.session_id : undefined,
+      });
+    } else if (delta?.type === "thinking_delta") {
+      if (typeof delta.thinking === "string" && delta.thinking.length > 0) {
+        events.push({ type: "thinking", timestamp, text: delta.thinking });
+      }
+      if (typeof delta.estimated_tokens === "number") {
+        events.push(createProgressEvent(timestamp, "Thinking", `~${delta.estimated_tokens} tokens`, "thinking"));
+      }
+    } else if (delta?.type === "input_json_delta") {
+      const detail = typeof delta.partial_json === "string" ? truncateDetail(delta.partial_json) : undefined;
+      events.push(createProgressEvent(timestamp, "Preparing tool input", detail, "tool"));
+    }
+    return events;
+  }
+
+  if (raw.type === "message_delta") {
+    events.push(createProgressEvent(timestamp, "Receiving response", undefined, "request"));
+    return events;
+  }
+
+  if (raw.type === "message_stop" || raw.type === "content_block_stop") {
+    return events;
+  }
+
+  events.push(createProgressEvent(timestamp, `Stream: ${raw.type ?? "event"}`));
+  return events;
+}
+
 // ---------- 主映射函数 ----------
 
 /**
@@ -245,14 +375,15 @@ export function mapSdkMessageToWorkflowEvents(
     const content = am.message?.content;
     if (Array.isArray(content)) {
       for (const block of content) {
-        if (block.type === "thinking" && typeof (block as SdkThinkingBlock).thinking === "string") {
-          // V2.0: thinking block → ThinkingEvent（UI-only，不进 AgentEvent）
-          const thinkingBlock = block as SdkThinkingBlock;
-          if (thinkingBlock.thinking.length > 0) {
+        if (block.type === "thinking" || block.type === "redacted_thinking") {
+          // V2.16-H: thinking.display=summarized can return a displayable
+          // summary instead of raw thinking. Show whatever the SDK exposes.
+          const thinkingText = extractDisplayableThinking(block);
+          if (thinkingText.length > 0) {
             events.push({
               type: "thinking",
               timestamp,
-              text: thinkingBlock.thinking,
+              text: thinkingText,
             });
           }
         } else if (block.type === "text" && typeof (block as SdkTextBlock).text === "string") {
@@ -334,8 +465,42 @@ export function mapSdkMessageToWorkflowEvents(
         description: sm.message ?? "Permission denied",
         granted: false,
       });
+    } else if (sm.subtype === "status") {
+      const record = sm as unknown as Record<string, unknown>;
+      const status = record.status;
+      if (status === "requesting") {
+        events.push(createProgressEvent(timestamp, "Requesting model", undefined, "request"));
+      } else if (status === "compacting") {
+        const detail = typeof record.compact_error === "string" ? record.compact_error : undefined;
+        events.push(createProgressEvent(timestamp, "Compacting context", detail, "status"));
+      }
+    } else if (sm.subtype === "thinking_tokens") {
+      const record = sm as unknown as Record<string, unknown>;
+      const estimated = record.estimated_tokens;
+      const delta = record.estimated_tokens_delta;
+      const detailParts: string[] = [];
+      if (typeof estimated === "number") detailParts.push(`~${estimated} tokens`);
+      if (typeof delta === "number" && delta > 0) detailParts.push(`+${delta}`);
+      events.push(createProgressEvent(timestamp, "Thinking", detailParts.join(" · ") || undefined, "thinking"));
+    } else if (sm.subtype === "task_progress") {
+      const record = sm as unknown as Record<string, unknown>;
+      const description = typeof record.description === "string" && record.description.length > 0
+        ? record.description
+        : "Task progress";
+      const usage = record.usage && typeof record.usage === "object" ? record.usage as Record<string, unknown> : null;
+      const detailParts: string[] = [];
+      if (usage && typeof usage.total_tokens === "number") detailParts.push(`${usage.total_tokens} tokens`);
+      if (usage && typeof usage.tool_uses === "number") detailParts.push(`${usage.tool_uses} tools`);
+      if (typeof record.last_tool_name === "string") detailParts.push(record.last_tool_name);
+      events.push(createProgressEvent(timestamp, description, detailParts.join(" · ") || undefined, "tool"));
+    } else if (sm.subtype === "informational") {
+      const record = sm as unknown as Record<string, unknown>;
+      const content = typeof record.content === "string" ? record.content : "";
+      const level = typeof record.level === "string" ? record.level : "";
+      if (content.length > 0) {
+        events.push(createProgressEvent(timestamp, truncateDetail(content, 100), level || undefined, "notice"));
+      }
     }
-    // 其他 system 子类型（status/compact_boundary 等）暂不映射，避免噪音
     return { events, terminal: null, terminalText: "", terminalExitCode: null, partial: false };
   }
 
@@ -401,12 +566,46 @@ export function mapSdkMessageToWorkflowEvents(
     }
   }
 
-  // 5. SDKPartialAssistantMessage：标记 partial，不产出事件（V1.7 不深度解析流式增量）
+  // 5. SDKPartialAssistantMessage：partial text/thinking/progress 映射为 UI-only WorkflowEvent
   if (msg.type === "stream_event") {
-    return { events: [], terminal: null, terminalText: "", terminalExitCode: null, partial: true };
+    return {
+      events: mapPartialStreamEvent(msg as SdkPartialAssistantMessage, timestamp),
+      terminal: null,
+      terminalText: "",
+      terminalExitCode: null,
+      partial: true,
+    };
   }
 
-  // 6. 未知消息类型：忽略
+  // 6. SDK 运行中工具进度：保留原始过程，不执行任何自研工具逻辑
+  if (msg.type === "tool_progress") {
+    const record = msg as unknown as Record<string, unknown>;
+    const toolName = typeof record.tool_name === "string" && record.tool_name.length > 0 ? record.tool_name : "tool";
+    const elapsed = typeof record.elapsed_time_seconds === "number"
+      ? `${Math.round(record.elapsed_time_seconds)}s`
+      : undefined;
+    return {
+      events: [createProgressEvent(timestamp, `${toolName} running`, elapsed, "tool")],
+      terminal: null,
+      terminalText: "",
+      terminalExitCode: null,
+      partial: false,
+    };
+  }
+
+  if (msg.type === "tool_use_summary") {
+    const record = msg as unknown as Record<string, unknown>;
+    const summary = typeof record.summary === "string" ? truncateDetail(record.summary, 160) : undefined;
+    return {
+      events: [createProgressEvent(timestamp, "Tool summary", summary, "tool")],
+      terminal: null,
+      terminalText: "",
+      terminalExitCode: null,
+      partial: false,
+    };
+  }
+
+  // 7. 未知消息类型：忽略
   return { events: [], terminal: null, terminalText: "", terminalExitCode: null, partial: false };
 }
 

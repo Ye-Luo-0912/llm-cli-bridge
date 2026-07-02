@@ -3203,12 +3203,12 @@ if (!runV17Unit) {
         `successOk=${successOk} errorOk=${errorOk}`);
     }
 
-    // ---- Test 5: partial event (stream_event) 标记 partial，不产出事件 ----
+    // ---- Test 5: partial event (stream_event) 标记 partial，并产出 progress 事件 ----
     {
       const partialMsg = { type: "stream_event", parent_tool_use_id: "call_1" };
       const result = mapSdkMessageToWorkflowEvents(partialMsg, TS);
-      addTest("V1.7 mapSdkMessageToWorkflowEvents: stream_event 标记 partial 不产出事件",
-        result.partial === true && result.events.length === 0 && result.terminal === null ? "pass" : "fail",
+      addTest("V2.16-G mapSdkMessageToWorkflowEvents: stream_event 标记 partial 并保留 progress",
+        result.partial === true && result.events.some((e) => e.type === "progress") && result.terminal === null ? "pass" : "fail",
         `partial=${result.partial} events=${result.events.length} terminal=${result.terminal}`);
     }
 
@@ -3674,12 +3674,14 @@ if (!runV20Unit) {
   let sdkMapperBundleV20 = null;
   let sdkBackendBundleV20 = null;
   let cliBackendBundleV20 = null;
+  let timelineAdapterBundleV20 = null;
   try {
     const esbuild = (await import("esbuild")).default;
     workflowEventBundleV20 = join(PROJECT_ROOT, ".test-workflow-event-v20-temp.mjs");
     sdkMapperBundleV20 = join(PROJECT_ROOT, ".test-sdk-mapper-v20-temp.mjs");
     sdkBackendBundleV20 = join(PROJECT_ROOT, ".test-sdk-backend-v20-temp.mjs");
     cliBackendBundleV20 = join(PROJECT_ROOT, ".test-cli-backend-v20-temp.mjs");
+    timelineAdapterBundleV20 = join(PROJECT_ROOT, ".test-timeline-adapter-v20-temp.mjs");
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "workflowEvent.ts")],
       bundle: true, format: "esm", platform: "node", outfile: workflowEventBundleV20,
@@ -3696,6 +3698,10 @@ if (!runV20Unit) {
       entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
       bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV20,
     });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "timelineAdapter.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: timelineAdapterBundleV20,
+    });
 
     const {
       buildToolTimeline,
@@ -3710,8 +3716,9 @@ if (!runV20Unit) {
       updateDiagnostics,
       formatDiagnosticsForLog,
     } = await import(pathToFileURL(sdkMapperBundleV20).href);
-    const { SdkBackend, generateMockFailureWorkflowEvents } = await import(pathToFileURL(sdkBackendBundleV20).href);
+    const { SdkBackend, deriveAssistantTextDelta, generateMockFailureWorkflowEvents } = await import(pathToFileURL(sdkBackendBundleV20).href);
     const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV20).href);
+    const { adaptEventsToTimeline } = await import(pathToFileURL(timelineAdapterBundleV20).href);
 
     const TS = "2026-06-28T00:00:00.000Z";
 
@@ -3733,6 +3740,21 @@ if (!runV20Unit) {
         `hasThinking=${hasThinking} hasMessage=${hasMessage} notTerminal=${notTerminal}`);
     }
 
+    // ---- Test 1b: summarized thinking block 映射为 ThinkingEvent ----
+    {
+      const assistantMsg = {
+        type: "assistant",
+        message: { content: [
+          { type: "redacted_thinking", summary: "已分析截图，准备给出 UI 优化建议。" },
+        ] },
+      };
+      const result = mapSdkMessageToWorkflowEvents(assistantMsg, TS);
+      const hasSummary = result.events.some((e) => e.type === "thinking" && e.text.includes("UI 优化建议"));
+      addTest("V2.16-H thinking summary: redacted_thinking summary → ThinkingEvent",
+        hasSummary && result.terminal === null ? "pass" : "fail",
+        `hasSummary=${hasSummary}`);
+    }
+
     // ---- Test 2: completed 终态事件（result success）----
     {
       const successMsg = {
@@ -3747,7 +3769,22 @@ if (!runV20Unit) {
         `hasCompleted=${hasCompleted} terminalCompleted=${terminalCompleted}`);
     }
 
-    // ---- Test 3: failed 终态事件（result error）----
+    // ---- Test 3: assistant 文本增量推导（兼容累积快照与分块输出）----
+    {
+      const first = deriveAssistantTextDelta("", "Hello");
+      const snapshot = deriveAssistantTextDelta("Hello", "Hello world");
+      const block = deriveAssistantTextDelta("Hello", " world");
+      const duplicate = deriveAssistantTextDelta("Hello world", "Hello world");
+      const ok = first === "Hello"
+        && snapshot === " world"
+        && block === " world"
+        && duplicate === "";
+      addTest("V2.16-G SDK streaming: deriveAssistantTextDelta 兼容 snapshot/block 并去重",
+        ok ? "pass" : "fail",
+        `first=${JSON.stringify(first)} snapshot=${JSON.stringify(snapshot)} block=${JSON.stringify(block)} duplicate=${JSON.stringify(duplicate)}`);
+    }
+
+    // ---- Test 4: failed 终态事件（result error）----
     {
       const errorMsg = {
         type: "result", subtype: "error_during_execution", is_error: true,
@@ -3762,7 +3799,7 @@ if (!runV20Unit) {
         `hasFailed=${hasFailed} hasError=${hasError} terminalFailed=${terminalFailed}`);
     }
 
-    // ---- Test 4: tool durationMs（buildToolTimeline 配对后计算耗时）----
+    // ---- Test 5: tool durationMs（buildToolTimeline 配对后计算耗时）----
     {
       const events = [
         { type: "tool_start", timestamp: "2026-06-28T00:00:00.000Z", toolName: "Read", toolInput: "{}", callId: "c1" },
@@ -3886,12 +3923,18 @@ if (!runV20Unit) {
         `tL=${thinkingLabel} cL=${completedLabel} fL=${failedLabel} tC=${thinkingClass} cC=${completedClass} fC=${failedClass} tI=${thinkingIcon} cI=${completedIcon} fI=${failedIcon}`);
     }
 
-    // ---- Test 11: partial 机制不变（stream_event → partial=true，无事件，不伪造）----
+    // ---- Test 11: partial 机制（stream_event → partial=true，映射 text/thinking/progress）----
     {
-      const partialMsg = { type: "stream_event", parent_tool_use_id: "call_1" };
+      const partialMsg = {
+        type: "stream_event",
+        parent_tool_use_id: "call_1",
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: "Hello" } },
+      };
       const result = mapSdkMessageToWorkflowEvents(partialMsg, TS);
-      const partialOk = result.partial === true && result.events.length === 0 && result.terminal === null;
-      addTest("V2.0 partial 不变: stream_event 标记 partial 不产出事件（不伪造工具过程）",
+      const partialOk = result.partial === true
+        && result.events.some((e) => e.type === "message" && e.role === "assistant" && e.text === "Hello")
+        && result.terminal === null;
+      addTest("V2.16-G partial: stream_event 映射 assistant text delta",
         partialOk ? "pass" : "fail",
         `partialOk=${partialOk}`);
     }
@@ -3924,6 +3967,30 @@ if (!runV20Unit) {
         `hasStdout=${hasStdout} noWfEvents=${noWfEvents} wfCount=${wfEvents.length}`);
     }
 
+    // ---- Test 13: timeline 聚合 thinking，completed 不再额外生成 final_message ----
+    {
+      const events = [
+        { type: "progress", timestamp: "2026-06-28T00:00:00.000Z", label: "Thinking", detail: "~58 tokens · +2", category: "thinking" },
+        { type: "thinking", timestamp: "2026-06-28T00:00:01.000Z", text: "先看图。" },
+        { type: "progress", timestamp: "2026-06-28T00:00:02.000Z", label: "Thinking", detail: "~74 tokens · +16", category: "thinking" },
+        { type: "thinking", timestamp: "2026-06-28T00:00:03.000Z", text: "再给出建议。" },
+        { type: "message", timestamp: "2026-06-28T00:00:04.000Z", role: "assistant", text: "你好！有什么我可以帮你的？" },
+        { type: "completed", timestamp: "2026-06-28T00:00:05.000Z", text: "你好！有什么我可以帮你的？", durationMs: 5000 },
+      ];
+      const nodes = adaptEventsToTimeline(events);
+      const thoughtNodes = nodes.filter((n) => n.kind === "thought");
+      const finalNodes = nodes.filter((n) => n.kind === "final_message");
+      const completedNodes = nodes.filter((n) => n.kind === "completed");
+      const ok = thoughtNodes.length === 1
+        && (thoughtNodes[0].text ?? "").includes("先看图。再给出建议。")
+        && thoughtNodes[0].progressDetail === "~74 tokens · +16"
+        && finalNodes.length === 0
+        && completedNodes.length === 1;
+      addTest("V2.16-H timeline: thinking 聚合为单块且不再生成 final_message 重复节点",
+        ok ? "pass" : "fail",
+        `thoughts=${thoughtNodes.length} final=${finalNodes.length} completed=${completedNodes.length} detail=${thoughtNodes[0]?.progressDetail ?? ""}`);
+    }
+
   } catch (e) {
     addTest("V2.0 单元测试段", "fail", e?.stack || e?.message || String(e));
   } finally {
@@ -3931,6 +3998,7 @@ if (!runV20Unit) {
     try { if (sdkMapperBundleV20) rmSync(sdkMapperBundleV20, { force: true }); } catch {}
     try { if (sdkBackendBundleV20) rmSync(sdkBackendBundleV20, { force: true }); } catch {}
     try { if (cliBackendBundleV20) rmSync(cliBackendBundleV20, { force: true }); } catch {}
+    try { if (timelineAdapterBundleV20) rmSync(timelineAdapterBundleV20, { force: true }); } catch {}
   }
 }
 
@@ -9124,9 +9192,12 @@ if (!runV213EUnit) {
       const permissionSeparate = options.permissionMode === "default"
         && options.canUseTool === undefined
         && options.allowedTools === undefined;
-      const ok = settingSourcesOk && skillsOk && permissionSeparate;
+      const thinkingOk = options.thinking
+        && options.thinking.type === "adaptive"
+        && options.thinking.display === "summarized";
+      const ok = settingSourcesOk && skillsOk && permissionSeparate && thinkingOk;
       addTest("V2.13.0-E SDK: buildSdkOptions 使用 settingSources + skills，权限仍不混入 skills", ok ? "pass" : "fail",
-        `settingSources=${JSON.stringify(options.settingSources)} skills=${JSON.stringify(options.skills)} permissionSeparate=${permissionSeparate}`);
+        `settingSources=${JSON.stringify(options.settingSources)} skills=${JSON.stringify(options.skills)} permissionSeparate=${permissionSeparate} thinking=${JSON.stringify(options.thinking)}`);
     }
 
     {
@@ -12274,15 +12345,20 @@ if (!runNoteSummarizeSmoke) {
     addTest("V2.16-D developer mode: 用户态隐藏 raw log/command", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 16: 用户态 timeline 过滤内部/private runtime 文件和 raw 噪音，但保留 thinking 摘要 ----
+  // ---- Test 16: 用户态 timeline 隐藏 session/text/final，只保留过程节点 ----
   {
     const ok = viewSrc.includes("filterUserFacingTimelineNodes")
-      && viewSrc.includes('node.kind === "session_started"')
-      && !viewSrc.includes('node.kind === "session_started" || node.kind === "thought"')
+      && viewSrc.includes('if (node.kind === "session_started") return false;')
+      && viewSrc.includes('if (node.kind === "agent") return false;')
+      && viewSrc.includes('if (node.kind === "final_message") return false;')
       && viewSrc.includes("isInternalFilePath(toolPath)")
       && viewSrc.includes("adaptEventsToTimeline(events)")
-      && viewSrc.includes('text: "思考"');
-    addTest("V2.16-F timeline: 用户态保留 thinking，过滤 raw/internal 节点", ok ? "pass" : "fail", "");
+      && viewSrc.includes('titleEl.createEl("span", { text: "Thinking" });')
+      && viewSrc.includes("llm-bridge-tl-thinking-star")
+      && viewSrc.includes('node.progressLabel === "Preparing tool input"')
+      && viewSrc.includes('completedToolNames.has(preparingMatch[1].toLowerCase())')
+      && viewSrc.includes('node.kind === "progress"');
+    addTest("V2.16-H timeline: 用户态隐藏 session/text/final/raw tool input，仅保留语义过程节点", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 17: completed 用户态显示最终输出，并在结果前保留 processOnly 折叠过程 ----
@@ -12293,7 +12369,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("this.appendMsgDetails(block, msg, content)")
       && viewSrc.includes("block.insertBefore(details, beforeEl)")
       && viewSrc.includes("processOnly")
-      && viewSrc.includes('node.kind !== "final_message" && node.kind !== "completed"')
+      && viewSrc.includes("const visibleNodes = nodes;")
+      && !viewSrc.includes('node.kind !== "agent" && node.kind !== "final_message" && node.kind !== "completed"')
       && viewSrc.includes("formatProcessSummary")
       && !viewSrc.includes("llm-bridge-msg-final-output")
       && !stylesSrc.includes("llm-bridge-msg-final-output");
@@ -12304,6 +12381,9 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes("private renderMessageContent")
       && viewSrc.includes("MarkdownRenderer.render(this.app, text, content")
+      && viewSrc.includes("private renderStreamingMessageContent")
+      && viewSrc.includes("llm-bridge-msg-stream-text")
+      && viewSrc.includes("private appendAssistantContentDelta")
       && viewSrc.includes("appendRunningProcessPlaceholder")
       && viewSrc.includes("正在连接 runtime，等待首个事件")
       && viewSrc.includes("Developer mode keeps the legacy global Run Flow")
@@ -12318,6 +12398,29 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('text: "Sources"')
       && viewSrc.includes('text: "Context estimate"');
     addTest("V2.16-F chat/context polish: 隐藏复制按钮并压缩 Context 文案", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 20: SDK assistant 文本增量流式写入正文，终态不重复补发 ----
+  {
+    const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
+    const sdkMessageMapperSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkMessageMapper.ts"), "utf8");
+    const timelineAdapterSrc = readFileSync(join(PROJECT_ROOT, "src", "timelineAdapter.ts"), "utf8");
+    const ok = sdkBackendSrc.includes("deriveAssistantTextDelta")
+      && sdkBackendSrc.includes("includePartialMessages: true")
+      && sdkBackendSrc.includes('if (ev.type !== "message" || ev.role !== "assistant" || !ev.text) continue;')
+      && sdkBackendSrc.includes('onEvent({ type: "stdout_delta", data: deltaText })')
+      && sdkBackendSrc.includes("const terminalDelta = deriveAssistantTextDelta(streamedAssistantText, terminalText)")
+      && sdkMessageMapperSrc.includes("mapPartialStreamEvent")
+      && sdkMessageMapperSrc.includes("text_delta")
+      && sdkMessageMapperSrc.includes("thinking_delta")
+      && sdkMessageMapperSrc.includes("tool_progress")
+      && sdkMessageMapperSrc.includes("thinking_tokens")
+      && timelineAdapterSrc.includes('"progress"')
+      && viewSrc.includes("this.appendAssistantContentDelta(assistantId, event.data)")
+      && viewSrc.includes("this.scheduleLiveTimelineRender()")
+      && viewSrc.includes("window.setTimeout(() =>")
+      && !viewSrc.includes('scrollIntoView({ behavior: "smooth", block: "end" })');
+    addTest("V2.16-G SDK streaming: partial stream/progress 映射并增量输出", ok ? "pass" : "fail", "");
   }
 }
 

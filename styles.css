@@ -3515,14 +3515,14 @@
 }
 .llm-bridge-tl-node {
   position: relative;
-  padding: 4px 0 4px 0;
+  padding: 3px 0 3px 0;
   display: flex;
   gap: 8px;
 }
 .llm-bridge-tl-dot {
   flex-shrink: 0;
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
   margin-top: 5px;
   border-radius: 50%;
   background: var(--text-muted);
@@ -3737,11 +3737,12 @@
 .llm-bridge-tl-node::before {
   content: "";
   position: absolute;
-  left: 3px;
-  top: 16px;
-  bottom: -4px;
+  left: 2px;
+  top: 14px;
+  bottom: -3px;
   width: 2px;
   background: var(--background-modifier-border);
+  opacity: 0.5;
 }
 .llm-bridge-tl-node:last-child::before { display: none; }
 .llm-bridge-tl-tool-badge {
@@ -3808,6 +3809,195 @@
 }
 .llm-bridge-tl-tool-duration {
   font-size: 11px;
+}
+.llm-bridge-msg-stream-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.llm-bridge-tl-thinking-title {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+.llm-bridge-tl-thinking-star {
+  display: inline-block;
+  color: var(--interactive-accent);
+  font-weight: 700;
+  animation: llm-bridge-thinking-star-pulse 1.05s ease-in-out infinite;
+  transform-origin: center;
+}
+.llm-bridge-tl-thinking-meta {
+  color: var(--text-muted);
+  font-weight: 400;
+}
+.llm-bridge-tl-thought-text.is-placeholder {
+  color: var(--text-muted);
+  font-style: italic;
+}
+/* V2.16-D: agent 过程优化 — Claude Code/Codex 风格 */
+.llm-bridge-tl-thinking-icon {
+  font-size: 11px;
+  line-height: 1;
+}
+.llm-bridge-tl-thought-body {
+  margin-top: 4px;
+  padding: 6px 8px;
+  background: var(--background-secondary);
+  border-radius: 4px;
+  border-left: 2px solid var(--text-faint);
+}
+.llm-bridge-tl-thought-body .llm-bridge-tl-thought-text {
+  font-style: italic;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+.llm-bridge-tl-thinking-title.is-expanded {
+  color: var(--interactive-accent);
+}
+.llm-bridge-tl-tool-path-inline {
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+  color: var(--interactive-accent);
+  background: var(--background-secondary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 2px;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-tl-tool-params {
+  margin: 3px 0 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.llm-bridge-tl-tool-param-row {
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+  font-size: var(--font-smallest);
+  line-height: 1.4;
+}
+.llm-bridge-tl-tool-param-key {
+  font-family: var(--font-monospace);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  min-width: 60px;
+}
+.llm-bridge-tl-tool-param-val {
+  font-family: var(--font-monospace);
+  color: var(--text-normal);
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+.llm-bridge-tl-tool-output-wrap {
+  margin: 3px 0 0 0;
+}
+.llm-bridge-tl-tool-output-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  user-select: none;
+  padding: 2px 4px;
+  border-radius: 3px;
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  transition: background 0.15s;
+}
+.llm-bridge-tl-tool-output-head:hover {
+  background: var(--background-secondary);
+}
+.llm-bridge-tl-tool-output-toggle {
+  font-size: 9px;
+  width: 10px;
+  display: inline-block;
+}
+.llm-bridge-tl-tool-output-label {
+  font-weight: 500;
+}
+.llm-bridge-tl-tool-output-body {
+  margin-top: 2px;
+}
+.llm-bridge-tl-tool-output-body .llm-bridge-tl-tool-output {
+  margin: 0;
+  max-height: 240px;
+}
+.llm-bridge-tl-file-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.llm-bridge-tl-file-symbol {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  font-family: var(--font-monospace);
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1;
+}
+.llm-bridge-tl-file-action-create .llm-bridge-tl-file-symbol {
+  background: rgba(76, 175, 80, 0.15);
+  color: #4caf50;
+}
+.llm-bridge-tl-file-action-modify .llm-bridge-tl-file-symbol {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+.llm-bridge-tl-file-action-delete .llm-bridge-tl-file-symbol {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--text-error);
+}
+.llm-bridge-tl-file-action-create .llm-bridge-tl-file-action {
+  color: #4caf50;
+}
+.llm-bridge-tl-file-action-modify .llm-bridge-tl-file-action {
+  color: #f59e0b;
+}
+.llm-bridge-tl-file-action-delete .llm-bridge-tl-file-action {
+  color: var(--text-error);
+}
+.llm-bridge-tl-completed-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.llm-bridge-tl-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: var(--font-smallest);
+  font-weight: 500;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  border: 1px solid var(--background-modifier-border);
+}
+.llm-bridge-tl-chip-success {
+  background: rgba(76, 175, 80, 0.1);
+  color: var(--text-success);
+  border-color: rgba(76, 175, 80, 0.3);
+}
+
+@keyframes llm-bridge-thinking-star-pulse {
+  0%, 100% {
+    opacity: 0.35;
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.08);
+  }
 }
 
 /* ===== V2.16-C: Permission mode popover ===== */

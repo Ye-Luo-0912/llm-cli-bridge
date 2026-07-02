@@ -9,6 +9,7 @@
 // - tool_result:   工具调用结束（输出 + 是否出错）
 // - file_change:   文件创建/修改/删除
 // - permission:    权限请求（只展示，不自动批准）
+// - progress:      SDK 运行中状态（partial/status/thinking token/tool progress）
 // - error:         错误（可恢复 / 不可恢复）
 // - completed:     工作流成功完成（V2.0 新增 UI-only 终态）
 // - failed:        工作流失败终止（V2.0 新增 UI-only 终态）
@@ -23,6 +24,7 @@ export type WorkflowEventType =
   | "tool_result"
   | "file_change"
   | "permission"
+  | "progress"
   | "error"
   | "completed"
   | "failed";
@@ -113,6 +115,14 @@ export interface PermissionEvent extends WorkflowEventBase {
   readonly subagentRisk?: string;
 }
 
+/** SDK 运行中状态（UI-only，不混入 AgentEvent） */
+export interface ProgressEvent extends WorkflowEventBase {
+  readonly type: "progress";
+  readonly label: string;
+  readonly detail?: string;
+  readonly category?: "request" | "thinking" | "tool" | "status" | "notice";
+}
+
 /** 错误 */
 export interface ErrorEvent extends WorkflowEventBase {
   readonly type: "error";
@@ -144,6 +154,7 @@ export type WorkflowEvent =
   | ToolResultEvent
   | FileChangeEvent
   | PermissionEvent
+  | ProgressEvent
   | ErrorEvent
   | CompletedEvent
   | FailedEvent;
@@ -187,6 +198,12 @@ export function redactWorkflowEvent(event: WorkflowEvent): WorkflowEvent {
       return { ...event, toolInput: redactSecrets(event.toolInput) };
     case "tool_result":
       return { ...event, output: redactSecrets(event.output) };
+    case "progress":
+      return {
+        ...event,
+        label: redactSecrets(event.label),
+        detail: event.detail ? redactSecrets(event.detail) : event.detail,
+      };
     case "error":
       return { ...event, message: redactSecrets(event.message) };
     case "completed":
@@ -227,6 +244,8 @@ export function workflowEventLabel(event: WorkflowEvent): string {
     }
     case "permission":
       return event.granted ? `Permission granted: ${event.toolName}` : `Permission denied: ${event.toolName}`;
+    case "progress":
+      return event.label;
     case "error":
       return event.recoverable ? "Recoverable error" : "Fatal error";
     case "completed":
@@ -253,6 +272,8 @@ export function workflowEventIcon(event: WorkflowEvent): string {
       return "📄";
     case "permission":
       return event.granted ? "🔓" : "🔒";
+    case "progress":
+      return "•";
     case "error":
       return event.recoverable ? "⚠" : "✗";
     case "completed":
@@ -279,6 +300,8 @@ export function workflowEventClass(event: WorkflowEvent): string {
       return "is-file-change";
     case "permission":
       return event.granted ? "is-perm-granted" : "is-perm-denied";
+    case "progress":
+      return `is-progress-${event.category ?? "status"}`;
     case "error":
       return event.recoverable ? "is-error-recoverable" : "is-error-fatal";
     case "completed":

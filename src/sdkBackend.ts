@@ -8,7 +8,7 @@
 // 3. 若不可用：fallback 到 mock workflow（模拟工具调用序列 + thinking + 终态），UI 仍可展示流程
 // 4. 收集 SDK diagnostics（可用性/包名/版本/事件数/partialCount/fallback 原因/错误摘要），日志脱敏
 // 5. 权限：canUseTool 回调发出 permission 事件，默认 allow（仅展示，不自动批准危险操作由 permissionMode 控制）
-// 6. partial：stream_event 标记 partial 不产出事件，不伪造工具过程
+// 6. partial：stream_event 映射 text/thinking/progress，保留 SDK 原始过程
 
 import * as path from "path";
 import { AgentBackend, AgentEventHandler, AgentRunHandle, AgentTask } from "./agentBackend";
@@ -80,6 +80,26 @@ async function* createSdkUserMessageStream(content: unknown[]): AsyncIterable<un
       content,
     },
   };
+}
+
+/**
+ * 从 SDK assistant 文本事件中提取应追加到正文的增量文本。
+ *
+ * 兼容两类常见流式模式：
+ * 1. 累积快照：前一段为 "Hello"，后一段为 "Hello world" → 只追加 " world"
+ * 2. 分块输出：前一段为 "Hello"，后一段为 " world" → 直接追加第二段
+ */
+export function deriveAssistantTextDelta(previousText: string, nextText: string): string {
+  if (!nextText) return "";
+  if (!previousText) return nextText;
+  if (nextText === previousText) return "";
+  if (nextText.startsWith(previousText)) {
+    return nextText.slice(previousText.length);
+  }
+  if (previousText.endsWith(nextText) || previousText.includes(nextText)) {
+    return "";
+  }
+  return nextText;
 }
 
 /**
@@ -529,8 +549,12 @@ export function buildSdkOptions(
     // V2.16-C: SDK query 使用 reasoningEffort 传递推理等级
     ...(settings.effortLevel ? { reasoningEffort: settings.effortLevel } : {}),
     permissionMode: settings.claudePermissionMode ?? "default",
-    // V1.7: 不启用 includePartialMessages（避免 partial 噪音，终态消息已足够）
-    includePartialMessages: false,
+    // V2.16-G: 打开 SDK partial stream，避免首包前长期无响应。
+    includePartialMessages: true,
+    // V2.16-H: Ask the SDK/API for displayable thinking summaries when the
+    // selected model/runtime supports them. Unsupported paths simply won't emit
+    // thinking text; the UI keeps the lightweight placeholder.
+    thinking: { type: "adaptive", display: "summarized" },
   };
   // 继续会话
   if (settings.claudeContinueSession) {
@@ -625,9 +649,10 @@ async function runRealSdkQuery(
   let terminalStatus: "completed" | "failed" = "completed";
   let terminalText = "";
   let terminalExitCode = 0;
+  let streamedAssistantText = "";
 
   try {
-    if (onWorkflowEvent) {
+    if (onWorkflowEvent && settings.developerMode) {
       const adapterEv: MessageEvent = {
         type: "message",
         timestamp: new Date().toISOString(),
@@ -763,6 +788,15 @@ async function runRealSdkQuery(
         }
       }
 
+      // V2.16-G: 将 assistant 文本按到达顺序增量写入正文，避免等终态一次性落地。
+      for (const ev of result.events) {
+        if (ev.type !== "message" || ev.role !== "assistant" || !ev.text) continue;
+        const deltaText = deriveAssistantTextDelta(streamedAssistantText, ev.text);
+        if (!deltaText) continue;
+        onEvent({ type: "stdout_delta", data: deltaText });
+        streamedAssistantText += deltaText;
+      }
+
       // 处理终态
       if (result.terminal === "completed") {
         terminalStatus = "completed";
@@ -775,10 +809,16 @@ async function runRealSdkQuery(
       }
     }
 
-    // 发出 stdout_delta（AgentEvent v0.1）
+    // 终态再补齐一次，兼容仅在 result success 上携带最终文本的实现，但避免重复输出。
     if (terminalText) {
-      onEvent({ type: "stdout_delta", data: terminalText });
+      const terminalDelta = deriveAssistantTextDelta(streamedAssistantText, terminalText);
+      if (terminalDelta) {
+        onEvent({ type: "stdout_delta", data: terminalDelta });
+        streamedAssistantText += terminalDelta;
+      }
     }
+
+    const effectiveTerminalText = terminalText || streamedAssistantText;
 
     const finalDiagnostics = updateDiagnostics(diagnostics, {
       available: true,
@@ -786,12 +826,12 @@ async function runRealSdkQuery(
       workflowEventCount: wfEventCount,
       partialCount,
       // V2.0: 失败时记录错误摘要（脱敏）
-      errorSummary: terminalStatus === "failed" ? redactSecrets(terminalText.slice(0, 200)) : null,
+      errorSummary: terminalStatus === "failed" ? redactSecrets(effectiveTerminalText.slice(0, 200)) : null,
     });
 
     return {
       status: terminalStatus,
-      text: terminalText || `[sdk] 任务 ${task.id} 已处理`,
+      text: effectiveTerminalText || `[sdk] 任务 ${task.id} 已处理`,
       exitCode: terminalExitCode,
       diagnostics: finalDiagnostics,
     };

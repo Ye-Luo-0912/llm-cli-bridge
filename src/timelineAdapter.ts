@@ -3,6 +3,7 @@
 //
 // 分类规则：
 // - session_started: SDKSystemMessage(init) 映射的 system message（含 model/cwd）
+// - progress:        SDK status/partial/tool progress（保留原始运行过程）
 // - thought:         thinking event（模型思考过程）
 // - agent:           assistant message（非最终结果，中间思考摘要）
 // - tool_call:       tool_start + 配对 tool_result 合并（含工具名/输入/输出/耗时/错误）
@@ -16,6 +17,7 @@
 // 合并规则：
 // - tool_start + tool_result 按 callId 配对合并为单个 tool_call node
 // - 相邻相同文本的 assistant message 合并（避免 SDKAssistantMessage + SDKResultMessage 重复）
+// - thinking_delta + thinking_tokens 聚合为单个 thought node，避免刷屏
 // - recoverable=true 的 error 降级为 warning
 // - internal/private 文件写入不显示在主 timeline（.obsidian/.llm-bridge/.claude/LLM-AgentRuntime 等）
 
@@ -25,6 +27,7 @@ import { WorkflowEvent } from "./workflowEvent";
 
 export type TimelineNodeKind =
   | "session_started"
+  | "progress"
   | "thought"
   | "agent"
   | "tool_call"
@@ -45,6 +48,10 @@ export interface TimelineNode {
   readonly durationMs?: number;
   /** 文本内容（thought / agent / final_message / session_started / completed / failed） */
   readonly text?: string;
+  /** 运行中状态（progress） */
+  readonly progressLabel?: string;
+  readonly progressDetail?: string;
+  readonly progressCategory?: string;
   /** 工具名（tool_call） */
   readonly toolName?: string;
   /** 工具输入（tool_call，已脱敏 JSON 字符串） */
@@ -125,17 +132,80 @@ export function adaptEventsToTimeline(events: ReadonlyArray<WorkflowEvent>): Tim
 
   // 2. 遍历事件，按顺序生成 node
   let lastAgentText = ""; // 用于合并相邻相同 assistant message
-  let hasFinalMessage = false;
+  const appendThinkingText = (timestamp: string, text: string) => {
+    const last = nodes[nodes.length - 1];
+    if (last?.kind === "thought") {
+      nodes[nodes.length - 1] = {
+        ...last,
+        timestamp,
+        text: `${last.text ?? ""}${text}`,
+      };
+      return;
+    }
+    if (text.trim().length === 0) return;
+    nodes.push({
+      id: nextId(),
+      kind: "thought",
+      timestamp,
+      text,
+    });
+  };
+  const upsertThinkingState = (timestamp: string, label?: string, detail?: string) => {
+    const last = nodes[nodes.length - 1];
+    if (last?.kind === "thought") {
+      nodes[nodes.length - 1] = {
+        ...last,
+        timestamp,
+        progressLabel: label ?? last.progressLabel,
+        progressDetail: detail ?? last.progressDetail,
+        progressCategory: "thinking",
+      };
+      return;
+    }
+    nodes.push({
+      id: nextId(),
+      kind: "thought",
+      timestamp,
+      text: "",
+      progressLabel: label,
+      progressDetail: detail,
+      progressCategory: "thinking",
+    });
+  };
+  const pushProgressNode = (ev: Extract<WorkflowEvent, { type: "progress" }>) => {
+    const last = nodes[nodes.length - 1];
+    if (last?.kind === "progress" && last.progressLabel === ev.label && last.progressCategory === ev.category) {
+      nodes[nodes.length - 1] = {
+        ...last,
+        timestamp: ev.timestamp,
+        progressDetail: ev.detail ?? last.progressDetail,
+      };
+      return;
+    }
+    nodes.push({
+      id: nextId(),
+      kind: "progress",
+      timestamp: ev.timestamp,
+      progressLabel: ev.label,
+      progressDetail: ev.detail,
+      progressCategory: ev.category,
+    });
+  };
 
   for (const ev of events) {
     switch (ev.type) {
+      case "progress": {
+        if (ev.category === "thinking") {
+          upsertThinkingState(ev.timestamp, ev.label, ev.detail);
+          lastAgentText = "";
+          break;
+        }
+        pushProgressNode(ev);
+        lastAgentText = "";
+        break;
+      }
       case "thinking": {
-        nodes.push({
-          id: nextId(),
-          kind: "thought",
-          timestamp: ev.timestamp,
-          text: ev.text,
-        });
+        appendThinkingText(ev.timestamp, ev.text);
         lastAgentText = "";
         break;
       }
@@ -248,16 +318,6 @@ export function adaptEventsToTimeline(events: ReadonlyArray<WorkflowEvent>): Tim
         break;
       }
       case "completed": {
-        // 提取 final_message（如果 text 非空且与上一个 agent message 不同）
-        if (ev.text && ev.text.length > 0 && ev.text !== lastAgentText) {
-          nodes.push({
-            id: nextId(),
-            kind: "final_message",
-            timestamp: ev.timestamp,
-            text: ev.text,
-          });
-          hasFinalMessage = true;
-        }
         nodes.push({
           id: nextId(),
           kind: "completed",
@@ -322,6 +382,7 @@ export function adaptEventsToTimeline(events: ReadonlyArray<WorkflowEvent>): Tim
 
 export interface TimelineStats {
   readonly toolCount: number;
+  readonly progressCount: number;
   readonly thoughtCount: number;
   readonly fileChangeCount: number;
   readonly warningCount: number;
@@ -334,6 +395,7 @@ export interface TimelineStats {
  */
 export function computeTimelineStats(nodes: ReadonlyArray<TimelineNode>): TimelineStats {
   let toolCount = 0;
+  let progressCount = 0;
   let thoughtCount = 0;
   let fileChangeCount = 0;
   let warningCount = 0;
@@ -341,6 +403,7 @@ export function computeTimelineStats(nodes: ReadonlyArray<TimelineNode>): Timeli
   let durationMs: number | undefined;
   for (const n of nodes) {
     switch (n.kind) {
+      case "progress": progressCount++; break;
       case "tool_call": toolCount++; break;
       case "thought": thoughtCount++; break;
       case "file_change": fileChangeCount++; break;
@@ -349,7 +412,7 @@ export function computeTimelineStats(nodes: ReadonlyArray<TimelineNode>): Timeli
       case "completed": durationMs = n.durationMs; break;
     }
   }
-  return { toolCount, thoughtCount, fileChangeCount, warningCount, errorCount, durationMs };
+  return { toolCount, progressCount, thoughtCount, fileChangeCount, warningCount, errorCount, durationMs };
 }
 
 /**
@@ -399,4 +462,70 @@ export function truncatePath(filePath: string, maxLen = 48): string {
   if (filePath.length <= maxLen) return filePath;
   const half = Math.floor((maxLen - 3) / 2);
   return filePath.slice(0, half) + "…" + filePath.slice(-half);
+}
+
+/**
+ * V2.16-D: 提取路径的 basename（最后一段），用于紧凑展示。
+ * title 属性仍保留完整路径。
+ */
+export function pathBasename(filePath: string): string {
+  if (!filePath) return "";
+  const norm = filePath.replace(/\\/g, "/");
+  const parts = norm.split("/").filter(Boolean);
+  return parts.length > 0 ? parts[parts.length - 1] : filePath;
+}
+
+/**
+ * V2.16-D: 从 toolInput JSON 提取结构化关键参数（用于 key-value 展示）。
+ * 仅返回人类可读的重要参数，跳过 file_path（已单独展示为路径）。
+ * 返回数组顺序稳定，便于渲染。
+ */
+export interface ToolParam {
+  key: string;
+  value: string;
+}
+
+export function extractToolParams(toolName: string, toolInput: string): ToolParam[] {
+  if (!toolInput) return [];
+  let input: Record<string, unknown>;
+  try {
+    input = JSON.parse(toolInput);
+  } catch {
+    return [];
+  }
+  const params: ToolParam[] = [];
+  const skipKeys = new Set(["file_path", "notebook_path", "path", "_type"]);
+  const addParam = (key: string, value: unknown): void => {
+    if (value === undefined || value === null || value === "") return;
+    let v: string;
+    if (typeof value === "string") v = value;
+    else if (typeof value === "number" || typeof value === "boolean") v = String(value);
+    else {
+      try { v = JSON.stringify(value); } catch { return; }
+    }
+    if (v.length > 120) v = v.slice(0, 117) + "…";
+    params.push({ key, value: v });
+  };
+  // 按稳定顺序提取常见重要参数
+  const priorityKeys = ["command", "cmd", "pattern", "query", "url", "search", "regex", "replace_all", "old_string", "new_string", "content", "prompt", "description", "language", "limit", "offset", "glob", "type"];
+  for (const k of priorityKeys) {
+    if (k in input && !skipKeys.has(k)) addParam(k, input[k]);
+  }
+  // 其余非跳过参数（最多 4 个，避免刷屏）
+  let extra = 0;
+  for (const k of Object.keys(input)) {
+    if (skipKeys.has(k) || priorityKeys.includes(k)) continue;
+    if (extra >= 4) break;
+    addParam(k, input[k]);
+    extra++;
+  }
+  return params;
+}
+
+/**
+ * V2.16-D: 统计文本行数（用于结果折叠时的 "N lines" 提示）。
+ */
+export function countLines(text: string): number {
+  if (!text) return 0;
+  return text.split(/\r?\n/).length;
 }

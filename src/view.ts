@@ -22,7 +22,7 @@ import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalW
 import { SdkBackend, isSdkAvailable } from "./sdkBackend";
 import { getRuntimeModelCatalog, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
 import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
-import { adaptEventsToTimeline, computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, truncatePath, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
+import { adaptEventsToTimeline, computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, truncatePath, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
 import { computeContextMetrics, formatTokens, formatCompressionRatio, type ContextMetrics, type CompressionInfo } from "./contextMetrics";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
 import { PersistedSession, SessionListItem, SessionExtras, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
@@ -216,6 +216,9 @@ export class LLMBridgeView extends ItemView {
   private agentSkillsListEl!: HTMLElement;
   // V2.9: scrollToBottom rAF 批处理定时器（合并同帧多次调用，避免每个 delta 触发 reflow）
   private scrollRafId: number | null = null;
+  private streamContentRafId: number | null = null;
+  private streamContentAssistantId: string | null = null;
+  private liveTimelineTimerId: number | null = null;
   // V2.5: 历史会话列表
   private historyListEl!: HTMLElement;
   private historyToggleEl!: HTMLElement;
@@ -1190,6 +1193,14 @@ export class LLMBridgeView extends ItemView {
     if (this.scrollRafId !== null) {
       window.cancelAnimationFrame(this.scrollRafId);
       this.scrollRafId = null;
+    }
+    if (this.streamContentRafId !== null) {
+      window.cancelAnimationFrame(this.streamContentRafId);
+      this.streamContentRafId = null;
+    }
+    if (this.liveTimelineTimerId !== null) {
+      window.clearTimeout(this.liveTimelineTimerId);
+      this.liveTimelineTimerId = null;
     }
     if (this.historySearchDebounceTimer !== null) {
       window.clearTimeout(this.historySearchDebounceTimer);
@@ -2705,7 +2716,7 @@ export class LLMBridgeView extends ItemView {
       if (msg.role === "assistant") {
         this.appendMsgDetails(block, msg, content);
       }
-      this.scrollToBottom();
+      this.scrollToBottom(true);
     } catch (e) {
       // V2.7: 单条消息渲染失败不影响其他消息
       this.renderMessageError(msg, e);
@@ -2726,6 +2737,11 @@ export class LLMBridgeView extends ItemView {
       return;
     }
 
+    if (msg.status === "running") {
+      this.renderStreamingMessageContent(content, text);
+      return;
+    }
+
     content.addClass("llm-bridge-msg-markdown");
     const fallback = () => {
       content.empty();
@@ -2736,6 +2752,12 @@ export class LLMBridgeView extends ItemView {
     } catch {
       fallback();
     }
+  }
+
+  private renderStreamingMessageContent(content: HTMLElement, text: string): void {
+    content.removeClass("llm-bridge-msg-markdown");
+    content.empty();
+    content.createEl("span", { cls: "llm-bridge-msg-stream-text", text });
   }
 
   private renderMessageFileRefs(block: HTMLElement, refs: ReadonlyArray<FileRef>): void {
@@ -2770,7 +2792,7 @@ export class LLMBridgeView extends ItemView {
       if (error instanceof Error && error.message) {
         block.createEl("pre", { cls: "llm-bridge-error-detail", text: error.message });
       }
-      this.scrollToBottom();
+      this.scrollToBottom(true);
     } catch {
       // 连错误块都渲染失败，静默忽略（避免无限抛出）
     }
@@ -3037,7 +3059,15 @@ export class LLMBridgeView extends ItemView {
     if (!this.currentAssistantId) return;
     this.liveTimelineEvents.push(ev);
     if (ev.type === "completed" || ev.type === "failed") return;
-    this.renderLiveTimeline();
+    this.scheduleLiveTimelineRender();
+  }
+
+  private scheduleLiveTimelineRender(): void {
+    if (this.liveTimelineTimerId !== null) return;
+    this.liveTimelineTimerId = window.setTimeout(() => {
+      this.liveTimelineTimerId = null;
+      this.renderLiveTimeline();
+    }, 120);
   }
 
   /**
@@ -3063,10 +3093,17 @@ export class LLMBridgeView extends ItemView {
       text: `过程 · 运行中${nodes.length > 0 ? ` · ${nodes.length} steps` : ""}`,
     });
     const nodeHost = liveEl.createDiv({ cls: "llm-bridge-timeline-live-nodes" });
-    for (const node of nodes) {
-      this.renderTimelineNode(nodeHost, node, true);
+    if (nodes.length === 0) {
+      nodeHost.createDiv({
+        cls: "llm-bridge-timeline-waiting",
+        text: "正在等待 SDK 首个 stream/progress 事件...",
+      });
+    } else {
+      for (const node of nodes) {
+        this.renderTimelineNode(nodeHost, node, true);
+      }
     }
-    liveEl.lastElementChild?.scrollIntoView({ behavior: "smooth", block: "end" });
+    this.scrollToBottom();
   }
 
   /** V2.16-C: 工具图标 + 颜色分类（read/write/bash/search/skill/other） */
@@ -3107,8 +3144,20 @@ export class LLMBridgeView extends ItemView {
    */
   private filterUserFacingTimelineNodes(nodes: TimelineNode[]): TimelineNode[] {
     if (this.plugin.settings.developerMode) return nodes;
+    const completedToolNames = new Set(
+      nodes
+        .filter((node) => node.kind === "tool_call" && node.toolName)
+        .map((node) => (node.toolName ?? "").toLowerCase()),
+    );
     return nodes.filter((node) => {
       if (node.kind === "session_started") return false;
+      if (node.kind === "agent") return false;
+      if (node.kind === "final_message") return false;
+      if (node.kind === "progress" && node.progressCategory === "tool") {
+        if (node.progressLabel === "Preparing tool input") return false;
+        const preparingMatch = node.progressLabel?.match(/^Preparing\s+(.+)$/i);
+        if (preparingMatch && completedToolNames.has(preparingMatch[1].toLowerCase())) return false;
+      }
       if (node.kind === "tool_call" && node.toolInput) {
         const toolPath = extractToolPath(node.toolName ?? "", node.toolInput);
         if (toolPath && isInternalFilePath(toolPath)) return false;
@@ -3125,41 +3174,114 @@ export class LLMBridgeView extends ItemView {
     if (node.kind === "session_started") {
       content.createEl("div", { cls: "llm-bridge-tl-title", text: "Session started" });
       if (node.text) content.createEl("div", { cls: "llm-bridge-tl-detail", text: node.text, attr: { title: node.text } });
+    } else if (node.kind === "progress") {
+      content.createEl("div", { cls: "llm-bridge-tl-title", text: node.progressLabel ?? "Progress" });
+      if (node.progressDetail) {
+        content.createEl("div", {
+          cls: "llm-bridge-tl-detail",
+          text: truncateText(node.progressDetail, 160),
+          attr: { title: node.progressDetail },
+        });
+      }
     } else if (node.kind === "thought") {
-      content.createEl("div", { cls: "llm-bridge-tl-title", text: "思考" });
+      // V2.16-D: 思考过程默认折叠为一行摘要，点击展开全文（Claude Code 风格）
       const detailText = node.text ?? "";
-      const thoughtEl = content.createEl("div", { cls: "llm-bridge-tl-detail llm-bridge-tl-thought-text llm-bridge-tl-expandable" });
-      this.makeExpandable(thoughtEl, truncateText(detailText, 120), detailText);
+      const hasDetail = detailText.trim().length > 0;
+      const titleEl = content.createDiv({ cls: "llm-bridge-tl-title llm-bridge-tl-thinking-title llm-bridge-tl-expandable" });
+      titleEl.createEl("span", { cls: "llm-bridge-tl-thinking-icon", text: "💭" });
+      titleEl.createEl("span", { text: "Thinking" });
+      if (isLive) titleEl.createEl("span", { cls: "llm-bridge-tl-thinking-star", text: "•" });
+      if (node.progressDetail) {
+        titleEl.createEl("span", { cls: "llm-bridge-tl-thinking-meta", text: `· ${node.progressDetail}` });
+      } else if (hasDetail) {
+        // 摘要：取首行前 80 字符
+        const firstLine = detailText.split(/\r?\n/)[0] ?? "";
+        const summary = truncateText(firstLine, 80);
+        titleEl.createEl("span", { cls: "llm-bridge-tl-thinking-meta", text: `· ${summary}` });
+      }
+      if (hasDetail) {
+        const thoughtEl = content.createEl("div", { cls: "llm-bridge-tl-thought-body", attr: { hidden: "" } });
+        thoughtEl.createEl("div", { cls: "llm-bridge-tl-thought-text", text: detailText });
+        // 点击标题切换展开
+        titleEl.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const hidden = thoughtEl.hasAttribute("hidden");
+          if (hidden) { thoughtEl.removeAttribute("hidden"); titleEl.addClass("is-expanded"); }
+          else { thoughtEl.setAttribute("hidden", ""); titleEl.removeClass("is-expanded"); }
+        });
+      } else {
+        content.createEl("div", {
+          cls: "llm-bridge-tl-thought-text is-placeholder",
+          text: isLive ? "Reasoning in progress..." : "Reasoning details were not provided by the SDK.",
+        });
+      }
     } else if (node.kind === "agent") {
       if (node.isSubagent) content.createEl("span", { cls: "llm-bridge-tl-agent-tag is-subagent", text: "Subagent" });
       content.createEl("div", { cls: "llm-bridge-tl-agent-text", text: truncateText(node.text ?? "", 200), attr: { title: node.text ?? "" } });
     } else if (node.kind === "tool_call") {
+      // V2.16-D: 工具调用卡片化 — head 紧凑一行 + 结构化参数 + 折叠结果
       const toolInfo = this.getToolIconAndCategory(node.toolName ?? "");
       item.addClass("llm-bridge-tl-tool-cat-" + toolInfo.category);
       const headEl = content.createDiv({ cls: "llm-bridge-tl-tool-head" });
       headEl.createEl("span", { cls: "llm-bridge-tl-tool-badge", text: toolInfo.icon });
       headEl.createEl("span", { cls: "llm-bridge-tl-tool-name", text: node.toolName ?? "unknown" });
+      // 状态标记：运行中无标记；成功无标记；错误 ✗
       if (node.toolError) headEl.createEl("span", { cls: "llm-bridge-tl-tool-err", text: "✗" });
-      if (node.durationMs !== undefined && node.durationMs > 0) {
-        headEl.createEl("span", { cls: "llm-bridge-tl-tool-duration", text: this.formatDurationMs(node.durationMs) });
-      }
+      // 路径直接放 head 行（basename 紧凑，title 全路径）
       if (node.toolInput) {
         const path = extractToolPath(node.toolName ?? "", node.toolInput);
         if (path) {
-          const shortPath = truncatePath(path);
-          content.createEl("code", { cls: "llm-bridge-tl-tool-path", text: shortPath, attr: { title: path } });
+          headEl.createEl("code", { cls: "llm-bridge-tl-tool-path-inline", text: pathBasename(path), attr: { title: path } });
         }
       }
+      // 耗时右对齐
+      if (node.durationMs !== undefined && node.durationMs > 0) {
+        headEl.createEl("span", { cls: "llm-bridge-tl-tool-duration", text: this.formatDurationMs(node.durationMs) });
+      }
+      // 结构化参数（key-value，跳过已展示的 path）
+      if (node.toolInput) {
+        const params = extractToolParams(node.toolName ?? "", node.toolInput);
+        if (params.length > 0) {
+          const paramsEl = content.createDiv({ cls: "llm-bridge-tl-tool-params" });
+          for (const p of params) {
+            const row = paramsEl.createDiv({ cls: "llm-bridge-tl-tool-param-row" });
+            row.createEl("span", { cls: "llm-bridge-tl-tool-param-key", text: p.key });
+            row.createEl("span", { cls: "llm-bridge-tl-tool-param-val", text: p.value, attr: { title: p.value } });
+          }
+        }
+      }
+      // 结果：默认折叠，显示行数提示
       if (node.toolOutput) {
-        const outputEl = content.createEl("pre", { cls: "llm-bridge-tl-tool-output llm-bridge-tl-expandable" });
-        this.makeExpandable(outputEl, truncateText(node.toolOutput, 200), node.toolOutput);
-        if (node.toolError) outputEl.addClass("is-error");
+        const lineCount = countLines(node.toolOutput);
+        const outputWrap = content.createDiv({ cls: "llm-bridge-tl-tool-output-wrap llm-bridge-tl-expandable" });
+        const outputHead = outputWrap.createDiv({ cls: "llm-bridge-tl-tool-output-head" });
+        outputHead.createEl("span", { cls: "llm-bridge-tl-tool-output-toggle", text: "▶" });
+        outputHead.createEl("span", { cls: "llm-bridge-tl-tool-output-label", text: `Output${lineCount > 1 ? ` · ${lineCount} lines` : ""}` });
+        const outputBody = outputWrap.createDiv({ cls: "llm-bridge-tl-tool-output-body", attr: { hidden: "" } });
+        const pre = outputBody.createEl("pre", { cls: "llm-bridge-tl-tool-output" });
+        pre.textContent = node.toolOutput;
+        if (node.toolError) pre.addClass("is-error");
+        outputHead.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const hidden = outputBody.hasAttribute("hidden");
+          if (hidden) {
+            outputBody.removeAttribute("hidden");
+            outputHead.querySelector(".llm-bridge-tl-tool-output-toggle")!.textContent = "▼";
+          } else {
+            outputBody.setAttribute("hidden", "");
+            outputHead.querySelector(".llm-bridge-tl-tool-output-toggle")!.textContent = "▶";
+          }
+        });
       }
     } else if (node.kind === "file_change") {
+      // V2.16-D: 文件变更用符号图标 + basename + 动词颜色
+      const symbol = node.fileAction === "create" ? "+" : node.fileAction === "modify" ? "~" : "-";
       const verb = node.fileAction === "create" ? "Created" : node.fileAction === "modify" ? "Modified" : "Deleted";
-      content.createEl("span", { cls: "llm-bridge-tl-file-action", text: verb });
-      const shortPath = truncatePath(node.filePath ?? "");
-      content.createEl("code", { cls: "llm-bridge-tl-file-path", text: shortPath, attr: { title: node.filePath ?? "" } });
+      const headEl = content.createDiv({ cls: "llm-bridge-tl-file-head llm-bridge-tl-file-action-" + (node.fileAction ?? "modify") });
+      headEl.createEl("span", { cls: "llm-bridge-tl-file-symbol", text: symbol });
+      headEl.createEl("span", { cls: "llm-bridge-tl-file-action", text: verb });
+      const full = node.filePath ?? "";
+      headEl.createEl("code", { cls: "llm-bridge-tl-file-path", text: pathBasename(full), attr: { title: full } });
     } else if (node.kind === "final_message") {
       content.createEl("div", { cls: "llm-bridge-tl-final-text", text: truncateText(node.text ?? "", 300), attr: { title: node.text ?? "" } });
     } else if (node.kind === "warning") {
@@ -3170,7 +3292,16 @@ export class LLMBridgeView extends ItemView {
       content.createEl("span", { cls: "llm-bridge-tl-error-text", text: truncateText(node.message ?? "", 200), attr: { title: node.message ?? "" } });
     } else if (node.kind === "completed") {
       const stats = computeTimelineStats(adaptEventsToTimeline(this.liveTimelineEvents));
-      content.createEl("div", { cls: "llm-bridge-tl-completed", text: formatCompletedSummary(stats) });
+      // V2.16-D: chip 形式摘要
+      const chipsEl = content.createDiv({ cls: "llm-bridge-tl-completed-chips" });
+      chipsEl.createEl("span", { cls: "llm-bridge-tl-chip llm-bridge-tl-chip-success", text: "✓ Completed" });
+      if (stats.toolCount > 0) chipsEl.createEl("span", { cls: "llm-bridge-tl-chip", text: `${stats.toolCount} tool${stats.toolCount > 1 ? "s" : ""}` });
+      if (stats.fileChangeCount > 0) chipsEl.createEl("span", { cls: "llm-bridge-tl-chip", text: `${stats.fileChangeCount} file${stats.fileChangeCount > 1 ? "s" : ""}` });
+      if (stats.thoughtCount > 0) chipsEl.createEl("span", { cls: "llm-bridge-tl-chip", text: `${stats.thoughtCount} thinking` });
+      if (stats.durationMs !== undefined && stats.durationMs > 0) {
+        const secs = Math.round(stats.durationMs / 1000);
+        if (secs > 0) chipsEl.createEl("span", { cls: "llm-bridge-tl-chip", text: `${secs}s` });
+      }
     } else if (node.kind === "failed") {
       const allNodes = adaptEventsToTimeline(this.liveTimelineEvents);
       content.createEl("div", { cls: "llm-bridge-tl-failed", text: formatFailedSummary(allNodes), attr: { title: node.message ?? "" } });
@@ -3185,9 +3316,7 @@ export class LLMBridgeView extends ItemView {
     // V2.16-C: 现代 Claude/Codex 风格 timeline + 折叠行为
     // 用 timelineAdapter 转换事件为分类合并的 node 列表
     const nodes = this.filterUserFacingTimelineNodes(adaptEventsToTimeline(events));
-    const visibleNodes = options.processOnly
-      ? nodes.filter((node) => node.kind !== "final_message" && node.kind !== "completed")
-      : nodes;
+    const visibleNodes = nodes;
     if (visibleNodes.length === 0 && options.processOnly) return;
     const stats = computeTimelineStats(nodes);
     const hasFailed = nodes.some((n) => n.kind === "failed" || n.kind === "error");
@@ -3256,6 +3385,7 @@ export class LLMBridgeView extends ItemView {
 
   private formatProcessSummary(stats: ReturnType<typeof computeTimelineStats>): string {
     const parts = ["过程"];
+    if (stats.progressCount > 0) parts.push(`${stats.progressCount} progress`);
     if (stats.thoughtCount > 0) parts.push(`${stats.thoughtCount} thinking`);
     if (stats.toolCount > 0) parts.push(`${stats.toolCount} tool${stats.toolCount > 1 ? "s" : ""}`);
     if (stats.fileChangeCount > 0) parts.push(`${stats.fileChangeCount} file change${stats.fileChangeCount > 1 ? "s" : ""}`);
@@ -3535,6 +3665,8 @@ export class LLMBridgeView extends ItemView {
   private updateAssistantMessage(id: string, patch: Partial<ChatMessage>): void {
     const msg = this.messages.find((m) => m.id === id);
     if (!msg) return;
+    const patchKeys = Object.keys(patch) as Array<keyof ChatMessage>;
+    const contentOnly = patchKeys.length === 1 && patchKeys[0] === "content";
     Object.assign(msg, patch);
     const block = this.messagesEl.querySelector(`[data-msg-id="${id}"]`);
     if (!block) return;
@@ -3552,6 +3684,11 @@ export class LLMBridgeView extends ItemView {
       this.renderMessageContent(contentEl, msg);
     }
 
+    if (contentOnly) {
+      this.scrollToBottom();
+      return;
+    }
+
     // 重建 details（stderr / log / files）
     const oldDetails = block.querySelector(".llm-bridge-msg-details");
     if (oldDetails) oldDetails.remove();
@@ -3559,7 +3696,33 @@ export class LLMBridgeView extends ItemView {
     this.scrollToBottom();
   }
 
-  private scrollToBottom(): void {
+  private appendAssistantContentDelta(id: string, delta: string): void {
+    const msg = this.messages.find((m) => m.id === id);
+    if (!msg) return;
+    msg.content += delta;
+    this.streamContentAssistantId = id;
+    if (this.streamContentRafId !== null) return;
+    this.streamContentRafId = window.requestAnimationFrame(() => {
+      this.streamContentRafId = null;
+      const nextId = this.streamContentAssistantId;
+      this.streamContentAssistantId = null;
+      if (!nextId) return;
+      const nextMsg = this.messages.find((m) => m.id === nextId);
+      const block = this.messagesEl.querySelector(`[data-msg-id="${nextId}"]`);
+      const contentEl = block?.querySelector<HTMLElement>(".llm-bridge-msg-content");
+      if (!nextMsg || !contentEl) return;
+      this.renderMessageContent(contentEl, nextMsg);
+      this.scrollToBottom();
+    });
+  }
+
+  private isNearBottom(thresholdPx = 96): boolean {
+    const el = this.messagesEl;
+    return el.scrollHeight - el.scrollTop - el.clientHeight <= thresholdPx;
+  }
+
+  private scrollToBottom(force = false): void {
+    if (!force && !this.isNearBottom()) return;
     // V2.9: 用 requestAnimationFrame 合并同帧多次调用，避免每个 delta 都同步触发 reflow
     if (this.scrollRafId !== null) return;
     this.scrollRafId = window.requestAnimationFrame(() => {
@@ -4681,7 +4844,7 @@ export class LLMBridgeView extends ItemView {
           }
           const msg = this.messages.find((m) => m.id === assistantId);
           if (msg) {
-            this.updateAssistantMessage(assistantId, { content: msg.content + event.data });
+            this.appendAssistantContentDelta(assistantId, event.data);
           }
           break;
         }
