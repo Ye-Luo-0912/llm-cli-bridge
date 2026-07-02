@@ -1,6 +1,6 @@
 # Codex real app-server smoke 报告
 
-- **测试时间**: 2026-07-02T15:21:10.607Z
+- **测试时间**: 2026-07-02T15:42:24.770Z
 - **codex 可用**: 否
 - **skip 原因**: spawnSync codex ENOENT
 - **说明**: 本机无 codex CLI，real app-server smoke 明确 skip。

@@ -7,23 +7,23 @@
 >
 > 三份报告不互相覆盖：unit/process 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-02T15:33:18.397Z
-- **当前 HEAD commit sha**: d2c20f35bc0ae0885760e0a81b2944410ca79fdc
-- **当前 HEAD 短 sha**: d2c20f35bc0a
-- **unit 报告 commit sha**: d2c20f35bc0ae0885760e0a81b2944410ca79fdc
-- **process 报告 commit sha**: d2c20f35bc0ae0885760e0a81b2944410ca79fdc
+- **生成时间**: 2026-07-02T15:43:32.009Z
+- **当前 HEAD commit sha**: 076f2ffa6b01064a14decf87d5c8cddee7d4aba6
+- **当前 HEAD 短 sha**: 076f2ffa6b01
+- **unit 报告 commit sha**: 076f2ffa6b01064a14decf87d5c8cddee7d4aba6
+- **process 报告 commit sha**: 076f2ffa6b01064a14decf87d5c8cddee7d4aba6
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-02T15:31:04.731Z
-- **process 测试时间**: 2026-07-02T15:31:30.145Z
+- **unit 测试时间**: 2026-07-02T15:43:01.419Z
+- **process 测试时间**: 2026-07-02T15:43:02.355Z
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 740 | 0 | 36 | 0 | 776 | d2c20f35bc0a | ✅ 通过 |
-| process | 87 | 0 | 59 | 0 | 146 | d2c20f35bc0a | ✅ 通过 |
-| **合计** | **827** | **0** | **95** | **0** | **922** | d2c20f35bc0a | ✅ **主线通过** |
+| unit | 744 | 0 | 36 | 0 | 780 | 076f2ffa6b01 | ✅ 通过 |
+| process | 87 | 0 | 59 | 0 | 146 | 076f2ffa6b01 | ✅ 通过 |
+| **合计** | **831** | **0** | **95** | **0** | **926** | 076f2ffa6b01 | ✅ **主线通过** |
 
 **双轨均 0 失败 → V2.17-A Completion 主线闭环测试通过。**
 
