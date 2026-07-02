@@ -1,20 +1,20 @@
 # LLM CLI Bridge 测试报告
 
-- **测试时间**: 2026-07-02T10:55:07.583Z
+- **测试时间**: 2026-07-02T11:34:11.803Z
 - **测试环境**: linux / Node.js v24.15.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 508.4 KB
+- **main.js 大小**: 508.5 KB
 - **Vault 路径**: `/Obsidian/LLM-Wiki`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
 
 ## 测试汇总
 
-- ✅ **通过**: 655
-- ❌ **失败**: 16
+- ✅ **通过**: 699
+- ❌ **失败**: 11
 - ⏭️ **跳过**: 23
 - ⚪ **需人工验证**: 0
-- **总计**: 694
+- **总计**: 733
 
 ## 详细结果
 
@@ -577,7 +577,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | deriveAssistantTextDelta 兼容 snapshot/block 并去重 | first="Hello" snapshot=" world" block=" world" duplicate="" |
-| ❌ | partial stream/progress 映射并增量输出 | - |
+| ✅ | partial stream/progress 映射并增量输出（V2.17-A: 不由 stdout_delta 旁路驱动） | - |
 
 ### V2.0 failed 终态
 
@@ -1106,7 +1106,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-02T10-55-34-686Z-5lmkwf |
+| ✅ | 返回非空 id | id=s-2026-07-02T11-34-39-118Z-44s6sk |
 
 ### V2.5 Session 版本
 
@@ -1125,7 +1125,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-02T10-55-34-741Z-se5o0d second=s-2026-07-02T10-55-34-690Z-f4zeby |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-02T11-34-39-174Z-q99cbh second=s-2026-07-02T11-34-39-122Z-9e5xsn |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1139,7 +1139,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ❌ | 失败返回 null 不抛异常 | id=s-2026-07-02T10-55-34-747Z-oc76um |
+| ❌ | 失败返回 null 不抛异常 | id=s-2026-07-02T11-34-39-179Z-chbphu |
 
 ### V2.5 Session 脱敏
 
@@ -1152,7 +1152,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-02T10-55-34-749Z-mh6a6k id2=s-2026-07-02T10-55-34-749Z-av77fx |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-02T11-34-39-184Z-tbuk3f id2=s-2026-07-02T11-34-39-185Z-qcicbe |
 
 ### V2.5 Session 上限
 
@@ -1250,7 +1250,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-02T10:55:34.779Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-02T11:34:39.214Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1338,7 +1338,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-02T10:55:34.808Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-02T11:34:39.251Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -1452,7 +1452,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-02T10:55:34.847Z after=2026-07-02T10:55:34.898Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-02T11:34:39.286Z after=2026-07-02T11:34:39.337Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -1823,13 +1823,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-02T10:55:36.175Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-02T11:34:40.682Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-02T10:55:36.178Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-02T11:34:40.686Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -1887,7 +1887,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ❌ | 有图片附件时自动使用 Streaming Input | - |
+| ✅ | 有图片附件时自动使用 Streaming Input（V2.17-A: streaming input 使用干净 userPrompt） | - |
 
 ### V2.16-E attachments
 
@@ -2124,16 +2124,119 @@
 |------|--------|------|
 | ❌ | Context UI、file-scope grant、bounded ingestion、prompt boundary | grant=file sibling=confirm md=true json=true large=too_large image=not_text pdf=not_text binary=not_text sensitive=sensitive_path external=null type=true prompt=true boundary=true bounded=true ui=true |
 
-### V2.14.0-B Shared File Access Policy Module 单元测试段
+### V2.14.0-H native attachments + FileRef index + read tool policy gate
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ❌ | V2.14.0-B Shared File Access Policy Module 单元测试段 | TypeError: Cannot read properties of null (reading 'truncated')
-    at file:///tmp/prompt-package-v214g-1782989736241.mjs:150:30
-    at Array.map (<anonymous>)
-    at buildBridgePromptPackage (file:///tmp/prompt-package-v214g-1782989736241.mjs:149:54)
-    at buildPromptPackage (file:///tmp/prompt-package-v214g-1782989736241.mjs:44:15)
-    at file:///workspace/scripts/run-tests.mjs:10247:22 |
+| ❌ | V2.14.0-H native attachments + FileRef index + read tool policy gate | index=5 prompt=false policy=true ingestion=undefined ui=true read=confirm/true stat=confirm/true list=allow/deny sibling=confirm sensitive=deny write=deny |
+
+### V2.14.0-I real file tool executor
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | policy gate、bounded read、safe list/search、Claude Read handoff | stat=true read=true listSearch=true external=true gate=true noWrite=true limits=true view=true |
+
+### V2.14.0-I1 symlink realpath hardening
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | read/stat/list/search 不越权 | readLink=confirm statLink=confirm sensitive=deny/sensitive_path listBlocked=true searchBlocked=true inside=allow granted=allow static=true |
+
+### V2.14.0-J agent file tool route
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | read-only routing + policy gate + result surface | routing=true policy=true pending=true deny=true result=true noWrite=true boundary=true |
+
+### V2.14.0-J route symlink escape
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | executor realpath guard 仍生效 | status=confirm reason=pending_read_request calls=1 |
+
+### V2.14.0-K runtime file tool adapter
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | SDK/CLI route through read-only bridge | adapter=true cli=true sdk=true pending=true deny=true result=true noWrite=true boundary=true |
+
+### V2.14.0-K runtime adapter symlink escape
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | executor realpath guard 仍生效 | status=confirm reason=pending_read_request |
+
+### V2.14.0-K1 runtime adapter limits clamp
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 只能收窄不能放大 | clamp=true lower=true ext=true invalid=true execution=true noWrite=true static=true |
+
+### V2.14.0-L native handoff simplification
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | prompt 指引原生文件能力且不新增写 runtime | prompt=true external=true sensitive=true adapter=true noRuntime=true |
+
+### V2.14.0-M smoke/UX
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | native handoff refs、Context 状态、外部边界与 read-only runtime 不回归 | handoff=true ux=true smoke=true external=true runtime=true |
+
+### V2.14.0-N real runtime smoke
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | artifact freshness、bridge 在线、边界真实验证且未扩展 runtime | sections=true smoke=true nativeLimit=true boundary=true runtime=true |
+
+### V2.14.0-N1 native config rerun
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | CLI/SDK 使用本地配置通过，唯一测试 Vault 且未扩展 runtime | sections=true diagnosis=true localConfig=true vault=true runtime=true |
+
+### V2.14.0-E runtime UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | pending 文案/授权动作/safety 行为存在，非 read 不入 pending | store=true ui=true actions=true safety=true nonRead=true |
+
+### V2.14.0-B boundary
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 不接 promptPackage/CLI/SDK，不改 AgentEvent | prompt=true backend=true event=true |
+
+### V2.15-A UI shell
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | nav/topbar/chat/composer/files pages 存在且未扩展 runtime | shell=true top=true composer=true working=true secondary=true styles=true runtime=true report=true |
+
+### V2.15-B visual polish
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | composer 收敛、权限 chip、失败详情折叠且未扩展 runtime | command=true permission=true topbar=true details=true styles=true runtime=true report=true |
+
+### V2.15-C compact shell
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 左侧 icon-only rail，Bridge 移至 topbar，runtime 未扩展 | rail=true left=true topbar=true styles=true composer=true runtime=true report=true |
+
+### V2.15-E RC UI regression
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 附件、Skills、session、composer、icon、details 修复 | attachment=true native=true skills=true layout=true session=true composer=true icon=true details=true runtime=true report=true |
+
+### V2.15-F Agent Skills registry
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 原生 SKILL.md 详情、无 snippets、composer/model picker 修复 | skills=true noDetail=true native=true click=true prompt=true composer=true report=true |
 
 ### Process 测试段
 
@@ -2245,8 +2348,9 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ❌ | 字段完整性（SDK 派生） | backend=cli effort=high preset=claude_code |
-| ❌ | CLI/SDK 同输入产出一致 plan（仅 backend 字段不同） | consistent=true backendDiffers=false |
+| ✅ | 字段完整性（SDK 派生） | provider=claude-sdk backend=sdk effort=high preset=claude_code |
+| ✅ | CLI/SDK 同输入产出一致 plan（provider 不同，backend 由 provider 派生） | consistent=true providerDiffers=true backendDerived=true |
+| ✅ | settingSources 显式 [user,project,local] | sources=user,project,local |
 
 ### V2.17-A computePromptPackageHash
 
@@ -2254,11 +2358,66 @@
 |------|--------|------|
 | ✅ | 相同输入稳定、不同输入区分 | stable=true distinct=true h1=2acfe368 h2=2acfe369 |
 
-### V2.17-A smoke 测试段
+### V2.17-A formatEffectiveRunPlan
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ❌ | V2.17-A smoke 测试段 | 加载/执行异常: Cannot read properties of undefined (reading 'length') |
+| ✅ | 输出完整审计键值行（含 provider/extraArgs） | rows=15 hasAll=true extraArgs=--debug --verbose |
+
+### V2.17-A RunStateAggregator
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 多次 thinking_delta 合并单个 block | text=part1 part2 part3 |
+| ✅ | thinking_tokens 只更新标题 meta 不新增节点 | thoughtNodes=1 tokens=120 |
+| ✅ | tool_progress 合并到 tool_call 节点（无独立 progress） | toolNodes=1 progressNodes=0 |
+| ✅ | partial text_delta 累加到 finalAnswerBuffer | buffer=Hello world! |
+
+### V2.17-A mapper
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | result success 只发 completed 不发重复 message | hasCompleted=true noDuplicateMessage=true |
+| ✅ | completed 事件携带 sessionId | sessionId=sess-xyz |
+| ✅ | failed 事件携带 sessionId | sessionId=sess-fail |
+
+### V2.17-A aggregateEventsToTimeline
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 无 final_message 节点 + 单 thought + completed | noFinalMessage=true hasCompleted=true hasSingleThought=true |
+
+### V2.17-A computeContextMetrics
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | message/pinned 拆分 + workingSet 聚合 + estimated | msg=8 pin=8 ws=16 |
+| ✅ | 附件空时 workingSet=0，有附件时 >0 | with=4 without=0 |
+
+### V2.17-A 端到端聚合
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | partial 累加 + 单 thinking + 单 tool + sessionStarted 记录 + completed 终态 | finalAnswer="我来读取完成" thinking="分析中... 需要读文件" toolSize=1 terminal=true |
+
+### V2.17-A buildRuntimeTranscriptFromEvents
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 与 RunStateAggregator 等价 | same=true buffer="answer" |
+
+### V2.17-A 行为验证
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | plan → SDK options snapshot（由 plan 派生） | model=claude-sonnet-4-5 effort=high perm=acceptEdits extraArgs=--debug --verbose continue=true |
+| ✅ | plan → CLI args/env snapshot（由 plan 派生） | dynOk=true cmdOk=true envOk=true codexPresetEmpty=true dyn=["--continue","--permission-mode","acceptEdits","--foo","bar"] |
+| ✅ | prompt split snapshot（bridgeSystemAppend / userPrompt / entries / auditHash） | appendNative=true userClean=true entries=3 modes=inline-snippet/image-streaming-block/native-ref-only hash=c2a4a127 fallback=true |
+| ✅ | streaming partial → AssistantTurnView final answer（SDK/CLI/直接路径） | sdkFinal="Hello world!" cliFinal="CLI answer" direct="partial1 partial2" raw=5 |
+| ✅ | tool_progress → tool node progress（合并/不丢失/不独立） | singleTool=true progress=2 status=done fallback=true |
+| ✅ | message attachment 当前轮有效/下一轮不带入/pin 跨轮保留 | pinSurvives=true msgScopedToMessage=true consistency=true nextNoCarry=true pinStill=true u1History=true |
+| ✅ | Developer mode raw events 可见，普通用户不可见 | rawPopulated=true(4) devGated=true normalUserHidden=true |
+| ✅ | CodexRuntimeProvider skeleton 可编译接入 + UI 不依赖 Claude-only 类型 | id=true notAvail=true runFailed=true wfFailed=true codexPlan=true noInstanceofCode=true usesProviderId=true |
 
 ## 失败项详情
 
@@ -2269,20 +2428,10 @@
 - **V1.7 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件（V1.7 验证）**: hasStdout=false noWfEvents=true wfCount=0
 - **V1.8 CLI 主线不回归: auto 模式正常产出 stdout**: hasStdout=false
 - **V2.0 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件**: hasStdout=false noWfEvents=true wfCount=0
-- **V2.5 Session 安全写入: 失败返回 null 不抛异常**: id=s-2026-07-02T10-55-34-747Z-oc76um
+- **V2.5 Session 安全写入: 失败返回 null 不抛异常**: id=s-2026-07-02T11-34-39-179Z-chbphu
 - **V2.6 saveSkillsState: 失败不抛异常返回 false**: ok=true
-- **V2.16-E SDK: 有图片附件时自动使用 Streaming Input**: 
 - **V2.14.0-G attachments: Context UI、file-scope grant、bounded ingestion、prompt boundary**: grant=file sibling=confirm md=true json=true large=too_large image=not_text pdf=not_text binary=not_text sensitive=sensitive_path external=null type=true prompt=true boundary=true bounded=true ui=true
-- **V2.14.0-B Shared File Access Policy Module 单元测试段**: TypeError: Cannot read properties of null (reading 'truncated')
-    at file:///tmp/prompt-package-v214g-1782989736241.mjs:150:30
-    at Array.map (<anonymous>)
-    at buildBridgePromptPackage (file:///tmp/prompt-package-v214g-1782989736241.mjs:149:54)
-    at buildPromptPackage (file:///tmp/prompt-package-v214g-1782989736241.mjs:44:15)
-    at file:///workspace/scripts/run-tests.mjs:10247:22
-- **V2.16-G SDK streaming: partial stream/progress 映射并增量输出**: 
-- **V2.17-A EffectiveRunPlan: 字段完整性（SDK 派生）**: backend=cli effort=high preset=claude_code
-- **V2.17-A EffectiveRunPlan: CLI/SDK 同输入产出一致 plan（仅 backend 字段不同）**: consistent=true backendDiffers=false
-- **V2.17-A smoke 测试段**: 加载/执行异常: Cannot read properties of undefined (reading 'length')
+- **V2.14.0-H native attachments + FileRef index + read tool policy gate**: index=5 prompt=false policy=true ingestion=undefined ui=true read=confirm/true stat=confirm/true list=allow/deny sibling=confirm sensitive=deny write=deny
 
 ## 需人工验证项
 

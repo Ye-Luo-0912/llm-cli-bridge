@@ -118,7 +118,7 @@ function buildAttachmentEntries(
   providerSupportsImageStreaming: boolean,
 ): AttachmentEntry[] {
   const refs = snapshot.fileRefIndex ?? [];
-  const snippets = snapshot.attachmentTextSnippets ?? [];
+  const snippets = (snapshot.attachmentTextSnippets ?? []).filter((s) => s !== null);
   const snippetByRefId = new Map<string, PromptAttachmentTextSnippet>();
   for (const s of snippets) snippetByRefId.set(s.refId, s);
   return refs.map((ref) => {
@@ -231,8 +231,10 @@ ${sessionRefs.length > 0 ? rowsFor(sessionRefs) : "(none)"}
   }
 
   // 5. 本轮/Pin 附件（只包含 bounded text snippets，不包含未授权 external 全文）
+  // V2.17-A 续: 过滤 null snippet（ingestAttachmentTextSnippet 对非文本/敏感/过大/读取失败路径返回 null）
   if (snapshot.attachmentTextSnippets && snapshot.attachmentTextSnippets.length > 0) {
-    const snippets = snapshot.attachmentTextSnippets.map((snippet, idx) => {
+    const validSnippets = snapshot.attachmentTextSnippets.filter((s) => s !== null);
+    const snippets = validSnippets.map((snippet, idx) => {
       const marker = snippet.truncated ? "\n...[attachment truncated by LLM CLI Bridge]" : "";
       return `--- Attachment ${idx + 1}: ${snippet.displayName} ---
 type: ${snippet.fileType}

@@ -8696,12 +8696,12 @@ if (!runV2121Unit) {
 
   {
     const ok = agentBackendSrc.includes("export interface SdkStreamingInput")
-      && viewSrc.includes("buildSdkStreamingInput(prompt, promptFileRefsForRun)")
+      && viewSrc.includes("buildSdkStreamingInput(bridgePrompt.userPrompt, promptFileRefsForRun)")
       && viewSrc.includes("createSdkImageContentBlock")
       && sdkBackendSrc.includes("createSdkUserMessageStream")
       && sdkBackendSrc.includes("prompt: string | AsyncIterable<unknown>")
       && sdkBackendSrc.includes("task.sdkStreamingInput");
-    addTest("V2.16-E SDK: 有图片附件时自动使用 Streaming Input", ok ? "pass" : "fail", "");
+    addTest("V2.16-E SDK: 有图片附件时自动使用 Streaming Input（V2.17-A: streaming input 使用干净 userPrompt）", ok ? "pass" : "fail", "");
   }
 
   {
@@ -11312,7 +11312,7 @@ if (!runV214BUnit) {
         && !viewSrc.includes("Prompt Snippets")
         && !viewSrc.includes("Insert prompt")
         && !viewSrc.includes("Insert selected")
-        && !viewSrc.includes("Append");
+        && !viewSrc.includes("appendPromptSnippet");
       const noInlineDetailOk = !viewSrc.includes("agentSkillPreviewEl")
         && !viewSrc.includes("renderAgentSkillPreview")
         && !viewSrc.includes("openAgentSkillPreviewModal")
@@ -12423,13 +12423,17 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 20: SDK assistant 文本增量流式写入正文，终态不重复补发 ----
   {
+    // V2.17-A 续: SDK 路径 final answer 不再由 stdout_delta 旁路驱动。
+    // - sdkBackend 不再发 onEvent(stdout_delta, deltaText)（assistant 文本经 WorkflowEvent message.partial）
+    // - 仍保留 deriveAssistantTextDelta / streamedAssistantText 用于 diagnostics 与 terminalText 去重
+    // - view.ts 用 !isStructuredProvider 门控：CLI/mock 走 appendAssistantContentDelta，SDK 走 appendLiveSdkEvent
     const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
     const sdkMessageMapperSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkMessageMapper.ts"), "utf8");
     const timelineAdapterSrc = readFileSync(join(PROJECT_ROOT, "src", "timelineAdapter.ts"), "utf8");
     const ok = sdkBackendSrc.includes("deriveAssistantTextDelta")
       && sdkBackendSrc.includes("includePartialMessages: true")
       && sdkBackendSrc.includes('if (ev.type !== "message" || ev.role !== "assistant" || !ev.text) continue;')
-      && sdkBackendSrc.includes('onEvent({ type: "stdout_delta", data: deltaText })')
+      && !sdkBackendSrc.includes('onEvent({ type: "stdout_delta", data: deltaText })')
       && sdkBackendSrc.includes("const terminalDelta = deriveAssistantTextDelta(streamedAssistantText, terminalText)")
       && sdkMessageMapperSrc.includes("mapPartialStreamEvent")
       && sdkMessageMapperSrc.includes("text_delta")
@@ -12438,10 +12442,12 @@ if (!runNoteSummarizeSmoke) {
       && sdkMessageMapperSrc.includes("thinking_tokens")
       && timelineAdapterSrc.includes('"progress"')
       && viewSrc.includes("this.appendAssistantContentDelta(assistantId, event.data)")
+      && viewSrc.includes("if (!isStructuredProvider)")
+      && viewSrc.includes("this.appendLiveSdkEvent")
       && viewSrc.includes("this.scheduleLiveTimelineRender()")
       && viewSrc.includes("window.setTimeout(() =>")
       && !viewSrc.includes('scrollIntoView({ behavior: "smooth", block: "end" })');
-    addTest("V2.16-G SDK streaming: partial stream/progress 映射并增量输出", ok ? "pass" : "fail", "");
+    addTest("V2.16-G SDK streaming: partial stream/progress 映射并增量输出（V2.17-A: 不由 stdout_delta 旁路驱动）", ok ? "pass" : "fail", "");
   }
 }
 
@@ -12461,12 +12467,21 @@ if (!runV217A) {
   let effectiveRunPlanBundle = null;
   let contextMetricsBundleV217 = null;
   let mapperBundleV217 = null;
+  // V2.17-A 续: 行为验证测试需要的新 bundle
+  let promptPackageBundleV217 = null;
+  let normalizedRuntimeEventBundleV217 = null;
+  let codexRuntimeProviderBundleV217 = null;
+  let sessionsBundleV217 = null;
   try {
     const esbuild = (await import("esbuild")).default;
     runtimeTranscriptBundle = join(PROJECT_ROOT, ".test-runtime-transcript-v217a-temp.mjs");
     effectiveRunPlanBundle = join(PROJECT_ROOT, ".test-effective-run-plan-v217a-temp.mjs");
     contextMetricsBundleV217 = join(PROJECT_ROOT, ".test-context-metrics-v217a-temp.mjs");
     mapperBundleV217 = join(PROJECT_ROOT, ".test-sdk-mapper-v217a-temp.mjs");
+    promptPackageBundleV217 = join(PROJECT_ROOT, ".test-prompt-package-v217a-temp.mjs");
+    normalizedRuntimeEventBundleV217 = join(PROJECT_ROOT, ".test-normalized-runtime-event-v217a-temp.mjs");
+    codexRuntimeProviderBundleV217 = join(PROJECT_ROOT, ".test-codex-runtime-provider-v217a-temp.mjs");
+    sessionsBundleV217 = join(PROJECT_ROOT, ".test-sessions-v217a-temp.mjs");
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "runtimeTranscript.ts")],
       bundle: true, format: "esm", platform: "node", outfile: runtimeTranscriptBundle,
@@ -12483,26 +12498,61 @@ if (!runV217A) {
       entryPoints: [join(PROJECT_ROOT, "src", "sdkMessageMapper.ts")],
       bundle: true, format: "esm", platform: "node", outfile: mapperBundleV217,
     });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "promptPackage.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: promptPackageBundleV217,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "normalizedRuntimeEvent.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: normalizedRuntimeEventBundleV217,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "codexRuntimeProvider.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexRuntimeProviderBundleV217,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sessions.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: sessionsBundleV217,
+    });
 
     const { RunStateAggregator, aggregateEventsToTimeline, buildRuntimeTranscriptFromEvents } =
       await import(pathToFileURL(runtimeTranscriptBundle).href);
-    const { buildEffectiveRunPlan, computePromptPackageHash, formatEffectiveRunPlan } =
-      await import(pathToFileURL(effectiveRunPlanBundle).href);
+    const {
+      buildEffectiveRunPlan, computePromptPackageHash, formatEffectiveRunPlan,
+      buildSdkOptionsFromPlan, buildCliCommandFromPlan, buildCliEnvFromPlan,
+      buildCliDynamicArgsFromPlan, buildAttachmentPlanFromRefs, formatAttachmentEntries,
+      parseExtraArgs, buildBridgePromptPackageAudit,
+    } = await import(pathToFileURL(effectiveRunPlanBundle).href);
     const { computeContextMetrics, estimateTokens } =
       await import(pathToFileURL(contextMetricsBundleV217).href);
     const { mapSdkMessageToWorkflowEvents } =
       await import(pathToFileURL(mapperBundleV217).href);
+    // V2.17-A 续: 行为验证用
+    const { buildBridgePromptPackage, buildPromptPackage } =
+      await import(pathToFileURL(promptPackageBundleV217).href);
+    const {
+      NormalizedRunStateAggregator, normalizeWorkflowEvent, normalizeAgentEvent,
+      buildAssistantTurnViewFromWorkflowEvents, buildAssistantTurnViewFromAgentEvents,
+    } = await import(pathToFileURL(normalizedRuntimeEventBundleV217).href);
+    const { CodexRuntimeProvider } =
+      await import(pathToFileURL(codexRuntimeProviderBundleV217).href);
+    const { saveSession, loadSession, listSessions } =
+      await import(pathToFileURL(sessionsBundleV217).href);
 
     const TS = () => new Date().toISOString();
 
-    // 构造测试用 settings（仅含 buildEffectiveRunPlan 需要的字段）
+    // 构造测试用 settings（覆盖 buildEffectiveRunPlan / buildCliCommandFromPlan / buildCliEnvFromPlan 需要的字段）
     function makeSettings(overrides = {}) {
       return {
+        agentType: "claude",
+        claudeCommand: "claude",
+        claudeArgs: "-p",
         model: "claude-sonnet-4-5",
         effortLevel: "high",
         claudePermissionMode: "default",
         claudeContinueSession: false,
         claudeResumeSessionId: "",
+        claudeExtraArgs: "",
         ...overrides,
       };
     }
@@ -12510,13 +12560,15 @@ if (!runV217A) {
     const emptyAttachmentPlan = {
       messageScopedRefs: 0, pinnedRefs: 0, inlineSnippets: 0,
       imageStreamingBlocks: 0, nativeRefOnly: 0,
+      // V2.17-A 续: AttachmentPlan 要求 entries（entry-level 审计）
+      entries: [],
     };
 
     // ---- Test 1: EffectiveRunPlan 字段完整性（SDK 派生）----
     {
       const settings = makeSettings();
       const plan = buildEffectiveRunPlan({
-        backend: "sdk",
+        provider: "claude-sdk",
         settings,
         cwd: "/vault",
         promptPackageText: "system prompt + tool steering",
@@ -12524,7 +12576,8 @@ if (!runV217A) {
         skills: ["code", "docs"],
         attachmentPlan: { ...emptyAttachmentPlan, messageScopedRefs: 2, inlineSnippets: 1 },
       });
-      const fieldsOk = plan.backend === "sdk"
+      const fieldsOk = plan.provider === "claude-sdk"
+        && plan.backend === "sdk"
         && plan.cwd === "/vault"
         && plan.model === "claude-sonnet-4-5"
         && plan.effort === "high"
@@ -12534,15 +12587,17 @@ if (!runV217A) {
         && plan.tools.preset === "claude_code"
         && Array.isArray(plan.settingSources) && plan.settingSources.length === 3
         && Array.isArray(plan.skills) && plan.skills.length === 2
+        && Array.isArray(plan.extraArgs) && plan.extraArgs.length === 0
         && typeof plan.promptPackageHash === "string" && plan.promptPackageHash.length > 0
         && plan.attachmentPlan.messageScopedRefs === 2
+        && Array.isArray(plan.attachmentPlan.entries) && plan.attachmentPlan.entries.length === 0
         && typeof plan.createdAt === "string";
       addTest("V2.17-A EffectiveRunPlan: 字段完整性（SDK 派生）",
         fieldsOk ? "pass" : "fail",
-        `backend=${plan.backend} effort=${plan.effort} preset=${plan.systemPrompt.preset}`);
+        `provider=${plan.provider} backend=${plan.backend} effort=${plan.effort} preset=${plan.systemPrompt.preset}`);
     }
 
-    // ---- Test 2: CLI 与 SDK 派生自同一 plan（model/effort/permission/session 一致，仅 backend 不同）----
+    // ---- Test 2: CLI 与 SDK 派生自同一 plan（model/effort/permission/session 一致，仅 provider/backend 不同）----
     {
       const settings = makeSettings({ model: "gpt-5.5", effortLevel: "medium", claudePermissionMode: "plan" });
       const commonArgs = {
@@ -12553,8 +12608,8 @@ if (!runV217A) {
         skills: [],
         attachmentPlan: emptyAttachmentPlan,
       };
-      const sdkPlan = buildEffectiveRunPlan({ backend: "sdk", ...commonArgs });
-      const cliPlan = buildEffectiveRunPlan({ backend: "cli", ...commonArgs });
+      const sdkPlan = buildEffectiveRunPlan({ provider: "claude-sdk", ...commonArgs });
+      const cliPlan = buildEffectiveRunPlan({ provider: "claude-cli", ...commonArgs });
       const consistent = sdkPlan.model === cliPlan.model
         && sdkPlan.effort === cliPlan.effort
         && sdkPlan.permission === cliPlan.permission
@@ -12562,11 +12617,13 @@ if (!runV217A) {
         && sdkPlan.systemPrompt.preset === cliPlan.systemPrompt.preset
         && sdkPlan.tools.preset === cliPlan.tools.preset
         && sdkPlan.settingSources.join(",") === cliPlan.settingSources.join(",")
+        && sdkPlan.extraArgs.join(",") === cliPlan.extraArgs.join(",")
         && sdkPlan.promptPackageHash === cliPlan.promptPackageHash;
-      const backendDiffers = sdkPlan.backend === "sdk" && cliPlan.backend === "cli";
-      addTest("V2.17-A EffectiveRunPlan: CLI/SDK 同输入产出一致 plan（仅 backend 字段不同）",
-        consistent && backendDiffers ? "pass" : "fail",
-        `consistent=${consistent} backendDiffers=${backendDiffers}`);
+      const providerDiffers = sdkPlan.provider === "claude-sdk" && cliPlan.provider === "claude-cli";
+      const backendDerived = sdkPlan.backend === "sdk" && cliPlan.backend === "cli";
+      addTest("V2.17-A EffectiveRunPlan: CLI/SDK 同输入产出一致 plan（provider 不同，backend 由 provider 派生）",
+        consistent && providerDiffers && backendDerived ? "pass" : "fail",
+        `consistent=${consistent} providerDiffers=${providerDiffers} backendDerived=${backendDerived}`);
     }
 
     // ---- Test 3: promptPackageHash 相同输入稳定、不同输入区分 ----
@@ -12583,9 +12640,9 @@ if (!runV217A) {
 
     // ---- Test 4: formatEffectiveRunPlan 输出可审计键值行 ----
     {
-      const settings = makeSettings();
+      const settings = makeSettings({ claudeExtraArgs: "--debug --verbose" });
       const plan = buildEffectiveRunPlan({
-        backend: "sdk", settings, cwd: "/vault",
+        provider: "claude-sdk", settings, cwd: "/vault",
         promptPackageText: "x",
         settingSources: ["user", "project", "local"],
         skills: ["code"],
@@ -12593,11 +12650,14 @@ if (!runV217A) {
       });
       const rows = formatEffectiveRunPlan(plan);
       const labels = rows.map((r) => r.label);
-      const expected = ["backend","cwd","model","effort","permission","session","systemPrompt","tools","settingSources","skills","promptPackageHash","attachments","createdAt"];
+      // V2.17-A 续: 新增 provider / extraArgs 审计行
+      const expected = ["provider","backend","cwd","model","effort","permission","session","systemPrompt","tools","settingSources","skills","extraArgs","promptPackageHash","attachments","createdAt"];
       const hasAll = expected.every((k) => labels.includes(k));
-      addTest("V2.17-A formatEffectiveRunPlan: 输出完整审计键值行",
-        hasAll && rows.length >= expected.length ? "pass" : "fail",
-        `rows=${rows.length} hasAll=${hasAll}`);
+      const extraArgsRow = rows.find((r) => r.label === "extraArgs");
+      const extraArgsOk = extraArgsRow && extraArgsRow.value === "--debug --verbose";
+      addTest("V2.17-A formatEffectiveRunPlan: 输出完整审计键值行（含 provider/extraArgs）",
+        hasAll && extraArgsOk ? "pass" : "fail",
+        `rows=${rows.length} hasAll=${hasAll} extraArgs=${extraArgsRow?.value}`);
     }
 
     // ---- Test 5: RunStateAggregator thinking 多次 delta 合并为单个 block ----
@@ -12797,7 +12857,7 @@ if (!runV217A) {
     {
       const settings = makeSettings();
       const plan = buildEffectiveRunPlan({
-        backend: "sdk", settings, cwd: "/v",
+        provider: "claude-sdk", settings, cwd: "/v",
         promptPackageText: "p",
         settingSources: ["user", "project", "local"],
         skills: [],
@@ -12812,6 +12872,353 @@ if (!runV217A) {
         `sources=${plan.settingSources.join(",")}`);
     }
 
+    // ============================================================
+    // V2.17-A 续: 行为验证测试（从源码字符串检查升级）
+    // 覆盖：plan→SDK options / plan→CLI args/env / prompt split /
+    //       streaming partial→AssistantTurnView / tool_progress→tool node /
+    //       attachment pin 跨轮 / dev mode raw events / Codex skeleton + UI 解耦
+    // ============================================================
+
+    // ---- Test 18: plan → SDK options snapshot（单一真相源派生）----
+    {
+      const settings = makeSettings({
+        model: "claude-sonnet-4-5",
+        effortLevel: "high",
+        claudePermissionMode: "acceptEdits",
+        claudeContinueSession: true,
+        claudeExtraArgs: "--debug --verbose",
+      });
+      const plan = buildEffectiveRunPlan({
+        provider: "claude-sdk", settings, cwd: "/vault",
+        promptPackageText: "pkg",
+        settingSources: ["user", "project", "local"],
+        skills: ["code", "docs"],
+        attachmentPlan: emptyAttachmentPlan,
+      });
+      const opts = buildSdkOptionsFromPlan(plan);
+      // 快照：所有关键字段由 plan 派生，backend 不再读 settings
+      const snapshot = {
+        cwd: opts.cwd,
+        model: opts.model,
+        effort: opts.effort,
+        permissionMode: opts.permissionMode,
+        includePartialMessages: opts.includePartialMessages,
+        thinking: opts.thinking,
+        systemPrompt: opts.systemPrompt,
+        tools: opts.tools,
+        settingSources: opts.settingSources,
+        skills: opts.skills,
+        extraArgs: opts.extraArgs,
+        continue: opts.continue,
+        resume: opts.resume,
+      };
+      const ok = snapshot.cwd === "/vault"
+        && snapshot.model === "claude-sonnet-4-5"
+        && snapshot.effort === "high"
+        && snapshot.permissionMode === "acceptEdits"
+        && snapshot.includePartialMessages === true
+        && snapshot.thinking && snapshot.thinking.type === "adaptive"
+        && snapshot.systemPrompt && snapshot.systemPrompt.preset === "claude_code"
+        && snapshot.tools && snapshot.tools.preset === "claude_code"
+        && Array.isArray(snapshot.settingSources) && snapshot.settingSources.join(",") === "user,project,local"
+        && Array.isArray(snapshot.skills) && snapshot.skills.join(",") === "code,docs"
+        && Array.isArray(snapshot.extraArgs) && snapshot.extraArgs.join(" ") === "--debug --verbose"
+        && snapshot.continue === true
+        && snapshot.resume === undefined;
+      addTest("V2.17-A 行为验证: plan → SDK options snapshot（由 plan 派生）",
+        ok ? "pass" : "fail",
+        `model=${snapshot.model} effort=${snapshot.effort} perm=${snapshot.permissionMode} extraArgs=${snapshot.extraArgs?.join(" ")} continue=${snapshot.continue}`);
+    }
+
+    // ---- Test 19: plan → CLI args/env snapshot（单一真相源派生）----
+    {
+      const settings = makeSettings({
+        agentType: "claude",
+        claudeCommand: "claude",
+        claudeArgs: "-p",
+        model: "claude-sonnet-4-5",
+        effortLevel: "high",
+        claudePermissionMode: "acceptEdits",
+        claudeContinueSession: true,
+        claudeExtraArgs: "--foo bar",
+      });
+      const plan = buildEffectiveRunPlan({
+        provider: "claude-cli", settings, cwd: "/vault",
+        promptPackageText: "pkg",
+        settingSources: ["user", "project", "local"],
+        skills: [],
+        attachmentPlan: emptyAttachmentPlan,
+      });
+      const dynArgs = buildCliDynamicArgsFromPlan(plan);
+      const cmd = buildCliCommandFromPlan(plan, settings);
+      const { env, envKeys } = buildCliEnvFromPlan(plan, settings, "/vault");
+      // 动态 args 快照：--continue + --permission-mode acceptEdits + --foo bar
+      const dynOk = JSON.stringify(dynArgs) === JSON.stringify(["--continue", "--permission-mode", "acceptEdits", "--foo", "bar"]);
+      // 完整命令行：base args + 动态 args
+      const cmdOk = cmd.command === "claude"
+        && JSON.stringify(cmd.args) === JSON.stringify(["-p", "--continue", "--permission-mode", "acceptEdits", "--foo", "bar"]);
+      // env 由 plan 派生（model/effort），不再读 settings
+      const envOk = env.ANTHROPIC_MODEL === "claude-sonnet-4-5"
+        && env.CLAUDE_CODE_EFFORT_LEVEL === "high"
+        && envKeys.includes("ANTHROPIC_MODEL")
+        && envKeys.includes("CLAUDE_CODE_EFFORT_LEVEL");
+      // Codex provider 不应产生 claude_code env（验证 provider 隔离）
+      const codexPlan = buildEffectiveRunPlan({
+        provider: "codex-sdk", settings: makeSettings({ agentType: "codex" }), cwd: "/vault",
+        promptPackageText: "pkg", settingSources: [], skills: [], attachmentPlan: emptyAttachmentPlan,
+      });
+      const codexPresetEmpty = codexPlan.systemPrompt.preset === "" && codexPlan.tools.preset === "";
+      addTest("V2.17-A 行为验证: plan → CLI args/env snapshot（由 plan 派生）",
+        dynOk && cmdOk && envOk && codexPresetEmpty ? "pass" : "fail",
+        `dynOk=${dynOk} cmdOk=${cmdOk} envOk=${envOk} codexPresetEmpty=${codexPresetEmpty} dyn=${JSON.stringify(dynArgs)}`);
+    }
+
+    // ---- Test 20: prompt split snapshot（bridgeSystemAppend / userPrompt / attachmentEntries / auditHash）----
+    {
+      const snapshot = {
+        vaultPath: "/vault",
+        activeFilePath: "/vault/note.md",
+        activeFileContent: "# Note\nactive content",
+        selection: "selected text",
+        timestamp: "2026-07-02T00:00:00Z",
+        fileRefIndex: [
+          { id: "ref-msg-1", displayName: "msg.md", path: "/vault/msg.md", kind: "vault", fileType: "markdown", scope: "message", status: "active" },
+          { id: "ref-img-1", displayName: "img.png", path: "/vault/img.png", kind: "vault", fileType: "image", scope: "message", status: "active" },
+          { id: "ref-pin-1", displayName: "pin.md", path: "/vault/pin.md", kind: "vault", fileType: "text", scope: "pinned", status: "active" },
+        ],
+        attachmentTextSnippets: [
+          { refId: "ref-msg-1", displayName: "msg.md", resolvedPath: "/vault/msg.md", fileType: "markdown", content: "msg inline content", bytesRead: 17, maxBytes: 8192, maxChars: 20000, truncated: false },
+        ],
+        attachmentPackingPolicy: {
+          smallTextInlineMaxBytes: 8192, smallTextInlineMaxChars: 20000,
+          allowedTextExtensions: ["md", "txt", "json"],
+          binaryAsNativeRef: true, imageAsSdkAttachmentIfSupported: true,
+          sdkDirectAttachmentSupported: true, sdkDirectAttachmentEvidence: "test",
+        },
+      };
+      const settings = makeSettings({ includeActiveNote: true, includeSelection: true, maxActiveNoteChars: 6000, maxSelectionChars: 3000, outputDir: "" });
+      const userInput = "请帮我总结这段内容";
+      const pkg = buildBridgePromptPackage(userInput, snapshot, settings, true);
+
+      // bridgeSystemAppend 含 bridge-native 规则段（Native Handoff / Tool Steering / 输出规则）
+      const appendHasNative = pkg.bridgeSystemAppend.includes("CLI/SDK Native File Handoff");
+      const appendHasToolSteering = pkg.bridgeSystemAppend.includes("Tool Steering");
+      const appendHasOutput = pkg.bridgeSystemAppend.includes("输出规则");
+      // userPrompt 干净：仅用户输入，不被 bridge-native 规则包围
+      const userClean = pkg.userPrompt === userInput && !pkg.userPrompt.includes("Native File Handoff") && !pkg.userPrompt.includes("Tool Steering");
+      // attachmentEntries：entry-level 审计，每个含 refId/scope/fileType/mode/pathHash/contentHash/reason
+      const entriesOk = Array.isArray(pkg.attachmentEntries) && pkg.attachmentEntries.length === 3
+        && pkg.attachmentEntries.every((e) => typeof e.refId === "string" && typeof e.scope === "string" && typeof e.fileType === "string" && typeof e.mode === "string" && typeof e.pathHash === "string" && typeof e.contentHash === "string" && typeof e.reason === "string");
+      // ref-msg-1 为 inline-snippet（有 contentHash）；ref-img-1 为 image-streaming-block；ref-pin-1 为 native-ref-only（text 无 snippet）
+      const msgEntry = pkg.attachmentEntries.find((e) => e.refId === "ref-msg-1");
+      const imgEntry = pkg.attachmentEntries.find((e) => e.refId === "ref-img-1");
+      const pinEntry = pkg.attachmentEntries.find((e) => e.refId === "ref-pin-1");
+      const modesOk = msgEntry && msgEntry.mode === "inline-snippet" && msgEntry.contentHash.length > 0
+        && imgEntry && imgEntry.mode === "image-streaming-block"
+        && pinEntry && pinEntry.mode === "native-ref-only" && pinEntry.contentHash === "";
+      // auditHash 非空
+      const hashOk = typeof pkg.auditHash === "string" && pkg.auditHash.length > 0;
+      // CLI fallback：buildPromptPackage = bridgeSystemAppend + 用户请求 段组合
+      const cliFallback = buildPromptPackage(userInput, snapshot, settings);
+      const fallbackOk = cliFallback === `${pkg.bridgeSystemAppend}\n\n========== 用户请求 ==========\n${pkg.userPrompt}`;
+
+      addTest("V2.17-A 行为验证: prompt split snapshot（bridgeSystemAppend / userPrompt / entries / auditHash）",
+        appendHasNative && appendHasToolSteering && appendHasOutput && userClean && entriesOk && modesOk && hashOk && fallbackOk ? "pass" : "fail",
+        `appendNative=${appendHasNative} userClean=${userClean} entries=${pkg.attachmentEntries?.length} modes=${msgEntry?.mode}/${imgEntry?.mode}/${pinEntry?.mode} hash=${pkg.auditHash?.slice(0,8)} fallback=${fallbackOk}`);
+    }
+
+    // ---- Test 21: streaming partial → AssistantTurnView final answer（不由 stdout_delta 旁路驱动）----
+    {
+      // SDK 路径：WorkflowEvent message partial 经 normalizeWorkflowEvent → assistant_text_delta 累加
+      const wfEvents = [
+        { type: "thinking", timestamp: TS(), text: "分析中" },
+        { type: "message", timestamp: TS(), role: "assistant", text: "Hello", partial: true },
+        { type: "message", timestamp: TS(), role: "assistant", text: " world", partial: true },
+        { type: "message", timestamp: TS(), role: "assistant", text: "!", partial: true },
+        { type: "completed", timestamp: TS(), text: "done" },
+      ];
+      const view = buildAssistantTurnViewFromWorkflowEvents(wfEvents);
+      const finalOk = view.finalAnswer === "Hello world!";
+      const thinkingOk = view.thinking !== null && view.thinking.text === "分析中";
+      const statusOk = view.status === "completed";
+      // rawProviderEvents 保留原始事件（Developer mode 可见）
+      const rawOk = Array.isArray(view.rawProviderEvents) && view.rawProviderEvents.length === wfEvents.length;
+
+      // CLI/mock 路径：AgentEvent stdout_delta 归一化为 assistant_text_delta
+      const cliView = buildAssistantTurnViewFromAgentEvents([
+        { type: "started", task: { id: "t1", userMessage: "q", prompt: "p", cwd: "/v", createdAt: TS(), includeActiveNote: false, includeSelection: false } },
+        { type: "stdout_delta", data: "CLI " },
+        { type: "stdout_delta", data: "answer" },
+        { type: "completed", exitCode: 0, durationMs: 10, stdout: "CLI answer", stderr: "", command: "claude", args: [] },
+      ], "claude-cli");
+      const cliFinalOk = cliView.finalAnswer === "CLI answer";
+      const cliStatusOk = cliView.status === "completed";
+
+      // NormalizedRunStateAggregator 直接消费 NormalizedRuntimeEvent（不读 stdout_delta）
+      const agg = new NormalizedRunStateAggregator();
+      agg.ingest({ kind: "turn_started", timestamp: TS() });
+      agg.ingest({ kind: "assistant_text_delta", text: "partial1 ", timestamp: TS() });
+      agg.ingest({ kind: "assistant_text_delta", text: "partial2", timestamp: TS() });
+      agg.ingest({ kind: "turn_completed", timestamp: TS() });
+      const directView = agg.toAssistantTurnView();
+      const directOk = directView.finalAnswer === "partial1 partial2" && directView.status === "completed";
+
+      addTest("V2.17-A 行为验证: streaming partial → AssistantTurnView final answer（SDK/CLI/直接路径）",
+        finalOk && thinkingOk && statusOk && rawOk && cliFinalOk && cliStatusOk && directOk ? "pass" : "fail",
+        `sdkFinal="${view.finalAnswer}" cliFinal="${cliView.finalAnswer}" direct="${directView.finalAnswer}" raw=${view.rawProviderEvents?.length}`);
+    }
+
+    // ---- Test 22: tool_progress → tool node progress（合并到工具节点，不丢失/不独立节点）----
+    {
+      const agg = new NormalizedRunStateAggregator();
+      agg.ingest({ kind: "tool_start", callId: "c1", toolName: "Read", toolInput: '{"file_path":"a.md"}', timestamp: TS() });
+      agg.ingest({ kind: "tool_progress", callId: "c1", label: "Reading", detail: "a.md", timestamp: TS() });
+      agg.ingest({ kind: "tool_progress", callId: "c1", label: "Read", detail: "done", timestamp: TS() });
+      agg.ingest({ kind: "tool_result", callId: "c1", toolName: "Read", output: "content", isError: false, timestamp: TS() });
+      const view = agg.toAssistantTurnView();
+      const singleTool = view.toolCalls.length === 1 && view.toolCalls[0].callId === "c1";
+      const progressMerged = view.toolCalls[0].progress.length === 2
+        && view.toolCalls[0].progress[0].label === "Reading"
+        && view.toolCalls[0].progress[1].label === "Read";
+      // processNodes 不应包含 tool_progress（已合并到工具节点）
+      const noToolProgressProcessNode = view.processNodes.length === 0;
+      // 工具节点状态为 done
+      const statusDone = view.toolCalls[0].status === "done";
+
+      // 无 callId 的 tool_progress：回退到最近 running 工具
+      const agg2 = new NormalizedRunStateAggregator();
+      agg2.ingest({ kind: "tool_start", callId: "c2", toolName: "Write", toolInput: "{}", timestamp: TS() });
+      agg2.ingest({ kind: "tool_progress", label: "Writing", detail: "b.md", timestamp: TS() });
+      const view2 = agg2.toAssistantTurnView();
+      const fallbackMerged = view2.toolCalls.length === 1 && view2.toolCalls[0].progress.length === 1;
+
+      addTest("V2.17-A 行为验证: tool_progress → tool node progress（合并/不丢失/不独立）",
+        singleTool && progressMerged && noToolProgressProcessNode && statusDone && fallbackMerged ? "pass" : "fail",
+        `singleTool=${singleTool} progress=${view.toolCalls[0]?.progress.length} status=${view.toolCalls[0]?.status} fallback=${fallbackMerged}`);
+    }
+
+    // ---- Test 23: message attachment 当前轮有效，下一轮不自动带入，pin 后跨轮保留 ----
+    {
+      const tempDir = mkdtempSync(join(tmpdir(), "llm-bridge-v217a-pin-"));
+      const msgRef = { id: "ref-msg", kind: "vault", displayName: "msg.md", resolvedPath: "/vault/msg.md", scope: "message" };
+      const pinnedRef = { id: "ref-pin", kind: "vault", displayName: "pin.md", resolvedPath: "/vault/pin.md", scope: "pinned" };
+      // 第 1 轮：user message 携带 message-scope 附件 + pinned context
+      const turn1Messages = [
+        { id: "u1", role: "user", content: "第1轮请求", status: "completed", stderr: "", log: "", generatedFiles: [], exitCode: 0, durationMs: 0, timestamp: "2026-07-02T00:00:00Z", fileRefs: [msgRef] },
+        { id: "a1", role: "assistant", content: "第1轮回复", status: "completed", stderr: "", log: "", generatedFiles: [], exitCode: 0, durationMs: 0, timestamp: "2026-07-02T00:00:01Z" },
+      ];
+      const state = { title: "pin 测试", status: "completed", messageCount: 2, startedAt: "2026-07-02T00:00:00Z" };
+      const id = await saveSession(tempDir, state, turn1Messages, "claude", undefined, {
+        pinnedContextRefs: [pinnedRef],
+        model: "claude-sonnet-4-5",
+        effortLevel: "high",
+        backendMode: "sdk",
+        permissionMode: "acceptEdits",
+      });
+      const loaded = await loadSession(tempDir, id);
+      // pin 跨轮保留：pinnedContextRefs 在 session 顶层，恢复后仍在
+      const pinSurvives = loaded !== null && Array.isArray(loaded.pinnedContextRefs) && loaded.pinnedContextRefs.length === 1 && loaded.pinnedContextRefs[0].id === "ref-pin";
+      // message-scope 附件绑定在具体消息上，不自动进入 pinnedContextRefs
+      const msgScopedToMessage = loaded !== null && loaded.pinnedContextRefs && !loaded.pinnedContextRefs.some((r) => r.id === "ref-msg");
+      // 恢复一致性：model/effort/backend/permission 一并保留
+      const consistencyOk = loaded !== null && loaded.model === "claude-sonnet-4-5" && loaded.effortLevel === "high" && loaded.backendMode === "sdk" && loaded.permissionMode === "acceptEdits";
+      // 下一轮不自动带入：构造第 2 轮 messages（无 fileRefs），message-scope ref 不应出现
+      const turn2Messages = [
+        ...turn1Messages,
+        { id: "u2", role: "user", content: "第2轮请求", status: "completed", stderr: "", log: "", generatedFiles: [], exitCode: 0, durationMs: 0, timestamp: "2026-07-02T00:00:02Z" },
+        { id: "a2", role: "assistant", content: "第2轮回复", status: "completed", stderr: "", log: "", generatedFiles: [], exitCode: 0, durationMs: 0, timestamp: "2026-07-02T00:00:03Z" },
+      ];
+      const id2 = await saveSession(tempDir, { ...state, messageCount: 4 }, turn2Messages, "claude", undefined, {
+        pinnedContextRefs: [pinnedRef],
+        model: "claude-sonnet-4-5", effortLevel: "high", backendMode: "sdk", permissionMode: "acceptEdits",
+      });
+      const loaded2 = await loadSession(tempDir, id2);
+      // 第 2 轮 user message (u2) 无 fileRefs（message-scope 不自动带入下一轮）
+      const u2 = loaded2 && loaded2.messages ? loaded2.messages.find((m) => m.id === "u2") : null;
+      const nextTurnNoAutoCarry = u2 !== null && (!u2.fileRefs || u2.fileRefs.length === 0);
+      // pin 仍保留
+      const pinStillSurvives = loaded2 !== null && Array.isArray(loaded2.pinnedContextRefs) && loaded2.pinnedContextRefs.length === 1;
+      // 第 1 轮 message-scope 附件仍在原消息上（不丢失历史）
+      const u1 = loaded2 && loaded2.messages ? loaded2.messages.find((m) => m.id === "u1") : null;
+      const u1KeptHistory = u1 !== null && Array.isArray(u1.fileRefs) && u1.fileRefs.length === 1 && u1.fileRefs[0].id === "ref-msg";
+
+      try { rmSync(tempDir, { recursive: true, force: true }); } catch {}
+      addTest("V2.17-A 行为验证: message attachment 当前轮有效/下一轮不带入/pin 跨轮保留",
+        pinSurvives && msgScopedToMessage && consistencyOk && nextTurnNoAutoCarry && pinStillSurvives && u1KeptHistory ? "pass" : "fail",
+        `pinSurvives=${pinSurvives} msgScopedToMessage=${msgScopedToMessage} consistency=${consistencyOk} nextNoCarry=${nextTurnNoAutoCarry} pinStill=${pinStillSurvives} u1History=${u1KeptHistory}`);
+    }
+
+    // ---- Test 24: Developer mode raw provider events 可见，普通用户不可见 ----
+    {
+      // 行为：AssistantTurnView.rawProviderEvents 由 NormalizedRunStateAggregator 保留
+      const agg = new NormalizedRunStateAggregator();
+      agg.ingest({ kind: "turn_started", timestamp: TS() });
+      agg.ingest({ kind: "assistant_text_delta", text: "hi", timestamp: TS() });
+      agg.ingest({ kind: "tool_start", callId: "c1", toolName: "Read", toolInput: "{}", timestamp: TS() });
+      agg.ingest({ kind: "turn_completed", timestamp: TS() });
+      const view = agg.toAssistantTurnView();
+      const rawPopulated = Array.isArray(view.rawProviderEvents) && view.rawProviderEvents.length === 4;
+
+      // 源码：view.ts 将 commandPreview / effectiveRunPlan / workflowTrace / log 渲染置于 developerMode 分支内
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const devGated = viewSrc.includes("if (developerMode && msg.role === \"assistant\" && msg.commandPreview")
+        && viewSrc.includes("if (developerMode && msg.role === \"assistant\" && msg.effectiveRunPlan)")
+        && viewSrc.includes("if (developerMode && msg.role === \"assistant\" && msg.workflowTrace")
+        && viewSrc.includes("if (developerMode && msg.log)");
+      // 普通用户态（非 dev）：terminal success 时不展示 sdkEvents 全量 workflow（processOnly）
+      const normalUserHidden = viewSrc.includes("msg.role === \"assistant\" && terminalSuccess && !developerMode")
+        && viewSrc.includes("this.appendSdkWorkflow(details, msg.sdkEvents, { processOnly: true })");
+
+      addTest("V2.17-A 行为验证: Developer mode raw events 可见，普通用户不可见",
+        rawPopulated && devGated && normalUserHidden ? "pass" : "fail",
+        `rawPopulated=${rawPopulated}(${view.rawProviderEvents?.length}) devGated=${devGated} normalUserHidden=${normalUserHidden}`);
+    }
+
+    // ---- Test 25: CodexRuntimeProvider skeleton 可编译/接入，UI 不依赖 Claude-only 类型 ----
+    {
+      // 行为：CodexRuntimeProvider 可实例化，类型结构承载 CodexEffectiveRunPlan
+      const codex = new CodexRuntimeProvider();
+      const idOk = codex.id === "codex-sdk";
+      const nameOk = codex.displayName === "Codex";
+      const notAvailable = codex.isAvailable("/vault") === false;
+
+      // run() 发 failed 事件（skeleton 行为）
+      const events = [];
+      const wfEvents = [];
+      const task = { id: "t1", userMessage: "q", prompt: "p", cwd: "/v", createdAt: TS(), includeActiveNote: false, includeSelection: false };
+      const handle = codex.run(task, makeSettings(), (e) => events.push(e), (e) => wfEvents.push(e));
+      const failedEvent = events.find((e) => e.type === "failed");
+      const wfFailed = wfEvents.find((e) => e.type === "failed");
+      const wfError = wfEvents.find((e) => e.type === "error");
+      const runEmitsFailed = failedEvent && typeof failedEvent.stderr === "string" && failedEvent.stderr.includes("not yet implemented");
+      const wfEmitsErrorFailed = wfError && wfFailed;
+      const handleNotRunning = handle && handle.running === false;
+
+      // EffectiveRunPlan 支持 codex-sdk provider（systemPrompt/tools preset 为空，标记 Codex 不适用 claude_code）
+      const codexPlan = buildEffectiveRunPlan({
+        provider: "codex-sdk", settings: makeSettings({ agentType: "codex" }), cwd: "/vault",
+        promptPackageText: "p", settingSources: [], skills: [], attachmentPlan: emptyAttachmentPlan,
+      });
+      const codexPlanOk = codexPlan.provider === "codex-sdk" && codexPlan.backend === "sdk" && codexPlan.systemPrompt.preset === "" && codexPlan.tools.preset === "";
+
+      // 源码：UI 不再 instanceof SdkBackend / ClaudeCliBackend，改用 provider.id 判定
+      // 仅检查实际代码行（排除注释/否定说明），避免误判 "不 instanceof" 这类说明性注释
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const instanceofCodeLines = viewSrc.split("\n").filter((l) => {
+        const trimmed = l.trim();
+        if (!(trimmed.includes("instanceof SdkBackend") || trimmed.includes("instanceof ClaudeCliBackend"))) return false;
+        // 排除注释行与含 "不 instanceof"（否定说明）的行
+        if (trimmed.startsWith("//") || trimmed.startsWith("*") || trimmed.includes("不 instanceof")) return false;
+        return true;
+      });
+      const noInstanceofCode = instanceofCodeLines.length === 0;
+      const usesProviderId = viewSrc.includes('provider.id === "claude-sdk"') || viewSrc.includes('provider.id !== "claude-sdk"');
+
+      addTest("V2.17-A 行为验证: CodexRuntimeProvider skeleton 可编译接入 + UI 不依赖 Claude-only 类型",
+        idOk && nameOk && notAvailable && runEmitsFailed && wfEmitsErrorFailed && handleNotRunning && codexPlanOk && noInstanceofCode && usesProviderId ? "pass" : "fail",
+        `id=${idOk} notAvail=${notAvailable} runFailed=${runEmitsFailed} wfFailed=${!!wfFailed} codexPlan=${codexPlanOk} noInstanceofCode=${noInstanceofCode} usesProviderId=${usesProviderId}`);
+    }
+
   } catch (e) {
     addTest("V2.17-A smoke 测试段", "fail", `加载/执行异常: ${e?.message || e}`);
   } finally {
@@ -12819,6 +13226,10 @@ if (!runV217A) {
     try { if (effectiveRunPlanBundle) rmSync(effectiveRunPlanBundle, { force: true }); } catch {}
     try { if (contextMetricsBundleV217) rmSync(contextMetricsBundleV217, { force: true }); } catch {}
     try { if (mapperBundleV217) rmSync(mapperBundleV217, { force: true }); } catch {}
+    try { if (promptPackageBundleV217) rmSync(promptPackageBundleV217, { force: true }); } catch {}
+    try { if (normalizedRuntimeEventBundleV217) rmSync(normalizedRuntimeEventBundleV217, { force: true }); } catch {}
+    try { if (codexRuntimeProviderBundleV217) rmSync(codexRuntimeProviderBundleV217, { force: true }); } catch {}
+    try { if (sessionsBundleV217) rmSync(sessionsBundleV217, { force: true }); } catch {}
   }
 }
 
