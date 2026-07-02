@@ -606,4 +606,19 @@ export class CodexAppServerProvider implements RuntimeProvider {
   getSessionMapper(): CodexAppServerSessionMapper {
     return this.sessionMapper;
   }
+
+  /**
+   * V2.17-A Completion: 从持久化的 providerThreadId/providerSessionId 回填 sessionMapper。
+   *
+   * keepLastSession 恢复时由 BridgeSessionImpl 调用，使后续 resume() 能在 sessionMapper
+   * 命中 thread/resume 路径，而不是退化为新 thread。
+   *
+   * 仅在 threadId 非空且 sessionMapper 尚无该 bridgeSessionId 映射时注册，
+   * 避免覆盖正在运行的真实映射。
+   */
+  restoreProviderSession(bridgeSessionId: string, providerThreadId?: string, providerSessionId?: string): void {
+    if (!providerThreadId) return;
+    if (this.sessionMapper.hasCodexThread(bridgeSessionId)) return;
+    this.sessionMapper.register(bridgeSessionId, providerThreadId, providerSessionId);
+  }
 }

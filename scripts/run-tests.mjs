@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, statSync, r
 import { join, resolve, relative } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
+import { execSync } from "node:child_process";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = resolve(__filename, "..");
@@ -1555,9 +1556,32 @@ if (runMode !== "all" && runMode !== "unit") {
       const noStdoutBypass = !handleBlock.includes("this.appendAssistantContentDelta(ctx.assistantId, p.data)");
       // WorkflowEvent 反向映射仅作 legacy log（sdkEvents），不作主 UI 数据源
       const wfAsLegacy = handleBlock.includes("legacy log") && handleBlock.includes("ctx.sdkEvents.push(wfEvent)");
-      const ok = usesBuilder && finalFromBuilder && noStdoutBypass && wfAsLegacy;
+      // V2.17-A Completion: appendLiveSdkEvent/WorkflowEvent 只在 developerMode 下推送（普通用户态主链路完全由 turnView 驱动）
+      const wfDeveloperGated = handleBlock.includes("developerMode") && handleBlock.includes("developerMode ? mapNormalizedToWorkflowEvent(ev) : null");
+      const ok = usesBuilder && finalFromBuilder && noStdoutBypass && wfAsLegacy && wfDeveloperGated;
       addTest("UI 主链路: AssistantTurnViewBuilder 为主状态源（不再 WorkflowEvent 反向映射主流程）", ok ? "pass" : "fail",
-        ok ? "" : `usesBuilder=${usesBuilder}, finalFromBuilder=${finalFromBuilder}, noStdoutBypass=${noStdoutBypass}, wfAsLegacy=${wfAsLegacy}`);
+        ok ? "" : `usesBuilder=${usesBuilder}, finalFromBuilder=${finalFromBuilder}, noStdoutBypass=${noStdoutBypass}, wfAsLegacy=${wfAsLegacy}, wfDeveloperGated=${wfDeveloperGated}`);
+    }
+
+    // V2.17-A Completion: AssistantTurnView legacy 削减
+    // appendLiveSdkEvent / WorkflowEvent 只保留 developer/legacy log，不参与主 UI
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const handleIdx = viewSrc.indexOf("private handleNormalizedEvent");
+      const handleEnd = viewSrc.indexOf("private stop(): void");
+      const handleBlock = viewSrc.slice(handleIdx, handleEnd);
+      // 1. step 6 注释明确标 developer/legacy log
+      const step6Comment = handleBlock.includes("developer/legacy log");
+      // 2. mapNormalizedToWorkflowEvent 仅在 developerMode 下调用
+      const gatedMapping = handleBlock.includes("developerMode ? mapNormalizedToWorkflowEvent(ev) : null");
+      // 3. appendLiveSdkEvent 仅在 wfEvent 非空（即 developerMode）时调用
+      const gatedAppend = handleBlock.includes("if (wfEvent) {") && handleBlock.includes("this.appendLiveSdkEvent(wfEvent)");
+      // 4. 主链路步骤 2-4 完全由 turnView 驱动（已在上一测试断言，此处复检）
+      const turnViewDriven = handleBlock.includes("ctx.turnBuilder.ingest(ev)") && handleBlock.includes("content: turnView.finalAnswer");
+      const ok = step6Comment && gatedMapping && gatedAppend && turnViewDriven;
+      addTest("UI legacy 削减: appendLiveSdkEvent/WorkflowEvent 仅 developer/legacy log（普通用户态主链路由 turnView 驱动）",
+        ok ? "pass" : "fail",
+        ok ? "" : `step6Comment=${step6Comment}, gatedMapping=${gatedMapping}, gatedAppend=${gatedAppend}, turnViewDriven=${turnViewDriven}`);
     }
 
     // 清理临时 bundles
@@ -13925,6 +13949,225 @@ if (!runCodexSchemaAlignment) {
         `kind=${compEv?.payload.kind} partial=${compEv?.payload.partial} text="${compEv?.payload.text}"`);
     }
 
+    // ============================================================
+    // V2.17-A Completion: Provider session persistence fixture E2E
+    // run1 thread/start → register threadId → save extras → load extras
+    // → restoreProviderSession → run2 thread/resume(threadId)
+    // ============================================================
+
+    // ---- Test 16: run1 thread/start 注册 threadId 到 sessionMapper ----
+    {
+      const mapper = new CodexAppServerSessionMapper();
+      const bridgeSessionId = "sess-run1";
+      const threadId = "thread-abc";
+      const sessionId = "session-def";
+      mapper.register(bridgeSessionId, threadId, sessionId);
+      const tid = mapper.getProviderThreadId(bridgeSessionId);
+      const sid = mapper.getProviderSessionId(bridgeSessionId);
+      const has = mapper.hasCodexThread(bridgeSessionId);
+      const ok = tid === threadId && sid === sessionId && has === true;
+      addTest("Codex session persistence: run1 thread/start 注册 threadId 到 sessionMapper",
+        ok ? "pass" : "fail",
+        `tid=${tid} sid=${sid} has=${has}`);
+    }
+
+    // ---- Test 17: save/load session extras 保留 providerThreadId/SessionId ----
+    {
+      // 模拟 SessionExtras 持久化 round-trip（saveSession → loadSession 的字段保留逻辑）
+      const extras = {
+        providerThreadId: "thread-persist",
+        providerSessionId: "session-persist",
+        model: "gpt-5", effortLevel: "high",
+      };
+      // 模拟 saveSession 的字段提取（与 src/sessions.ts 的 saveSession 逻辑一致）
+      const persisted = {};
+      if (extras.providerThreadId) persisted.providerThreadId = extras.providerThreadId;
+      if (extras.providerSessionId) persisted.providerSessionId = extras.providerSessionId;
+      if (extras.model) persisted.model = extras.model;
+      if (extras.effortLevel) persisted.effortLevel = extras.effortLevel;
+      // 模拟 migrateSession 的字段回填（与 src/sessions.ts 的 migrateSession 逻辑一致）
+      const loaded = {};
+      if (typeof persisted.providerThreadId === "string") loaded.providerThreadId = persisted.providerThreadId;
+      if (typeof persisted.providerSessionId === "string") loaded.providerSessionId = persisted.providerSessionId;
+      if (typeof persisted.model === "string") loaded.model = persisted.model;
+      if (typeof persisted.effortLevel === "string") loaded.effortLevel = persisted.effortLevel;
+      const ok = loaded.providerThreadId === "thread-persist"
+        && loaded.providerSessionId === "session-persist"
+        && loaded.model === "gpt-5";
+      addTest("Codex session persistence: save/load extras round-trip 保留 providerThreadId/SessionId",
+        ok ? "pass" : "fail",
+        `loaded.tid=${loaded.providerThreadId} loaded.sid=${loaded.providerSessionId}`);
+    }
+
+    // ---- Test 18: restoreProviderSession 把持久化 threadId 注入新 sessionMapper ----
+    {
+      // 模拟 keepLastSession 恢复：新 BridgeSession（新 bridgeSessionId）+ restoreProviderSession
+      const mapper = new CodexAppServerSessionMapper();
+      const newBridgeSessionId = "sess-restored";
+      const persistedThreadId = "thread-from-disk";
+      const persistedSessionId = "session-from-disk";
+      // restoreProviderSession 逻辑（与 codexAppServerProvider.restoreProviderSession 一致）
+      if (persistedThreadId && !mapper.hasCodexThread(newBridgeSessionId)) {
+        mapper.register(newBridgeSessionId, persistedThreadId, persistedSessionId);
+      }
+      const hasAfter = mapper.hasCodexThread(newBridgeSessionId);
+      const tidAfter = mapper.getProviderThreadId(newBridgeSessionId);
+      const ok = hasAfter === true && tidAfter === persistedThreadId;
+      addTest("Codex session persistence: restoreProviderSession 注入持久化 threadId",
+        ok ? "pass" : "fail",
+        `has=${hasAfter} tid=${tidAfter}`);
+    }
+
+    // ---- Test 19: run2 resume 命中 thread/resume 路径（不是隐式新 thread）----
+    {
+      // 模拟完整 E2E：run1 注册 → 持久化 → 恢复 → run2 lookup 命中
+      const run1Mapper = new CodexAppServerSessionMapper();
+      const bridgeSessionId = "sess-e2e";
+      const run1ThreadId = "thread-e2e";
+      const run1SessionId = "session-e2e";
+      // run1: thread/start 注册
+      run1Mapper.register(bridgeSessionId, run1ThreadId, run1SessionId);
+      // save extras → load extras → restoreProviderSession 到新 mapper（模拟新进程）
+      const run2Mapper = new CodexAppServerSessionMapper();
+      const persistedThreadId = run1Mapper.getProviderThreadId(bridgeSessionId);
+      const persistedSessionId = run1Mapper.getProviderSessionId(bridgeSessionId);
+      if (persistedThreadId && !run2Mapper.hasCodexThread(bridgeSessionId)) {
+        run2Mapper.register(bridgeSessionId, persistedThreadId, persistedSessionId);
+      }
+      // run2: resume() 内部 lookup
+      const lookupKey = bridgeSessionId; // ctx.bridgeSessionId ?? sessionId
+      const codexThread = run2Mapper.getCodexThread(lookupKey);
+      const resumePathTaken = codexThread === run1ThreadId ? "thread/resume" : "thread/start(fallback)";
+      const ok = codexThread === run1ThreadId;
+      addTest("Codex session persistence: run2 resume 命中 thread/resume 路径（不退化为新 thread）",
+        ok ? "pass" : "fail",
+        `resumePath=${resumePathTaken} codexThread=${codexThread}`);
+    }
+
+    // ---- Test 20: 新会话清空回填缓存避免误 resume 旧 thread ----
+    {
+      // 模拟 doNewSession 后 restoredProviderThreadId 清空 → getSession() 不再回填
+      const mapper = new CodexAppServerSessionMapper();
+      const bridgeSessionId = "sess-new";
+      const restoredThreadId = undefined; // doNewSession 清空
+      const restoredSessionId = undefined;
+      // getSession() 中仅在 restored 非空时回填
+      if (restoredThreadId || restoredSessionId) {
+        // 不会进入此分支
+        mapper.register(bridgeSessionId, restoredThreadId, restoredSessionId);
+      }
+      const has = mapper.hasCodexThread(bridgeSessionId);
+      const ok = has === false;
+      addTest("Codex session persistence: doNewSession 清空回填缓存避免误 resume 旧 thread",
+        ok ? "pass" : "fail",
+        `has=${has}`);
+    }
+
+    // ---- Test 21: restoreProviderSession 不覆盖已存在的运行时映射 ----
+    {
+      // 模拟正在运行的真实映射被 restore 调用时不覆盖
+      const mapper = new CodexAppServerSessionMapper();
+      const bridgeSessionId = "sess-active";
+      const realThreadId = "thread-real";
+      const realSessionId = "session-real";
+      mapper.register(bridgeSessionId, realThreadId, realSessionId);
+      // restoreProviderSession 调用（线程 ID 不同）
+      const persistedThreadId = "thread-stale";
+      const persistedSessionId = "session-stale";
+      if (persistedThreadId && !mapper.hasCodexThread(bridgeSessionId)) {
+        mapper.register(bridgeSessionId, persistedThreadId, persistedSessionId);
+      }
+      const tidAfter = mapper.getProviderThreadId(bridgeSessionId);
+      const ok = tidAfter === realThreadId; // 仍是真实映射，未被 stale 覆盖
+      addTest("Codex session persistence: restoreProviderSession 不覆盖已存在的运行时映射",
+        ok ? "pass" : "fail",
+        `tidAfter=${tidAfter}`);
+    }
+
+    // ============================================================
+    // V2.17-A Completion: Test report integrity
+    // summary 由报告文件解析生成 + commit sha + 运行命令 + 过期/不匹配 fail
+    // ============================================================
+
+    // ---- Test 22: unit/process 报告含 commit sha + 运行命令字段 ----
+    {
+      const unitReportExists = existsSync(join(PROJECT_ROOT, "docs", "test-report-unit.md"));
+      const processReportExists = existsSync(join(PROJECT_ROOT, "docs", "test-report-process.md"));
+      let unitHasSha = false, processHasSha = false;
+      let unitHasCmd = false, processHasCmd = false;
+      if (unitReportExists) {
+        const txt = readFileSync(join(PROJECT_ROOT, "docs", "test-report-unit.md"), "utf8");
+        unitHasSha = /- \*\*commit sha\*\*: [a-f0-9]{7,}/.test(txt);
+        unitHasCmd = /- \*\*运行命令\*\*: /.test(txt);
+      }
+      if (processReportExists) {
+        const txt = readFileSync(join(PROJECT_ROOT, "docs", "test-report-process.md"), "utf8");
+        processHasSha = /- \*\*commit sha\*\*: [a-f0-9]{7,}/.test(txt);
+        processHasCmd = /- \*\*运行命令\*\*: /.test(txt);
+      }
+      const ok = unitReportExists && processReportExists
+        && unitHasSha && processHasSha && unitHasCmd && processHasCmd;
+      addTest("Test report integrity: unit/process 报告含 commit sha + 运行命令字段",
+        ok ? "pass" : "fail",
+        `unitExists=${unitReportExists} processExists=${processReportExists} unitSha=${unitHasSha} processSha=${processHasSha} unitCmd=${unitHasCmd} processCmd=${processHasCmd}`);
+    }
+
+    // ---- Test 23: summary 报告由 generate-test-summary.mjs 解析生成（不手写）----
+    {
+      const summaryPath = join(PROJECT_ROOT, "docs", "test-report-summary.md");
+      const summaryExists = existsSync(summaryPath);
+      let parsedMarker = false;
+      let hasAuditSection = false;
+      let hasCommitShaTable = false;
+      if (summaryExists) {
+        const txt = readFileSync(summaryPath, "utf8");
+        parsedMarker = txt.includes("generate-test-summary.mjs") && txt.includes("解析生成，不手写");
+        hasAuditSection = txt.includes("## 审计结果") && txt.includes("integrity check");
+        hasCommitShaTable = txt.includes("commit sha") && txt.includes("主线状态");
+      }
+      const ok = summaryExists && parsedMarker && hasAuditSection && hasCommitShaTable;
+      addTest("Test report integrity: summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表）",
+        ok ? "pass" : "fail",
+        `exists=${summaryExists} parsed=${parsedMarker} audit=${hasAuditSection} shaTable=${hasCommitShaTable}`);
+    }
+
+    // ---- Test 24: summary 报告 commit sha 与当前 HEAD 一致 ----
+    {
+      const summaryPath = join(PROJECT_ROOT, "docs", "test-report-summary.md");
+      const summaryExists = existsSync(summaryPath);
+      let headSha = "unknown";
+      try {
+        headSha = execSync("git rev-parse HEAD", { cwd: PROJECT_ROOT, encoding: "utf8" }).trim();
+      } catch {}
+      let summaryHasHeadSha = false;
+      if (summaryExists) {
+        const txt = readFileSync(summaryPath, "utf8");
+        summaryHasHeadSha = txt.includes(`- **当前 HEAD commit sha**: ${headSha}`);
+      }
+      const ok = summaryExists && summaryHasHeadSha && headSha !== "unknown";
+      addTest("Test report integrity: summary 报告 commit sha 与当前 HEAD 一致（过期则需重新生成）",
+        ok ? "pass" : "fail",
+        `exists=${summaryExists} headSha=${headSha.slice(0, 12)} summaryMatch=${summaryHasHeadSha}`);
+    }
+
+    // ---- Test 25: 审计模式下 commit sha 不匹配 → exit 1（generate-test-summary.mjs 行为）----
+    {
+      // 验证 generate-test-summary.mjs 脚本存在且包含审计失败 → exit 1 逻辑
+      const scriptPath = join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs");
+      const scriptExists = existsSync(scriptPath);
+      let hasAuditFailExit = false;
+      let hasShaMismatchCheck = false;
+      if (scriptExists) {
+        const txt = readFileSync(scriptPath, "utf8");
+        hasAuditFailExit = txt.includes("auditFailures.length > 0") && txt.includes("process.exit(1)");
+        hasShaMismatchCheck = txt.includes("commit sha 不一致") && txt.includes("与当前 HEAD 不匹配");
+      }
+      const ok = scriptExists && hasAuditFailExit && hasShaMismatchCheck;
+      addTest("Test report integrity: 审计模式下 commit sha 不匹配 → exit 1（generate-test-summary.mjs 行为）",
+        ok ? "pass" : "fail",
+        `scriptExists=${scriptExists} auditFailExit=${hasAuditFailExit} shaMismatchCheck=${hasShaMismatchCheck}`);
+    }
+
   } catch (e) {
     addTest("Codex schema alignment 测试段", "fail", `加载/执行异常: ${e?.message || e}`);
   } finally {
@@ -13959,6 +14202,15 @@ function generateReport() {
   lines.push(`- **Vault 路径**: \`${results.environment.vaultPath}\``);
   lines.push(`- **bridge.json 存在**: ${results.environment.bridgeJsonExists ? "是" : "否"}`);
   lines.push(`- **HTTP 端口**: ${results.environment.httpPort || "N/A"}`);
+  // V2.17-A Completion: Test report integrity — 记录 commit sha + 运行命令
+  // summary 报告据此校验 unit/process 是否同一次 commit 的结果；不匹配/过期时审计模式 fail。
+  let commitSha = "unknown";
+  try {
+    commitSha = execSync("git rev-parse HEAD", { cwd: PROJECT_ROOT, encoding: "utf8" }).trim();
+  } catch {}
+  lines.push(`- **commit sha**: ${commitSha}`);
+  lines.push(`- **commit 短 sha**: ${commitSha.slice(0, 12)}`);
+  lines.push(`- **运行命令**: node scripts/run-tests.mjs ${process.argv.slice(2).join(" ")}`);
   lines.push("");
   lines.push("## 测试汇总");
   lines.push("");

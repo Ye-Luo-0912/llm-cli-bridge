@@ -192,6 +192,16 @@ export class LLMBridgeView extends ItemView {
   // 与 RuntimeProvider 交互。session 按 settings.backendMode 缓存，mode 变化时重建。
   private session: BridgeSessionImpl | null = null;
   private sessionMode: BackendMode | null = null;
+  /**
+   * V2.17-A Completion: provider session persistence
+   *
+   * 从持久化 session 文件恢复出来的 providerThreadId/providerSessionId。
+   * getSession() 重建 BridgeSession 时调用 restoreProviderSession(...) 回填到 provider sessionMapper，
+   * 使下一次 resume() 命中 thread/resume 路径而不是隐式新开 thread。
+   * 新会话 / doNewSession 时清空。
+   */
+  private restoredProviderThreadId: string | undefined = undefined;
+  private restoredProviderSessionId: string | undefined = undefined;
   /** V2.16-B: 实际 runtime 标签（供 UI 显示，区分 auto→SDK / auto→CLI fallback） */
   private actualRuntimeLabel: string = "Claude Code";
   private runHandle: AgentRunHandle | null = null;
@@ -1283,6 +1293,12 @@ export class LLMBridgeView extends ItemView {
       this.plugin.settings,
       vaultPath,
     );
+    // V2.17-A Completion: provider session persistence
+    // 重建 BridgeSession 时把持久化的 providerThreadId/SessionId 回填到 provider sessionMapper，
+    // 使下一次 resume() 命中 thread/resume 路径而不是隐式新开 thread。
+    if (this.restoredProviderThreadId || this.restoredProviderSessionId) {
+      sess.restoreProviderSession(this.restoredProviderThreadId, this.restoredProviderSessionId);
+    }
     this.session = sess;
     this.sessionMode = mode;
     this.actualRuntimeLabel = sess.displayLabel;
@@ -3788,6 +3804,10 @@ export class LLMBridgeView extends ItemView {
     this.currentSessionId = null; // 新会话不绑定旧 id，下次运行将生成新 id
     this.messagesFoldExpanded = false; // V2.7: 重置折叠状态
     this.sessionState = createNewSession();
+    // V2.17-A Completion: provider session persistence — 新会话清空回填缓存，
+    // 避免把旧会话的 codex threadId 带到新 BridgeSession 导致误 resume。
+    this.restoredProviderThreadId = undefined;
+    this.restoredProviderSessionId = undefined;
     // V2.16-D: 新聊天清除 lastActiveSessionId（新会话不自动恢复）
     if (this.plugin.settings.keepLastSession) {
       this.plugin.settings.lastActiveSessionId = "";
@@ -4205,6 +4225,11 @@ export class LLMBridgeView extends ItemView {
     await this.restoreContextAndSnippets(session);
     this.session = null;
     this.sessionMode = null;
+    // V2.17-A Completion: provider session persistence
+    // 重置 session 后立即把持久化的 providerThreadId/SessionId 回填到新 BridgeSession，
+    // 使下一次 resume() 命中 thread/resume 路径而不是隐式新开 thread。
+    this.restoredProviderThreadId = session.providerThreadId;
+    this.restoredProviderSessionId = session.providerSessionId;
     this.refreshAllChips();
     if (s.keepLastSession) {
       s.lastActiveSessionId = session.id;
@@ -4338,6 +4363,10 @@ export class LLMBridgeView extends ItemView {
     await this.plugin.saveSettings();
     this.session = null;
     this.sessionMode = null;
+    // V2.17-A Completion: provider session persistence
+    // keepLastSession 静默恢复也回填 providerThreadId/SessionId。
+    this.restoredProviderThreadId = session.providerThreadId;
+    this.restoredProviderSessionId = session.providerSessionId;
     this.refreshAllChips();
     this.renderMessagesFromHistory();
     this.refreshSessionState();
@@ -5063,11 +5092,17 @@ export class LLMBridgeView extends ItemView {
     }
 
     // 6. legacy log：把事件映射为 WorkflowEvent 存入 sdkEvents（供 onRunFinished 日志/trace 用）
-    //    不再作为主 UI 数据源；appendLiveSdkEvent 仍调用以兼容现有 live progress 渲染
-    const wfEvent = mapNormalizedToWorkflowEvent(ev);
+    //    V2.17-A Completion: appendLiveSdkEvent/WorkflowEvent 只是 developer/legacy log，
+    //    不参与主 UI。普通用户态主链路完全由 turnView（AssistantTurnView）驱动（步骤 2-4）。
+    //    仅在 developerMode 下推送 live progress，避免普通用户态依赖 WorkflowEvent/RunStateAggregator。
+    const developerMode = !!this.plugin.settings.developerMode;
+    const wfEvent = developerMode ? mapNormalizedToWorkflowEvent(ev) : null;
     if (wfEvent) {
       ctx.sdkEvents.push(wfEvent);
       this.appendLiveSdkEvent(wfEvent);
+    } else if (developerMode) {
+      // developerMode 下即使 wfEvent 映射为 null（如 stdout_delta）也保留 sdkEvents 空记录用于审计
+      // 非 developerMode 完全跳过，减少 view.ts 对 WorkflowEvent 的依赖
     }
   }
 
@@ -5184,6 +5219,9 @@ export class LLMBridgeView extends ItemView {
         effortLevel: s.effortLevel,
         backendMode: s.backendMode,
         permissionMode: s.claudePermissionMode,
+        // V2.17-A Completion: provider session persistence（codex threadId/sessionId）
+        providerThreadId: this.session?.providerThreadId,
+        providerSessionId: this.session?.providerSessionId,
       };
       const savedId = await saveSession(
         vaultPath,

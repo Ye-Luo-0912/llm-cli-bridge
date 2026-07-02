@@ -55,6 +55,13 @@ export interface PersistedSession {
   backendMode?: string;
   /** SDK 权限模式 */
   permissionMode?: string;
+  // V2.17-A Completion: provider session persistence
+  // codex app-server threadId/sessionId（keepLastSession resume 时回填给 provider，
+  // 让 thread/resume 恢复已有 thread 而不是隐式开新 thread）
+  /** provider 侧 thread id（codex app-server threadId） */
+  providerThreadId?: string;
+  /** provider 侧 session id（codex app-server sessionId） */
+  providerSessionId?: string;
 }
 
 /**
@@ -88,6 +95,11 @@ export interface SessionExtras {
   effortLevel?: string;
   backendMode?: string;
   permissionMode?: string;
+  // V2.17-A Completion: provider session persistence
+  /** provider 侧 thread id（codex app-server threadId；keepLastSession resume 时回填） */
+  providerThreadId?: string;
+  /** provider 侧 session id（codex app-server sessionId；keepLastSession resume 时回填） */
+  providerSessionId?: string;
 }
 
 /**
@@ -213,6 +225,9 @@ export async function saveSession(
       ...(extras?.effortLevel ? { effortLevel: extras.effortLevel } : {}),
       ...(extras?.backendMode ? { backendMode: extras.backendMode } : {}),
       ...(extras?.permissionMode ? { permissionMode: extras.permissionMode } : {}),
+      // V2.17-A Completion: provider session persistence（codex threadId/sessionId）
+      ...(extras?.providerThreadId ? { providerThreadId: extras.providerThreadId } : {}),
+      ...(extras?.providerSessionId ? { providerSessionId: extras.providerSessionId } : {}),
     };
 
     // 原子写：tmp + rename
@@ -327,6 +342,9 @@ export function migrateSession(parsed: unknown): PersistedSession | null {
     ...(typeof p.effortLevel === "string" ? { effortLevel: p.effortLevel } : {}),
     ...(typeof p.backendMode === "string" ? { backendMode: p.backendMode } : {}),
     ...(typeof p.permissionMode === "string" ? { permissionMode: p.permissionMode } : {}),
+    // V2.17-A Completion: provider session persistence（codex threadId/sessionId）
+    ...(typeof p.providerThreadId === "string" ? { providerThreadId: p.providerThreadId } : {}),
+    ...(typeof p.providerSessionId === "string" ? { providerSessionId: p.providerSessionId } : {}),
   };
 }
 

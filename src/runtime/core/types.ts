@@ -452,6 +452,13 @@ export interface BridgeSession {
   cancel(runId: string): void;
   /** 恢复会话 */
   resume(sessionId: string, input: RunInput, settings: import("../../types").LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent>;
+  /**
+   * V2.17-A Completion: 从持久化的 providerThreadId/providerSessionId 回填 provider session 状态。
+   *
+   * keepLastSession 恢复时由 UI 调用：把 session 文件中保存的 codex threadId/sessionId
+   * 注入 provider 的 sessionMapper，使后续 resume() 命中 thread/resume 路径。
+   */
+  restoreProviderSession(providerThreadId?: string, providerSessionId?: string): void;
 }
 
 // ---------- RuntimeProvider 接口（前向声明，实现在 runtimeProvider.ts） ----------
@@ -476,4 +483,11 @@ export interface RuntimeProvider {
   cancel(runId: string): void;
   /** 恢复会话 */
   resume(sessionId: string, ctx: RunContext, settings: import("../../types").LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent>;
+  /**
+   * V2.17-A Completion: 从持久化的 providerThreadId/providerSessionId 回填 provider session 状态。
+   *
+   * keepLastSession 恢复时由 BridgeSession 调用，使后续 resume() 命中 thread/resume 路径。
+   * 非 codex provider 无此方法时静默跳过（可选方法）。
+   */
+  restoreProviderSession?(bridgeSessionId: string, providerThreadId?: string, providerSessionId?: string): void;
 }

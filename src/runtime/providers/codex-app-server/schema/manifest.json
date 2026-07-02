@@ -1,10 +1,37 @@
 {
   "schemaVersion": "0.3.0-official-aligned",
+  "source": "fixture",
+  "sourceReason": "codex CLI not available in current environment; fixture schema used. Regenerate via `npm run codex:schema` once codex app-server is installed.",
   "codexVersion": null,
   "schemaGeneratedAt": "2026-07-02T00:00:00.000Z",
   "generatorCommand": "codex app-server generate-ts --out ./src/runtime/providers/codex-app-server/schema",
-  "source": "fixture",
-  "sourceReason": "codex CLI not available in current environment; fixture schema used. Regenerate via `npm run codex:schema` once codex app-server is installed.",
+  "experimentalApi": false,
+  "protocolCapabilities": {
+    "wireJsonrpcOmitted": true,
+    "initializeHandshake": true,
+    "threadResume": true,
+    "itemDeltas": [
+      "item/agentMessage/delta",
+      "item/reasoning/summaryTextDelta",
+      "item/reasoning/textDelta",
+      "item/commandExecution/outputDelta",
+      "item/plan/delta",
+      "item/fileChange/outputDelta"
+    ],
+    "approvalDecisions": [
+      "accept",
+      "acceptForSession",
+      "acceptWithExecpolicyAmendment",
+      "applyNetworkPolicyAmendment",
+      "decline",
+      "cancel"
+    ],
+    "serverInitiatedRequests": [
+      "item/commandExecution/requestApproval",
+      "item/fileChange/requestApproval",
+      "item/tool/requestUserInput"
+    ]
+  },
   "wireProtocolCalibration": {
     "noJsonrpcField": "wire 上不发送 jsonrpc:2.0 字段（codex app-server 约定）",
     "initializeHandshake": "每个连接先 send initialize，再 notify initialized",
@@ -42,7 +69,8 @@
   "notes": [
     "Official-schema-aligned fixture for V2.17-A Completion main-line closure.",
     "Field names match codex app-server official docs (clientInfo/capabilities, nested params.item, item/agentMessage/delta, accept/decline decisions, thread/resume).",
-    "When codex is available, regenerate to replace this file entirely via `codex app-server generate-ts`.",
+    "source=fixture: 本 schema 为对齐 fixture；当 codex 可用时运行 `npm run codex:schema` 生成 source=generated 的真实 schema 覆盖本文件，不要手改 generated schema 字段。",
+    "protocolCapabilities / experimentalApi 描述当前 wire 能力集；experimentalApi=false 时所有 experimental fields 必须显式声明 audit。",
     "Fixture tests verify official wire shape: initialize clientInfo+capabilities, item/agentMessage/delta drives finalAnswer, approval decision shape, thread/resume from BridgeSession.",
     "All types are scoped to V2.17-A Bridge Core integration; provider-private, UI never imports these."
   ]

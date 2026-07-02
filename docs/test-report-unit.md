@@ -1,20 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-02T14:51:58.367Z
+- **测试时间**: 2026-07-02T15:33:56.787Z
 - **测试环境**: linux / Node.js v24.15.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 574.6 KB
+- **main.js 大小**: 578.2 KB
 - **Vault 路径**: `/Obsidian/LLM-Wiki`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
+- **commit sha**: d2c20f35bc0ae0885760e0a81b2944410ca79fdc
+- **commit 短 sha**: d2c20f35bc0a
+- **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 733
+- ✅ **通过**: 744
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 36
 - ⚪ **需人工验证**: 0
-- **总计**: 769
+- **总计**: 780
 
 ### 审计模式说明
 
@@ -250,6 +253,12 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | AssistantTurnViewBuilder 为主状态源（不再 WorkflowEvent 反向映射主流程） | - |
+
+### UI legacy 削减
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | appendLiveSdkEvent/WorkflowEvent 仅 developer/legacy log（普通用户态主链路由 turnView 驱动） | - |
 
 ### MockAgentBackend
 
@@ -1202,7 +1211,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-02T14-52-13-386Z-zeimb3 |
+| ✅ | 返回非空 id | id=s-2026-07-02T15-34-11-815Z-gh2pzt |
 
 ### V2.5 Session 版本
 
@@ -1221,7 +1230,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-02T14-52-13-444Z-1r9jbm second=s-2026-07-02T14-52-13-392Z-tp69js |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-02T15-34-11-871Z-69d9ui second=s-2026-07-02T15-34-11-819Z-zzlcc6 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1248,7 +1257,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-02T14-52-13-453Z-vs8o6d id2=s-2026-07-02T14-52-13-453Z-kfpbbs |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-02T15-34-11-878Z-8cpdnx id2=s-2026-07-02T15-34-11-878Z-raxjw9 |
 
 ### V2.5 Session 上限
 
@@ -1346,7 +1355,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-02T14:52:13.490Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-02T15:34:11.901Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1434,7 +1443,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-02T14:52:13.518Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-02T15:34:11.931Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -1548,7 +1557,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-02T14:52:13.548Z after=2026-07-02T14:52:13.600Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-02T15:34:11.960Z after=2026-07-02T15:34:12.012Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -1919,13 +1928,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-02T14:52:15.179Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-02T15:34:13.540Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-02T14:52:15.182Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-02T15:34:13.543Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -2536,6 +2545,26 @@
 | ✅ | item/text/delta legacy alias 仍可驱动 finalAnswer（兼容路径） | finalAnswer="legacy text" |
 | ✅ | turn/started 通知映射为 progress（detail=turnId） | kind=progress detail=turn-1 |
 | ✅ | item/completed 解析 nested params.item（agentMessage 完整文本） | kind=message partial=false text="partial complete text" |
+
+### Codex session persistence
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | run1 thread/start 注册 threadId 到 sessionMapper | tid=thread-abc sid=session-def has=true |
+| ✅ | save/load extras round-trip 保留 providerThreadId/SessionId | loaded.tid=thread-persist loaded.sid=session-persist |
+| ✅ | restoreProviderSession 注入持久化 threadId | has=true tid=thread-from-disk |
+| ✅ | run2 resume 命中 thread/resume 路径（不退化为新 thread） | resumePath=thread/resume codexThread=thread-e2e |
+| ✅ | doNewSession 清空回填缓存避免误 resume 旧 thread | has=false |
+| ✅ | restoreProviderSession 不覆盖已存在的运行时映射 | tidAfter=thread-real |
+
+### Test report integrity
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | unit/process 报告含 commit sha + 运行命令字段 | unitExists=true processExists=true unitSha=true processSha=true unitCmd=true processCmd=true |
+| ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
+| ✅ | summary 报告 commit sha 与当前 HEAD 一致（过期则需重新生成） | exists=true headSha=d2c20f35bc0a summaryMatch=true |
+| ✅ | 审计模式下 commit sha 不匹配 → exit 1（generate-test-summary.mjs 行为） | scriptExists=true auditFailExit=true shaMismatchCheck=true |
 
 ## 失败项详情
 

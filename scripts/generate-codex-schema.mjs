@@ -70,14 +70,28 @@ function main() {
     return;
   }
 
-  // 4. 更新 manifest.json
+  // 4. 更新 manifest.json（不手改 generated schema 文件本身，仅维护 manifest 元信息）
   const manifest = JSON.parse(readFileSync(MANIFEST_PATH, "utf8"));
   manifest.schemaVersion = "1.0.0-generated";
   manifest.codexVersion = codexVersion;
   manifest.schemaGeneratedAt = new Date().toISOString();
   manifest.generatorCommand = `${CODEX_COMMAND} app-server generate-ts --out ./src/runtime/providers/codex-app-server/schema`;
   manifest.source = "generated";
-  manifest.sourceReason = `Generated from ${codexVersion} via ${CODEX_COMMAND} app-server generate-ts.`;
+  manifest.sourceReason = `Generated from ${codexVersion} via ${CODEX_COMMAND} app-server generate-ts. 不要手改 generated schema 字段；如需更新请重新运行 \`npm run codex:schema\`。`;
+  // generated schema 默认 experimentalApi=false（除非 manifest 已显式标 true 且 audit 记录在案）
+  manifest.experimentalApi = manifest.experimentalApi === true ? true : false;
+  // protocolCapabilities 保持 fixture 已声明的官方能力集（generated schema 文件本身不描述能力集）
+  // 仅在缺失时补一个最小 stub，避免 generated 状态下丢字段
+  if (!manifest.protocolCapabilities) {
+    manifest.protocolCapabilities = {
+      wireJsonrpcOmitted: true,
+      initializeHandshake: true,
+      threadResume: true,
+      itemDeltas: [],
+      approvalDecisions: [],
+      serverInitiatedRequests: [],
+    };
+  }
   writeFileSync(MANIFEST_PATH, JSON.stringify(manifest, null, 2) + "\n", "utf8");
 
   console.log(`[generate-codex-schema] ✅ schema generated from codex ${codexVersion}`);

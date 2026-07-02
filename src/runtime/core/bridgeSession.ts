@@ -140,6 +140,25 @@ export class BridgeSessionImpl implements BridgeSession {
     this.permission.cancelAllPending();
   }
 
+  /**
+   * V2.17-A Completion: 从持久化的 providerThreadId/providerSessionId 回填 provider session 状态。
+   *
+   * keepLastSession 恢复时由 UI 调用：把 session 文件中保存的 codex threadId/sessionId
+   * 注入 provider 的 sessionMapper（若 provider 支持），使后续 resume() 命中 thread/resume 路径。
+   * 同时更新本会话的 _providerThreadId/_providerSessionId 缓存。
+   * 非 codex provider 无 restoreProviderSession 方法时静默跳过。
+   */
+  restoreProviderSession(providerThreadId?: string, providerSessionId?: string): void {
+    if (providerThreadId) this._providerThreadId = providerThreadId;
+    if (providerSessionId) this._providerSessionId = providerSessionId;
+    const providerWithRestore = this.provider as RuntimeProvider & {
+      restoreProviderSession?(bridgeSessionId: string, threadId?: string, sessionId?: string): void;
+    };
+    if (typeof providerWithRestore.restoreProviderSession === "function") {
+      providerWithRestore.restoreProviderSession(this.sessionId, providerThreadId, providerSessionId);
+    }
+  }
+
   async *resume(sessionId: string, input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     const runId = `resume-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.currentRunId = runId;
