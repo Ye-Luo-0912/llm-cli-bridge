@@ -1,0 +1,13 @@
+{
+  "schemaVersion": "0.1.0-preliminary",
+  "codexVersion": null,
+  "schemaGeneratedAt": "2026-07-02T00:00:00.000Z",
+  "generatorCommand": "codex app-server generate-ts --out ./src/runtime/providers/codex-app-server/schema",
+  "source": "fixture",
+  "sourceReason": "codex CLI not available in current environment; fixture schema used. Regenerate via `npm run codex:schema` once codex app-server is installed.",
+  "notes": [
+    "Preliminary hand-curated types based on publicly known codex app-server JSON-RPC conventions.",
+    "Field names are NOT authoritative. When codex is available, regenerate to replace this file entirely.",
+    "All types are scoped to V2.17-A Bridge Core integration; provider-private, UI never imports these."
+  ]
+}

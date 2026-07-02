@@ -44,15 +44,18 @@ export interface AttachmentPlan {
 
 // V2.17-A: EffectiveRunPlan —— 每次运行的单一真相源
 // CLI 与 SDK 都从同一个 plan 派生 options / env；Developer mode 可查看，普通用户隐藏。
+// V2.17-A Completion: backend 联合扩展 "codex-app-server"（Codex app-server primary provider）。
+//   注：codex-app-server 不读 systemPrompt/tools preset 字段（这些是 Claude 专用），
+//   由 CodexAppServerEffectiveRunPlan.buildRunOptions 派生 codex instructions/config/rules。
 export interface EffectiveRunPlan {
-  backend: "sdk" | "cli";
+  backend: "sdk" | "cli" | "codex-app-server";
   cwd: string;
   model: string;
   // 官方字段名 effort（不再用未确认的 reasoningEffort）
   effort: string;
   permission: ClaudePermissionMode;
   session: { continueSession: boolean; resumeId?: string };
-  // 显式 claude_code preset
+  // 显式 claude_code preset（Claude SDK/CLI 用；codex-app-server provider 忽略此字段）
   systemPrompt: { preset: "claude_code" };
   tools: { preset: "claude_code" };
   settingSources: readonly string[];

@@ -1,0 +1,146 @@
+// LLM CLI Bridge — BridgeSession 实现 (V2.17-A Completion)
+//
+// UI 与 provider 之间的会话编排器。职责：
+// 1. 按 settings.backendMode + provider 可用性选择 RuntimeProvider
+// 2. 构造 RunInput → BridgePromptPackage → EffectiveRunPlan（通过 provider.buildPlan）
+// 3. 调用 provider.run(ctx) 返回 AsyncIterable<NormalizedRuntimeEvent>
+// 4. cancel(runId) / resume(sessionId)
+//
+// UI 不直接接触 provider 实例，只通过 BridgeSession 交互。
+//
+// provider 选择策略（与原 view.ts getBackend 一致，但产出 RuntimeProvider 而非 AgentBackend）：
+// - auto:            codex-app-server 可用→codex-app-server；否则 claude-sdk 可用→claude-sdk；
+//                    否则 claude-cli
+// - cli:             claude-cli
+// - sdk:             claude-sdk（strict，不可用时报错不 fallback）
+// - mock-success / mock-failure: mock
+//
+// 注：当前 BackendMode 没有 codex 选项；auto 模式下若 codex 命令存在则优先用 codex-app-server，
+// 否则按原 SDK-first + CLI fallback 顺序。这实现了"Codex app-server 成为 primary provider 目标"。
+// 后续可扩展 BackendMode 增加 "codex" 显式选项（本轮不做，避免破坏现有设置迁移）。
+
+import type { LLMBridgeSettings } from "../../types";
+import type {
+  BridgeSession,
+  NormalizedRuntimeEvent,
+  RunInput,
+  RuntimeProvider,
+  ProviderId,
+} from "./types";
+import type { PermissionBoundary } from "./types";
+import { createPermissionBoundary, PermissionBoundaryImpl } from "./permissionBoundary";
+import { ClaudeSdkProvider } from "../providers/claude-sdk/claudeSdkProvider";
+import { ClaudeCliProvider } from "../providers/claude-cli/claudeCliProvider";
+import { MockProvider } from "../providers/mock/mockProvider";
+import { CodexAppServerProvider } from "../providers/codex-app-server/codexAppServerProvider";
+
+/**
+ * 选择 RuntimeProvider（按 settings.backendMode + provider 可用性）。
+ *
+ * @param settings 插件设置
+ * @param cwd Vault 根目录
+ * @param strictSdk 显式选 sdk 时 strict=true（不可用报错不 fallback）
+ * @returns provider 与显示 label
+ */
+export function selectProvider(
+  settings: LLMBridgeSettings,
+  cwd: string,
+): { provider: RuntimeProvider; label: string } {
+  const mode = settings.backendMode;
+
+  if (mode === "mock-success") {
+    return { provider: new MockProvider("success"), label: "Mock" };
+  }
+  if (mode === "mock-failure") {
+    return { provider: new MockProvider("failure"), label: "Mock" };
+  }
+  if (mode === "cli") {
+    return { provider: new ClaudeCliProvider(), label: "Claude Code" };
+  }
+  if (mode === "sdk") {
+    return { provider: new ClaudeSdkProvider(true), label: "SDK" };
+  }
+
+  // auto: codex-app-server 优先（primary target），其次 SDK，最后 CLI
+  const codex = new CodexAppServerProvider();
+  if (codex.isAvailable(cwd)) {
+    return { provider: codex, label: "Codex app-server" };
+  }
+  const sdk = new ClaudeSdkProvider(false);
+  if (sdk.isAvailable(cwd)) {
+    return { provider: sdk, label: "SDK" };
+  }
+  return { provider: new ClaudeCliProvider(), label: "Claude Code fallback" };
+}
+
+/**
+ * BridgeSession 默认实现。
+ */
+export class BridgeSessionImpl implements BridgeSession {
+  readonly sessionId: string;
+  readonly provider: RuntimeProvider;
+  readonly providerId: ProviderId;
+  readonly permission: PermissionBoundaryImpl;
+  readonly displayLabel: string;
+
+  private currentRunId: string | null = null;
+
+  constructor(sessionId: string, provider: RuntimeProvider, label: string, settings: LLMBridgeSettings) {
+    this.sessionId = sessionId;
+    this.provider = provider;
+    this.providerId = provider.providerId;
+    this.displayLabel = label;
+    this.permission = createPermissionBoundary(settings.claudePermissionMode, settings.permissionPolicy);
+  }
+
+  async *start(input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
+    const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.currentRunId = runId;
+    const plan = this.provider.buildPlan(input, settings);
+    const ctx = {
+      plan,
+      promptPackage: input.promptPackage,
+      permission: this.permission,
+      runId,
+      resumeSessionId: undefined as string | undefined,
+      sdkStreamingInput: input.sdkStreamingInput,
+      runtimeFileToolAdapter: input.runtimeFileToolAdapter,
+    };
+    yield* this.provider.run(ctx, settings);
+    this.currentRunId = null;
+  }
+
+  cancel(runId: string): void {
+    this.provider.cancel(runId);
+    this.permission.cancelAllPending();
+  }
+
+  async *resume(sessionId: string, input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
+    const runId = `resume-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    this.currentRunId = runId;
+    const plan = this.provider.buildPlan(input, settings);
+    const ctx = {
+      plan,
+      promptPackage: input.promptPackage,
+      permission: this.permission,
+      runId,
+      resumeSessionId: sessionId,
+      sdkStreamingInput: input.sdkStreamingInput,
+      runtimeFileToolAdapter: input.runtimeFileToolAdapter,
+    };
+    yield* this.provider.resume(sessionId, ctx, settings);
+    this.currentRunId = null;
+  }
+}
+
+/**
+ * 创建 BridgeSession（按 settings 选择 provider）。
+ */
+export function createBridgeSession(
+  sessionId: string,
+  settings: LLMBridgeSettings,
+  cwd: string,
+): BridgeSessionImpl {
+  const { provider, label } = selectProvider(settings, cwd);
+  return new BridgeSessionImpl(sessionId, provider, label, settings);
+}

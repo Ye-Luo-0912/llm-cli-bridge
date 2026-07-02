@@ -23,9 +23,12 @@ export function computePromptPackageHash(promptPackageText: string): string {
  *
  * CLI 与 SDK 在各自运行入口调用同一函数，保证两边派生自同一真相源。
  * view 层在发送时构造一次，挂到 AgentTask.effectiveRunPlan，两个 backend 都从该 plan 读取。
+ *
+ * V2.17-A Completion: codex-app-server provider 也通过此函数构造基础 plan，
+ * 再由 CodexAppServerEffectiveRunPlan 派生 codex-specific run options。
  */
 export function buildEffectiveRunPlan(args: {
-  backend: "sdk" | "cli";
+  backend: "sdk" | "cli" | "codex-app-server";
   settings: LLMBridgeSettings;
   cwd: string;
   promptPackageText: string;

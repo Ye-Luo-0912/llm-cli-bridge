@@ -13,6 +13,16 @@ const PROJECT_ROOT = resolve(__dirname, "..");
 const VAULT_PATH = process.env.VAULT_PATH || resolve(PROJECT_ROOT, "..", "Obsidian", "LLM-Wiki");
 const TEST_ARTIFACTS_DIR = join(VAULT_PATH, ".llm-bridge", "test-artifacts");
 
+// V2.17-A Completion: 防御性 uncaughtException handler，避免单个测试段崩溃导致整个 runner 退出
+// （例如 Linux 上 ClaudeCliBackend contract test 用 cmd /c，spawn 失败后 stdin.write 触发 EPIPE 'error'）。
+// 仅记录到 stderr，不影响后续测试段。
+process.on("uncaughtException", (err) => {
+  process.stderr.write(`[uncaughtException] ${err?.stack || err?.message || String(err)}\n`);
+});
+process.on("unhandledRejection", (err) => {
+  process.stderr.write(`[unhandledRejection] ${err?.stack || err?.message || String(err)}\n`);
+});
+
 const results = {
   timestamp: new Date().toISOString(),
   environment: {},
@@ -963,6 +973,388 @@ if (httpAvailable && bridgeInfo) {
   ];
   for (const t of httpSkipTests) {
     addTest(t, "skip", "Obsidian 未运行，跳过 integration 测试");
+  }
+}
+
+// ============================================================
+// 6.5 Bridge Core / RuntimeProvider tests (V2.17-A Completion, unit)
+// ============================================================
+console.log("\n=== Bridge Core / RuntimeProvider tests (V2.17-A Completion) ===");
+
+if (runMode !== "all" && runMode !== "unit") {
+  addTest("Bridge Core tests 段", "skip", "当前为非 unit 模式，跳过");
+} else {
+  try {
+    const esbuild = (await import("esbuild")).default;
+    const tempCodexProviderBundle = join(PROJECT_ROOT, ".test-codex-provider-temp.mjs");
+    const tempPromptPkgBundle = join(PROJECT_ROOT, ".test-prompt-pkg-temp.mjs");
+    const tempAssistantViewBundle = join(PROJECT_ROOT, ".test-assistant-view-temp.mjs");
+    const tempPermBoundaryBundle = join(PROJECT_ROOT, ".test-perm-boundary-temp.mjs");
+    const tempWorkflowMapperBundle = join(PROJECT_ROOT, ".test-workflow-mapper-temp.mjs");
+
+    const bundleOpts = (entry) => ({
+      entryPoints: [join(PROJECT_ROOT, "src", entry)],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      logLevel: "silent",
+    });
+
+    await esbuild.build({ ...bundleOpts("runtime/providers/codex-app-server/codexAppServerProvider.ts"), outfile: tempCodexProviderBundle });
+    await esbuild.build({ ...bundleOpts("runtime/core/promptPackage.ts"), outfile: tempPromptPkgBundle });
+    await esbuild.build({ ...bundleOpts("runtime/core/assistantTurnView.ts"), outfile: tempAssistantViewBundle });
+    await esbuild.build({ ...bundleOpts("runtime/core/permissionBoundary.ts"), outfile: tempPermBoundaryBundle });
+    await esbuild.build({ ...bundleOpts("runtime/providers/workflowEventMapper.ts"), outfile: tempWorkflowMapperBundle });
+
+    const codexProviderMod = await import(pathToFileURL(tempCodexProviderBundle).href);
+    const promptPkgMod = await import(pathToFileURL(tempPromptPkgBundle).href);
+    const assistantViewMod = await import(pathToFileURL(tempAssistantViewBundle).href);
+    const permBoundaryMod = await import(pathToFileURL(tempPermBoundaryBundle).href);
+    const workflowMapperMod = await import(pathToFileURL(tempWorkflowMapperBundle).href);
+
+    // ---------- 最小 settings + snapshot ----------
+    const baseBridgeSettings = {
+      agentType: "claude",
+      claudeCommand: "claude",
+      claudeArgs: "-p",
+      codexCommand: "codex",
+      codexArgs: "exec -",
+      customCommand: "",
+      customArgs: "",
+      includeActiveNote: true,
+      includeSelection: true,
+      maxActiveNoteChars: 6000,
+      maxSelectionChars: 3000,
+      outputDir: "90_AI整理待确认",
+      showStderr: true,
+      saveLogs: false,
+      sessionMode: "fresh",
+      model: "gpt-5.5",
+      effortLevel: "high",
+      devTestMode: false,
+      backendMode: "auto",
+      claudeContinueSession: false,
+      claudeResumeSessionId: "",
+      claudePermissionMode: "default",
+      claudeExtraArgs: "",
+      disabledSkills: [],
+      permissionPolicy: "medium",
+      keepLastSession: true,
+      lastActiveSessionId: "",
+      developerMode: false,
+    };
+
+    // ---------- 1. RuntimeProvider contract ----------
+    {
+      // 验证 codex provider 的接口形状（其它 provider 在原 contract test 已覆盖）
+      const codex = new codexProviderMod.CodexAppServerProvider(false);
+      const hasProviderId = codex.providerId === "codex-app-server";
+      const hasDisplayName = typeof codex.displayName === "string" && codex.displayName.length > 0;
+      const hasIsAvailable = typeof codex.isAvailable === "function";
+      const hasBuildPlan = typeof codex.buildPlan === "function";
+      const hasRun = typeof codex.run === "function";
+      const hasCancel = typeof codex.cancel === "function";
+      const hasResume = typeof codex.resume === "function";
+      const ok = hasProviderId && hasDisplayName && hasIsAvailable && hasBuildPlan && hasRun && hasCancel && hasResume;
+      addTest("Contract: CodexAppServerProvider 实现 RuntimeProvider 接口", ok ? "pass" : "fail",
+        ok ? "" : `providerId=${codex.providerId}, displayName=${codex.displayName}, methods=[${[hasIsAvailable, hasBuildPlan, hasRun, hasCancel, hasResume].map((b) => b ? "y" : "n").join(",")}]`);
+    }
+
+    // ---------- 2. plan → provider args/options snapshot ----------
+    {
+      const sampleSnapshot = {
+        vaultPath: "/test/vault",
+        timestamp: "2026-07-02T00:00:00.000Z",
+        activeFilePath: "note.md",
+        activeFileContent: "# Hello",
+        selection: "selected text",
+        fileRefIndex: [
+          { id: "ref-1", displayName: "a.md", kind: "vault", scope: "message", fileType: "markdown", status: "ok", path: "a.md" },
+          { id: "ref-2", displayName: "img.png", kind: "attachment", scope: "message", fileType: "image", status: "ok", path: "img.png" },
+        ],
+        attachmentTextSnippets: [
+          { refId: "ref-1", displayName: "a.md", fileType: "markdown", resolvedPath: "a.md", content: "snippet", bytesRead: 7, maxBytes: 8192, maxChars: 8000, truncated: false },
+        ],
+      };
+      const pkg = promptPkgMod.buildBridgePromptPackage("hello", sampleSnapshot, baseBridgeSettings);
+      const input = {
+        userMessage: "hello",
+        cwd: "/test/vault",
+        includeActiveNote: true,
+        includeSelection: true,
+        promptPackage: pkg,
+        createdAt: "2026-07-02T00:00:00.000Z",
+      };
+      const codex = new codexProviderMod.CodexAppServerProvider(false);
+      const plan = codex.buildPlan(input, baseBridgeSettings);
+      const planOk = plan.backend === "codex-app-server" && plan.cwd === "/test/vault" && plan.model === "gpt-5.5";
+      addTest("Plan snapshot: codex-app-server plan.backend=codex-app-server", planOk ? "pass" : "fail",
+        planOk ? "" : `backend=${plan.backend}, cwd=${plan.cwd}, model=${plan.model}`);
+
+      const tempCodexPlanBundle = join(PROJECT_ROOT, ".test-codex-plan-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/codexAppServerEffectiveRunPlan.ts"),
+        outfile: tempCodexPlanBundle,
+      });
+      const { buildCodexAppServerRunOptions } = await import(pathToFileURL(tempCodexPlanBundle).href);
+      const opts = buildCodexAppServerRunOptions(plan, pkg);
+      const optsOk = opts.threadStart.instructions === pkg.bridgeSystemAppend
+        && opts.turnStart.input === pkg.userPrompt
+        && opts.bridgeSystemAppendSource === "instructions";
+      addTest("Plan snapshot: bridgeSystemAppend → instructions, userPrompt → turn/start input", optsOk ? "pass" : "fail",
+        optsOk ? "" : `source=${opts.bridgeSystemAppendSource}, input=${opts.turnStart.input?.slice(0, 30)}, instructions_len=${opts.threadStart.instructions?.length}`);
+    }
+
+    // ---------- 3. prompt split snapshot + attachment entry-level audit ----------
+    {
+      const sampleSnapshot = {
+        vaultPath: "/v",
+        timestamp: "t",
+        activeFilePath: "n.md",
+        activeFileContent: "# N",
+        selection: "sel",
+        fileRefIndex: [
+          { id: "r1", displayName: "a.md", kind: "vault", scope: "message", fileType: "markdown", status: "ok", path: "a.md" },
+          { id: "r2", displayName: "b.md", kind: "vault", scope: "pinned", fileType: "markdown", status: "ok", path: "b.md" },
+          { id: "r3", displayName: "i.png", kind: "attachment", scope: "message", fileType: "image", status: "ok", path: "i.png" },
+          { id: "r4", displayName: "x.pdf", kind: "external", scope: "session", fileType: "pdf", status: "ok", path: "x.pdf" },
+        ],
+        attachmentTextSnippets: [
+          { refId: "r1", displayName: "a.md", fileType: "markdown", resolvedPath: "a.md", content: "c1", bytesRead: 2, maxBytes: 8192, maxChars: 8000, truncated: false },
+          { refId: "r2", displayName: "b.md", fileType: "markdown", resolvedPath: "b.md", content: "c2", bytesRead: 2, maxBytes: 8192, maxChars: 8000, truncated: false },
+        ],
+      };
+      const pkg = promptPkgMod.buildBridgePromptPackage("hi", sampleSnapshot, baseBridgeSettings);
+
+      // attachment entry-level audit
+      const e1 = pkg.attachmentEntries.find((e) => e.refId === "r1");
+      const e2 = pkg.attachmentEntries.find((e) => e.refId === "r2");
+      const e3 = pkg.attachmentEntries.find((e) => e.refId === "r3");
+      const e4 = pkg.attachmentEntries.find((e) => e.refId === "r4");
+      const entryOk = e1?.packing === "inline-snippet" && e2?.packing === "inline-snippet"
+        && e3?.packing === "sdk-streaming-block" && e4?.packing === "native-ref-only";
+      addTest("Attachment audit: entry-level packing decisions", entryOk ? "pass" : "fail",
+        entryOk ? "" : `r1=${e1?.packing}, r2=${e2?.packing}, r3=${e3?.packing}, r4=${e4?.packing}`);
+
+      // prompt split snapshot: bridgeSystemAppend + userPrompt 都非空；auditHash 跨调用稳定
+      const pkg2 = promptPkgMod.buildBridgePromptPackage("hi", sampleSnapshot, baseBridgeSettings);
+      const splitOk = pkg.bridgeSystemAppend.length > 0 && pkg.userPrompt.length > 0
+        && pkg.auditHash === pkg2.auditHash && pkg.auditHash.length > 0;
+      addTest("Prompt split: bridgeSystemAppend + userPrompt + auditHash stable", splitOk ? "pass" : "fail",
+        splitOk ? "" : `append_len=${pkg.bridgeSystemAppend.length}, user_len=${pkg.userPrompt.length}, hash=${pkg.auditHash} vs ${pkg2.auditHash}`);
+    }
+
+    // ---------- 4. Codex app-server fixture JSONL → NormalizedRuntimeEvent ----------
+    {
+      const fixtureLines = [
+        // thread/start 响应（result 形式，由 client.send 处理；这里测试通知）
+        // 通知序列：item/started(message) → item/text/delta → item/completed(message)
+        JSON.stringify({ jsonrpc: "2.0", method: "item/started", params: { threadId: "t1", itemId: "m1", type: "message" } }),
+        JSON.stringify({ jsonrpc: "2.0", method: "item/text/delta", params: { threadId: "t1", itemId: "m1", delta: "Hello " } }),
+        JSON.stringify({ jsonrpc: "2.0", method: "item/text/delta", params: { threadId: "t1", itemId: "m1", delta: "world" } }),
+        JSON.stringify({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t1", itemId: "m1", type: "message", text: "Hello world" } }),
+        // tool_call
+        JSON.stringify({ jsonrpc: "2.0", method: "item/started", params: { threadId: "t1", itemId: "tc1", type: "tool_call", toolName: "Read", callId: "call-1" } }),
+        JSON.stringify({ jsonrpc: "2.0", method: "item/argument/delta", params: { threadId: "t1", itemId: "tc1", delta: '{"file_path":"a.md"}' } }),
+        JSON.stringify({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t1", itemId: "tr1", type: "tool_result", callId: "call-1", toolName: "Read", text: "# a", isError: false } }),
+        // file_change
+        JSON.stringify({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t1", itemId: "fc1", type: "file_change", fileAction: "create", filePath: "output/summary.md" } }),
+        // turn/completed
+        JSON.stringify({ jsonrpc: "2.0", method: "turn/completed", params: { threadId: "t1", turnId: "tu1", finalText: "Hello world", durationMs: 123, sessionId: "sess-1" } }),
+      ];
+      const tempJsonRpcBundle = join(PROJECT_ROOT, ".test-jsonrpc-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/jsonRpcClient.ts"),
+        outfile: tempJsonRpcBundle,
+      });
+      const { JsonRpcClient } = await import(pathToFileURL(tempJsonRpcBundle).href);
+      const tempCodexMapperBundle = join(PROJECT_ROOT, ".test-codex-mapper-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/codexAppServerEventMapper.ts"),
+        outfile: tempCodexMapperBundle,
+      });
+      const { CodexAppServerEventMapper } = await import(pathToFileURL(tempCodexMapperBundle).href);
+
+      const mapper = new CodexAppServerEventMapper("codex-app-server", true);
+      const events = [];
+      let lineHandlerRef = null;
+      const client = new JsonRpcClient(
+        () => {}, // 不发送
+        (handler) => {
+          lineHandlerRef = handler;
+          // 不立即回放；让 onNotification 先注册
+          return () => { lineHandlerRef = null; };
+        },
+      );
+      client.onNotification("item/started", (p) => events.push(mapper.mapItemStarted(p)));
+      client.onNotification("item/text/delta", (p) => events.push(mapper.mapItemTextDelta(p)));
+      client.onNotification("item/argument/delta", (p) => events.push(mapper.mapItemArgumentDelta(p)));
+      client.onNotification("item/completed", (p) => events.push(mapper.mapItemCompleted(p)));
+      client.onNotification("turn/completed", (p) => events.push(mapper.mapTurnCompleted(p)));
+      // 现在回放 fixture 行
+      for (const line of fixtureLines) lineHandlerRef?.(line);
+
+      const nonNull = events.filter(Boolean);
+      const kinds = nonNull.map((e) => e.payload.kind);
+      // 期望序列：message(started,空), message(delta Hello ), message(delta world), message(completed snapshot),
+      //          tool_start(started), tool_start(argument delta), tool_result, file_change, completed
+      const seqOk = kinds.length === 9
+        && kinds[0] === "message" && kinds[1] === "message" && kinds[2] === "message" && kinds[3] === "message"
+        && kinds[4] === "tool_start" && kinds[5] === "tool_start" && kinds[6] === "tool_result"
+        && kinds[7] === "file_change" && kinds[8] === "completed";
+      addTest("Codex fixture JSONL → NormalizedRuntimeEvent sequence", seqOk ? "pass" : "fail",
+        seqOk ? "" : `kinds=[${kinds.join(",")}]`);
+
+      const completedEv = nonNull[nonNull.length - 1];
+      const completedOk = completedEv.payload.kind === "completed"
+        && completedEv.payload.text === "Hello world"
+        && completedEv.payload.sessionId === "sess-1";
+      addTest("Codex fixture: turn/completed carries finalText + sessionId", completedOk ? "pass" : "fail",
+        completedOk ? "" : `text=${completedEv.payload.text}, sessionId=${completedEv.payload.sessionId}`);
+    }
+
+    // ---------- 5. fixture event stream → AssistantTurnView snapshot ----------
+    {
+      const { buildAssistantTurnViewFromEvents } = assistantViewMod;
+      // 构造 NormalizedRuntimeEvent 序列（直接构造，不走 mapper；测 AssistantTurnView 聚合）
+      const mkEvent = (payload, providerId = "codex-app-server") => ({
+        providerId,
+        timestamp: "2026-07-02T00:00:00.000Z",
+        payload,
+      });
+      const events = [
+        mkEvent({ kind: "session_started", text: "thread-1", sessionId: "sess-1" }),
+        mkEvent({ kind: "thinking", text: "Analyzing..." }),
+        mkEvent({ kind: "message", role: "assistant", text: "Hello ", partial: true }),
+        mkEvent({ kind: "message", role: "assistant", text: "world", partial: true }),
+        mkEvent({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"a.md"}', callId: "c1" }),
+        mkEvent({ kind: "tool_result", callId: "c1", toolName: "Read", output: "# a", isError: false }),
+        mkEvent({ kind: "file_change", action: "create", path: "output/summary.md" }),
+        mkEvent({ kind: "completed", text: "Hello world", sessionId: "sess-1", durationMs: 100 }),
+      ];
+      const view = buildAssistantTurnViewFromEvents("turn-1", "codex-app-server", events, "2026-07-02T00:00:00.000Z");
+      const statusOk = view.status === "completed";
+      const finalOk = view.finalAnswer === "Hello world";
+      const toolsOk = view.tools.length === 1 && view.tools[0].toolName === "Read" && view.tools[0].status === "done";
+      const filesOk = view.fileChanges.length === 1 && view.fileChanges[0].path === "output/summary.md";
+      const thoughtsOk = view.thoughts.length === 1 && view.thoughts[0].text === "Analyzing...";
+      const sessionOk = view.terminalSessionId === "sess-1";
+      const allOk = statusOk && finalOk && toolsOk && filesOk && thoughtsOk && sessionOk;
+      addTest("AssistantTurnView: fixture stream → completed view (process/thoughts/tools/files/final)", allOk ? "pass" : "fail",
+        allOk ? "" : `status=${view.status}, final=${view.finalAnswer}, tools=${view.tools.length}, files=${view.fileChanges.length}, thoughts=${view.thoughts.length}, session=${view.terminalSessionId}`);
+    }
+
+    // ---------- 6. approval request → PermissionBoundary → provider response ----------
+    {
+      const { createPermissionBoundary } = permBoundaryMod;
+      const boundary = createPermissionBoundary("default", "medium");
+      const req = {
+        requestId: "req-1",
+        providerId: "codex-app-server",
+        toolName: "Bash",
+        description: "Execute command: rm -rf /",
+        riskLevel: "high",
+        riskReason: "Shell execution",
+        inputSummary: "rm -rf /",
+        mergeKey: "Bash:high:",
+        providerContext: { codexRequestId: "codex-req-1", kind: "commandExecution" },
+      };
+      const decision = boundary.requestApproval(req);
+      const pendingOk = decision === "pending";
+      addTest("Approval: default mode + high risk → pending", pendingOk ? "pass" : "fail",
+        pendingOk ? "" : `decision=${decision}（期望 pending）`);
+
+      // 模拟用户 accept
+      const waitPromise = boundary.waitForApproval("req-1");
+      boundary.resolveApproval("req-1", { type: "accept" });
+      const result = await waitPromise;
+      const resolveOk = result.response.type === "accept" && result.source === "user";
+      addTest("Approval: resolveApproval(accept) → waitForApproval resolves", resolveOk ? "pass" : "fail",
+        resolveOk ? "" : `response=${result.response.type}, source=${result.source}`);
+
+      // acceptForSession 应写入 sessionAllows
+      const req2 = { ...req, requestId: "req-2", toolName: "Write", riskLevel: "medium" };
+      boundary.requestApproval(req2);
+      const wait2 = boundary.waitForApproval("req-2");
+      boundary.resolveApproval("req-2", { type: "acceptForSession" });
+      await wait2;
+      const sessionAllowOk = boundary.sessionAllows.length === 1 && boundary.sessionAllows[0].toolName === "Write";
+      addTest("Approval: acceptForSession writes sessionAllows cache", sessionAllowOk ? "pass" : "fail",
+        sessionAllowOk ? "" : `allows=${boundary.sessionAllows.length}, first=${boundary.sessionAllows[0]?.toolName}`);
+
+      // cancelAllPending → 返回 pending 列表 + resolver 以 cancel 唤醒
+      const req3 = { ...req, requestId: "req-3" };
+      boundary.requestApproval(req3);
+      const wait3 = boundary.waitForApproval("req-3");
+      const cancelled = boundary.cancelAllPending();
+      const cancelResult = await wait3;
+      const cancelOk = cancelled.length === 1 && cancelled[0].requestId === "req-3"
+        && cancelResult.response.type === "cancel";
+      addTest("Approval: cancelAllPending → resolver wakes with cancel", cancelOk ? "pass" : "fail",
+        cancelOk ? "" : `cancelled=${cancelled.length}, response=${cancelResult.response.type}`);
+
+      // mode=bypassPermissions 应自动 allow
+      const bypassBoundary = createPermissionBoundary("bypassPermissions", "low");
+      const decision2 = bypassBoundary.requestApproval(req);
+      const autoAllowOk = decision2 === "auto-allow";
+      addTest("Approval: bypassPermissions mode → auto-allow", autoAllowOk ? "pass" : "fail",
+        autoAllowOk ? "" : `decision=${decision2}（期望 auto-allow）`);
+    }
+
+    // ---------- 7. WorkflowEvent → NormalizedRuntimeEvent mapper（claude-sdk/cli 复用） ----------
+    {
+      const { mapWorkflowEventToNormalized } = workflowMapperMod;
+      const thinking = mapWorkflowEventToNormalized(
+        { type: "thinking", timestamp: "t", text: "hmm" },
+        "claude-sdk", false,
+      );
+      const tOk = thinking.payload.kind === "thinking" && thinking.payload.text === "hmm" && thinking.providerId === "claude-sdk";
+      addTest("WorkflowEvent→Normalized: thinking maps provider-neutral", tOk ? "pass" : "fail",
+        tOk ? "" : `kind=${thinking.payload.kind}, text=${thinking.payload.text}, provider=${thinking.providerId}`);
+
+      const permission = mapWorkflowEventToNormalized(
+        { type: "permission", timestamp: "t", toolName: "Write", description: "write", granted: true, pending: true, requestId: "r1" },
+        "claude-sdk", false,
+      );
+      const pOk = permission.payload.kind === "approval_request" && permission.payload.requestId === "r1" && permission.payload.toolName === "Write";
+      addTest("WorkflowEvent→Normalized: permission(pending) → approval_request", pOk ? "pass" : "fail",
+        pOk ? "" : `kind=${permission.payload.kind}, requestId=${permission.payload.requestId}`);
+
+      const devRaw = mapWorkflowEventToNormalized(
+        { type: "thinking", timestamp: "t", text: "hmm" },
+        "claude-sdk", true,
+      );
+      const rawOk = devRaw.rawProviderEvent !== undefined;
+      addTest("WorkflowEvent→Normalized: developerMode fills rawProviderEvent", rawOk ? "pass" : "fail",
+        rawOk ? "" : `rawProviderEvent=${devRaw.rawProviderEvent}`);
+    }
+
+    // ---------- 8. UI 不再 import concrete SdkBackend / ClaudeCliBackend ----------
+    // 注：此测试在 view.ts 重构完成前会 fail；重构完成后转 pass。
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const sdkImportRe = /import\s+\{[^}]*\bSdkBackend\b[^}]*\}\s*from\s+["']\.\/sdkBackend["']/;
+      const cliImportRe = /import\s+\{[^}]*\bClaudeCliBackend\b[^}]*\}\s*from\s+["']\.\/claudeCliBackend["']/;
+      const sdkDirect = sdkImportRe.test(viewSrc);
+      const cliDirect = cliImportRe.test(viewSrc);
+      // view.ts 重构未完成时这两个仍为 true → 标记 fail（重构后转 pass）
+      const noDirectImport = !sdkDirect && !cliDirect;
+      addTest("UI: view.ts 不再直接 import SdkBackend / ClaudeCliBackend", noDirectImport ? "pass" : "fail",
+        noDirectImport ? "" : `sdkDirect=${sdkDirect}, cliDirect=${cliDirect}（待 view.ts 重构后转 pass）`);
+    }
+
+    // 清理临时 bundles
+    for (const f of [
+      tempCodexProviderBundle, tempPromptPkgBundle, tempAssistantViewBundle,
+      tempPermBoundaryBundle, tempWorkflowMapperBundle,
+      join(PROJECT_ROOT, ".test-codex-plan-temp.mjs"),
+      join(PROJECT_ROOT, ".test-jsonrpc-temp.mjs"),
+      join(PROJECT_ROOT, ".test-codex-mapper-temp.mjs"),
+    ]) {
+      try { rmSync(f, { force: true }); } catch { /* ignore */ }
+    }
+  } catch (e) {
+    addTest("Bridge Core tests 段", "fail", e?.stack || e?.message || String(e));
   }
 }
 
