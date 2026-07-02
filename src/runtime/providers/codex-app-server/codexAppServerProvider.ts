@@ -40,7 +40,7 @@ import {
   buildCodexAppServerEffectiveRunPlan,
   buildCodexAppServerRunOptions,
 } from "./codexAppServerEffectiveRunPlan";
-import { AppServerProcessManager } from "./appServerProcessManager";
+import { AppServerProcessManager, type AppServerProcessLike, type AppServerSpawnOptions } from "./appServerProcessManager";
 import { JsonRpcClient } from "./jsonRpcClient";
 import type {
   CodexFileChangeItem,
@@ -76,7 +76,7 @@ export class CodexAppServerProvider implements RuntimeProvider {
   private readonly approvalMapper: CodexAppServerApprovalMapper;
   private readonly sessionMapper: CodexAppServerSessionMapper;
   /** 当前活动进程（cancel 用） */
-  private currentProcess: AppServerProcessManager | null = null;
+  private currentProcess: AppServerProcessLike | null = null;
   /** 当前活动 JsonRpcClient（cancel/approval respond 用） */
   private currentClient: JsonRpcClient | null = null;
   /** 当前 runId（cancel 配对） */
@@ -116,7 +116,7 @@ export class CodexAppServerProvider implements RuntimeProvider {
 
     // 启动 codex app-server 进程
     const codexCommand = settings.codexCommand || "codex";
-    const process = new AppServerProcessManager({
+    const process = this.createProcess({
       command: codexCommand,
       args: ["app-server"],
       cwd: ctx.plan.cwd,
@@ -125,10 +125,7 @@ export class CodexAppServerProvider implements RuntimeProvider {
     this.currentRunId = ctx.runId;
 
     // 构造 JsonRpcClient
-    const client = new JsonRpcClient(
-      (line) => process.writeLine(line),
-      (handler) => process.onStdoutLine(handler),
-    );
+    const client = this.createClient(process);
     this.currentClient = client;
 
     // async queue：把通知 handler 产出的 NormalizedRuntimeEvent push 给 generator
@@ -275,7 +272,7 @@ export class CodexAppServerProvider implements RuntimeProvider {
     const options = buildCodexAppServerRunOptions(ctx.plan, ctx.promptPackage);
 
     const codexCommand = settings.codexCommand || "codex";
-    const process = new AppServerProcessManager({
+    const process = this.createProcess({
       command: codexCommand,
       args: ["app-server"],
       cwd: ctx.plan.cwd,
@@ -283,10 +280,7 @@ export class CodexAppServerProvider implements RuntimeProvider {
     this.currentProcess = process;
     this.currentRunId = ctx.runId;
 
-    const client = new JsonRpcClient(
-      (line) => process.writeLine(line),
-      (handler) => process.onStdoutLine(handler),
-    );
+    const client = this.createClient(process);
     this.currentClient = client;
 
     const queue = new Array<NormalizedRuntimeEvent>();
@@ -620,5 +614,31 @@ export class CodexAppServerProvider implements RuntimeProvider {
     if (!providerThreadId) return;
     if (this.sessionMapper.hasCodexThread(bridgeSessionId)) return;
     this.sessionMapper.register(bridgeSessionId, providerThreadId, providerSessionId);
+  }
+
+  // ---------- 进程/客户端工厂（注入缝） ----------
+
+  /**
+   * 创建 codex app-server 子进程管理器。
+   *
+   * 抽象为 protected 方法以便 provider-level 测试注入 fake AppServerProcessLike
+   * （fake 进程 + 真实 JsonRpcClient 驱动 run()/resume() 全路径）。
+   * 生产路径返回真实 AppServerProcessManager。
+   */
+  protected createProcess(options: AppServerSpawnOptions): AppServerProcessLike {
+    return new AppServerProcessManager(options);
+  }
+
+  /**
+   * 创建 JsonRpcClient，绑定到给定进程的 stdio。
+   *
+   * 抽象为 protected 方法以便 provider-level 测试复用真实 JsonRpcClient
+   * （wire 解析/路由/请求-响应配对逻辑不 mock，只 mock 进程 stdio）。
+   */
+  protected createClient(process: AppServerProcessLike): JsonRpcClient {
+    return new JsonRpcClient(
+      (line) => process.writeLine(line),
+      (handler) => process.onStdoutLine(handler),
+    );
   }
 }

@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-02T16:06:33.417Z
-- **测试环境**: linux / Node.js v24.15.0
+- **测试时间**: 2026-07-02T16:50:04.749Z
+- **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 578.2 KB
-- **Vault 路径**: `/Obsidian/LLM-Wiki`
+- **main.js 大小**: 578.9 KB
+- **Vault 路径**: `C:\Users\Ye_Luo\.trae-cn\worktrees\llm-cli-bridge\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
-- **commit sha**: f6e811e1b579e11638c36951652f2a89de51cd59
-- **commit 短 sha**: f6e811e1b579
+- **commit sha**: 74537c445287326fc23d645fbd247817f67f04db
+- **commit 短 sha**: 74537c445287
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 745
+- ✅ **通过**: 756
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 36
+- ⏭️ **跳过**: 27
 - ⚪ **需人工验证**: 0
-- **总计**: 781
+- **总计**: 783
 
 ### 审计模式说明
 
@@ -162,10 +162,10 @@
 |------|--------|------|
 | ✅ | CodexAppServerProvider 实现 RuntimeProvider 接口 | - |
 | ✅ | started 必须先发出 | - |
-| ⏭️ | stdout_delta 正常产出 | 环境假失败: 非 Windows 平台无法运行 `cmd /c`（customCommand=cmd） |
-| ⏭️ | stderr_delta 正常产出 | 环境假失败: 非 Windows 平台无法运行 `cmd /c`（customCommand=cmd） |
-| ⏭️ | completed 正常产出 | 环境假失败: 非 Windows 平台无法运行 `cmd /c`（customCommand=cmd） |
-| ⏭️ | failed 正常产出 | 环境假失败: 非 Windows 平台无法运行 `cmd /c`（customCommand=cmd） |
+| ✅ | stdout_delta 正常产出 | - |
+| ✅ | stderr_delta 正常产出 | - |
+| ✅ | completed 正常产出 | - |
+| ✅ | failed 正常产出 | - |
 | ✅ | stop() 产出 stopped/failed | - |
 | ✅ | stop() 多次调用不抛异常 | - |
 | ✅ | cwd 不存在返回 failed | - |
@@ -525,7 +525,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | ClaudeCliBackend 不产生 workflow 事件 | 环境假失败: 非 Windows 平台无法运行 `cmd /c`（customCommand=cmd） |
+| ✅ | ClaudeCliBackend 不产生 workflow 事件 | hasStdout=true noWfEvents=true wfCount=0 |
 
 ### V1.6 isSdkAvailable
 
@@ -591,7 +591,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | ClaudeCliBackend 不产生 workflow 事件（V1.7 验证） | 环境假失败: 非 Windows 平台无法运行 `cmd /c`（customCommand=cmd） |
+| ✅ | ClaudeCliBackend 不产生 workflow 事件（V1.7 验证） | hasStdout=true noWfEvents=true wfCount=0 |
 
 ### V1.7 isSdkAvailable
 
@@ -651,7 +651,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | auto 模式正常产出 stdout | 环境假失败: 非 Windows 平台无法运行 `cmd /c`（customCommand=cmd） |
+| ✅ | auto 模式正常产出 stdout | hasStdout=true |
 
 ### V1.8 零配置可用
 
@@ -742,7 +742,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | ClaudeCliBackend 不产生 workflow 事件 | 环境假失败: 非 Windows 平台无法运行 `cmd /c`（customCommand=cmd） |
+| ✅ | ClaudeCliBackend 不产生 workflow 事件 | hasStdout=true noWfEvents=true wfCount=0 |
 | ✅ | ClaudeCliBackend 可正常加载 | ClaudeCliBackend=function |
 
 ### V2.16-H timeline
@@ -1103,7 +1103,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | 返回 2 个候选目录 | length=2 |
-| ✅ | vault 内优先 + sibling 次之 | dirs=C:/vault/mywiki/LLM-AgentRuntime | C:/vault/LLM-AgentRuntime |
+| ✅ | vault 内优先 + sibling 次之 | dirs=C:\vault\mywiki\LLM-AgentRuntime | C:\vault\LLM-AgentRuntime |
 
 ### V2.4 plan 权限
 
@@ -1211,7 +1211,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-02T16-06-48-548Z-foqoyl |
+| ✅ | 返回非空 id | id=s-2026-07-02T16-50-32-886Z-46vy5i |
 
 ### V2.5 Session 版本
 
@@ -1230,7 +1230,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-02T16-06-48-604Z-acbchu second=s-2026-07-02T16-06-48-553Z-fwjau8 |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-02T16-50-32-964Z-ga24nz second=s-2026-07-02T16-50-32-898Z-cqipw6 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1244,7 +1244,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | 失败返回 null 不抛异常 | 环境假失败: 非 Windows 平台 `Z:\...` 被当作合法相对路径，无法触发 mkdir 失败 |
+| ✅ | 失败返回 null 不抛异常 | id=null |
 
 ### V2.5 Session 脱敏
 
@@ -1257,7 +1257,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-02T16-06-48-611Z-ga9drq id2=s-2026-07-02T16-06-48-611Z-a3cljl |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-02T16-50-32-989Z-pp2r07 id2=s-2026-07-02T16-50-32-989Z-2wcdw9 |
 
 ### V2.5 Session 上限
 
@@ -1349,13 +1349,13 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | 原子写（tmp 无残留，主文件存在） | ok=true tmp=false main=true |
-| ⏭️ | 失败不抛异常返回 false | 环境假失败: 非 Windows 平台 `Z:\...` 被当作合法相对路径，无法触发写入失败 |
+| ✅ | 失败不抛异常返回 false | ok=false |
 
 ### V2.6 recordSkillApplied
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-02T16:06:48.637Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-02T16:50:33.050Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1443,7 +1443,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-02T16:06:48.661Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-02T16:50:33.103Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -1557,7 +1557,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-02T16:06:48.690Z after=2026-07-02T16:06:48.742Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-02T16:50:33.181Z after=2026-07-02T16:50:33.242Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -1928,13 +1928,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-02T16:06:49.986Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-02T16:50:33.893Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-02T16:06:49.989Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-02T16:50:33.904Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -2227,13 +2227,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | Context UI、file-scope grant、bounded ingestion、prompt boundary | 环境假失败: 非 Windows 平台 vaultPath `D:\Vault` 与 POSIX tmp 路径归一化不一致 |
+| ✅ | Context UI、file-scope grant、bounded ingestion、prompt boundary | grant=file sibling=confirm md=true json=true large=too_large image=not_text pdf=not_text binary=not_text sensitive=sensitive_path external=null type=true prompt=true boundary=true bounded=true ui=true |
 
 ### V2.14.0-H native attachments + FileRef index + read tool policy gate
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-H native attachments + FileRef index + read tool policy gate | 环境假失败: 非 Windows 平台 vaultPath `D:\Vault` 与 POSIX tmp 路径归一化不一致 |
+| ✅ | V2.14.0-H native attachments + FileRef index + read tool policy gate | index=5 prompt=true policy=true ingestion=true ui=true read=confirm/true stat=confirm/true list=allow/deny sibling=confirm sensitive=deny write=deny |
 
 ### V2.14.0-I real file tool executor
 
@@ -2241,11 +2241,11 @@
 |------|--------|------|
 | ✅ | policy gate、bounded read、safe list/search、Claude Read handoff | stat=true read=true listSearch=true external=true gate=true noWrite=true limits=true view=true |
 
-### V2.14.0-I1 symlink realpath hardening
+### V2.14.0-I1 symlink realpath hardening runtime test
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | read/stat/list/search 不越权 | readLink=confirm statLink=confirm sensitive=deny/sensitive_path listBlocked=true searchBlocked=true inside=allow granted=allow static=true |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-KLTq91\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-njT228\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -2253,11 +2253,11 @@
 |------|--------|------|
 | ✅ | read-only routing + policy gate + result surface | routing=true policy=true pending=true deny=true result=true noWrite=true boundary=true |
 
-### V2.14.0-J route symlink escape
+### V2.14.0-J route symlink escape runtime test
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | executor realpath guard 仍生效 | status=confirm reason=pending_read_request calls=1 |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-lWUihY\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-quxZgS\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -2265,11 +2265,11 @@
 |------|--------|------|
 | ✅ | SDK/CLI route through read-only bridge | adapter=true cli=true sdk=true pending=true deny=true result=true noWrite=true boundary=true |
 
-### V2.14.0-K runtime adapter symlink escape
+### V2.14.0-K runtime adapter symlink escape runtime test
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | executor realpath guard 仍生效 | status=confirm reason=pending_read_request |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-CIldgZ\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-Rs0zaW\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -2558,13 +2558,20 @@
 | ✅ | restoreProviderSession 不覆盖已存在的运行时映射 | tidAfter=thread-real |
 | ✅ | run2 thread/resume + turn/start 继续同一 thread（P2 闭环） | resumePath=thread/resume resumedThreadId=thread-continue-1 turnStart.threadId=thread-continue-1 sameAsRun1=true |
 
+### Codex provider-level resume
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | run1 thread/start 注册 threadId（provider 全路径） | sessionStarted=true text=thread-provider-1 mappedTid=thread-provider-1 eventsCount=3 |
+| ✅ | run2 thread/resume + turn/start 使用 resumed threadId（P2 主线闭环） | threadResume=true threadStartOnRun2=false resumeTidOk=true turnStartTidOk=true resumedEv=true eventsCount=3 |
+
 ### Test report integrity
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | unit/process 报告含 commit sha + 运行命令字段 | unitExists=true processExists=true unitSha=true processSha=true unitCmd=true processCmd=true |
 | ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
-| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=076f2ffa6b01 |
+| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=74537c445287 |
 | ✅ | 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑） | scriptExists=true auditFailExit=true testedCodeShaCheck=true codexSmokeCheck=true docsOnlyLogic=true |
 
 ## 失败项详情

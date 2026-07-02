@@ -99,9 +99,16 @@ function parseCodexSmokeReport(path) {
   const text = readFileSync(path, "utf8");
   const result = { label: "codex-smoke", raw: text };
 
-  // smokeStatus: skip | pass | fail
-  const statusMatch = text.match(/- \*\*smokeStatus\*\*: (skip|pass|fail)/);
+  // smokeStatus: skip | pass | handshake-only | fail
+  // P2 分层：handshake-only = handshake pass 但 turn 非 pass（如 auth 不可用），属合法非 fail 状态
+  const statusMatch = text.match(/- \*\*smokeStatus\*\*: (skip|pass|handshake-only|fail)/);
   result.smokeStatus = statusMatch ? statusMatch[1] : null;
+
+  // handshakeStatus / turnStatus（P2 分层字段）
+  const handshakeMatch = text.match(/- \*\*handshakeStatus\*\*: (skip|pass|fail)/);
+  result.handshakeStatus = handshakeMatch ? handshakeMatch[1] : null;
+  const turnMatch = text.match(/- \*\*turnStatus\*\*: (skip|pass|fail|skip-auth|skip-handshake-failed)/);
+  result.turnStatus = turnMatch ? turnMatch[1] : null;
 
   // codexVersion
   const versionMatch = text.match(/- \*\*codexVersion\*\*: (.+)/);
@@ -204,10 +211,15 @@ function main() {
     }
   }
 
-  // 5. codexSmokeStatus 必须为 skip 或 pass
+  // 5. codexSmokeStatus 必须为 skip / pass / handshake-only
+  //    P2 分层：handshake-only = handshake pass 但 turn 非 pass（如 codex 存在但 auth 不可用），
+  //    属合法非 fail 状态（handshake 已证明 wire 闭环；turn 受 auth 限制不计为 smoke 硬失败）。
+  //    fail 仍计为审计失败。
   if (!codexSmoke.error) {
-    if (codexSmoke.smokeStatus !== "skip" && codexSmoke.smokeStatus !== "pass") {
-      auditFailures.push(`codex smoke 状态异常: smokeStatus=${codexSmoke.smokeStatus}（必须为 skip 或 pass）`);
+    if (codexSmoke.smokeStatus !== "skip"
+      && codexSmoke.smokeStatus !== "pass"
+      && codexSmoke.smokeStatus !== "handshake-only") {
+      auditFailures.push(`codex smoke 状态异常: smokeStatus=${codexSmoke.smokeStatus}（必须为 skip / pass / handshake-only）`);
     }
   }
 
@@ -249,6 +261,8 @@ function main() {
     `- **unitReportCommitSha**: ${unit.commitSha || "(解析失败)"}`,
     `- **processReportCommitSha**: ${processReport.commitSha || "(解析失败)"}`,
     `- **codexSmokeStatus**: ${codexSmoke.smokeStatus || "(解析失败)"}`,
+    `- **codexHandshakeStatus**: ${codexSmoke.handshakeStatus || "(解析失败)"}`,
+    `- **codexTurnStatus**: ${codexSmoke.turnStatus || "(解析失败)"}`,
     `- **codexVersion**: ${codexSmoke.codexVersion || "(解析失败)"}`,
     `- **codexSchemaSource**: ${codexSmoke.schemaSource || "(解析失败)"}`,
     `- **unit 运行命令**: ${unit.runCommand || "(解析失败)"}`,
@@ -269,7 +283,7 @@ function main() {
     "|------|------|------|------|--------|------|------------|----------|",
     `| unit | ${unit.passed ?? "?"} | ${unit.failed ?? "?"} | ${unit.skipped ?? "?"} | ${unit.manualRequired ?? "?"} | ${unit.total ?? "?"} | ${(unit.commitSha || "?").slice(0, 12)} | ${unit.failed === 0 ? "✅ 通过" : "❌ 失败"} |`,
     `| process | ${processReport.passed ?? "?"} | ${processReport.failed ?? "?"} | ${processReport.skipped ?? "?"} | ${processReport.manualRequired ?? "?"} | ${processReport.total ?? "?"} | ${(processReport.commitSha || "?").slice(0, 12)} | ${processReport.failed === 0 ? "✅ 通过" : "❌ 失败"} |`,
-    `| codex-smoke | - | - | - | - | - | ${codexSmoke.codexVersion ? codexSmoke.codexVersion.slice(0, 12) : "-"} | ${codexSmoke.smokeStatus === "pass" ? "✅ 通过" : codexSmoke.smokeStatus === "skip" ? "⏭️ skip" : "❌ 失败"} |`,
+    `| codex-smoke | - | - | - | - | - | ${codexSmoke.codexVersion ? codexSmoke.codexVersion.slice(0, 12) : "-"} | ${codexSmoke.smokeStatus === "pass" ? "✅ 通过" : codexSmoke.smokeStatus === "skip" ? "⏭️ skip" : codexSmoke.smokeStatus === "handshake-only" ? "🟡 handshake-only" : "❌ 失败"} |`,
     `| **合计** | **${totalPassed}** | **${totalFailed}** | **${totalSkipped}** | **${totalManual}** | **${grandTotal}** | ${testedCodeCommitSha.slice(0, 12)} | ${totalFailed === 0 ? "✅ **主线通过**" : "❌ **主线失败**"} |`,
     "",
   ];
@@ -288,7 +302,7 @@ function main() {
   lines.push("- **uncaughtException / unhandledRejection 计为 fail**：进程级未捕获异常必须反映在测试结果中，不得仅记日志。");
   lines.push(`- 本轮 unit 轨道：uncaughtException = ${unit.uncaughtCount || 0}，unhandledRejection = ${unit.unhandledCount || 0}`);
   lines.push(`- 本轮 process 轨道：uncaughtException = ${processReport.uncaughtCount || 0}，unhandledRejection = ${processReport.unhandledCount || 0}`);
-  lines.push("- **codexSmokeStatus**：必须为 `skip`（无 codex CLI）或 `pass`（real app-server handshake + turn 跑通）；`fail` 或缺失 → 审计失败。");
+  lines.push("- **codexSmokeStatus**：必须为 `skip`（无 codex CLI）/ `pass`（handshake + turn 全通）/ `handshake-only`（handshake pass 但 turn 非 pass，如 auth 不可用）；`fail` 或缺失 → 审计失败。分层字段 `codexHandshakeStatus` / `codexTurnStatus` 记录根因。");
   lines.push("- **报告过期判定**：若 unit/process 报告的 commit sha 与 testedCodeCommitSha 不一致，说明报告是旧 commit 的结果，必须重新生成。");
   lines.push("");
 

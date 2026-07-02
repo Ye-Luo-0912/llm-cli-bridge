@@ -12895,7 +12895,7 @@ if (!runNoteSummarizeSmoke) {
   console.log("\n=== V2.16-D: User-facing Agent UX / Context API / File Input ===");
 
   const contextMetricsSrc = readFileSync(join(PROJECT_ROOT, "src", "contextMetrics.ts"), "utf-8");
-  const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+  const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8").replace(/\r\n/g, "\n");
   const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
   const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf-8");
   const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
@@ -13626,6 +13626,7 @@ if (!runCodexSchemaAlignment) {
   let codexSessionMapperBundle = null;
   let codexEffectiveRunPlanBundle = null;
   let assistantTurnViewBundle = null;
+  let codexAppServerProviderBundle = null;
   try {
     const esbuild = (await import("esbuild")).default;
     codexSchemaBundle = join(PROJECT_ROOT, ".test-codex-schema-v217a-temp.mjs");
@@ -13634,6 +13635,7 @@ if (!runCodexSchemaAlignment) {
     codexSessionMapperBundle = join(PROJECT_ROOT, ".test-codex-session-mapper-v217a-temp.mjs");
     codexEffectiveRunPlanBundle = join(PROJECT_ROOT, ".test-codex-effective-run-plan-v217a-temp.mjs");
     assistantTurnViewBundle = join(PROJECT_ROOT, ".test-assistant-turn-view-v217a-temp.mjs");
+    codexAppServerProviderBundle = join(PROJECT_ROOT, ".test-codex-app-server-provider-v217a-temp.mjs");
 
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "schema", "index.ts")],
@@ -13658,6 +13660,10 @@ if (!runCodexSchemaAlignment) {
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "runtime", "core", "assistantTurnView.ts")],
       bundle: true, format: "esm", platform: "node", outfile: assistantTurnViewBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerProvider.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexAppServerProviderBundle,
     });
 
     const { CodexAppServerEventMapper } = await import(pathToFileURL(codexEventMapperBundle).href);
@@ -14130,6 +14136,190 @@ if (!runCodexSchemaAlignment) {
         `resumePath=${resumePathTaken} resumedThreadId=${resumedThreadId} turnStart.threadId=${turnStartPayload.threadId} sameAsRun1=${turnStartUsesResumedThread}`);
     }
 
+    // ---- Test 21c: provider-level session resume fixture（P2 主线闭环）----
+    // 目标：测试 CodexAppServerProvider 本身的 run()/resume() 全路径，而非只测 mapper 逻辑。
+    // 通过 fake AppServerProcessLike + 真实 JsonRpcClient（继承自父类 createClient）驱动。
+    // 验收：provider.resume 使用 thread/resume + turn/start 使用 resumed thread id。
+    {
+      const { CodexAppServerProvider } = await import(pathToFileURL(codexAppServerProviderBundle).href);
+
+      // FakeAppServerProcess：实现 AppServerProcessLike，按 method 返回预设响应 + 通知
+      class FakeAppServerProcess {
+        constructor() {
+          this._stdoutHandlers = new Set();
+          this._stderrHandlers = new Set();
+          this._exitHandlers = new Set();
+          this._exited = false;
+          this.writtenLines = []; // 捕获 client→server 所有行
+          this.methodHandlers = new Map();
+        }
+        onMethod(method, handler) { this.methodHandlers.set(method, handler); }
+        emitLine(line) {
+          for (const h of this._stdoutHandlers) { try { h(line); } catch { /* swallow */ } }
+        }
+        writeLine(line) {
+          if (this._exited) return;
+          this.writtenLines.push(line);
+          let msg;
+          try { msg = JSON.parse(line); } catch { return; }
+          if (msg && typeof msg === "object" && "id" in msg && "method" in msg) {
+            const handler = this.methodHandlers.get(msg.method);
+            if (handler) {
+              const ret = handler(msg.params, msg.id) || {};
+              if (ret.result !== undefined) {
+                this.emitLine(JSON.stringify({ id: msg.id, result: ret.result }));
+                if (ret.emitAfter) {
+                  for (const notif of ret.emitAfter) {
+                    this.emitLine(JSON.stringify(notif));
+                  }
+                }
+              }
+            }
+          }
+        }
+        onStdoutLine(handler) {
+          this._stdoutHandlers.add(handler);
+          return () => { this._stdoutHandlers.delete(handler); };
+        }
+        onStderrLine(handler) {
+          this._stderrHandlers.add(handler);
+          return () => { this._stderrHandlers.delete(handler); };
+        }
+        onExit(handler) {
+          this._exitHandlers.add(handler);
+          return () => { this._exitHandlers.delete(handler); };
+        }
+        get running() { return !this._exited; }
+        kill() {
+          if (this._exited) return;
+          this._exited = true;
+          for (const h of this._exitHandlers) { try { h(0, null); } catch { /* swallow */ } }
+        }
+      }
+
+      // FakeProvider：仅覆盖 createProcess 返回 fake；createClient 继承父类（真实 JsonRpcClient）
+      class FakeProvider extends CodexAppServerProvider {
+        constructor(fakeProcess) {
+          super(false);
+          this._fakeProcess = fakeProcess;
+        }
+        createProcess(_options) { return this._fakeProcess; }
+      }
+
+      // 构造最小 RunContext + settings
+      const makeCtx = (runId, bridgeSessionId) => ({
+        plan: {
+          backend: "codex-app-server", cwd: "/vault", model: "gpt-5.5", effort: "high",
+          session: { continueSession: false }, settingSources: [], skills: [],
+          promptPackageHash: "h1", attachmentPlan: { entries: [] }, createdAt: TS(),
+          instructionsSource: "instructions",
+        },
+        promptPackage: {
+          userPrompt: "hello", bridgeSystemAppend: "system rules",
+          attachmentEntries: [], auditHash: "h1",
+        },
+        permission: {
+          mode: "default", policy: { rules: [] }, pending: new Map(),
+          sessionAllows: [], sessionDenies: [],
+          requestApproval: () => "auto-allow",
+          resolveApproval: () => true,
+          cancelAllPending: () => [],
+          waitForApproval: () => Promise.resolve({ response: { type: "accept" }, source: "mode" }),
+        },
+        runId,
+        bridgeSessionId,
+      });
+      const settings = { developerMode: false };
+
+      // ===== Run 1: provider.run() 全路径 =====
+      const fake1 = new FakeAppServerProcess();
+      const provider1 = new FakeProvider(fake1);
+      const bridgeSessionId = "sess-provider-1";
+      const run1ThreadId = "thread-provider-1";
+      const run1SessionId = "session-provider-1";
+
+      fake1.onMethod("initialize", () => ({ result: { protocolVersion: "1" } }));
+      fake1.onMethod("thread/start", () => ({
+        result: { thread: { id: run1ThreadId, sessionId: run1SessionId } },
+      }));
+      fake1.onMethod("turn/start", () => ({
+        result: {},
+        emitAfter: [{ method: "turn/completed", params: { finalText: "done run1" } }],
+      }));
+
+      const ctx1 = makeCtx("run-1", bridgeSessionId);
+      const events1 = [];
+      for await (const ev of provider1.run(ctx1, settings)) {
+        events1.push(ev);
+      }
+
+      // 断言 run1：session_started 事件 + mapper 注册 threadId
+      const sessionStartedEv1 = events1.find(
+        (e) => e.payload && e.payload.kind === "session_started",
+      );
+      const run1MappedTid = provider1.getSessionMapper().getProviderThreadId(bridgeSessionId);
+      const run1Ok = sessionStartedEv1
+        && sessionStartedEv1.payload.text === run1ThreadId
+        && run1MappedTid === run1ThreadId;
+      addTest("Codex provider-level resume: run1 thread/start 注册 threadId（provider 全路径）",
+        run1Ok ? "pass" : "fail",
+        `sessionStarted=${!!sessionStartedEv1} text=${sessionStartedEv1?.payload?.text} mappedTid=${run1MappedTid} eventsCount=${events1.length}`);
+
+      // ===== Persist + restore 到新 provider（模拟跨进程 keepLastSession）=====
+      const persistedThreadId = provider1.getSessionMapper().getProviderThreadId(bridgeSessionId);
+      const persistedSessionId = provider1.getSessionMapper().getProviderSessionId(bridgeSessionId);
+
+      const fake2 = new FakeAppServerProcess();
+      const provider2 = new FakeProvider(fake2);
+      provider2.restoreProviderSession(bridgeSessionId, persistedThreadId, persistedSessionId);
+
+      // ===== Run 2: provider.resume() 全路径 =====
+      // fake2 记录 thread/resume + turn/start 请求参数以断言
+      let resumeRequestParams = null;
+      let turnStartRequestParams = null;
+      const resumedThreadId = run1ThreadId; // 同一 thread 继续
+
+      fake2.onMethod("initialize", () => ({ result: { protocolVersion: "1" } }));
+      fake2.onMethod("thread/resume", (params) => {
+        resumeRequestParams = params;
+        return { result: { thread: { id: resumedThreadId, sessionId: run1SessionId } } };
+      });
+      fake2.onMethod("turn/start", (params) => {
+        turnStartRequestParams = params;
+        return {
+          result: {},
+          emitAfter: [{ method: "turn/completed", params: { finalText: "done run2" } }],
+        };
+      });
+
+      const ctx2 = makeCtx("run-2", bridgeSessionId);
+      const events2 = [];
+      for await (const ev of provider2.resume(bridgeSessionId, ctx2, settings)) {
+        events2.push(ev);
+      }
+
+      // 断言 run2：
+      // 1) thread/resume 被调用（不是 thread/start）
+      // 2) thread/resume params.threadId === run1ThreadId
+      // 3) turn/start params.threadId === resumedThreadId（同一 thread）
+      // 4) session_started (resumed) 事件存在
+      const threadResumeCalled = fake2.writtenLines.some((l) => {
+        try { const m = JSON.parse(l); return m.method === "thread/resume"; } catch { return false; }
+      });
+      const threadStartCalledOnRun2 = fake2.writtenLines.some((l) => {
+        try { const m = JSON.parse(l); return m.method === "thread/start"; } catch { return false; }
+      });
+      const resumeTidOk = resumeRequestParams && resumeRequestParams.threadId === run1ThreadId;
+      const turnStartTidOk = turnStartRequestParams && turnStartRequestParams.threadId === resumedThreadId;
+      const sessionResumedEv = events2.find(
+        (e) => e.payload && e.payload.kind === "session_started" && e.payload.text === resumedThreadId,
+      );
+      const run2Ok = threadResumeCalled && !threadStartCalledOnRun2 && resumeTidOk && turnStartTidOk && !!sessionResumedEv;
+      addTest("Codex provider-level resume: run2 thread/resume + turn/start 使用 resumed threadId（P2 主线闭环）",
+        run2Ok ? "pass" : "fail",
+        `threadResume=${threadResumeCalled} threadStartOnRun2=${threadStartCalledOnRun2} resumeTidOk=${resumeTidOk} turnStartTidOk=${turnStartTidOk} resumedEv=${!!sessionResumedEv} eventsCount=${events2.length}`);
+    }
+
     // ============================================================
     // V2.17-A Completion: Test report integrity
     // summary 由报告文件解析生成 + commit sha + 运行命令 + 过期/不匹配 fail
@@ -14200,7 +14390,7 @@ if (!runCodexSchemaAlignment) {
         hasReportParentSha = /- \*\*reportParentSha\*\*:/.test(txt);
         hasUnitReportSha = /- \*\*unitReportCommitSha\*\*:/.test(txt);
         hasProcessReportSha = /- \*\*processReportCommitSha\*\*:/.test(txt);
-        hasCodexSmokeStatus = /- \*\*codexSmokeStatus\*\*: (skip|pass|fail)/.test(txt);
+        hasCodexSmokeStatus = /- \*\*codexSmokeStatus\*\*: (skip|pass|handshake-only|fail)/.test(txt);
       }
       const ok = summaryExists && hasTestedCodeSha && hasReportCommitSha && hasReportParentSha
         && hasUnitReportSha && hasProcessReportSha && hasCodexSmokeStatus;
@@ -14242,6 +14432,7 @@ if (!runCodexSchemaAlignment) {
     try { if (codexSessionMapperBundle) rmSync(codexSessionMapperBundle, { force: true }); } catch {}
     try { if (codexEffectiveRunPlanBundle) rmSync(codexEffectiveRunPlanBundle, { force: true }); } catch {}
     try { if (assistantTurnViewBundle) rmSync(assistantTurnViewBundle, { force: true }); } catch {}
+    try { if (codexAppServerProviderBundle) rmSync(codexAppServerProviderBundle, { force: true }); } catch {}
   }
 }
 

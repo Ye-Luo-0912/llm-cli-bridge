@@ -1,21 +1,21 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-02T16:07:00.921Z
-- **测试环境**: linux / Node.js v24.15.0
+- **测试时间**: 2026-07-02T16:54:58.259Z
+- **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 578.2 KB
-- **Vault 路径**: `/Obsidian/LLM-Wiki`
+- **main.js 大小**: 578.9 KB
+- **Vault 路径**: `C:\Users\Ye_Luo\.trae-cn\worktrees\llm-cli-bridge\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
-- **commit sha**: f6e811e1b579e11638c36951652f2a89de51cd59
-- **commit 短 sha**: f6e811e1b579
+- **commit sha**: 74537c445287326fc23d645fbd247817f67f04db
+- **commit 短 sha**: 74537c445287
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
 
-- ✅ **通过**: 87
+- ✅ **通过**: 89
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 59
+- ⏭️ **跳过**: 57
 - ⚪ **需人工验证**: 0
 - **总计**: 146
 
@@ -404,14 +404,15 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | cwd 不存在 → failed diagnostic | 环境假失败: 非 Windows 平台 `Z:\...` 不被当作不存在的盘符路径 |
+| ✅ | cwd 不存在 → failed diagnostic | - |
 | ✅ | command 不存在 → unavailable | - |
 | ✅ | version 成功 → available | - |
 | ✅ | command 为空 → unavailable | - |
 | ✅ | debug log 不含 secret | - |
 | ✅ | 路径带空格可运行 | - |
-| ⏭️ | claude 真实命令探测 | claude 未安装或不可用 (exitCode=127) |
-| ⏭️ | codex 真实命令探测 | codex 未安装或不可用 (exitCode=127) |
+| ✅ | claude 真实命令探测 | available=true, stdout="2.1.198 (Claude Code)
+" |
+| ⏭️ | codex 真实命令探测 | codex 未安装或不可用 (exitCode=1) |
 
 ### Process File Diff
 
