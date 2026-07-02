@@ -4,11 +4,15 @@
 // requestApproval 与 item/fileChange/requestApproval）映射为 provider-neutral
 // ApprovalRequest；把统一 ApprovalResponse 映射回 CodexServerRequestResult。
 //
-// ⚠️ V2.17-A Completion wire 协议校准：
+// ⚠️ V2.17-A Completion 主线闭环：对齐官方 decision shape。
 // approval 不再走 approval/request notification + approval/respond notification。
 // 改为 server-initiated request（带 id），client 按原 id 返回 result。
-// mapper 现在接收 server-request method + params + id，输出 ApprovalRequest
-// （providerContext 携带 serverRequestId 供回复时配对）。
+//
+// 官方 decision：
+// - commandExecution: accept / acceptForSession / acceptWithExecpolicyAmendment
+//                     / applyNetworkPolicyAmendment / decline / cancel
+// - fileChange:       accept / decline
+// 不再在 wire 层使用 allow/allowSession/deny。
 //
 // 风险分级：
 // - commandExecution → high（shell 执行）
@@ -20,7 +24,9 @@
 
 import type {
   CodexCommandExecutionApprovalRequestParams,
+  CodexCommandExecutionDecision,
   CodexFileChangeApprovalRequestParams,
+  CodexFileChangeDecision,
   CodexServerRequestResult,
 } from "./schema";
 import type {
@@ -43,6 +49,9 @@ export interface CodexApprovalServerRequest {
 
 /**
  * Codex app-server → ApprovalRequest 映射 + ApprovalResponse → server 响应 映射。
+ *
+ * 对齐官方 decision shape（accept/acceptForSession/decline/cancel +
+ * acceptWithExecpolicyAmendment）。
  */
 export class CodexAppServerApprovalMapper {
   constructor(private readonly providerId: ProviderId) {}
@@ -50,7 +59,8 @@ export class CodexAppServerApprovalMapper {
   /**
    * 把 codex 的 approval server-request 映射为 provider-neutral ApprovalRequest。
    *
-   * providerContext 携带 serverRequestId + method，供 resolveApproval 时按 id 回复。
+   * providerContext 携带 serverRequestId + method + threadId + turnId + itemId，
+   * 供 resolveApproval 时按 id 回复并同步 UI。
    */
   mapApprovalRequest(req: CodexApprovalServerRequest): ApprovalRequest {
     const { method, serverRequestId, params } = req;
@@ -60,17 +70,21 @@ export class CodexAppServerApprovalMapper {
 
     const toolName = isCommand ? "Bash" : "Write";
     const riskLevel = this.assessRiskLevel(method, fcParams.fileAction);
+    // 命令字符串：官方可能为 string[]；合并为空格分隔字符串供 UI 展示
+    const commandStr = isCommand
+      ? Array.isArray(cmdParams.command) ? cmdParams.command.join(" ") : (cmdParams.command ?? "")
+      : "";
     const description = isCommand
-      ? (cmdParams.description ?? `Execute command: ${cmdParams.command ?? ""}`)
-      : `${fcParams.fileAction ?? "modify"} ${fcParams.filePath ?? ""}`;
+      ? (cmdParams.reason ?? cmdParams.description ?? `Execute command: ${commandStr}`)
+      : (fcParams.reason ?? fcParams.description ?? `${fcParams.fileAction ?? "modify"} ${fcParams.filePath ?? ""}`);
     const riskReason = isCommand
       ? "Shell execution"
       : fcParams.fileAction === "delete" ? "File deletion" : "File modification";
     const inputSummary = isCommand
-      ? (cmdParams.inputSummary ?? cmdParams.command)
+      ? (cmdParams.inputSummary ?? commandStr)
       : (fcParams.inputSummary ?? fcParams.filePath);
     const mergeKey = `${toolName}:${riskLevel}:${
-      isCommand ? cmdParams.command ?? "" : fcParams.filePath ?? ""
+      isCommand ? commandStr : fcParams.filePath ?? ""
     }`;
 
     return {
@@ -85,6 +99,9 @@ export class CodexAppServerApprovalMapper {
       providerContext: {
         serverRequestId,
         method,
+        threadId: cmdParams.threadId ?? fcParams.threadId,
+        turnId: cmdParams.turnId ?? fcParams.turnId,
+        itemId: cmdParams.itemId ?? fcParams.itemId,
       },
     };
   }
@@ -92,13 +109,40 @@ export class CodexAppServerApprovalMapper {
   /**
    * 把统一 ApprovalResponse 映射为 codex app-server server-request 响应 result。
    *
-   * cancel 在 server-request 语义下映射为 deny（server 协议无 cancel outcome）。
+   * 使用官方 decision shape：
+   * - accept → accept（commandExecution/fileChange）
+   * - acceptForSession → acceptForSession（commandExecution；fileChange 退化为 accept）
+   * - decline → decline
+   * - cancel → cancel（commandExecution；fileChange 退化为 decline）
+   *
+   * commandExecution 专用扩展位 acceptWithExecpolicyAmendment 当前由用户决策层显式触发
+   * （ApprovalResponse 暂无对应 type；保留扩展位供未来 PermissionBoundary 升级）。
    */
   mapServerRequestResult(unified: ApprovalResponse): CodexServerRequestResult {
-    const decision = unified.type === "accept" ? "allow"
-      : unified.type === "acceptForSession" ? "allowSession"
-      : "deny"; // decline 与 cancel 都映射为 deny（server 协议无 cancel outcome）
+    // 统一映射为官方 decision（commandExecution 兼容 fileChange 语义）
+    const decision = this.mapApprovalResponseToDecision(unified);
     return { decision };
+  }
+
+  /**
+   * 把统一 ApprovalResponse 映射为官方 decision 字符串。
+   *
+   * commandExecution decision：accept / acceptForSession / decline / cancel
+   * （acceptWithExecpolicyAmendment / applyNetworkPolicyAmendment 由专用扩展路径触发）
+   */
+  private mapApprovalResponseToDecision(
+    unified: ApprovalResponse,
+  ): CodexCommandExecutionDecision | CodexFileChangeDecision {
+    switch (unified.type) {
+      case "accept":
+        return "accept";
+      case "acceptForSession":
+        return "acceptForSession";
+      case "decline":
+        return "decline";
+      case "cancel":
+        return "cancel";
+    }
   }
 
   private assessRiskLevel(

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "0.2.0-wire-calibrated",
+  "schemaVersion": "0.3.0-official-aligned",
   "codexVersion": null,
   "schemaGeneratedAt": "2026-07-02T00:00:00.000Z",
   "generatorCommand": "codex app-server generate-ts --out ./src/runtime/providers/codex-app-server/schema",
@@ -8,20 +8,42 @@
   "wireProtocolCalibration": {
     "noJsonrpcField": "wire 上不发送 jsonrpc:2.0 字段（codex app-server 约定）",
     "initializeHandshake": "每个连接先 send initialize，再 notify initialized",
+    "initializeParamsShape": "params: { clientInfo: { name, title, version }, capabilities: { experimentalApi: bool } }（不再用 clientName/clientVersion 顶层）",
+    "initializeResultShape": "result: { userAgent, codexHome, platformFamily, platformOs }（旧 name/version/protocolVersion 保留兼容）",
     "threadStartResultShape": "{ thread: { id, sessionId? } }",
+    "threadStartParamsShape": "params: { config: { model, sandboxPolicy, personality }, instructions, cwd }（config 容器）",
+    "threadResumeForResume": "thread/resume 用于恢复已有 threadId（不再把 resumeSessionId 塞进 thread/start）",
     "turnStartInputShape": "content item array [{ type:'text', text }, { type:'image' }, { type:'file' }]",
+    "turnStartedNotification": "turn/started 通知：{ threadId, turn: { id } }",
+    "itemNestedShape": "item/started 与 item/completed 使用 nested params.item 结构（不再用 flat type/itemId 顶层）",
+    "itemTypes": "userMessage/agentMessage/plan/reasoning/commandExecution/fileChange/mcpToolCall/dynamicToolCall/webSearch/imageView/enteredReviewMode/exitedReviewMode/contextCompaction",
+    "itemDeltaMethods": [
+      "item/agentMessage/delta（驱动 finalAnswer）",
+      "item/reasoning/summaryTextDelta（→ thinking）",
+      "item/reasoning/textDelta（→ thinking，raw）",
+      "item/commandExecution/outputDelta（→ tool progress）",
+      "item/plan/delta（experimental，→ thinking/progress）",
+      "item/fileChange/outputDelta（→ tool progress）"
+    ],
+    "itemTextDeltaLegacyAlias": "item/text/delta 仅作为 fixture legacy alias，不作为主路径",
     "approvalViaServerRequest": "approval 走 server-initiated request（带 id），client 按原 id 返回 result",
-    "serverRequestMethods": [
+    "approvalServerRequestMethods": [
       "item/commandExecution/requestApproval",
       "item/fileChange/requestApproval",
       "item/tool/requestUserInput"
     ],
-    "serverRequestResolvedNotification": "serverRequest/resolved 通知用于 UI 同步"
+    "approvalDecisionShape": "commandExecution: accept/acceptForSession/acceptWithExecpolicyAmendment/applyNetworkPolicyAmendment/decline/cancel；fileChange: accept/decline（不再用 allow/allowSession/deny）",
+    "serverRequestResolvedNotification": "serverRequest/resolved 携带 requestId/threadId/turnId/itemId/decision，用于 UI 同步"
   },
+  "officialSources": [
+    "https://www.mintlify.com/openai/codex/api/items",
+    "https://www.codex-docs.com/automation/app-server/"
+  ],
   "notes": [
-    "Wire-protocol calibrated fixture schema for V2.17-A Completion.",
-    "Field names are NOT authoritative. When codex is available, regenerate to replace this file entirely.",
-    "Fixture tests verify wire shape: no jsonrpc field, initialize handshake order, thread.start result.thread.id, turn.start input array, approval server-request response by id.",
+    "Official-schema-aligned fixture for V2.17-A Completion main-line closure.",
+    "Field names match codex app-server official docs (clientInfo/capabilities, nested params.item, item/agentMessage/delta, accept/decline decisions, thread/resume).",
+    "When codex is available, regenerate to replace this file entirely via `codex app-server generate-ts`.",
+    "Fixture tests verify official wire shape: initialize clientInfo+capabilities, item/agentMessage/delta drives finalAnswer, approval decision shape, thread/resume from BridgeSession.",
     "All types are scoped to V2.17-A Bridge Core integration; provider-private, UI never imports these."
   ]
 }

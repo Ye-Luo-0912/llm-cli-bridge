@@ -83,6 +83,17 @@ export class BridgeSessionImpl implements BridgeSession {
   readonly permission: PermissionBoundaryImpl;
   readonly displayLabel: string;
 
+  /**
+   * provider 侧 thread id（codex app-server threadId）。
+   * run/resume 完成后由 syncProviderThreadFromMapper() 同步。
+   */
+  private _providerThreadId: string | undefined;
+  /**
+   * provider 侧 session id（codex app-server sessionId）。
+   * run/resume 完成后由 syncProviderThreadFromMapper() 同步。
+   */
+  private _providerSessionId: string | undefined;
+
   private currentRunId: string | null = null;
 
   constructor(sessionId: string, provider: RuntimeProvider, label: string, settings: LLMBridgeSettings) {
@@ -91,6 +102,14 @@ export class BridgeSessionImpl implements BridgeSession {
     this.providerId = provider.providerId;
     this.displayLabel = label;
     this.permission = createPermissionBoundary(settings.claudePermissionMode, settings.permissionPolicy);
+  }
+
+  get providerThreadId(): string | undefined {
+    return this._providerThreadId;
+  }
+
+  get providerSessionId(): string | undefined {
+    return this._providerSessionId;
   }
 
   async *start(input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
@@ -102,11 +121,17 @@ export class BridgeSessionImpl implements BridgeSession {
       promptPackage: input.promptPackage,
       permission: this.permission,
       runId,
+      bridgeSessionId: this.sessionId,
       resumeSessionId: undefined as string | undefined,
       sdkStreamingInput: input.sdkStreamingInput,
       runtimeFileToolAdapter: input.runtimeFileToolAdapter,
     };
-    yield* this.provider.run(ctx, settings);
+    try {
+      yield* this.provider.run(ctx, settings);
+    } finally {
+      // V2.17-A Completion: run 完成后同步 provider thread/session（供 keepLastSession resume 用）
+      this.syncProviderThreadFromMapper();
+    }
     this.currentRunId = null;
   }
 
@@ -124,12 +149,38 @@ export class BridgeSessionImpl implements BridgeSession {
       promptPackage: input.promptPackage,
       permission: this.permission,
       runId,
+      bridgeSessionId: this.sessionId,
       resumeSessionId: sessionId,
       sdkStreamingInput: input.sdkStreamingInput,
       runtimeFileToolAdapter: input.runtimeFileToolAdapter,
     };
-    yield* this.provider.resume(sessionId, ctx, settings);
+    try {
+      yield* this.provider.resume(sessionId, ctx, settings);
+    } finally {
+      // V2.17-A Completion: resume 完成后同步 provider thread/session（thread/resume 返回的新 threadId）
+      this.syncProviderThreadFromMapper();
+    }
     this.currentRunId = null;
+  }
+
+  /**
+   * 从 provider 的 sessionMapper 同步 providerThreadId/providerSessionId。
+   *
+   * codex-app-server provider 暴露 getSessionMapper()；非 codex provider 无此方法时跳过。
+   * 同步后 BridgeSession.providerThreadId / providerSessionId 可供 UI 持久化与 keepLastSession resume 用。
+   */
+  private syncProviderThreadFromMapper(): void {
+    const providerWithMapper = this.provider as RuntimeProvider & {
+      getSessionMapper?: () => {
+        getProviderThreadId?(bridgeSessionId: string): string | undefined;
+        getProviderSessionId?(bridgeSessionId: string): string | undefined;
+      };
+    };
+    if (typeof providerWithMapper.getSessionMapper !== "function") return;
+    const mapper = providerWithMapper.getSessionMapper();
+    if (!mapper) return;
+    this._providerThreadId = mapper.getProviderThreadId?.(this.sessionId);
+    this._providerSessionId = mapper.getProviderSessionId?.(this.sessionId);
   }
 }
 

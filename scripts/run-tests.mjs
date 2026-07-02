@@ -15,12 +15,21 @@ const TEST_ARTIFACTS_DIR = join(VAULT_PATH, ".llm-bridge", "test-artifacts");
 
 // V2.17-A Completion: 防御性 uncaughtException handler，避免单个测试段崩溃导致整个 runner 退出
 // （例如 Linux 上 ClaudeCliBackend contract test 用 cmd /c，spawn 失败后 stdin.write 触发 EPIPE 'error'）。
-// 仅记录到 stderr，不影响后续测试段。
+// V2.17-A Completion 主线闭环：审计模式下 uncaughtException / unhandledRejection 必须计为 fail。
+// 不仅记录到 stderr，还通过 addTest 标记为 fail，确保测试报告反映真实健康度。
+let uncaughtCount = 0;
+let unhandledCount = 0;
 process.on("uncaughtException", (err) => {
-  process.stderr.write(`[uncaughtException] ${err?.stack || err?.message || String(err)}\n`);
+  uncaughtCount++;
+  const msg = err?.stack || err?.message || String(err);
+  process.stderr.write(`[uncaughtException] ${msg}\n`);
+  addTest(`uncaughtException #${uncaughtCount}`, "fail", `审计模式: uncaughtException 必须计为 fail — ${msg.slice(0, 200)}`);
 });
 process.on("unhandledRejection", (err) => {
-  process.stderr.write(`[unhandledRejection] ${err?.stack || err?.message || String(err)}\n`);
+  unhandledCount++;
+  const msg = err?.stack || err?.message || String(err);
+  process.stderr.write(`[unhandledRejection] ${msg}\n`);
+  addTest(`unhandledRejection #${unhandledCount}`, "fail", `审计模式: unhandledRejection 必须计为 fail — ${msg.slice(0, 200)}`);
 });
 
 const results = {
@@ -13576,13 +13585,372 @@ if (!runV217A) {
 }
 
 // ============================================================
+// V2.17-A Completion: Codex app-server schema alignment 测试
+// 验证 initialize clientInfo、item/agentMessage/delta → finalAnswer、
+// approval decision shape、thread/resume 从 sessionMapper 恢复
+// ============================================================
+console.log("\n=== V2.17-A Completion: Codex app-server schema alignment 测试 ===");
+
+const runCodexSchemaAlignment = runMode === "all" || runMode === "unit";
+
+if (!runCodexSchemaAlignment) {
+  addTest("Codex schema alignment 测试段", "skip", "当前模式不运行 unit");
+} else {
+  let codexSchemaBundle = null;
+  let codexEventMapperBundle = null;
+  let codexApprovalMapperBundle = null;
+  let codexSessionMapperBundle = null;
+  let codexEffectiveRunPlanBundle = null;
+  let assistantTurnViewBundle = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    codexSchemaBundle = join(PROJECT_ROOT, ".test-codex-schema-v217a-temp.mjs");
+    codexEventMapperBundle = join(PROJECT_ROOT, ".test-codex-event-mapper-v217a-temp.mjs");
+    codexApprovalMapperBundle = join(PROJECT_ROOT, ".test-codex-approval-mapper-v217a-temp.mjs");
+    codexSessionMapperBundle = join(PROJECT_ROOT, ".test-codex-session-mapper-v217a-temp.mjs");
+    codexEffectiveRunPlanBundle = join(PROJECT_ROOT, ".test-codex-effective-run-plan-v217a-temp.mjs");
+    assistantTurnViewBundle = join(PROJECT_ROOT, ".test-assistant-turn-view-v217a-temp.mjs");
+
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "schema", "index.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexSchemaBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerEventMapper.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexEventMapperBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerApprovalMapper.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexApprovalMapperBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerSessionMapper.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexSessionMapperBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerEffectiveRunPlan.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexEffectiveRunPlanBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "core", "assistantTurnView.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: assistantTurnViewBundle,
+    });
+
+    const { CodexAppServerEventMapper } = await import(pathToFileURL(codexEventMapperBundle).href);
+    const { CodexAppServerApprovalMapper } = await import(pathToFileURL(codexApprovalMapperBundle).href);
+    const { CodexAppServerSessionMapper } = await import(pathToFileURL(codexSessionMapperBundle).href);
+    const { buildCodexAppServerRunOptions, computeCodexRunOptionsAuditHash } =
+      await import(pathToFileURL(codexEffectiveRunPlanBundle).href);
+    const { AssistantTurnViewBuilder } = await import(pathToFileURL(assistantTurnViewBundle).href);
+
+    const TS = () => new Date().toISOString();
+    const PROVIDER_ID = "codex-app-server";
+
+    // ---- Test 1: buildCodexAppServerRunOptions 产出官方 initialize clientInfo shape ----
+    {
+      const plan = {
+        backend: "codex-app-server", cwd: "/vault", model: "gpt-5.5", effort: "high",
+        instructionsSource: "instructions", settingSources: [], skills: [],
+        promptPackageHash: "h1", attachmentPlan: { entries: [] }, createdAt: TS(),
+      };
+      const promptPackage = {
+        userPrompt: "hello", bridgeSystemAppend: "system rules",
+        attachmentEntries: [], auditHash: "h1",
+      };
+      const options = buildCodexAppServerRunOptions(plan, promptPackage);
+      const init = options.initialize;
+      const clientInfoOk = init.clientInfo
+        && init.clientInfo.name === "llm-cli-bridge"
+        && init.clientInfo.title === "LLM CLI Bridge"
+        && init.clientInfo.version === "2.17-A"
+        && !("clientName" in init)
+        && !("clientVersion" in init);
+      const capabilitiesOk = init.capabilities
+        && init.capabilities.experimentalApi === false;
+      const noExperimental = options.experimentalApi === false;
+      addTest("Codex schema: initialize.params 使用 clientInfo + capabilities（无 clientName/clientVersion 顶层）",
+        clientInfoOk && capabilitiesOk && noExperimental ? "pass" : "fail",
+        `clientInfo=${!!init.clientInfo} capabilities=${JSON.stringify(init.capabilities)} experimentalApi=${options.experimentalApi}`);
+    }
+
+    // ---- Test 2: experimentalApi=true 时显式启用并审计 ----
+    {
+      const plan = {
+        backend: "codex-app-server", cwd: "/v", model: "gpt-5.5", effort: "high",
+        instructionsSource: "instructions", settingSources: [], skills: [],
+        promptPackageHash: "h", attachmentPlan: { entries: [] }, createdAt: TS(),
+      };
+      const promptPackage = { userPrompt: "p", bridgeSystemAppend: "", attachmentEntries: [], auditHash: "h" };
+      const optionsDefault = buildCodexAppServerRunOptions(plan, promptPackage);
+      const optionsExperimental = buildCodexAppServerRunOptions(plan, promptPackage, { experimentalApi: true });
+      const defaultFalse = optionsDefault.initialize.capabilities?.experimentalApi === false;
+      const experimentalTrue = optionsExperimental.initialize.capabilities?.experimentalApi === true;
+      const auditHashDiffers = computeCodexRunOptionsAuditHash(optionsDefault) !== computeCodexRunOptionsAuditHash(optionsExperimental);
+      addTest("Codex schema: experimentalApi=true 显式启用 + audit hash 区分",
+        defaultFalse && experimentalTrue && auditHashDiffers ? "pass" : "fail",
+        `default=${defaultFalse} experimental=${experimentalTrue} hashDiffers=${auditHashDiffers}`);
+    }
+
+    // ---- Test 3: thread/start 使用 config 容器，不再塞 resumeSessionId ----
+    {
+      const plan = {
+        backend: "codex-app-server", cwd: "/v", model: "gpt-5.5", effort: "high",
+        instructionsSource: "instructions", settingSources: [], skills: [],
+        promptPackageHash: "h", attachmentPlan: { entries: [] }, createdAt: TS(),
+      };
+      const promptPackage = { userPrompt: "p", bridgeSystemAppend: "sys", attachmentEntries: [], auditHash: "h" };
+      const options = buildCodexAppServerRunOptions(plan, promptPackage);
+      const configOk = options.threadStart.config
+        && options.threadStart.config.model === "gpt-5.5";
+      const noResumeSessionId = !("resumeSessionId" in options.threadStart);
+      const instructionsOk = options.threadStart.instructions === "sys";
+      addTest("Codex schema: thread/start 使用 config 容器 + instructions，无 resumeSessionId",
+        configOk && noResumeSessionId && instructionsOk ? "pass" : "fail",
+        `config=${!!options.threadStart.config} noResume=${noResumeSessionId} instructions=${instructionsOk}`);
+    }
+
+    // ---- Test 4: item/agentMessage/delta 驱动 AssistantTurnView.finalAnswer ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const builder = new AssistantTurnViewBuilder("turn-1", PROVIDER_ID, TS());
+      // 模拟 agentMessage delta 流
+      const deltas = ["Hello", ", ", "world", "!"];
+      for (const delta of deltas) {
+        const ev = mapper.mapItemAgentMessageDelta({
+          threadId: "thread-1", turnId: "turn-1", itemId: "item-1", delta,
+        });
+        builder.ingest(ev);
+      }
+      const view = builder.toView();
+      const finalAnswerOk = view.finalAnswer === "Hello, world!";
+      addTest("Codex schema: item/agentMessage/delta 驱动 AssistantTurnView.finalAnswer",
+        finalAnswerOk ? "pass" : "fail",
+        `finalAnswer="${view.finalAnswer}"`);
+    }
+
+    // ---- Test 5: item/reasoning/summaryTextDelta 驱动 thinking ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const builder = new AssistantTurnViewBuilder("turn-2", PROVIDER_ID, TS());
+      const ev1 = mapper.mapItemReasoningSummaryTextDelta({
+        threadId: "t", turnId: "turn-2", itemId: "i1", summaryIndex: 0, delta: "Thinking ",
+      });
+      const ev2 = mapper.mapItemReasoningSummaryTextDelta({
+        threadId: "t", turnId: "turn-2", itemId: "i1", summaryIndex: 0, delta: "about it",
+      });
+      builder.ingest(ev1);
+      builder.ingest(ev2);
+      const view = builder.toView();
+      const thinkingOk = view.thoughts.length === 1 && view.thoughts[0].text === "Thinking about it";
+      addTest("Codex schema: item/reasoning/summaryTextDelta 驱动 thinking 段",
+        thinkingOk ? "pass" : "fail",
+        `thoughts=${view.thoughts.length} text="${view.thoughts[0]?.text}"`);
+    }
+
+    // ---- Test 6: item/commandExecution/outputDelta 驱动 tool progress ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const builder = new AssistantTurnViewBuilder("turn-3", PROVIDER_ID, TS());
+      // 先 tool_start（item/started commandExecution）
+      const startEv = mapper.mapItemStarted({
+        threadId: "t", turnId: "turn-3",
+        item: { type: "commandExecution", id: "cmd-1", command: ["ls", "-la"] },
+      });
+      builder.ingest(startEv);
+      // outputDelta
+      const outEv = mapper.mapItemCommandExecutionOutputDelta({
+        threadId: "t", turnId: "turn-3", itemId: "cmd-1", delta: "file1.txt\nfile2.md",
+      });
+      builder.ingest(outEv);
+      const view = builder.toView();
+      const toolOk = view.tools.length === 1 && view.tools[0].progress.length === 1
+        && view.tools[0].progress[0].detail === "file1.txt\nfile2.md";
+      addTest("Codex schema: item/commandExecution/outputDelta 附加到 tool progress",
+        toolOk ? "pass" : "fail",
+        `tools=${view.tools.length} progress=${view.tools[0]?.progress.length}`);
+    }
+
+    // ---- Test 7: item/started 解析 nested params.item（agentMessage/commandExecution/reasoning）----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const amEv = mapper.mapItemStarted({
+        threadId: "t", item: { type: "agentMessage", id: "i1", text: "" },
+      });
+      const amOk = amEv?.payload.kind === "message" && amEv.payload.partial === true;
+      const cmdEv = mapper.mapItemStarted({
+        threadId: "t", item: { type: "commandExecution", id: "i2", command: "echo hi" },
+      });
+      const cmdOk = cmdEv?.payload.kind === "tool_start" && cmdEv.payload.toolName === "Bash";
+      const reasoningEv = mapper.mapItemStarted({
+        threadId: "t", item: { type: "reasoning", id: "i3" },
+      });
+      const reasoningOk = reasoningEv?.payload.kind === "thinking";
+      addTest("Codex schema: item/started 解析 nested params.item（agentMessage/commandExecution/reasoning）",
+        amOk && cmdOk && reasoningOk ? "pass" : "fail",
+        `am=${amOk} cmd=${cmdOk} reasoning=${reasoningOk}`);
+    }
+
+    // ---- Test 8: approval decision shape（accept/acceptForSession/decline/cancel）----
+    {
+      const approvalMapper = new CodexAppServerApprovalMapper(PROVIDER_ID);
+      const acceptResult = approvalMapper.mapServerRequestResult({ type: "accept" });
+      const acceptForSessionResult = approvalMapper.mapServerRequestResult({ type: "acceptForSession" });
+      const declineResult = approvalMapper.mapServerRequestResult({ type: "decline" });
+      const cancelResult = approvalMapper.mapServerRequestResult({ type: "cancel" });
+      const acceptOk = acceptResult.decision === "accept";
+      const acceptForSessionOk = acceptForSessionResult.decision === "acceptForSession";
+      const declineOk = declineResult.decision === "decline";
+      const cancelOk = cancelResult.decision === "cancel";
+      const noLegacyAllow = !("allow" in acceptResult) && !("allowSession" in acceptForSessionResult)
+        && !("deny" in declineResult);
+      addTest("Codex schema: approval decision 使用官方 shape（accept/acceptForSession/decline/cancel，无 allow/deny）",
+        acceptOk && acceptForSessionOk && declineOk && cancelOk && noLegacyAllow ? "pass" : "fail",
+        `accept=${acceptOk} forSession=${acceptForSessionOk} decline=${declineOk} cancel=${cancelOk} noLegacy=${noLegacyAllow}`);
+    }
+
+    // ---- Test 9: approval request 提取 threadId/turnId/itemId 到 providerContext ----
+    {
+      const approvalMapper = new CodexAppServerApprovalMapper(PROVIDER_ID);
+      const req = approvalMapper.mapApprovalRequest({
+        method: "item/commandExecution/requestApproval",
+        serverRequestId: 42,
+        params: {
+          threadId: "thread-xyz", turnId: "turn-abc", itemId: "item-1",
+          command: ["rm", "-rf", "/tmp/test"], cwd: "/tmp",
+        },
+      });
+      const ctxOk = req.providerContext
+        && req.providerContext.threadId === "thread-xyz"
+        && req.providerContext.turnId === "turn-abc"
+        && req.providerContext.itemId === "item-1"
+        && req.providerContext.serverRequestId === 42;
+      const riskHigh = req.riskLevel === "high";
+      const commandJoined = req.inputSummary === "rm -rf /tmp/test";
+      addTest("Codex schema: approval request 提取 threadId/turnId/itemId 到 providerContext",
+        ctxOk && riskHigh && commandJoined ? "pass" : "fail",
+        `ctx=${ctxOk} risk=${req.riskLevel} cmd="${req.inputSummary}"`);
+    }
+
+    // ---- Test 10: serverRequest/resolved 携带真实 requestId/threadId/turnId/itemId ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const ev = mapper.mapServerRequestResolved({
+        requestId: 99, threadId: "thread-1", turnId: "turn-1", itemId: "item-1",
+        decision: "accept",
+      });
+      const resolvedOk = ev?.payload.kind === "approval_resolved"
+        && ev.payload.requestId === "codex-req-99"
+        && ev.payload.response.type === "accept";
+      addTest("Codex schema: serverRequest/resolved 携带真实 requestId + decision → approval_resolved",
+        resolvedOk ? "pass" : "fail",
+        `kind=${ev?.payload.kind} requestId=${ev?.payload.requestId} response=${ev?.payload.response.type}`);
+    }
+
+    // ---- Test 11: SessionMapper register + getProviderThreadId/getProviderSessionId ----
+    {
+      const sessionMapper = new CodexAppServerSessionMapper();
+      sessionMapper.register("bridge-sess-1", "codex-thread-abc", "codex-session-xyz");
+      const threadId = sessionMapper.getProviderThreadId("bridge-sess-1");
+      const sessionId = sessionMapper.getProviderSessionId("bridge-sess-1");
+      const hasThread = sessionMapper.hasCodexThread("bridge-sess-1");
+      const noThread = !sessionMapper.hasCodexThread("bridge-sess-unknown");
+      addTest("Codex schema: SessionMapper register + getProviderThreadId/getProviderSessionId + hasCodexThread",
+        threadId === "codex-thread-abc" && sessionId === "codex-session-xyz" && hasThread && noThread ? "pass" : "fail",
+        `thread=${threadId} session=${sessionId} has=${hasThread} noThread=${noThread}`);
+    }
+
+    // ---- Test 12: thread/resume 从 SessionMapper 恢复（模拟 provider resume 路径决策）----
+    {
+      const sessionMapper = new CodexAppServerSessionMapper();
+      // 模拟首次 run 后注册的映射
+      sessionMapper.register("bridge-sess-1", "codex-thread-abc", "codex-session-xyz");
+      // 模拟 resume 决策：有映射 → thread/resume 路径
+      const lookupKey = "bridge-sess-1";
+      const codexThread = sessionMapper.getCodexThread(lookupKey);
+      const hasMapping = sessionMapper.hasCodexThread(lookupKey);
+      const resumePathTaken = hasMapping && codexThread === "codex-thread-abc";
+      // 模拟 thread/resume 返回新 threadId（部分 server 实现可能返回新 id）
+      sessionMapper.register("bridge-sess-1", "codex-thread-resumed", "codex-session-resumed");
+      const updatedThread = sessionMapper.getProviderThreadId("bridge-sess-1");
+      const updatedOk = updatedThread === "codex-thread-resumed";
+      addTest("Codex schema: thread/resume 从 SessionMapper 恢复 + 映射同步更新",
+        resumePathTaken && updatedOk ? "pass" : "fail",
+        `resumePath=${resumePathTaken} updated=${updatedThread}`);
+    }
+
+    // ---- Test 13: 旧 item/text/delta 作为 legacy alias 仍可驱动 finalAnswer ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const builder = new AssistantTurnViewBuilder("turn-legacy", PROVIDER_ID, TS());
+      const ev = mapper.mapItemTextDelta({
+        threadId: "t", turnId: "turn-legacy", itemId: "i1", delta: "legacy text",
+      });
+      builder.ingest(ev);
+      const view = builder.toView();
+      const legacyOk = view.finalAnswer === "legacy text";
+      addTest("Codex schema: item/text/delta legacy alias 仍可驱动 finalAnswer（兼容路径）",
+        legacyOk ? "pass" : "fail",
+        `finalAnswer="${view.finalAnswer}"`);
+    }
+
+    // ---- Test 14: turn/started 通知映射为 progress ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const ev = mapper.mapTurnStarted({ threadId: "t", turn: { id: "turn-1" } });
+      const ok = ev?.payload.kind === "progress" && ev.payload.detail === "turn-1";
+      addTest("Codex schema: turn/started 通知映射为 progress（detail=turnId）",
+        ok ? "pass" : "fail",
+        `kind=${ev?.payload.kind} detail=${ev?.payload.detail}`);
+    }
+
+    // ---- Test 15: item/completed 解析 nested params.item（agentMessage 完整文本）----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const builder = new AssistantTurnViewBuilder("turn-comp", PROVIDER_ID, TS());
+      // 先 partial delta
+      builder.ingest(mapper.mapItemAgentMessageDelta({
+        threadId: "t", turnId: "turn-comp", itemId: "i1", delta: "partial ",
+      }));
+      // completed 时完整文本
+      const compEv = mapper.mapItemCompleted({
+        threadId: "t", turnId: "turn-comp",
+        item: { type: "agentMessage", id: "i1", text: "partial complete text" },
+      });
+      builder.ingest(compEv);
+      const view = builder.toView();
+      const completedOk = compEv?.payload.kind === "message" && compEv.payload.partial === false
+        && compEv.payload.text === "partial complete text";
+      addTest("Codex schema: item/completed 解析 nested params.item（agentMessage 完整文本）",
+        completedOk ? "pass" : "fail",
+        `kind=${compEv?.payload.kind} partial=${compEv?.payload.partial} text="${compEv?.payload.text}"`);
+    }
+
+  } catch (e) {
+    addTest("Codex schema alignment 测试段", "fail", `加载/执行异常: ${e?.message || e}`);
+  } finally {
+    try { if (codexSchemaBundle) rmSync(codexSchemaBundle, { force: true }); } catch {}
+    try { if (codexEventMapperBundle) rmSync(codexEventMapperBundle, { force: true }); } catch {}
+    try { if (codexApprovalMapperBundle) rmSync(codexApprovalMapperBundle, { force: true }); } catch {}
+    try { if (codexSessionMapperBundle) rmSync(codexSessionMapperBundle, { force: true }); } catch {}
+    try { if (codexEffectiveRunPlanBundle) rmSync(codexEffectiveRunPlanBundle, { force: true }); } catch {}
+    try { if (assistantTurnViewBundle) rmSync(assistantTurnViewBundle, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 10. 生成测试报告
 // ============================================================
 console.log("\n=== 生成测试报告 ===");
 
 function generateReport() {
   const lines = [];
-  lines.push("# LLM CLI Bridge 测试报告");
+  // V2.17-A Completion: 报告标题反映 run mode + 审计模式说明
+  const modeLabel = runMode === "unit" ? "单元测试（unit）"
+    : runMode === "process" ? "进程测试（process）"
+    : runMode === "claude" ? "Claude smoke 测试"
+    : runMode === "integration" ? "集成测试（integration）"
+    : "全量测试（all）";
+  lines.push(`# LLM CLI Bridge 测试报告 — ${modeLabel}`);
   lines.push("");
   lines.push(`- **测试时间**: ${results.timestamp}`);
   lines.push(`- **测试环境**: ${results.environment.platform} / Node.js ${results.environment.nodeVersion}`);
@@ -13599,6 +13967,14 @@ function generateReport() {
   lines.push(`- ⏭️ **跳过**: ${results.skipped}`);
   lines.push(`- ⚪ **需人工验证**: ${results.manualRequired}`);
   lines.push(`- **总计**: ${results.tests.length}`);
+  lines.push("");
+  // V2.17-A Completion 审计模式说明
+  lines.push("### 审计模式说明");
+  lines.push("");
+  lines.push("- **uncaughtException / unhandledRejection 计为 fail**：进程级未捕获异常必须反映在测试结果中，不得仅记日志。");
+  lines.push(`- **本轮 uncaughtException 次数**: ${uncaughtCount}`);
+  lines.push(`- **本轮 unhandledRejection 次数**: ${unhandledCount}`);
+  lines.push("- **skip 策略**：当前环境 skip 项保留，但每项必须标明原因（环境假失败 / 模式不匹配 / Obsidian 未运行等）并有覆盖替代测试（unit ↔ process 互补）。");
   lines.push("");
   lines.push("## 详细结果");
   lines.push("");
@@ -13654,13 +14030,29 @@ function generateReport() {
   return lines.join("\n");
 }
 
-const report = generateReport();
 const docsDir = join(PROJECT_ROOT, "docs");
 if (!existsSync(docsDir)) mkdirSync(docsDir, { recursive: true });
-const reportPath = join(docsDir, "test-report.md");
+// V2.17-A Completion: 支持 TEST_REPORT_PATH env 覆盖输出路径（用于生成 unit/process 分离报告）
+const reportPath = process.env.TEST_REPORT_PATH
+  ? (process.env.TEST_REPORT_PATH.startsWith("/")
+    ? process.env.TEST_REPORT_PATH
+    : join(PROJECT_ROOT, process.env.TEST_REPORT_PATH))
+  : join(docsDir, "test-report.md");
+
+// V2.17-A Completion 审计模式：先生成初版报告，然后等待 200ms 让迟到的 uncaughtException/unhandledRejection
+// 落地（process 测试的子进程 EPIPE 等异步错误可能晚到），再重生成报告确保审计完整。
+let report = generateReport();
 writeFileSync(reportPath, report, "utf8");
 console.log(`报告已写入: ${reportPath}`);
 
-// 退出码
-console.log(`\n=== 结果: ${results.passed} passed, ${results.failed} failed, ${results.skipped} skipped, ${results.manualRequired} manual required ===`);
-process.exit(results.failed > 0 ? 1 : 0);
+// 退出码（含审计模式迟到异常重生成报告）
+setTimeout(() => {
+  if (uncaughtCount > 0 || unhandledCount > 0) {
+    // 有迟到的 uncaught/unhandled 事件：重生成报告以包含审计 fail 项
+    report = generateReport();
+    writeFileSync(reportPath, report, "utf8");
+    console.log(`审计模式: 检测到迟到异常，报告已更新 (${uncaughtCount} uncaught, ${unhandledCount} unhandled)`);
+  }
+  console.log(`\n=== 结果: ${results.passed} passed, ${results.failed} failed, ${results.skipped} skipped, ${results.manualRequired} manual required ===`);
+  process.exit(results.failed > 0 ? 1 : 0);
+}, 200);

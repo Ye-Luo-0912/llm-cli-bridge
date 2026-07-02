@@ -396,6 +396,14 @@ export interface RunContext {
   readonly permission: PermissionBoundary;
   /** run 唯一 id（用于 cancel 配对） */
   readonly runId: string;
+  /**
+   * BridgeSession.sessionId（V2.17-A Completion 主线闭环）。
+   *
+   * provider 据此在 sessionMapper 中注册 codex threadId/sessionId 映射，
+   * 供后续 resume(sessionId) 查找。与 runId 解耦：runId 每次 run 变化，
+   * bridgeSessionId 在会话生命周期内稳定。
+   */
+  readonly bridgeSessionId?: string;
   /** 要 resume 的会话 id（undefined=新会话） */
   readonly resumeSessionId?: string;
   /** V2.16-E: SDK streaming input（image blocks）；CLI/Codex provider 忽略 */
@@ -422,6 +430,22 @@ export interface BridgeSession {
   readonly provider: RuntimeProvider;
   /** 会话级 PermissionBoundary（UI 观察 pending approvals） */
   readonly permission: PermissionBoundary;
+  /**
+   * provider 侧 thread id（V2.17-A Completion 主线闭环）。
+   *
+   * codex app-server 的 threadId（thread/start 或 thread/resume 返回）。
+   * keepLastSession 恢复时据此同步 provider thread/session。
+   * 非 codex provider 时为 undefined。
+   */
+  readonly providerThreadId?: string;
+  /**
+   * provider 侧 session id（V2.17-A Completion 主线闭环）。
+   *
+   * codex app-server 的 sessionId（thread/start 或 thread/resume 返回）。
+   * keepLastSession 恢复时据此同步 provider thread/session。
+   * 非 codex provider 时为 undefined。
+   */
+  readonly providerSessionId?: string;
   /** 启动一次 run（settings 由 view 传入，保证实时读取用户最新设置） */
   start(input: RunInput, settings: import("../../types").LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent>;
   /** 取消当前 run */

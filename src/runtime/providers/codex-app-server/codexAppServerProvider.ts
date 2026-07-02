@@ -2,16 +2,26 @@
 //
 // 主目标 provider：通过 codex app-server JSON-RPC over stdio JSONL 接入 Bridge Core。
 //
-// V2.17-A Completion wire 协议校准：
-// 1. 每个连接先 send `initialize`，收到 result 后 notify `initialized`。
-// 2. initialize 后再 send `thread/start`，response result shape: { thread: { id, sessionId? } }。
+// V2.17-A Completion 主线闭环 wire 协议（对齐官方 docs/generated schema）：
+// 1. 每个连接先 send `initialize`，params 使用官方 shape：
+//      { clientInfo: { name, title, version }, capabilities: { experimentalApi: bool }, cwd }
+//    不再使用 clientName/clientVersion 顶层字段。
+//    experimentalApi 默认 false；若启用必须在 CodexRunOptions audit 记录。
+//    收到 result 后 notify `initialized`。
+// 2. 新会话走 thread/start；resume 走 thread/resume（不再塞 resumeSessionId 进 thread/start）。
+//    response result shape: { thread: { id, sessionId? } }。
 // 3. send `turn/start`，input 为 content item array（[{ type:"text", text:userPrompt }, ...]）。
 // 4. approval 不走 notification，而是 server-initiated request：
 //    - item/commandExecution/requestApproval（带 id）
 //    - item/fileChange/requestApproval（带 id）
-//    client 按原 id 返回 result（{ decision: "allow"|"allowSession"|"deny" }）。
+//    client 按原 id 返回 result（{ decision: "accept"|"acceptForSession"|"decline"|"cancel" }）。
+//    不再在 wire 层使用 allow/allowSession/deny。
 //    item/tool/requestUserInput 同为 server request，当前转 unsupported/pending。
-// 5. serverRequest/resolved 通知用于 UI 同步（标记 approval 已落地）。
+// 5. serverRequest/resolved 通知携带真实 requestId/threadId/turnId/itemId/decision，用于 UI 同步。
+// 6. item delta 通知（官方 method 名）：
+//    item/agentMessage/delta, item/reasoning/summaryTextDelta, item/reasoning/textDelta,
+//    item/commandExecution/outputDelta, item/plan/delta, item/fileChange/outputDelta。
+//    旧 item/text/delta 仅作为 fixture legacy alias，不作为主路径。
 //
 // 当前环境无 codex CLI；run() 仍可被 fixture JSONL 测试驱动（通过 EventMapper 直接测）。
 
@@ -33,20 +43,26 @@ import {
 import { AppServerProcessManager } from "./appServerProcessManager";
 import { JsonRpcClient } from "./jsonRpcClient";
 import type {
+  CodexFileChangeItem,
   CodexInitializeResult,
+  CodexItemAgentMessageDeltaParams,
   CodexItemArgumentDeltaParams,
+  CodexItemCommandExecutionOutputDeltaParams,
   CodexItemCompletedParams,
+  CodexFileChangeOutputDeltaParams,
+  CodexItemPlanDeltaParams,
+  CodexItemReasoningSummaryTextDeltaParams,
+  CodexItemReasoningTextDeltaParams,
   CodexItemStartedParams,
   CodexItemTextDeltaParams,
   CodexServerRequestResolvedParams,
+  CodexThreadResumeResult,
   CodexThreadStartResult,
   CodexTurnCompletedParams,
   CodexTurnFailedParams,
+  CodexTurnStartedParams,
 } from "./schema";
 import { execFileSync } from "child_process";
-
-const CLIENT_NAME = "llm-cli-bridge";
-const CLIENT_VERSION = "2.17-A";
 
 /**
  * CodexAppServerProvider：通过 codex app-server JSON-RPC 接入 Bridge Core。
@@ -140,70 +156,11 @@ export class CodexAppServerProvider implements RuntimeProvider {
     };
 
     // 注册通知 handler（item/* 事件）
+    // V2.17-A Completion 主线闭环：注册 6 个官方 delta method + turn/started + nested item/* 事件。
+    // 旧 item/text/delta / item/thinking/delta / item/argument/delta 仅作为 fixture legacy alias。
     const unreg: Array<() => void> = [];
-
-    unreg.push(client.onNotification("item/started", (params) => {
-      push(eventMapper.mapItemStarted(params as CodexItemStartedParams));
-    }));
-    unreg.push(client.onNotification("item/text/delta", (params) => {
-      push(eventMapper.mapItemTextDelta(params as CodexItemTextDeltaParams));
-    }));
-    unreg.push(client.onNotification("item/thinking/delta", (params) => {
-      push(eventMapper.mapThinkingDelta(params as CodexItemTextDeltaParams));
-    }));
-    unreg.push(client.onNotification("item/argument/delta", (params) => {
-      push(eventMapper.mapItemArgumentDelta(params as CodexItemArgumentDeltaParams));
-    }));
-    unreg.push(client.onNotification("item/completed", (params) => {
-      push(eventMapper.mapItemCompleted(params as CodexItemCompletedParams));
-    }));
-
-    // serverRequest/resolved 通知：标记 approval 已落地（UI 同步）
-    unreg.push(client.onNotification("serverRequest/resolved", (params) => {
-      const resolved = params as CodexServerRequestResolvedParams;
-      push(eventMapper.mapServerRequestResolved(resolved));
-    }));
-
-    unreg.push(client.onNotification("turn/completed", (params) => {
-      push(eventMapper.mapTurnCompleted(params as CodexTurnCompletedParams));
-      signalDone();
-    }));
-    unreg.push(client.onNotification("turn/failed", (params) => {
-      push(eventMapper.mapTurnFailed(params as CodexTurnFailedParams));
-      signalDone();
-    }));
-
-    // approval server-request handler：item/commandExecution/requestApproval
-    unreg.push(client.onServerRequest(
-      "item/commandExecution/requestApproval",
-      (params, serverRequestId) => {
-        const approvalReq = this.approvalMapper.mapApprovalRequest({
-          method: "item/commandExecution/requestApproval",
-          serverRequestId,
-          params: params as never,
-        });
-        return this.handleApprovalRequest(approvalReq, ctx, client, eventMapper, push, developerMode, params);
-      },
-    ));
-
-    // approval server-request handler：item/fileChange/requestApproval
-    unreg.push(client.onServerRequest(
-      "item/fileChange/requestApproval",
-      (params, serverRequestId) => {
-        const approvalReq = this.approvalMapper.mapApprovalRequest({
-          method: "item/fileChange/requestApproval",
-          serverRequestId,
-          params: params as never,
-        });
-        return this.handleApprovalRequest(approvalReq, ctx, client, eventMapper, push, developerMode, params);
-      },
-    ));
-
-    // item/tool/requestUserInput：当前转 unsupported/pending
-    // 返回 cancelled，让 server 知道 client 暂不支持交互式用户输入
-    unreg.push(client.onServerRequest("item/tool/requestUserInput", (_params, _id) => {
-      return { cancelled: true as const };
-    }));
+    const handlerUnregs = this.registerEventHandlers(client, eventMapper, push, signalDone, ctx, developerMode);
+    unreg.push(...handlerUnregs);
 
     // 进程退出 → 兜底 signalDone
     unreg.push(process.onExit((_code, _signal) => {
@@ -232,24 +189,28 @@ export class CodexAppServerProvider implements RuntimeProvider {
     }));
 
     try {
-      // 1. initialize handshake（每个连接必须先 send initialize，再 notify initialized）
-      const initResult = await client.send<CodexInitializeResult>("initialize", {
-        clientName: CLIENT_NAME,
-        clientVersion: CLIENT_VERSION,
-        cwd: ctx.plan.cwd,
-      });
+      // 1. initialize handshake（官方 shape：clientInfo + capabilities；不再用 clientName/clientVersion）
+      //    experimentalApi 默认 false；options.initialize 已由 buildCodexAppServerRunOptions 构造。
+      const initResult = await client.send<CodexInitializeResult>(
+        "initialize", options.initialize,
+      );
       push(eventMapper.mapInitialized(initResult));
 
       // notify initialized（handshake 完成）
       client.notify("initialized");
 
-      // 2. thread/start（response result shape: { thread: { id, sessionId? } }）
+      // 2. thread/start（新 thread；resume 路径走 thread/resume，不再塞 resumeSessionId）
+      //    response result shape: { thread: { id, sessionId? } }
       const threadResult = await client.send<CodexThreadStartResult>(
         "thread/start", options.threadStart,
       );
       const threadId = threadResult.thread.id;
       const sessionId = threadResult.thread.sessionId;
+      // V2.17-A Completion: 同时注册 runId 和 bridgeSessionId（若提供），供 resume 按 bridgeSessionId 查找。
       this.sessionMapper.register(ctx.runId, threadId, sessionId);
+      if (ctx.bridgeSessionId && ctx.bridgeSessionId !== ctx.runId) {
+        this.sessionMapper.register(ctx.bridgeSessionId, threadId, sessionId);
+      }
       push(eventMapper.mapThreadStarted(threadId, sessionId));
 
       // 3. turn/start（input 为 content item array）
@@ -297,18 +258,279 @@ export class CodexAppServerProvider implements RuntimeProvider {
   }
 
   async *resume(sessionId: string, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
-    // 通过 sessionMapper 取 codex threadId；若无则作为新 thread 启动
-    const codexThread = this.sessionMapper.getCodexThread(sessionId);
-    if (codexThread) {
-      // 注入到 threadStart.resumeSessionId
-      // 简化：复用 run 路径（threadStart 已含 resumeSessionId 由 plan.session.resumeId 提供）
+    // V2.17-A Completion 主线闭环：resume 走 thread/resume，不再塞 resumeSessionId 进 thread/start。
+    // 决策：sessionMapper.hasCodexThread(sessionId|bridgeSessionId) → thread/resume 路径；否则退化为 thread/start。
+    // 优先用 bridgeSessionId 查找（会话生命周期内稳定）；其次用 sessionId（兼容旧调用）。
+    const lookupKey = ctx.bridgeSessionId ?? sessionId;
+    const codexThread = this.sessionMapper.getCodexThread(lookupKey);
+    if (!codexThread) {
+      // 无映射：退化为新 thread（保持向后兼容；记录为 provider 行为，不作为主路径）
       yield* this.run(ctx, settings);
-    } else {
-      yield* this.run(ctx, settings);
+      return;
+    }
+
+    // 有映射：走 thread/resume 路径
+    const developerMode = !!settings.developerMode;
+    const eventMapper = new CodexAppServerEventMapper(this.providerId, developerMode);
+    const options = buildCodexAppServerRunOptions(ctx.plan, ctx.promptPackage);
+
+    const codexCommand = settings.codexCommand || "codex";
+    const process = new AppServerProcessManager({
+      command: codexCommand,
+      args: ["app-server"],
+      cwd: ctx.plan.cwd,
+    });
+    this.currentProcess = process;
+    this.currentRunId = ctx.runId;
+
+    const client = new JsonRpcClient(
+      (line) => process.writeLine(line),
+      (handler) => process.onStdoutLine(handler),
+    );
+    this.currentClient = client;
+
+    const queue = new Array<NormalizedRuntimeEvent>();
+    let resolveWait: (() => void) | null = null;
+    let done = false;
+
+    const push = (ev: NormalizedRuntimeEvent | null): void => {
+      if (!ev) return;
+      queue.push(ev);
+      if (resolveWait) {
+        const r = resolveWait;
+        resolveWait = null;
+        r();
+      }
+    };
+
+    const signalDone = (): void => {
+      done = true;
+      if (resolveWait) {
+        const r = resolveWait;
+        resolveWait = null;
+        r();
+      }
+    };
+
+    const unreg: Array<() => void> = [];
+    const handlerUnregs = this.registerEventHandlers(client, eventMapper, push, signalDone, ctx, developerMode);
+    unreg.push(...handlerUnregs);
+
+    unreg.push(process.onExit((_code, _signal) => {
+      if (!done) {
+        push({
+          providerId: this.providerId,
+          timestamp: new Date().toISOString(),
+          payload: {
+            kind: "failed",
+            message: "codex app-server process exited during resume",
+            recoverable: false,
+          },
+        });
+        signalDone();
+      }
+    }));
+
+    unreg.push(process.onStderrLine((line) => {
+      push({
+        providerId: this.providerId,
+        timestamp: new Date().toISOString(),
+        rawProviderEvent: developerMode ? { stream: "stderr", line } : undefined,
+        payload: { kind: "stderr_delta", data: line },
+      });
+    }));
+
+    try {
+      // 1. initialize handshake（与 run 一致；clientInfo + capabilities）
+      const initResult = await client.send<CodexInitializeResult>(
+        "initialize", options.initialize,
+      );
+      push(eventMapper.mapInitialized(initResult));
+      client.notify("initialized");
+
+      // 2. thread/resume（恢复已有 threadId；不再走 thread/start 伪恢复）
+      const resumeResult = await client.send<CodexThreadResumeResult>(
+        "thread/resume",
+        {
+          threadId: codexThread,
+          config: options.threadStart.config,
+          cwd: ctx.plan.cwd,
+        },
+      );
+      const resumedThreadId = resumeResult.thread.id;
+      const resumedSessionId = resumeResult.thread.sessionId;
+      // V2.17-A Completion: 同步更新 sessionMapper（runId + bridgeSessionId + 原始 lookupKey），
+      // 保证后续 resume 仍能找到最新的 threadId。
+      this.sessionMapper.register(ctx.runId, resumedThreadId, resumedSessionId);
+      if (ctx.bridgeSessionId && ctx.bridgeSessionId !== ctx.runId) {
+        this.sessionMapper.register(ctx.bridgeSessionId, resumedThreadId, resumedSessionId);
+      }
+      if (lookupKey !== ctx.runId && lookupKey !== ctx.bridgeSessionId) {
+        this.sessionMapper.register(lookupKey, resumedThreadId, resumedSessionId);
+      }
+      push(eventMapper.mapThreadResumed(resumedThreadId, resumedSessionId));
+
+      // 3. turn/start（input 为 content item array）
+      await client.send("turn/start", {
+        ...options.turnStart,
+        threadId: resumedThreadId,
+      });
+
+      while (!done) {
+        while (queue.length > 0) {
+          yield queue.shift()!;
+        }
+        if (done) break;
+        await new Promise<void>((resolve) => {
+          resolveWait = resolve;
+        });
+      }
+      while (queue.length > 0) {
+        yield queue.shift()!;
+      }
+    } finally {
+      for (const u of unreg) {
+        try { u(); } catch { /* swallow */ }
+      }
+      client.close();
+      process.kill();
+      this.currentProcess = null;
+      this.currentClient = null;
+      this.currentRunId = null;
     }
   }
 
   // ---------- 内部 ----------
+
+  /**
+   * 注册 codex app-server 通知 + server-request handler（run/resume 共用）。
+   *
+   * V2.17-A Completion 主线闭环：
+   * - 6 个官方 delta method（item/agentMessage/delta 等）作为主路径
+   * - 旧 item/text/delta / item/thinking/delta / item/argument/delta 作为 legacy alias
+   * - item/started / item/completed 解析 nested params.item
+   * - turn/started / turn/completed / turn/failed
+   * - serverRequest/resolved 携带真实 requestId/threadId/turnId/itemId
+   * - approval server-request（commandExecution / fileChange）使用官方 decision shape
+   */
+  private registerEventHandlers(
+    client: JsonRpcClient,
+    eventMapper: CodexAppServerEventMapper,
+    push: (ev: NormalizedRuntimeEvent | null) => void,
+    signalDone: () => void,
+    ctx: RunContext,
+    developerMode: boolean,
+  ): Array<() => void> {
+    const unreg: Array<() => void> = [];
+
+    // item/started（官方 nested params.item）
+    unreg.push(client.onNotification("item/started", (params) => {
+      push(eventMapper.mapItemStarted(params as CodexItemStartedParams));
+    }));
+
+    // 官方 delta methods（主路径，驱动 AssistantTurnView.finalAnswer / thinking / tool progress）
+    unreg.push(client.onNotification("item/agentMessage/delta", (params) => {
+      push(eventMapper.mapItemAgentMessageDelta(params as CodexItemAgentMessageDeltaParams));
+    }));
+    unreg.push(client.onNotification("item/reasoning/summaryTextDelta", (params) => {
+      push(eventMapper.mapItemReasoningSummaryTextDelta(params as CodexItemReasoningSummaryTextDeltaParams));
+    }));
+    unreg.push(client.onNotification("item/reasoning/textDelta", (params) => {
+      push(eventMapper.mapItemReasoningTextDelta(params as CodexItemReasoningTextDeltaParams));
+    }));
+    unreg.push(client.onNotification("item/commandExecution/outputDelta", (params) => {
+      push(eventMapper.mapItemCommandExecutionOutputDelta(params as CodexItemCommandExecutionOutputDeltaParams));
+    }));
+    unreg.push(client.onNotification("item/plan/delta", (params) => {
+      push(eventMapper.mapItemPlanDelta(params as CodexItemPlanDeltaParams));
+    }));
+    unreg.push(client.onNotification("item/fileChange/outputDelta", (params) => {
+      push(eventMapper.mapItemFileChangeOutputDelta(params as CodexFileChangeOutputDeltaParams));
+    }));
+
+    // 旧 fixture legacy alias delta（不作为主路径，保留兼容）
+    unreg.push(client.onNotification("item/text/delta", (params) => {
+      push(eventMapper.mapItemTextDelta(params as CodexItemTextDeltaParams));
+    }));
+    unreg.push(client.onNotification("item/thinking/delta", (params) => {
+      push(eventMapper.mapThinkingDelta(params as CodexItemTextDeltaParams));
+    }));
+    unreg.push(client.onNotification("item/argument/delta", (params) => {
+      push(eventMapper.mapItemArgumentDelta(params as CodexItemArgumentDeltaParams));
+    }));
+
+    // item/completed（官方 nested params.item；fileChange 多 changes 在此展开）
+    unreg.push(client.onNotification("item/completed", (params) => {
+      const completedParams = params as CodexItemCompletedParams;
+      const item = completedParams.item;
+      // fileChange item 含 changes 数组：每个 change 映射为一条 file_change 事件
+      if (item?.type === "fileChange") {
+        const fcItem = item as CodexFileChangeItem;
+        if (fcItem.changes && fcItem.changes.length > 0) {
+          for (const _change of fcItem.changes) {
+            push(eventMapper.mapItemCompleted(completedParams));
+          }
+          return;
+        }
+      }
+      push(eventMapper.mapItemCompleted(completedParams));
+    }));
+
+    // turn/started（官方通知）
+    unreg.push(client.onNotification("turn/started", (params) => {
+      push(eventMapper.mapTurnStarted(params as CodexTurnStartedParams));
+    }));
+
+    // serverRequest/resolved 通知：标记 approval 已落地（UI 同步，携带真实 requestId/threadId/turnId/itemId）
+    unreg.push(client.onNotification("serverRequest/resolved", (params) => {
+      const resolved = params as CodexServerRequestResolvedParams;
+      push(eventMapper.mapServerRequestResolved(resolved));
+    }));
+
+    unreg.push(client.onNotification("turn/completed", (params) => {
+      push(eventMapper.mapTurnCompleted(params as CodexTurnCompletedParams));
+      signalDone();
+    }));
+    unreg.push(client.onNotification("turn/failed", (params) => {
+      push(eventMapper.mapTurnFailed(params as CodexTurnFailedParams));
+      signalDone();
+    }));
+
+    // approval server-request handler：item/commandExecution/requestApproval
+    // client 按原 id 返回 result（{ decision: "accept"|"acceptForSession"|"decline"|"cancel" }）
+    unreg.push(client.onServerRequest(
+      "item/commandExecution/requestApproval",
+      (params, serverRequestId) => {
+        const approvalReq = this.approvalMapper.mapApprovalRequest({
+          method: "item/commandExecution/requestApproval",
+          serverRequestId,
+          params: params as never,
+        });
+        return this.handleApprovalRequest(approvalReq, ctx, client, eventMapper, push, developerMode, params);
+      },
+    ));
+
+    // approval server-request handler：item/fileChange/requestApproval
+    unreg.push(client.onServerRequest(
+      "item/fileChange/requestApproval",
+      (params, serverRequestId) => {
+        const approvalReq = this.approvalMapper.mapApprovalRequest({
+          method: "item/fileChange/requestApproval",
+          serverRequestId,
+          params: params as never,
+        });
+        return this.handleApprovalRequest(approvalReq, ctx, client, eventMapper, push, developerMode, params);
+      },
+    ));
+
+    // item/tool/requestUserInput：当前转 unsupported/pending
+    // 返回 cancelled，让 server 知道 client 暂不支持交互式用户输入
+    unreg.push(client.onServerRequest("item/tool/requestUserInput", (_params, _id) => {
+      return { cancelled: true as const };
+    }));
+
+    return unreg;
+  }
 
   /**
    * 处理 approval server-request：返回 Promise<result>，client 按 id 自动回复。
