@@ -18,7 +18,7 @@
 import type { AgentTask } from "../../../agentBackend";
 import type { LLMBridgeSettings } from "../../../types";
 import { SdkBackend, isSdkAvailable, buildSdkAgentSkillsOptions } from "../../../sdkBackend";
-import { buildEffectiveRunPlan } from "../../../effectiveRunPlan";
+import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
 import type {
   NormalizedRuntimeEvent,
   RunContext,
@@ -48,15 +48,8 @@ export class ClaudeSdkProvider implements RuntimeProvider {
 
   buildPlan(input: RunInput, settings: LLMBridgeSettings): import("../../core/types").EffectiveRunPlan {
     const agentSkillsOptions = buildSdkAgentSkillsOptions(input.cwd);
-    // attachmentPlan 从 promptPackage.attachmentEntries 聚合
-    const entries = input.promptPackage.attachmentEntries;
-    const attachmentPlan = {
-      messageScopedRefs: entries.filter((e) => e.scope === "message").length,
-      pinnedRefs: entries.filter((e) => e.scope === "pinned").length,
-      inlineSnippets: entries.filter((e) => e.packing === "inline-snippet").length,
-      imageStreamingBlocks: entries.filter((e) => e.packing === "sdk-streaming-block").length,
-      nativeRefOnly: entries.filter((e) => e.packing === "native-ref-only").length,
-    };
+    // attachmentPlan 从 promptPackage.attachmentEntries 聚合（counts + entry-level 审计）
+    const attachmentPlan = buildAttachmentPlan(input.promptPackage.attachmentEntries);
     return buildEffectiveRunPlan({
       backend: "sdk",
       settings,

@@ -21,6 +21,7 @@ import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse } from "./runtime/core/types";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
+import { AssistantTurnViewBuilder } from "./runtime/core/assistantTurnView";
 import { mapNormalizedToWorkflowEvent } from "./runtime/providers/workflowEventMapper";
 import { getRuntimeModelCatalog, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
 import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
@@ -2026,11 +2027,18 @@ export class LLMBridgeView extends ItemView {
     return this.attachmentTextSnippets.filter((snippet) => ids.has(snippet.refId) || refs.some((ref) => ref.id === snippet.refId));
   }
 
-  private async buildSdkStreamingInput(prompt: string, refs: ReadonlyArray<FileRef>): Promise<SdkStreamingInput | undefined> {
-    // V2.17-A: 仅 image ref 走 SDK streaming image block（Claude Agent SDK 支持 image content block）。
-    // 非 image 的 binary blob（PDF/document 等）按 AttachmentPackingPolicy.binaryAsNativeRef=true
-    // 退化为 path ref / native tool（与 CLI fallback path ref 一致），不进 streaming input。
-    // 这些 native-ref-only 附件由 attachmentPlan.nativeRefOnly 计数审计。
+  /**
+   * V2.17-A Completion: 构造 SDK streaming input（image content blocks）。
+   *
+   * ⚠️ Prompt split 闭环：text block 使用 BridgePromptPackage.userPrompt（用户正文 +
+   * 用户附件 inline 内容 + 上下文片段），不再使用旧 buildPromptPackage 字符串。
+   * bridge 系统附加内容只进入 systemPrompt / provider instructions 层（由
+   * ClaudeSdkProvider 单独处理），不混入 streaming text block。
+   *
+   * 非 image 的 binary blob（PDF/document 等）按 AttachmentPackingPolicy.binaryAsNativeRef=true
+   * 退化为 path ref / native tool，不进 streaming input（由 attachmentPlan.nativeRefOnly 审计）。
+   */
+  private async buildSdkStreamingInput(userPrompt: string, refs: ReadonlyArray<FileRef>): Promise<SdkStreamingInput | undefined> {
     const imageBlocks: SdkImageContentBlock[] = [];
     for (const ref of refs) {
       if (ref.fileType !== "image" || ref.status !== "active") continue;
@@ -2041,7 +2049,7 @@ export class LLMBridgeView extends ItemView {
     return {
       reason: "message attachments include image refs; SDK query uses Streaming Input with image content blocks",
       content: [
-        { type: "text", text: prompt },
+        { type: "text", text: userPrompt },
         ...imageBlocks,
       ],
     };
@@ -4776,9 +4784,16 @@ export class LLMBridgeView extends ItemView {
       }
     }
 
-    // 使用 prompt package builder（V0.7）—— 仍用于命令预览/日志展示
+    // V2.17-A Completion: provider-neutral BridgePromptPackage 先构造（单一真相源）。
+    // buildSdkStreamingInput 从 promptPackage.userPrompt 派生 text block，不再使用
+    // 旧 buildPromptPackage 字符串（避免 prompt split 绕过）。
+    // bridge 系统附加内容只进入 systemPrompt / provider instructions 层，
+    // 不混入 SDK streaming text block。
+    const promptPackage = buildBridgePromptPackage(userInput, snapshot, settings);
+    const sdkStreamingInput = await this.buildSdkStreamingInput(promptPackage.userPrompt, promptFileRefsForRun);
+
+    // 旧 buildPromptPackage 仅作为 legacy CLI preview/log fallback（不进入 SDK streaming）
     const prompt = buildPromptPackage(userInput, snapshot, settings);
-    const sdkStreamingInput = await this.buildSdkStreamingInput(prompt, promptFileRefsForRun);
 
     // V2.17-A Completion: 通过 BridgeSession 选择 provider 并构造 EffectiveRunPlan。
     // UI 不再直接接触 SdkBackend/ClaudeCliBackend/MockAgentBackend；plan 由
@@ -4791,13 +4806,13 @@ export class LLMBridgeView extends ItemView {
       inlineSnippets: promptAttachmentSnippetsForRun.length,
       imageStreamingBlocks: imageBlockCount,
       nativeRefOnly: Math.max(0, promptFileRefsForRun.length - promptAttachmentSnippetsForRun.length - imageBlockCount),
+      // V2.17-A: entry-level 审计由 provider 内部从 promptPackage.attachmentEntries 构造；
+      // view 层仅保留 counts 供 commandPreview/log，entries 为空。
+      entries: [],
     };
     // 注：attachmentPlan 仅用于 UI 展示审计；provider 内部从 promptPackage.attachmentEntries
     // 重新聚合（保证 provider-neutral）。这里保留供 commandPreview / log 用。
     void attachmentPlan;
-
-    // V2.17-A Completion: 构造 provider-neutral BridgePromptPackage
-    const promptPackage = buildBridgePromptPackage(userInput, snapshot, settings);
 
     // V1.5: 构造命令预览（UI-only，展示本次实际执行的 command/args/cwd/上下文）
     const commandPreviewRows = previewToRows(buildCommandPreview(settings, vaultPath, {
@@ -4864,13 +4879,16 @@ export class LLMBridgeView extends ItemView {
     runInput.runtimeFileToolAdapter = runtimeFileToolAdapter;
 
     // V2.17-A Completion: 通过 BridgeSession.start 启动 run，消费 NormalizedRuntimeEvent 流。
-    // 旧 AgentBackend callback（onEvent/onWorkflowEvent）替换为单一流式消费：
-    // - stdout_delta / stderr_delta / completed / failed 直接处理（原 onEvent 路径）
-    // - 其余经 mapNormalizedToWorkflowEvent 还原为 WorkflowEvent，喂给现有 UI 管线
-    //   （appendLiveSdkEvent / sdkEvents / pendingPermissions）
+    // 主渲染链路迁移到 AssistantTurnViewBuilder：UI 只消费 AssistantTurnView，
+    // 不再反向映射 WorkflowEvent 作为主流程。final answer 由 builder.finalAnswer 输出，
+    // 不再由 stdout_delta 旁路直接写 content。
+    // - stdout_delta/stderr_delta/completed/failed：builder 聚合 + 终态处理
+    // - 其余事件：builder 聚合后渲染 process/thoughts/tools/fileChanges/approvals
+    // - WorkflowEvent 映射仅保留为 legacy log（sdkEvents/timelineEvents），不作主 UI 数据源
     let terminalStatus: RunStatus | null = null;
     let terminalResult: RunResult | null = null;
     const runIter = session.start(runInput, settings);
+    const turnBuilder = new AssistantTurnViewBuilder(assistantId, session.providerId, startedAt);
 
     // runHandle：把 cancel 透传给 BridgeSession（stop 按钮用）
     const view = this;
@@ -4898,6 +4916,7 @@ export class LLMBridgeView extends ItemView {
             sawStderrRef: () => sawStderr,
             setSawStderr: (v: boolean) => { sawStderr = v; },
             promptLength: prompt.length,
+            turnBuilder,
             onTerminal: (status: RunStatus, result: RunResult) => {
               terminalStatus = status;
               terminalResult = result;
@@ -4930,13 +4949,15 @@ export class LLMBridgeView extends ItemView {
   }
 
   /**
-   * V2.17-A Completion: 处理单个 NormalizedRuntimeEvent（run() 闭包提取为方法便于维护）。
+   * V2.17-A Completion: 处理单个 NormalizedRuntimeEvent（主渲染走 AssistantTurnViewBuilder）。
    *
-   * - stdout_delta/stderr_delta/completed/failed：直接处理（原 AgentEvent onEvent 路径）
-   * - 其余：经 mapNormalizedToWorkflowEvent 还原为 WorkflowEvent，喂给现有 UI 管线
-   *   （appendLiveSdkEvent / sdkEvents / pendingPermissions）
-   *
-   * 注：UI 全量迁移到 AssistantTurnView 后，此方法可简化为直接消费 NormalizedRuntimeEvent。
+   * - 所有事件先 ingest 到 turnBuilder（主 UI 状态源）
+   * - final answer 由 turnBuilder.finalAnswer 输出（不再 stdout_delta 旁路直接写 content）
+   * - process/thoughts/tools/fileChanges/approvals 从 turnBuilder 渲染
+   * - stdout_delta/stderr_delta 首次出现时记录到 timeline/workflow log（legacy）
+   * - completed/failed 触发终态
+   * - WorkflowEvent 映射仅保留为 legacy log（sdkEvents），不作主 UI 数据源
+   * - approval pending 仍驱动 pendingPermissions 面板
    */
   private handleNormalizedEvent(
     ev: NormalizedRuntimeEvent,
@@ -4952,46 +4973,74 @@ export class LLMBridgeView extends ItemView {
       sawStderrRef: () => boolean;
       setSawStderr: (v: boolean) => void;
       promptLength: number;
+      turnBuilder: AssistantTurnViewBuilder;
       onTerminal: (status: RunStatus, result: RunResult) => void;
     },
   ): void {
     const p = ev.payload;
-    // 1. 直接处理 stdout/stderr/completed/failed（无对应 WorkflowEvent）
-    if (p.kind === "stdout_delta") {
-      if (!ctx.sawStdoutRef()) {
-        ctx.setSawStdout(true);
-        const detail = p.data.replace(/\s+/g, " ").trim().slice(0, 60);
-        const ts = new Date().toISOString();
-        ctx.timelineEvents.push({ type: "stdout", detail, timestamp: ts });
-        ctx.workflowEvents.push({ stage: "stdout", detail, timestamp: ts });
-      }
-      const msg = this.messages.find((m) => m.id === ctx.assistantId);
-      if (msg) {
-        this.appendAssistantContentDelta(ctx.assistantId, p.data);
-      }
-      return;
+
+    // 1. 首次 stdout/stderr 记录到 timeline/workflow log（legacy 兼容）
+    if (p.kind === "stdout_delta" && !ctx.sawStdoutRef()) {
+      ctx.setSawStdout(true);
+      const detail = p.data.replace(/\s+/g, " ").trim().slice(0, 60);
+      const ts = new Date().toISOString();
+      ctx.timelineEvents.push({ type: "stdout", detail, timestamp: ts });
+      ctx.workflowEvents.push({ stage: "stdout", detail, timestamp: ts });
     }
-    if (p.kind === "stderr_delta") {
-      if (!ctx.sawStderrRef()) {
-        ctx.setSawStderr(true);
-        const detail = p.data.replace(/\s+/g, " ").trim().slice(0, 60);
-        const ts = new Date().toISOString();
-        ctx.timelineEvents.push({ type: "stderr", detail, timestamp: ts });
-        ctx.workflowEvents.push({ stage: "stderr", detail, timestamp: ts });
-      }
-      if (!this.plugin.settings.showStderr) return;
-      const msg = this.messages.find((m) => m.id === ctx.assistantId);
-      if (msg) {
-        this.updateAssistantMessage(ctx.assistantId, { stderr: msg.stderr + p.data });
-      }
-      return;
+    if (p.kind === "stderr_delta" && !ctx.sawStderrRef()) {
+      ctx.setSawStderr(true);
+      const detail = p.data.replace(/\s+/g, " ").trim().slice(0, 60);
+      const ts = new Date().toISOString();
+      ctx.timelineEvents.push({ type: "stderr", detail, timestamp: ts });
+      ctx.workflowEvents.push({ stage: "stderr", detail, timestamp: ts });
     }
+
+    // 2. ingest 到 turnBuilder（主 UI 状态源）
+    const turnView = ctx.turnBuilder.ingest(ev);
+
+    // 3. 从 turnView 渲染到 ChatMessage（final answer + stderr + tools/files/approvals）
+    this.updateAssistantMessage(ctx.assistantId, {
+      content: turnView.finalAnswer,
+      stderr: this.plugin.settings.showStderr
+        ? turnView.warnings.filter((w) => w).join("\n")
+        : undefined,
+    });
+
+    // 4. approval pending 面板（从 turnView.approvals 驱动，替代旧 WorkflowEvent 路径）
+    for (const ap of turnView.approvals) {
+      if (ap.pending) {
+        if (!this.pendingPermissions.has(ap.requestId)) {
+          // 构造 PermissionEvent 兼容现有面板（pending=true）
+          this.pendingPermissions.set(ap.requestId, {
+            type: "permission",
+            timestamp: new Date().toISOString(),
+            toolName: ap.toolName,
+            description: ap.description,
+            granted: false,
+            pending: true,
+            requestId: ap.requestId,
+            riskLevel: ap.riskLevel,
+            riskReason: ap.riskReason,
+            inputSummary: ap.inputSummary,
+            mergeKey: ap.mergeKey,
+          } as PermissionEvent);
+          this.refreshPermissionPanel();
+        }
+      } else {
+        if (this.pendingPermissions.has(ap.requestId)) {
+          this.pendingPermissions.delete(ap.requestId);
+          this.refreshPermissionPanel();
+        }
+      }
+    }
+
+    // 5. completed/failed 触发终态
     if (p.kind === "completed") {
       const result: RunResult = {
         exitCode: 0,
         signal: null,
         durationMs: p.durationMs ?? 0,
-        stdout: p.text,
+        stdout: turnView.finalAnswer || p.text,
         stderr: "",
         command: "",
         args: [],
@@ -5013,24 +5062,12 @@ export class LLMBridgeView extends ItemView {
       return;
     }
 
-    // 2. 其余事件：还原为 WorkflowEvent，喂给现有 UI 管线
+    // 6. legacy log：把事件映射为 WorkflowEvent 存入 sdkEvents（供 onRunFinished 日志/trace 用）
+    //    不再作为主 UI 数据源；appendLiveSdkEvent 仍调用以兼容现有 live progress 渲染
     const wfEvent = mapNormalizedToWorkflowEvent(ev);
-    if (!wfEvent) return;
-    ctx.sdkEvents.push(wfEvent);
-    this.appendLiveSdkEvent(wfEvent);
-
-    // 权限请求实时处理（pending=true 加入面板；pending=false 移除）
-    if (wfEvent.type === "permission") {
-      const permEv = wfEvent as PermissionEvent;
-      if (permEv.pending && permEv.requestId) {
-        this.pendingPermissions.set(permEv.requestId, permEv);
-        this.refreshPermissionPanel();
-      } else if (permEv.requestId && !permEv.pending) {
-        if (this.pendingPermissions.has(permEv.requestId)) {
-          this.pendingPermissions.delete(permEv.requestId);
-          this.refreshPermissionPanel();
-        }
-      }
+    if (wfEvent) {
+      ctx.sdkEvents.push(wfEvent);
+      this.appendLiveSdkEvent(wfEvent);
     }
   }
 

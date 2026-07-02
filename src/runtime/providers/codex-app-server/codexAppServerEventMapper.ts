@@ -23,11 +23,12 @@
 // rawProviderEvent 仅在 developerMode 下填充。
 
 import type {
-  CodexApprovalRequestParams,
+  CodexInitializeResult,
   CodexItemCompletedParams,
   CodexItemStartedParams,
   CodexItemArgumentDeltaParams,
   CodexItemTextDeltaParams,
+  CodexServerRequestResolvedParams,
   CodexTurnCompletedParams,
   CodexTurnFailedParams,
 } from "./schema";
@@ -180,33 +181,42 @@ export class CodexAppServerEventMapper {
     }
   }
 
-  /** commandExecution/fileChange approval request → approval_request */
-  mapApprovalRequest(params: CodexApprovalRequestParams): NormalizedRuntimeEvent {
+  /** initialize 响应 → session_started（handshake 完成） */
+  mapInitialized(result: CodexInitializeResult): NormalizedRuntimeEvent {
     const ts = new Date().toISOString();
-    const toolName = params.toolName
-      ?? (params.kind === "commandExecution" ? "Bash" : "Write");
-    const riskLevel = params.kind === "commandExecution" ? "high" : "medium";
-    const description = params.description
-      ?? (params.kind === "commandExecution"
-        ? `Execute command: ${params.command ?? ""}`
-        : `${params.fileAction ?? "modify"} ${params.filePath ?? ""}`);
     return {
       providerId: this.providerId,
       timestamp: ts,
-      rawProviderEvent: this.developerMode ? { method: "approval/request", params } : undefined,
+      rawProviderEvent: this.developerMode ? { method: "initialize", result } : undefined,
       payload: {
-        kind: "approval_request",
-        requestId: params.requestId,
-        toolName,
-        description,
-        riskLevel,
-        riskReason: params.kind === "commandExecution" ? "Shell execution" : "File modification",
-        inputSummary: params.inputSummary ?? params.command ?? params.filePath,
+        kind: "progress",
+        label: "initialized",
+        detail: result.version ?? result.protocolVersion,
+        category: "status",
       },
     };
   }
 
-  /** approval/respond → approval_resolved */
+  /** serverRequest/resolved 通知 → approval_resolved（UI 同步） */
+  mapServerRequestResolved(params: CodexServerRequestResolvedParams): NormalizedRuntimeEvent {
+    const ts = new Date().toISOString();
+    const mapped = params.decision === "allow" ? { type: "accept" as const }
+      : params.decision === "allowSession" ? { type: "acceptForSession" as const }
+      : { type: "decline" as const };
+    return {
+      providerId: this.providerId,
+      timestamp: ts,
+      rawProviderEvent: this.developerMode ? { method: "serverRequest/resolved", params } : undefined,
+      payload: {
+        kind: "approval_resolved",
+        requestId: `codex-req-${params.requestId}`,
+        response: mapped,
+        source: "user",
+      },
+    };
+  }
+
+  /** approval 已解决 → approval_resolved（由 provider 在回复 server-request 后调用） */
   mapApprovalResolved(requestId: string, response: "allow" | "allowSession" | "deny" | "cancel", source: "user" | "session_allow" | "session_deny" | "mode"): NormalizedRuntimeEvent {
     const ts = new Date().toISOString();
     const mapped = response === "allow" ? { type: "accept" as const }
@@ -216,7 +226,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
-      rawProviderEvent: this.developerMode ? { method: "approval/respond", requestId, response } : undefined,
+      rawProviderEvent: this.developerMode ? { method: "approval-resolved", requestId, response } : undefined,
       payload: {
         kind: "approval_resolved",
         requestId,

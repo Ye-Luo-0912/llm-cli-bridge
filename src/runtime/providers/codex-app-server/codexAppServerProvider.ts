@@ -2,23 +2,18 @@
 //
 // 主目标 provider：通过 codex app-server JSON-RPC over stdio JSONL 接入 Bridge Core。
 //
-// 当前为 skeleton：
-// - isAvailable(cwd)：探测 codex 命令是否存在（spawn `codex --version`）；fixture 测试绕过
-// - buildPlan：通过 buildCodexAppServerEffectiveRunPlan 构造（backend="codex-app-server"）
-// - run：
-//   1. AppServerProcessManager.spawn(codex app-server)
-//   2. JsonRpcClient.send("thread/start", options.threadStart) → threadId
-//   3. JsonRpcClient.send("turn/start", { ...options.turnStart, threadId })
-//   4. 注册通知 handler（item/started, item/text/delta, item/argument/delta, item/completed,
-//      approval/request, approval/respond, turn/completed, turn/failed）
-//   5. 通过 CodexAppServerEventMapper 映射为 NormalizedRuntimeEvent，yield 到 AsyncIterable
-//   6. approval/request → PermissionBoundary.requestApproval；若 pending 则 waitForApproval
-//      挂起，UI 决策后通过 JsonRpcClient.notify("approval/respond", ...) 回传
-//   7. turn/completed / turn/failed / process exit → 关闭流
-// - cancel：AppServerProcessManager.kill() + PermissionBoundary.cancelAllPending()
-// - resume：通过 CodexAppServerSessionMapper 取 codex threadId，复用 run 路径
+// V2.17-A Completion wire 协议校准：
+// 1. 每个连接先 send `initialize`，收到 result 后 notify `initialized`。
+// 2. initialize 后再 send `thread/start`，response result shape: { thread: { id, sessionId? } }。
+// 3. send `turn/start`，input 为 content item array（[{ type:"text", text:userPrompt }, ...]）。
+// 4. approval 不走 notification，而是 server-initiated request：
+//    - item/commandExecution/requestApproval（带 id）
+//    - item/fileChange/requestApproval（带 id）
+//    client 按原 id 返回 result（{ decision: "allow"|"allowSession"|"deny" }）。
+//    item/tool/requestUserInput 同为 server request，当前转 unsupported/pending。
+// 5. serverRequest/resolved 通知用于 UI 同步（标记 approval 已落地）。
 //
-// 当前环境无 codex CLI；run() 仍可被 fixture JSONL 测试驱动（通过 runFromFixtureEvents）。
+// 当前环境无 codex CLI；run() 仍可被 fixture JSONL 测试驱动（通过 EventMapper 直接测）。
 
 import type { LLMBridgeSettings } from "../../../types";
 import type {
@@ -38,15 +33,20 @@ import {
 import { AppServerProcessManager } from "./appServerProcessManager";
 import { JsonRpcClient } from "./jsonRpcClient";
 import type {
-  CodexApprovalRequestParams,
+  CodexInitializeResult,
   CodexItemArgumentDeltaParams,
   CodexItemCompletedParams,
   CodexItemStartedParams,
   CodexItemTextDeltaParams,
+  CodexServerRequestResolvedParams,
+  CodexThreadStartResult,
   CodexTurnCompletedParams,
   CodexTurnFailedParams,
 } from "./schema";
 import { execFileSync } from "child_process";
+
+const CLIENT_NAME = "llm-cli-bridge";
+const CLIENT_VERSION = "2.17-A";
 
 /**
  * CodexAppServerProvider：通过 codex app-server JSON-RPC 接入 Bridge Core。
@@ -57,7 +57,6 @@ export class CodexAppServerProvider implements RuntimeProvider {
   readonly providerId = "codex-app-server" as const;
   readonly displayName = "Codex app-server";
 
-  private readonly eventMapper: CodexAppServerEventMapper;
   private readonly approvalMapper: CodexAppServerApprovalMapper;
   private readonly sessionMapper: CodexAppServerSessionMapper;
   /** 当前活动进程（cancel 用） */
@@ -67,9 +66,8 @@ export class CodexAppServerProvider implements RuntimeProvider {
   /** 当前 runId（cancel 配对） */
   private currentRunId: string | null = null;
 
-  constructor(developerMode: boolean = false) {
-    // developerMode 由 run() 内部根据 settings 注入；这里给一个默认值供 isAvailable 等无 settings 调用使用
-    this.eventMapper = new CodexAppServerEventMapper(this.providerId, developerMode);
+  constructor(_developerMode: boolean = false) {
+    // developerMode 由 run() 内部根据 settings 注入；构造时无需缓存
     this.approvalMapper = new CodexAppServerApprovalMapper(this.providerId);
     this.sessionMapper = new CodexAppServerSessionMapper();
   }
@@ -94,7 +92,7 @@ export class CodexAppServerProvider implements RuntimeProvider {
 
   async *run(ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     const developerMode = !!settings.developerMode;
-    // 重新构造带 developerMode 的 eventMapper（保证本 run 的 rawProviderEvent 正确填充）
+    // 每个 run 用独立 eventMapper，保证 rawProviderEvent 正确填充
     const eventMapper = new CodexAppServerEventMapper(this.providerId, developerMode);
 
     // 派生 codex 运行参数
@@ -141,7 +139,7 @@ export class CodexAppServerProvider implements RuntimeProvider {
       }
     };
 
-    // 注册通知 handler
+    // 注册通知 handler（item/* 事件）
     const unreg: Array<() => void> = [];
 
     unreg.push(client.onNotification("item/started", (params) => {
@@ -159,55 +157,13 @@ export class CodexAppServerProvider implements RuntimeProvider {
     unreg.push(client.onNotification("item/completed", (params) => {
       push(eventMapper.mapItemCompleted(params as CodexItemCompletedParams));
     }));
-    unreg.push(client.onNotification("approval/request", (params) => {
-      const codexParams = params as CodexApprovalRequestParams;
-      const approvalReq = this.approvalMapper.mapApprovalRequest(codexParams);
-      const decision = ctx.permission.requestApproval(approvalReq);
-      // 通知 UI（无论是否 pending）
-      push({
-        providerId: this.providerId,
-        timestamp: new Date().toISOString(),
-        rawProviderEvent: developerMode ? { method: "approval/request", params } : undefined,
-        payload: {
-          kind: "approval_request",
-          requestId: approvalReq.requestId,
-          toolName: approvalReq.toolName,
-          description: approvalReq.description,
-          riskLevel: approvalReq.riskLevel,
-          riskReason: approvalReq.riskReason,
-          inputSummary: approvalReq.inputSummary,
-          mergeKey: approvalReq.mergeKey,
-        },
-      });
-      if (decision === "auto-allow") {
-        client.notify("approval/respond", this.approvalMapper.mapApprovalResponse(
-          { type: "accept" }, codexParams.requestId,
-        ));
-        push(eventMapper.mapApprovalResolved(approvalReq.requestId, "allow", "mode"));
-      } else if (decision === "auto-deny") {
-        client.notify("approval/respond", this.approvalMapper.mapApprovalResponse(
-          { type: "decline" }, codexParams.requestId,
-        ));
-        push(eventMapper.mapApprovalResolved(approvalReq.requestId, "deny", "mode"));
-      } else {
-        // pending：等待 UI 决策（异步，不阻塞事件流）
-        void (async () => {
-          try {
-            const result = await ctx.permission.waitForApproval(approvalReq.requestId);
-            client.notify("approval/respond",
-              this.approvalMapper.mapApprovalResponse(result.response, codexParams.requestId));
-            push(eventMapper.mapApprovalResolved(approvalReq.requestId,
-              result.response.type === "accept" ? "allow"
-                : result.response.type === "acceptForSession" ? "allowSession"
-                : result.response.type === "decline" ? "deny"
-                : "cancel",
-              result.source));
-          } catch {
-            // cancelAllPending 已被调用；进程将被 kill，不回传
-          }
-        })();
-      }
+
+    // serverRequest/resolved 通知：标记 approval 已落地（UI 同步）
+    unreg.push(client.onNotification("serverRequest/resolved", (params) => {
+      const resolved = params as CodexServerRequestResolvedParams;
+      push(eventMapper.mapServerRequestResolved(resolved));
     }));
+
     unreg.push(client.onNotification("turn/completed", (params) => {
       push(eventMapper.mapTurnCompleted(params as CodexTurnCompletedParams));
       signalDone();
@@ -215,6 +171,38 @@ export class CodexAppServerProvider implements RuntimeProvider {
     unreg.push(client.onNotification("turn/failed", (params) => {
       push(eventMapper.mapTurnFailed(params as CodexTurnFailedParams));
       signalDone();
+    }));
+
+    // approval server-request handler：item/commandExecution/requestApproval
+    unreg.push(client.onServerRequest(
+      "item/commandExecution/requestApproval",
+      (params, serverRequestId) => {
+        const approvalReq = this.approvalMapper.mapApprovalRequest({
+          method: "item/commandExecution/requestApproval",
+          serverRequestId,
+          params: params as never,
+        });
+        return this.handleApprovalRequest(approvalReq, ctx, client, eventMapper, push, developerMode, params);
+      },
+    ));
+
+    // approval server-request handler：item/fileChange/requestApproval
+    unreg.push(client.onServerRequest(
+      "item/fileChange/requestApproval",
+      (params, serverRequestId) => {
+        const approvalReq = this.approvalMapper.mapApprovalRequest({
+          method: "item/fileChange/requestApproval",
+          serverRequestId,
+          params: params as never,
+        });
+        return this.handleApprovalRequest(approvalReq, ctx, client, eventMapper, push, developerMode, params);
+      },
+    ));
+
+    // item/tool/requestUserInput：当前转 unsupported/pending
+    // 返回 cancelled，让 server 知道 client 暂不支持交互式用户输入
+    unreg.push(client.onServerRequest("item/tool/requestUserInput", (_params, _id) => {
+      return { cancelled: true as const };
     }));
 
     // 进程退出 → 兜底 signalDone
@@ -244,17 +232,30 @@ export class CodexAppServerProvider implements RuntimeProvider {
     }));
 
     try {
-      // thread/start
-      const threadResult = await client.send<{ threadId: string; sessionId?: string }>(
+      // 1. initialize handshake（每个连接必须先 send initialize，再 notify initialized）
+      const initResult = await client.send<CodexInitializeResult>("initialize", {
+        clientName: CLIENT_NAME,
+        clientVersion: CLIENT_VERSION,
+        cwd: ctx.plan.cwd,
+      });
+      push(eventMapper.mapInitialized(initResult));
+
+      // notify initialized（handshake 完成）
+      client.notify("initialized");
+
+      // 2. thread/start（response result shape: { thread: { id, sessionId? } }）
+      const threadResult = await client.send<CodexThreadStartResult>(
         "thread/start", options.threadStart,
       );
-      this.sessionMapper.register(ctx.runId, threadResult.threadId, threadResult.sessionId);
-      push(eventMapper.mapThreadStarted(threadResult.threadId, threadResult.sessionId));
+      const threadId = threadResult.thread.id;
+      const sessionId = threadResult.thread.sessionId;
+      this.sessionMapper.register(ctx.runId, threadId, sessionId);
+      push(eventMapper.mapThreadStarted(threadId, sessionId));
 
-      // turn/start
+      // 3. turn/start（input 为 content item array）
       await client.send("turn/start", {
         ...options.turnStart,
-        threadId: threadResult.threadId,
+        threadId,
       });
 
       // 等待事件流直到 done
@@ -283,8 +284,7 @@ export class CodexAppServerProvider implements RuntimeProvider {
     }
   }
 
-  cancel(runId: string): void {
-    void runId;
+  cancel(_runId: string): void {
     if (this.currentClient) {
       this.currentClient.close();
     }
@@ -311,10 +311,64 @@ export class CodexAppServerProvider implements RuntimeProvider {
   // ---------- 内部 ----------
 
   /**
-   * 暴露 EventMapper（测试用：fixture JSONL 直接驱动）。
+   * 处理 approval server-request：返回 Promise<result>，client 按 id 自动回复。
+   *
+   * 流程：
+   * 1. PermissionBoundary.requestApproval：返回 pending/auto-allow/auto-deny
+   * 2. 若 auto：立即返回 decision
+   * 3. 若 pending：调 waitForApproval 异步等待用户决策，resolve 后返回 decision
    */
-  getEventMapper(developerMode: boolean): CodexAppServerEventMapper {
-    return new CodexAppServerEventMapper(this.providerId, developerMode);
+  private handleApprovalRequest(
+    approvalReq: import("../../core/types").ApprovalRequest,
+    ctx: RunContext,
+    client: JsonRpcClient,
+    eventMapper: CodexAppServerEventMapper,
+    push: (ev: NormalizedRuntimeEvent | null) => void,
+    developerMode: boolean,
+    rawParams: unknown,
+  ): Promise<unknown> {
+    const decision = ctx.permission.requestApproval(approvalReq);
+    // 通知 UI（无论是否 pending）
+    push({
+      providerId: this.providerId,
+      timestamp: new Date().toISOString(),
+      rawProviderEvent: developerMode ? { method: "approval-server-request", params: rawParams } : undefined,
+      payload: {
+        kind: "approval_request",
+        requestId: approvalReq.requestId,
+        toolName: approvalReq.toolName,
+        description: approvalReq.description,
+        riskLevel: approvalReq.riskLevel,
+        riskReason: approvalReq.riskReason,
+        inputSummary: approvalReq.inputSummary,
+        mergeKey: approvalReq.mergeKey,
+      },
+    });
+
+    if (decision === "auto-allow") {
+      push(eventMapper.mapApprovalResolved(approvalReq.requestId, "allow", "mode"));
+      return Promise.resolve(this.approvalMapper.mapServerRequestResult({ type: "accept" }));
+    }
+    if (decision === "auto-deny") {
+      push(eventMapper.mapApprovalResolved(approvalReq.requestId, "deny", "mode"));
+      return Promise.resolve(this.approvalMapper.mapServerRequestResult({ type: "decline" }));
+    }
+    // pending：异步等待 UI 决策
+    return ctx.permission.waitForApproval(approvalReq.requestId).then(
+      (result) => {
+        push(eventMapper.mapApprovalResolved(approvalReq.requestId,
+          result.response.type === "accept" ? "allow"
+            : result.response.type === "acceptForSession" ? "allowSession"
+            : "deny",
+          result.source));
+        return this.approvalMapper.mapServerRequestResult(result.response);
+      },
+      () => {
+        // cancelAllPending：返回 deny（server 协议无 cancel outcome）
+        push(eventMapper.mapApprovalResolved(approvalReq.requestId, "deny", "mode"));
+        return this.approvalMapper.mapServerRequestResult({ type: "decline" });
+      },
+    );
   }
 
   /**

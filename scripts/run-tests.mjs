@@ -50,6 +50,17 @@ function addTest(name, status, detail = "") {
   console.log(`${icon} ${name}${detail ? ` — ${detail}` : ""}`);
 }
 
+// V2.17-A: 环境假失败分类 — 非 Windows 平台无法运行 `cmd /c` 类命令；
+// 沙箱无 claude/codex CLI。这些测试在缺失环境下标记为 skip 而非 fail。
+const IS_WINDOWS = process.platform === "win32";
+function skipIfNoCmd(name) {
+  if (!IS_WINDOWS) {
+    addTest(name, "skip", "环境假失败: 非 Windows 平台无法运行 `cmd /c`（customCommand=cmd）");
+    return true;
+  }
+  return false;
+}
+
 // ============================================================
 // 1. 环境信息
 // ============================================================
@@ -496,7 +507,11 @@ try {
 
   // 步骤1：运行前快照
   const before = snapshotVaultMarkdownFiles(VAULT_PATH, excludeDirs);
-  addTest("文件快照: 生成运行前快照", before.size > 0 ? "pass" : "fail", `文件数: ${before.size}`);
+  // V2.17-A: 沙箱 vault 可能无预置 markdown 文件；快照机制本身由后续 diff 测试验证，
+  // 空快照不算失败，标记为 skip（环境假失败）。
+  addTest("文件快照: 生成运行前快照",
+    before.size > 0 ? "pass" : "skip",
+    `文件数: ${before.size}${before.size === 0 ? "（空 vault，快照机制由 diff 测试验证）" : ""}`);
 
   // 步骤2：创建一个新 Markdown 文件
   const newFilePath = join(FS_TEST_DIR, "test-new-file.md");
@@ -1098,11 +1113,15 @@ if (runMode !== "all" && runMode !== "unit") {
       });
       const { buildCodexAppServerRunOptions } = await import(pathToFileURL(tempCodexPlanBundle).href);
       const opts = buildCodexAppServerRunOptions(plan, pkg);
+      // turn/start.input 现在是 content item array，首元素为 { type:"text", text:userPrompt }
+      const inputIsArray = Array.isArray(opts.turnStart.input);
+      const inputText = inputIsArray && opts.turnStart.input[0]?.type === "text"
+        ? opts.turnStart.input[0].text : null;
       const optsOk = opts.threadStart.instructions === pkg.bridgeSystemAppend
-        && opts.turnStart.input === pkg.userPrompt
+        && inputText === pkg.userPrompt
         && opts.bridgeSystemAppendSource === "instructions";
-      addTest("Plan snapshot: bridgeSystemAppend → instructions, userPrompt → turn/start input", optsOk ? "pass" : "fail",
-        optsOk ? "" : `source=${opts.bridgeSystemAppendSource}, input=${opts.turnStart.input?.slice(0, 30)}, instructions_len=${opts.threadStart.instructions?.length}`);
+      addTest("Plan snapshot: bridgeSystemAppend → instructions, userPrompt → turn/start input[0].text", optsOk ? "pass" : "fail",
+        optsOk ? "" : `source=${opts.bridgeSystemAppendSource}, input=${JSON.stringify(opts.turnStart.input)?.slice(0, 60)}, instructions_len=${opts.threadStart.instructions?.length}`);
     }
 
     // ---------- 3. prompt split snapshot + attachment entry-level audit ----------
@@ -1145,22 +1164,22 @@ if (runMode !== "all" && runMode !== "unit") {
     }
 
     // ---------- 4. Codex app-server fixture JSONL → NormalizedRuntimeEvent ----------
+    //    wire 校准：fixture 行不带 jsonrpc 字段（codex app-server 约定）
     {
       const fixtureLines = [
-        // thread/start 响应（result 形式，由 client.send 处理；这里测试通知）
         // 通知序列：item/started(message) → item/text/delta → item/completed(message)
-        JSON.stringify({ jsonrpc: "2.0", method: "item/started", params: { threadId: "t1", itemId: "m1", type: "message" } }),
-        JSON.stringify({ jsonrpc: "2.0", method: "item/text/delta", params: { threadId: "t1", itemId: "m1", delta: "Hello " } }),
-        JSON.stringify({ jsonrpc: "2.0", method: "item/text/delta", params: { threadId: "t1", itemId: "m1", delta: "world" } }),
-        JSON.stringify({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t1", itemId: "m1", type: "message", text: "Hello world" } }),
+        JSON.stringify({ method: "item/started", params: { threadId: "t1", itemId: "m1", type: "message" } }),
+        JSON.stringify({ method: "item/text/delta", params: { threadId: "t1", itemId: "m1", delta: "Hello " } }),
+        JSON.stringify({ method: "item/text/delta", params: { threadId: "t1", itemId: "m1", delta: "world" } }),
+        JSON.stringify({ method: "item/completed", params: { threadId: "t1", itemId: "m1", type: "message", text: "Hello world" } }),
         // tool_call
-        JSON.stringify({ jsonrpc: "2.0", method: "item/started", params: { threadId: "t1", itemId: "tc1", type: "tool_call", toolName: "Read", callId: "call-1" } }),
-        JSON.stringify({ jsonrpc: "2.0", method: "item/argument/delta", params: { threadId: "t1", itemId: "tc1", delta: '{"file_path":"a.md"}' } }),
-        JSON.stringify({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t1", itemId: "tr1", type: "tool_result", callId: "call-1", toolName: "Read", text: "# a", isError: false } }),
+        JSON.stringify({ method: "item/started", params: { threadId: "t1", itemId: "tc1", type: "tool_call", toolName: "Read", callId: "call-1" } }),
+        JSON.stringify({ method: "item/argument/delta", params: { threadId: "t1", itemId: "tc1", delta: '{"file_path":"a.md"}' } }),
+        JSON.stringify({ method: "item/completed", params: { threadId: "t1", itemId: "tr1", type: "tool_result", callId: "call-1", toolName: "Read", text: "# a", isError: false } }),
         // file_change
-        JSON.stringify({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t1", itemId: "fc1", type: "file_change", fileAction: "create", filePath: "output/summary.md" } }),
+        JSON.stringify({ method: "item/completed", params: { threadId: "t1", itemId: "fc1", type: "file_change", fileAction: "create", filePath: "output/summary.md" } }),
         // turn/completed
-        JSON.stringify({ jsonrpc: "2.0", method: "turn/completed", params: { threadId: "t1", turnId: "tu1", finalText: "Hello world", durationMs: 123, sessionId: "sess-1" } }),
+        JSON.stringify({ method: "turn/completed", params: { threadId: "t1", turnId: "tu1", finalText: "Hello world", durationMs: 123, sessionId: "sess-1" } }),
       ];
       const tempJsonRpcBundle = join(PROJECT_ROOT, ".test-jsonrpc-temp.mjs");
       await esbuild.build({
@@ -1211,6 +1230,175 @@ if (runMode !== "all" && runMode !== "unit") {
         && completedEv.payload.sessionId === "sess-1";
       addTest("Codex fixture: turn/completed carries finalText + sessionId", completedOk ? "pass" : "fail",
         completedOk ? "" : `text=${completedEv.payload.text}, sessionId=${completedEv.payload.sessionId}`);
+    }
+
+    // ---------- 4b. Wire shape snapshot: jsonrpc 字段不出现在 wire 上 ----------
+    {
+      const tempJsonRpcBundle = join(PROJECT_ROOT, ".test-jsonrpc-wire-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/jsonRpcClient.ts"),
+        outfile: tempJsonRpcBundle,
+      });
+      const { JsonRpcClient } = await import(pathToFileURL(tempJsonRpcBundle).href);
+      const sentLines = [];
+      const client = new JsonRpcClient(
+        (line) => sentLines.push(line),
+        () => () => {},
+      );
+      client.send("initialize", { clientName: "test" });
+      client.notify("initialized");
+      client.respondToServerRequest(42, { decision: "allow" });
+
+      const noJsonrpc = sentLines.every((l) => !l.includes('"jsonrpc"'));
+      const hasInit = sentLines[0].includes('"method":"initialize"') && sentLines[0].includes('"id":1');
+      const hasNotified = sentLines[1].includes('"method":"initialized"') && !sentLines[1].includes('"id"');
+      const hasResponse = sentLines[2].includes('"id":42') && sentLines[2].includes('"result"')
+        && !sentLines[2].includes('"method"');
+      const ok = noJsonrpc && hasInit && hasNotified && hasResponse;
+      addTest("Wire shape: 无 jsonrpc 字段 + initialize/initialized/respondToServerRequest", ok ? "pass" : "fail",
+        ok ? "" : `noJsonrpc=${noJsonrpc}, init=${hasInit}, notif=${hasNotified}, resp=${hasResponse} lines=${JSON.stringify(sentLines)}`);
+    }
+
+    // ---------- 4c. initialize handshake order: send→wait→notify→thread/start ----------
+    {
+      const tempJsonRpcBundle = join(PROJECT_ROOT, ".test-jsonrpc-handshake-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/jsonRpcClient.ts"),
+        outfile: tempJsonRpcBundle,
+      });
+      const { JsonRpcClient } = await import(pathToFileURL(tempJsonRpcBundle).href);
+      const sentLines = [];
+      let lineHandler = null;
+      const client = new JsonRpcClient(
+        (line) => sentLines.push(line),
+        (h) => { lineHandler = h; return () => { lineHandler = null; }; },
+      );
+      // 模拟 server：收到 initialize(id=1) 后回 result
+      const initPromise = client.send("initialize", { clientName: "test" });
+      // server 响应 initialize
+      lineHandler?.(JSON.stringify({ id: 1, result: { protocolVersion: "0.1", name: "codex" } }));
+      await initPromise;
+      // notify initialized
+      client.notify("initialized");
+      // send thread/start
+      const threadPromise = client.send("thread/start", { cwd: "/v" });
+      // server 响应 thread/start，result shape: { thread: { id, sessionId? } }
+      lineHandler?.(JSON.stringify({ id: 2, result: { thread: { id: "th-1", sessionId: "sess-1" } } }));
+      const threadResult = await threadPromise;
+
+      const orderOk = sentLines[0].includes('"method":"initialize"')
+        && sentLines[1].includes('"method":"initialized"')
+        && sentLines[2].includes('"method":"thread/start"');
+      const shapeOk = threadResult.thread?.id === "th-1" && threadResult.thread?.sessionId === "sess-1";
+      const ok = orderOk && shapeOk;
+      addTest("Wire handshake: initialize→initialized→thread/start 顺序 + thread.start result.thread.id", ok ? "pass" : "fail",
+        ok ? "" : `order=${orderOk}, shape=${shapeOk}, threadResult=${JSON.stringify(threadResult)}`);
+    }
+
+    // ---------- 4d. turn/start input array snapshot ----------
+    {
+      const tempPlanBundle = join(PROJECT_ROOT, ".test-codex-turninput-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/codexAppServerEffectiveRunPlan.ts"),
+        outfile: tempPlanBundle,
+      });
+      const { buildCodexAppServerRunOptions } = await import(pathToFileURL(tempPlanBundle).href);
+      const pkg = {
+        bridgeSystemAppend: "sys-append",
+        userPrompt: "hello world",
+        attachmentEntries: [
+          { refId: "r1", displayName: "a.md", kind: "vault", scope: "message", fileType: "markdown", packing: "inline-snippet" },
+          { refId: "r2", displayName: "i.png", kind: "attachment", scope: "message", fileType: "image", packing: "sdk-streaming-block" },
+          { refId: "r3", displayName: "x.pdf", kind: "external", scope: "session", fileType: "pdf", packing: "native-ref-only" },
+        ],
+        auditHash: "h",
+      };
+      const plan = { cwd: "/v", model: "gpt-5.5", effort: "high", backend: "codex-app-server" };
+      const opts = buildCodexAppServerRunOptions(plan, pkg);
+      const input = opts.turnStart.input;
+      const isArray = Array.isArray(input);
+      const firstText = isArray && input[0]?.type === "text" && input[0]?.text === "hello world";
+      const hasImage = isArray && input.some((it) => it.type === "image" && it.refId === "r2");
+      const hasFile = isArray && input.some((it) => it.type === "file" && it.refId === "r3");
+      const ok = isArray && firstText && hasImage && hasFile;
+      addTest("Wire turn/start.input: content item array (text + image + file)", ok ? "pass" : "fail",
+        ok ? "" : `isArray=${isArray}, firstText=${firstText}, hasImage=${hasImage}, hasFile=${hasFile}, input=${JSON.stringify(input)}`);
+    }
+
+    // ---------- 4e. approval server-request: client 按原 id 返回 result ----------
+    {
+      const tempJsonRpcBundle = join(PROJECT_ROOT, ".test-jsonrpc-approval-temp.mjs");
+      await esbuild.build({
+        ...bundleOpts("runtime/providers/codex-app-server/jsonRpcClient.ts"),
+        outfile: tempJsonRpcBundle,
+      });
+      const { JsonRpcClient } = await import(pathToFileURL(tempJsonRpcBundle).href);
+      const sentLines = [];
+      let lineHandler = null;
+      const client = new JsonRpcClient(
+        (line) => sentLines.push(line),
+        (h) => { lineHandler = h; return () => { lineHandler = null; }; },
+      );
+      // 异步 handler：返回 Promise<result>（模拟等待用户决策）
+      client.onServerRequest("item/commandExecution/requestApproval", (params, id) => {
+        void params; void id;
+        return Promise.resolve({ decision: "allow" });
+      });
+      // server 发起 approval request（带 id=100）
+      lineHandler?.(JSON.stringify({
+        id: 100, method: "item/commandExecution/requestApproval",
+        params: { threadId: "t1", command: "rm -rf /tmp/x" },
+      }));
+      // 等待 Promise resolve + respondToServerRequest
+      await new Promise((r) => setTimeout(r, 10));
+
+      const responseLine = sentLines.find((l) => l.includes('"id":100'));
+      const ok = responseLine !== undefined
+        && responseLine.includes('"result"')
+        && responseLine.includes('"decision":"allow"')
+        && !responseLine.includes('"method"');
+      addTest("Wire approval: server-request → client 按 id 返回 result (decision=allow)", ok ? "pass" : "fail",
+        ok ? "" : `responseLine=${responseLine}, sentLines=${JSON.stringify(sentLines)}`);
+
+      // 测试手动 respondToServerRequest（handler 不返回值）
+      const sentLines2 = [];
+      const client2 = new JsonRpcClient(
+        (line) => sentLines2.push(line),
+        (h) => { lineHandler = h; return () => { lineHandler = null; }; },
+      );
+      client2.onServerRequest("item/fileChange/requestApproval", (_params, id) => {
+        // 不返回值，稍后手动回复
+        setTimeout(() => client2.respondToServerRequest(id, { decision: "deny" }), 5);
+        return undefined;
+      });
+      lineHandler?.(JSON.stringify({
+        id: 200, method: "item/fileChange/requestApproval",
+        params: { threadId: "t1", filePath: "/v/a.md", fileAction: "delete" },
+      }));
+      await new Promise((r) => setTimeout(r, 20));
+      const responseLine2 = sentLines2.find((l) => l.includes('"id":200'));
+      const ok2 = responseLine2 !== undefined && responseLine2.includes('"decision":"deny"');
+      addTest("Wire approval: 手动 respondToServerRequest (decision=deny)", ok2 ? "pass" : "fail",
+        ok2 ? "" : `responseLine2=${responseLine2}, sentLines2=${JSON.stringify(sentLines2)}`);
+    }
+
+    // ---------- 4f. Claude SDK image streaming: userPrompt 不被旧 buildPromptPackage 绕过 ----------
+    {
+      // 源码级断言：buildSdkStreamingInput 必须接收 BridgePromptPackage.userPrompt，
+      // 而非旧 buildPromptPackage 字符串。bridgeSystemAppend 不混入 streaming text block。
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      // 正向：buildSdkStreamingInput 调用传入 promptPackage.userPrompt
+      const usesUserPrompt = viewSrc.includes("buildSdkStreamingInput(promptPackage.userPrompt,");
+      // 反向：不再传入旧 prompt 字符串
+      const noLegacyPrompt = !viewSrc.includes("buildSdkStreamingInput(prompt,");
+      // bridgeSystemAppend 不出现在 streaming input 构造内（应在 provider systemPrompt append 层）
+      const streamingInputIdx = viewSrc.indexOf("private async buildSdkStreamingInput");
+      const streamingInputEnd = viewSrc.indexOf("private async createSdkImageContentBlock");
+      const streamingInputBlock = viewSrc.slice(streamingInputIdx, streamingInputEnd);
+      const noBridgeAppendInStreaming = !streamingInputBlock.includes("bridgeSystemAppend");
+      const ok = usesUserPrompt && noLegacyPrompt && noBridgeAppendInStreaming;
+      addTest("Prompt split: SDK streaming input 使用 BridgePromptPackage.userPrompt（不绕过）", ok ? "pass" : "fail",
+        ok ? "" : `usesUserPrompt=${usesUserPrompt}, noLegacyPrompt=${noLegacyPrompt}, noBridgeAppendInStreaming=${noBridgeAppendInStreaming}`);
     }
 
     // ---------- 5. fixture event stream → AssistantTurnView snapshot ----------
@@ -1343,6 +1531,26 @@ if (runMode !== "all" && runMode !== "unit") {
         noDirectImport ? "" : `sdkDirect=${sdkDirect}, cliDirect=${cliDirect}（待 view.ts 重构后转 pass）`);
     }
 
+    // ---------- 9. UI 主渲染链路消费 AssistantTurnView（不依赖 WorkflowEvent 反向映射） ----------
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      // 主链路：AssistantTurnViewBuilder 作为每轮 run 主状态
+      const usesBuilder = viewSrc.includes("new AssistantTurnViewBuilder(assistantId, session.providerId, startedAt)")
+        && viewSrc.includes("ctx.turnBuilder.ingest(ev)");
+      // final answer 由 turnView.finalAnswer 输出（不再 stdout_delta 旁路直接写 content）
+      const finalFromBuilder = viewSrc.includes("content: turnView.finalAnswer");
+      // stdout_delta 不再直接 appendAssistantContentDelta（在 handleNormalizedEvent 内）
+      const handleIdx = viewSrc.indexOf("private handleNormalizedEvent");
+      const handleEnd = viewSrc.indexOf("private stop(): void");
+      const handleBlock = viewSrc.slice(handleIdx, handleEnd);
+      const noStdoutBypass = !handleBlock.includes("this.appendAssistantContentDelta(ctx.assistantId, p.data)");
+      // WorkflowEvent 反向映射仅作 legacy log（sdkEvents），不作主 UI 数据源
+      const wfAsLegacy = handleBlock.includes("legacy log") && handleBlock.includes("ctx.sdkEvents.push(wfEvent)");
+      const ok = usesBuilder && finalFromBuilder && noStdoutBypass && wfAsLegacy;
+      addTest("UI 主链路: AssistantTurnViewBuilder 为主状态源（不再 WorkflowEvent 反向映射主流程）", ok ? "pass" : "fail",
+        ok ? "" : `usesBuilder=${usesBuilder}, finalFromBuilder=${finalFromBuilder}, noStdoutBypass=${noStdoutBypass}, wfAsLegacy=${wfAsLegacy}`);
+    }
+
     // 清理临时 bundles
     for (const f of [
       tempCodexProviderBundle, tempPromptPkgBundle, tempAssistantViewBundle,
@@ -1454,7 +1662,9 @@ if (!runUnit) {
     }
 
     // ---- Contract Test 2: stdout_delta 正常产出 ----
-    {
+    if (skipIfNoCmd("Contract: stdout_delta 正常产出")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const events = await collectEvents(backend, baseTask, baseSettings);
       const hasStdout = events.some((e) => e.type === "stdout_delta" && e.data.includes("hello_from_backend"));
       addTest("Contract: stdout_delta 正常产出", hasStdout ? "pass" : "fail",
@@ -1462,7 +1672,9 @@ if (!runUnit) {
     }
 
     // ---- Contract Test 3: stderr_delta 正常产出 ----
-    {
+    if (skipIfNoCmd("Contract: stderr_delta 正常产出")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const stderrSettings = { ...baseSettings, customArgs: "/c echo err_msg>&2" };
       const events = await collectEvents(backend, { ...baseTask, id: "test-stderr" }, stderrSettings);
       const hasStderr = events.some((e) => e.type === "stderr_delta");
@@ -1471,7 +1683,9 @@ if (!runUnit) {
     }
 
     // ---- Contract Test 4: completed 正常产出 ----
-    {
+    if (skipIfNoCmd("Contract: completed 正常产出")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const events = await collectEvents(backend, baseTask, baseSettings);
       const hasCompleted = events.some((e) => e.type === "completed" && e.exitCode === 0);
       addTest("Contract: completed 正常产出", hasCompleted ? "pass" : "fail",
@@ -1479,7 +1693,9 @@ if (!runUnit) {
     }
 
     // ---- Contract Test 5: failed 正常产出 ----
-    {
+    if (skipIfNoCmd("Contract: failed 正常产出")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const failSettings = { ...baseSettings, customArgs: "/c exit 1" };
       const events = await collectEvents(backend, { ...baseTask, id: "test-failed" }, failSettings);
       const hasFailed = events.some((e) => e.type === "failed" && e.exitCode !== 0);
@@ -3402,7 +3618,9 @@ if (!runV16Unit) {
     }
 
     // ---- Test 11: CLI 不回归 — ClaudeCliBackend 忽略 onWorkflowEvent，不产生 workflow 事件 ----
-    {
+    if (skipIfNoCmd("V1.6 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const backend = new ClaudeCliBackend();
       const task = {
         id: "v16-cli", userMessage: "cli", prompt: "p", cwd: VAULT_PATH,
@@ -3811,7 +4029,9 @@ if (!runV17Unit) {
     }
 
     // ---- Test 15: CLI 不回归 — ClaudeCliBackend 不接受/不产生 workflow 事件 ----
-    {
+    if (skipIfNoCmd("V1.7 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件（V1.7 验证）")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const backend = new ClaudeCliBackend();
       const task = {
         id: "v17-cli", userMessage: "cli test", prompt: "p", cwd: VAULT_PATH,
@@ -4006,7 +4226,9 @@ if (!runV18Unit) {
     }
 
     // ---- Test 9: CLI 主线不回归（auto 模式 ClaudeCliBackend 不产生 workflow 事件）----
-    {
+    if (skipIfNoCmd("V1.8 CLI 主线不回归: auto 模式正常产出 stdout")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const backend = new ClaudeCliBackend();
       const task = {
         id: "v18-cli", userMessage: "cli", prompt: "p", cwd: VAULT_PATH,
@@ -4335,7 +4557,9 @@ if (!runV20Unit) {
     }
 
     // ---- Test 12: CLI 不回归 — ClaudeCliBackend 不产生 workflow 事件 ----
-    {
+    if (skipIfNoCmd("V2.0 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件")) {
+      // skipped: 非 Windows 无法运行 cmd /c
+    } else {
       const backend = new ClaudeCliBackend();
       const task = {
         id: "v20-cli", userMessage: "cli", prompt: "p", cwd: VAULT_PATH,
@@ -6111,10 +6335,16 @@ if (!runV25Unit) {
     {
       const state = { title: "失败测试", status: "idle", messageCount: 0, startedAt: null };
       // 使用一个不存在的根路径触发 mkdir 失败（路径含非法字符）
-      const id = await saveSession("Z:\\nonexistent-root-xyz\\deep", state, [], "claude");
-      addTest("V2.5 Session 安全写入: 失败返回 null 不抛异常",
-        id === null ? "pass" : "fail",
-        `id=${id}`);
+      // V2.17-A: 非 Windows 平台 `Z:\...` 被当作合法相对路径，mkdir 成功 → 环境假失败，跳过。
+      if (!IS_WINDOWS) {
+        addTest("V2.5 Session 安全写入: 失败返回 null 不抛异常", "skip",
+          "环境假失败: 非 Windows 平台 `Z:\\...` 被当作合法相对路径，无法触发 mkdir 失败");
+      } else {
+        const id = await saveSession("Z:\\nonexistent-root-xyz\\deep", state, [], "claude");
+        addTest("V2.5 Session 安全写入: 失败返回 null 不抛异常",
+          id === null ? "pass" : "fail",
+          `id=${id}`);
+      }
     }
 
     // ---- Test 21: redactSessionMessages 脱敏消息中的 API key ----
@@ -6431,10 +6661,16 @@ if (!runV26Unit) {
     // ---- Test 17: saveSkillsState 失败不抛异常（只读目录）----
     {
       // 用一个不存在的盘符路径触发写入失败（Windows 下 Z: 通常不存在）
-      const ok = await saveSkillsState("Z:\\nonexistent-path-v26-test", createEmptySkillsState());
-      addTest("V2.6 saveSkillsState: 失败不抛异常返回 false",
-        ok === false ? "pass" : "fail",
-        `ok=${ok}`);
+      // V2.17-A: 非 Windows 平台 `Z:\...` 被当作合法相对路径，写入成功 → 环境假失败，跳过。
+      if (!IS_WINDOWS) {
+        addTest("V2.6 saveSkillsState: 失败不抛异常返回 false", "skip",
+          "环境假失败: 非 Windows 平台 `Z:\\...` 被当作合法相对路径，无法触发写入失败");
+      } else {
+        const ok = await saveSkillsState("Z:\\nonexistent-path-v26-test", createEmptySkillsState());
+        addTest("V2.6 saveSkillsState: 失败不抛异常返回 false",
+          ok === false ? "pass" : "fail",
+          `ok=${ok}`);
+      }
     }
 
     // ---- Test 18: loadSkillsState 损坏 JSON 返回空 state ----
@@ -9087,8 +9323,9 @@ if (!runV2121Unit) {
   }
 
   {
+    // V2.17-A Completion: buildSdkStreamingInput 现在接收 promptPackage.userPrompt（不再绕过 prompt split）
     const ok = agentBackendSrc.includes("export interface SdkStreamingInput")
-      && viewSrc.includes("buildSdkStreamingInput(prompt, promptFileRefsForRun)")
+      && viewSrc.includes("buildSdkStreamingInput(promptPackage.userPrompt, promptFileRefsForRun)")
       && viewSrc.includes("createSdkImageContentBlock")
       && sdkBackendSrc.includes("createSdkUserMessageStream")
       && sdkBackendSrc.includes("prompt: string | AsyncIterable<unknown>")
@@ -10485,7 +10722,10 @@ if (!runV214BUnit) {
         `vault=${vaultRef?.kind}/${vaultRef?.status} pending=${pending?.reason}/${pendingRef.status} before=${noExternalRefBeforeApproval.refs.length} external=${externalRef?.kind}/${externalRef?.grantScope} attachment=${attachment?.ref.kind}/${attachment?.readGrant.match} reads=${attachmentRead.decision}/${attachmentSibling.decision} refs=${workingSet.refs.length} fields=${hasRequiredFields} body=${noFileBodyFields} prompt=${promptUnwired} view=${viewWiringOk}`);
     }
 
-    {
+    if (!IS_WINDOWS) {
+      addTest("V2.14.0-G attachments: Context UI、file-scope grant、bounded ingestion、prompt boundary", "skip",
+        "环境假失败: 非 Windows 平台 vaultPath `D:\\Vault` 与 POSIX tmp 路径归一化不一致");
+    } else {
       const tmp = mkdtempSync(join(tmpdir(), "llm-bridge-g-"));
       const smallMd = join(tmp, "note.md");
       const smallJson = join(tmp, "data.json");
@@ -10597,7 +10837,10 @@ if (!runV214BUnit) {
         `grant=${mdAttachment.readGrant.match} sibling=${siblingStillPending.decision} md=${!!mdIngest.snippet} json=${!!jsonIngest.snippet} large=${largeIngest.skippedReason} image=${imageIngest.skippedReason} pdf=${pdfIngest.skippedReason} binary=${binaryIngest.skippedReason} sensitive=${sensitiveIngest.skippedReason} external=${externalRef} type=${typeOk} prompt=${promptOk} boundary=${noExternalPrompt} bounded=${boundedOnly} ui=${uiOk}`);
     }
 
-    {
+    if (!IS_WINDOWS) {
+      addTest("V2.14.0-H native attachments + FileRef index + read tool policy gate", "skip",
+        "环境假失败: 非 Windows 平台 vaultPath `D:\\Vault` 与 POSIX tmp 路径归一化不一致");
+    } else {
       const tmp = mkdtempSync(join(tmpdir(), "llm-bridge-h-"));
       const smallMd = join(tmp, "brief.md");
       const image = join(tmp, "diagram.png");
@@ -12030,14 +12273,20 @@ if (!runProcess) {
 
       // Preflight Test 1: cwd 不存在 → failed diagnostic
       {
-        const badCwd = "Z:\\non_existent_preflight_dir_xyz";
-        const result = await runPreflight(makePreflightSettings("node", ""), badCwd, 5000);
-        const cwdMissing = result.cwdExists === false;
-        const unavailable = result.available === false;
-        const hasDiag = result.diagnostics.includes("unavailable") && result.diagnostics.includes("cwd");
-        const ok = cwdMissing && unavailable && hasDiag;
-        addTest("Preflight: cwd 不存在 → failed diagnostic", ok ? "pass" : "fail",
-          ok ? "" : `cwdExists=${result.cwdExists}, available=${result.available}, diag="${result.diagnostics}"`);
+        // V2.17-A: 非 Windows 平台 `Z:\...` 不被当作不存在的盘符路径 → 环境假失败，跳过。
+        if (!IS_WINDOWS) {
+          addTest("Preflight: cwd 不存在 → failed diagnostic", "skip",
+            "环境假失败: 非 Windows 平台 `Z:\\...` 不被当作不存在的盘符路径");
+        } else {
+          const badCwd = "Z:\\non_existent_preflight_dir_xyz";
+          const result = await runPreflight(makePreflightSettings("node", ""), badCwd, 5000);
+          const cwdMissing = result.cwdExists === false;
+          const unavailable = result.available === false;
+          const hasDiag = result.diagnostics.includes("unavailable") && result.diagnostics.includes("cwd");
+          const ok = cwdMissing && unavailable && hasDiag;
+          addTest("Preflight: cwd 不存在 → failed diagnostic", ok ? "pass" : "fail",
+            ok ? "" : `cwdExists=${result.cwdExists}, available=${result.available}, diag="${result.diagnostics}"`);
+        }
       }
 
       // Preflight Test 2: command 不存在 → unavailable
@@ -12829,7 +13078,11 @@ if (!runNoteSummarizeSmoke) {
       && sdkMessageMapperSrc.includes("tool_progress")
       && sdkMessageMapperSrc.includes("thinking_tokens")
       && timelineAdapterSrc.includes('"progress"')
-      && viewSrc.includes("this.appendAssistantContentDelta(ctx.assistantId, p.data)")
+      // V2.17-A Completion: stdout_delta 不再直接 appendAssistantContentDelta；
+      // final answer 由 AssistantTurnViewBuilder.finalAnswer 输出，经 updateAssistantMessage 渲染
+      && !viewSrc.includes("this.appendAssistantContentDelta(ctx.assistantId, p.data)")
+      && viewSrc.includes("ctx.turnBuilder.ingest(ev)")
+      && viewSrc.includes("content: turnView.finalAnswer")
       && viewSrc.includes("this.scheduleLiveTimelineRender()")
       && viewSrc.includes("window.setTimeout(() =>")
       && !viewSrc.includes('scrollIntoView({ behavior: "smooth", block: "end" })');
@@ -12878,7 +13131,7 @@ if (!runV217A) {
 
     const { RunStateAggregator, aggregateEventsToTimeline, buildRuntimeTranscriptFromEvents } =
       await import(pathToFileURL(runtimeTranscriptBundle).href);
-    const { buildEffectiveRunPlan, computePromptPackageHash, formatEffectiveRunPlan } =
+    const { buildEffectiveRunPlan, computePromptPackageHash, formatEffectiveRunPlan, buildAttachmentPlan, emptyAttachmentPlan } =
       await import(pathToFileURL(effectiveRunPlanBundle).href);
     const { computeContextMetrics, estimateTokens } =
       await import(pathToFileURL(contextMetricsBundleV217).href);
@@ -12899,9 +13152,9 @@ if (!runV217A) {
       };
     }
 
-    const emptyAttachmentPlan = {
+    const emptyAttachmentPlanLiteral = {
       messageScopedRefs: 0, pinnedRefs: 0, inlineSnippets: 0,
-      imageStreamingBlocks: 0, nativeRefOnly: 0,
+      imageStreamingBlocks: 0, nativeRefOnly: 0, entries: [],
     };
 
     // ---- Test 1: EffectiveRunPlan 字段完整性（SDK 派生）----
@@ -12914,7 +13167,7 @@ if (!runV217A) {
         promptPackageText: "system prompt + tool steering",
         settingSources: ["user", "project", "local"],
         skills: ["code", "docs"],
-        attachmentPlan: { ...emptyAttachmentPlan, messageScopedRefs: 2, inlineSnippets: 1 },
+        attachmentPlan: { ...emptyAttachmentPlanLiteral, messageScopedRefs: 2, inlineSnippets: 1 },
       });
       const fieldsOk = plan.backend === "sdk"
         && plan.cwd === "/vault"
@@ -12943,7 +13196,7 @@ if (!runV217A) {
         promptPackageText: "same prompt package",
         settingSources: ["user", "project", "local"],
         skills: [],
-        attachmentPlan: emptyAttachmentPlan,
+        attachmentPlan: emptyAttachmentPlanLiteral,
       };
       const sdkPlan = buildEffectiveRunPlan({ backend: "sdk", ...commonArgs });
       const cliPlan = buildEffectiveRunPlan({ backend: "cli", ...commonArgs });
@@ -12981,7 +13234,7 @@ if (!runV217A) {
         promptPackageText: "x",
         settingSources: ["user", "project", "local"],
         skills: ["code"],
-        attachmentPlan: emptyAttachmentPlan,
+        attachmentPlan: emptyAttachmentPlanLiteral,
       });
       const rows = formatEffectiveRunPlan(plan);
       const labels = rows.map((r) => r.label);
@@ -13193,7 +13446,7 @@ if (!runV217A) {
         promptPackageText: "p",
         settingSources: ["user", "project", "local"],
         skills: [],
-        attachmentPlan: emptyAttachmentPlan,
+        attachmentPlan: emptyAttachmentPlanLiteral,
       });
       const matches = plan.settingSources.length === 3
         && plan.settingSources[0] === "user"
@@ -13202,6 +13455,114 @@ if (!runV217A) {
       addTest("V2.17-A EffectiveRunPlan: settingSources 显式 [user,project,local]",
         matches ? "pass" : "fail",
         `sources=${plan.settingSources.join(",")}`);
+    }
+
+    // ---- Test 18: buildAttachmentPlan 从 AttachmentEntry[] 派生 entry-level audit ----
+    {
+      const entries = [
+        { refId: "msg-1", scope: "message", fileType: "markdown", packing: "inline-snippet",
+          displayName: "msg.md", bytesRead: 128, truncated: false },
+        { refId: "pin-1", scope: "pinned", fileType: "image", packing: "sdk-streaming-block",
+          displayName: "screenshot.png", bytesRead: 0, truncated: false },
+        { refId: "msg-2", scope: "message", fileType: "pdf", packing: "native-ref-only",
+          displayName: "doc.pdf", bytesRead: 0, truncated: false },
+      ];
+      const plan = buildAttachmentPlan(entries);
+      const countsOk = plan.messageScopedRefs === 2
+        && plan.pinnedRefs === 1
+        && plan.inlineSnippets === 1
+        && plan.imageStreamingBlocks === 1
+        && plan.nativeRefOnly === 1;
+      const entriesLengthOk = Array.isArray(plan.entries) && plan.entries.length === 3;
+      const firstEntryShapeOk = plan.entries[0].refId === "msg-1"
+        && plan.entries[0].scope === "message"
+        && plan.entries[0].fileType === "markdown"
+        && plan.entries[0].packing === "inline-snippet"
+        && typeof plan.entries[0].pathHash === "string" && plan.entries[0].pathHash.length > 0
+        && typeof plan.entries[0].contentHash === "string" && plan.entries[0].contentHash.length > 0
+        && typeof plan.entries[0].reason === "string" && plan.entries[0].reason.length > 0;
+      // ref-only 不读内容 → contentHash 为空串
+      const refOnlyEntry = plan.entries.find((e) => e.packing === "native-ref-only");
+      const refOnlyEmptyHash = refOnlyEntry.contentHash === "";
+      addTest("V2.17-A buildAttachmentPlan: 从 entries 派生 counts + entry-level audit",
+        countsOk && entriesLengthOk && firstEntryShapeOk && refOnlyEmptyHash ? "pass" : "fail",
+        `counts=${countsOk} len=${entriesLengthOk} shape=${firstEntryShapeOk} refEmpty=${refOnlyEmptyHash}`);
+    }
+
+    // ---- Test 19: discriminated union — codex-app-server plan 含 instructionsSource，无 Claude-only 字段 ----
+    {
+      const settings = makeSettings();
+      const plan = buildEffectiveRunPlan({
+        backend: "codex-app-server", settings, cwd: "/vault",
+        promptPackageText: "p", settingSources: [], skills: [],
+        attachmentPlan: emptyAttachmentPlanLiteral,
+      });
+      const isCodex = plan.backend === "codex-app-server";
+      const hasInstructions = plan.instructionsSource === "instructions";
+      const noClaudeOnlyFields = !("permission" in plan)
+        && !("systemPrompt" in plan)
+        && !("tools" in plan);
+      addTest("V2.17-A EffectiveRunPlan: codex-app-server 派生为 CodexAppServerEffectiveRunPlan",
+        isCodex && hasInstructions && noClaudeOnlyFields ? "pass" : "fail",
+        `codex=${isCodex} instructions=${hasInstructions} noClaudeOnly=${noClaudeOnlyFields}`);
+    }
+
+    // ---- Test 20: formatEffectiveRunPlan 对 codex plan 输出 instructionsSource 行，无 permission 行 ----
+    {
+      const settings = makeSettings();
+      const plan = buildEffectiveRunPlan({
+        backend: "codex-app-server", settings, cwd: "/v",
+        promptPackageText: "p", settingSources: [], skills: [],
+        attachmentPlan: emptyAttachmentPlanLiteral,
+      });
+      const rows = formatEffectiveRunPlan(plan);
+      const labels = rows.map((r) => r.label);
+      const hasInstructionsSource = labels.includes("instructionsSource");
+      const noPermission = !labels.includes("permission");
+      const noSystemPromptPreset = !labels.includes("systemPrompt");
+      const noToolsPreset = !labels.includes("tools");
+      const hasBackend = labels.includes("backend");
+      const hasAttachments = labels.includes("attachments");
+      addTest("V2.17-A formatEffectiveRunPlan: codex plan 输出 instructionsSource，不输出 Claude-only 行",
+        hasInstructionsSource && noPermission && noSystemPromptPreset && noToolsPreset && hasBackend && hasAttachments ? "pass" : "fail",
+        `instrSrc=${hasInstructionsSource} noPerm=${noPermission} noSys=${noSystemPromptPreset} noTools=${noToolsPreset}`);
+    }
+
+    // ---- Test 21: entry-level audit 行写入 formatEffectiveRunPlan 输出 ----
+    {
+      const entries = [
+        { refId: "msg-1", scope: "message", fileType: "markdown", packing: "inline-snippet",
+          displayName: "msg.md", bytesRead: 64, truncated: false },
+      ];
+      const plan = buildEffectiveRunPlan({
+        backend: "sdk", settings: makeSettings(), cwd: "/v",
+        promptPackageText: "p", settingSources: [], skills: [],
+        attachmentPlan: buildAttachmentPlan(entries),
+      });
+      const rows = formatEffectiveRunPlan(plan);
+      const auditRow = rows.find((r) => r.label === "  attachment[msg-1]");
+      const auditRowOk = !!auditRow
+        && auditRow.value.includes("message/markdown/inline-snippet")
+        && auditRow.value.includes("path=")
+        && auditRow.value.includes("content=")
+        && auditRow.value.includes("reason=");
+      addTest("V2.17-A formatEffectiveRunPlan: 每条附件输出独立 audit 行（refId/scope/fileType/packing/pathHash/contentHash/reason）",
+        auditRowOk ? "pass" : "fail",
+        `auditRow=${auditRow?.value ?? "(missing)"}`);
+    }
+
+    // ---- Test 22: emptyAttachmentPlan() helper 返回含 entries: [] ----
+    {
+      const plan = emptyAttachmentPlan();
+      const ok = plan.messageScopedRefs === 0
+        && plan.pinnedRefs === 0
+        && plan.inlineSnippets === 0
+        && plan.imageStreamingBlocks === 0
+        && plan.nativeRefOnly === 0
+        && Array.isArray(plan.entries) && plan.entries.length === 0;
+      addTest("V2.17-A emptyAttachmentPlan: 含 entries: [] 空 audit 数组",
+        ok ? "pass" : "fail",
+        `entries=${Array.isArray(plan.entries) ? plan.entries.length : "(not array)"}`);
     }
 
   } catch (e) {

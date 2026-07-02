@@ -1,13 +1,27 @@
 {
-  "schemaVersion": "0.1.0-preliminary",
+  "schemaVersion": "0.2.0-wire-calibrated",
   "codexVersion": null,
   "schemaGeneratedAt": "2026-07-02T00:00:00.000Z",
   "generatorCommand": "codex app-server generate-ts --out ./src/runtime/providers/codex-app-server/schema",
   "source": "fixture",
   "sourceReason": "codex CLI not available in current environment; fixture schema used. Regenerate via `npm run codex:schema` once codex app-server is installed.",
+  "wireProtocolCalibration": {
+    "noJsonrpcField": "wire 上不发送 jsonrpc:2.0 字段（codex app-server 约定）",
+    "initializeHandshake": "每个连接先 send initialize，再 notify initialized",
+    "threadStartResultShape": "{ thread: { id, sessionId? } }",
+    "turnStartInputShape": "content item array [{ type:'text', text }, { type:'image' }, { type:'file' }]",
+    "approvalViaServerRequest": "approval 走 server-initiated request（带 id），client 按原 id 返回 result",
+    "serverRequestMethods": [
+      "item/commandExecution/requestApproval",
+      "item/fileChange/requestApproval",
+      "item/tool/requestUserInput"
+    ],
+    "serverRequestResolvedNotification": "serverRequest/resolved 通知用于 UI 同步"
+  },
   "notes": [
-    "Preliminary hand-curated types based on publicly known codex app-server JSON-RPC conventions.",
+    "Wire-protocol calibrated fixture schema for V2.17-A Completion.",
     "Field names are NOT authoritative. When codex is available, regenerate to replace this file entirely.",
+    "Fixture tests verify wire shape: no jsonrpc field, initialize handshake order, thread.start result.thread.id, turn.start input array, approval server-request response by id.",
     "All types are scoped to V2.17-A Bridge Core integration; provider-private, UI never imports these."
   ]
 }

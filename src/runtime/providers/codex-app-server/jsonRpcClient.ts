@@ -1,17 +1,22 @@
-// LLM CLI Bridge — JSON-RPC 2.0 client over stdio JSONL (V2.17-A Completion)
+// LLM CLI Bridge — JSON-RPC client over stdio JSONL (V2.17-A Completion)
 //
-// Codex app-server 通过子进程 stdio 通信，每行一个 JSON-RPC 2.0 消息（JSONL）。
+// Codex app-server 通过子进程 stdio 通信，每行一个 JSON-RPC 消息（JSONL）。
 // 本 client 负责把请求/通知/响应配对，并把服务端推送的通知分发给注册的 handler。
 //
-// 设计：
-// - send(method, params): Promise<result>  // 请求-响应配对（id 递增）
-// - notify(method, params): void            // 单向通知（无 id）
-// - onNotification(method, handler): 注册通知 handler
-// - onError(handler): 注册 transport-level 错误 handler
+// ⚠️ Wire 协议（codex app-server 约定）：
+// - wire 上不发送 "jsonrpc":"2.0" 字段。请求/通知/响应均为 bare object。
+// - 支持 server-initiated request（带 id + method 的消息）：client 必须按原 id
+//   返回 result（通过 respondToServerRequest）。
 //
-// 数据流：
-//   toServer: writeLine(JSON.stringify(request | notification | response))
-//   fromServer: split by newline → parse JSON → route by id / method
+// 设计：
+// - send(method, params): Promise<result>            // client→server 请求（id 递增）
+// - notify(method, params): void                      // client→server 通知（无 id）
+// - respondToServerRequest(id, result): void          // server→client request 的回复
+// - onNotification(method, handler): 注册通知 handler  // server→client 通知（无 id）
+// - onServerRequest(method, handler): 注册 server request handler
+//     handler 收到 (params, id)；handler 可同步返回 result 或 Promise<result>，
+//     client 自动按 id 回复；也可手动调 respondToServerRequest。
+// - onError(handler): 注册 transport-level 错误 handler
 //
 // 不直接依赖 child_process；通过注入的 writeLine / onLine 解耦，便于 fixture 测试。
 
@@ -34,6 +39,8 @@ export type WriteLineFn = (line: string) => void;
 export type RegisterLineHandler = (handler: (line: string) => void) => () => void;
 
 export type NotificationHandler = (params: unknown) => void;
+export type ServerRequestHandler = (params: unknown, id: number | string) =>
+  unknown | Promise<unknown>;
 export type TransportErrorHandler = (err: Error) => void;
 
 interface PendingRequest {
@@ -42,18 +49,33 @@ interface PendingRequest {
 }
 
 /**
- * JsonRpcClient：JSON-RPC 2.0 over stdio JSONL。
+ * 序列化 wire 消息（不带 jsonrpc 字段）。
+ *
+ * codex app-server 约定 wire 上不出现 "jsonrpc":"2.0"。
+ */
+function serialize(msg: Record<string, unknown>): string {
+  return JSON.stringify(msg);
+}
+
+/**
+ * JsonRpcClient：JSON-RPC over stdio JSONL（codex app-server 变体，wire 不带 jsonrpc 字段）。
  *
  * 用法：
  *   const client = new JsonRpcClient(writeLine, registerLineHandler);
  *   const result = await client.send("thread/start", { ... });
  *   client.onNotification("item/started", (params) => { ... });
+ *   client.onServerRequest("item/commandExecution/requestApproval", (params, id) => {
+ *     return { decision: "allow" };  // 自动按 id 回复
+ *   });
  */
 export class JsonRpcClient {
   private nextId = 1;
   private readonly pending = new Map<number | string, PendingRequest>();
   private readonly notificationHandlers = new Map<string, Array<NotificationHandler>>();
+  private readonly serverRequestHandlers = new Map<string, Array<ServerRequestHandler>>();
   private readonly errorHandlers = new Set<TransportErrorHandler>();
+  /** 已处理的 server request id（去重，防重复回复） */
+  private readonly respondedServerRequests = new Set<number | string>();
   private closed = false;
 
   constructor(
@@ -64,13 +86,14 @@ export class JsonRpcClient {
   }
 
   /**
-   * 发送请求并等待响应。
+   * 发送 client→server 请求并等待响应。
    */
   send<R = unknown>(method: string, params?: unknown): Promise<R> {
     if (this.closed) return Promise.reject(new Error("JsonRpcClient closed"));
     const id = this.nextId++;
-    const req: JsonRpcRequest = { jsonrpc: "2.0", id, method, params };
-    const json = JSON.stringify(req);
+    const req: JsonRpcRequest = { id, method };
+    if (params !== undefined) (req as { params?: unknown }).params = params;
+    const json = serialize(req as unknown as Record<string, unknown>);
     return new Promise<R>((resolve, reject) => {
       this.pending.set(id, {
         resolve: (r) => resolve(r as R),
@@ -90,8 +113,23 @@ export class JsonRpcClient {
    */
   notify(method: string, params?: unknown): void {
     if (this.closed) return;
-    const notif: JsonRpcNotification = { jsonrpc: "2.0", method, params };
-    this.writeLine(JSON.stringify(notif));
+    const notif: JsonRpcNotification = { method };
+    if (params !== undefined) (notif as { params?: unknown }).params = params;
+    this.writeLine(serialize(notif as unknown as Record<string, unknown>));
+  }
+
+  /**
+   * 回复 server-initiated request（按原 id 返回 result）。
+   *
+   * 用于 handler 需要异步决策（如等待用户 approval）时手动回复。
+   * 同步 handler 直接 return result 即可，无需调用本方法。
+   */
+  respondToServerRequest(id: number | string, result: unknown): void {
+    if (this.closed) return;
+    if (this.respondedServerRequests.has(id)) return; // 防重复回复
+    this.respondedServerRequests.add(id);
+    const msg = { id, result };
+    this.writeLine(serialize(msg));
   }
 
   /**
@@ -110,6 +148,29 @@ export class JsonRpcClient {
       const idx = arr.indexOf(handler);
       if (idx >= 0) arr.splice(idx, 1);
       if (arr.length === 0) this.notificationHandlers.delete(method);
+    };
+  }
+
+  /**
+   * 注册 server-initiated request handler。
+   *
+   * handler 收到 (params, id)。若 handler 同步返回非 Promise 值，client 自动按 id 回复；
+   * 若返回 Promise，等 resolve 后回复；若 handler 抛错，回复 error。
+   * handler 也可不返回值，稍后手动调 respondToServerRequest(id, result)。
+   */
+  onServerRequest(method: string, handler: ServerRequestHandler): () => void {
+    let list = this.serverRequestHandlers.get(method);
+    if (!list) {
+      list = [];
+      this.serverRequestHandlers.set(method, list);
+    }
+    list.push(handler);
+    return () => {
+      const arr = this.serverRequestHandlers.get(method);
+      if (!arr) return;
+      const idx = arr.indexOf(handler);
+      if (idx >= 0) arr.splice(idx, 1);
+      if (arr.length === 0) this.serverRequestHandlers.delete(method);
     };
   }
 
@@ -133,6 +194,7 @@ export class JsonRpcClient {
     }
     this.pending.clear();
     this.notificationHandlers.clear();
+    this.serverRequestHandlers.clear();
   }
 
   isClosed(): boolean {
@@ -156,8 +218,8 @@ export class JsonRpcClient {
   }
 
   private routeMessage(msg: JsonRpcMessage): void {
-    // 1. 响应（带 id + result/error）
-    if ("id" in msg && ("result" in msg || "error" in msg)) {
+    // 1. 响应（带 id + result/error，但无 method）—— 对应 client→server 请求的回复
+    if ("id" in msg && !("method" in msg) && ("result" in msg || "error" in msg)) {
       const id = (msg as { id: number | string }).id;
       const pending = this.pending.get(id);
       if (!pending) return; // 已被 close 取消或已 resolve
@@ -186,16 +248,41 @@ export class JsonRpcClient {
       }
       return;
     }
-    // 3. 服务端发起的请求（带 id + method）— 当前 codex app-server 不主动发起请求，
-    //    若收到则作为通知处理（忽略 id），日志记录。
+    // 3. server-initiated request（带 id + method）—— client 必须按 id 回复 result
     if ("method" in msg && "id" in msg) {
-      const handlers = this.notificationHandlers.get((msg as { method: string }).method);
-      if (handlers) {
-        for (const h of handlers) {
-          try { h((msg as { params?: unknown }).params); } catch (err) {
-            this.emitError(err instanceof Error ? err : new Error(String(err)));
+      const req = msg as JsonRpcRequest;
+      const id = req.id;
+      const handlers = this.serverRequestHandlers.get(req.method);
+      if (handlers && handlers.length > 0) {
+        // 只调用第一个 handler（多播对 server request 无意义）
+        const h = handlers[0];
+        try {
+          const ret = h(req.params, id);
+          if (ret instanceof Promise) {
+            ret.then(
+              (result) => {
+                if (result !== undefined) {
+                  this.respondToServerRequest(id, result);
+                }
+              },
+              (err) => {
+                this.respondToServerRequest(id, {
+                  error: err instanceof Error ? err.message : String(err),
+                });
+              },
+            );
+          } else if (ret !== undefined) {
+            this.respondToServerRequest(id, ret);
           }
+          // 若 ret === undefined：handler 将稍后手动调 respondToServerRequest
+        } catch (err) {
+          this.respondToServerRequest(id, {
+            error: err instanceof Error ? err.message : String(err),
+          });
         }
+      } else {
+        // 无 handler：回复 method not supported
+        this.respondToServerRequest(id, { error: `method '${req.method}' not supported` });
       }
       return;
     }
@@ -215,26 +302,24 @@ export class JsonRpcClient {
  *
  * 主要供 fixture 测试用：把录制好的 JSONL 行序列喂给 client，让 EventMapper 处理。
  * 不发送任何请求。
+ *
+ * 改进版：返回 client 与 lineHandler，测试可先注册 handler 再回放 fixture 行。
  */
 export function createInMemoryJsonRpcClient(
-  fixtureLines: ReadonlyArray<string>,
-  notificationHandler: (method: string, params: unknown) => void,
-): JsonRpcClient {
+  fixtureLines?: ReadonlyArray<string>,
+): { client: JsonRpcClient; replay: () => void } {
+  let lineHandler: ((line: string) => void) | null = null;
   const writeLine: WriteLineFn = (_line: string) => {
-    // 测试模式：不实际发送
+    // 测试模式：不实际发送（但记录以便 wire-shape 测试断言）
   };
   const register: RegisterLineHandler = (handler) => {
-    // 立即回放所有 fixture 行
-    for (const line of fixtureLines) {
-      handler(line);
-    }
-    return () => { /* no-op */ };
+    lineHandler = handler;
+    return () => { lineHandler = null; };
   };
   const client = new JsonRpcClient(writeLine, register);
-  // 注册通配通知 handler（把所有 method 转给调用方）
-  // 由于 JsonRpcClient.onNotification 按 method 注册，测试时需要为每个 method 分别注册。
-  // 这里提供一个直接读 routeMessage 的便利：通过 onError 桥接不可识别消息不合适。
-  // 改用：测试代码直接用 onNotification(method, ...) 注册关心的方法。
-  void notificationHandler;
-  return client;
+  const replay = () => {
+    if (!lineHandler || !fixtureLines) return;
+    for (const line of fixtureLines) lineHandler(line);
+  };
+  return { client, replay };
 }

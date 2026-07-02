@@ -15,10 +15,11 @@
 import type { EffectiveRunPlan, LLMBridgeSettings } from "../../../types";
 import type { BridgePromptPackage } from "../../core/types";
 import type { RunInput } from "../../core/types";
-import { buildEffectiveRunPlan, computePromptPackageHash } from "../../../effectiveRunPlan";
+import { buildAttachmentPlan, buildEffectiveRunPlan, computePromptPackageHash } from "../../../effectiveRunPlan";
 import type {
   CodexAttachmentBlock,
   CodexThreadStartParams,
+  CodexTurnInputItem,
   CodexTurnStartParams,
 } from "./schema";
 
@@ -36,19 +37,16 @@ export interface CodexAppServerRunOptions {
 
 /**
  * 构造 EffectiveRunPlan（codex-app-server backend）。
+ *
+ * 返回 CodexAppServerEffectiveRunPlan（backend="codex-app-server"），
+ * 含 instructionsSource 字段标记 bridgeSystemAppend 走 instructions 层。
  */
 export function buildCodexAppServerEffectiveRunPlan(
   input: RunInput,
   settings: LLMBridgeSettings,
 ): EffectiveRunPlan {
-  const entries = input.promptPackage.attachmentEntries;
-  const attachmentPlan = {
-    messageScopedRefs: entries.filter((e) => e.scope === "message").length,
-    pinnedRefs: entries.filter((e) => e.scope === "pinned").length,
-    inlineSnippets: entries.filter((e) => e.packing === "inline-snippet").length,
-    imageStreamingBlocks: entries.filter((e) => e.packing === "sdk-streaming-block").length,
-    nativeRefOnly: entries.filter((e) => e.packing === "native-ref-only").length,
-  };
+  // attachmentPlan 从 promptPackage.attachmentEntries 聚合（counts + entry-level 审计）
+  const attachmentPlan = buildAttachmentPlan(input.promptPackage.attachmentEntries);
   return buildEffectiveRunPlan({
     backend: "codex-app-server",
     settings,
@@ -100,12 +98,25 @@ export function buildCodexAppServerRunOptions(
     instructions: promptPackage.bridgeSystemAppend,
     cwd: plan.cwd,
   };
-  if (plan.session.resumeId) {
+  if (plan.session?.resumeId) {
     threadStart.resumeSessionId = plan.session.resumeId;
   }
 
+  // turn/start.input 为 content item array（V2.17-A Completion wire 校准）
+  const inputItems: CodexTurnInputItem[] = [
+    { type: "text", text: promptPackage.userPrompt },
+  ];
+  // image/file 附件可作为 input item 一并送入（与 attachments 字段互补）
+  for (const entry of promptPackage.attachmentEntries) {
+    if (entry.packing === "sdk-streaming-block" && entry.fileType === "image") {
+      inputItems.push({ type: "image", refId: entry.refId });
+    } else if (entry.packing === "native-ref-only") {
+      inputItems.push({ type: "file", refId: entry.refId });
+    }
+  }
+
   const turnStart: Omit<CodexTurnStartParams, "threadId"> = {
-    input: promptPackage.userPrompt,
+    input: inputItems,
     attachments: attachments.length > 0 ? attachments : undefined,
     effort: plan.effort || undefined,
   };
@@ -121,11 +132,14 @@ export function buildCodexAppServerRunOptions(
  * 审计哈希（与 plan.promptPackageHash 互验；保证 prompt 拆分跨 provider 一致）。
  */
 export function computeCodexRunOptionsAuditHash(options: CodexAppServerRunOptions): string {
+  const inputItemsStr = (options.turnStart.input ?? [])
+    .map((it) => `${it.type}:${"text" in it ? it.text : it.refId ?? ""}`)
+    .join("|");
   const input = [
     options.bridgeSystemAppendSource,
     options.threadStart.instructions ?? "",
     options.threadStart.model ?? "",
-    options.turnStart.input,
+    inputItemsStr,
     options.turnStart.effort ?? "",
     (options.turnStart.attachments ?? []).map((a) => `${a.type}:${a.refId ?? ""}`).join("|"),
   ].join("\n---\n");

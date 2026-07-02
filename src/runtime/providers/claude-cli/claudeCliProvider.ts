@@ -10,7 +10,7 @@
 import type { AgentTask, AgentRunHandle } from "../../../agentBackend";
 import type { LLMBridgeSettings } from "../../../types";
 import { ClaudeCliBackend } from "../../../claudeCliBackend";
-import { buildEffectiveRunPlan } from "../../../effectiveRunPlan";
+import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
 import type {
   EffectiveRunPlan,
   NormalizedRuntimeEvent,
@@ -39,14 +39,8 @@ export class ClaudeCliProvider implements RuntimeProvider {
   }
 
   buildPlan(input: RunInput, settings: LLMBridgeSettings): EffectiveRunPlan {
-    const entries = input.promptPackage.attachmentEntries;
-    const attachmentPlan = {
-      messageScopedRefs: entries.filter((e) => e.scope === "message").length,
-      pinnedRefs: entries.filter((e) => e.scope === "pinned").length,
-      inlineSnippets: entries.filter((e) => e.packing === "inline-snippet").length,
-      imageStreamingBlocks: entries.filter((e) => e.packing === "sdk-streaming-block").length,
-      nativeRefOnly: entries.filter((e) => e.packing === "native-ref-only").length,
-    };
+    // attachmentPlan 从 promptPackage.attachmentEntries 聚合（counts + entry-level 审计）
+    const attachmentPlan = buildAttachmentPlan(input.promptPackage.attachmentEntries);
     // CLI 无 settingSources/skills 概念，传空数组保持 plan 字段完整
     return buildEffectiveRunPlan({
       backend: "cli",

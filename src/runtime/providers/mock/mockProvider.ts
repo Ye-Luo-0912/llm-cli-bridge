@@ -10,7 +10,7 @@
 import type { AgentTask, AgentRunHandle } from "../../../agentBackend";
 import type { LLMBridgeSettings } from "../../../types";
 import { MockAgentBackend, type MockMode } from "../../../mockAgentBackend";
-import { buildEffectiveRunPlan } from "../../../effectiveRunPlan";
+import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
 import type {
   EffectiveRunPlan,
   NormalizedRuntimeEvent,
@@ -42,14 +42,8 @@ export class MockProvider implements RuntimeProvider {
   }
 
   buildPlan(input: RunInput, settings: LLMBridgeSettings): EffectiveRunPlan {
-    const entries = input.promptPackage.attachmentEntries;
-    const attachmentPlan = {
-      messageScopedRefs: entries.filter((e) => e.scope === "message").length,
-      pinnedRefs: entries.filter((e) => e.scope === "pinned").length,
-      inlineSnippets: entries.filter((e) => e.packing === "inline-snippet").length,
-      imageStreamingBlocks: entries.filter((e) => e.packing === "sdk-streaming-block").length,
-      nativeRefOnly: entries.filter((e) => e.packing === "native-ref-only").length,
-    };
+    // attachmentPlan 从 promptPackage.attachmentEntries 聚合（counts + entry-level 审计）
+    const attachmentPlan = buildAttachmentPlan(input.promptPackage.attachmentEntries);
     // Mock 复用 cli backend 字段（plan.backend 为 "cli" 因为 MockAgentBackend 行为更接近 CLI）
     return buildEffectiveRunPlan({
       backend: "cli",
