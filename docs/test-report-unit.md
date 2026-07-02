@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-02T15:43:01.419Z
+- **测试时间**: 2026-07-02T16:06:33.417Z
 - **测试环境**: linux / Node.js v24.15.0
 - **插件版本**: 2.16.0
 - **main.js 大小**: 578.2 KB
 - **Vault 路径**: `/Obsidian/LLM-Wiki`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
-- **commit sha**: 076f2ffa6b01064a14decf87d5c8cddee7d4aba6
-- **commit 短 sha**: 076f2ffa6b01
+- **commit sha**: f6e811e1b579e11638c36951652f2a89de51cd59
+- **commit 短 sha**: f6e811e1b579
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 744
+- ✅ **通过**: 745
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 36
 - ⚪ **需人工验证**: 0
-- **总计**: 780
+- **总计**: 781
 
 ### 审计模式说明
 
@@ -1211,7 +1211,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-02T15-43-16-490Z-ufw4qv |
+| ✅ | 返回非空 id | id=s-2026-07-02T16-06-48-548Z-foqoyl |
 
 ### V2.5 Session 版本
 
@@ -1230,7 +1230,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-02T15-43-16-545Z-o6s4gy second=s-2026-07-02T15-43-16-494Z-2fiwtc |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-02T16-06-48-604Z-acbchu second=s-2026-07-02T16-06-48-553Z-fwjau8 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1257,7 +1257,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-02T15-43-16-552Z-ccp5n7 id2=s-2026-07-02T15-43-16-552Z-7z47p5 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-02T16-06-48-611Z-ga9drq id2=s-2026-07-02T16-06-48-611Z-a3cljl |
 
 ### V2.5 Session 上限
 
@@ -1355,7 +1355,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-02T15:43:16.576Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-02T16:06:48.637Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1443,7 +1443,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-02T15:43:16.607Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-02T16:06:48.661Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -1557,7 +1557,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-02T15:43:16.636Z after=2026-07-02T15:43:16.688Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-02T16:06:48.690Z after=2026-07-02T16:06:48.742Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -1928,13 +1928,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-02T15:43:17.965Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-02T16:06:49.986Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-02T15:43:17.969Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-02T16:06:49.989Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -2556,6 +2556,7 @@
 | ✅ | run2 resume 命中 thread/resume 路径（不退化为新 thread） | resumePath=thread/resume codexThread=thread-e2e |
 | ✅ | doNewSession 清空回填缓存避免误 resume 旧 thread | has=false |
 | ✅ | restoreProviderSession 不覆盖已存在的运行时映射 | tidAfter=thread-real |
+| ✅ | run2 thread/resume + turn/start 继续同一 thread（P2 闭环） | resumePath=thread/resume resumedThreadId=thread-continue-1 turnStart.threadId=thread-continue-1 sameAsRun1=true |
 
 ### Test report integrity
 
@@ -2563,8 +2564,8 @@
 |------|--------|------|
 | ✅ | unit/process 报告含 commit sha + 运行命令字段 | unitExists=true processExists=true unitSha=true processSha=true unitCmd=true processCmd=true |
 | ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
-| ✅ | summary 报告含当前 HEAD commit sha 字段（合法 sha 格式，过期由审计模式兜底） | exists=true hasValidShaField=true capturedSha=076f2ffa6b01 |
-| ✅ | 审计模式下 commit sha 不匹配 → exit 1（generate-test-summary.mjs 行为） | scriptExists=true auditFailExit=true shaMismatchCheck=true |
+| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=076f2ffa6b01 |
+| ✅ | 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑） | scriptExists=true auditFailExit=true testedCodeShaCheck=true codexSmokeCheck=true docsOnlyLogic=true |
 
 ## 失败项详情
 
