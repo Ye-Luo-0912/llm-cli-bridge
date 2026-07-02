@@ -535,19 +535,28 @@ function buildAgentSkillsPreparationFailureSummary(result: SdkAgentSkillsOptions
 }
 
 /**
- * 构造 SDK query options（从 LLMBridgeSettings 映射）
+ * 构造 SDK query options（从 EffectiveRunPlan / LLMBridgeSettings 映射）
+ * V2.17-A: 优先从 task.effectiveRunPlan 读取（单一真相源），回退到 settings。
+ * - effort 使用官方字段（不再用未确认的 reasoningEffort）
+ * - 显式 claude_code systemPrompt / tools preset
+ * - 显式 settingSources / skills
  */
 export function buildSdkOptions(
   task: AgentTask,
   settings: LLMBridgeSettings,
   agentSkillsOptions?: SdkAgentSkillsOptions,
 ): Record<string, unknown> {
+  const plan = task.effectiveRunPlan;
+  const effort = plan?.effort ?? settings.effortLevel;
+  const model = plan?.model ?? settings.model;
+  const settingSources = plan?.settingSources ?? agentSkillsOptions?.settingSources;
+  const skills = plan?.skills ?? agentSkillsOptions?.skills;
   const options: Record<string, unknown> = {
     cwd: task.cwd,
-    // V2.16-C: 传入 model 与 effortLevel，使 UI 选择与 SDK query 一致
-    model: settings.model || undefined,
-    // V2.16-C: SDK query 使用 reasoningEffort 传递推理等级
-    ...(settings.effortLevel ? { reasoningEffort: settings.effortLevel } : {}),
+    // V2.17-A: model/effort 来自 EffectiveRunPlan（UI/SDK/CLI 三端一致）
+    model: model || undefined,
+    // V2.17-A: 使用官方 effort 字段（不再用未确认的 reasoningEffort）
+    ...(effort ? { effort } : {}),
     permissionMode: settings.claudePermissionMode ?? "default",
     // V2.16-G: 打开 SDK partial stream，避免首包前长期无响应。
     includePartialMessages: true,
@@ -555,6 +564,9 @@ export function buildSdkOptions(
     // selected model/runtime supports them. Unsupported paths simply won't emit
     // thinking text; the UI keeps the lightweight placeholder.
     thinking: { type: "adaptive", display: "summarized" },
+    // V2.17-A: 显式 claude_code systemPrompt / tools preset
+    systemPrompt: { preset: "claude_code" },
+    tools: { preset: "claude_code" },
   };
   // 继续会话
   if (settings.claudeContinueSession) {
@@ -566,9 +578,12 @@ export function buildSdkOptions(
   if (settings.claudeExtraArgs) {
     options.extraArgs = settings.claudeExtraArgs.split(/\s+/).filter(Boolean);
   }
-  if (agentSkillsOptions) {
-    options.settingSources = [...agentSkillsOptions.settingSources];
-    options.skills = [...agentSkillsOptions.skills];
+  // V2.17-A: settingSources / skills 来自 plan（或 agentSkillsOptions 回退）
+  if (settingSources) {
+    options.settingSources = [...settingSources];
+  }
+  if (skills) {
+    options.skills = [...skills];
   }
   return options;
 }

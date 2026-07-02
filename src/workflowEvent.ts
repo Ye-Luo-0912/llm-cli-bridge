@@ -52,6 +52,12 @@ export interface MessageEvent extends WorkflowEventBase {
   readonly sessionId?: string;
   /** V2.3: 父工具调用 ID（标识 subagent；主 agent 为 undefined） */
   readonly parentToolUseId?: string;
+  /**
+   * V2.17-A: 标记是否为 partial stream 的增量文本。
+   * - true：text_delta 增量，由 RunStateAggregator 累加到 finalAnswerBuffer
+   * - false/undefined：完整快照（SDKAssistantMessage text block 或 SDKResultMessage result）
+   */
+  readonly partial?: boolean;
 }
 
 /** 工具调用开始 */
@@ -135,6 +141,8 @@ export interface CompletedEvent extends WorkflowEventBase {
   readonly type: "completed";
   readonly text: string;
   readonly durationMs?: number;
+  /** V2.17-A: SDK 会话 ID（终端事件审计用，Developer mode 可见） */
+  readonly sessionId?: string;
 }
 
 /** 工作流失败终止（V2.0 UI-only 终态；AgentEvent failed 由调用方单独发） */
@@ -142,6 +150,8 @@ export interface FailedEvent extends WorkflowEventBase {
   readonly type: "failed";
   readonly message: string;
   readonly recoverable: boolean;
+  /** V2.17-A: SDK 会话 ID（终端事件审计用，Developer mode 可见） */
+  readonly sessionId?: string;
 }
 
 /**

@@ -291,11 +291,14 @@ function mapPartialStreamEvent(pm: SdkPartialAssistantMessage, timestamp: string
   if (raw.type === "content_block_delta") {
     const delta = raw.delta;
     if (delta?.type === "text_delta" && typeof delta.text === "string" && delta.text.length > 0) {
+      // V2.17-A: partial text_delta 标记为 partial=true，由 RunStateAggregator 累加到 finalAnswerBuffer
+      // （非完整快照，避免 SDKAssistantMessage 重复）
       events.push({
         type: "message",
         timestamp,
         role: "assistant",
         text: delta.text,
+        partial: true,
         parentToolUseId: typeof pm.parent_tool_use_id === "string" ? pm.parent_tool_use_id : undefined,
         sessionId: typeof pm.session_id === "string" ? pm.session_id : undefined,
       });
@@ -508,28 +511,23 @@ export function mapSdkMessageToWorkflowEvents(
   if (msg.type === "result") {
     const rm = msg as SdkResultMessage;
     const events: WorkflowEvent[] = [];
-    // V2.3: 终态消息同样附带 sessionId（标识完成会话）
-    const sessionId = typeof rm.session_id === "string" ? rm.session_id : undefined;
+    // V2.17-A: 终态不再发 message(assistant, resultText)，避免与 partial 文本重复
+    // - sessionId 附加到 completed/failed 终端事件，供 Developer mode 审计
+    const terminalSessionId = typeof rm.session_id === "string" ? rm.session_id : undefined;
 
     if (rm.subtype === "success" && !rm.is_error) {
       // 成功完成
+      // V2.17-A: result success 只标记 completed，不生成重复 message(assistant, resultText)
+      // - 最终答案文本由 partial text_delta 已累加到 RunStateAggregator.finalAnswerBuffer
+      // - sdkBackend 的 terminalText fallback 逻辑保证非流式模式下也能落地最终文本
+      // - 避免与已累加的 partial 文本重复，消除 timelineAdapter 的 lastAgentText 去重
       const resultText = rm.result ?? "";
-      if (resultText) {
-        events.push({
-          type: "message",
-          timestamp,
-          role: "assistant",
-          text: resultText,
-          // V2.3: 主 agent 终态消息（无 parentToolUseId）
-          sessionId,
-        });
-      }
-      // V2.0: UI-only 终态事件（AgentEvent completed 由调用方另发）
       const completedEv: CompletedEvent = {
         type: "completed",
         timestamp,
         text: resultText || "SDK 任务完成",
         durationMs: typeof rm.duration_ms === "number" ? rm.duration_ms : undefined,
+        ...(terminalSessionId ? { sessionId: terminalSessionId } : {}),
       };
       events.push(completedEv);
       return {
@@ -554,6 +552,7 @@ export function mapSdkMessageToWorkflowEvents(
         timestamp,
         message: errorMsg,
         recoverable: false,
+        ...(terminalSessionId ? { sessionId: terminalSessionId } : {}),
       };
       events.push(failedEv);
       return {

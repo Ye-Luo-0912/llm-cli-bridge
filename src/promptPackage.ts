@@ -174,12 +174,7 @@ ${snippets}
 - 按配置或项目规则写入文件（输出位置：${outputLocation}）
 - 如果必须输出长内容，写入文件并告知路径`);
 
-  // 7. 用户请求
-  parts.push(`
-========== 用户请求 ==========
-${userInput}`);
-
-  // V2.16-C: Tool steering 指引
+  // V2.16-C: Tool steering 指引（V2.17-A: 移到用户请求之前，保持用户请求为最末的干净正文）
   parts.push(`
 ========== Tool Steering ==========
 - 只读请求（查看文件、读取配置、搜索内容）优先使用 Read / Glob / Grep，不要使用 Write / Edit / MultiEdit。
@@ -187,6 +182,11 @@ ${userInput}`);
 - 找不到文件时必须明确告知用户文件不存在，不要静默创建空文件或猜测内容。
 - 仅在用户明确要求创建或修改文件时才使用 Write / Edit。
 - 不要为读取操作创建临时文件或中间产物。`);
+
+  // 7. 用户请求（最末，保持干净正文，不被 bridge-native 指令污染）
+  parts.push(`
+========== 用户请求 ==========
+${userInput}`);
 
   return parts.join("\n");
 }

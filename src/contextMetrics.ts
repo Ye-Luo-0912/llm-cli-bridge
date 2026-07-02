@@ -41,7 +41,11 @@ export interface ContextMetrics {
   activeNote: ContextMetricPart;
   /** selection 部分 */
   selection: ContextMetricPart;
-  /** attachments / pinned context 部分 */
+  /** V2.17-A: message-scoped 附件（本轮附件） */
+  messageAttachments: ContextMetricPart;
+  /** V2.17-A: pinned context（跨轮保留的附件） */
+  pinnedContext: ContextMetricPart;
+  /** attachments / pinned context 聚合计数（用于 total/remaining） */
   workingSet: ContextMetricPart;
   /** history/session 部分（历史消息） */
   history: ContextMetricPart;
@@ -107,19 +111,24 @@ function partFromText(text: string, label: string): ContextMetricPart {
  * - 估算 token 数（标明 estimated）
  * - 计算剩余可用空间
  *
+ * V2.17-A: 拆分 message attachments 与 pinned context 两段，
+ * workingSet 作为聚合计数（两者之和）保留用于 total/remaining。
+ *
  * @param promptPackageText prompt package 全文
  * @param activeNoteText active note 内容（可能为空）
  * @param selectionText selection 内容（可能为空）
- * @param workingSetText attachments / pinned context 文件路径拼接（可能为空）
+ * @param messageAttachmentsText 本轮 message-scoped 附件路径拼接（可能为空）
+ * @param pinnedContextText pinned context（跨轮保留）路径拼接（可能为空）
  * @param historyText 历史消息拼接文本
  * @param model 当前模型 id（用于查 context window）
- * @param compression 压缩信息（可选）
+ * @param compression 压缩信息（可选；无信号时不传，不伪造）
  */
 export function computeContextMetrics(
   promptPackageText: string,
   activeNoteText: string,
   selectionText: string,
-  workingSetText: string,
+  messageAttachmentsText: string,
+  pinnedContextText: string,
   historyText: string,
   model: string,
   compression?: CompressionInfo,
@@ -127,7 +136,13 @@ export function computeContextMetrics(
   const promptPackage = partFromText(promptPackageText, "Prompt");
   const activeNote = partFromText(activeNoteText, "Active note");
   const selection = partFromText(selectionText, "Selection");
-  const workingSet = partFromText(workingSetText, "Attachments");
+  const messageAttachments = partFromText(messageAttachmentsText, "Message attachments");
+  const pinnedContext = partFromText(pinnedContextText, "Pinned context");
+  const workingSet: ContextMetricPart = {
+    tokens: messageAttachments.tokens + pinnedContext.tokens,
+    chars: messageAttachments.chars + pinnedContext.chars,
+    label: "Attachments",
+  };
   const history = partFromText(historyText, "History");
 
   const totalTokens = promptPackage.tokens + activeNote.tokens + selection.tokens + workingSet.tokens + history.tokens;
@@ -142,6 +157,8 @@ export function computeContextMetrics(
     promptPackage,
     activeNote,
     selection,
+    messageAttachments,
+    pinnedContext,
     workingSet,
     history,
     total,

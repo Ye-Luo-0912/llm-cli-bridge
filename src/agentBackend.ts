@@ -3,6 +3,7 @@
 // 当前仅实现 ClaudeCliBackend，UI 层通过此接口与 agent 交互
 
 import { LLMBridgeSettings } from "./types";
+import type { EffectiveRunPlan } from "./types";
 import type { RuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
 import type { WorkflowEventHandler } from "./workflowEvent";
 
@@ -47,6 +48,8 @@ export interface AgentTask {
   sdkStreamingInput?: SdkStreamingInput;
   /** V2.14.0-K: runtime read-only file tool adapter（不改 AgentEvent v0.1） */
   runtimeFileToolAdapter?: RuntimeFileToolAdapter;
+  /** V2.17-A: 本次运行 EffectiveRunPlan（CLI/SDK 单一真相源；Developer mode 可审计） */
+  effectiveRunPlan?: EffectiveRunPlan;
 }
 
 /**

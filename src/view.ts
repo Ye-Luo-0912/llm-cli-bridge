@@ -11,7 +11,7 @@ import { MockAgentBackend } from "./mockAgentBackend";
 import { AgentBackend, AgentRunHandle, AgentTask, SdkImageContentBlock, SdkStreamingInput } from "./agentBackend";
 import { exportState } from "./state";
 import { diffSnapshots, extractRelPath, FileSnapshot, snapshotVaultMarkdownFiles } from "./fileDiff";
-import { AgentType, BackendMode, ChatMessage, RunResult, RunStatus, SessionMode } from "./types";
+import { AgentType, AttachmentPlan, BackendMode, ChatMessage, EffectiveRunPlan, RunResult, RunStatus, SessionMode } from "./types";
 import type { PendingActionEntry } from "./httpServer";
 import { runPreflight, PreflightResult } from "./agentProfile";
 import { mapPreflightToStatus, buildErrorSummary } from "./preflightStatus";
@@ -19,10 +19,12 @@ import { buildFirstUseGuide, shouldShowFirstUseGuide } from "./firstUseGuide";
 import { buildTimeline, isTerminalTimelineType, timelineTypeClass, timelineTypeLabel, TimelineEventType } from "./runTimeline";
 import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, previewToRows, CommandPreview } from "./commandProfile";
 import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
-import { SdkBackend, isSdkAvailable } from "./sdkBackend";
+import { SdkBackend, buildSdkAgentSkillsOptions, isSdkAvailable, SDK_SKILL_SETTING_SOURCES } from "./sdkBackend";
+import { buildEffectiveRunPlan, formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { getRuntimeModelCatalog, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
 import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
-import { adaptEventsToTimeline, computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, truncatePath, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
+import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, truncatePath, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
+import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscript";
 import { computeContextMetrics, formatTokens, formatCompressionRatio, type ContextMetrics, type CompressionInfo } from "./contextMetrics";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
 import { PersistedSession, SessionListItem, SessionExtras, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
@@ -48,7 +50,7 @@ import {
   buildPromptFileRefIndex,
   FileRef,
 } from "./fileRefs";
-import { AttachmentTextSnippet, ingestAttachmentTextSnippet } from "./fileIngestion";
+import { AttachmentTextSnippet, ingestAttachmentTextSnippet, isBoundedTextAttachmentType } from "./fileIngestion";
 import { DEFAULT_ATTACHMENT_PACKING_POLICY } from "./attachmentPackingPolicy";
 import { FileToolExecutionRequest, FileToolResult, executeFileTool } from "./fileToolExecutor";
 import { AgentFileToolRouteRequest, AgentFileToolRouteResult, executeAgentFileToolRoute as routeAgentFileTool } from "./agentFileToolBridge";
@@ -191,8 +193,12 @@ export class LLMBridgeView extends ItemView {
   private runHandle: AgentRunHandle | null = null;
   private messages: ChatMessage[] = [];
   private currentAssistantId: string | null = null;
-  /** V2.16-C: 当前运行的累积 SDK 事件（用于实时 timeline 渲染） */
-  private liveTimelineEvents: WorkflowEvent[] = [];
+  /**
+   * V2.17-A: 实时运行状态聚合器（替代 liveTimelineEvents 数组）
+   * - 单 thinking block / tool_progress 合并 / 无重复 final message
+   * - 历史消息渲染用 aggregateEventsToTimeline(events) 一次性构建
+   */
+  private liveAggregator: RunStateAggregator = new RunStateAggregator();
   private beforeFiles: Map<string, FileSnapshot> = new Map();
   private pendingActions: PendingActionEntry[] = [];
 
@@ -2049,6 +2055,10 @@ export class LLMBridgeView extends ItemView {
   }
 
   private async buildSdkStreamingInput(prompt: string, refs: ReadonlyArray<FileRef>): Promise<SdkStreamingInput | undefined> {
+    // V2.17-A: 仅 image ref 走 SDK streaming image block（Claude Agent SDK 支持 image content block）。
+    // 非 image 的 binary blob（PDF/document 等）按 AttachmentPackingPolicy.binaryAsNativeRef=true
+    // 退化为 path ref / native tool（与 CLI fallback path ref 一致），不进 streaming input。
+    // 这些 native-ref-only 附件由 attachmentPlan.nativeRefOnly 计数审计。
     const imageBlocks: SdkImageContentBlock[] = [];
     for (const ref of refs) {
       if (ref.fileType !== "image" || ref.status !== "active") continue;
@@ -2057,7 +2067,7 @@ export class LLMBridgeView extends ItemView {
     }
     if (imageBlocks.length === 0) return undefined;
     return {
-      reason: "message attachments include image/blob refs; SDK query uses Streaming Input instead of string prompt",
+      reason: "message attachments include image refs; SDK query uses Streaming Input with image content blocks",
       content: [
         { type: "text", text: prompt },
         ...imageBlocks,
@@ -2681,7 +2691,7 @@ export class LLMBridgeView extends ItemView {
     };
     this.messages.push(msg);
     this.currentAssistantId = id;
-    this.liveTimelineEvents = []; // V2.16-C: 清空实时 timeline 事件
+    this.liveAggregator.reset(); // V2.17-A: 重置聚合器，清空实时 timeline 状态
     this.renderMessage(msg);
     return id;
   }
@@ -2822,7 +2832,7 @@ export class LLMBridgeView extends ItemView {
     const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
     if (beforeEl) block.insertBefore(details, beforeEl);
     if (msg.role === "assistant" && msg.status === "running" && (!msg.sdkEvents || msg.sdkEvents.length === 0)) {
-      if (this.liveTimelineEvents.length === 0) {
+      if (this.liveAggregator.toRawEvents().length === 0) {
         this.appendRunningProcessPlaceholder(details);
       } else if (!developerMode) {
         details.remove();
@@ -2833,6 +2843,11 @@ export class LLMBridgeView extends ItemView {
     // V1.5: 命令预览区（UI-only，展示本次实际执行的 command/args/cwd/上下文）
     if (developerMode && msg.role === "assistant" && msg.commandPreview && msg.commandPreview.length > 0) {
       this.appendCommandPreview(details, msg.commandPreview);
+    }
+
+    // V2.17-A: EffectiveRunPlan 面板（Developer mode 审计用；普通用户态不渲染）
+    if (developerMode && msg.role === "assistant" && msg.effectiveRunPlan) {
+      this.appendEffectiveRunPlan(details, msg.effectiveRunPlan);
     }
 
     // V1.5: Workflow Trace 区域（UI-only，比 V1.2 timeline 更细粒度）
@@ -2981,6 +2996,30 @@ export class LLMBridgeView extends ItemView {
     });
   }
 
+  // V2.17-A: 渲染 EffectiveRunPlan 面板（Developer mode 审计用）
+  private appendEffectiveRunPlan(parent: HTMLElement, plan: EffectiveRunPlan): void {
+    const wrap = parent.createDiv({ cls: "llm-bridge-cmd-preview llm-bridge-effective-plan" });
+    const head = wrap.createDiv({ cls: "llm-bridge-cmd-preview-head" });
+    head.createEl("span", { cls: "llm-bridge-cmd-preview-toggle", text: "▶ Effective options" });
+    const body = wrap.createDiv({ cls: "llm-bridge-cmd-preview-body", attr: { hidden: "" } });
+    for (const row of formatEffectiveRunPlan(plan)) {
+      const rowEl = body.createDiv({ cls: "llm-bridge-cmd-preview-row" });
+      rowEl.createEl("span", { cls: "llm-bridge-cmd-preview-label", text: row.label });
+      rowEl.createEl("code", { cls: "llm-bridge-cmd-preview-value", text: row.value });
+    }
+    const toggle = head.querySelector(".llm-bridge-cmd-preview-toggle")!;
+    toggle.addEventListener("click", () => {
+      const hidden = body.hasAttribute("hidden");
+      if (hidden) {
+        body.removeAttribute("hidden");
+        toggle.textContent = "▼ Effective options";
+      } else {
+        body.setAttribute("hidden", "");
+        toggle.textContent = "▶ Effective options";
+      }
+    });
+  }
+
   // V1.5: 从 preview rows 构造脱敏命令行字符串（用于复制）
   private buildRedactedCommandLineFromRows(rows: ReadonlyArray<{ label: string; value: string }>): string {
     const get = (label: string) => rows.find((r) => r.label === label)?.value ?? "";
@@ -3057,7 +3096,7 @@ export class LLMBridgeView extends ItemView {
    */
   private appendLiveSdkEvent(ev: WorkflowEvent): void {
     if (!this.currentAssistantId) return;
-    this.liveTimelineEvents.push(ev);
+    this.liveAggregator.ingest(ev);
     if (ev.type === "completed" || ev.type === "failed") return;
     this.scheduleLiveTimelineRender();
   }
@@ -3086,7 +3125,7 @@ export class LLMBridgeView extends ItemView {
     if (contentEl && liveEl.parentElement === block && liveEl.nextElementSibling !== contentEl) {
       block.insertBefore(liveEl, contentEl);
     }
-    const nodes = this.filterUserFacingTimelineNodes(adaptEventsToTimeline(this.liveTimelineEvents));
+    const nodes = this.filterUserFacingTimelineNodes(this.liveAggregator.toTimelineNodes());
     liveEl.empty();
     liveEl.createDiv({
       cls: "llm-bridge-timeline-live-head",
@@ -3152,7 +3191,6 @@ export class LLMBridgeView extends ItemView {
     return nodes.filter((node) => {
       if (node.kind === "session_started") return false;
       if (node.kind === "agent") return false;
-      if (node.kind === "final_message") return false;
       if (node.kind === "progress" && node.progressCategory === "tool") {
         if (node.progressLabel === "Preparing tool input") return false;
         const preparingMatch = node.progressLabel?.match(/^Preparing\s+(.+)$/i);
@@ -3282,8 +3320,6 @@ export class LLMBridgeView extends ItemView {
       headEl.createEl("span", { cls: "llm-bridge-tl-file-action", text: verb });
       const full = node.filePath ?? "";
       headEl.createEl("code", { cls: "llm-bridge-tl-file-path", text: pathBasename(full), attr: { title: full } });
-    } else if (node.kind === "final_message") {
-      content.createEl("div", { cls: "llm-bridge-tl-final-text", text: truncateText(node.text ?? "", 300), attr: { title: node.text ?? "" } });
     } else if (node.kind === "warning") {
       content.createEl("span", { cls: "llm-bridge-tl-warning-icon", text: "⚠" });
       content.createEl("span", { cls: "llm-bridge-tl-warning-text", text: truncateText(node.message ?? "", 120), attr: { title: node.message ?? "" } });
@@ -3291,7 +3327,7 @@ export class LLMBridgeView extends ItemView {
       content.createEl("span", { cls: "llm-bridge-tl-error-icon", text: "✗" });
       content.createEl("span", { cls: "llm-bridge-tl-error-text", text: truncateText(node.message ?? "", 200), attr: { title: node.message ?? "" } });
     } else if (node.kind === "completed") {
-      const stats = computeTimelineStats(adaptEventsToTimeline(this.liveTimelineEvents));
+      const stats = computeTimelineStats(this.liveAggregator.toTimelineNodes());
       // V2.16-D: chip 形式摘要
       const chipsEl = content.createDiv({ cls: "llm-bridge-tl-completed-chips" });
       chipsEl.createEl("span", { cls: "llm-bridge-tl-chip llm-bridge-tl-chip-success", text: "✓ Completed" });
@@ -3303,7 +3339,7 @@ export class LLMBridgeView extends ItemView {
         if (secs > 0) chipsEl.createEl("span", { cls: "llm-bridge-tl-chip", text: `${secs}s` });
       }
     } else if (node.kind === "failed") {
-      const allNodes = adaptEventsToTimeline(this.liveTimelineEvents);
+      const allNodes = this.liveAggregator.toTimelineNodes();
       content.createEl("div", { cls: "llm-bridge-tl-failed", text: formatFailedSummary(allNodes), attr: { title: node.message ?? "" } });
     }
   }
@@ -3313,9 +3349,9 @@ export class LLMBridgeView extends ItemView {
     events: ReadonlyArray<WorkflowEvent>,
     options: { processOnly?: boolean } = {},
   ): void {
-    // V2.16-C: 现代 Claude/Codex 风格 timeline + 折叠行为
-    // 用 timelineAdapter 转换事件为分类合并的 node 列表
-    const nodes = this.filterUserFacingTimelineNodes(adaptEventsToTimeline(events));
+    // V2.17-A: 用 RunStateAggregator 聚合（单 thinking block / tool_progress 合并 / 无重复 final message）
+    // 历史消息 / 完成态渲染均走此路径，与实时 renderLiveTimeline 一致
+    const nodes = this.filterUserFacingTimelineNodes(aggregateEventsToTimeline(events));
     const visibleNodes = nodes;
     if (visibleNodes.length === 0 && options.processOnly) return;
     const stats = computeTimelineStats(nodes);
@@ -3839,15 +3875,19 @@ export class LLMBridgeView extends ItemView {
         timestamp: new Date().toISOString(),
       };
       const promptPackageText = buildPromptPackage("", snapshot, settings);
-      const workingSetText = this.getPromptFileRefs().map((r) => r.resolvedPath).join("\n");
+      // V2.17-A: 拆分 message-scoped 附件与 pinned context 两段（不再合并为单一 workingSet）
+      const messageAttachmentsText = this.messageFileRefs.filter((r) => r.status === "active").map((r) => r.resolvedPath).join("\n");
+      const pinnedContextText = this.pinnedFileRefs.filter((r) => r.status === "active").map((r) => r.resolvedPath).join("\n");
       const historyText = this.messages.map((m) => m.content || "").join("\n");
       const metrics = computeContextMetrics(
         promptPackageText, activeNoteContent, selection || "",
-        workingSetText, historyText, settings.model,
+        messageAttachmentsText, pinnedContextText, historyText, settings.model,
       );
-      const displayMetrics: ContextMetrics = { ...metrics, precision: "unavailable" };
-      this.lastContextMetrics = displayMetrics;
-      this.renderContextMetrics(displayMetrics);
+      // V2.17-A: 不强制覆盖 precision 为 unavailable；让 computeContextMetrics 的 estimated 自然显示。
+      // - 当前运行时无 exact token usage 信号，按 estimated 展示本地估算（标明精度，不冒充 exact）
+      // - compression 无信号时不传，不伪造
+      this.lastContextMetrics = metrics;
+      this.renderContextMetrics(metrics);
     } catch {
       this.contextLabelEl.textContent = "Context estimate";
     }
@@ -3862,11 +3902,12 @@ export class LLMBridgeView extends ItemView {
     this.contextRingEl.classList.remove("is-exact", "is-estimated", "is-unavailable");
     this.contextRingEl.classList.add(`is-${metrics.precision}`);
     this.contextRingEl.style.cssText = `background: conic-gradient(${color} ${pct * 3.6}deg, var(--background-modifier-border) ${pct * 3.6}deg);`;
-    if (metrics.precision === "unavailable") {
-      this.contextLabelEl.textContent = "Context estimate";
+    // V2.17-A: exact usage 不可用时显示 "Context estimate"（不突出 unavailable，不冒充 exact）；
+    // 仅 exact 精度才在主标签展示 token 数字。
+    if (metrics.precision === "exact") {
+      this.contextLabelEl.textContent = `Context ${formatTokens(total)} / ${formatTokens(win)}`;
     } else {
-      const precisionTag = metrics.precision === "estimated" ? " · estimated" : "";
-      this.contextLabelEl.textContent = `Context ${formatTokens(total)} / ${formatTokens(win)}${precisionTag}`;
+      this.contextLabelEl.textContent = "Context estimate";
     }
     this.contextLabelEl.setAttribute("title", `Exact runtime usage: ${metrics.precision === "exact" ? "available" : "unavailable"}\nLocal estimate: ${metrics.total.tokens} tokens (${metrics.total.chars} chars)\nWindow: ${formatTokens(win)}\nPrecision: ${metrics.precision}`);
     this.contextDetailEl.empty();
@@ -3876,7 +3917,8 @@ export class LLMBridgeView extends ItemView {
       cls: "llm-bridge-context-detail-value",
       text: metrics.precision === "exact" ? "exact runtime usage" : metrics.precision === "estimated" ? "local estimate" : "unavailable; showing local estimated breakdown",
     });
-    const parts = [metrics.promptPackage, metrics.activeNote, metrics.selection, metrics.workingSet, metrics.history, metrics.remaining];
+    // V2.17-A: 分开渲染 message attachments / pinned context / note / selection / history
+    const parts = [metrics.promptPackage, metrics.activeNote, metrics.selection, metrics.messageAttachments, metrics.pinnedContext, metrics.history, metrics.remaining];
     for (const part of parts) {
       const row = this.contextDetailEl.createDiv({ cls: "llm-bridge-context-detail-row" });
       row.createEl("span", { cls: "llm-bridge-context-detail-label", text: part.label });
@@ -4173,49 +4215,14 @@ export class LLMBridgeView extends ItemView {
       messageCount: session.messageCount,
       startedAt: session.startedAt,
     };
-    // V2.16-D: 还原运行时状态 + 更新 lastActiveSessionId
+    // V2.16-D/V2.17-A: 还原运行时状态 + pinned context（保留类型）+ 重算 message 附件 snippet
     const s = this.plugin.settings;
     if (session.model) s.model = session.model;
     if (session.effortLevel) s.effortLevel = session.effortLevel;
     if (session.backendMode) s.backendMode = session.backendMode as typeof s.backendMode;
     if (session.permissionMode) s.claudePermissionMode = session.permissionMode as typeof s.claudePermissionMode;
     if (session.sessionMode) s.sessionMode = session.sessionMode as typeof s.sessionMode;
-    this.messageFileRefs = [];
-    this.pinnedFileRefs = [];
-    this.sessionFileRefs = [];
-    this.attachmentTextSnippets = [];
-    this.attachmentReadGrants = [];
-    const persistedPinnedRefs = Array.isArray(session.pinnedContextRefs)
-      ? session.pinnedContextRefs
-      : Array.isArray(session.workingSetRefs)
-        ? session.workingSetRefs
-        : [];
-    if (persistedPinnedRefs.length > 0) {
-      try {
-        const refs = persistedPinnedRefs as Array<Record<string, unknown>>;
-        this.pinnedFileRefs = refs.map((r) => ({
-            id: String(r.id || ""), kind: String(r.kind || "file"),
-            displayName: String(r.displayName || r.requestedPath || ""),
-            requestedPath: String(r.requestedPath || ""),
-            resolvedPath: String(r.resolvedPath || r.requestedPath || ""),
-            pathKind: String(r.pathKind || "vault"), fileType: String(r.fileType || "md"),
-            source: String(r.source || "manual"), grantScope: String(r.grantScope || "session"),
-            scope: "pinned",
-            createdAt: String(r.createdAt || new Date().toISOString()),
-            status: "active",
-          }) as unknown as FileRef);
-        this.attachmentReadGrants = this.pinnedFileRefs
-          .filter((ref) => ref.kind === "attachment")
-          .map((ref) => ({
-            path: ref.resolvedPath,
-            scope: "attachment",
-            match: "file",
-            grantedAt: ref.createdAt,
-            source: ref.source,
-          }));
-      } catch { /* pinned context 恢复失败不阻断 */ }
-    }
-    this.refreshContextRefs();
+    await this.restoreContextAndSnippets(session);
     this.cachedBackend = null;
     this.cachedBackendMode = null;
     this.refreshAllChips();
@@ -4232,14 +4239,86 @@ export class LLMBridgeView extends ItemView {
     this.clearExternalReadRequests();
     this.refreshStatusBar();
     this.scrollToBottom(); // V2.8: 恢复后滚到最新消息
-    // V2.8: agentType 一致性提示（不强制切换 backend）
-    if (session.agentType && session.agentType !== this.plugin.settings.agentType) {
-      const sessionLabel = AGENT_OPTIONS.find((a) => a.value === session.agentType)?.label ?? session.agentType;
-      const currentLabel = AGENT_OPTIONS.find((a) => a.value === this.plugin.settings.agentType)?.label ?? this.plugin.settings.agentType;
-      new Notice(`已恢复会话：${session.title}（该会话使用 ${sessionLabel}，当前为 ${currentLabel}，已按当前 backend 恢复）`, 6000);
-    } else {
-      new Notice(`已恢复会话：${session.title}`);
+    new Notice(`已恢复会话：${session.title}`);
+  }
+
+  // V2.17-A: 恢复 pinned context（保留完整类型字段）+ 重算 message-scope 附件内联 snippet + 恢复 agentType
+  // - 供 restoreSession 与 restoreLastActiveSessionIfNeeded 复用，避免两处逻辑漂移
+  // - fileType/pathKind/kind 等枚举字段保留原值，不强制 String 化
+  // - 历史 message 的内联文本 snippet 在恢复后重算（prompt 仍含内联内容）
+  // - agentType 与 session 记录对齐，保证 EffectiveRunPlan 一致性
+  private async restoreContextAndSnippets(session: PersistedSession): Promise<void> {
+    const s = this.plugin.settings;
+    if (typeof session.agentType === "string" && session.agentType) {
+      s.agentType = session.agentType as typeof s.agentType;
     }
+    this.messageFileRefs = [];
+    this.pinnedFileRefs = [];
+    this.sessionFileRefs = [];
+    this.attachmentTextSnippets = [];
+    this.attachmentReadGrants = [];
+    const persistedPinnedRefs = Array.isArray(session.pinnedContextRefs)
+      ? session.pinnedContextRefs
+      : Array.isArray(session.workingSetRefs)
+        ? session.workingSetRefs
+        : [];
+    if (persistedPinnedRefs.length > 0) {
+      try {
+        this.pinnedFileRefs = persistedPinnedRefs.map((r) => this.normalizePersistedFileRef(r));
+        this.attachmentReadGrants = this.pinnedFileRefs
+          .filter((ref) => ref.kind === "attachment")
+          .map((ref) => ({
+            path: ref.resolvedPath,
+            scope: "attachment" as const,
+            match: "file" as const,
+            grantedAt: ref.createdAt,
+            source: ref.source,
+          }));
+      } catch {
+        // pinned context 恢复失败不阻断主流程
+      }
+    }
+    // V2.17-A: 重算 message-scope 附件的内联文本 snippet
+    await this.recomputeMessageAttachmentSnippets();
+    this.refreshContextRefs();
+  }
+
+  // V2.17-A: 将持久化的 FileRef 还原为强类型对象（保留 fileType/pathKind/kind 等枚举字段）
+  private normalizePersistedFileRef(raw: unknown): FileRef {
+    const r = (raw ?? {}) as Record<string, unknown>;
+    const requestedPath = typeof r.requestedPath === "string" ? r.requestedPath : "";
+    const resolvedPath = typeof r.resolvedPath === "string" ? r.resolvedPath : requestedPath;
+    return {
+      id: typeof r.id === "string" ? r.id : "",
+      kind: (typeof r.kind === "string" ? r.kind : "file") as FileRef["kind"],
+      displayName: typeof r.displayName === "string" ? r.displayName : requestedPath,
+      requestedPath,
+      resolvedPath,
+      pathKind: (typeof r.pathKind === "string" ? r.pathKind : "vault") as FileRef["pathKind"],
+      fileType: (typeof r.fileType === "string" ? r.fileType : "unknown") as FileRef["fileType"],
+      source: typeof r.source === "string" ? r.source : "manual",
+      grantScope: (typeof r.grantScope === "string" ? r.grantScope : "session") as FileRef["grantScope"],
+      scope: "pinned",
+      createdAt: typeof r.createdAt === "string" ? r.createdAt : new Date().toISOString(),
+      status: "active",
+    } as FileRef;
+  }
+
+  // V2.17-A: 遍历历史 message 的 fileRefs，对 message-scope 文本附件重算内联 snippet
+  // - 恢复 session 后 attachmentTextSnippets 被清空，历史 message 附件的内联内容需重算才能进 prompt
+  // - 仅处理 kind=attachment + bounded text type + active + message scope
+  private async recomputeMessageAttachmentSnippets(): Promise<void> {
+    const snippets: AttachmentTextSnippet[] = [];
+    for (const msg of this.messages) {
+      if (!msg.fileRefs || msg.fileRefs.length === 0) continue;
+      for (const ref of msg.fileRefs) {
+        if (ref.scope !== "message" || ref.status !== "active") continue;
+        if (!isBoundedTextAttachmentType(ref.fileType)) continue;
+        const result = await ingestAttachmentTextSnippet(ref);
+        if (result.snippet) snippets.push(result.snippet);
+      }
+    }
+    this.attachmentTextSnippets = snippets;
   }
 
   // V2.16-D: 会话保持 — onOpen 时静默恢复上次活动会话（不弹确认对话框）
@@ -4268,54 +4347,14 @@ export class LLMBridgeView extends ItemView {
       messageCount: session.messageCount,
       startedAt: session.startedAt,
     };
-    // V2.16-D: 还原运行时状态（仅在 session 文件中记录了对应字段时）
+    // V2.16-D/V2.17-A: 还原运行时状态 + pinned context（保留类型）+ 重算 message 附件 snippet
     if (session.model) s.model = session.model;
     if (session.effortLevel) s.effortLevel = session.effortLevel;
     if (session.backendMode) s.backendMode = session.backendMode as typeof s.backendMode;
     if (session.permissionMode) s.claudePermissionMode = session.permissionMode as typeof s.claudePermissionMode;
     if (session.sessionMode) s.sessionMode = session.sessionMode as typeof s.sessionMode;
-    // V2.16-E: 只还原 pinned context；普通 message attachments 已保存在各 user message 内。
-    this.messageFileRefs = [];
-    this.pinnedFileRefs = [];
-    this.sessionFileRefs = [];
-    this.attachmentTextSnippets = [];
-    this.attachmentReadGrants = [];
-    const persistedPinnedRefs = Array.isArray(session.pinnedContextRefs)
-      ? session.pinnedContextRefs
-      : Array.isArray(session.workingSetRefs)
-        ? session.workingSetRefs
-        : [];
-    if (persistedPinnedRefs.length > 0) {
-      try {
-        const refs = persistedPinnedRefs as Array<Record<string, unknown>>;
-        this.pinnedFileRefs = refs.map((r) => ({
-            id: String(r.id || ""),
-            kind: String(r.kind || "file"),
-            displayName: String(r.displayName || r.requestedPath || ""),
-            requestedPath: String(r.requestedPath || ""),
-            resolvedPath: String(r.resolvedPath || r.requestedPath || ""),
-            pathKind: String(r.pathKind || "vault"),
-            fileType: String(r.fileType || "md"),
-            source: String(r.source || "manual"),
-            grantScope: String(r.grantScope || "session"),
-            scope: "pinned",
-            createdAt: String(r.createdAt || new Date().toISOString()),
-            status: "active",
-          }) as unknown as FileRef);
-        this.attachmentReadGrants = this.pinnedFileRefs
-          .filter((ref) => ref.kind === "attachment")
-          .map((ref) => ({
-            path: ref.resolvedPath,
-            scope: "attachment",
-            match: "file",
-            grantedAt: ref.createdAt,
-            source: ref.source,
-          }));
-      } catch {
-        // pinned context 恢复失败不阻断主流程
-      }
-    }
-    this.refreshContextRefs();
+    // V2.17-A: 复用统一恢复逻辑（pinned context 保留类型 + message snippet 重算 + agentType 对齐）
+    await this.restoreContextAndSnippets(session);
     await this.plugin.saveSettings();
     this.cachedBackend = null;
     this.cachedBackendMode = null;
@@ -4769,6 +4808,28 @@ export class LLMBridgeView extends ItemView {
     const prompt = buildPromptPackage(userInput, snapshot, settings);
     const sdkStreamingInput = await this.buildSdkStreamingInput(prompt, promptFileRefsForRun);
 
+    // V2.17-A: 构造 EffectiveRunPlan（CLI/SDK 单一真相源）
+    const backendInstance = this.getBackend();
+    const backendKind: "sdk" | "cli" = backendInstance instanceof SdkBackend ? "sdk" : "cli";
+    const agentSkillsOptions = buildSdkAgentSkillsOptions(vaultPath);
+    const imageBlockCount = sdkStreamingInput?.content.filter((b) => b.type === "image").length ?? 0;
+    const attachmentPlan: AttachmentPlan = {
+      messageScopedRefs: messageRefsForRun.length,
+      pinnedRefs: this.pinnedFileRefs.length,
+      inlineSnippets: promptAttachmentSnippetsForRun.length,
+      imageStreamingBlocks: imageBlockCount,
+      nativeRefOnly: Math.max(0, promptFileRefsForRun.length - promptAttachmentSnippetsForRun.length - imageBlockCount),
+    };
+    const effectiveRunPlan = buildEffectiveRunPlan({
+      backend: backendKind,
+      settings,
+      cwd: vaultPath,
+      promptPackageText: prompt,
+      settingSources: agentSkillsOptions.settingSources,
+      skills: agentSkillsOptions.skills,
+      attachmentPlan,
+    });
+
     // V1.5: 构造命令预览（UI-only，展示本次实际执行的 command/args/cwd/上下文）
     const commandPreviewRows = previewToRows(buildCommandPreview(settings, vaultPath, {
       hasSelection: !!selection,
@@ -4811,6 +4872,7 @@ export class LLMBridgeView extends ItemView {
     this.updateAssistantMessage(assistantId, {
       log: `$ ${this.commandLine()}\ncwd: ${vaultPath}\nprompt 通过 stdin 传入（${prompt.length} 字符）`,
       commandPreview: commandPreviewRows,
+      effectiveRunPlan,
     });
 
     const backend = this.getBackend();
@@ -4830,6 +4892,7 @@ export class LLMBridgeView extends ItemView {
       includeSelection: settings.includeSelection,
       sdkStreamingInput,
       runtimeFileToolAdapter,
+      effectiveRunPlan,
     };
 
     this.runHandle = backend.run(task, settings, (event) => {

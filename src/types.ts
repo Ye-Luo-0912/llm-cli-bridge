@@ -33,6 +33,35 @@ export type BackendMode = "auto" | "cli" | "sdk" | "mock-success" | "mock-failur
 // V2.3: 权限策略（low=宽松 / medium=默认 / high=严格）
 export type PermissionPolicy = "low" | "medium" | "high";
 
+// V2.17-A: 附件打包计划（审计用，记录本轮附件分布）
+export interface AttachmentPlan {
+  messageScopedRefs: number;
+  pinnedRefs: number;
+  inlineSnippets: number;
+  imageStreamingBlocks: number;
+  nativeRefOnly: number;
+}
+
+// V2.17-A: EffectiveRunPlan —— 每次运行的单一真相源
+// CLI 与 SDK 都从同一个 plan 派生 options / env；Developer mode 可查看，普通用户隐藏。
+export interface EffectiveRunPlan {
+  backend: "sdk" | "cli";
+  cwd: string;
+  model: string;
+  // 官方字段名 effort（不再用未确认的 reasoningEffort）
+  effort: string;
+  permission: ClaudePermissionMode;
+  session: { continueSession: boolean; resumeId?: string };
+  // 显式 claude_code preset
+  systemPrompt: { preset: "claude_code" };
+  tools: { preset: "claude_code" };
+  settingSources: readonly string[];
+  skills: readonly string[];
+  promptPackageHash: string;
+  attachmentPlan: AttachmentPlan;
+  createdAt: string;
+}
+
 // 单条聊天消息
 export interface ChatMessage {
   id: string;
@@ -60,6 +89,8 @@ export interface ChatMessage {
   sdkEvents?: ReadonlyArray<import("./workflowEvent").WorkflowEvent>;
   // V2.16-E: 用户本轮附件/refs。普通附件只绑定到这条 user message，不跨轮保留。
   fileRefs?: ReadonlyArray<import("./fileRefs").FileRef>;
+  // V2.17-A: 本次运行的 EffectiveRunPlan（Developer mode 审计用；普通用户态不渲染）
+  effectiveRunPlan?: EffectiveRunPlan;
 }
 
 export interface LLMBridgeSettings {

@@ -6,7 +6,7 @@ import { ChildProcess, spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import { AgentBackend, AgentEvent, AgentEventHandler, AgentRunHandle, AgentTask } from "./agentBackend";
-import { AgentType, LLMBridgeSettings } from "./types";
+import { AgentType, LLMBridgeSettings, EffectiveRunPlan } from "./types";
 import { buildCommandLine } from "./commandProfile";
 import { AgentSkillsRuntimePreparationResult, prepareAgentSkillsForClaudeRuntimeSync } from "./agentSkills";
 import { resolveClaudeRuntimeConfig } from "./claudeRuntimeConfig";
@@ -123,11 +123,13 @@ export function buildEnhancedPath(cwd: string): string {
  * - 优先使用项目级 Claude runtime config，其次自动发现 Vault 局部 runtime，再继承进程环境
  * - 用 UI 选择的 model / effort 覆盖（仅 claude）
  * - 增强 PATH：Vault 局部优先
+ * V2.17-A: 当传入 EffectiveRunPlan 时，model/effort 从 plan 读取（CLI/SDK 单一真相源）。
  * @returns env 和诊断用的 envKey 列表（只含 key 名，不含 value）
  */
 export function buildRunEnv(
   settings: LLMBridgeSettings,
   cwd: string,
+  plan?: EffectiveRunPlan,
 ): { env: NodeJS.ProcessEnv; envKeys: string[] } {
   const env = { ...process.env };
   const envKeys: string[] = [];
@@ -141,12 +143,15 @@ export function buildRunEnv(
     Object.assign(env, runtimeConfig.env);
     envKeys.push(...runtimeConfig.envKeys);
 
-    if (settings.model) {
-      env.ANTHROPIC_MODEL = settings.model;
+    // V2.17-A: model/effort 优先取自 EffectiveRunPlan
+    const model = plan?.model ?? settings.model;
+    const effort = plan?.effort ?? settings.effortLevel;
+    if (model) {
+      env.ANTHROPIC_MODEL = model;
       envKeys.push("ANTHROPIC_MODEL");
     }
-    if (settings.effortLevel) {
-      env.CLAUDE_CODE_EFFORT_LEVEL = settings.effortLevel;
+    if (effort) {
+      env.CLAUDE_CODE_EFFORT_LEVEL = effort;
       envKeys.push("CLAUDE_CODE_EFFORT_LEVEL");
     }
   }
@@ -338,8 +343,8 @@ export class ClaudeCliBackend implements AgentBackend {
     // 发出 started 事件
     onEvent({ type: "started", task });
 
-    // 构造环境变量（使用导出的工具函数）
-    const { env, envKeys } = buildRunEnv(settings, task.cwd);
+    // 构造环境变量（V2.17-A: 传入 EffectiveRunPlan，model/effort 取自单一真相源）
+    const { env, envKeys } = buildRunEnv(settings, task.cwd, task.effectiveRunPlan);
     const extraPath = buildEnhancedPath(task.cwd);
     const injectedPaths = extraPath ? extraPath.split(path.delimiter) : [];
 

@@ -3179,6 +3179,8 @@ if (!runV17Unit) {
     }
 
     // ---- Test 4: SDKResultMessage success/error → terminal ----
+    // V2.17-A: result success 只标记 completed，不生成重复 message(assistant, resultText)
+    // 最终答案由 partial text_delta 累加到 RunStateAggregator.finalAnswerBuffer
     {
       const successMsg = {
         type: "result", subtype: "success", is_error: false,
@@ -3187,7 +3189,8 @@ if (!runV17Unit) {
       const sr = mapSdkMessageToWorkflowEvents(successMsg, TS);
       const successOk = sr.terminal === "completed" && sr.terminalExitCode === 0 &&
                         sr.terminalText === "任务完成" &&
-                        sr.events.some((e) => e.type === "message" && e.text === "任务完成");
+                        sr.events.some((e) => e.type === "completed" && e.text === "任务完成") &&
+                        !sr.events.some((e) => e.type === "message" && e.text === "任务完成");
 
       const errorMsg = {
         type: "result", subtype: "error_during_execution", is_error: true,
@@ -4690,18 +4693,20 @@ if (!runV23Unit) {
         `sessionId=${msgEv?.sessionId} parentToolUseId=${msgEv?.parentToolUseId}`);
     }
 
-    // ---- Test 18: result 终态消息携带 sessionId ----
+    // ---- Test 18: result 终态 completed 事件携带 sessionId（V2.17-A 调整）----
     {
       const resultMsg = {
         type: "result", subtype: "success", is_error: false,
         result: "完成", session_id: "sess-main",
       };
       const result = mapSdkMessageToWorkflowEvents(resultMsg, TS);
-      const msgEv = result.events.find((e) => e.type === "message");
-      const sessionIdOk = msgEv && msgEv.sessionId === "sess-main";
-      addTest("V2.3 SDK 映射: 终态消息携带 sessionId",
-        sessionIdOk && result.terminal === "completed" ? "pass" : "fail",
-        `sessionIdOk=${sessionIdOk} terminal=${result.terminal}`);
+      // V2.17-A: result success 不再发 message(assistant, resultText)，改为 completed 事件携带 sessionId
+      const completedEv = result.events.find((e) => e.type === "completed");
+      const noDuplicateMsg = !result.events.some((e) => e.type === "message" && e.text === "完成");
+      const sessionIdOk = completedEv && completedEv.sessionId === "sess-main";
+      addTest("V2.3 SDK 映射: 终态 completed 事件携带 sessionId",
+        sessionIdOk && noDuplicateMsg && result.terminal === "completed" ? "pass" : "fail",
+        `sessionIdOk=${sessionIdOk} noDuplicateMsg=${noDuplicateMsg} terminal=${result.terminal}`);
     }
 
     // ---- Test 19: 无 session_id 的消息不附加字段（向后兼容）----
@@ -6830,10 +6835,15 @@ if (!runV28Unit) {
 
     // ===== 一致性提示源码检查（view.ts）=====
 
-    // ---- Test 6: view.ts 含 agentType 一致性提示 ----
+    // ---- Test 6: view.ts 恢复 session 时对齐 agentType + 重算 message snippet（V2.17-A 调整）----
     {
-      const ok = viewSrc.includes("agentType 一致性提示") && viewSrc.includes("session.agentType !== this.plugin.settings.agentType");
-      addTest("V2.8 view.ts: 含 restoreSession agentType 一致性提示", ok ? "pass" : "fail", "");
+      // V2.17-A: 不再只提示不校正；恢复时按 session 记录的 agentType 切换，保证 EffectiveRunPlan 一致性
+      // 同时重算 message-scope 附件内联 snippet，保证恢复后 prompt 仍含内联内容
+      const ok = viewSrc.includes("s.agentType = session.agentType as typeof s.agentType")
+        && viewSrc.includes("restoreContextAndSnippets")
+        && viewSrc.includes("recomputeMessageAttachmentSnippets")
+        && viewSrc.includes("normalizePersistedFileRef");
+      addTest("V2.8 view.ts: restoreSession 对齐 agentType + 重算 message snippet", ok ? "pass" : "fail", "");
     }
 
     // ---- Test 7: view.ts 含恢复后 scrollToBottom ----
@@ -7076,10 +7086,11 @@ if (!runV29Unit) {
 
     // ===== 源码检查：view.ts findParent 优化 =====
 
-    // ---- Test 7: appendSdkWorkflow 用 timelineAdapter（V2.16-C 重构） ----
+    // ---- Test 7: appendSdkWorkflow 用 RunStateAggregator（V2.17-A 重构） ----
     {
-      const ok = viewSrc.includes("adaptEventsToTimeline") && viewSrc.includes("formatCompletedSummary") && viewSrc.includes("llm-bridge-timeline-wrap");
-      addTest("V2.9 view.ts: appendSdkWorkflow 用 timelineAdapter O(1) 分组", ok ? "pass" : "fail", "");
+      // V2.17-A: adaptEventsToTimeline → aggregateEventsToTimeline（RunStateAggregator）
+      const ok = viewSrc.includes("aggregateEventsToTimeline") && viewSrc.includes("formatCompletedSummary") && viewSrc.includes("llm-bridge-timeline-wrap") && viewSrc.includes("this.liveAggregator.toTimelineNodes()") && !viewSrc.includes('"final_message"');
+      addTest("V2.9 view.ts: appendSdkWorkflow 用 RunStateAggregator 聚合分组", ok ? "pass" : "fail", "");
     }
 
     // ---- Test 8: findToolParentAgent 方法已移除 ----
@@ -12300,14 +12311,22 @@ if (!runNoteSummarizeSmoke) {
     addTest("V2.16-D sessions/view.ts: 最近会话摘要下拉与恢复入口", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 12: context 主显示不再把本地 estimated 当 exact usage ----
+  // ---- Test 12: context 主显示区分 exact/estimated，不冒充 exact（V2.17-A 调整）----
   {
-    const ok = viewSrc.includes('precision: "unavailable"')
-      && viewSrc.includes('this.contextLabelEl.textContent = "Context estimate"')
+    // V2.17-A: 不再强制覆盖 precision 为 unavailable；让 computeContextMetrics 的 estimated 自然显示
+    // - 非 exact 精度时主标签显示 "Context estimate"，不冒充 exact
+    // - 拆分 message attachments / pinned context 两段（不再合并为单一 workingSet）
+    const ok = viewSrc.includes('this.contextLabelEl.textContent = "Context estimate"')
       && viewSrc.includes('text: "Source"')
+      && viewSrc.includes("is-exact")
+      && viewSrc.includes("is-estimated")
       && viewSrc.includes("is-unavailable")
-      && contextMetricsSrc.includes('precision: "exact" | "estimated" | "unavailable"');
-    addTest("V2.16-D context: exact/unavailable/estimated 状态区分", ok ? "pass" : "fail", "");
+      && viewSrc.includes("metrics.messageAttachments")
+      && viewSrc.includes("metrics.pinnedContext")
+      && contextMetricsSrc.includes('precision: "exact" | "estimated" | "unavailable"')
+      && contextMetricsSrc.includes("messageAttachments: ContextMetricPart")
+      && contextMetricsSrc.includes("pinnedContext: ContextMetricPart");
+    addTest("V2.16-D context: exact/estimated 区分 + message/pinned 拆分", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 13: composer 支持 drag/drop、clipboard file、粘贴路径文本 ----
@@ -12345,20 +12364,22 @@ if (!runNoteSummarizeSmoke) {
     addTest("V2.16-D developer mode: 用户态隐藏 raw log/command", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 16: 用户态 timeline 隐藏 session/text/final，只保留过程节点 ----
+  // ---- Test 16: 用户态 timeline 隐藏 session/text/raw tool input，只保留过程节点 ----
+  // V2.17-A: final_message kind 已删除（mapper 不再生成重复 message）；adaptEventsToTimeline → aggregateEventsToTimeline
   {
     const ok = viewSrc.includes("filterUserFacingTimelineNodes")
       && viewSrc.includes('if (node.kind === "session_started") return false;')
       && viewSrc.includes('if (node.kind === "agent") return false;')
-      && viewSrc.includes('if (node.kind === "final_message") return false;')
       && viewSrc.includes("isInternalFilePath(toolPath)")
-      && viewSrc.includes("adaptEventsToTimeline(events)")
+      && viewSrc.includes("aggregateEventsToTimeline(events)")
+      && viewSrc.includes("this.liveAggregator.toTimelineNodes()")
       && viewSrc.includes('titleEl.createEl("span", { text: "Thinking" });')
       && viewSrc.includes("llm-bridge-tl-thinking-star")
       && viewSrc.includes('node.progressLabel === "Preparing tool input"')
       && viewSrc.includes('completedToolNames.has(preparingMatch[1].toLowerCase())')
-      && viewSrc.includes('node.kind === "progress"');
-    addTest("V2.16-H timeline: 用户态隐藏 session/text/final/raw tool input，仅保留语义过程节点", ok ? "pass" : "fail", "");
+      && viewSrc.includes('node.kind === "progress"')
+      && !viewSrc.includes('"final_message"');
+    addTest("V2.16-H timeline: 用户态隐藏 session/text/raw tool input，仅保留语义过程节点", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 17: completed 用户态显示最终输出，并在结果前保留 processOnly 折叠过程 ----
@@ -12421,6 +12442,383 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("window.setTimeout(() =>")
       && !viewSrc.includes('scrollIntoView({ behavior: "smooth", block: "end" })');
     addTest("V2.16-G SDK streaming: partial stream/progress 映射并增量输出", ok ? "pass" : "fail", "");
+  }
+}
+
+// ============================================================
+// 9.9 V2.17-A Runtime Semantics & Agent UX Consolidation smoke 测试
+//     覆盖：EffectiveRunPlan 一致性 / RunStateAggregator 聚合 /
+//           completed sessionId / Context 拆分 / Agent UI 无 final_message
+// ============================================================
+console.log("\n=== V2.17-A Runtime Semantics & Agent UX Consolidation smoke 测试 ===");
+
+const runV217A = runMode === "all" || runMode === "unit";
+
+if (!runV217A) {
+  addTest("V2.17-A smoke 测试段", "skip", "当前模式不运行 unit");
+} else {
+  let runtimeTranscriptBundle = null;
+  let effectiveRunPlanBundle = null;
+  let contextMetricsBundleV217 = null;
+  let mapperBundleV217 = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    runtimeTranscriptBundle = join(PROJECT_ROOT, ".test-runtime-transcript-v217a-temp.mjs");
+    effectiveRunPlanBundle = join(PROJECT_ROOT, ".test-effective-run-plan-v217a-temp.mjs");
+    contextMetricsBundleV217 = join(PROJECT_ROOT, ".test-context-metrics-v217a-temp.mjs");
+    mapperBundleV217 = join(PROJECT_ROOT, ".test-sdk-mapper-v217a-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtimeTranscript.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: runtimeTranscriptBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "effectiveRunPlan.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: effectiveRunPlanBundle,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "contextMetrics.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: contextMetricsBundleV217,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "sdkMessageMapper.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: mapperBundleV217,
+    });
+
+    const { RunStateAggregator, aggregateEventsToTimeline, buildRuntimeTranscriptFromEvents } =
+      await import(pathToFileURL(runtimeTranscriptBundle).href);
+    const { buildEffectiveRunPlan, computePromptPackageHash, formatEffectiveRunPlan } =
+      await import(pathToFileURL(effectiveRunPlanBundle).href);
+    const { computeContextMetrics, estimateTokens } =
+      await import(pathToFileURL(contextMetricsBundleV217).href);
+    const { mapSdkMessageToWorkflowEvents } =
+      await import(pathToFileURL(mapperBundleV217).href);
+
+    const TS = () => new Date().toISOString();
+
+    // 构造测试用 settings（仅含 buildEffectiveRunPlan 需要的字段）
+    function makeSettings(overrides = {}) {
+      return {
+        model: "claude-sonnet-4-5",
+        effortLevel: "high",
+        claudePermissionMode: "default",
+        claudeContinueSession: false,
+        claudeResumeSessionId: "",
+        ...overrides,
+      };
+    }
+
+    const emptyAttachmentPlan = {
+      messageScopedRefs: 0, pinnedRefs: 0, inlineSnippets: 0,
+      imageStreamingBlocks: 0, nativeRefOnly: 0,
+    };
+
+    // ---- Test 1: EffectiveRunPlan 字段完整性（SDK 派生）----
+    {
+      const settings = makeSettings();
+      const plan = buildEffectiveRunPlan({
+        backend: "sdk",
+        settings,
+        cwd: "/vault",
+        promptPackageText: "system prompt + tool steering",
+        settingSources: ["user", "project", "local"],
+        skills: ["code", "docs"],
+        attachmentPlan: { ...emptyAttachmentPlan, messageScopedRefs: 2, inlineSnippets: 1 },
+      });
+      const fieldsOk = plan.backend === "sdk"
+        && plan.cwd === "/vault"
+        && plan.model === "claude-sonnet-4-5"
+        && plan.effort === "high"
+        && plan.permission === "default"
+        && plan.session.continueSession === false
+        && plan.systemPrompt.preset === "claude_code"
+        && plan.tools.preset === "claude_code"
+        && Array.isArray(plan.settingSources) && plan.settingSources.length === 3
+        && Array.isArray(plan.skills) && plan.skills.length === 2
+        && typeof plan.promptPackageHash === "string" && plan.promptPackageHash.length > 0
+        && plan.attachmentPlan.messageScopedRefs === 2
+        && typeof plan.createdAt === "string";
+      addTest("V2.17-A EffectiveRunPlan: 字段完整性（SDK 派生）",
+        fieldsOk ? "pass" : "fail",
+        `backend=${plan.backend} effort=${plan.effort} preset=${plan.systemPrompt.preset}`);
+    }
+
+    // ---- Test 2: CLI 与 SDK 派生自同一 plan（model/effort/permission/session 一致，仅 backend 不同）----
+    {
+      const settings = makeSettings({ model: "gpt-5.5", effortLevel: "medium", claudePermissionMode: "plan" });
+      const commonArgs = {
+        settings,
+        cwd: "/vault",
+        promptPackageText: "same prompt package",
+        settingSources: ["user", "project", "local"],
+        skills: [],
+        attachmentPlan: emptyAttachmentPlan,
+      };
+      const sdkPlan = buildEffectiveRunPlan({ backend: "sdk", ...commonArgs });
+      const cliPlan = buildEffectiveRunPlan({ backend: "cli", ...commonArgs });
+      const consistent = sdkPlan.model === cliPlan.model
+        && sdkPlan.effort === cliPlan.effort
+        && sdkPlan.permission === cliPlan.permission
+        && sdkPlan.session.continueSession === cliPlan.session.continueSession
+        && sdkPlan.systemPrompt.preset === cliPlan.systemPrompt.preset
+        && sdkPlan.tools.preset === cliPlan.tools.preset
+        && sdkPlan.settingSources.join(",") === cliPlan.settingSources.join(",")
+        && sdkPlan.promptPackageHash === cliPlan.promptPackageHash;
+      const backendDiffers = sdkPlan.backend === "sdk" && cliPlan.backend === "cli";
+      addTest("V2.17-A EffectiveRunPlan: CLI/SDK 同输入产出一致 plan（仅 backend 字段不同）",
+        consistent && backendDiffers ? "pass" : "fail",
+        `consistent=${consistent} backendDiffers=${backendDiffers}`);
+    }
+
+    // ---- Test 3: promptPackageHash 相同输入稳定、不同输入区分 ----
+    {
+      const h1 = computePromptPackageHash("prompt A");
+      const h1b = computePromptPackageHash("prompt A");
+      const h2 = computePromptPackageHash("prompt B");
+      const stable = h1 === h1b;
+      const distinct = h1 !== h2;
+      addTest("V2.17-A computePromptPackageHash: 相同输入稳定、不同输入区分",
+        stable && distinct ? "pass" : "fail",
+        `stable=${stable} distinct=${distinct} h1=${h1} h2=${h2}`);
+    }
+
+    // ---- Test 4: formatEffectiveRunPlan 输出可审计键值行 ----
+    {
+      const settings = makeSettings();
+      const plan = buildEffectiveRunPlan({
+        backend: "sdk", settings, cwd: "/vault",
+        promptPackageText: "x",
+        settingSources: ["user", "project", "local"],
+        skills: ["code"],
+        attachmentPlan: emptyAttachmentPlan,
+      });
+      const rows = formatEffectiveRunPlan(plan);
+      const labels = rows.map((r) => r.label);
+      const expected = ["backend","cwd","model","effort","permission","session","systemPrompt","tools","settingSources","skills","promptPackageHash","attachments","createdAt"];
+      const hasAll = expected.every((k) => labels.includes(k));
+      addTest("V2.17-A formatEffectiveRunPlan: 输出完整审计键值行",
+        hasAll && rows.length >= expected.length ? "pass" : "fail",
+        `rows=${rows.length} hasAll=${hasAll}`);
+    }
+
+    // ---- Test 5: RunStateAggregator thinking 多次 delta 合并为单个 block ----
+    {
+      const agg = new RunStateAggregator();
+      agg.ingest({ type: "thinking", timestamp: TS(), text: "part1 " });
+      agg.ingest({ type: "thinking", timestamp: TS(), text: "part2 " });
+      agg.ingest({ type: "thinking", timestamp: TS(), text: "part3" });
+      const transcript = agg.toTranscript();
+      const singleBlock = transcript.thinkingBlock !== null && transcript.thinkingBlock.text === "part1 part2 part3";
+      addTest("V2.17-A RunStateAggregator: 多次 thinking_delta 合并单个 block",
+        singleBlock ? "pass" : "fail",
+        `text=${transcript.thinkingBlock?.text}`);
+    }
+
+    // ---- Test 6: thinking_tokens 只更新标题 meta 不产生新节点 ----
+    {
+      const agg = new RunStateAggregator();
+      agg.ingest({ type: "thinking", timestamp: TS(), text: "thinking content" });
+      agg.ingest({ type: "progress", timestamp: TS(), label: "thinking_tokens", detail: "~120 tokens", category: "thinking" });
+      const transcript = agg.toTranscript();
+      const nodes = agg.toTimelineNodes();
+      const thoughtNodes = nodes.filter((n) => n.kind === "thought");
+      const singleThought = thoughtNodes.length === 1;
+      const tokensUpdated = transcript.thinkingBlock?.tokens === 120;
+      addTest("V2.17-A RunStateAggregator: thinking_tokens 只更新标题 meta 不新增节点",
+        singleThought && tokensUpdated ? "pass" : "fail",
+        `thoughtNodes=${thoughtNodes.length} tokens=${transcript.thinkingBlock?.tokens}`);
+    }
+
+    // ---- Test 7: tool_progress 合并到对应 tool_call 节点（不作为独立 progress 节点）----
+    {
+      const agg = new RunStateAggregator();
+      agg.ingest({ type: "tool_start", timestamp: TS(), toolName: "Read", toolInput: "{}", callId: "c1" });
+      agg.ingest({ type: "progress", timestamp: TS(), label: "Reading", category: "tool", detail: "file.md" });
+      agg.ingest({ type: "progress", timestamp: TS(), label: "Read", category: "tool", detail: "done" });
+      agg.ingest({ type: "tool_result", timestamp: TS(), callId: "c1", toolName: "Read", output: "ok", isError: false });
+      const nodes = agg.toTimelineNodes();
+      const toolNodes = nodes.filter((n) => n.kind === "tool_call");
+      const progressNodes = nodes.filter((n) => n.kind === "progress");
+      const singleToolNode = toolNodes.length === 1;
+      const noStandaloneToolProgress = progressNodes.length === 0;
+      addTest("V2.17-A RunStateAggregator: tool_progress 合并到 tool_call 节点（无独立 progress）",
+        singleToolNode && noStandaloneToolProgress ? "pass" : "fail",
+        `toolNodes=${toolNodes.length} progressNodes=${progressNodes.length}`);
+    }
+
+    // ---- Test 8: partial text_delta 累加到 finalAnswerBuffer ----
+    {
+      const agg = new RunStateAggregator();
+      agg.ingest({ type: "message", timestamp: TS(), role: "assistant", text: "Hello", partial: true });
+      agg.ingest({ type: "message", timestamp: TS(), role: "assistant", text: " world", partial: true });
+      agg.ingest({ type: "message", timestamp: TS(), role: "assistant", text: "!", partial: true });
+      const transcript = agg.toTranscript();
+      const accumulated = transcript.finalAnswerBuffer === "Hello world!";
+      addTest("V2.17-A RunStateAggregator: partial text_delta 累加到 finalAnswerBuffer",
+        accumulated ? "pass" : "fail",
+        `buffer=${transcript.finalAnswerBuffer}`);
+    }
+
+    // ---- Test 9: result success 不生成重复 message（mapper 层修正）----
+    {
+      const successMsg = {
+        type: "result", subtype: "success", is_error: false,
+        result: "任务完成", session_id: "sess-abc",
+      };
+      const mapped = mapSdkMessageToWorkflowEvents(successMsg, TS());
+      const hasCompleted = mapped.events.some((e) => e.type === "completed");
+      const noDuplicateMessage = !mapped.events.some((e) => e.type === "message" && e.text === "任务完成");
+      addTest("V2.17-A mapper: result success 只发 completed 不发重复 message",
+        hasCompleted && noDuplicateMessage && mapped.terminal === "completed" ? "pass" : "fail",
+        `hasCompleted=${hasCompleted} noDuplicateMessage=${noDuplicateMessage}`);
+    }
+
+    // ---- Test 10: completed 终态事件携带 sessionId（Developer mode 审计）----
+    {
+      const successMsg = {
+        type: "result", subtype: "success", is_error: false,
+        result: "done", session_id: "sess-xyz",
+      };
+      const mapped = mapSdkMessageToWorkflowEvents(successMsg, TS());
+      const completedEv = mapped.events.find((e) => e.type === "completed");
+      const sessionIdOk = completedEv && completedEv.sessionId === "sess-xyz";
+      addTest("V2.17-A mapper: completed 事件携带 sessionId",
+        sessionIdOk ? "pass" : "fail",
+        `sessionId=${completedEv?.sessionId}`);
+    }
+
+    // ---- Test 11: failed 终态事件携带 sessionId ----
+    {
+      const errorMsg = {
+        type: "result", subtype: "error_during_execution", is_error: true,
+        errors: ["boom"], session_id: "sess-fail",
+      };
+      const mapped = mapSdkMessageToWorkflowEvents(errorMsg, TS());
+      const failedEv = mapped.events.find((e) => e.type === "failed");
+      const sessionIdOk = failedEv && failedEv.sessionId === "sess-fail";
+      addTest("V2.17-A mapper: failed 事件携带 sessionId",
+        sessionIdOk ? "pass" : "fail",
+        `sessionId=${failedEv?.sessionId}`);
+    }
+
+    // ---- Test 12: toTimelineNodes 不产生 final_message 节点 + 单 thought + completed ----
+    {
+      const events = [
+        { type: "thinking", timestamp: TS(), text: "think" },
+        { type: "message", timestamp: TS(), role: "assistant", text: "answer", partial: true },
+        { type: "tool_start", timestamp: TS(), toolName: "Read", toolInput: "{}", callId: "c1" },
+        { type: "tool_result", timestamp: TS(), callId: "c1", toolName: "Read", output: "ok", isError: false },
+        { type: "completed", timestamp: TS(), text: "done" },
+      ];
+      const nodes = aggregateEventsToTimeline(events);
+      const noFinalMessage = !nodes.some((n) => n.kind === "final_message");
+      const hasCompleted = nodes.some((n) => n.kind === "completed");
+      const hasSingleThought = nodes.filter((n) => n.kind === "thought").length === 1;
+      addTest("V2.17-A aggregateEventsToTimeline: 无 final_message 节点 + 单 thought + completed",
+        noFinalMessage && hasCompleted && hasSingleThought ? "pass" : "fail",
+        `noFinalMessage=${noFinalMessage} hasCompleted=${hasCompleted} hasSingleThought=${hasSingleThought}`);
+    }
+
+    // ---- Test 13: Context 拆分 messageAttachments / pinnedContext 独立段 + workingSet 聚合 ----
+    {
+      const metrics = computeContextMetrics(
+        "prompt package text",
+        "active note content",
+        "selection text",
+        "/path/to/msg-attachment.md",
+        "/path/to/pinned-context.md",
+        "history text",
+        "claude-sonnet-4-5",
+      );
+      const hasMessageAttachments = metrics.messageAttachments.label === "Message attachments" && metrics.messageAttachments.tokens > 0;
+      const hasPinnedContext = metrics.pinnedContext.label === "Pinned context" && metrics.pinnedContext.tokens > 0;
+      const workingSetAggregates = metrics.workingSet.tokens === metrics.messageAttachments.tokens + metrics.pinnedContext.tokens;
+      const estimatedPrecision = metrics.precision === "estimated";
+      addTest("V2.17-A computeContextMetrics: message/pinned 拆分 + workingSet 聚合 + estimated",
+        hasMessageAttachments && hasPinnedContext && workingSetAggregates && estimatedPrecision ? "pass" : "fail",
+        `msg=${metrics.messageAttachments.tokens} pin=${metrics.pinnedContext.tokens} ws=${metrics.workingSet.tokens}`);
+    }
+
+    // ---- Test 14: Context 附件空时 workingSet=0（不冒充有内容）----
+    {
+      const withAttachments = computeContextMetrics("p", "", "", "/msg.md", "/pin.md", "", "gpt-5.5");
+      const withoutAttachments = computeContextMetrics("p", "", "", "", "", "", "gpt-5.5");
+      const withHasWorkingSet = withAttachments.workingSet.tokens > 0;
+      const withoutZero = withoutAttachments.workingSet.tokens === 0;
+      addTest("V2.17-A computeContextMetrics: 附件空时 workingSet=0，有附件时 >0",
+        withHasWorkingSet && withoutZero ? "pass" : "fail",
+        `with=${withAttachments.workingSet.tokens} without=${withoutAttachments.workingSet.tokens}`);
+    }
+
+    // ---- Test 15: 端到端流式聚合 —— 多 thinking + 多 partial + tool + completed ----
+    {
+      const agg = new RunStateAggregator();
+      agg.ingest({ type: "message", timestamp: TS(), role: "system", text: "SDK session started" });
+      agg.ingest({ type: "thinking", timestamp: TS(), text: "分析中..." });
+      agg.ingest({ type: "progress", timestamp: TS(), label: "thinking_tokens", detail: "~50 tokens", category: "thinking" });
+      agg.ingest({ type: "thinking", timestamp: TS(), text: " 需要读文件" });
+      agg.ingest({ type: "message", timestamp: TS(), role: "assistant", text: "我来", partial: true });
+      agg.ingest({ type: "message", timestamp: TS(), role: "assistant", text: "读取", partial: true });
+      agg.ingest({ type: "tool_start", timestamp: TS(), toolName: "Read", toolInput: '{"file_path":"a.md"}', callId: "r1" });
+      agg.ingest({ type: "progress", timestamp: TS(), label: "Read", category: "tool", detail: "reading a.md" });
+      agg.ingest({ type: "tool_result", timestamp: TS(), callId: "r1", toolName: "Read", output: "# a.md content", isError: false });
+      agg.ingest({ type: "message", timestamp: TS(), role: "assistant", text: "完成", partial: true });
+      agg.ingest({ type: "completed", timestamp: TS(), text: "任务完成" });
+      const transcript = agg.toTranscript();
+      const finalAnswer = transcript.finalAnswerBuffer === "我来读取完成";
+      const singleThinking = transcript.thinkingBlock !== null && transcript.thinkingBlock.text === "分析中... 需要读文件";
+      const singleTool = transcript.toolNodes.size === 1;
+      const hasSessionStarted = transcript.sessionStarted !== null;
+      const completedOk = transcript.completed !== null && transcript.isTerminal;
+      addTest("V2.17-A 端到端聚合: partial 累加 + 单 thinking + 单 tool + sessionStarted 记录 + completed 终态",
+        finalAnswer && singleThinking && singleTool && hasSessionStarted && completedOk ? "pass" : "fail",
+        `finalAnswer="${transcript.finalAnswerBuffer}" thinking="${transcript.thinkingBlock?.text}" toolSize=${transcript.toolNodes.size} terminal=${transcript.isTerminal}`);
+    }
+
+    // ---- Test 16: buildRuntimeTranscriptFromEvents 便利函数与 RunStateAggregator 等价 ----
+    {
+      const events = [
+        { type: "thinking", timestamp: TS(), text: "think" },
+        { type: "message", timestamp: TS(), role: "assistant", text: "answer", partial: true },
+        { type: "completed", timestamp: TS(), text: "done" },
+      ];
+      const agg = new RunStateAggregator();
+      agg.ingestAll(events);
+      const fromAgg = agg.toTranscript();
+      const fromHelper = buildRuntimeTranscriptFromEvents(events);
+      const same = fromAgg.finalAnswerBuffer === fromHelper.finalAnswerBuffer
+        && fromAgg.thinkingBlock?.text === fromHelper.thinkingBlock?.text
+        && fromAgg.isTerminal === fromHelper.isTerminal;
+      addTest("V2.17-A buildRuntimeTranscriptFromEvents: 与 RunStateAggregator 等价",
+        same ? "pass" : "fail",
+        `same=${same} buffer="${fromHelper.finalAnswerBuffer}"`);
+    }
+
+    // ---- Test 17: settingSources 显式 ["user","project","local"] 写入 plan ----
+    {
+      const settings = makeSettings();
+      const plan = buildEffectiveRunPlan({
+        backend: "sdk", settings, cwd: "/v",
+        promptPackageText: "p",
+        settingSources: ["user", "project", "local"],
+        skills: [],
+        attachmentPlan: emptyAttachmentPlan,
+      });
+      const matches = plan.settingSources.length === 3
+        && plan.settingSources[0] === "user"
+        && plan.settingSources[1] === "project"
+        && plan.settingSources[2] === "local";
+      addTest("V2.17-A EffectiveRunPlan: settingSources 显式 [user,project,local]",
+        matches ? "pass" : "fail",
+        `sources=${plan.settingSources.join(",")}`);
+    }
+
+  } catch (e) {
+    addTest("V2.17-A smoke 测试段", "fail", `加载/执行异常: ${e?.message || e}`);
+  } finally {
+    try { if (runtimeTranscriptBundle) rmSync(runtimeTranscriptBundle, { force: true }); } catch {}
+    try { if (effectiveRunPlanBundle) rmSync(effectiveRunPlanBundle, { force: true }); } catch {}
+    try { if (contextMetricsBundleV217) rmSync(contextMetricsBundleV217, { force: true }); } catch {}
+    try { if (mapperBundleV217) rmSync(mapperBundleV217, { force: true }); } catch {}
   }
 }
 

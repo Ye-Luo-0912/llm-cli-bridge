@@ -8,7 +8,6 @@
 // - agent:           assistant message（非最终结果，中间思考摘要）
 // - tool_call:       tool_start + 配对 tool_result 合并（含工具名/输入/输出/耗时/错误）
 // - file_change:     用户可见 Vault 文件变更（internal/private 路径过滤）
-// - final_message:   completed 前的最终结果文本（SDKResultMessage success result）
 // - warning:         recoverable error 降级
 // - error:           不可恢复错误
 // - completed:       成功完成摘要（含 durationMs）
@@ -20,6 +19,10 @@
 // - thinking_delta + thinking_tokens 聚合为单个 thought node，避免刷屏
 // - recoverable=true 的 error 降级为 warning
 // - internal/private 文件写入不显示在主 timeline（.obsidian/.llm-bridge/.claude/LLM-AgentRuntime 等）
+//
+// V2.17-A: SDK 路径优先使用 src/runtimeTranscript.ts 的 RunStateAggregator
+// （单 thinking block / tool_progress 合并 / 无重复 final message）。
+// 本文件作为历史消息回放与向后兼容路径保留。
 
 import { WorkflowEvent } from "./workflowEvent";
 
@@ -32,7 +35,6 @@ export type TimelineNodeKind =
   | "agent"
   | "tool_call"
   | "file_change"
-  | "final_message"
   | "warning"
   | "error"
   | "completed"
@@ -46,7 +48,7 @@ export interface TimelineNode {
   readonly endTime?: string;
   /** 持续时长（毫秒，tool_call / completed） */
   readonly durationMs?: number;
-  /** 文本内容（thought / agent / final_message / session_started / completed / failed） */
+  /** 文本内容（thought / agent / session_started / completed / failed） */
   readonly text?: string;
   /** 运行中状态（progress） */
   readonly progressLabel?: string;
