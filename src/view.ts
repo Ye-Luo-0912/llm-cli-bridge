@@ -2692,7 +2692,7 @@ export class LLMBridgeView extends ItemView {
       if (empty) empty.remove();
 
       const block = this.messagesEl.createDiv({
-        cls: `llm-bridge-msg llm-bridge-msg-${msg.role}`,
+        cls: `llm-bridge-msg llm-bridge-msg-${msg.role}${msg.role === "assistant" ? ` is-${msg.status}` : ""}`,
         attr: { "data-msg-id": msg.id },
       });
 
@@ -3333,7 +3333,7 @@ export class LLMBridgeView extends ItemView {
       if (liveSibling) liveSibling.setAttribute("hidden", "");
     }
     const headEl = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
-    headEl.createEl("span", { cls: "llm-bridge-timeline-toggle", text: hasFailed ? "▶ " : "▶ " });
+    headEl.createEl("span", { cls: "llm-bridge-timeline-toggle", text: hasFailed ? "▼ " : "▶ " });
     headEl.createEl("span", { cls: "llm-bridge-timeline-summary", text: summary });
 
     // timeline body：completed 默认折叠，failed 默认展开
@@ -3360,7 +3360,7 @@ export class LLMBridgeView extends ItemView {
 
     // 折叠交互
     const toggle = headEl.querySelector(".llm-bridge-timeline-toggle")!;
-    toggle.addEventListener("click", () => {
+    headEl.addEventListener("click", () => {
       const hidden = bodyEl.hasAttribute("hidden");
       if (hidden) {
         bodyEl.removeAttribute("hidden");
@@ -3670,6 +3670,10 @@ export class LLMBridgeView extends ItemView {
     Object.assign(msg, patch);
     const block = this.messagesEl.querySelector(`[data-msg-id="${id}"]`);
     if (!block) return;
+    if (msg.role === "assistant" && block instanceof HTMLElement) {
+      block.removeClass("is-idle", "is-running", "is-completed", "is-failed", "is-stopped");
+      block.addClass(`is-${msg.status}`);
+    }
 
     // 状态
     const statusEl = block.querySelector(".llm-bridge-msg-status");

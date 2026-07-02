@@ -4066,3 +4066,473 @@
 .llm-bridge-perm-option.is-active .llm-bridge-perm-option-check {
   visibility: visible;
 }
+
+/* ===== V2.16-E: agent console polish — Claude Code / Codex-like surface ===== */
+.llm-bridge-view {
+  --llm-agent-line: color-mix(in srgb, var(--background-modifier-border) 82%, transparent);
+  --llm-agent-line-strong: color-mix(in srgb, var(--text-muted) 30%, var(--background-modifier-border));
+  --llm-agent-surface: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
+  --llm-agent-surface-raised: color-mix(in srgb, var(--background-secondary) 82%, var(--background-primary));
+  --llm-agent-surface-muted: color-mix(in srgb, var(--background-secondary-alt) 72%, var(--background-primary));
+  --llm-agent-accent-soft: rgba(var(--interactive-accent-rgb), 0.1);
+  --llm-agent-success: var(--text-success, #4caf50);
+  --llm-agent-warning: #f59e0b;
+  --llm-agent-danger: var(--text-error, #e53935);
+  --llm-agent-blue: #4a9eff;
+  --llm-agent-purple: #8b5cf6;
+  --llm-agent-teal: #14b8a6;
+  --llm-agent-green: #22c55e;
+  background: var(--background-primary);
+}
+
+.llm-bridge-main {
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--background-primary) 94%, transparent), var(--background-primary) 160px),
+    var(--background-primary);
+}
+
+.llm-bridge-nav-rail,
+.llm-bridge-topbar,
+.llm-bridge-composer {
+  background: color-mix(in srgb, var(--background-primary) 94%, var(--background-secondary));
+  backdrop-filter: none;
+}
+
+.llm-bridge-topbar {
+  min-height: 42px;
+  border-bottom-color: var(--llm-agent-line);
+}
+
+.llm-bridge-topbar-logo,
+.llm-bridge-nav-logo {
+  color: var(--interactive-accent);
+  background: var(--llm-agent-accent-soft);
+  box-shadow: inset 0 0 0 1px rgba(var(--interactive-accent-rgb), 0.28);
+}
+
+.llm-bridge-nav-item {
+  border-radius: 8px;
+}
+
+.llm-bridge-nav-item.is-active {
+  color: var(--text-normal);
+  border-color: var(--llm-agent-line-strong);
+  background: var(--llm-agent-surface-raised);
+}
+
+.llm-bridge-nav-item.is-active::before {
+  left: -4px;
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+}
+
+.llm-bridge-session-selector,
+.llm-bridge-runtime-status,
+.llm-bridge-new-chat-btn,
+.llm-bridge-chip,
+.llm-bridge-chip-toggle,
+.llm-bridge-chip-readonly,
+.llm-bridge-permission-chip,
+.llm-bridge-model-effort-chip {
+  border-color: var(--llm-agent-line);
+  border-radius: 8px;
+  background: var(--llm-agent-surface);
+  box-shadow: none;
+}
+
+.llm-bridge-new-chat-btn {
+  color: var(--text-normal);
+  background: var(--llm-agent-accent-soft);
+}
+
+.llm-bridge-messages {
+  gap: 16px;
+  padding: 24px 26px 18px;
+}
+
+.llm-bridge-msg {
+  position: relative;
+}
+
+.llm-bridge-msg-user {
+  max-width: min(660px, 84%);
+}
+
+.llm-bridge-msg-assistant {
+  align-self: stretch;
+  max-width: 100%;
+  padding-left: 14px;
+}
+
+.llm-bridge-msg-assistant::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 20px;
+  bottom: 2px;
+  width: 1px;
+  background: var(--llm-agent-line);
+}
+
+.llm-bridge-msg-assistant.is-running::before {
+  background: linear-gradient(180deg, rgba(var(--interactive-accent-rgb), 0.72), var(--llm-agent-line));
+}
+
+.llm-bridge-msg-head {
+  min-height: 18px;
+  font-family: var(--font-monospace);
+  letter-spacing: 0.01em;
+}
+
+.llm-bridge-msg-role {
+  color: var(--text-normal);
+}
+
+.llm-bridge-msg-assistant .llm-bridge-msg-role::before {
+  content: "› ";
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-role::before {
+  content: "$ ";
+  color: var(--text-muted);
+}
+
+.llm-bridge-msg-status {
+  padding: 1px 6px;
+  border: 1px solid var(--llm-agent-line);
+  border-radius: 999px;
+  background: var(--llm-agent-surface);
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.llm-bridge-msg-status.is-running { color: var(--interactive-accent); border-color: rgba(var(--interactive-accent-rgb), 0.36); }
+.llm-bridge-msg-status.is-completed { color: var(--llm-agent-success); border-color: color-mix(in srgb, var(--llm-agent-success) 32%, transparent); }
+.llm-bridge-msg-status.is-failed { color: var(--llm-agent-danger); border-color: color-mix(in srgb, var(--llm-agent-danger) 36%, transparent); }
+.llm-bridge-msg-status.is-stopped { color: var(--llm-agent-warning); border-color: color-mix(in srgb, var(--llm-agent-warning) 36%, transparent); }
+
+.llm-bridge-msg-time {
+  opacity: 0.55;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content {
+  border-color: var(--llm-agent-line);
+  border-radius: 12px;
+  background: var(--llm-agent-surface-raised);
+  box-shadow: none;
+}
+
+.llm-bridge-msg-assistant .llm-bridge-msg-content {
+  padding: 2px 0 0;
+  font-size: var(--font-small);
+}
+
+.llm-bridge-msg-markdown pre,
+.llm-bridge-msg-stream-text,
+.llm-bridge-collapse-text,
+.llm-bridge-timeline-raw-text,
+.llm-bridge-tl-tool-output {
+  border: 1px solid var(--llm-agent-line);
+  background: var(--llm-agent-surface-muted);
+}
+
+.llm-bridge-msg-pending-text {
+  color: var(--text-muted);
+}
+
+.llm-bridge-composer {
+  padding: 10px 22px 16px;
+  border-top-color: var(--llm-agent-line);
+}
+
+.llm-bridge-composer-bar {
+  border-color: var(--llm-agent-line-strong);
+  border-radius: 13px;
+  background: var(--llm-agent-surface);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--background-primary) 55%, transparent);
+}
+
+.llm-bridge-composer-bar:focus-within {
+  border-color: rgba(var(--interactive-accent-rgb), 0.5);
+  box-shadow: inset 0 0 0 1px rgba(var(--interactive-accent-rgb), 0.1);
+}
+
+.llm-bridge-input {
+  font-family: var(--font-ui);
+}
+
+.llm-bridge-composer-tool-btn,
+.llm-bridge-command-menu-item,
+.llm-bridge-perm-btn,
+.llm-bridge-external-read-actions button,
+.llm-bridge-debug-path-copy,
+.llm-bridge-debug-path-open,
+.llm-bridge-cmd-preview-copy {
+  border-color: var(--llm-agent-line);
+  border-radius: 7px;
+  background: var(--llm-agent-surface-raised);
+  box-shadow: none;
+}
+
+.llm-bridge-timeline-live,
+.llm-bridge-timeline-wrap,
+.llm-bridge-run-flow,
+.llm-bridge-pending-wrap,
+.llm-bridge-perm-panel,
+.llm-bridge-external-read-panel {
+  border-color: var(--llm-agent-line);
+  background: var(--llm-agent-surface);
+}
+
+.llm-bridge-timeline-live {
+  margin: 6px 0 8px;
+  padding: 8px 10px 8px 13px;
+  border: 1px solid var(--llm-agent-line);
+  border-left: 2px solid rgba(var(--interactive-accent-rgb), 0.48);
+  border-radius: 10px;
+}
+
+.llm-bridge-timeline-live-head {
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.llm-bridge-timeline-wrap {
+  margin: 6px 0 8px;
+  padding: 0;
+  border: 1px solid var(--llm-agent-line);
+  border-left: 2px solid var(--llm-agent-line-strong);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.llm-bridge-timeline-head {
+  padding: 7px 10px;
+  background: color-mix(in srgb, var(--llm-agent-surface-raised) 80%, transparent);
+}
+
+.llm-bridge-timeline-head:hover {
+  background: var(--background-modifier-hover);
+}
+
+.llm-bridge-timeline-toggle,
+.llm-bridge-collapse-section-toggle,
+.llm-bridge-cmd-preview-toggle,
+.llm-bridge-timeline-raw-toggle,
+.llm-bridge-run-flow-toggle,
+.llm-bridge-pending-toggle {
+  font-family: var(--font-monospace);
+}
+
+.llm-bridge-timeline-summary {
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-weight: 500;
+}
+
+.llm-bridge-timeline-body {
+  margin-top: 0;
+  padding: 6px 10px 9px;
+}
+
+.llm-bridge-timeline-final,
+.llm-bridge-timeline-live-nodes {
+  border-left: 0;
+  margin-left: 0;
+  padding-left: 0;
+}
+
+.llm-bridge-tl-node {
+  gap: 10px;
+  padding: 4px 0;
+}
+
+.llm-bridge-tl-node::before {
+  left: 4px;
+  top: 18px;
+  bottom: -6px;
+  width: 1px;
+  background: var(--llm-agent-line);
+  opacity: 1;
+}
+
+.llm-bridge-tl-dot {
+  position: relative;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  margin-top: 6px;
+  border: 2px solid var(--llm-agent-surface);
+  box-shadow: 0 0 0 1px var(--llm-agent-line);
+}
+
+.llm-bridge-timeline-live .llm-bridge-tl-dot {
+  border-color: var(--llm-agent-surface);
+}
+
+.llm-bridge-tl-title,
+.llm-bridge-tl-tool-name,
+.llm-bridge-tl-file-path,
+.llm-bridge-tl-tool-path-inline,
+.llm-bridge-tl-tool-param-key,
+.llm-bridge-tl-tool-param-val,
+.llm-bridge-run-flow-detail,
+.llm-bridge-timeline-detail,
+.llm-bridge-workflow-trace-detail {
+  font-family: var(--font-monospace);
+}
+
+.llm-bridge-tl-title {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.llm-bridge-tl-detail,
+.llm-bridge-tl-tool-param-val,
+.llm-bridge-tl-thinking-meta {
+  color: var(--text-muted);
+}
+
+.llm-bridge-tl-tool_call .llm-bridge-tl-content,
+.llm-bridge-tl-file_change .llm-bridge-tl-content,
+.llm-bridge-tl-warning .llm-bridge-tl-content,
+.llm-bridge-tl-error .llm-bridge-tl-content {
+  padding: 5px 7px;
+  border: 1px solid var(--llm-agent-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--llm-agent-surface-raised) 78%, transparent);
+}
+
+.llm-bridge-tl-tool-head {
+  min-width: 0;
+}
+
+.llm-bridge-tl-tool-cat-read { --llm-tool-cat: var(--llm-agent-blue); }
+.llm-bridge-tl-tool-cat-write { --llm-tool-cat: var(--llm-agent-warning); }
+.llm-bridge-tl-tool-cat-bash { --llm-tool-cat: var(--llm-agent-purple); }
+.llm-bridge-tl-tool-cat-search { --llm-tool-cat: var(--llm-agent-teal); }
+.llm-bridge-tl-tool-cat-skill { --llm-tool-cat: var(--llm-agent-green); }
+.llm-bridge-tl-tool-cat-other { --llm-tool-cat: var(--text-muted); }
+
+.llm-bridge-tl-tool-badge {
+  color: var(--llm-tool-cat, var(--text-muted));
+  background: color-mix(in srgb, var(--llm-tool-cat, var(--text-muted)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--llm-tool-cat, var(--text-muted)) 34%, transparent);
+}
+
+.llm-bridge-tl-tool-cat-read .llm-bridge-tl-dot,
+.llm-bridge-tl-tool-cat-write .llm-bridge-tl-dot,
+.llm-bridge-tl-tool-cat-bash .llm-bridge-tl-dot,
+.llm-bridge-tl-tool-cat-search .llm-bridge-tl-dot,
+.llm-bridge-tl-tool-cat-skill .llm-bridge-tl-dot,
+.llm-bridge-tl-tool-cat-other .llm-bridge-tl-dot {
+  background: var(--llm-tool-cat, var(--text-muted));
+}
+
+.llm-bridge-tl-tool-name,
+.llm-bridge-tl-tool-path-inline,
+.llm-bridge-tl-file-path {
+  border-color: var(--llm-agent-line);
+  background: var(--llm-agent-surface-muted);
+}
+
+.llm-bridge-tl-tool-duration {
+  margin-left: auto;
+  color: var(--text-faint);
+  font-family: var(--font-monospace);
+}
+
+.llm-bridge-tl-tool-params {
+  padding-top: 2px;
+}
+
+.llm-bridge-tl-tool-param-row {
+  display: grid;
+  grid-template-columns: minmax(48px, max-content) minmax(0, 1fr);
+  gap: 8px;
+}
+
+.llm-bridge-tl-tool-param-key {
+  min-width: 0;
+  color: var(--text-faint);
+}
+
+.llm-bridge-tl-tool-output-head {
+  border: 1px solid transparent;
+}
+
+.llm-bridge-tl-tool-output-head:hover {
+  border-color: var(--llm-agent-line);
+  background: var(--llm-agent-surface-muted);
+}
+
+.llm-bridge-tl-thought-body {
+  border: 1px solid var(--llm-agent-line);
+  border-left: 2px solid var(--text-faint);
+  background: var(--llm-agent-surface-muted);
+}
+
+.llm-bridge-tl-file-action-create .llm-bridge-tl-file-symbol,
+.llm-bridge-tl-file-action-modify .llm-bridge-tl-file-symbol,
+.llm-bridge-tl-file-action-delete .llm-bridge-tl-file-symbol,
+.llm-bridge-tl-chip,
+.llm-bridge-agent-tag,
+.llm-bridge-tl-agent-tag {
+  border: 1px solid var(--llm-agent-line);
+  background: var(--llm-agent-surface-muted);
+}
+
+.llm-bridge-tl-file-action-create .llm-bridge-tl-file-symbol,
+.llm-bridge-tl-file-action-create .llm-bridge-tl-file-action,
+.llm-bridge-tl-file_change .llm-bridge-tl-dot,
+.llm-bridge-tl-completed .llm-bridge-tl-dot,
+.llm-bridge-tl-completed,
+.llm-bridge-tl-chip-success {
+  color: var(--llm-agent-success);
+}
+
+.llm-bridge-tl-file-action-modify .llm-bridge-tl-file-symbol,
+.llm-bridge-tl-file-action-modify .llm-bridge-tl-file-action,
+.llm-bridge-tl-warning .llm-bridge-tl-dot,
+.llm-bridge-tl-warning-icon,
+.llm-bridge-tl-warning-text {
+  color: var(--llm-agent-warning);
+}
+
+.llm-bridge-tl-file-action-delete .llm-bridge-tl-file-symbol,
+.llm-bridge-tl-file-action-delete .llm-bridge-tl-file-action,
+.llm-bridge-tl-error .llm-bridge-tl-dot,
+.llm-bridge-tl-failed .llm-bridge-tl-dot,
+.llm-bridge-tl-error-icon,
+.llm-bridge-tl-error-text,
+.llm-bridge-tl-failed {
+  color: var(--llm-agent-danger);
+}
+
+.llm-bridge-tl-file_change .llm-bridge-tl-dot,
+.llm-bridge-tl-completed .llm-bridge-tl-dot { background: var(--llm-agent-success); }
+.llm-bridge-tl-warning .llm-bridge-tl-dot { background: var(--llm-agent-warning); }
+.llm-bridge-tl-error .llm-bridge-tl-dot,
+.llm-bridge-tl-failed .llm-bridge-tl-dot { background: var(--llm-agent-danger); }
+
+.llm-bridge-tl-chip-success {
+  border-color: color-mix(in srgb, var(--llm-agent-success) 30%, transparent);
+  background: color-mix(in srgb, var(--llm-agent-success) 10%, transparent);
+}
+
+.llm-bridge-perm-card,
+.llm-bridge-external-read-card,
+.llm-bridge-pending-item,
+.llm-bridge-history-item,
+.llm-bridge-skill-item,
+.llm-bridge-agent-skill-registry-item {
+  border-color: var(--llm-agent-line);
+  border-radius: 8px;
+  background: var(--llm-agent-surface-raised);
+}
