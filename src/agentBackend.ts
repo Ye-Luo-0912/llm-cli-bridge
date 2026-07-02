@@ -3,7 +3,7 @@
 // 当前仅实现 ClaudeCliBackend，UI 层通过此接口与 agent 交互
 
 import { LLMBridgeSettings } from "./types";
-import type { EffectiveRunPlan } from "./types";
+import type { BridgePromptPackage, EffectiveRunPlan } from "./types";
 import type { RuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
 import type { WorkflowEventHandler } from "./workflowEvent";
 
@@ -50,6 +50,13 @@ export interface AgentTask {
   runtimeFileToolAdapter?: RuntimeFileToolAdapter;
   /** V2.17-A: 本次运行 EffectiveRunPlan（CLI/SDK 单一真相源；Developer mode 可审计） */
   effectiveRunPlan?: EffectiveRunPlan;
+  /**
+   * V2.17-A 续: BridgePromptPackage 拆分结构（bridgeSystemAppend / userPrompt / attachmentEntries / auditHash）。
+   * - SDK 路径：systemPrompt = claude_code preset + append bridgeSystemAppend；
+   *   streaming input 只放干净 userPrompt + message-scoped attachments。
+   * - CLI fallback：stdin = bridgeSystemAppend + userPrompt 组合（task.prompt 已包含组合文本）。
+   */
+  bridgePrompt?: BridgePromptPackage;
 }
 
 /**

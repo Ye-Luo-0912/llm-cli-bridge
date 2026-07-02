@@ -1,7 +1,19 @@
 // LLM CLI Bridge — Prompt Package Builder
 // V0.7: 构建发送给 CLI agent 的最终 prompt，包含状态快照
+//
+// V2.17-A 续: 拆分为 BridgePromptPackage（bridgeSystemAppend / userPrompt / attachmentEntries / auditHash）
+// - bridgeSystemAppend: 所有 bridge-native 指令（Native Handoff / Attachment Policy / Tool Steering / Output 规则）
+// - userPrompt: 干净用户请求正文（仅用户输入，不被 bridge-native 规则包围）
+// - SDK 路径: systemPrompt = claude_code preset + append bridgeSystemAppend;
+//   prompt/streaming input 只放干净 userPrompt + message-scoped attachments
+// - CLI fallback: stdin = bridgeSystemAppend + userPrompt 组合（保留 buildPromptPackage 兼容）
 
-import type { LLMBridgeSettings } from "./types";
+import type { AttachmentEntry, AttachmentMode, BridgePromptPackage, LLMBridgeSettings } from "./types";
+import {
+  computeContentHash,
+  computePathHash,
+  computePromptPackageHash,
+} from "./effectiveRunPlan";
 
 /**
  * 状态快照（从 Obsidian 收集）
@@ -58,18 +70,96 @@ export function truncateText(text: string, maxChars: number): string {
 /**
  * 构建 Prompt Package
  * - 输入 user message + state snapshot + settings
- * - 输出给 CLI 的最终 prompt
+ * - 输出给 CLI 的最终 prompt（CLI fallback：stdin = bridgeSystemAppend + userPrompt 组合）
  * - 输出位置由 settings.outputDir 驱动；未配置则按 AGENTS.md / 项目规则
  * - 明确要求不要在聊天窗口打印完整长文档
+ *
+ * V2.17-A 续: 本函数为 CLI fallback 兼容入口；SDK 路径请使用 buildBridgePromptPackage 拿到拆分结构。
  */
 export function buildPromptPackage(
   userInput: string,
   snapshot: StateSnapshot,
   settings: LLMBridgeSettings,
 ): string {
+  const pkg = buildBridgePromptPackage(userInput, snapshot, settings);
+  // CLI fallback: stdin = bridgeSystemAppend + userPrompt 组合
+  return `${pkg.bridgeSystemAppend}\n\n========== 用户请求 ==========\n${pkg.userPrompt}`;
+}
+
+// ---------- 本地附件模式分类（与 effectiveRunPlan.classifyAttachmentMode 语义一致） ----------
+// 直接基于 PromptFileRefIndexEntry / PromptAttachmentTextSnippet（path 字段，非 resolvedPath），
+// 避免与 FileRef 类型耦合。
+
+function classifyPromptAttachmentMode(
+  ref: PromptFileRefIndexEntry,
+  inlineSnippet: PromptAttachmentTextSnippet | undefined,
+  providerSupportsImageStreaming: boolean,
+): { mode: AttachmentMode; reason: string } {
+  if (ref.status !== "active") {
+    return { mode: "native-ref-only", reason: `ref status=${ref.status}, not active` };
+  }
+  if (ref.fileType === "image") {
+    if (providerSupportsImageStreaming) {
+      return { mode: "image-streaming-block", reason: "image ref + provider supports SDK streaming image block" };
+    }
+    return { mode: "native-ref-only", reason: "image ref but provider does not support streaming; path ref fallback" };
+  }
+  if (inlineSnippet) {
+    return { mode: "inline-snippet", reason: `bounded text (${ref.fileType}) inlined within ${inlineSnippet.maxBytes} bytes` };
+  }
+  return { mode: "native-ref-only", reason: `${ref.fileType} file remains native ref (no inline snippet)` };
+}
+
+/**
+ * 从 snapshot 构造 entry-level AttachmentEntry 列表（SDK/CLI 可比较审计）。
+ */
+function buildAttachmentEntries(
+  snapshot: StateSnapshot,
+  providerSupportsImageStreaming: boolean,
+): AttachmentEntry[] {
+  const refs = snapshot.fileRefIndex ?? [];
+  const snippets = snapshot.attachmentTextSnippets ?? [];
+  const snippetByRefId = new Map<string, PromptAttachmentTextSnippet>();
+  for (const s of snippets) snippetByRefId.set(s.refId, s);
+  return refs.map((ref) => {
+    const snippet = snippetByRefId.get(ref.id);
+    const { mode, reason } = classifyPromptAttachmentMode(ref, snippet, providerSupportsImageStreaming);
+    return {
+      refId: ref.id,
+      scope: ref.scope || "message",
+      fileType: ref.fileType,
+      mode,
+      pathHash: computePathHash(ref.path),
+      contentHash: mode === "inline-snippet" && snippet ? computeContentHash(snippet.content) : "",
+      reason,
+    };
+  });
+}
+
+/**
+ * 构建 BridgePromptPackage（V2.17-A 续核心拆分）。
+ *
+ * - bridgeSystemAppend: 所有 bridge-native 指令（Native Handoff / Attachment Policy /
+ *   当前活动笔记 / 选区 / FileRef Index / Message Attachments Inline / Output 规则 / Tool Steering）
+ * - userPrompt: 干净用户请求正文（仅用户输入）
+ * - attachmentEntries: entry-level 附件审计（refId/scope/fileType/mode/pathHash/contentHash/reason）
+ * - auditHash: 整包审计哈希
+ *
+ * SDK 路径：systemPrompt = claude_code preset + append bridgeSystemAppend；
+ *   prompt/streaming input 只放干净 userPrompt + message-scoped attachments。
+ * CLI fallback：stdin = bridgeSystemAppend + 用户请求 段（见 buildPromptPackage）。
+ *
+ * @param providerSupportsImageStreaming provider 是否支持 SDK image streaming（决定 image ref 的 mode）
+ */
+export function buildBridgePromptPackage(
+  userInput: string,
+  snapshot: StateSnapshot,
+  settings: LLMBridgeSettings,
+  providerSupportsImageStreaming: boolean = false,
+): BridgePromptPackage {
   const parts: string[] = [];
 
-  // 1. 基础上下文
+  // 1. 基础上下文（bridge-native）
   parts.push(`你正在处理一个 Obsidian Vault。
 
 当前 Vault 根目录：${snapshot.vaultPath}
@@ -174,7 +264,7 @@ ${snippets}
 - 按配置或项目规则写入文件（输出位置：${outputLocation}）
 - 如果必须输出长内容，写入文件并告知路径`);
 
-  // V2.16-C: Tool steering 指引（V2.17-A: 移到用户请求之前，保持用户请求为最末的干净正文）
+  // V2.16-C: Tool steering 指引
   parts.push(`
 ========== Tool Steering ==========
 - 只读请求（查看文件、读取配置、搜索内容）优先使用 Read / Glob / Grep，不要使用 Write / Edit / MultiEdit。
@@ -183,10 +273,20 @@ ${snippets}
 - 仅在用户明确要求创建或修改文件时才使用 Write / Edit。
 - 不要为读取操作创建临时文件或中间产物。`);
 
-  // 7. 用户请求（最末，保持干净正文，不被 bridge-native 指令污染）
-  parts.push(`
-========== 用户请求 ==========
-${userInput}`);
+  const bridgeSystemAppend = parts.join("\n");
+  const userPrompt = userInput;
+  const attachmentEntries = buildAttachmentEntries(snapshot, providerSupportsImageStreaming);
 
-  return parts.join("\n");
+  // auditHash: 基于 bridgeSystemAppend + userPrompt + attachmentEntries 摘要计算
+  const entriesDigest = attachmentEntries
+    .map((e) => `${e.refId}:${e.scope}:${e.fileType}:${e.mode}:${e.pathHash}:${e.contentHash}`)
+    .join("|");
+  const auditHash = computePromptPackageHash(`${bridgeSystemAppend}\n${userPrompt}\n${entriesDigest}`);
+
+  return {
+    bridgeSystemAppend,
+    userPrompt,
+    attachmentEntries,
+    auditHash,
+  };
 }

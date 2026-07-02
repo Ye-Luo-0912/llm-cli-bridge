@@ -27,6 +27,7 @@ import {
   FailedEvent,
 } from "./workflowEvent";
 import { TimelineNode, isInternalFilePath } from "./timelineAdapter";
+import type { AssistantTurnView, AssistantToolCallView } from "./normalizedRuntimeEvent";
 
 // ---------- 聚合状态类型 ----------
 
@@ -295,6 +296,16 @@ export class RunStateAggregator {
     for (const ev of events) this.ingest(ev);
   }
 
+  /**
+   * V2.17-A 续: 读取当前 finalAnswerBuffer（不拷贝整个 transcript）。
+   *
+   * 用于 view.ts 在 SDK 路径下从 WorkflowEvent message 派生 final answer 增量，
+   * 不再由 stdout_delta 旁路驱动。ingest 前后两次 peek 的差值即为 UI 应追加的 delta。
+   */
+  peekFinalAnswer(): string {
+    return this.finalAnswerBuffer;
+  }
+
   /** 查找最近一个 running 工具节点（用于附加 tool_progress） */
   private findRunningToolForProgress(progress: ProgressEvent): ToolNodeState | null {
     // 从后往前找最近一个 running 工具
@@ -432,6 +443,8 @@ export class RunStateAggregator {
         toolInput: t.toolInput,
         toolOutput: t.output,
         toolError: t.isError,
+        // V2.17-A 续: tool_progress 合并到工具节点，UI 在工具节点内折叠展示
+        toolProgress: t.progress,
         agentLabel: t.parentToolUseId ? "Subagent" : "Main agent",
         isSubagent: !!t.parentToolUseId,
       });
@@ -515,6 +528,76 @@ export class RunStateAggregator {
   /** 原始事件流（Developer mode raw log 用） */
   toRawEvents(): WorkflowEvent[] {
     return this.rawEvents.slice();
+  }
+
+  /**
+   * 产出 AssistantTurnView（V2.17-A 续：UI 唯一消费的视图）。
+   *
+   * 将已聚合的 WorkflowEvent 状态映射为 AssistantTurnView，供新 UI 路径消费。
+   * final answer 来自 finalAnswerBuffer（partial text_delta 累加），不读 stdout_delta。
+   * tool_progress 已合并到 toolNodes[i].progress，此处直接输出。
+   */
+  toAssistantTurnView(): AssistantTurnView {
+    const toolCallViews: AssistantToolCallView[] = this.toolOrder.map((callId) => {
+      const t = this.toolNodes.get(callId);
+      if (!t) return null;
+      const durationMs = t.endTime
+        ? Math.max(0, new Date(t.endTime).getTime() - new Date(t.startTime).getTime())
+        : undefined;
+      return {
+        callId: t.callId,
+        toolName: t.toolName,
+        toolInput: t.toolInput,
+        ...(t.output !== undefined ? { output: t.output } : {}),
+        isError: t.isError,
+        status: t.status,
+        progress: t.progress,
+        startTime: t.startTime,
+        ...(t.endTime ? { endTime: t.endTime } : {}),
+        ...(durationMs !== undefined ? { durationMs } : {}),
+        ...(t.parentToolUseId ? { parentToolUseId: t.parentToolUseId } : {}),
+        ...(t.sessionId ? { sessionId: t.sessionId } : {}),
+      };
+    }).filter((x): x is AssistantToolCallView => x !== null);
+
+    let status: "running" | "completed" | "failed" = "running";
+    if (this.completed) status = "completed";
+    else if (this.failed) status = "failed";
+
+    return {
+      finalAnswer: this.finalAnswerBuffer,
+      thinking: this.thinkingBlock,
+      toolCalls: toolCallViews,
+      toolCallOrder: this.toolOrder,
+      fileChanges: this.fileChanges.map((ev) => ({
+        path: ev.path,
+        action: ev.action,
+        timestamp: ev.timestamp,
+      })),
+      permissionDenied: this.permissionDenied.map((ev) => ({
+        toolName: ev.toolName,
+        timestamp: ev.timestamp,
+      })),
+      warnings: this.warnings.map((ev) => ({ message: ev.message, timestamp: ev.timestamp })),
+      errors: this.errors.map((ev) => ({ message: ev.message, timestamp: ev.timestamp })),
+      systemMessages: this.systemMessages.map((ev) => ({ text: ev.text, timestamp: ev.timestamp })),
+      subagentMessages: this.subagentMessages.map((ev) => ({
+        text: ev.text,
+        ...(ev.parentToolUseId ? { parentToolUseId: ev.parentToolUseId } : {}),
+        timestamp: ev.timestamp,
+      })),
+      processNodes: this.processNodes.map((ev) => ({
+        label: ev.label,
+        ...(ev.detail ? { detail: ev.detail } : {}),
+        ...(ev.category ? { category: ev.category } : {}),
+        timestamp: ev.timestamp,
+      })),
+      status,
+      ...(this.completed ? { completedAt: this.completed.timestamp } : {}),
+      ...(this.failed ? { failedAt: this.failed.timestamp } : {}),
+      ...(this.completed?.durationMs !== undefined ? { durationMs: this.completed.durationMs } : {}),
+      rawProviderEvents: this.rawEvents,
+    };
   }
 
   /** 重置聚合器（新一轮运行前调用） */

@@ -5,10 +5,16 @@ import * as fs from "fs";
 import * as path from "path";
 import type LLMBridgePlugin from "../main";
 import { buildPrompt } from "./prompt";
-import { buildPromptPackage, StateSnapshot } from "./promptPackage";
-import { ClaudeCliBackend } from "./claudeCliBackend";
-import { MockAgentBackend } from "./mockAgentBackend";
+import { buildBridgePromptPackage, buildPromptPackage, StateSnapshot } from "./promptPackage";
 import { AgentBackend, AgentRunHandle, AgentTask, SdkImageContentBlock, SdkStreamingInput } from "./agentBackend";
+import {
+  createRuntimeProvider,
+  providerBackendKind,
+  providerProducesWorkflowEvents,
+  providerSupportsStreamingInput,
+  resolveProviderFromBackendMode,
+  type RuntimeProvider,
+} from "./runtimeProvider";
 import { exportState } from "./state";
 import { diffSnapshots, extractRelPath, FileSnapshot, snapshotVaultMarkdownFiles } from "./fileDiff";
 import { AgentType, AttachmentPlan, BackendMode, ChatMessage, EffectiveRunPlan, RunResult, RunStatus, SessionMode } from "./types";
@@ -19,8 +25,8 @@ import { buildFirstUseGuide, shouldShowFirstUseGuide } from "./firstUseGuide";
 import { buildTimeline, isTerminalTimelineType, timelineTypeClass, timelineTypeLabel, TimelineEventType } from "./runTimeline";
 import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, previewToRows, CommandPreview } from "./commandProfile";
 import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
-import { SdkBackend, buildSdkAgentSkillsOptions, isSdkAvailable, SDK_SKILL_SETTING_SOURCES } from "./sdkBackend";
-import { buildEffectiveRunPlan, formatEffectiveRunPlan } from "./effectiveRunPlan";
+import { buildSdkAgentSkillsOptions, isSdkAvailable, SDK_SKILL_SETTING_SOURCES } from "./sdkBackend";
+import { buildAttachmentPlanFromRefs, buildBridgePromptPackageAudit, buildEffectiveRunPlan, formatEffectiveRunPlan, formatAttachmentEntries } from "./effectiveRunPlan";
 import { getRuntimeModelCatalog, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
 import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
 import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, truncatePath, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
@@ -185,8 +191,9 @@ function nextMsgId(): string {
 
 export class LLMBridgeView extends ItemView {
   private plugin: LLMBridgePlugin;
-  // backend 实例缓存：按 settings.backendMode 选择 real / mock
-  private cachedBackend: AgentBackend | null = null;
+  // provider 实例缓存：按 settings.backendMode 通过 createRuntimeProvider 选择
+  // V2.17-A 续: UI 不再直接依赖 SdkBackend / ClaudeCliBackend，统一通过 RuntimeProvider 接口
+  private cachedProvider: RuntimeProvider | null = null;
   private cachedBackendMode: BackendMode | null = null;
   /** V2.16-B: 实际 runtime 标签（供 UI 显示，区分 auto→SDK / auto→CLI fallback） */
   private actualRuntimeLabel: string = "Claude Code";
@@ -1264,44 +1271,30 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  // 按 settings.backendMode 获取 backend 实例（带缓存）
-  // V2.16-B: auto = SDK-first + CLI fallback；显式选择不静默 fallback
-  // - auto: SDK 可用→SdkBackend(strict=false)，不可用→ClaudeCliBackend
-  // - cli: 始终 ClaudeCliBackend
-  // - sdk: SdkBackend(strict=true)，SDK 不可用时发 error 不 fallback
-  // - mock-success / mock-failure: MockAgentBackend（开发/测试用）
-  private getBackend(): AgentBackend {
+  // 按 settings.backendMode 获取 RuntimeProvider 实例（带缓存）
+  // V2.17-A 续: 通过 createRuntimeProvider 工厂获取，UI 不再直接 new SdkBackend / ClaudeCliBackend
+  // - auto: SDK 可用→claude-sdk(strict=false)，不可用→claude-cli(fallback)
+  // - cli: 始终 claude-cli
+  // - sdk: claude-sdk(strict=true)，SDK 不可用时发 error 不 fallback
+  // - mock-success / mock-failure: mock（开发/测试用）
+  private getProvider(): RuntimeProvider {
     const mode = this.plugin.settings.backendMode;
-    if (this.cachedBackend && this.cachedBackendMode === mode) {
-      return this.cachedBackend;
+    if (this.cachedProvider && this.cachedBackendMode === mode) {
+      return this.cachedProvider;
     }
-    let backend: AgentBackend;
-    if (mode === "mock-success") {
-      backend = new MockAgentBackend("success");
-      this.actualRuntimeLabel = "Mock";
-    } else if (mode === "mock-failure") {
-      backend = new MockAgentBackend("failure");
-      this.actualRuntimeLabel = "Mock";
-    } else if (mode === "sdk") {
-      backend = new SdkBackend(true);
-      this.actualRuntimeLabel = "SDK";
-    } else if (mode === "cli") {
-      backend = new ClaudeCliBackend();
-      this.actualRuntimeLabel = "Claude Code";
-    } else {
-      // auto: SDK-first + CLI fallback
-      const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-      if (isSdkAvailable(vaultPath)) {
-        backend = new SdkBackend(false);
-        this.actualRuntimeLabel = "SDK";
-      } else {
-        backend = new ClaudeCliBackend();
-        this.actualRuntimeLabel = "Claude Code fallback";
-      }
-    }
-    this.cachedBackend = backend;
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const sdkAvailable = isSdkAvailable(vaultPath);
+    const providerId = resolveProviderFromBackendMode(mode, sdkAvailable);
+    const provider = createRuntimeProvider(providerId, {
+      strict: mode === "sdk",
+      ...(mode === "mock-success" ? { mockMode: "success" as const } : {}),
+      ...(mode === "mock-failure" ? { mockMode: "failure" as const } : {}),
+    });
+    this.cachedProvider = provider;
     this.cachedBackendMode = mode;
-    return backend;
+    // auto 模式下 SDK 不可用时标注 fallback
+    this.actualRuntimeLabel = provider.displayName + (mode === "auto" && !sdkAvailable ? " fallback" : "");
+    return provider;
   }
 
   private setGlobalStatus(status: RunStatus): void {
@@ -1490,16 +1483,17 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  // V2.3s: 解析权限请求（调用 SdkBackend.resolvePermission）
+  // V2.3s: 解析权限请求（调用 provider.resolvePermission；仅 claude-sdk 实现）
+  // V2.17-A 续: 通过 provider.id === "claude-sdk" 判定，不 instanceof SdkBackend
   private resolvePermissionRequests(requestIds: string[], choice: PermissionChoice): void {
-    const backend = this.getBackend();
-    if (!(backend instanceof SdkBackend)) {
+    const provider = this.getProvider();
+    if (provider.id !== "claude-sdk" || !provider.resolvePermission) {
       new Notice("权限请求仅在 sdk-experimental 模式下可用");
       return;
     }
     let resolved = 0;
     for (const id of requestIds) {
-      if (backend.resolvePermission(id, choice)) {
+      if (provider.resolvePermission(id, choice)) {
         this.pendingPermissions.delete(id);
         resolved++;
       }
@@ -1513,10 +1507,10 @@ export class LLMBridgeView extends ItemView {
   private clearPendingPermissions(): void {
     if (this.pendingPermissions.size === 0) return;
     // 尝试拒绝所有待决策请求（避免 Promise 挂起）
-    const backend = this.getBackend();
-    if (backend instanceof SdkBackend) {
+    const provider = this.getProvider();
+    if (provider.id === "claude-sdk" && provider.resolvePermission) {
       for (const [, ev] of this.pendingPermissions) {
-        if (ev.requestId) backend.resolvePermission(ev.requestId, "deny_session");
+        if (ev.requestId) provider.resolvePermission(ev.requestId, "deny_session");
       }
     }
     this.pendingPermissions.clear();
@@ -3093,10 +3087,36 @@ export class LLMBridgeView extends ItemView {
    *
    * 基于 timelineAdapter 将事件分类合并为现代 Claude/Codex 风格垂直 timeline
    * 运行中 timeline 始终展开；终态后由 appendSdkWorkflow 渲染折叠摘要
+   *
+   * V2.17-A 续: SDK 路径 final answer 不再由 stdout_delta 旁路驱动。
+   * 此处在 ingest 前后对比 RunStateAggregator.finalAnswerBuffer，
+   * 将增量 delta 追加到 msg.content（流式渲染 UI 正文）。
+   * - partial text_delta 累加：newBuffer.startsWith(prevBuffer) → 追加 slice 差值
+   * - 快照替换（buffer 被整体覆盖）：用 newBuffer 整体替换 msg.content
+   * - subagent 消息（parentToolUseId != null）：不进入 finalAnswerBuffer，跳过
    */
   private appendLiveSdkEvent(ev: WorkflowEvent): void {
     if (!this.currentAssistantId) return;
+    const assistantId = this.currentAssistantId;
+    const isMainAgentMessage = ev.type === "message" && ev.role === "assistant" && !ev.parentToolUseId;
+    const prevBuffer = isMainAgentMessage ? this.liveAggregator.peekFinalAnswer() : "";
     this.liveAggregator.ingest(ev);
+    if (isMainAgentMessage) {
+      const newBuffer = this.liveAggregator.peekFinalAnswer();
+      if (newBuffer !== prevBuffer) {
+        if (newBuffer.startsWith(prevBuffer)) {
+          // 累加场景：追加 delta（partial text_delta 的常见路径）
+          this.appendAssistantContentDelta(assistantId, newBuffer.slice(prevBuffer.length));
+        } else {
+          // 快照替换场景：整体覆盖 msg.content（罕见，非流式 SDK 或 buffer 重建）
+          const msg = this.messages.find((m) => m.id === assistantId);
+          if (msg) {
+            msg.content = newBuffer;
+            this.scheduleMessageContentRerender(assistantId);
+          }
+        }
+      }
+    }
     if (ev.type === "completed" || ev.type === "failed") return;
     this.scheduleLiveTimelineRender();
   }
@@ -3740,6 +3760,20 @@ export class LLMBridgeView extends ItemView {
     const msg = this.messages.find((m) => m.id === id);
     if (!msg) return;
     msg.content += delta;
+    this.scheduleMessageContentRerender(id);
+  }
+
+  /**
+   * V2.17-A 续: 调度当前 assistant message 的正文重渲染（基于 msg.content）。
+   *
+   * 用于：
+   * - stdout_delta 累加（CLI/mock 路径）
+   * - WorkflowEvent message partial 派生 delta（SDK 路径，不由 stdout_delta 旁路驱动）
+   * - 快照替换整体覆盖 msg.content 后的重渲染
+   *
+   * 多次调用合并到同一 RAF，避免每个 delta 都同步触发 reflow。
+   */
+  private scheduleMessageContentRerender(id: string): void {
     this.streamContentAssistantId = id;
     if (this.streamContentRafId !== null) return;
     this.streamContentRafId = window.requestAnimationFrame(() => {
@@ -4135,6 +4169,21 @@ export class LLMBridgeView extends ItemView {
       // 主信息（点击恢复）
       const main = row.createEl("button", { cls: "llm-bridge-history-main" });
       main.createEl("span", { cls: "llm-bridge-history-title", text: item.title });
+      // V2.17-A 续: 会话下拉补齐摘要 — 首条请求 / 最后回复
+      if (item.firstUserSummary) {
+        main.createEl("span", {
+          cls: "llm-bridge-history-summary llm-bridge-history-summary-first",
+          text: `请求：${item.firstUserSummary}`,
+          attr: { title: item.firstUserSummary },
+        });
+      }
+      if (item.lastAssistantSummary) {
+        main.createEl("span", {
+          cls: "llm-bridge-history-summary llm-bridge-history-summary-last",
+          text: `回复：${item.lastAssistantSummary}`,
+          attr: { title: item.lastAssistantSummary },
+        });
+      }
       const meta = `${item.messageCount} 条 · ${item.agentType} · ${this.formatHistoryTime(item.savedAt)}`;
       main.createEl("span", { cls: "llm-bridge-history-meta", text: meta });
       main.addEventListener("click", () => void this.restoreSession(item.id));
@@ -4223,7 +4272,7 @@ export class LLMBridgeView extends ItemView {
     if (session.permissionMode) s.claudePermissionMode = session.permissionMode as typeof s.claudePermissionMode;
     if (session.sessionMode) s.sessionMode = session.sessionMode as typeof s.sessionMode;
     await this.restoreContextAndSnippets(session);
-    this.cachedBackend = null;
+    this.cachedProvider = null;
     this.cachedBackendMode = null;
     this.refreshAllChips();
     if (s.keepLastSession) {
@@ -4356,7 +4405,7 @@ export class LLMBridgeView extends ItemView {
     // V2.17-A: 复用统一恢复逻辑（pinned context 保留类型 + message snippet 重算 + agentType 对齐）
     await this.restoreContextAndSnippets(session);
     await this.plugin.saveSettings();
-    this.cachedBackend = null;
+    this.cachedProvider = null;
     this.cachedBackendMode = null;
     this.refreshAllChips();
     this.renderMessagesFromHistory();
@@ -4804,30 +4853,37 @@ export class LLMBridgeView extends ItemView {
       }
     }
 
-    // 使用 prompt package builder（V0.7）
-    const prompt = buildPromptPackage(userInput, snapshot, settings);
-    const sdkStreamingInput = await this.buildSdkStreamingInput(prompt, promptFileRefsForRun);
+    // V2.17-A 续: 通过 RuntimeProvider 获取 provider，UI 不再直接依赖 SdkBackend / ClaudeCliBackend
+    const provider = this.getProvider();
+    const providerSupportsStreaming = providerSupportsStreamingInput(provider.id);
 
-    // V2.17-A: 构造 EffectiveRunPlan（CLI/SDK 单一真相源）
-    const backendInstance = this.getBackend();
-    const backendKind: "sdk" | "cli" = backendInstance instanceof SdkBackend ? "sdk" : "cli";
+    // V2.17-A 续: 构造 BridgePromptPackage（bridgeSystemAppend / userPrompt / attachmentEntries / auditHash）
+    // 用户请求不再被 bridge-native 规则包围：bridgeSystemAppend 与 userPrompt 分离
+    const bridgePrompt = buildBridgePromptPackage(userInput, snapshot, settings, providerSupportsStreaming);
+    // CLI fallback: stdin = bridgeSystemAppend + userPrompt 组合（buildPromptPackage 等价）
+    const prompt = `${bridgePrompt.bridgeSystemAppend}\n\n========== 用户请求 ==========\n${bridgePrompt.userPrompt}`;
+
+    // V2.17-A 续: SDK streaming input 只放干净 userPrompt + message-scoped attachments
+    const sdkStreamingInput = await this.buildSdkStreamingInput(bridgePrompt.userPrompt, promptFileRefsForRun);
+
+    // V2.17-A 续: 构造 EffectiveRunPlan（单一真相源），provider 作为 canonical 标识
     const agentSkillsOptions = buildSdkAgentSkillsOptions(vaultPath);
-    const imageBlockCount = sdkStreamingInput?.content.filter((b) => b.type === "image").length ?? 0;
-    const attachmentPlan: AttachmentPlan = {
-      messageScopedRefs: messageRefsForRun.length,
-      pinnedRefs: this.pinnedFileRefs.length,
-      inlineSnippets: promptAttachmentSnippetsForRun.length,
-      imageStreamingBlocks: imageBlockCount,
-      nativeRefOnly: Math.max(0, promptFileRefsForRun.length - promptAttachmentSnippetsForRun.length - imageBlockCount),
-    };
+    const attachmentPlan = buildAttachmentPlanFromRefs(
+      promptFileRefsForRun,
+      promptAttachmentSnippetsForRun,
+      messageRefsForRun.length,
+      this.pinnedFileRefs.length,
+      providerSupportsStreaming,
+    );
     const effectiveRunPlan = buildEffectiveRunPlan({
-      backend: backendKind,
+      provider: provider.id,
       settings,
       cwd: vaultPath,
       promptPackageText: prompt,
       settingSources: agentSkillsOptions.settingSources,
       skills: agentSkillsOptions.skills,
       attachmentPlan,
+      bridgePrompt,
     });
 
     // V1.5: 构造命令预览（UI-only，展示本次实际执行的 command/args/cwd/上下文）
@@ -4869,19 +4925,22 @@ export class LLMBridgeView extends ItemView {
     const sdkEvents: WorkflowEvent[] = [];
     let sawStdout = false;
     let sawStderr = false;
+    // V2.17-A 续: SDK 路径的 final answer 由 RunStateAggregator（消费 WorkflowEvent message partial text_delta）驱动，
+    // 不再由 stdout_delta 旁路驱动。CLI/mock 路径继续用 stdout_delta（CLI 无结构化事件，stdout 即最终答案）。
+    const isStructuredProvider = providerProducesWorkflowEvents(provider.id);
     this.updateAssistantMessage(assistantId, {
       log: `$ ${this.commandLine()}\ncwd: ${vaultPath}\nprompt 通过 stdin 传入（${prompt.length} 字符）`,
       commandPreview: commandPreviewRows,
       effectiveRunPlan,
     });
 
-    const backend = this.getBackend();
     const runtimeFileToolAdapter = createRuntimeFileToolAdapter(
-      backend instanceof SdkBackend ? "sdk" : "cli",
+      providerBackendKind(provider.id),
       (request) => this.executeAgentFileToolRoute(request),
     );
 
-    // 构造 AgentTask 并通过 AgentBackend 启动
+    // 构造 AgentTask 并通过 RuntimeProvider 启动
+    // V2.17-A 续: bridgePrompt 传入 task，SDK 路径用 userPrompt + appendSystemPrompt
     const task: AgentTask = {
       id: assistantId,
       userMessage: userInput,
@@ -4893,9 +4952,10 @@ export class LLMBridgeView extends ItemView {
       sdkStreamingInput,
       runtimeFileToolAdapter,
       effectiveRunPlan,
+      bridgePrompt,
     };
 
-    this.runHandle = backend.run(task, settings, (event) => {
+    this.runHandle = provider.run(task, settings, (event) => {
       switch (event.type) {
         case "started":
           // 任务已启动，无需额外处理（状态已在前面设置）
@@ -4909,9 +4969,15 @@ export class LLMBridgeView extends ItemView {
             // V1.5: 同步记录到 workflowEvents
             workflowEvents.push({ stage: "stdout", detail, timestamp: ts });
           }
-          const msg = this.messages.find((m) => m.id === assistantId);
-          if (msg) {
-            this.appendAssistantContentDelta(assistantId, event.data);
+          // V2.17-A 续: SDK 路径 final answer 不再由 stdout_delta 旁路驱动。
+          // 结构化 provider 的 final answer 由 WorkflowEvent message.partial 经
+          // appendLiveSdkEvent → RunStateAggregator 派生（单一真相源）。
+          // CLI/mock 路径无结构化事件，stdout 即最终答案，继续走 appendAssistantContentDelta。
+          if (!isStructuredProvider) {
+            const msg = this.messages.find((m) => m.id === assistantId);
+            if (msg) {
+              this.appendAssistantContentDelta(assistantId, event.data);
+            }
           }
           break;
         }

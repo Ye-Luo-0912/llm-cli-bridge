@@ -55,6 +55,7 @@ import {
   type SessionPermissionDeny,
 } from "./sdkPermission";
 import { RuntimeFileToolAdapterResult, RuntimeFileToolCall, describeRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
+import { buildSdkOptionsFromPlan } from "./effectiveRunPlan";
 
 // ---------- SDK 可用性探测 ----------
 
@@ -547,38 +548,40 @@ export function buildSdkOptions(
   agentSkillsOptions?: SdkAgentSkillsOptions,
 ): Record<string, unknown> {
   const plan = task.effectiveRunPlan;
-  const effort = plan?.effort ?? settings.effortLevel;
-  const model = plan?.model ?? settings.model;
-  const settingSources = plan?.settingSources ?? agentSkillsOptions?.settingSources;
-  const skills = plan?.skills ?? agentSkillsOptions?.skills;
+  // V2.17-A 续: plan 存在时全部从 plan 派生（单一真相源），backend 不再读 settings
+  if (plan) {
+    const options = buildSdkOptionsFromPlan(plan);
+    // V2.17-A 续: bridgeSystemAppend 作为 appendSystemPrompt 追加到 claude_code preset
+    // 用户请求不再被 bridge-native 规则包围：bridgeSystemAppend 进 system prompt，userPrompt 进 streaming input
+    const bridgeAppend = task.bridgePrompt?.bridgeSystemAppend;
+    if (bridgeAppend && bridgeAppend.length > 0) {
+      options.appendSystemPrompt = bridgeAppend;
+    }
+    return options;
+  }
+  // 回落路径：仅用于 plan 缺失的旧测试/兼容场景，不在生产 V2.17-A 路径出现
+  const effort = settings.effortLevel;
+  const model = settings.model;
+  const settingSources = agentSkillsOptions?.settingSources;
+  const skills = agentSkillsOptions?.skills;
   const options: Record<string, unknown> = {
     cwd: task.cwd,
-    // V2.17-A: model/effort 来自 EffectiveRunPlan（UI/SDK/CLI 三端一致）
     model: model || undefined,
-    // V2.17-A: 使用官方 effort 字段（不再用未确认的 reasoningEffort）
     ...(effort ? { effort } : {}),
     permissionMode: settings.claudePermissionMode ?? "default",
-    // V2.16-G: 打开 SDK partial stream，避免首包前长期无响应。
     includePartialMessages: true,
-    // V2.16-H: Ask the SDK/API for displayable thinking summaries when the
-    // selected model/runtime supports them. Unsupported paths simply won't emit
-    // thinking text; the UI keeps the lightweight placeholder.
     thinking: { type: "adaptive", display: "summarized" },
-    // V2.17-A: 显式 claude_code systemPrompt / tools preset
     systemPrompt: { preset: "claude_code" },
     tools: { preset: "claude_code" },
   };
-  // 继续会话
   if (settings.claudeContinueSession) {
     options.continue = true;
   } else if (settings.claudeResumeSessionId) {
     options.resume = settings.claudeResumeSessionId;
   }
-  // extra args
   if (settings.claudeExtraArgs) {
     options.extraArgs = settings.claudeExtraArgs.split(/\s+/).filter(Boolean);
   }
-  // V2.17-A: settingSources / skills 来自 plan（或 agentSkillsOptions 回退）
   if (settingSources) {
     options.settingSources = [...settingSources];
   }
@@ -781,9 +784,17 @@ async function runRealSdkQuery(
     restoreAbortController = installNodeCompatibleAbortController();
 
     // 调用 query。V2.16-E: 有图片/blob 附件时使用 SDK Streaming Input。
+    // V2.17-A 续: streaming input 只放干净 userPrompt + message-scoped attachments；
+    // bridgeSystemAppend 已通过 options.appendSystemPrompt 进入 system prompt，不混入 user prompt。
+    // 无 streaming input 时回落到 task.prompt（CLI fallback 组合文本，兼容旧路径）。
+    const cleanUserPrompt = task.bridgePrompt?.userPrompt;
     const promptInput = task.sdkStreamingInput
-      ? createSdkUserMessageStream(task.sdkStreamingInput.content)
-      : task.prompt;
+      ? createSdkUserMessageStream(
+          cleanUserPrompt
+            ? [{ type: "text", text: cleanUserPrompt }, ...task.sdkStreamingInput.content.filter((b) => b.type !== "text")]
+            : task.sdkStreamingInput.content,
+        )
+      : (cleanUserPrompt ?? task.prompt);
     const queryResult = (queryFn as (params: { prompt: string | AsyncIterable<unknown>; options: Record<string, unknown> }) => AsyncIterable<SdkMessage>)({
       prompt: promptInput,
       options,
@@ -803,12 +814,14 @@ async function runRealSdkQuery(
         }
       }
 
-      // V2.16-G: 将 assistant 文本按到达顺序增量写入正文，避免等终态一次性落地。
+      // V2.17-A 续: 不再把 assistant 文本通过 stdout_delta 旁路驱动 UI 正文。
+      // SDK 路径的 final answer 由 WorkflowEvent message.partial text_delta 经
+      // RunStateAggregator 派生（view.ts appendLiveSdkEvent 消费），单一真相源。
+      // 仍跟踪 streamedAssistantText 用于 diagnostics 与 terminalText 去重。
       for (const ev of result.events) {
         if (ev.type !== "message" || ev.role !== "assistant" || !ev.text) continue;
         const deltaText = deriveAssistantTextDelta(streamedAssistantText, ev.text);
         if (!deltaText) continue;
-        onEvent({ type: "stdout_delta", data: deltaText });
         streamedAssistantText += deltaText;
       }
 
@@ -824,11 +837,10 @@ async function runRealSdkQuery(
       }
     }
 
-    // 终态再补齐一次，兼容仅在 result success 上携带最终文本的实现，但避免重复输出。
+    // V2.17-A 续: 终态文本去重跟踪（不通过 stdout_delta 旁路驱动 UI 正文）。
     if (terminalText) {
       const terminalDelta = deriveAssistantTextDelta(streamedAssistantText, terminalText);
       if (terminalDelta) {
-        onEvent({ type: "stdout_delta", data: terminalDelta });
         streamedAssistantText += terminalDelta;
       }
     }

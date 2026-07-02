@@ -62,6 +62,12 @@ export interface TimelineNode {
   readonly toolOutput?: string;
   /** 工具是否出错（tool_call） */
   readonly toolError?: boolean;
+  /**
+   * 工具进度条目（tool_call，V2.17-A 续）。
+   * tool_progress 合并到工具节点后，UI 在工具节点内折叠展示 progress，
+   * 不刷成独立节点，也不丢弃。
+   */
+  readonly toolProgress?: ReadonlyArray<{ label: string; detail?: string; timestamp: string }>;
   /** 文件路径（file_change） */
   readonly filePath?: string;
   /** 文件操作（file_change: create/modify/delete） */

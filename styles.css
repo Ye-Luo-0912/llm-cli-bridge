@@ -2884,6 +2884,16 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* V2.17-A 续: 会话下拉补齐摘要 — 首条请求 / 最后回复 */
+.llm-bridge-history-summary {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-history-summary-first { color: var(--text-muted); }
+.llm-bridge-history-summary-last { color: var(--text-faint); font-style: italic; }
 .llm-bridge-history-item.is-completed { border-left: 3px solid #4caf50; }
 .llm-bridge-history-item.is-failed { border-left: 3px solid #e53935; }
 .llm-bridge-history-item.is-stopped { border-left: 3px solid #fb8c00; }

@@ -2,6 +2,10 @@
 
 export type AgentType = "claude" | "codex" | "custom";
 
+// V2.17-A 续: RuntimeProvider canonical 标识（UI 不再 instanceof SdkBackend/ClaudeCliBackend）
+// 定义在 types.ts 避免与 runtimeProvider.ts 循环依赖
+export type RuntimeProviderId = "claude-sdk" | "claude-cli" | "codex-sdk" | "mock";
+
 // 会话模式：fresh=新会话；continue=继续最近会话；resume=恢复指定会话
 // 本轮只启用 fresh，continue/resume 为预留
 export type SessionMode = "fresh" | "continue" | "resume";
@@ -33,18 +37,45 @@ export type BackendMode = "auto" | "cli" | "sdk" | "mock-success" | "mock-failur
 // V2.3: 权限策略（low=宽松 / medium=默认 / high=严格）
 export type PermissionPolicy = "low" | "medium" | "high";
 
-// V2.17-A: 附件打包计划（审计用，记录本轮附件分布）
+// V2.17-A 续: 附件打包计划（entry-level 审计，可比较 SDK/CLI attachment mapping）
+// 每个附件记录 refId/scope/fileType/mode/pathHash/contentHash/reason
+export type AttachmentMode = "inline-snippet" | "image-streaming-block" | "native-ref-only";
+
+export interface AttachmentEntry {
+  /** 对应 FileRef.id（跨 SDK/CLI 可比较） */
+  readonly refId: string;
+  /** message / pinned / session */
+  readonly scope: "message" | "pinned" | "session";
+  /** image / text / markdown / json / pdf / binary / unknown */
+  readonly fileType: "image" | "text" | "markdown" | "json" | "pdf" | "binary" | "unknown";
+  /** 该附件在本轮的打包模式 */
+  readonly mode: AttachmentMode;
+  /** resolvedPath 的稳定哈希（审计用，非加密） */
+  readonly pathHash: string;
+  /** 内联文本内容哈希（inline-snippet 模式有值；其它模式为空串） */
+  readonly contentHash: string;
+  /** 该模式的原因（人类可读，用于审计） */
+  readonly reason: string;
+}
+
 export interface AttachmentPlan {
+  // 聚合计数（向后兼容；entry-level 审计见 entries）
   messageScopedRefs: number;
   pinnedRefs: number;
   inlineSnippets: number;
   imageStreamingBlocks: number;
   nativeRefOnly: number;
+  // V2.17-A 续: entry-level 审计（每个附件一条记录，SDK/CLI mapping 可比较）
+  entries: ReadonlyArray<AttachmentEntry>;
 }
 
 // V2.17-A: EffectiveRunPlan —— 每次运行的单一真相源
 // CLI 与 SDK 都从同一个 plan 派生 options / env；Developer mode 可查看，普通用户隐藏。
+// V2.17-A 续: 新增 provider (RuntimeProviderId) 作为 canonical 标识；backend 保留为派生字段。
 export interface EffectiveRunPlan {
+  /** canonical provider 标识（UI 据此判定运行时，不 instanceof backend 类） */
+  provider: RuntimeProviderId;
+  /** backend 大类（sdk/cli），由 provider 派生，保留以兼容现有审计/测试 */
   backend: "sdk" | "cli";
   cwd: string;
   model: string;
@@ -52,14 +83,49 @@ export interface EffectiveRunPlan {
   effort: string;
   permission: ClaudePermissionMode;
   session: { continueSession: boolean; resumeId?: string };
-  // 显式 claude_code preset
-  systemPrompt: { preset: "claude_code" };
-  tools: { preset: "claude_code" };
+  // 显式 claude_code preset（Codex provider 时为空字符串表示不适用）
+  systemPrompt: { preset: "claude_code" | "" };
+  tools: { preset: "claude_code" | "" };
   settingSources: readonly string[];
   skills: readonly string[];
+  /** V2.17-A 续: extra args 从 plan 派生（不再由 backend 直接读 settings.claudeExtraArgs） */
+  extraArgs: ReadonlyArray<string>;
   promptPackageHash: string;
   attachmentPlan: AttachmentPlan;
+  // V2.17-A 续: BridgePromptPackage 拆分后的脱敏审计文本（Developer mode 展示用）
+  bridgePrompt?: BridgePromptPackageAudit;
   createdAt: string;
+}
+
+/**
+ * BridgePromptPackage 拆分结构（V2.17-A 续）。
+ * 用户请求不再被 bridge-native 规则包围：bridgeSystemAppend 与 userPrompt 分离。
+ * - SDK 路径：systemPrompt = claude_code preset + append bridgeSystemAppend；
+ *   prompt/streaming input 只放干净 userPrompt + message-scoped attachments。
+ * - CLI fallback：stdin = bridgeSystemAppend + userPrompt 组合。
+ */
+export interface BridgePromptPackage {
+  /** bridge-native 指令段（Native Handoff / Attachment Policy / Tool Steering / Output 规则） */
+  bridgeSystemAppend: string;
+  /** 干净用户请求正文（仅用户输入，不含 bridge-native 指令） */
+  userPrompt: string;
+  /** entry-level 附件审计条目（与 AttachmentPlan.entries 同源） */
+  attachmentEntries: ReadonlyArray<AttachmentEntry>;
+  /** 整包审计哈希（基于 bridgeSystemAppend + userPrompt + attachmentEntries 计算） */
+  auditHash: string;
+}
+
+/**
+ * BridgePromptPackage 的脱敏审计视图（写入 EffectiveRunPlan 供 Developer mode 展示）。
+ * 不含附件正文内容，仅含结构化摘要，避免 secret/长文本进入 plan JSON。
+ */
+export interface BridgePromptPackageAudit {
+  bridgeSystemAppendHash: string;
+  bridgeSystemAppendLength: number;
+  userPromptLength: number;
+  userPromptPreview: string;
+  attachmentEntryCount: number;
+  auditHash: string;
 }
 
 // 单条聊天消息

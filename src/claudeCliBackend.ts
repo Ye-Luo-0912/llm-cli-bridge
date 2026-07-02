@@ -11,6 +11,7 @@ import { buildCommandLine } from "./commandProfile";
 import { AgentSkillsRuntimePreparationResult, prepareAgentSkillsForClaudeRuntimeSync } from "./agentSkills";
 import { resolveClaudeRuntimeConfig } from "./claudeRuntimeConfig";
 import { RuntimeFileToolAdapterResult, RuntimeFileToolCall, describeRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
+import { buildCliCommandFromPlan, buildCliEnvFromPlan } from "./effectiveRunPlan";
 
 // ---------- PATH 增强工具函数（从 runner.ts 迁移） ----------
 
@@ -328,8 +329,12 @@ export class ClaudeCliBackend implements AgentBackend {
   readonly name = "claude-cli";
 
   run(task: AgentTask, settings: LLMBridgeSettings, onEvent: AgentEventHandler): AgentRunHandle {
-    // V1.5: 使用 commandProfile.buildCommandLine 统一构造（含 Claude 动态参数）
-    const { command, args } = buildCommandLine(settings, task.cwd);
+    // V2.17-A 续: command/args/env 全部由 EffectiveRunPlan 派生（单一真相源）
+    // plan 缺失时回落到 buildCommandLine（仅旧测试/兼容场景，不在生产 V2.17-A 路径）
+    const plan = task.effectiveRunPlan;
+    const { command, args } = plan
+      ? buildCliCommandFromPlan(plan, settings)
+      : buildCommandLine(settings, task.cwd);
     const startTime = new Date();
     const startedAt = Date.now();
     let stdout = "";
@@ -343,8 +348,10 @@ export class ClaudeCliBackend implements AgentBackend {
     // 发出 started 事件
     onEvent({ type: "started", task });
 
-    // 构造环境变量（V2.17-A: 传入 EffectiveRunPlan，model/effort 取自单一真相源）
-    const { env, envKeys } = buildRunEnv(settings, task.cwd, task.effectiveRunPlan);
+    // 构造环境变量（V2.17-A 续: 优先 buildCliEnvFromPlan 从单一真相源派生）
+    const { env, envKeys } = plan
+      ? buildCliEnvFromPlan(plan, settings, task.cwd)
+      : buildRunEnv(settings, task.cwd, plan);
     const extraPath = buildEnhancedPath(task.cwd);
     const injectedPaths = extraPath ? extraPath.split(path.delimiter) : [];
 
