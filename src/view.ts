@@ -6,7 +6,7 @@ import * as path from "path";
 import type LLMBridgePlugin from "../main";
 import { buildPrompt } from "./prompt";
 import { buildPromptPackage, StateSnapshot } from "./promptPackage";
-import { AgentRunHandle, AgentTask, SdkImageContentBlock, SdkStreamingInput } from "./agentBackend";
+import { AgentRunHandle, SdkImageContentBlock, SdkStreamingInput } from "./agentBackend";
 import { exportState } from "./state";
 import { diffSnapshots, extractRelPath, FileSnapshot, snapshotVaultMarkdownFiles } from "./fileDiff";
 import { AgentType, AttachmentPlan, BackendMode, ChatMessage, EffectiveRunPlan, RunResult, RunStatus, SessionMode } from "./types";
@@ -17,7 +17,7 @@ import { buildFirstUseGuide, shouldShowFirstUseGuide } from "./firstUseGuide";
 import { buildTimeline, isTerminalTimelineType, timelineTypeClass, timelineTypeLabel, TimelineEventType } from "./runTimeline";
 import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, previewToRows, CommandPreview } from "./commandProfile";
 import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
-import { buildEffectiveRunPlan, formatEffectiveRunPlan } from "./effectiveRunPlan";
+import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse } from "./runtime/core/types";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
@@ -186,9 +186,11 @@ function nextMsgId(): string {
 
 export class LLMBridgeView extends ItemView {
   private plugin: LLMBridgePlugin;
-  // backend 实例缓存：按 settings.backendMode 选择 real / mock
-  private cachedBackend: AgentBackend | null = null;
-  private cachedBackendMode: BackendMode | null = null;
+  // V2.17-A Completion: BridgeSession 替代 cachedBackend。
+  // UI 不再直接持有 SdkBackend/ClaudeCliBackend/MockAgentBackend，只通过 BridgeSession
+  // 与 RuntimeProvider 交互。session 按 settings.backendMode 缓存，mode 变化时重建。
+  private session: BridgeSessionImpl | null = null;
+  private sessionMode: BackendMode | null = null;
   /** V2.16-B: 实际 runtime 标签（供 UI 显示，区分 auto→SDK / auto→CLI fallback） */
   private actualRuntimeLabel: string = "Claude Code";
   private runHandle: AgentRunHandle | null = null;
@@ -1265,44 +1267,25 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  // 按 settings.backendMode 获取 backend 实例（带缓存）
-  // V2.16-B: auto = SDK-first + CLI fallback；显式选择不静默 fallback
-  // - auto: SDK 可用→SdkBackend(strict=false)，不可用→ClaudeCliBackend
-  // - cli: 始终 ClaudeCliBackend
-  // - sdk: SdkBackend(strict=true)，SDK 不可用时发 error 不 fallback
-  // - mock-success / mock-failure: MockAgentBackend（开发/测试用）
-  private getBackend(): AgentBackend {
+  // V2.17-A Completion: 获取/缓存 BridgeSession（替代旧 getBackend）。
+  // UI 不再直接构造 SdkBackend/ClaudeCliBackend/MockAgentBackend；provider 选择由
+  // createBridgeSession 按 settings.backendMode + provider 可用性决定。
+  // codex-app-server 在 auto 模式下优先（primary target）。
+  private getSession(): BridgeSessionImpl {
     const mode = this.plugin.settings.backendMode;
-    if (this.cachedBackend && this.cachedBackendMode === mode) {
-      return this.cachedBackend;
+    if (this.session && this.sessionMode === mode) {
+      return this.session;
     }
-    let backend: AgentBackend;
-    if (mode === "mock-success") {
-      backend = new MockAgentBackend("success");
-      this.actualRuntimeLabel = "Mock";
-    } else if (mode === "mock-failure") {
-      backend = new MockAgentBackend("failure");
-      this.actualRuntimeLabel = "Mock";
-    } else if (mode === "sdk") {
-      backend = new SdkBackend(true);
-      this.actualRuntimeLabel = "SDK";
-    } else if (mode === "cli") {
-      backend = new ClaudeCliBackend();
-      this.actualRuntimeLabel = "Claude Code";
-    } else {
-      // auto: SDK-first + CLI fallback
-      const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-      if (isSdkAvailable(vaultPath)) {
-        backend = new SdkBackend(false);
-        this.actualRuntimeLabel = "SDK";
-      } else {
-        backend = new ClaudeCliBackend();
-        this.actualRuntimeLabel = "Claude Code fallback";
-      }
-    }
-    this.cachedBackend = backend;
-    this.cachedBackendMode = mode;
-    return backend;
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const sess = createBridgeSession(
+      `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      this.plugin.settings,
+      vaultPath,
+    );
+    this.session = sess;
+    this.sessionMode = mode;
+    this.actualRuntimeLabel = sess.displayLabel;
+    return sess;
   }
 
   private setGlobalStatus(status: RunStatus): void {
@@ -1342,20 +1325,10 @@ export class LLMBridgeView extends ItemView {
     // Agent 类型
     const agentLabel = AGENT_OPTIONS.find((a) => a.value === s.agentType)?.label ?? s.agentType;
     this.statusAgentEl.querySelector(".llm-bridge-sb-value")!.textContent = agentLabel;
-    // V2.16-B: 顶部 runtime status 显示实际 backend
-    // auto: 主动检查 SDK 可用性决定 label（不依赖 getBackend 调用）
-    let runtimeLabel: string;
-    if (s.backendMode === "auto") {
-      const vp = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-      runtimeLabel = isSdkAvailable(vp) ? "SDK" : "Claude Code fallback";
-    } else if (s.backendMode === "cli") {
-      runtimeLabel = "Claude Code";
-    } else if (s.backendMode === "sdk") {
-      const vp = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-      runtimeLabel = isSdkAvailable(vp) ? "SDK" : "SDK unavailable";
-    } else {
-      runtimeLabel = "Mock";
-    }
+    // V2.17-A Completion: runtime label 由 BridgeSession.selectProvider 决定
+    // （codex-app-server 在 auto 模式下优先；不可用回退 SDK / CLI）。
+    // 不再在 view.ts 直接探测 isSdkAvailable。
+    const runtimeLabel = this.getSession().displayLabel;
     this.actualRuntimeLabel = runtimeLabel;
     // V2.16-D: runtime status 缩成 pill（简短英文：SDK · ready / running / error）
     const runtimeState = this.sessionState.status === "failed" ? "error" : this.sessionState.status === "running" ? "running" : "ready";
@@ -1491,16 +1464,18 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  // V2.3s: 解析权限请求（调用 SdkBackend.resolvePermission）
+  // V2.17-A Completion: 解析权限请求通过 PermissionBoundary（provider-neutral）
+  // 不再调用 SdkBackend.resolvePermission；所有 provider 的 approval 都走统一路径。
   private resolvePermissionRequests(requestIds: string[], choice: PermissionChoice): void {
-    const backend = this.getBackend();
-    if (!(backend instanceof SdkBackend)) {
-      new Notice("权限请求仅在 sdk-experimental 模式下可用");
-      return;
-    }
+    const permission = this.getSession().permission;
+    const response: ApprovalResponse = choice === "allow_once"
+      ? { type: "accept" }
+      : choice === "allow_session"
+        ? { type: "acceptForSession" }
+        : { type: "decline" };
     let resolved = 0;
     for (const id of requestIds) {
-      if (backend.resolvePermission(id, choice)) {
+      if (permission.resolveApproval(id, response)) {
         this.pendingPermissions.delete(id);
         resolved++;
       }
@@ -1513,13 +1488,9 @@ export class LLMBridgeView extends ItemView {
   // V2.3s: 清空待决策权限请求（新会话/停止时调用）
   private clearPendingPermissions(): void {
     if (this.pendingPermissions.size === 0) return;
-    // 尝试拒绝所有待决策请求（避免 Promise 挂起）
-    const backend = this.getBackend();
-    if (backend instanceof SdkBackend) {
-      for (const [, ev] of this.pendingPermissions) {
-        if (ev.requestId) backend.resolvePermission(ev.requestId, "deny_session");
-      }
-    }
+    // V2.17-A Completion: 通过 PermissionBoundary.cancelAllPending 唤醒所有等待的 provider
+    // （provider 收到 cancel 后回传 deny/cancel 给底层 runtime）。
+    this.getSession().permission.cancelAllPending();
     this.pendingPermissions.clear();
     this.refreshPermissionPanel();
   }
@@ -4224,8 +4195,8 @@ export class LLMBridgeView extends ItemView {
     if (session.permissionMode) s.claudePermissionMode = session.permissionMode as typeof s.claudePermissionMode;
     if (session.sessionMode) s.sessionMode = session.sessionMode as typeof s.sessionMode;
     await this.restoreContextAndSnippets(session);
-    this.cachedBackend = null;
-    this.cachedBackendMode = null;
+    this.session = null;
+    this.sessionMode = null;
     this.refreshAllChips();
     if (s.keepLastSession) {
       s.lastActiveSessionId = session.id;
@@ -4357,8 +4328,8 @@ export class LLMBridgeView extends ItemView {
     // V2.17-A: 复用统一恢复逻辑（pinned context 保留类型 + message snippet 重算 + agentType 对齐）
     await this.restoreContextAndSnippets(session);
     await this.plugin.saveSettings();
-    this.cachedBackend = null;
-    this.cachedBackendMode = null;
+    this.session = null;
+    this.sessionMode = null;
     this.refreshAllChips();
     this.renderMessagesFromHistory();
     this.refreshSessionState();
@@ -4805,14 +4776,14 @@ export class LLMBridgeView extends ItemView {
       }
     }
 
-    // 使用 prompt package builder（V0.7）
+    // 使用 prompt package builder（V0.7）—— 仍用于命令预览/日志展示
     const prompt = buildPromptPackage(userInput, snapshot, settings);
     const sdkStreamingInput = await this.buildSdkStreamingInput(prompt, promptFileRefsForRun);
 
-    // V2.17-A: 构造 EffectiveRunPlan（CLI/SDK 单一真相源）
-    const backendInstance = this.getBackend();
-    const backendKind: "sdk" | "cli" = backendInstance instanceof SdkBackend ? "sdk" : "cli";
-    const agentSkillsOptions = buildSdkAgentSkillsOptions(vaultPath);
+    // V2.17-A Completion: 通过 BridgeSession 选择 provider 并构造 EffectiveRunPlan。
+    // UI 不再直接接触 SdkBackend/ClaudeCliBackend/MockAgentBackend；plan 由
+    // provider.buildPlan 从 RunInput 派生（单一真相源）。
+    const session = this.getSession();
     const imageBlockCount = sdkStreamingInput?.content.filter((b) => b.type === "image").length ?? 0;
     const attachmentPlan: AttachmentPlan = {
       messageScopedRefs: messageRefsForRun.length,
@@ -4821,15 +4792,12 @@ export class LLMBridgeView extends ItemView {
       imageStreamingBlocks: imageBlockCount,
       nativeRefOnly: Math.max(0, promptFileRefsForRun.length - promptAttachmentSnippetsForRun.length - imageBlockCount),
     };
-    const effectiveRunPlan = buildEffectiveRunPlan({
-      backend: backendKind,
-      settings,
-      cwd: vaultPath,
-      promptPackageText: prompt,
-      settingSources: agentSkillsOptions.settingSources,
-      skills: agentSkillsOptions.skills,
-      attachmentPlan,
-    });
+    // 注：attachmentPlan 仅用于 UI 展示审计；provider 内部从 promptPackage.attachmentEntries
+    // 重新聚合（保证 provider-neutral）。这里保留供 commandPreview / log 用。
+    void attachmentPlan;
+
+    // V2.17-A Completion: 构造 provider-neutral BridgePromptPackage
+    const promptPackage = buildBridgePromptPackage(userInput, snapshot, settings);
 
     // V1.5: 构造命令预览（UI-only，展示本次实际执行的 command/args/cwd/上下文）
     const commandPreviewRows = previewToRows(buildCommandPreview(settings, vaultPath, {
@@ -4870,106 +4838,200 @@ export class LLMBridgeView extends ItemView {
     const sdkEvents: WorkflowEvent[] = [];
     let sawStdout = false;
     let sawStderr = false;
+
+    // V2.17-A Completion: 通过 provider.buildPlan 构造 EffectiveRunPlan（单一真相源）
+    const runInput: RunInput = {
+      userMessage: userInput,
+      cwd: vaultPath,
+      includeActiveNote: settings.includeActiveNote,
+      includeSelection: settings.includeSelection,
+      sdkStreamingInput: sdkStreamingInput ?? undefined,
+      promptPackage,
+      createdAt: startedAt,
+    };
+    const effectiveRunPlan = session.provider.buildPlan(runInput, settings);
     this.updateAssistantMessage(assistantId, {
       log: `$ ${this.commandLine()}\ncwd: ${vaultPath}\nprompt 通过 stdin 传入（${prompt.length} 字符）`,
       commandPreview: commandPreviewRows,
       effectiveRunPlan,
     });
 
-    const backend = this.getBackend();
+    // V2.14.0-K: runtime file tool adapter（provider 通过 RunContext 拿到）
     const runtimeFileToolAdapter = createRuntimeFileToolAdapter(
-      backend instanceof SdkBackend ? "sdk" : "cli",
+      session.providerId === "claude-sdk" ? "sdk" : "cli",
       (request) => this.executeAgentFileToolRoute(request),
     );
+    runInput.runtimeFileToolAdapter = runtimeFileToolAdapter;
 
-    // 构造 AgentTask 并通过 AgentBackend 启动
-    const task: AgentTask = {
-      id: assistantId,
-      userMessage: userInput,
-      prompt,
-      cwd: vaultPath,
-      createdAt: new Date().toISOString(),
-      includeActiveNote: settings.includeActiveNote,
-      includeSelection: settings.includeSelection,
-      sdkStreamingInput,
-      runtimeFileToolAdapter,
-      effectiveRunPlan,
+    // V2.17-A Completion: 通过 BridgeSession.start 启动 run，消费 NormalizedRuntimeEvent 流。
+    // 旧 AgentBackend callback（onEvent/onWorkflowEvent）替换为单一流式消费：
+    // - stdout_delta / stderr_delta / completed / failed 直接处理（原 onEvent 路径）
+    // - 其余经 mapNormalizedToWorkflowEvent 还原为 WorkflowEvent，喂给现有 UI 管线
+    //   （appendLiveSdkEvent / sdkEvents / pendingPermissions）
+    let terminalStatus: RunStatus | null = null;
+    let terminalResult: RunResult | null = null;
+    const runIter = session.start(runInput, settings);
+
+    // runHandle：把 cancel 透传给 BridgeSession（stop 按钮用）
+    const view = this;
+    this.runHandle = {
+      get running(): boolean { return terminalStatus === null; },
+      stop(): void {
+        // BridgeSession.cancel 会调用 provider.cancel + permission.cancelAllPending
+        session.cancel("");
+      },
     };
 
-    this.runHandle = backend.run(task, settings, (event) => {
-      switch (event.type) {
-        case "started":
-          // 任务已启动，无需额外处理（状态已在前面设置）
-          break;
-        case "stdout_delta": {
-          if (!sawStdout) {
-            sawStdout = true;
-            const detail = event.data.replace(/\s+/g, " ").trim().slice(0, 60);
-            const ts = new Date().toISOString();
-            timelineEvents.push({ type: "stdout", detail, timestamp: ts });
-            // V1.5: 同步记录到 workflowEvents
-            workflowEvents.push({ stage: "stdout", detail, timestamp: ts });
-          }
-          const msg = this.messages.find((m) => m.id === assistantId);
-          if (msg) {
-            this.appendAssistantContentDelta(assistantId, event.data);
-          }
-          break;
+    void (async () => {
+      try {
+        for await (const ev of runIter) {
+          if (terminalStatus) break;
+          view.handleNormalizedEvent(ev, {
+            assistantId,
+            vaultPath,
+            startedAt,
+            timelineEvents,
+            workflowEvents,
+            sdkEvents,
+            sawStdoutRef: () => sawStdout,
+            setSawStdout: (v: boolean) => { sawStdout = v; },
+            sawStderrRef: () => sawStderr,
+            setSawStderr: (v: boolean) => { sawStderr = v; },
+            promptLength: prompt.length,
+            onTerminal: (status: RunStatus, result: RunResult) => {
+              terminalStatus = status;
+              terminalResult = result;
+            },
+          });
         }
-        case "stderr_delta": {
-          if (!sawStderr) {
-            sawStderr = true;
-            const detail = event.data.replace(/\s+/g, " ").trim().slice(0, 60);
-            const ts = new Date().toISOString();
-            timelineEvents.push({ type: "stderr", detail, timestamp: ts });
-            // V1.5: 同步记录到 workflowEvents
-            workflowEvents.push({ stage: "stderr", detail, timestamp: ts });
-          }
-          if (!this.plugin.settings.showStderr) return;
-          const msg = this.messages.find((m) => m.id === assistantId);
-          if (msg) {
-            this.updateAssistantMessage(assistantId, { stderr: msg.stderr + event.data });
-          }
-          break;
-        }
-        case "completed":
-        case "failed":
-        case "stopped": {
-          // 构造 RunResult 兼容现有 onRunFinished / saveLogFile 逻辑
-          const result: RunResult = {
-            exitCode: event.exitCode,
-            signal: event.type === "stopped" ? "SIGTERM" as NodeJS.Signals : null,
-            durationMs: event.durationMs,
-            stdout: event.stdout,
-            stderr: event.stderr,
-            command: event.command,
-            args: event.args,
-          };
-          void this.onRunFinished(result, vaultPath, assistantId, event.type, startedAt, timelineEvents, workflowEvents, prompt.length, sdkEvents);
-          break;
+      } catch (e) {
+        // 异常兜底：构造 failed 终态
+        const errMsg = (e as Error)?.message || String(e);
+        terminalStatus = "failed";
+        terminalResult = {
+          exitCode: null,
+          signal: null,
+          durationMs: Date.now() - new Date(startedAt).getTime(),
+          stdout: "",
+          stderr: errMsg,
+          command: "",
+          args: [],
+        };
+      } finally {
+        view.runHandle = null;
+        if (terminalStatus && terminalResult) {
+          await view.onRunFinished(
+            terminalResult, vaultPath, assistantId, terminalStatus,
+            startedAt, timelineEvents, workflowEvents, prompt.length, sdkEvents,
+          );
         }
       }
-    }, (wfEvent: WorkflowEvent) => {
-      // V1.6: 收集 SDK 工作流事件（工具级），用于 UI 渲染
-      sdkEvents.push(wfEvent);
-      // V2.16-C: 实时渲染 SDK live progress（不等到运行结束）
-      this.appendLiveSdkEvent(wfEvent);
-      // V2.3s: 实时处理权限请求事件（pending=true 时加入面板等待用户决策）
-      if (wfEvent.type === "permission") {
-        const permEv = wfEvent as PermissionEvent;
-        if (permEv.pending && permEv.requestId) {
-          // 新的 pending 权限请求：加入面板
-          this.pendingPermissions.set(permEv.requestId, permEv);
+    })();
+  }
+
+  /**
+   * V2.17-A Completion: 处理单个 NormalizedRuntimeEvent（run() 闭包提取为方法便于维护）。
+   *
+   * - stdout_delta/stderr_delta/completed/failed：直接处理（原 AgentEvent onEvent 路径）
+   * - 其余：经 mapNormalizedToWorkflowEvent 还原为 WorkflowEvent，喂给现有 UI 管线
+   *   （appendLiveSdkEvent / sdkEvents / pendingPermissions）
+   *
+   * 注：UI 全量迁移到 AssistantTurnView 后，此方法可简化为直接消费 NormalizedRuntimeEvent。
+   */
+  private handleNormalizedEvent(
+    ev: NormalizedRuntimeEvent,
+    ctx: {
+      assistantId: string;
+      vaultPath: string;
+      startedAt: string;
+      timelineEvents: Array<{ type: TimelineEventType; detail: string; timestamp: string }>;
+      workflowEvents: WorkflowTraceEvent[];
+      sdkEvents: WorkflowEvent[];
+      sawStdoutRef: () => boolean;
+      setSawStdout: (v: boolean) => void;
+      sawStderrRef: () => boolean;
+      setSawStderr: (v: boolean) => void;
+      promptLength: number;
+      onTerminal: (status: RunStatus, result: RunResult) => void;
+    },
+  ): void {
+    const p = ev.payload;
+    // 1. 直接处理 stdout/stderr/completed/failed（无对应 WorkflowEvent）
+    if (p.kind === "stdout_delta") {
+      if (!ctx.sawStdoutRef()) {
+        ctx.setSawStdout(true);
+        const detail = p.data.replace(/\s+/g, " ").trim().slice(0, 60);
+        const ts = new Date().toISOString();
+        ctx.timelineEvents.push({ type: "stdout", detail, timestamp: ts });
+        ctx.workflowEvents.push({ stage: "stdout", detail, timestamp: ts });
+      }
+      const msg = this.messages.find((m) => m.id === ctx.assistantId);
+      if (msg) {
+        this.appendAssistantContentDelta(ctx.assistantId, p.data);
+      }
+      return;
+    }
+    if (p.kind === "stderr_delta") {
+      if (!ctx.sawStderrRef()) {
+        ctx.setSawStderr(true);
+        const detail = p.data.replace(/\s+/g, " ").trim().slice(0, 60);
+        const ts = new Date().toISOString();
+        ctx.timelineEvents.push({ type: "stderr", detail, timestamp: ts });
+        ctx.workflowEvents.push({ stage: "stderr", detail, timestamp: ts });
+      }
+      if (!this.plugin.settings.showStderr) return;
+      const msg = this.messages.find((m) => m.id === ctx.assistantId);
+      if (msg) {
+        this.updateAssistantMessage(ctx.assistantId, { stderr: msg.stderr + p.data });
+      }
+      return;
+    }
+    if (p.kind === "completed") {
+      const result: RunResult = {
+        exitCode: 0,
+        signal: null,
+        durationMs: p.durationMs ?? 0,
+        stdout: p.text,
+        stderr: "",
+        command: "",
+        args: [],
+      };
+      ctx.onTerminal("completed", result);
+      return;
+    }
+    if (p.kind === "failed") {
+      const result: RunResult = {
+        exitCode: 1,
+        signal: null,
+        durationMs: 0,
+        stdout: "",
+        stderr: p.message,
+        command: "",
+        args: [],
+      };
+      ctx.onTerminal("failed", result);
+      return;
+    }
+
+    // 2. 其余事件：还原为 WorkflowEvent，喂给现有 UI 管线
+    const wfEvent = mapNormalizedToWorkflowEvent(ev);
+    if (!wfEvent) return;
+    ctx.sdkEvents.push(wfEvent);
+    this.appendLiveSdkEvent(wfEvent);
+
+    // 权限请求实时处理（pending=true 加入面板；pending=false 移除）
+    if (wfEvent.type === "permission") {
+      const permEv = wfEvent as PermissionEvent;
+      if (permEv.pending && permEv.requestId) {
+        this.pendingPermissions.set(permEv.requestId, permEv);
+        this.refreshPermissionPanel();
+      } else if (permEv.requestId && !permEv.pending) {
+        if (this.pendingPermissions.has(permEv.requestId)) {
+          this.pendingPermissions.delete(permEv.requestId);
           this.refreshPermissionPanel();
-        } else if (permEv.requestId && !permEv.pending) {
-          // 权限请求已解决（用户已决策或缓存命中）：从面板移除
-          if (this.pendingPermissions.has(permEv.requestId)) {
-            this.pendingPermissions.delete(permEv.requestId);
-            this.refreshPermissionPanel();
-          }
         }
       }
-    });
+    }
   }
 
   private stop(): void {

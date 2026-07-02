@@ -1,17 +1,17 @@
 # LLM CLI Bridge 测试报告
 
-- **测试时间**: 2026-07-02T12:38:06.608Z
+- **测试时间**: 2026-07-02T12:51:10.493Z
 - **测试环境**: linux / Node.js v24.15.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 479.2 KB
+- **main.js 大小**: 537.9 KB
 - **Vault 路径**: `/Obsidian/LLM-Wiki`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
 
 ## 测试汇总
 
-- ✅ **通过**: 705
-- ❌ **失败**: 13
+- ✅ **通过**: 706
+- ❌ **失败**: 12
 - ⏭️ **跳过**: 24
 - ⚪ **需人工验证**: 0
 - **总计**: 742
@@ -205,7 +205,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ❌ | view.ts 不再直接 import SdkBackend / ClaudeCliBackend | sdkDirect=true, cliDirect=true（待 view.ts 重构后转 pass） |
+| ✅ | view.ts 不再直接 import SdkBackend / ClaudeCliBackend | - |
 
 ### MockAgentBackend
 
@@ -1170,7 +1170,7 @@ version: v24.15.0" |
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-02T12-38-33-485Z-0qa1y2 |
+| ✅ | 返回非空 id | id=s-2026-07-02T12-51-37-373Z-0eis6c |
 
 ### V2.5 Session 版本
 
@@ -1189,7 +1189,7 @@ version: v24.15.0" |
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-02T12-38-33-540Z-dcnywu second=s-2026-07-02T12-38-33-488Z-r2moef |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-02T12-51-37-427Z-xyjdmn second=s-2026-07-02T12-51-37-376Z-bvdpc2 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1203,7 +1203,7 @@ version: v24.15.0" |
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ❌ | 失败返回 null 不抛异常 | id=s-2026-07-02T12-38-33-544Z-qdsqt5 |
+| ❌ | 失败返回 null 不抛异常 | id=s-2026-07-02T12-51-37-431Z-7qqwd9 |
 
 ### V2.5 Session 脱敏
 
@@ -1216,7 +1216,7 @@ version: v24.15.0" |
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-02T12-38-33-546Z-xrrttj id2=s-2026-07-02T12-38-33-546Z-ux8rvi |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-02T12-51-37-434Z-tauwaf id2=s-2026-07-02T12-51-37-434Z-bi6wky |
 
 ### V2.5 Session 上限
 
@@ -1314,7 +1314,7 @@ version: v24.15.0" |
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-02T12:38:33.566Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-02T12:51:37.461Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1402,7 +1402,7 @@ version: v24.15.0" |
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-02T12:38:33.596Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-02T12:51:37.481Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -1516,7 +1516,7 @@ version: v24.15.0" |
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-02T12:38:33.618Z after=2026-07-02T12:38:33.669Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-02T12:51:37.513Z after=2026-07-02T12:51:37.564Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -1887,13 +1887,13 @@ version: v24.15.0" |
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-02T12:38:34.516Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-02T12:51:38.407Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-02T12:38:34.518Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-02T12:51:38.409Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -2193,9 +2193,9 @@ version: v24.15.0" |
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ❌ | V2.14.0-B Shared File Access Policy Module 单元测试段 | TypeError: Cannot read properties of null (reading 'truncated')
-    at file:///tmp/prompt-package-v214g-1782995914571.mjs:72:30
+    at file:///tmp/prompt-package-v214g-1782996698460.mjs:72:30
     at Array.map (<anonymous>)
-    at buildPromptPackage (file:///tmp/prompt-package-v214g-1782995914571.mjs:71:54)
+    at buildPromptPackage (file:///tmp/prompt-package-v214g-1782996698460.mjs:71:54)
     at file:///workspace/scripts/run-tests.mjs:10639:22 |
 
 ### Process
@@ -2384,20 +2384,19 @@ version: v24.15.0" |
 ## 失败项详情
 
 - **文件快照: 生成运行前快照**: 文件数: 0
-- **UI: view.ts 不再直接 import SdkBackend / ClaudeCliBackend**: sdkDirect=true, cliDirect=true（待 view.ts 重构后转 pass）
 - **Contract: stdout_delta 正常产出**: 未收到包含预期内容的 stdout_delta
 - **Contract: completed 正常产出**: 未收到 exitCode=0 的 completed 事件
 - **V1.6 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件**: hasStdout=false noWfEvents=true wfCount=0
 - **V1.7 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件（V1.7 验证）**: hasStdout=false noWfEvents=true wfCount=0
 - **V1.8 CLI 主线不回归: auto 模式正常产出 stdout**: hasStdout=false
 - **V2.0 CLI 不回归: ClaudeCliBackend 不产生 workflow 事件**: hasStdout=false noWfEvents=true wfCount=0
-- **V2.5 Session 安全写入: 失败返回 null 不抛异常**: id=s-2026-07-02T12-38-33-544Z-qdsqt5
+- **V2.5 Session 安全写入: 失败返回 null 不抛异常**: id=s-2026-07-02T12-51-37-431Z-7qqwd9
 - **V2.6 saveSkillsState: 失败不抛异常返回 false**: ok=true
 - **V2.14.0-G attachments: Context UI、file-scope grant、bounded ingestion、prompt boundary**: grant=file sibling=confirm md=true json=true large=too_large image=not_text pdf=not_text binary=not_text sensitive=sensitive_path external=null type=true prompt=true boundary=true bounded=true ui=true
 - **V2.14.0-B Shared File Access Policy Module 单元测试段**: TypeError: Cannot read properties of null (reading 'truncated')
-    at file:///tmp/prompt-package-v214g-1782995914571.mjs:72:30
+    at file:///tmp/prompt-package-v214g-1782996698460.mjs:72:30
     at Array.map (<anonymous>)
-    at buildPromptPackage (file:///tmp/prompt-package-v214g-1782995914571.mjs:71:54)
+    at buildPromptPackage (file:///tmp/prompt-package-v214g-1782996698460.mjs:71:54)
     at file:///workspace/scripts/run-tests.mjs:10639:22
 - **Preflight: cwd 不存在 → failed diagnostic**: cwdExists=true, available=true, diag="[preflight] profile: custom
 command: node

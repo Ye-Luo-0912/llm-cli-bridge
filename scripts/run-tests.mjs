@@ -12829,7 +12829,7 @@ if (!runNoteSummarizeSmoke) {
       && sdkMessageMapperSrc.includes("tool_progress")
       && sdkMessageMapperSrc.includes("thinking_tokens")
       && timelineAdapterSrc.includes('"progress"')
-      && viewSrc.includes("this.appendAssistantContentDelta(assistantId, event.data)")
+      && viewSrc.includes("this.appendAssistantContentDelta(ctx.assistantId, p.data)")
       && viewSrc.includes("this.scheduleLiveTimelineRender()")
       && viewSrc.includes("window.setTimeout(() =>")
       && !viewSrc.includes('scrollIntoView({ behavior: "smooth", block: "end" })');
