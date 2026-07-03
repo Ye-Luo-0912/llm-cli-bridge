@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 全量测试（all）
 
-- **测试时间**: 2026-07-03T12:06:32.035Z
+- **测试时间**: 2026-07-03T14:22:19.149Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 609.6 KB
+- **main.js 大小**: 640.6 KB
 - **Vault 路径**: `C:\Users\Ye_Luo\.trae-cn\worktrees\llm-cli-bridge\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
-- **commit sha**: a409b5201fc935eb05dcd19520a0a364921e0a3d
-- **commit 短 sha**: a409b5201fc9
-- **运行命令**: node scripts/run-tests.mjs unit
+- **commit sha**: 176f90b21d68238f3daf88612f9942076593b118
+- **commit 短 sha**: 176f90b21d68
+- **运行命令**: node scripts/run-tests.mjs 
 
 ## 测试汇总
 
-- ✅ **通过**: 836
+- ✅ **通过**: 852
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 861
+- **总计**: 877
 
 ### 审计模式说明
 
@@ -265,6 +265,62 @@
 | ✅ | 普通用户态 tool card 降噪（隐藏 raw JSON），developer mode 保留 | normal=ok dev=ok |
 | ✅ | completed 无摘要不显示 Done | - |
 | ✅ | completed 有耗时显示 Xs（不显示 Done） | - |
+
+### V16.4 ProviderLifecycleEvent
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 从 AssistantTurnView 派生（evaluation_started/tool_started/observation/result） | - |
+
+### V16.4 RunPhaseModel
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 多个 AssistantMessage 生成多个 phase（不被压成一个 thinking） | - |
+| ✅ | phase 类型正确（reading/editing/verifying） | - |
+| ✅ | verifying 检测（读取曾写入文件 → verifying） | - |
+| ✅ | phase 内 fileChanges 带 +N -M | - |
+| ✅ | completed phase 默认折叠 | - |
+| ✅ | TaskCreate/TaskUpdate/TodoWrite 聚合为 planning（普通用户态不可见） | - |
+| ✅ | phaseLabel 用户友好标签 | - |
+| ✅ | phase tools 不含 TaskCreate/Preparing 等隐藏工具 | - |
+
+### V16.4 FileChangeStats
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | +N -M 统计透传（create +3 -0） | - |
+
+### V16.4 getPhaseIconName
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Lucide 图标名映射 | - |
+
+### V16.4 AgentRunDisplayModel
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 含 phaseModel（普通用户态主链路） | - |
+| ✅ | fileChangeCards 含 +N -M | - |
+
+### V16.4 Developer mode
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 保留 lifecycleEvents + timelineCards（raw trace 不丢失） | - |
+
+### V16.4 Codex app-server
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | item/started/completed 序列生成 RunPhaseModel | - |
+
+### V16.4 Codex FileChangeStats
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | modify +2 -1 | - |
 
 ### P3-C
 
@@ -1322,7 +1378,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-03T12-07-00-270Z-jz66xt |
+| ✅ | 返回非空 id | id=s-2026-07-03T14-22-47-426Z-hvxug9 |
 
 ### V2.5 Session 版本
 
@@ -1341,7 +1397,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-03T12-07-00-347Z-mafi2i second=s-2026-07-03T12-07-00-280Z-viv3vk |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-03T14-22-47-497Z-z3dij6 second=s-2026-07-03T14-22-47-437Z-c6psub |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1368,7 +1424,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-03T12-07-00-364Z-afsdr9 id2=s-2026-07-03T12-07-00-364Z-exgum8 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-03T14-22-47-517Z-4q1485 id2=s-2026-07-03T14-22-47-517Z-46k826 |
 
 ### V2.5 Session 上限
 
@@ -1466,7 +1522,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-03T12:07:00.418Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-03T14:22:47.583Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1554,7 +1610,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-03T12:07:00.463Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-03T14:22:47.642Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -1668,7 +1724,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-03T12:07:00.524Z after=2026-07-03T12:07:00.579Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-03T14:22:47.722Z after=2026-07-03T14:22:47.789Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -2039,13 +2095,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-03T12:07:01.142Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-03T14:22:48.416Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-03T12:07:01.149Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-03T14:22:48.424Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -2356,7 +2412,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-eaEAsJ\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-OU9yeT\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-uMqTx3\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-8E1ZaQ\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -2368,7 +2424,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-3IR98o\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-dGK71L\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-VXpqPE\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-jdQONf\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -2380,7 +2436,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-er21WP\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-CUBLof\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-XpJ9Qc\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-X4RwVx\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -2700,7 +2756,7 @@
 |------|--------|------|
 | ✅ | unit/process 报告含 commit sha + 运行命令字段 | unitExists=true processExists=true unitSha=true processSha=true unitCmd=true processCmd=true |
 | ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
-| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=869ca6010cf8 |
+| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=e57a02e4dc84 |
 | ✅ | 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑） | scriptExists=true auditFailExit=true testedCodeShaCheck=true codexSmokeCheck=true docsOnlyLogic=true |
 
 ## 失败项详情
