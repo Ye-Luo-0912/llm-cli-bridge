@@ -303,13 +303,3 @@ export function mapNormalizedToWorkflowEvent(
   }
 }
 
-/**
- * 批量映射。
- */
-export function mapWorkflowEventsToNormalized(
-  events: ReadonlyArray<WorkflowEvent>,
-  providerId: ProviderId,
-  developerMode: boolean,
-): NormalizedRuntimeEvent[] {
-  return events.map((ev) => mapWorkflowEventToNormalized(ev, providerId, developerMode));
-}

@@ -1613,6 +1613,69 @@ if (runMode !== "all" && runMode !== "unit") {
       addTest("P3-C: historical fallback 分支 sdkEvents 必须 developerMode gated", sdkGateOk ? "pass" : "fail",
         sdkGateOk ? "" : "fallback 分支中 sdkEvents 未 developerMode gate");
     }
+
+    // ---------- 5d. P4: Stabilization bug sweep ----------
+    {
+      const { createPermissionBoundary } = permBoundaryMod;
+
+      // Bug 1: doNewSession 应置空 this.session（避免 PermissionBoundary 跨会话泄漏）
+      // 验证 view.ts doNewSession 包含 this.session = null
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src/view.ts"), "utf8");
+      const doNewIdx = viewSrc.indexOf("private doNewSession()");
+      const doNewRegion = viewSrc.slice(doNewIdx, doNewIdx + 500);
+      const sessionNullOk = doNewRegion.includes("this.session = null;") && doNewRegion.includes("this.sessionMode = null;");
+      addTest("P4: doNewSession 置空 this.session + this.sessionMode（修复跨会话 PermissionBoundary 泄漏）", sessionNullOk ? "pass" : "fail",
+        sessionNullOk ? "" : "doNewSession 未置空 this.session/this.sessionMode");
+
+      // Bug 2: PermissionBoundaryImpl.resetSessionCache 清空 allowsList/deniesList
+      const boundary = createPermissionBoundary("default", "medium");
+      // 模拟 acceptForSession 写入 allowsList
+      const req = {
+        requestId: "p4-req-1",
+        providerId: "codex-app-server",
+        toolName: "Write",
+        description: "test",
+        riskLevel: "medium",
+        mergeKey: "Write:medium:",
+        providerContext: {},
+      };
+      boundary.requestApproval(req);
+      const waitP = boundary.waitForApproval("p4-req-1");
+      boundary.resolveApproval("p4-req-1", { type: "acceptForSession" });
+      await waitP;
+      const hasAllowBefore = boundary.sessionAllows.length === 1;
+      // 调用 resetSessionCache
+      boundary.resetSessionCache();
+      const noAllowAfter = boundary.sessionAllows.length === 0;
+      const resetOk = hasAllowBefore && noAllowAfter;
+      addTest("P4: PermissionBoundary.resetSessionCache 清空 allowsList（修复跨会话 auto-allow 泄漏）", resetOk ? "pass" : "fail",
+        resetOk ? "" : `before=${hasAllowBefore} after=${noAllowAfter}`);
+
+      // 验证 resetSessionCache 后同类 approval 不再 auto-allow
+      const req2 = { ...req, requestId: "p4-req-2" };
+      const decision2 = boundary.requestApproval(req2);
+      const noAutoAllowOk = decision2 === "pending";
+      addTest("P4: resetSessionCache 后同类 approval 进入 pending（不再 auto-allow）", noAutoAllowOk ? "pass" : "fail",
+        noAutoAllowOk ? "" : `decision=${decision2}（期望 pending）`);
+
+      // 验证 PermissionBoundary 接口包含 resetSessionCache 方法
+      const typesSrc = readFileSync(join(PROJECT_ROOT, "src/runtime/core/types.ts"), "utf8");
+      const hasResetMethod = typesSrc.includes("resetSessionCache(): void;");
+      addTest("P4: PermissionBoundary 接口包含 resetSessionCache 方法", hasResetMethod ? "pass" : "fail",
+        hasResetMethod ? "" : "types.ts 中 PermissionBoundary 接口未声明 resetSessionCache");
+
+      // 验证死代码已删除
+      const mapperSrc = readFileSync(join(PROJECT_ROOT, "src/runtime/providers/workflowEventMapper.ts"), "utf8");
+      const noDeadBatch = !mapperSrc.includes("mapWorkflowEventsToNormalized");
+      addTest("P4: 死代码 mapWorkflowEventsToNormalized 已删除", noDeadBatch ? "pass" : "fail",
+        noDeadBatch ? "" : "mapWorkflowEventsToNormalized 仍存在");
+
+      const transcriptSrc = readFileSync(join(PROJECT_ROOT, "src/runtimeTranscript.ts"), "utf8");
+      const noDeadTranscript = !transcriptSrc.includes("buildRuntimeTranscriptFromEvents");
+      addTest("P4: 死代码 buildRuntimeTranscriptFromEvents 已删除", noDeadTranscript ? "pass" : "fail",
+        noDeadTranscript ? "" : "buildRuntimeTranscriptFromEvents 仍存在");
+    }
+
     // ---------- 6. approval request → PermissionBoundary → provider response ----------
     {
       const { createPermissionBoundary } = permBoundaryMod;
@@ -13333,7 +13396,7 @@ if (!runV217A) {
       bundle: true, format: "esm", platform: "node", outfile: mapperBundleV217,
     });
 
-    const { RunStateAggregator, aggregateEventsToTimeline, buildRuntimeTranscriptFromEvents } =
+    const { RunStateAggregator, aggregateEventsToTimeline } =
       await import(pathToFileURL(runtimeTranscriptBundle).href);
     const { buildEffectiveRunPlan, computePromptPackageHash, formatEffectiveRunPlan, buildAttachmentPlan, emptyAttachmentPlan } =
       await import(pathToFileURL(effectiveRunPlanBundle).href);
@@ -13621,25 +13684,6 @@ if (!runV217A) {
       addTest("V2.17-A 端到端聚合: partial 累加 + 单 thinking + 单 tool + sessionStarted 记录 + completed 终态",
         finalAnswer && singleThinking && singleTool && hasSessionStarted && completedOk ? "pass" : "fail",
         `finalAnswer="${transcript.finalAnswerBuffer}" thinking="${transcript.thinkingBlock?.text}" toolSize=${transcript.toolNodes.size} terminal=${transcript.isTerminal}`);
-    }
-
-    // ---- Test 16: buildRuntimeTranscriptFromEvents 便利函数与 RunStateAggregator 等价 ----
-    {
-      const events = [
-        { type: "thinking", timestamp: TS(), text: "think" },
-        { type: "message", timestamp: TS(), role: "assistant", text: "answer", partial: true },
-        { type: "completed", timestamp: TS(), text: "done" },
-      ];
-      const agg = new RunStateAggregator();
-      agg.ingestAll(events);
-      const fromAgg = agg.toTranscript();
-      const fromHelper = buildRuntimeTranscriptFromEvents(events);
-      const same = fromAgg.finalAnswerBuffer === fromHelper.finalAnswerBuffer
-        && fromAgg.thinkingBlock?.text === fromHelper.thinkingBlock?.text
-        && fromAgg.isTerminal === fromHelper.isTerminal;
-      addTest("V2.17-A buildRuntimeTranscriptFromEvents: 与 RunStateAggregator 等价",
-        same ? "pass" : "fail",
-        `same=${same} buffer="${fromHelper.finalAnswerBuffer}"`);
     }
 
     // ---- Test 17: settingSources 显式 ["user","project","local"] 写入 plan ----

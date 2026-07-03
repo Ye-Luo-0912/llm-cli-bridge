@@ -539,14 +539,6 @@ export class RunStateAggregator {
 
 // ---------- 工具函数：从 events 数组构建聚合 transcript ----------
 
-/**
- * 便利函数：从 WorkflowEvent[] 一次性构建 RuntimeTranscript（用于历史消息渲染）
- */
-export function buildRuntimeTranscriptFromEvents(events: ReadonlyArray<WorkflowEvent>): RuntimeTranscript {
-  const agg = new RunStateAggregator();
-  agg.ingestAll(events);
-  return agg.toTranscript();
-}
 
 /**
  * 便利函数：从 WorkflowEvent[] 一次性生成 TimelineNode[]（替代 adaptEventsToTimeline 用于 SDK 路径）
