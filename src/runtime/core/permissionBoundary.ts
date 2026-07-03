@@ -114,6 +114,18 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
     return true;
   }
 
+  /**
+   * P4: 重置会话级 allow/deny 缓存（新会话时调用，避免跨会话泄漏）。
+   *
+   * cancelAllPending 只清空 pendingMap；allowsList/deniesList 需由此方法清空。
+   * 正常流程下 doNewSession 会置空整个 BridgeSession（创建新 PermissionBoundary），
+   * 此方法作为保险措施，供 session 复用场景使用。
+   */
+  resetSessionCache(): void {
+    this.allowsList.length = 0;
+    this.deniesList.length = 0;
+  }
+
   cancelAllPending(): ReadonlyArray<{ requestId: string; providerContext: unknown }> {
     const cancelled: Array<{ requestId: string; providerContext: unknown }> = [];
     for (const [id, req] of this.pendingMap) {

@@ -874,7 +874,7 @@ export class LLMBridgeView extends ItemView {
         const btnRow = item.createDiv({ cls: "llm-bridge-pending-btns" });
         const allowOnceBtn = btnRow.createEl("button", {
           cls: "llm-bridge-pending-btn-approve",
-          text: "✓ 本次",
+          text: "允许一次",
           attr: { title: "仅本次允许，不缓存" },
         });
         allowOnceBtn.addEventListener("click", () => {
@@ -884,7 +884,7 @@ export class LLMBridgeView extends ItemView {
         });
         const allowSessionBtn = btnRow.createEl("button", {
           cls: "llm-bridge-pending-btn-approve llm-bridge-pending-btn-session",
-          text: "✓ 本会话",
+          text: "本会话允许",
           attr: { title: "本会话内允许同类操作，不再询问" },
         });
         allowSessionBtn.addEventListener("click", () => {
@@ -894,7 +894,7 @@ export class LLMBridgeView extends ItemView {
         });
         const rejectBtn = btnRow.createEl("button", {
           cls: "llm-bridge-pending-btn-reject",
-          text: "✗ 拒绝",
+          text: "拒绝",
         });
         rejectBtn.addEventListener("click", () => {
           bridge.rejectPendingActionWithDecision(entry.id, "deny_session");
@@ -4079,6 +4079,10 @@ export class LLMBridgeView extends ItemView {
 
   // V2.5: 实际执行新建会话（剥离确认逻辑）
   private doNewSession(): void {
+    // P4: 置空 session，使下一次 getSession() 创建新 BridgeSession + 新 PermissionBoundary，
+    // 避免上一会话的 sessionAllows/sessionDenies 跨会话泄漏（auto-allow/auto-deny 误作用到新会话）。
+    this.session = null;
+    this.sessionMode = null;
     this.messages = [];
     this.currentAssistantId = null;
     this.currentSessionId = null; // 新会话不绑定旧 id，下次运行将生成新 id

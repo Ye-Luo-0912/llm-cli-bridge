@@ -258,6 +258,8 @@ export interface PermissionBoundary {
   requestApproval(req: ApprovalRequest): "pending" | "auto-allow" | "auto-deny";
   /** 用户决策（UI 调用）；返回 true=成功解析 */
   resolveApproval(requestId: string, response: ApprovalResponse): boolean;
+  /** P4: 重置会话级 allow/deny 缓存（新会话时调用，避免跨会话泄漏） */
+  resetSessionCache(): void;
   /** 取消所有 pending（stop/新会话时调用） */
   cancelAllPending(): ReadonlyArray<{ requestId: string; providerContext: unknown }>;
   /**
