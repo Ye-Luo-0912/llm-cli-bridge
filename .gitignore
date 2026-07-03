@@ -17,7 +17,7 @@ Thumbs.db
 .vscode/
 
 # Test temp bundles
-.test-*-temp.mjs
+.test-*.mjs
 .git-commit-msg.txt
 
 # Runtime state（包含 token / bridge.json / 日志 / 状态 / outbox）

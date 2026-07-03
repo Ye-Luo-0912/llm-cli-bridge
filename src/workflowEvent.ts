@@ -176,12 +176,13 @@ export type WorkflowEventHandler = (event: WorkflowEvent) => void;
 
 // ---------- 脱敏工具 ----------
 
-/** 敏感信息正则：API key / token / Bearer / password */
+/** 敏感信息正则：API key / token / Bearer / authorization / cookie / password / secret / credential */
 const SECRET_PATTERNS: ReadonlyArray<{ re: RegExp; replacement: string }> = [
   { re: /sk-ant-api03-[A-Za-z0-9_-]{20,}/g, replacement: "sk-ant-api03-***" },
   { re: /sk-[A-Za-z0-9]{20,}/g, replacement: "sk-***" },
   { re: /Bearer\s+[A-Za-z0-9_.~+/=-]{20,}/gi, replacement: "Bearer ***" },
-  { re: /(api[_-]?key|token|password|secret|credential)\s*[:=]\s*["']?[A-Za-z0-9_./+-]{8,}["']?/gi, replacement: "$1=***" },
+  { re: /(authorization|cookie)\s*[:=]\s*["']?[A-Za-z0-9_./+-]{8,}/gi, replacement: "$1=***" },
+  { re: /(api[_-]?key|token|password|secret|credential)\s*[:=]\s*["']?[A-Za-z0-9_./+-]{8,}/gi, replacement: "$1=***" },
 ];
 
 /**
