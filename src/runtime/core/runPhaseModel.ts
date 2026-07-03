@@ -26,6 +26,7 @@ export type RunPhaseType =
   | "planning"
   | "reading"
   | "editing"
+  | "checking"
   | "verifying"
   | "waiting-approval"
   | "failed"
@@ -50,12 +51,17 @@ export interface RunPhase {
   readonly defaultExpanded: boolean;
 }
 
+/** 文件变更统计来源优先级（高 → 低） */
+export type FileChangeStatSource = "provider" | "snapshot" | "fallback";
+
 /** 文件变更统计项 */
 export interface FileChangeStat {
   readonly path: string;
   readonly action: "create" | "modify" | "delete";
   readonly additions?: number;
   readonly deletions?: number;
+  /** V16.4: 统计来源（developer mode 可见；普通用户态不显示） */
+  readonly source?: FileChangeStatSource;
 }
 
 // ---------- RunPhaseModel ----------
@@ -87,20 +93,21 @@ export interface BuildRunPhaseModelOptions {
  * - TaskCreate / TaskUpdate / TodoWrite → planning
  * - Read / Search / Glob / Grep → reading
  * - Write / Edit / MultiEdit → editing
- * - Bash / Execute / Run → editing
+ * - Bash / test / lint / command / shell → checking
  */
 export function toolToPhaseType(toolName: string): RunPhaseType {
   const n = toolName.toLowerCase();
   if (n.includes("taskcreate") || n.includes("taskupdate") || n.includes("todowrite") || n.includes("todo_write") || n === "plan" || n.includes("planning")) {
     return "planning";
   }
+  // checking 必须在 editing 之前判断（避免 "test" 误命中 editing 的其他规则）
+  if (n.includes("bash") || n.includes("execute") || n.includes("run") || n.includes("command") || n.includes("shell") || n.includes("terminal") || n.includes("check") || n.includes("test") || n.includes("lint") || n.includes("dotnet") || n.includes("npm") || n.includes("pytest") || n.includes("jest") || n.includes("cargo")) {
+    return "checking";
+  }
   if (n.includes("read") || n.includes("getfile") || n.includes("view") || n.includes("search") || n.includes("grep") || n.includes("glob") || n.includes("list") || n.includes("ls")) {
     return "reading";
   }
   if (n.includes("write") || n.includes("edit") || n.includes("str_replace") || n.includes("patch") || n.includes("create_file") || n.includes("update_file") || n.includes("insert") || n.includes("delete") || n.includes("remove") || n.includes("rm")) {
-    return "editing";
-  }
-  if (n.includes("bash") || n.includes("execute") || n.includes("run") || n.includes("command") || n.includes("shell") || n.includes("terminal") || n.includes("check") || n.includes("test") || n.includes("lint")) {
     return "editing";
   }
   return "reading";
@@ -132,6 +139,7 @@ export function phaseLabel(type: RunPhaseType, firstTool?: ToolSegment): string 
   if (!firstTool) {
     if (type === "reading") return "Reading";
     if (type === "editing") return "Editing";
+    if (type === "checking") return "Running checks";
     if (type === "verifying") return "Verifying";
     return type;
   }
@@ -144,8 +152,13 @@ export function phaseLabel(type: RunPhaseType, firstTool?: ToolSegment): string 
   if (type === "editing") {
     if (tn.includes("delete") || tn.includes("remove")) return basename ? `Deleted ${basename}` : "Deleted";
     if (tn.includes("create_file") || tn === "write") return basename ? `Created ${basename}` : "Created";
-    if (tn.includes("bash") || tn.includes("execute") || tn.includes("run") || tn.includes("command") || tn.includes("shell")) return "Running command";
     return basename ? `Editing ${basename}` : "Editing";
+  }
+  if (type === "checking") {
+    if (tn.includes("test")) return "Running tests";
+    if (tn.includes("lint")) return "Running lint";
+    if (tn.includes("bash") || tn.includes("execute") || tn.includes("run") || tn.includes("command") || tn.includes("shell")) return "Running command";
+    return "Running checks";
   }
   if (type === "verifying") {
     return basename ? `Verifying ${basename}` : "Verifying";
@@ -206,13 +219,18 @@ interface MutablePhase {
  */
 export function buildRunPhaseModel(
   turnView: AssistantTurnView,
-  lifecycleEvents: ProviderLifecycleEvent[],
+  lifecycleEvents: ReadonlyArray<ProviderLifecycleEvent>,
   options: BuildRunPhaseModelOptions = {},
 ): RunPhaseModel {
   const isRunning = options.isRunning ?? turnView.status === "running";
   const dur = options.durationMs ?? turnView.durationMs;
   const pendingApprovals = turnView.approvals.filter((a) => a.pending);
   const hasPendingApproval = pendingApprovals.length > 0;
+
+  // V16.4: 是否有 provider-native 边界（evaluation_started）。
+  // 有时以 SDK 生命周期为权威边界；fallback tool-type-change 边界仅在无 native 边界时启用，
+  // 避免同一 SDKAssistantMessage 内多个 tool_use 被误拆成多个 phase。
+  const hasNativeBoundary = lifecycleEvents.some((e) => e.type === "evaluation_started");
 
   const phases: MutablePhase[] = [];
   let phaseIdx = 0;
@@ -240,6 +258,8 @@ export function buildRunPhaseModel(
       const ms = new Date(phase.endedAt).getTime() - new Date(phase.startedAt).getTime();
       if (Number.isFinite(ms) && ms >= 0) phase.durationMs = ms;
     }
+    // V16.4: running 阶段不在此处标记 completed —— 由调用方在 run 终态时显式关闭。
+    // 这避免运行中 currentPhase 被误标记 completed。
     if (phase.status === "running") phase.status = "completed";
   };
 
@@ -326,8 +346,10 @@ export function buildRunPhaseModel(
             progress: [],
           });
         }
-        // 若 tool 类型与当前阶段不同且当前阶段已有 tools，切阶段（fallback 边界）
-        if (currentPhase.tools.length > 0 && toolType !== currentPhase.type && !(toolType === "reading" && currentPhase.type === "verifying")) {
+        // V16.4: fallback tool-type-change 边界 —— 仅在无 provider-native 边界时启用。
+        // 有 evaluation_started 时，同一 SDKAssistantMessage 内的多个 tool_use 应在同一 phase，
+        // 即使 tool 类型不同也不拆分（SDK 允许一条 assistant message 含 Read+Write+Bash）。
+        if (!hasNativeBoundary && currentPhase.tools.length > 0 && toolType !== currentPhase.type && !(toolType === "reading" && currentPhase.type === "verifying")) {
           closePhase(currentPhase, ev.timestamp);
           phases.push(currentPhase);
           let finalType = toolType;
@@ -418,10 +440,18 @@ export function buildRunPhaseModel(
     }
   }
 
-  // 关闭最后一个未关闭的阶段
+  // V16.4: 关闭最后一个未关闭的阶段。
+  // - run 仍在运行（turnView.status === "running" 且无 endedAt）：保持 status="running"，
+  //   仅设 endedAt/durationMs 供 UI 显示 elapsed，不标记 completed。
+  // - run 已终态：正常关闭为 completed。
   if (currentPhase) {
-    closePhase(currentPhase, turnView.endedAt);
-    phases.push(currentPhase);
+    if (isRunning && !turnView.endedAt) {
+      // 运行中：保持 running 状态，不设 endedAt（阶段仍在进行）
+      phases.push(currentPhase);
+    } else {
+      closePhase(currentPhase, turnView.endedAt);
+      phases.push(currentPhase);
+    }
     currentPhase = null;
   }
 
@@ -520,13 +550,16 @@ export function buildRunPhaseModel(
     }
   }
 
-  // fileChangeStats
-  const fileChangeStats: FileChangeStat[] = turnView.fileChanges.map((fc) => ({
+  // fileChangeStats —— tool input 估算作为 fallback（source="fallback"）
+  const fallbackStats: FileChangeStat[] = turnView.fileChanges.map((fc) => ({
     path: fc.path,
     action: fc.action,
     additions: fc.additions,
     deletions: fc.deletions,
+    source: "fallback" as FileChangeStatSource,
   }));
+  // V16.4: 合并 provider/snapshot stats（优先级 provider > snapshot > fallback）
+  const fileChangeStats = mergeFileChangeStats([], fallbackStats);
 
   // resultSummary
   const resultSummary = buildResultSummary(turnView, fileChangeStats, dur);
@@ -543,6 +576,32 @@ export function buildRunPhaseModel(
     warnings: turnView.warnings,
     pendingApprovals,
   };
+}
+
+/**
+ * V16.4: 合并文件变更统计 —— 优先级 provider > snapshot > fallback。
+ *
+ * 同一 path 的统计取最高优先级来源；低优先级来源的条目被丢弃。
+ * 调用方可传入 providerStats（来自 codex change.diff / SDK 文件 diff）和 snapshotStats
+ * （来自 vault before/after snapshot diff），与 fallback（tool input 估算）合并。
+ *
+ * @param providerStats provider 直接提供的精确统计（最高优先级）
+ * @param fallbackStats tool input 估算的 fallback 统计（最低优先级）
+ * @param snapshotStats vault snapshot diff 统计（中优先级，可选）
+ */
+export function mergeFileChangeStats(
+  providerStats: ReadonlyArray<FileChangeStat>,
+  fallbackStats: ReadonlyArray<FileChangeStat>,
+  snapshotStats?: ReadonlyArray<FileChangeStat>,
+): FileChangeStat[] {
+  const byPath = new Map<string, FileChangeStat>();
+  // 低优先级先入，高优先级覆盖
+  for (const s of fallbackStats) byPath.set(s.path, s);
+  if (snapshotStats) {
+    for (const s of snapshotStats) byPath.set(s.path, { ...s, source: "snapshot" });
+  }
+  for (const s of providerStats) byPath.set(s.path, { ...s, source: "provider" });
+  return Array.from(byPath.values());
 }
 
 /**

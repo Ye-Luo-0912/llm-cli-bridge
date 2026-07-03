@@ -1845,6 +1845,136 @@ if (runMode !== "all" && runMode !== "unit") {
       addTest("V16.4 RunPhaseModel: phase tools 不含 TaskCreate/Preparing 等隐藏工具",
         noHiddenTools ? "pass" : "fail",
         noHiddenTools ? "" : `hidden tools found: ${allPhaseTools.filter((n) => !isUserVisibleTool(n)).join(",")}`);
+
+      // --- Test O: running phase 保持 running（不被 closePhase 误标记 completed）---
+      // 构造一个运行中的 turnView：有 thinking + tool_start(Read) 但无 tool_result/completed
+      const runningEvents = [
+        mkEv({ kind: "thinking", text: "Reading the file." }, 1),
+        mkEv({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"AGENTS.md"}', callId: "rc1" }, 2),
+      ];
+      const runningView = buildAssistantTurnViewFromEvents("turn-running", "claude-sdk", runningEvents, ts(0));
+      const runningModel = buildAgentRunDisplayModel(runningView, { developerMode: false, isRunning: true });
+      const runningPhase = runningModel.phaseModel.phases.find((p) => p.status === "running");
+      const runningPhaseOk = runningPhase !== undefined && runningPhase !== null;
+      addTest("V16.4 RunPhaseModel: running 中 currentPhase 保持 running（不被误标记 completed）",
+        runningPhaseOk ? "pass" : "fail",
+        runningPhaseOk ? "" : `phases=${runningModel.phaseModel.phases.map((p) => p.status).join(",")}`);
+
+      // currentPhase 非 null
+      const currentPhaseOk = runningModel.phaseModel.currentPhase !== null;
+      addTest("V16.4 RunPhaseModel: running 时 currentPhase 非 null",
+        currentPhaseOk ? "pass" : "fail",
+        currentPhaseOk ? "" : `currentPhase=${runningModel.phaseModel.currentPhase}`);
+
+      // currentActivity = Reading/Editing/Checking/Verifying 之一（不回退 Thinking）
+      const runningActivity = runningModel.phaseModel.currentActivity;
+      const activityOk = ["Reading AGENTS.md", "Reading", "Editing", "Running checks", "Running tests", "Running command", "Verifying"].includes(runningActivity);
+      addTest("V16.4 RunPhaseModel: running currentActivity 显示当前阶段（非 Thinking 回退）",
+        activityOk ? "pass" : "fail",
+        activityOk ? "" : `currentActivity="${runningActivity}"`);
+
+      // running phase defaultExpanded=true
+      const runningExpandedOk = runningPhase && runningPhase.defaultExpanded === true;
+      addTest("V16.4 RunPhaseModel: running phase 默认展开（defaultExpanded=true）",
+        runningExpandedOk ? "pass" : "fail",
+        runningExpandedOk ? "" : `defaultExpanded=${runningPhase?.defaultExpanded}`);
+
+      // --- Test P: checking phase 覆盖 Bash/test/lint ---
+      const bashType = toolToPhaseType("Bash");
+      const testType = toolToPhaseType("npm test");
+      const lintType = toolToPhaseType("eslint");
+      const dotnetType = toolToPhaseType("dotnet test");
+      const checkingOk = bashType === "checking" && testType === "checking" && lintType === "checking" && dotnetType === "checking";
+      addTest("V16.4 RunPhaseModel: Bash/test/lint/dotnet 映射为 checking phase",
+        checkingOk ? "pass" : "fail",
+        checkingOk ? "" : `bash=${bashType} test=${testType} lint=${lintType} dotnet=${dotnetType}`);
+
+      // checking phaseLabel
+      const labelBash = phaseLabel("checking", { callId: "c", toolName: "Bash", toolInput: '{"command":"ls"}', startTime: ts(0), isError: false, status: "running", progress: [] });
+      const labelTest = phaseLabel("checking", { callId: "c", toolName: "npm test", toolInput: "{}", startTime: ts(0), isError: false, status: "running", progress: [] });
+      const labelLint = phaseLabel("checking", { callId: "c", toolName: "eslint", toolInput: "{}", startTime: ts(0), isError: false, status: "running", progress: [] });
+      const labelCheckingOk = labelBash === "Running command" && labelTest === "Running tests" && labelLint === "Running lint";
+      addTest("V16.4 RunPhaseModel: checking phaseLabel（Running command/tests/lint）",
+        labelCheckingOk ? "pass" : "fail",
+        labelCheckingOk ? "" : `bash="${labelBash}" test="${labelTest}" lint="${labelLint}"`);
+
+      // checking icon
+      const iconChecking = getPhaseIconName("checking");
+      const iconCheckingOk = iconChecking === "terminal";
+      addTest("V16.4 getPhaseIconName: checking → terminal",
+        iconCheckingOk ? "pass" : "fail",
+        iconCheckingOk ? "" : `icon=${iconChecking}`);
+
+      // --- Test Q: 同一 SDKAssistantMessage 内多个 tool_use 不被拆成多个 phase ---
+      // 序列：thinking, tool_start A, tool_start B, tool_result A, tool_result B, completed
+      // （A 和 B 在同一 assistant message，无 tool_result 间隔）
+      const sameMsgEvents = [
+        mkEv({ kind: "thinking", text: "Doing both." }, 1),
+        mkEv({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"a.md"}', callId: "s1" }, 2),
+        mkEv({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"b.md"}', callId: "s2" }, 3),
+        mkEv({ kind: "tool_result", callId: "s1", toolName: "Read", output: "a", isError: false }, 4),
+        mkEv({ kind: "tool_result", callId: "s2", toolName: "Read", output: "b", isError: false }, 5),
+        mkEv({ kind: "completed", text: "Done.", durationMs: 4000 }, 6),
+      ];
+      const sameMsgView = buildAssistantTurnViewFromEvents("turn-samemsg", "claude-sdk", sameMsgEvents, ts(0));
+      // 验证 provider-native lifecycle：只有一个 evaluation_started
+      const sameMsgEvalCount = sameMsgView.lifecycleEvents.filter((e) => e.type === "evaluation_started").length;
+      const sameMsgEvalOk = sameMsgEvalCount === 1;
+      addTest("V16.4 provider-native lifecycle: 同一 AssistantMessage 多个 tool_use 只有一个 evaluation_started",
+        sameMsgEvalOk ? "pass" : "fail",
+        sameMsgEvalOk ? "" : `evalCount=${sameMsgEvalCount}（应为 1）`);
+
+      // 验证 phase 不被拆分
+      const sameMsgModel = buildAgentRunDisplayModel(sameMsgView, { developerMode: false });
+      const sameMsgPhaseCount = sameMsgModel.phaseModel.phases.filter((p) => p.type !== "failed" && p.type !== "waiting-approval").length;
+      const sameMsgPhaseOk = sameMsgPhaseCount === 1;
+      addTest("V16.4 RunPhaseModel: 同一 AssistantMessage 多个 tool_use 在同一 phase（不被误拆）",
+        sameMsgPhaseOk ? "pass" : "fail",
+        sameMsgPhaseOk ? "" : `phaseCount=${sameMsgPhaseCount} phases=${sameMsgModel.phaseModel.phases.map((p) => p.type).join(",")}`);
+
+      // --- Test R: 下一个 SDKAssistantMessage 开启新 phase ---
+      // 序列：thinking, tool_start A, tool_result A, thinking, tool_start B, tool_result B, completed
+      const twoMsgEvents = [
+        mkEv({ kind: "thinking", text: "First." }, 1),
+        mkEv({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"a.md"}', callId: "t1" }, 2),
+        mkEv({ kind: "tool_result", callId: "t1", toolName: "Read", output: "a", isError: false }, 3),
+        mkEv({ kind: "thinking", text: "Second." }, 4),
+        mkEv({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"b.md"}', callId: "t2" }, 5),
+        mkEv({ kind: "tool_result", callId: "t2", toolName: "Read", output: "b", isError: false }, 6),
+        mkEv({ kind: "completed", text: "Done.", durationMs: 6000 }, 7),
+      ];
+      const twoMsgView = buildAssistantTurnViewFromEvents("turn-twomsg", "claude-sdk", twoMsgEvents, ts(0));
+      const twoMsgEvalCount = twoMsgView.lifecycleEvents.filter((e) => e.type === "evaluation_started").length;
+      const twoMsgEvalOk = twoMsgEvalCount === 2;
+      addTest("V16.4 provider-native lifecycle: 两个 AssistantMessage 产生两个 evaluation_started",
+        twoMsgEvalOk ? "pass" : "fail",
+        twoMsgEvalOk ? "" : `evalCount=${twoMsgEvalCount}（应为 2）`);
+
+      const twoMsgModel = buildAgentRunDisplayModel(twoMsgView, { developerMode: false });
+      const twoMsgPhaseCount = twoMsgModel.phaseModel.phases.filter((p) => p.type !== "failed" && p.type !== "waiting-approval").length;
+      const twoMsgPhaseOk = twoMsgPhaseCount === 2;
+      addTest("V16.4 RunPhaseModel: 两个 AssistantMessage 生成两个 phase（多段 thinking 不被压成一个）",
+        twoMsgPhaseOk ? "pass" : "fail",
+        twoMsgPhaseOk ? "" : `phaseCount=${twoMsgPhaseCount} phases=${twoMsgModel.phaseModel.phases.map((p) => p.type).join(",")}`);
+
+      // --- Test S: FileChangeStats source 字段（fallback 标记）---
+      const fcSourceStat = phaseModel.fileChangeStats.find((f) => f.path === "Project_Scan_2026.md");
+      const fcSourceOk = fcSourceStat && fcSourceStat.source === "fallback";
+      addTest("V16.4 FileChangeStats: source 字段标记来源（fallback）",
+        fcSourceOk ? "pass" : "fail",
+        fcSourceOk ? "" : `source=${fcSourceStat?.source}`);
+
+      // --- Test T: mergeFileChangeStats 优先级 provider > snapshot > fallback ---
+      const merged = runPhaseModelMod.mergeFileChangeStats(
+        [{ path: "a.md", action: "create", additions: 100, deletions: 0 }],
+        [{ path: "a.md", action: "create", additions: 1, deletions: 0 }],
+        [{ path: "a.md", action: "create", additions: 50, deletions: 0 }],
+      );
+      const mergedStat = merged.find((f) => f.path === "a.md");
+      const mergedOk = mergedStat && mergedStat.additions === 100 && mergedStat.source === "provider";
+      addTest("V16.4 mergeFileChangeStats: provider > snapshot > fallback 优先级",
+        mergedOk ? "pass" : "fail",
+        mergedOk ? "" : `additions=${mergedStat?.additions} source=${mergedStat?.source}`);
     }
 
     // ---------- 5c. P3-C: Developer mode / legacy 分层隔离 ----------
@@ -2094,7 +2224,7 @@ if (runMode !== "all" && runMode !== "unit") {
           { action: "delete", path: "tmp/c.txt", timestamp: "2026-07-03T00:00:02Z" },
         ],
         approvals: [], finalAnswer: "done", warnings: [], errors: [],
-        rawProviderEvents: [], startedAt: "2026-07-03T00:00:00Z",
+        rawProviderEvents: [], lifecycleEvents: [], startedAt: "2026-07-03T00:00:00Z",
       };
       const model = buildModel(turnView, { developerMode: false });
       const cardPaths = model.fileChangeCards.map((c) => c.path);

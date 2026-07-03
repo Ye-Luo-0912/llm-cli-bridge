@@ -159,25 +159,31 @@ export function buildLifecycleEventsFromTurnView(
 
   // 遍历 timeline 生成 lifecycle events
   let thoughtIdx = 0;
-  let hasEmittedEvaluation = false;
+  // V16.4: 用 lastWasObservation 判定新 SDKAssistantMessage 边界。
+  // 初始 true → 第一个 thinking/tool_start 发出 evaluation_started。
+  // tool_end 后置 true → 下一个 thinking/tool_start 是新 assistant message。
+  // 同一 assistant message 内的连续 tool_start（无 tool_result）不发新边界。
+  let lastWasObservation = true;
 
   for (const item of timeline) {
     switch (item.kind) {
       case "thought": {
-        // 每个 thought segment = 新 evaluation_started（新 assistant message）
-        events.push({
-          type: "evaluation_started",
-          providerId,
-          timestamp: item.data.timestamp,
-          messageId: `msg-${thoughtIdx}`,
-        });
-        hasEmittedEvaluation = true;
-        events.push({
-          type: "reasoning_section_started",
-          providerId,
-          timestamp: item.data.timestamp,
-          messageId: `msg-${thoughtIdx}`,
-        });
+        // V16.4: 新 thought segment = 新 evaluation_started（新 assistant message）
+        // 仅在上一事件是 observation 或首个事件时发边界；连续 thinking 累加同段不发新边界。
+        if (lastWasObservation) {
+          events.push({
+            type: "evaluation_started",
+            providerId,
+            timestamp: item.data.timestamp,
+            messageId: `msg-${thoughtIdx}`,
+          });
+          events.push({
+            type: "reasoning_section_started",
+            providerId,
+            timestamp: item.data.timestamp,
+            messageId: `msg-${thoughtIdx}`,
+          });
+        }
         if (item.data.text) {
           events.push({
             type: "reasoning_summary_delta",
@@ -188,18 +194,18 @@ export function buildLifecycleEventsFromTurnView(
           });
         }
         thoughtIdx++;
+        lastWasObservation = false;
         break;
       }
       case "tool_start": {
-        // 若前面没有 evaluation_started（无 thought），补一个
-        if (!hasEmittedEvaluation) {
+        // V16.4: 若上一事件是 observation（tool_result），此 tool_start 属于新 SDKAssistantMessage
+        if (lastWasObservation) {
           events.push({
             type: "evaluation_started",
             providerId,
             timestamp: item.data.startTime,
             messageId: `msg-${thoughtIdx}`,
           });
-          hasEmittedEvaluation = true;
         }
         events.push({
           type: "tool_started",
@@ -212,6 +218,7 @@ export function buildLifecycleEventsFromTurnView(
           sessionId: item.data.sessionId,
           toolStatus: "running",
         });
+        lastWasObservation = false;
         break;
       }
       case "tool_end": {
@@ -232,8 +239,8 @@ export function buildLifecycleEventsFromTurnView(
           toolName: item.data.toolName,
           text: item.data.output,
         });
-        // 下一个 tool_start 若无 thought 在前，需要新的 evaluation_started
-        hasEmittedEvaluation = false;
+        // V16.4: 下一个 thinking/tool_start 是新 SDKAssistantMessage
+        lastWasObservation = true;
         break;
       }
       case "file_change": {

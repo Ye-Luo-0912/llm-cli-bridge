@@ -31,6 +31,7 @@ import type {
   ThoughtSegment,
   ToolSegment,
 } from "./types";
+import type { ProviderLifecycleEvent } from "./providerLifecycleEvent";
 import { isInternalFilePath } from "../../timelineAdapter";
 
 /**
@@ -62,6 +63,17 @@ export class AssistantTurnViewBuilder {
   private readonly warnings: string[] = [];
   private readonly errors: string[] = [];
   private readonly rawProviderEvents: unknown[] = [];
+  /**
+   * V16.4: provider-native 生命周期事件。
+   * 在 ingest() 时从 NormalizedRuntimeEvent 直接派生，保留 SDK agent loop 边界。
+   * RunPhaseModel 优先消费此数组；buildLifecycleEventsFromTurnView 仅作 fallback。
+   */
+  private readonly lifecycleEventsList: ProviderLifecycleEvent[] = [];
+  // V16.4: 追踪上一个 lifecycle event 是否为 observation（tool_result）。
+  // 用于判定下一个 thinking/tool_start 是否开启新的 SDKAssistantMessage（新 evaluation）。
+  // 初始 true → 第一个 thinking/tool_start 发出 evaluation_started。
+  private lastWasObservation = true;
+  private thoughtMessageIdx = 0;
 
   private endedAt: string | undefined;
   private durationMs: number | undefined;
@@ -71,6 +83,11 @@ export class AssistantTurnViewBuilder {
     this.turnId = turnId;
     this.providerId = providerId;
     this.startedAt = startedAt;
+    // session_started + run_started 作为 lifecycle 序列的起始
+    this.lifecycleEventsList.push(
+      { type: "session_started", providerId, timestamp: startedAt },
+      { type: "run_started", providerId, timestamp: startedAt },
+    );
   }
 
   ingest(event: NormalizedRuntimeEvent): AssistantTurnView {
@@ -104,6 +121,22 @@ export class AssistantTurnViewBuilder {
           last.text = last.text + p.text;
         }
         isThinkingTick = true;
+        // V16.4: provider-native lifecycle —— 新 thinking 段（非连续）= 新 SDKAssistantMessage
+        if (!this.lastThinkingTick || this.lastWasObservation) {
+          const msgId = `msg-${this.thoughtMessageIdx++}`;
+          this.lifecycleEventsList.push(
+            { type: "evaluation_started", providerId: this.providerId, timestamp: event.timestamp, messageId: msgId },
+            { type: "reasoning_section_started", providerId: this.providerId, timestamp: event.timestamp, messageId: msgId },
+          );
+        }
+        this.lifecycleEventsList.push({
+          type: "reasoning_summary_delta",
+          providerId: this.providerId,
+          timestamp: event.timestamp,
+          text: p.text,
+          messageId: `msg-${this.thoughtMessageIdx - 1}`,
+        });
+        this.lastWasObservation = false;
         break;
       }
 
@@ -211,6 +244,27 @@ export class AssistantTurnViewBuilder {
           this.toolMap.set(p.callId, seg);
           this.toolOrder.push(p.callId);
         }
+        // V16.4: provider-native lifecycle —— 若上一事件是 observation（tool_result），
+        // 此 tool_start 属于新的 SDKAssistantMessage，发出 evaluation_started 边界。
+        // 同一 SDKAssistantMessage 内的多个 tool_use（连续 tool_start 无 tool_result）不发新边界。
+        if (this.lastWasObservation) {
+          const msgId = `msg-${this.thoughtMessageIdx++}`;
+          this.lifecycleEventsList.push(
+            { type: "evaluation_started", providerId: this.providerId, timestamp: event.timestamp, messageId: msgId },
+          );
+        }
+        this.lifecycleEventsList.push({
+          type: "tool_started",
+          providerId: this.providerId,
+          timestamp: event.timestamp,
+          toolUseId: p.callId,
+          toolName: p.toolName,
+          toolInput: p.toolInput,
+          parentToolUseId: p.parentToolUseId,
+          sessionId: p.sessionId,
+          toolStatus: "running",
+        });
+        this.lastWasObservation = false;
         break;
       }
 
@@ -243,6 +297,27 @@ export class AssistantTurnViewBuilder {
           this.toolMap.set(p.callId, seg);
           this.toolOrder.push(p.callId);
         }
+        // V16.4: provider-native lifecycle —— tool_result = observation_received
+        this.lifecycleEventsList.push(
+          {
+            type: p.isError ? "tool_failed" : "tool_completed",
+            providerId: this.providerId,
+            timestamp: event.timestamp,
+            toolUseId: p.callId,
+            toolName: p.toolName,
+            toolOutput: p.output,
+            toolStatus: p.isError ? "error" : "done",
+          },
+          {
+            type: "observation_received",
+            providerId: this.providerId,
+            timestamp: event.timestamp,
+            toolUseId: p.callId,
+            toolName: p.toolName,
+            text: p.output,
+          },
+        );
+        this.lastWasObservation = true;
         break;
       }
 
@@ -259,6 +334,16 @@ export class AssistantTurnViewBuilder {
           ...(typeof deletions === "number" && deletions >= 0 ? { deletions } : {}),
         };
         this.fileChangeList.push(fcSeg);
+        // V16.4: provider-native lifecycle —— file_change = action_completed
+        this.lifecycleEventsList.push({
+          type: "action_completed",
+          providerId: this.providerId,
+          timestamp: event.timestamp,
+          fileAction: p.action,
+          filePath: p.path,
+          additions: typeof additions === "number" ? additions : undefined,
+          deletions: typeof deletions === "number" ? deletions : undefined,
+        });
         break;
       }
 
@@ -277,6 +362,15 @@ export class AssistantTurnViewBuilder {
           pending: true,
         };
         this.approvalMap.set(p.requestId, seg);
+        // V16.4: provider-native lifecycle —— approval_request = approval_requested
+        this.lifecycleEventsList.push({
+          type: "approval_requested",
+          providerId: this.providerId,
+          timestamp: event.timestamp,
+          approvalId: p.requestId,
+          toolName: p.toolName,
+          label: p.description,
+        });
         break;
       }
 
@@ -290,6 +384,15 @@ export class AssistantTurnViewBuilder {
             resolutionSource: p.source,
           });
         }
+        // V16.4: provider-native lifecycle —— approval_resolved
+        this.lifecycleEventsList.push({
+          type: "approval_resolved",
+          providerId: this.providerId,
+          timestamp: event.timestamp,
+          approvalId: p.requestId,
+          approvalResolution: p.response?.type,
+          toolName: existing?.toolName,
+        });
         break;
       }
 
@@ -328,6 +431,21 @@ export class AssistantTurnViewBuilder {
             this.finalAnswerBuffer = p.text;
           }
         }
+        // V16.4: provider-native lifecycle —— 终态 assistant_message + result
+        if (this.finalAnswerBuffer.length > 0) {
+          this.lifecycleEventsList.push({
+            type: "assistant_message",
+            providerId: this.providerId,
+            timestamp: event.timestamp,
+            text: this.finalAnswerBuffer,
+          });
+        }
+        this.lifecycleEventsList.push({
+          type: "result",
+          providerId: this.providerId,
+          timestamp: event.timestamp,
+          sessionId: p.sessionId,
+        });
         break;
       }
 
@@ -336,6 +454,14 @@ export class AssistantTurnViewBuilder {
         this.endedAt = event.timestamp;
         if (p.sessionId) this.terminalSessionId = p.sessionId;
         if (p.message) this.errors.push(p.message);
+        // V16.4: provider-native lifecycle —— 终态 result（含 error）
+        this.lifecycleEventsList.push({
+          type: "result",
+          providerId: this.providerId,
+          timestamp: event.timestamp,
+          error: p.message,
+          sessionId: p.sessionId,
+        });
         break;
       }
     }
@@ -381,6 +507,7 @@ export class AssistantTurnViewBuilder {
       warnings: this.warnings,
       errors: this.errors,
       rawProviderEvents: this.rawProviderEvents,
+      lifecycleEvents: this.lifecycleEventsList,
       startedAt: this.startedAt,
       endedAt: this.endedAt,
       durationMs: this.durationMs,

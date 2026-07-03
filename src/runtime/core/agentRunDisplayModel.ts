@@ -281,7 +281,12 @@ export function buildAgentRunDisplayModel(
   const dur = options.durationMs ?? turnView.durationMs;
 
   // V16.4: 构建 lifecycle events + phase model（普通用户态主链路）
-  const lifecycleEvents = buildLifecycleEventsFromTurnView(turnView);
+  // 优先使用 provider-native lifecycleEvents（由 AssistantTurnViewBuilder 从 NormalizedRuntimeEvent 派生）；
+  // 仅在无 provider-native 事件时 fallback 到 buildLifecycleEventsFromTurnView（从聚合 view 反推）。
+  const nativeLifecycle = turnView.lifecycleEvents;
+  const lifecycleEvents = nativeLifecycle && nativeLifecycle.length > 0
+    ? nativeLifecycle
+    : buildLifecycleEventsFromTurnView(turnView);
   const phaseModel = buildRunPhaseModel(turnView, lifecycleEvents, {
     durationMs: dur,
     isRunning,
@@ -570,6 +575,7 @@ export function getToolIconCategory(toolName: string): { icon: string; category:
  * - planning → list-checks
  * - reading → file-text
  * - editing → pencil
+ * - checking → terminal
  * - verifying → check-circle
  * - waiting-approval → shield
  * - failed → x-circle
@@ -580,6 +586,7 @@ export function getPhaseIconName(phaseType: string): string {
     case "planning": return "list-checks";
     case "reading": return "file-text";
     case "editing": return "pencil";
+    case "checking": return "terminal";
     case "verifying": return "check-circle";
     case "waiting-approval": return "shield";
     case "failed": return "x-circle";

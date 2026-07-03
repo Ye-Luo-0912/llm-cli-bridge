@@ -321,6 +321,13 @@ export interface AssistantTurnView {
   errors: ReadonlyArray<string>;
   /** 原始 provider 事件（仅 developerMode；UI raw log 面板用） */
   rawProviderEvents: ReadonlyArray<unknown>;
+  /**
+   * V16.4: provider-native 生命周期事件（RunPhaseModel 主链路输入）。
+   * 由 AssistantTurnViewBuilder 在 ingest() 时从 NormalizedRuntimeEvent 直接派生，
+   * 保留 SDK agent loop 边界（evaluation_started / tool_started / observation_received / result）。
+   * buildLifecycleEventsFromTurnView 仅作为无 provider-native 事件时的 fallback。
+   */
+  lifecycleEvents: ReadonlyArray<import("./providerLifecycleEvent").ProviderLifecycleEvent>;
   readonly startedAt: string;
   endedAt?: string;
   durationMs?: number;
