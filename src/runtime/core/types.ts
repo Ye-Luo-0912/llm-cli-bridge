@@ -344,18 +344,30 @@ export interface ProcessSegment {
 }
 
 /**
- * 思考段（V16.4: 多段 — 每次新的 reasoning/thinking block 产生新段）。
+ * 思考段（V16.4-D: 基于稳定 key 聚合 — 同一 content block 的 delta 合并为一个段）。
  *
  * 旧版 V2.17-A 始终 0 或 1 个 thinkingBlock；V16.4 改为 thoughts[] 多段：
- * - 连续 thinking_delta 累加到当前段
- * - 中间穿插 tool/file_change 后再出现 thinking → 新段
+ * - 同一 messageId + contentBlockIndex 的 thinking_delta 累加到同一段
+ * - progress / input_json_delta / tool progress 不打断同一 thinking block
+ * - 新 SDKAssistantMessage（新 evaluation）→ 新 messageId → 新段
  * - progress category=thinking 更新最近一段的 meta/tokens
+ *
+ * 稳定 key（V16.4-D）:
+ * - messageId: 标识所属 SDKAssistantMessage（一个 evaluation）
+ * - contentBlockIndex: 标识 message 内的 content block（thinking block 索引）
+ * - phaseId: 标识所属 RunPhase（RunPhaseModel 填充）
  */
 export interface ThoughtSegment {
   readonly timestamp: string;
   text: string;
   tokens?: number;
   meta?: string;
+  /** V16.4-D: 稳定 key — 所属 SDKAssistantMessage id（同一 message 内 thinking 合并） */
+  messageId?: string;
+  /** V16.4-D: 稳定 key — content block 索引（同一 block 的 delta 合并） */
+  contentBlockIndex?: number;
+  /** V16.4-D: RunPhaseModel 填充 — 所属 phase id */
+  phaseId?: string;
 }
 
 /** 工具段（按 callId；含 progress 子条目） */

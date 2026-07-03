@@ -189,6 +189,138 @@ function extractPathBasename(toolInput?: string): string | null {
   return null;
 }
 
+/** 从纯路径字符串提取 basename（用于 fileChange.path） */
+function pathBasename(p: string): string | null {
+  if (!p) return null;
+  const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
+  return parts[parts.length - 1] ?? p;
+}
+
+/**
+ * V16.4-D: 重算 phase type + label — 基于全部已绑定 tools/fileChanges/approvals/status。
+ *
+ * 优先级：failed > waiting-approval > editing > checking > verifying > reading > planning
+ *
+ * 修复问题：
+ * - "Write 不得出现在 Reading phase"：若阶段含 editing tool，type 升级为 editing
+ * - "Created phase 不重复显示 Write + Read"：label 基于 fileChange 优先级计算
+ * - "Verifying phase 只显示验证 Read"：verifying 类型保持（lifecycle 处理时已检测）
+ */
+function recomputePhaseTypesAndLabels(
+  phases: MutablePhase[],
+  _allEditedPaths: Set<string>,
+): void {
+  for (const phase of phases) {
+    // 1. failed status → "failed"
+    if (phase.status === "failed") {
+      phase.type = "failed";
+      phase.label = "Failed";
+      continue;
+    }
+    // 2. waiting-approval → 保持
+    if (phase.type === "waiting-approval") {
+      phase.label = "Waiting approval";
+      continue;
+    }
+    // 3. 基于 tools 确定 type（优先级 editing > checking > verifying > reading > planning）
+    const tools = phase.tools;
+    const hasEditing = tools.some((t) => toolToPhaseType(t.toolName) === "editing");
+    const hasChecking = tools.some((t) => toolToPhaseType(t.toolName) === "checking");
+    const hasReading = tools.some((t) => toolToPhaseType(t.toolName) === "reading");
+
+    let finalType: RunPhaseType = phase.type;
+    if (hasEditing) {
+      finalType = "editing";
+    } else if (hasChecking) {
+      finalType = "checking";
+    } else if (phase.type === "verifying") {
+      finalType = "verifying"; // 保持（lifecycle 处理时已检测 Read after Write）
+    } else if (hasReading) {
+      finalType = "reading";
+    } else if (tools.length === 0 && phase.thoughts.length > 0) {
+      finalType = "planning";
+    }
+
+    phase.type = finalType;
+    phase.label = computePhaseLabel(finalType, tools, phase.fileChanges);
+  }
+}
+
+/**
+ * V16.4-D: 基于 type + tools + fileChanges 计算阶段标签。
+ *
+ * 优先级：
+ * - create fileChange → "Created filename"
+ * - modify fileChange → "Modified filename"
+ * - editing tool → "Created/Editing/Deleted filename"
+ * - checking tool → "Running tests/Running command"
+ * - verifying → "Verifying filename"
+ * - reading → "Reading filename"
+ * - planning → "Planning"
+ */
+function computePhaseLabel(
+  type: RunPhaseType,
+  tools: ReadonlyArray<ToolSegment>,
+  fileChanges: ReadonlyArray<FileChangeSegment>,
+): string {
+  if (type === "failed") return "Failed";
+  if (type === "waiting-approval") return "Waiting approval";
+  if (type === "planning") return "Planning";
+
+  // 有 create fileChange → "Created filename"
+  const createFc = fileChanges.find((fc) => fc.action === "create");
+  if (createFc) {
+    const bn = pathBasename(createFc.path);
+    return bn ? `Created ${bn}` : "Created";
+  }
+  // 有 modify fileChange → "Modified filename"
+  const modifyFc = fileChanges.find((fc) => fc.action === "modify");
+  if (modifyFc) {
+    const bn = pathBasename(modifyFc.path);
+    return bn ? `Modified ${bn}` : "Modified";
+  }
+
+  // 有 editing tool → "Created/Editing/Deleted filename"
+  const editingTool = tools.find((t) => toolToPhaseType(t.toolName) === "editing");
+  if (editingTool) {
+    const tn = editingTool.toolName.toLowerCase();
+    const bn = extractPathBasename(editingTool.toolInput);
+    if (tn.includes("delete") || tn.includes("remove")) return bn ? `Deleted ${bn}` : "Deleted";
+    if (tn.includes("create_file") || tn === "write") return bn ? `Created ${bn}` : "Created";
+    return bn ? `Editing ${bn}` : "Editing";
+  }
+
+  // 有 checking tool → "Running tests/Running command"
+  const checkingTool = tools.find((t) => toolToPhaseType(t.toolName) === "checking");
+  if (checkingTool) {
+    const tn = checkingTool.toolName.toLowerCase();
+    if (tn.includes("test")) return "Running tests";
+    if (tn.includes("lint")) return "Running lint";
+    return "Running command";
+  }
+
+  // verifying
+  if (type === "verifying") {
+    const readTool = tools.find((t) => toolToPhaseType(t.toolName) === "reading");
+    const bn = readTool ? extractPathBasename(readTool.toolInput) : null;
+    return bn ? `Verifying ${bn}` : "Verifying";
+  }
+
+  // reading
+  if (type === "reading") {
+    const readTool = tools.find((t) => toolToPhaseType(t.toolName) === "reading");
+    if (readTool) {
+      const tn = readTool.toolName.toLowerCase();
+      const bn = extractPathBasename(readTool.toolInput);
+      if (tn.includes("search") || tn.includes("grep") || tn.includes("glob")) return bn ? `Searching ${bn}` : "Searching";
+      return bn ? `Reading ${bn}` : "Reading";
+    }
+    return "Reading";
+  }
+
+  return type;
+}
+
 // ---------- Internal mutable phase (build-time) ----------
 
 interface MutablePhase {
@@ -203,6 +335,8 @@ interface MutablePhase {
   startedAt: string;
   endedAt?: string;
   durationMs?: number;
+  /** V16.4-D: 此阶段绑定的 toolUseId 集合（tool_started 时绑定，替代时间窗口匹配） */
+  toolUseIds: Set<string>;
 }
 
 // ---------- Builder ----------
@@ -240,6 +374,11 @@ export function buildRunPhaseModel(
   let phaseIdx = 0;
   // 记录所有 editing 阶段写入的文件 basename（用于 verifying 检测）
   const allEditedPaths: Set<string> = new Set();
+  // V16.4-D: approvalId → ApprovalSegment 映射（用于将 approval 附加到当前 phase）
+  const approvalByRequestId = new Map<string, ApprovalSegment>();
+  for (const ap of turnView.approvals) {
+    approvalByRequestId.set(ap.requestId, ap);
+  }
 
   let currentPhase: MutablePhase | null = null;
 
@@ -253,6 +392,7 @@ export function buildRunPhaseModel(
     fileChanges: [],
     approvals: [],
     startedAt: startedAt ?? firstTool?.startTime ?? turnView.startedAt,
+    toolUseIds: new Set<string>(),
   });
 
   // closePhase: 关闭阶段并设置 endedAt/durationMs。
@@ -290,16 +430,23 @@ export function buildRunPhaseModel(
         if (!currentPhase) {
           currentPhase = newPhase("planning", undefined, ev.timestamp);
         }
-        // reasoning_summary_delta 携带 text → 记录为 thought
+        // V16.4-D: 基于 messageId 稳定 key 聚合 — 同一 message 的 delta 合并为一个 ThoughtSegment
+        // 不再按 timestamp 判断（每个 delta 时间戳不同 → 会导致逐词灰块）
         if (ev.type === "reasoning_summary_delta" && ev.text) {
-          // 尝试合并到最近一个 thought（若时间戳接近）
+          const msgId = ev.messageId;
           const lastThought = currentPhase.thoughts[currentPhase.thoughts.length - 1];
-          if (lastThought && lastThought.timestamp === ev.timestamp) {
+          if (lastThought && lastThought.messageId === msgId && msgId !== undefined) {
+            // 同一 messageId → 合并
+            lastThought.text += ev.text;
+          } else if (lastThought && msgId === undefined && lastThought.messageId === undefined) {
+            // fallback：无 messageId 时合并到最后一段（同阶段短时间窗口）
             lastThought.text += ev.text;
           } else {
             currentPhase.thoughts.push({
               timestamp: ev.timestamp,
               text: ev.text,
+              messageId: msgId,
+              contentBlockIndex: 0,
             });
           }
         }
@@ -380,6 +527,11 @@ export function buildRunPhaseModel(
           const basename = extractPathBasename(ev.toolInput);
           if (basename) allEditedPaths.add(basename);
         }
+        // V16.4-D: 绑定 toolUseId → currentPhase（替代时间窗口匹配）
+        // tool_completed / observation_received / file_change 通过 toolUseId 回填同一个 phase
+        if (ev.toolUseId && currentPhase) {
+          currentPhase.toolUseIds.add(ev.toolUseId);
+        }
         break;
       }
       case "tool_completed":
@@ -411,9 +563,33 @@ export function buildRunPhaseModel(
         break;
       }
       case "approval_requested": {
-        // pending approval → 当前阶段标记
+        // V16.4-D: pending approval 嵌入当前 phase（轻量化 — 不常驻大面板）
+        // 将 ApprovalSegment 附加到 currentPhase.approvals，UI 在 phase 内渲染内联 chips
         if (!currentPhase) {
           currentPhase = newPhase("waiting-approval", undefined, ev.timestamp);
+        }
+        if (ev.approvalId) {
+          const apSeg = approvalByRequestId.get(ev.approvalId);
+          if (apSeg && !currentPhase.approvals.some((a) => a.requestId === apSeg.requestId)) {
+            currentPhase.approvals.push(apSeg);
+          }
+        }
+        break;
+      }
+      case "approval_resolved": {
+        // V16.4-D: 更新 phase 内 approval 状态（pending → resolved）
+        if (ev.approvalId) {
+          for (const phase of phases) {
+            const ap = phase.approvals.find((a) => a.requestId === ev.approvalId);
+            if (ap) {
+              ap.pending = false;
+              break;
+            }
+          }
+          if (currentPhase) {
+            const ap = currentPhase.approvals.find((a) => a.requestId === ev.approvalId);
+            if (ap) ap.pending = false;
+          }
         }
         break;
       }
@@ -436,6 +612,7 @@ export function buildRunPhaseModel(
             approvals: [],
             startedAt: ev.timestamp,
             endedAt: ev.timestamp,
+            toolUseIds: new Set<string>(),
           });
         }
         break;
@@ -461,28 +638,30 @@ export function buildRunPhaseModel(
     currentPhase = null;
   }
 
-  // 关联实际的 ToolSegment 数据（lifecycle events 只有 tool 元数据，不含完整 ToolSegment）
-  // 从 turnView.tools 按 callId 匹配并填充到对应阶段
+  // V16.4-D: 关联实际的 ToolSegment 数据 — 基于 toolUseId 绑定（不再时间窗口匹配）。
+  // tool_started 时已将 toolUseId 绑定到 phase.toolUseIds；
+  // 此处从 turnView.tools 按 callId 查找完整 ToolSegment 填充到对应阶段。
   const toolByCallId = new Map<string, ToolSegment>();
   for (const t of turnView.tools) {
     toolByCallId.set(t.callId, t);
   }
   for (const phase of phases) {
-    // 清空 placeholder tools，用实际 ToolSegment 填充
     const visibleTools: ToolSegment[] = [];
-    // 遍历该阶段时间区间内的工具
-    const phaseStart = new Date(phase.startedAt).getTime();
-    const phaseEnd = phase.endedAt ? new Date(phase.endedAt).getTime() : Infinity;
-    for (const tool of turnView.tools) {
-      const toolStart = new Date(tool.startTime).getTime();
-      if (toolStart >= phaseStart && toolStart <= phaseEnd) {
-        if (isUserVisibleTool(tool.toolName)) {
-          visibleTools.push(tool);
-        }
+    for (const toolUseId of phase.toolUseIds) {
+      const tool = toolByCallId.get(toolUseId);
+      if (tool && isUserVisibleTool(tool.toolName)) {
+        visibleTools.push(tool);
       }
     }
+    // 按 startTime 排序，保持工具执行顺序
+    visibleTools.sort((a, b) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime());
     phase.tools = visibleTools;
   }
+
+  // V16.4-D: 重算 phase type + label — 基于全部已绑定 tools/fileChanges/approvals/status
+  // 优先级：failed > waiting-approval > editing > checking > verifying > reading > planning
+  // 修复 "Write 不得出现在 Reading phase"：若阶段含 editing tool，type 升级为 editing
+  recomputePhaseTypesAndLabels(phases, allEditedPaths);
 
   // pending approvals → waiting-approval 阶段
   if (hasPendingApproval) {
@@ -496,6 +675,7 @@ export function buildRunPhaseModel(
       fileChanges: [],
       approvals: pendingApprovals.slice(),
       startedAt: turnView.endedAt ?? turnView.startedAt,
+      toolUseIds: new Set<string>(),
     });
   }
 

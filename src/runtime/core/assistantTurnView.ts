@@ -50,11 +50,14 @@ export class AssistantTurnViewBuilder {
   // P4-D: 追踪是否已有 message 事件填充了 finalAnswer（partial 或 full snapshot）。
   // 用于 stdout_delta 去重：有 message 事件时 stdout_delta 是冗余副本，跳过。
   private hasMessageEvents = false;
-  // V16.4: 多段 thinking — thoughtsList 替代旧版单 thinkingBlock
-  // 规则：连续 thinking_delta 累加到当前段；中间穿插 tool/file_change 后再出现 thinking → 新段
+  // V16.4-D: 多段 thinking — 基于稳定 key (messageId) 聚合
+  // 规则：同一 messageId 的 thinking_delta 合并为一个 ThoughtSegment；
+  //       progress / input_json_delta / tool progress 不打断同一 thinking block；
+  //       新 SDKAssistantMessage（lastWasObservation=true）→ 新 messageId → 新段。
   private readonly thoughtsList: ThoughtSegment[] = [];
-  // 最近事件类别（用于判断 thinking 是否连续；progress-thinking 也算连续 thinking）
-  private lastThinkingTick = false;
+  // V16.4-D: 当前 thinking block 所属 messageId（稳定 key）。
+  // null = 尚未有 thinking block；非 null = 当前可合并的 thinking block id。
+  private currentThinkingMessageId: string | null = null;
   private readonly toolMap = new Map<string, ToolSegment>();
   private readonly toolOrder: string[] = [];
   private readonly processList: ProcessSegment[] = [];
@@ -96,9 +99,8 @@ export class AssistantTurnViewBuilder {
     }
 
     const p = event.payload;
-    // V16.4: 本事件是否属于 thinking 流（连续 thinking / progress-thinking）
-    // 用于多段 thinking 切分判断；非 thinking 事件会重置 lastThinkingTick
-    let isThinkingTick = false;
+    // V16.4-D: thinking 聚合基于稳定 key (messageId)，不再依赖 lastThinkingTick。
+    // progress / input_json_delta / tool progress 不打断同一 thinking block。
     switch (p.kind) {
       case "session_started":
         // session_started 不直接展示在普通用户态；作为 process 段记录
@@ -111,30 +113,43 @@ export class AssistantTurnViewBuilder {
         break;
 
       case "thinking": {
-        // V16.4: 多段 thinking — 若上一事件不是 thinking/progress-thinking，开新段
-        if (!this.lastThinkingTick && this.thoughtsList.length > 0) {
-          this.thoughtsList.push({ timestamp: event.timestamp, text: p.text });
-        } else if (this.thoughtsList.length === 0) {
-          this.thoughtsList.push({ timestamp: event.timestamp, text: p.text });
-        } else {
-          const last = this.thoughtsList[this.thoughtsList.length - 1];
-          last.text = last.text + p.text;
-        }
-        isThinkingTick = true;
-        // V16.4: provider-native lifecycle —— 新 thinking 段（非连续）= 新 SDKAssistantMessage
-        if (!this.lastThinkingTick || this.lastWasObservation) {
-          const msgId = `msg-${this.thoughtMessageIdx++}`;
+        // V16.4-D: 基于稳定 key (messageId) 聚合。
+        // 新 messageId 仅在 lastWasObservation=true（新 SDKAssistantMessage）时合成。
+        // progress / input_json_delta / tool progress 不打断同一 thinking block。
+        const isNewThinkingMessage = this.lastWasObservation || this.currentThinkingMessageId === null;
+        if (isNewThinkingMessage) {
+          this.currentThinkingMessageId = `msg-${this.thoughtMessageIdx++}`;
           this.lifecycleEventsList.push(
-            { type: "evaluation_started", providerId: this.providerId, timestamp: event.timestamp, messageId: msgId },
-            { type: "reasoning_section_started", providerId: this.providerId, timestamp: event.timestamp, messageId: msgId },
+            { type: "evaluation_started", providerId: this.providerId, timestamp: event.timestamp, messageId: this.currentThinkingMessageId },
+            { type: "reasoning_section_started", providerId: this.providerId, timestamp: event.timestamp, messageId: this.currentThinkingMessageId },
           );
+          this.thoughtsList.push({
+            timestamp: event.timestamp,
+            text: p.text,
+            messageId: this.currentThinkingMessageId,
+            contentBlockIndex: 0,
+          });
+        } else {
+          // 同一 messageId 内的 thinking_delta → 合并到最后一段（稳定 key 保证不被 progress 切碎）
+          const last = this.thoughtsList[this.thoughtsList.length - 1];
+          if (last && last.messageId === this.currentThinkingMessageId) {
+            last.text = last.text + p.text;
+          } else {
+            // fallback：messageId 不匹配（理论不应发生），开新段
+            this.thoughtsList.push({
+              timestamp: event.timestamp,
+              text: p.text,
+              messageId: this.currentThinkingMessageId ?? undefined,
+              contentBlockIndex: 0,
+            });
+          }
         }
         this.lifecycleEventsList.push({
           type: "reasoning_summary_delta",
           providerId: this.providerId,
           timestamp: event.timestamp,
           text: p.text,
-          messageId: `msg-${this.thoughtMessageIdx - 1}`,
+          messageId: this.currentThinkingMessageId ?? undefined,
         });
         this.lastWasObservation = false;
         break;
@@ -142,9 +157,22 @@ export class AssistantTurnViewBuilder {
 
       case "progress": {
         if (p.category === "thinking") {
-          // thinking_tokens：更新最近一段 thinking 的 meta/tokens（不产生新段）
+          // V16.4-D: thinking_tokens — 更新最近一段 thinking 的 meta/tokens（不产生新段，不打断 thinking block）
+          // 若无 thinking 段，创建一个占位段（synth messageId 以保持稳定 key）
           if (this.thoughtsList.length === 0) {
-            this.thoughtsList.push({ timestamp: event.timestamp, text: "" });
+            if (this.currentThinkingMessageId === null) {
+              this.currentThinkingMessageId = `msg-${this.thoughtMessageIdx++}`;
+              this.lifecycleEventsList.push(
+                { type: "evaluation_started", providerId: this.providerId, timestamp: event.timestamp, messageId: this.currentThinkingMessageId },
+                { type: "reasoning_section_started", providerId: this.providerId, timestamp: event.timestamp, messageId: this.currentThinkingMessageId },
+              );
+            }
+            this.thoughtsList.push({
+              timestamp: event.timestamp,
+              text: "",
+              messageId: this.currentThinkingMessageId,
+              contentBlockIndex: 0,
+            });
           }
           const last = this.thoughtsList[this.thoughtsList.length - 1];
           const meta = [p.label, p.detail].filter(Boolean).join(" · ") || undefined;
@@ -153,7 +181,8 @@ export class AssistantTurnViewBuilder {
           if (tokenMatch) {
             last.tokens = parseInt(tokenMatch[1], 10);
           }
-          isThinkingTick = true;
+          // V16.4-D: progress-thinking 不改变 currentThinkingMessageId / lastWasObservation
+          // （thinking block 保持连续，不被 progress 切碎）
         } else if (p.category === "tool") {
           const target = this.findRunningTool();
           if (target) {
@@ -244,13 +273,13 @@ export class AssistantTurnViewBuilder {
           this.toolMap.set(p.callId, seg);
           this.toolOrder.push(p.callId);
         }
-        // V16.4: provider-native lifecycle —— 若上一事件是 observation（tool_result），
-        // 此 tool_start 属于新的 SDKAssistantMessage，发出 evaluation_started 边界。
+        // V16.4-D: provider-native lifecycle —— 若上一事件是 observation（tool_result），
+        // 此 tool_start 属于新的 SDKAssistantMessage，发出 evaluation_started 边界并更新 currentThinkingMessageId。
         // 同一 SDKAssistantMessage 内的多个 tool_use（连续 tool_start 无 tool_result）不发新边界。
         if (this.lastWasObservation) {
-          const msgId = `msg-${this.thoughtMessageIdx++}`;
+          this.currentThinkingMessageId = `msg-${this.thoughtMessageIdx++}`;
           this.lifecycleEventsList.push(
-            { type: "evaluation_started", providerId: this.providerId, timestamp: event.timestamp, messageId: msgId },
+            { type: "evaluation_started", providerId: this.providerId, timestamp: event.timestamp, messageId: this.currentThinkingMessageId },
           );
         }
         this.lifecycleEventsList.push({
@@ -466,9 +495,7 @@ export class AssistantTurnViewBuilder {
       }
     }
 
-    // V16.4: 更新 lastThinkingTick — 仅 thinking / progress-thinking 视为连续 thinking 流
-    this.lastThinkingTick = isThinkingTick;
-
+    // V16.4-D: thinking 聚合基于稳定 key (messageId)，无需 lastThinkingTick 维护。
     return this.toView();
   }
 

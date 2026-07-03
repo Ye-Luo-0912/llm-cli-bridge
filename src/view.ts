@@ -20,7 +20,7 @@ import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalW
 import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse } from "./runtime/core/types";
-import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
+import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
 import { AssistantTurnViewBuilder } from "./runtime/core/assistantTurnView";
@@ -1152,21 +1152,26 @@ export class LLMBridgeView extends ItemView {
   }
 
   /**
-   * V2.16-C: 渲染 Claude 风格 permission mode popover（四模式）
+   * V16.4-D: 渲染 permission mode popover（五模式，轻量 chip + popover）
+   * 修复：popover 挂载到 leftTools 容器（按钮外部），避免 click 事件冒泡和 pointer-events 问题。
    */
   private renderPermissionPopover(): void {
     if (!this.permissionModeChipEl) return;
     // 移除旧 popover
     this.permissionPopoverEl?.remove();
-    this.permissionPopoverEl = this.permissionModeChipEl.createDiv({
+    // V16.4-D: 挂载到 chip 的父容器（leftTools），不挂在 button 内部
+    // 避免 click 冒泡到 button 导致 popover 关闭、pointer-events 被吞等问题
+    const mountEl = this.permissionModeChipEl.parentElement ?? this.permissionModeChipEl;
+    this.permissionPopoverEl = mountEl.createDiv({
       cls: "llm-bridge-perm-popover",
       attr: { hidden: "" },
     });
     const modes: Array<{ value: string; icon: string; title: string; desc: string }> = [
+      { value: "plan", icon: "☐", title: "Plan mode", desc: "只读规划，不执行修改" },
       { value: "default", icon: "✓", title: "Ask before edits", desc: "编辑前询问确认" },
       { value: "acceptEdits", icon: "✎", title: "Edit automatically", desc: "自动接受文件编辑" },
-      { value: "plan", icon: "☐", title: "Plan mode", desc: "只读规划，不执行修改" },
       { value: "auto", icon: "⚡", title: "Auto mode", desc: "自动决策，低风险自动允许" },
+      { value: "bypassPermissions", icon: "⚠", title: "Bypass", desc: "跳过所有权限检查（高风险）" },
     ];
     const current = this.plugin.settings.claudePermissionMode;
     for (const mode of modes) {
@@ -1178,7 +1183,9 @@ export class LLMBridgeView extends ItemView {
       text.createEl("div", { cls: "llm-bridge-perm-option-title", text: mode.title });
       text.createEl("div", { cls: "llm-bridge-perm-option-desc", text: mode.desc });
       opt.createEl("span", { cls: "llm-bridge-perm-option-check", text: "✓" });
-      opt.addEventListener("click", async () => {
+      // V16.4-D: stopPropagation 防止 click 冒泡到 chip 导致 popover 先关闭
+      opt.addEventListener("click", async (e) => {
+        e.stopPropagation();
         await this.setPermissionMode(mode.value);
         this.closePermissionPopover();
       });
@@ -1186,7 +1193,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   /**
-   * V2.16-C: 打开/关闭 permission mode popover
+   * V16.4-D: 打开/关闭 permission mode popover
    */
   private togglePermissionPopover(): void {
     if (!this.permissionPopoverEl) return;
@@ -1195,23 +1202,43 @@ export class LLMBridgeView extends ItemView {
       this.closeModelEffortPopover();
       this.renderPermissionPopover();
       this.permissionPopoverEl.removeAttribute("hidden");
+      // V16.4-D: 添加 click-outside handler（延迟绑定，避免本次 click 立即关闭）
+      setTimeout(() => {
+        if (!this.permissionPopoverEl || this.permissionPopoverEl.hasAttribute("hidden")) return;
+        document.addEventListener("click", this.permissionPopoverOutsideClickHandler, { capture: true });
+      }, 0);
     } else {
       this.closePermissionPopover();
     }
   }
 
+  /** V16.4-D: click-outside handler（绑定到 document，关闭 popover） */
+  private permissionPopoverOutsideClickHandler = (e: MouseEvent): void => {
+    if (!this.permissionPopoverEl || this.permissionPopoverEl.hasAttribute("hidden")) {
+      document.removeEventListener("click", this.permissionPopoverOutsideClickHandler, { capture: true });
+      return;
+    }
+    const target = e.target as HTMLElement;
+    if (this.permissionPopoverEl.contains(target)) return;
+    if (this.permissionModeChipEl?.contains(target)) return;
+    // 点击 popover 外部 → 关闭
+    this.closePermissionPopover();
+    document.removeEventListener("click", this.permissionPopoverOutsideClickHandler, { capture: true });
+  };
+
   /**
-   * V2.16-C: 关闭 permission mode popover
+   * V16.4-D: 关闭 permission mode popover
    */
   private closePermissionPopover(): void {
     this.permissionPopoverEl?.setAttribute("hidden", "");
+    document.removeEventListener("click", this.permissionPopoverOutsideClickHandler, { capture: true });
   }
 
   /**
-   * V2.16-C: 设置 permission mode（Claude 风格四模式）
+   * V16.4-D: 设置 permission mode — 允许在 run 进行中切换（影响下一次 run）
    */
   private async setPermissionMode(mode: string): Promise<void> {
-    if (this.runHandle) return;
+    // V16.4-D: 移除 runHandle 阻塞 — 允许在 run 进行中切换权限（影响下一次 run）
     this.plugin.settings.claudePermissionMode = mode as never;
     await this.plugin.saveSettings();
     this.refreshPermissionModeChip();
@@ -1224,20 +1251,21 @@ export class LLMBridgeView extends ItemView {
     const info = getPermissionModeInfo(mode);
     const claudeLabel = mode === "default" ? "Ask before edits"
       : mode === "acceptEdits" ? "Edit automatically"
-      : mode === "plan" ? "Plan mode"
-      : mode === "auto" ? "Auto mode"
+      : mode === "plan" ? "Plan"
+      : mode === "auto" ? "Auto"
+      : mode === "bypassPermissions" ? "Bypass"
       : mode;
     this.permissionModeChipEl.textContent = claudeLabel;
-    this.permissionModeChipEl.setAttribute("title", `权限模式：${info.label}\n${info.risk}\n点击切换：受限 / 默认 / acceptEdits`);
+    this.permissionModeChipEl.setAttribute("title", `权限模式：${info.label}\n${info.risk}\n点击切换`);
     this.permissionModeChipEl.classList.remove("is-safe", "is-caution", "is-danger");
     this.permissionModeChipEl.classList.add(`is-${info.level}`);
   }
 
   private async cyclePermissionMode(): Promise<void> {
-    if (this.runHandle) return;
-    const modes: Array<"plan" | "default" | "acceptEdits"> = ["plan", "default", "acceptEdits"];
+    // V16.4-D: 移除 runHandle 阻塞
+    const modes: Array<"plan" | "default" | "acceptEdits" | "auto" | "bypassPermissions"> = ["plan", "default", "acceptEdits", "auto", "bypassPermissions"];
     const current = this.plugin.settings.claudePermissionMode ?? "default";
-    const index = modes.indexOf(current as "plan" | "default" | "acceptEdits");
+    const index = modes.indexOf(current as "plan" | "default" | "acceptEdits" | "auto" | "bypassPermissions");
     const next = modes[(index + 1 + modes.length) % modes.length];
     this.plugin.settings.claudePermissionMode = next;
     await this.plugin.saveSettings();
@@ -1247,6 +1275,7 @@ export class LLMBridgeView extends ItemView {
 
   async onClose(): Promise<void> {
     this.closeModelEffortPopover();
+    this.closePermissionPopover();
     this.closeMentionPicker();
     if (this.runHandle) {
       this.runHandle.stop();
@@ -1450,6 +1479,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V2.3s: 刷新权限请求面板（实时展示 pending 权限请求）
+  // V16.4-D: 低风险 approval 嵌入当前 phase 为内联 chips，大面板仅高风险时显示
   private refreshPermissionPanel(): void {
     const panel = this.permissionPanelEl;
     panel.empty();
@@ -1458,6 +1488,16 @@ export class LLMBridgeView extends ItemView {
       panel.style.display = "none";
       return;
     }
+
+    // V16.4-D: 检查是否所有 pending 都为低风险 — 低风险已嵌入 phase 内联 chips，不显示大面板
+    const allLowRisk = Array.from(this.pendingPermissions.values()).every(
+      (ev) => (ev.riskLevel ?? "low") === "low",
+    );
+    if (allLowRisk) {
+      panel.style.display = "none";
+      return;
+    }
+
     panel.style.display = "block";
 
     // 标题
@@ -2885,6 +2925,23 @@ export class LLMBridgeView extends ItemView {
         rawProviderEvents: msg.assistantTurnView.rawProviderEvents,
         workflowTrace: msg.workflowTrace,
         sdkEvents: msg.sdkEvents,
+        // V16.4-D: Run-level permission snapshot
+        permissionSnapshot: {
+          configuredPermissionMode: this.plugin.settings.claudePermissionMode,
+          effectivePermissionMode: this.session?.permission.mode,
+          // permission 字段仅 Claude SDK/CLI plan 存在；Codex app-server 走 canUseTool，不在 plan 层
+          sdkInitPermissionMode:
+            msg.effectiveRunPlan && (msg.effectiveRunPlan.backend === "sdk" || msg.effectiveRunPlan.backend === "cli")
+              ? msg.effectiveRunPlan.permission
+              : undefined,
+          canUseToolCalled: (msg.sdkEvents?.length ?? 0) > 0,
+          approvalEvents: msg.assistantTurnView.approvals.map((ap) => ({
+            requestId: ap.requestId,
+            toolName: ap.toolName,
+            pending: ap.pending,
+            resolutionSource: ap.resolutionSource,
+          })),
+        },
       } : undefined;
 
       this.renderAgentRunDisplayModel(details, msg.assistantTurnView, msg.status, { developerMode, debug });
@@ -3193,11 +3250,35 @@ export class LLMBridgeView extends ItemView {
     const body = card.createDiv({ cls: "llm-bridge-phase-body" });
     if (!phase.defaultExpanded) body.setAttribute("hidden", "");
 
-    // thoughts（多段 thinking）
-    for (const thought of phase.thoughts) {
-      const thoughtEl = body.createDiv({ cls: "llm-bridge-phase-thought" });
-      if (thought.meta) thoughtEl.createEl("div", { cls: "llm-bridge-phase-thought-meta", text: thought.meta });
-      if (thought.text) thoughtEl.createEl("div", { cls: "llm-bridge-phase-thought-text", text: truncateText(thought.text, 280) });
+    // V16.4-D: thoughts — 连续 Markdown 块（不再每个 ThoughtSegment 一个灰块）
+    // 合并同阶段所有 thoughts 为一个可折叠文本块，默认 ≤160px，点击展开完整内容
+    if (phase.thoughts.length > 0) {
+      const mergedText = phase.thoughts
+        .map((t) => t.text)
+        .filter((t) => t.trim().length > 0)
+        .join("\n\n");
+      if (mergedText.trim().length > 0) {
+        const totalTokens = phase.thoughts.reduce((sum, t) => sum + (t.tokens ?? 0), 0);
+        const thoughtWrap = body.createDiv({ cls: "llm-bridge-phase-reasoning" });
+        // header: Reasoning · optional token count
+        const reasoningHead = thoughtWrap.createDiv({ cls: "llm-bridge-phase-reasoning-head" });
+        reasoningHead.createEl("span", { cls: "llm-bridge-phase-reasoning-label", text: "Reasoning" });
+        if (totalTokens > 0) {
+          reasoningHead.createEl("span", { cls: "llm-bridge-phase-reasoning-tokens", text: ` · ${totalTokens} tokens` });
+        }
+        const expandHint = reasoningHead.createEl("span", { cls: "llm-bridge-phase-reasoning-hint", text: " · click to expand" });
+        expandHint.setAttribute("hidden", "");
+        // content: 连续 pre-wrap 文本块（默认 ≤160px，超出截断）
+        const contentEl = thoughtWrap.createDiv({ cls: "llm-bridge-phase-reasoning-content" });
+        contentEl.setText(mergedText);
+        // 点击 header 切换展开/折叠
+        reasoningHead.style.cursor = "pointer";
+        reasoningHead.addEventListener("click", () => {
+          const isExpanded = thoughtWrap.classList.toggle("is-expanded");
+          if (isExpanded) expandHint.removeAttribute("hidden");
+          else expandHint.setAttribute("hidden", "");
+        });
+      }
     }
 
     // file changes（带 +N -M）
@@ -3230,12 +3311,63 @@ export class LLMBridgeView extends ItemView {
       if (tool.durationMs !== undefined && tool.durationMs > 0) {
         toolHead.createEl("span", { cls: "llm-bridge-phase-tool-duration", text: this.formatDurationMs(tool.durationMs) });
       }
+      // V16.4-D: editing tool 无 pending approval → 显示自动批准来源
+      const lowerToolName = tool.toolName.toLowerCase();
+      const isEditingTool = /write|edit|str_replace|patch|create_file|update_file|insert|delete_file/.test(lowerToolName);
+      if (isEditingTool && tool.status === "done") {
+        const permMode = this.session?.permission.mode;
+        const source = explainAutoApprovalSource(permMode);
+        if (source) {
+          toolHead.createEl("span", { cls: "llm-bridge-phase-tool-auto-approval", text: source, attr: { title: `权限模式 ${permMode} 自动批准此写入操作` } });
+        }
+      }
     }
 
-    // approvals
+    // V16.4-D: approvals — 低风险嵌入当前 phase 为内联 chips（不常驻大面板）
+    // 高风险显示强调样式；详细信息折叠到 Details
     for (const ap of phase.approvals) {
-      const apEl = body.createDiv({ cls: "llm-bridge-phase-approval" });
-      apEl.createEl("span", { text: `Approval: ${ap.toolName} — ${ap.pending ? "pending" : "resolved"}` });
+      const isHighRisk = ap.riskLevel === "high";
+      const apEl = body.createDiv({ cls: `llm-bridge-phase-approval is-risk-${ap.riskLevel} ${ap.pending ? "is-pending" : "is-resolved"}` });
+      const apHead = apEl.createDiv({ cls: "llm-bridge-phase-approval-head" });
+      apHead.createEl("span", { cls: "llm-bridge-phase-approval-tool", text: ap.toolName });
+      if (ap.pending) {
+        // 内联决策按钮：[Allow once] [Allow session] [Deny]
+        const btns = apEl.createDiv({ cls: "llm-bridge-phase-approval-btns" });
+        const allowOnce = btns.createEl("button", { cls: "llm-bridge-approval-btn is-allow-once", text: "Allow once" });
+        allowOnce.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.resolvePermissionRequests([ap.requestId], "allow_once");
+        });
+        const allowSession = btns.createEl("button", { cls: "llm-bridge-approval-btn is-allow-session", text: "Allow session" });
+        allowSession.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.resolvePermissionRequests([ap.requestId], "allow_session");
+        });
+        const deny = btns.createEl("button", { cls: "llm-bridge-approval-btn is-deny", text: "Deny" });
+        deny.addEventListener("click", (e) => {
+          e.stopPropagation();
+          this.resolvePermissionRequests([ap.requestId], "deny_session");
+        });
+        // 详细信息折叠到 Details（高风险默认展开，低风险折叠）
+        if (ap.inputSummary || ap.riskReason || (ap.highRiskFlags && ap.highRiskFlags.length > 0)) {
+          const details = apEl.createEl("details", { cls: "llm-bridge-phase-approval-details" });
+          if (isHighRisk) details.setAttribute("open", "");
+          details.createEl("summary", { text: "Details" });
+          if (ap.riskReason) details.createDiv({ cls: "llm-bridge-phase-approval-risk-reason", text: ap.riskReason });
+          if (ap.highRiskFlags && ap.highRiskFlags.length > 0) {
+            details.createDiv({ cls: "llm-bridge-phase-approval-flags", text: `高风险: ${ap.highRiskFlags.join(", ")}` });
+          }
+          if (ap.inputSummary) details.createDiv({ cls: "llm-bridge-phase-approval-input", text: ap.inputSummary });
+        }
+      } else {
+        // 已解决：显示简洁标签
+        const resolutionLabel = ap.resolution?.type === "accept" ? "approved"
+          : ap.resolution?.type === "acceptForSession" ? "approved (session)"
+          : ap.resolution?.type === "decline" ? "denied"
+          : ap.resolution?.type === "cancel" ? "cancelled"
+          : "resolved";
+        apHead.createEl("span", { cls: "llm-bridge-phase-approval-resolution", text: resolutionLabel });
+      }
     }
 
     // 折叠交互
@@ -3448,6 +3580,24 @@ export class LLMBridgeView extends ItemView {
         }
       }
       apBody.createEl("pre", { cls: "llm-bridge-attachment-audit-text", text: apLines.join("\n") });
+    }
+    // V16.4-D: permission snapshot（developer mode 审计）
+    if (debug.permissionSnapshot) {
+      const ps = debug.permissionSnapshot;
+      const psBody = this.createCollapsibleSection(parent, "permission snapshot", "llm-bridge-perm-snapshot", false);
+      const psLines: string[] = [];
+      if (ps.configuredPermissionMode) psLines.push(`configured: ${ps.configuredPermissionMode}`);
+      if (ps.effectivePermissionMode) psLines.push(`effective: ${ps.effectivePermissionMode}`);
+      if (ps.sdkInitPermissionMode) psLines.push(`sdkInit: ${ps.sdkInitPermissionMode}`);
+      if (ps.canUseToolCalled !== undefined) psLines.push(`canUseToolCalled: ${ps.canUseToolCalled}`);
+      if (ps.approvalEvents && ps.approvalEvents.length > 0) {
+        psLines.push("", "approvals:");
+        for (const ev of ps.approvalEvents) {
+          const src = ev.resolutionSource ? ` → ${ev.resolutionSource}` : "";
+          psLines.push(`  ${ev.toolName} | ${ev.pending ? "pending" : "resolved"}${src}`);
+        }
+      }
+      psBody.createEl("pre", { cls: "llm-bridge-perm-snapshot-text", text: psLines.join("\n") });
     }
     // raw provider events (developer-only)
     if (debug.rawProviderEvents && debug.rawProviderEvents.length > 0) {

@@ -3882,6 +3882,60 @@
 .llm-bridge-phase-body[hidden] {
   display: none;
 }
+/* V16.4-D: Reasoning — 连续可折叠文本块（不再逐词灰块） */
+.llm-bridge-phase-reasoning {
+  margin: 2px 0;
+  border-left: 2px solid var(--text-faint);
+  border-radius: 3px;
+  background: var(--background-secondary);
+  overflow: hidden;
+}
+.llm-bridge-phase-reasoning-head {
+  display: flex;
+  align-items: center;
+  padding: 2px 6px;
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  user-select: none;
+}
+.llm-bridge-phase-reasoning-label {
+  font-weight: 500;
+}
+.llm-bridge-phase-reasoning-tokens {
+  color: var(--text-faint);
+}
+.llm-bridge-phase-reasoning-hint {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+.llm-bridge-phase-reasoning-content {
+  padding: 2px 6px 4px;
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 160px;
+  overflow: hidden;
+  position: relative;
+}
+.llm-bridge-phase-reasoning-content::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 24px;
+  background: linear-gradient(transparent, var(--background-secondary));
+  pointer-events: none;
+}
+.llm-bridge-phase-reasoning.is-expanded .llm-bridge-phase-reasoning-content {
+  max-height: none;
+}
+.llm-bridge-phase-reasoning.is-expanded .llm-bridge-phase-reasoning-content::after {
+  display: none;
+}
+/* 旧 thought 样式保留兼容（developer mode raw trace 可能引用） */
 .llm-bridge-phase-thought {
   font-size: var(--font-smallest);
   color: var(--text-muted);
@@ -3976,6 +4030,99 @@
   border-left: 2px solid #fb8c00;
   background: rgba(251, 140, 0, 0.08);
   border-radius: 2px;
+}
+/* V16.4-D: 内联 approval chips — 低风险嵌入 phase，高风险强调 */
+.llm-bridge-phase-approval.is-pending {
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  border-left-width: 3px;
+}
+.llm-bridge-phase-approval.is-risk-low.is-pending {
+  border-left-color: #fb8c00;
+  background: rgba(251, 140, 0, 0.06);
+}
+.llm-bridge-phase-approval.is-risk-high.is-pending {
+  border-left-color: #e53935;
+  background: rgba(229, 57, 53, 0.1);
+  color: #e53935;
+  font-weight: 600;
+}
+.llm-bridge-phase-approval.is-resolved {
+  color: var(--text-muted);
+  border-left-color: var(--background-modifier-border);
+  background: transparent;
+  font-weight: 400;
+}
+.llm-bridge-phase-approval-head {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+.llm-bridge-phase-approval-tool { font-weight: 600; }
+.llm-bridge-phase-approval-resolution {
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  font-style: italic;
+}
+.llm-bridge-phase-approval-btns {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.llm-bridge-approval-btn {
+  padding: 2px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 5px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  cursor: pointer;
+  line-height: 1.4;
+}
+.llm-bridge-approval-btn:hover { border-color: var(--interactive-accent); }
+.llm-bridge-approval-btn.is-allow-once { color: var(--text-normal); }
+.llm-bridge-approval-btn.is-allow-session { color: #4caf50; border-color: rgba(76, 175, 80, 0.4); }
+.llm-bridge-approval-btn.is-allow-session:hover { background: rgba(76, 175, 80, 0.1); }
+.llm-bridge-approval-btn.is-deny { color: #e53935; border-color: rgba(229, 57, 53, 0.4); }
+.llm-bridge-approval-btn.is-deny:hover { background: rgba(229, 57, 53, 0.1); }
+.llm-bridge-phase-approval-details {
+  margin-top: 3px;
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+}
+.llm-bridge-phase-approval-details > summary {
+  cursor: pointer;
+  user-select: none;
+  color: var(--text-muted);
+}
+.llm-bridge-phase-approval-risk-reason,
+.llm-bridge-phase-approval-flags,
+.llm-bridge-phase-approval-input {
+  margin-top: 2px;
+  padding: 2px 4px;
+  font-family: var(--font-monospace);
+  word-break: break-word;
+}
+/* V16.4-D: editing tool 自动批准来源标签 */
+.llm-bridge-phase-tool-auto-approval {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-style: italic;
+  margin-left: auto;
+  padding: 0 4px;
+}
+/* V16.4-D: permission snapshot（developer mode） */
+.llm-bridge-perm-snapshot-text {
+  margin: 0;
+  padding: 5px 7px;
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--background-secondary);
+  border-radius: 4px;
 }
 
 /* ===== V2.16-C: Timeline tool badges + connecting line + category colors ===== */

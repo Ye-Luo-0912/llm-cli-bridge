@@ -114,6 +114,27 @@ export type AgentRunCard =
 
 // ---------- Display Model ----------
 
+/**
+ * V16.4-D: Run-level permission snapshot — 记录 run 开始时的权限配置。
+ * developer mode 审计用；解释自动批准来源。
+ */
+export interface PermissionSnapshot {
+  /** 用户配置的 permissionMode（settings.claudePermissionMode） */
+  readonly configuredPermissionMode?: string;
+  /** 实际生效的 permissionMode（PermissionBoundary.mode，可能被 provider 覆盖） */
+  readonly effectivePermissionMode?: string;
+  /** SDK 初始化时的 permissionMode（provider 启动 SDK 时传入） */
+  readonly sdkInitPermissionMode?: string;
+  /** 允许的工具列表（PermissionBoundary.policy） */
+  readonly allowedTools?: ReadonlyArray<string>;
+  /** 禁止的工具列表 */
+  readonly disallowedTools?: ReadonlyArray<string>;
+  /** canUseTool 是否被调用（codex app-server 路径） */
+  readonly canUseToolCalled?: boolean;
+  /** approval 事件列表（pending + resolved） */
+  readonly approvalEvents?: ReadonlyArray<{ requestId: string; toolName: string; pending: boolean; resolutionSource?: string }>;
+}
+
 export interface AgentRunDebugView {
   commandPreview?: ReadonlyArray<{ label: string; value: string }>;
   effectiveRunPlan?: EffectiveRunPlan;
@@ -127,6 +148,8 @@ export interface AgentRunDebugView {
   /** legacy: Workflow Trace / SDK events（仅 developer mode 展示） */
   workflowTrace?: ReadonlyArray<{ stage: string; timestamp: string; detail: string; status: string }>;
   sdkEvents?: ReadonlyArray<unknown>;
+  /** V16.4-D: Run-level permission snapshot（developer mode 审计） */
+  permissionSnapshot?: PermissionSnapshot;
 }
 
 export interface AgentRunDisplayModel {
@@ -234,6 +257,42 @@ export function toolDisplayLabel(toolName: string, toolInput?: string): string {
 }
 
 /**
+ * V16.4-D: 解释自动批准来源 — 当 editing tool 完成且无 pending approval 时，说明为何未弹窗。
+ *
+ * 返回值：
+ * - "auto-approved by acceptEdits" — acceptEdits 模式自动允许写入
+ * - "auto-approved by bypass" — bypassPermissions 模式跳过所有权限
+ * - "auto-approved by auto mode" — auto 模式自动允许低风险
+ * - "approved by session" — 会话级 allow 缓存
+ * - "approved by allow rule" — permission policy allow
+ * - undefined — 无法判定（需 pending approval 或未知模式）
+ */
+export function explainAutoApprovalSource(
+  permissionMode: string | undefined,
+  resolutionSource?: string,
+): string | undefined {
+  // 优先使用 resolutionSource（来自 ApprovalSegment，精确）
+  if (resolutionSource === "mode") {
+    if (permissionMode === "acceptEdits") return "auto-approved by acceptEdits";
+    if (permissionMode === "bypassPermissions") return "auto-approved by bypass";
+    if (permissionMode === "auto") return "auto-approved by auto mode";
+    if (permissionMode === "dontAsk") return "auto-approved by dontAsk";
+    return `auto-approved by ${permissionMode ?? "mode"}`;
+  }
+  if (resolutionSource === "session_allow") return "approved by session";
+  if (resolutionSource === "user") return "user approved";
+  if (resolutionSource === "session_deny") return "denied by session";
+  // 无 resolutionSource 时，基于 mode 推断（tool 无 pending approval = 被 mode 自动决策）
+  if (!resolutionSource) {
+    if (permissionMode === "acceptEdits") return "auto-approved by acceptEdits";
+    if (permissionMode === "bypassPermissions") return "auto-approved by bypass";
+    if (permissionMode === "auto") return "auto-approved by auto mode";
+    if (permissionMode === "dontAsk") return "auto-approved by dontAsk";
+  }
+  return undefined;
+}
+
+/**
  * P5: 脱敏 debugView 中的敏感信息（API key / token / Bearer / password）。
  *
  * debugView 是 developer mode 唯一调试入口，其中 rawProviderEvents / commandPreview /
@@ -258,6 +317,7 @@ export function redactDebugView(debug: AgentRunDebugView): AgentRunDebugView {
     lifecycleEvents: debug.lifecycleEvents?.map((e) => redactObject(e)),
     workflowTrace: debug.workflowTrace?.map((t) => ({ ...t, detail: redactSecrets(t.detail) })),
     sdkEvents: debug.sdkEvents?.map((e) => redactObject(e)),
+    permissionSnapshot: debug.permissionSnapshot ? redactObject(debug.permissionSnapshot) : debug.permissionSnapshot,
   };
 }
 

@@ -2061,6 +2061,200 @@ if (runMode !== "all" && runMode !== "unit") {
       addTest("V16.4-C: fileChangeCards 用合并后的 stats（provider 覆盖 fallback additions=100）",
         cardStatOk ? "pass" : "fail",
         cardStatOk ? "" : `additions=${cardStat?.additions}`);
+
+      // ========== V16.4-D: Thinking 聚合 + Phase Ownership + Phase Label 重算 ==========
+
+      // --- Test AA: thinking_delta + progress-thinking + thinking_delta 合并为一个 ThoughtSegment（同 messageId） ---
+      {
+        const thinkingAggEvents = [
+          mkEv({ kind: "thinking", text: "Let me " }, 1),
+          mkEv({ kind: "thinking", text: "read the file." }, 2),
+          // progress-thinking 不应切碎 thinking block
+          mkEv({ kind: "progress", category: "thinking", label: "thinking", detail: "~10 tokens" }, 3),
+          mkEv({ kind: "thinking", text: " Then verify." }, 4),
+          mkEv({ kind: "completed", text: "Done.", durationMs: 5000 }, 5),
+        ];
+        const thinkingAggView = buildAssistantTurnViewFromEvents("turn-aa", "claude-sdk", thinkingAggEvents, ts(0));
+        const thinkingAggSegCount = thinkingAggView.thoughts.length;
+        // 所有 thoughts 应有相同 messageId（同 SDKAssistantMessage 内的 thinking 合并）
+        const thinkingAggMsgIds = new Set(thinkingAggView.thoughts.map((t) => t.messageId));
+        const thinkingAggText = thinkingAggView.thoughts.map((t) => t.text).join("");
+        const thinkingAggOk = thinkingAggSegCount === 1
+          && thinkingAggMsgIds.size === 1
+          && thinkingAggText === "Let me read the file. Then verify.";
+        addTest("V16.4-D: thinking_delta + progress-thinking + thinking_delta 合并为一个 ThoughtSegment（同 messageId）",
+          thinkingAggOk ? "pass" : "fail",
+          thinkingAggOk ? "" : `segCount=${thinkingAggSegCount} msgIds=${[...thinkingAggMsgIds].join(",")} text="${thinkingAggText}"`);
+      }
+
+      // --- Test AB: tool progress 不切碎 thinking block（同 messageId） ---
+      {
+        const thinkingToolEvents = [
+          mkEv({ kind: "thinking", text: "Part 1." }, 1),
+          mkEv({ kind: "thinking", text: " Part 2." }, 2),
+          mkEv({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"a.md"}', callId: "ab1" }, 3),
+          mkEv({ kind: "tool_result", callId: "ab1", toolName: "Read", output: "content", isError: false }, 4),
+          mkEv({ kind: "thinking", text: "New message thinking." }, 5),
+          mkEv({ kind: "completed", text: "Done.", durationMs: 5000 }, 6),
+        ];
+        const thinkingToolView = buildAssistantTurnViewFromEvents("turn-ab", "claude-sdk", thinkingToolEvents, ts(0));
+        // 第一段 thinking 应合并为 "Part 1. Part 2."（同 messageId），第二段 "New message thinking."（不同 messageId）
+        const thinkingToolSegCount = thinkingToolView.thoughts.length;
+        const thinkingToolFirst = thinkingToolView.thoughts[0];
+        const thinkingToolSecond = thinkingToolView.thoughts[1];
+        const thinkingToolOk = thinkingToolSegCount === 2
+          && thinkingToolFirst && thinkingToolFirst.text === "Part 1. Part 2."
+          && thinkingToolSecond && thinkingToolSecond.text === "New message thinking."
+          && thinkingToolFirst.messageId !== thinkingToolSecond.messageId;
+        addTest("V16.4-D: tool 进度不打碎 thinking block（同 messageId 合并，跨 message 新段）",
+          thinkingToolOk ? "pass" : "fail",
+          thinkingToolOk ? "" : `segCount=${thinkingToolSegCount} first="${thinkingToolFirst?.text}" second="${thinkingToolSecond?.text}"`);
+      }
+
+      // --- Test AC: toolUseId 绑定 — tool 出现在正确 phase（不再时间窗口错配） ---
+      {
+        const ownershipEvents = [
+          mkEv({ kind: "thinking", text: "Read first." }, 1),
+          mkEv({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"a.md"}', callId: "oc1" }, 2),
+          mkEv({ kind: "tool_result", callId: "oc1", toolName: "Read", output: "content", isError: false }, 3),
+          mkEv({ kind: "thinking", text: "Now write." }, 4),
+          mkEv({ kind: "tool_start", toolName: "Write", toolInput: '{"file_path":"b.md","content":"x"}', callId: "oc2" }, 5),
+          mkEv({ kind: "tool_result", callId: "oc2", toolName: "Write", output: "ok", isError: false }, 6),
+          mkEv({ kind: "file_change", action: "create", path: "b.md", additions: 1, deletions: 0 }, 7),
+          mkEv({ kind: "thinking", text: "Verify." }, 8),
+          mkEv({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"b.md"}', callId: "oc3" }, 9),
+          mkEv({ kind: "tool_result", callId: "oc3", toolName: "Read", output: "x", isError: false }, 10),
+          mkEv({ kind: "completed", text: "Done.", durationMs: 9000 }, 11),
+        ];
+        const ownershipView = buildAssistantTurnViewFromEvents("turn-ac", "claude-sdk", ownershipEvents, ts(0));
+        const ownershipLifecycle = buildLifecycleEventsFromTurnView(ownershipView);
+        const ownershipModel = buildRunPhaseModel(ownershipView, ownershipLifecycle, { durationMs: 9000 });
+        // 检查：Reading phase 不含 Write tool
+        const ownReadingPhase = ownershipModel.phases.find((p) => p.type === "reading");
+        const ownEditingPhase = ownershipModel.phases.find((p) => p.type === "editing");
+        const ownVerifyingPhase = ownershipModel.phases.find((p) => p.type === "verifying");
+        const readingHasWrite = ownReadingPhase && ownReadingPhase.tools.some((t) => t.toolName.toLowerCase().includes("write"));
+        const editingHasWrite = ownEditingPhase && ownEditingPhase.tools.some((t) => t.toolName.toLowerCase().includes("write"));
+        const verifyingHasRead = ownVerifyingPhase && ownVerifyingPhase.tools.some((t) => t.toolName.toLowerCase().includes("read"));
+        const verifyingHasWrite = ownVerifyingPhase && ownVerifyingPhase.tools.some((t) => t.toolName.toLowerCase().includes("write"));
+        const ownershipOk = !readingHasWrite && editingHasWrite && verifyingHasRead && !verifyingHasWrite;
+        addTest("V16.4-D: toolUseId 绑定 — Write 不出现在 Reading phase，verify Read 在 Verifying phase",
+          ownershipOk ? "pass" : "fail",
+          ownershipOk ? "" : `readingHasWrite=${readingHasWrite} editingHasWrite=${editingHasWrite} verifyingHasRead=${verifyingHasRead} verifyingHasWrite=${verifyingHasWrite}`);
+      }
+
+      // --- Test AD: phase label 重算 — 含 create fileChange → "Created filename" ---
+      {
+        const labelEvents = [
+          mkEv({ kind: "thinking", text: "Create file." }, 1),
+          mkEv({ kind: "tool_start", toolName: "Write", toolInput: '{"file_path":"b.md","content":"line1"}', callId: "lc1" }, 2),
+          mkEv({ kind: "tool_result", callId: "lc1", toolName: "Write", output: "ok", isError: false }, 3),
+          mkEv({ kind: "file_change", action: "create", path: "b.md", additions: 1, deletions: 0 }, 4),
+          mkEv({ kind: "completed", text: "Done.", durationMs: 5000 }, 5),
+        ];
+        const labelView = buildAssistantTurnViewFromEvents("turn-ad", "claude-sdk", labelEvents, ts(0));
+        const labelLifecycle = buildLifecycleEventsFromTurnView(labelView);
+        const labelModel = buildRunPhaseModel(labelView, labelLifecycle, { durationMs: 5000 });
+        const labelEditingPhase = labelModel.phases.find((p) => p.type === "editing");
+        const createdLabelOk = labelEditingPhase && labelEditingPhase.label === "Created b.md";
+        addTest("V16.4-D: phase label 重算 — create fileChange → 'Created b.md'",
+          createdLabelOk ? "pass" : "fail",
+          createdLabelOk ? "" : `label="${labelEditingPhase?.label}"`);
+      }
+
+      // --- Test AE: phase label 重算 — modify fileChange → "Modified filename" ---
+      {
+        const modifyEvents = [
+          mkEv({ kind: "thinking", text: "Edit file." }, 1),
+          mkEv({ kind: "tool_start", toolName: "Edit", toolInput: '{"file_path":"c.md"}', callId: "ec1" }, 2),
+          mkEv({ kind: "tool_result", callId: "ec1", toolName: "Edit", output: "ok", isError: false }, 3),
+          mkEv({ kind: "file_change", action: "modify", path: "c.md", additions: 2, deletions: 1 }, 4),
+          mkEv({ kind: "completed", text: "Done.", durationMs: 5000 }, 5),
+        ];
+        const modifyView = buildAssistantTurnViewFromEvents("turn-ae", "claude-sdk", modifyEvents, ts(0));
+        const modifyLifecycle = buildLifecycleEventsFromTurnView(modifyView);
+        const modifyModel = buildRunPhaseModel(modifyView, modifyLifecycle, { durationMs: 5000 });
+        const modifyEditingPhase = modifyModel.phases.find((p) => p.type === "editing");
+        const modifyLabelOk = modifyEditingPhase && modifyEditingPhase.label === "Modified c.md";
+        addTest("V16.4-D: phase label 重算 — modify fileChange → 'Modified c.md'",
+          modifyLabelOk ? "pass" : "fail",
+          modifyLabelOk ? "" : `label="${modifyEditingPhase?.label}"`);
+      }
+
+      // --- Test AF: phase label 重算 — checking tool → "Running tests" ---
+      {
+        const checkEvents = [
+          mkEv({ kind: "thinking", text: "Run tests." }, 1),
+          mkEv({ kind: "tool_start", toolName: "npm test", toolInput: '{}', callId: "cc1" }, 2),
+          mkEv({ kind: "tool_result", callId: "cc1", toolName: "npm test", output: "pass", isError: false }, 3),
+          mkEv({ kind: "completed", text: "Done.", durationMs: 5000 }, 4),
+        ];
+        const checkView = buildAssistantTurnViewFromEvents("turn-af", "claude-sdk", checkEvents, ts(0));
+        const checkLifecycle = buildLifecycleEventsFromTurnView(checkView);
+        const checkModel = buildRunPhaseModel(checkView, checkLifecycle, { durationMs: 5000 });
+        const checkPhase = checkModel.phases.find((p) => p.type === "checking");
+        const checkLabelOk = checkPhase && checkPhase.label === "Running tests";
+        addTest("V16.4-D: phase label 重算 — checking tool → 'Running tests'",
+          checkLabelOk ? "pass" : "fail",
+          checkLabelOk ? "" : `label="${checkPhase?.label}"`);
+      }
+
+      // --- Test AG: phase 不重复显示同一 tool（toolUseId 绑定唯一性） ---
+      {
+        const noDupEvents = [
+          mkEv({ kind: "thinking", text: "Create." }, 1),
+          mkEv({ kind: "tool_start", toolName: "Write", toolInput: '{"file_path":"d.md","content":"x"}', callId: "dc1" }, 2),
+          mkEv({ kind: "tool_result", callId: "dc1", toolName: "Write", output: "ok", isError: false }, 3),
+          mkEv({ kind: "file_change", action: "create", path: "d.md", additions: 1, deletions: 0 }, 4),
+          mkEv({ kind: "completed", text: "Done.", durationMs: 5000 }, 5),
+        ];
+        const noDupView = buildAssistantTurnViewFromEvents("turn-ag", "claude-sdk", noDupEvents, ts(0));
+        const noDupLifecycle = buildLifecycleEventsFromTurnView(noDupView);
+        const noDupModel = buildRunPhaseModel(noDupView, noDupLifecycle, { durationMs: 5000 });
+        // 检查每个 phase 内 tool 不重复（同 callId 只出现一次）
+        const noDupOk = noDupModel.phases.every((p) => {
+          const callIds = p.tools.map((t) => t.callId);
+          return callIds.length === new Set(callIds).size;
+        });
+        addTest("V16.4-D: phase 内 tool 不重复（toolUseId 绑定唯一性）",
+          noDupOk ? "pass" : "fail",
+          noDupOk ? "" : `phases=${noDupModel.phases.map((p) => `${p.type}:${p.tools.length}`).join(",")}`);
+      }
+
+      // --- Test AH: 普通用户态不渲染逐词灰块（thoughts 合并为单个 Reasoning 块） ---
+      // --- Test AI: 权限 popover 含 5 模式（含 bypassPermissions）+ 挂载到 leftTools ---
+      // --- Test AJ: setPermissionMode 不被 runHandle 阻塞 ---
+      {
+        const viewSrc = readFileSync(join(PROJECT_ROOT, "src/view.ts"), "utf8");
+        // Test AH: thoughts 合并
+        const hasReasoningBlock = viewSrc.includes("llm-bridge-phase-reasoning")
+          && viewSrc.includes("mergedText")
+          && viewSrc.includes("Reasoning");
+        const hasNoPerSegmentBlock = !viewSrc.includes("llm-bridge-phase-thought-segment");
+        const reasoningRenderOk = hasReasoningBlock && hasNoPerSegmentBlock;
+        addTest("V16.4-D: 普通用户态 thoughts 合并为单个 Reasoning 块（不逐词灰块）",
+          reasoningRenderOk ? "pass" : "fail",
+          reasoningRenderOk ? "" : `hasReasoningBlock=${hasReasoningBlock} hasNoPerSegmentBlock=${hasNoPerSegmentBlock}`);
+
+        // Test AI: 权限 popover
+        const hasBypass = viewSrc.includes("bypassPermissions")
+          && viewSrc.includes("Bypass");
+        const hasParentMount = viewSrc.includes("parentElement");
+        const hasClickOutside = viewSrc.includes("permissionPopoverOutsideClickHandler");
+        const permPopoverOk = hasBypass && hasParentMount && hasClickOutside;
+        addTest("V16.4-D: 权限 popover 含 5 模式（含 Bypass）+ 外部挂载 + click-outside handler",
+          permPopoverOk ? "pass" : "fail",
+          permPopoverOk ? "" : `hasBypass=${hasBypass} hasParentMount=${hasParentMount} hasClickOutside=${hasClickOutside}`);
+
+        // Test AJ: setPermissionMode 不被 runHandle 阻塞
+        const setPermFnMatch = viewSrc.match(/setPermissionMode\([^)]*\)[^{]*\{[\s\S]*?\n  private /);
+        const setPermBody = setPermFnMatch ? setPermFnMatch[0] : "";
+        const hasRunHandleBlock = /if\s*\(\s*this\.runHandle\s*\)\s*return/.test(setPermBody);
+        const setPermNotBlockedOk = !hasRunHandleBlock && setPermBody.length > 0;
+        addTest("V16.4-D: setPermissionMode 不被 runHandle 阻塞（修复点击无反应）",
+          setPermNotBlockedOk ? "pass" : "fail",
+          setPermNotBlockedOk ? "" : `hasRunHandleBlock=${hasRunHandleBlock} bodyLen=${setPermBody.length}`);
+      }
     }
 
     // ---------- 5c. P3-C: Developer mode / legacy 分层隔离 ----------
