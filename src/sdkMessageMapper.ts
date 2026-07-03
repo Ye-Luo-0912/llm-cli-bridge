@@ -539,7 +539,19 @@ export function mapSdkMessageToWorkflowEvents(
       };
     } else {
       // 错误完成
-      const errorMsg = rm.errors?.join("; ") ?? `SDK error: ${rm.subtype}`;
+      // P4-D: 修复 "SDK error: success" 文案。按优先级取 errors -> result -> subtype。
+      // - subtype=success && is_error=true 是逻辑异常，标记 diagnostic 而非误导性 "SDK error: success"
+      // - errors 非空时 join 为可读错误信息
+      // - result 非空时作为 fallback 文案（部分 SDK 把错误详情放 result）
+      // - 最后才 fallback 到 `SDK error: ${subtype}`，但 subtype=success 时改为明确的诊断标记
+      const isLogicalError = rm.subtype === "success" && rm.is_error === true;
+      // 注意：[].join(";") 返回 ""，?? 不会 fallback 空串，需用 errors?.length 判断
+      const errorsText = rm.errors && rm.errors.length > 0 ? rm.errors.join("; ") : "";
+      const errorMsg = errorsText
+        || (rm.result && rm.result.length > 0 ? rm.result : "")
+        || (isLogicalError
+          ? `SDK 标记成功但 is_error=true（逻辑异常，请检查 SDK 版本与调用参数）`
+          : `SDK error: ${rm.subtype}`);
       events.push({
         type: "error",
         timestamp,

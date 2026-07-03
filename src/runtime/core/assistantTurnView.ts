@@ -45,6 +45,9 @@ export class AssistantTurnViewBuilder {
 
   private finalAnswerBuffer = "";
   private hasPartialMessages = false;
+  // P4-D: 追踪是否已有 message 事件填充了 finalAnswer（partial 或 full snapshot）。
+  // 用于 stdout_delta 去重：有 message 事件时 stdout_delta 是冗余副本，跳过。
+  private hasMessageEvents = false;
   private thinkingBlock: ThoughtSegment | null = null;
   private readonly toolMap = new Map<string, ToolSegment>();
   private readonly toolOrder: string[] = [];
@@ -161,16 +164,19 @@ export class AssistantTurnViewBuilder {
         } else if (p.partial) {
           // 主 agent partial text_delta：累加到 finalAnswer
           this.hasPartialMessages = true;
+          this.hasMessageEvents = true;
           this.finalAnswerBuffer += p.text;
         } else {
           // 完整快照
           if (this.finalAnswerBuffer.length === 0) {
             this.finalAnswerBuffer = p.text;
+            this.hasMessageEvents = true;
           } else if (this.finalAnswerBuffer === p.text) {
             // 重复快照：跳过
           } else if (p.text.startsWith(this.finalAnswerBuffer)) {
             // 累积快照：新快照以 buffer 为前缀（累积增长），替换
             this.finalAnswerBuffer = p.text;
+            this.hasMessageEvents = true;
           } else if (this.finalAnswerBuffer.startsWith(p.text)) {
             // buffer 已包含新快照（新快照是旧前缀）：跳过
           } else {
@@ -285,9 +291,10 @@ export class AssistantTurnViewBuilder {
       }
 
       case "stdout_delta": {
-        // CLI 路径：stdout 增量累加到 finalAnswer（CLI 无 partial stream）
-        // SDK 路径：partial messages 已是 source of truth，stdout_delta 是冗余副本，跳过
-        if (this.hasPartialMessages) break;
+        // CLI 路径：stdout 增量累加到 finalAnswer（CLI 无 message stream）
+        // SDK 路径：message 事件已是 source of truth，stdout_delta 是冗余副本，跳过
+        // P4-D: 用 hasMessageEvents 覆盖 partial 和 full snapshot 两种情况
+        if (this.hasMessageEvents) break;
         this.finalAnswerBuffer += p.data;
         break;
       }

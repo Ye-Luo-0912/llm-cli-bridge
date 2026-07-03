@@ -1538,6 +1538,66 @@ if (runMode !== "all" && runMode !== "unit") {
       const iconOk = iconRead.category === "read" && iconBash.category === "command" && iconWrite.category === "write";
       addTest("AgentRunDisplayModel: getToolIconCategory 分类正确", iconOk ? "pass" : "fail",
         iconOk ? "" : `read=${iconRead.category} bash=${iconBash.category} write=${iconWrite.category}`);
+
+      // P4-D: toolDisplayLabel 普通用户态简洁标签
+      const { toolDisplayLabel } = agentRunDisplayModelMod;
+      const labelRead = toolDisplayLabel("Read", JSON.stringify({ file_path: "AGENTS.md" }));
+      const labelWrite = toolDisplayLabel("Write", JSON.stringify({ file_path: "TASKS_Summary.md" }));
+      const labelCreate = toolDisplayLabel("create_file", JSON.stringify({ file_path: "new.md" }));
+      const labelBash = toolDisplayLabel("Bash", JSON.stringify({ command: "ls -la" }));
+      const labelSearch = toolDisplayLabel("Grep", JSON.stringify({ pattern: "foo" }));
+      const labelReadPath = toolDisplayLabel("Read", JSON.stringify({ file_path: "/a/b/c/note.md" }));
+      const labelOk = labelRead === "Read AGENTS.md"
+        && labelWrite === "Write TASKS_Summary.md"
+        && labelCreate === "Created new.md"
+        && labelBash === "Run command"
+        && labelSearch === "Search"
+        && labelReadPath === "Read note.md";
+      addTest("P4-D AgentRunDisplayModel: toolDisplayLabel 普通用户态简洁标签", labelOk ? "pass" : "fail",
+        labelOk ? "" : `read="${labelRead}" write="${labelWrite}" create="${labelCreate}" bash="${labelBash}" search="${labelSearch}" readPath="${labelReadPath}"`);
+
+      // P4-D: 普通用户态 tool card 不含 raw JSON toolInput/output，developer mode 保留
+      const toolEvents = [
+        mkEvent({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"secret.md"}', callId: "ct1" }),
+        mkEvent({ kind: "tool_result", callId: "ct1", toolName: "Read", output: "SECRET CONTENT", isError: false }),
+        mkEvent({ kind: "completed", text: "done", durationMs: 100 }),
+      ];
+      const toolView = buildAssistantTurnViewFromEvents("turn-tool-1", "codex-app-server", toolEvents, "2026-07-02T00:00:00.000Z");
+      const normalModel = buildAgentRunDisplayModel(toolView, { developerMode: false });
+      const devModel = buildAgentRunDisplayModel(toolView, { developerMode: true });
+      const normalToolCard = normalModel.timelineCards.find((c) => c.kind === "tool-call");
+      const devToolCard = devModel.timelineCards.find((c) => c.kind === "tool-call");
+      const normalClean = normalToolCard
+        && normalToolCard.label === "Read secret.md"
+        && normalToolCard.toolInput === ""
+        && normalToolCard.output === undefined;
+      const devPreserved = devToolCard
+        && devToolCard.toolInput === '{"file_path":"secret.md"}'
+        && devToolCard.output === "SECRET CONTENT";
+      addTest("P4-D AgentRunDisplayModel: 普通用户态 tool card 降噪（隐藏 raw JSON），developer mode 保留",
+        normalClean && devPreserved ? "pass" : "fail",
+        `normal=${normalClean ? "ok" : JSON.stringify({ label: normalToolCard && normalToolCard.label, toolInput: normalToolCard && normalToolCard.toolInput, output: normalToolCard && normalToolCard.output })} dev=${devPreserved ? "ok" : "fail"}`);
+
+      // P4-D: completed 无文件变化无耗时 → header 不显示 "Done"
+      const noSummaryEvents = [
+        mkEvent({ kind: "message", role: "assistant", text: "hi", partial: true }),
+        mkEvent({ kind: "completed", text: "hi", durationMs: 0 }),
+      ];
+      const noSummaryView = buildAssistantTurnViewFromEvents("turn-nosum", "codex-app-server", noSummaryEvents, "2026-07-02T00:00:00.000Z");
+      const noSummaryModel = buildAgentRunDisplayModel(noSummaryView, { developerMode: false });
+      const noDoneOk = !noSummaryModel.header.includes("Done") && noSummaryModel.header === "";
+      addTest("P4-D AgentRunDisplayModel: completed 无摘要不显示 Done", noDoneOk ? "pass" : "fail",
+        noDoneOk ? "" : `header="${noSummaryModel.header}"`);
+
+      // P4-D: completed 有耗时无文件变化 → header 显示 "Xs"（不显示 Done）
+      const durOnlyEvents = [
+        mkEvent({ kind: "completed", text: "done", durationMs: 17000 }),
+      ];
+      const durOnlyView = buildAssistantTurnViewFromEvents("turn-dur", "codex-app-server", durOnlyEvents, "2026-07-02T00:00:00.000Z");
+      const durOnlyModel = buildAgentRunDisplayModel(durOnlyView, { developerMode: false });
+      const durOnlyOk = durOnlyModel.header === "17s" && !durOnlyModel.header.includes("Done");
+      addTest("P4-D AgentRunDisplayModel: completed 有耗时显示 Xs（不显示 Done）", durOnlyOk ? "pass" : "fail",
+        durOnlyOk ? "" : `header="${durOnlyModel.header}"`);
     }
 
     // ---------- 5c. P3-C: Developer mode / legacy 分层隔离 ----------
@@ -1969,6 +2029,31 @@ if (runMode !== "all" && runMode !== "unit") {
         const ok6 = view.finalAnswer === "Hello World";
         addTest("P4-D: 累积快照模式（Hello → Hello World）", ok6 ? "pass" : "fail",
           ok6 ? "" : `got="${view.finalAnswer}"`);
+      }
+
+      // Test 7: full message(partial=false) + stdout_delta 同一文本不得重复
+      // P4-D 场景：SDK result success 发出完整 message，同时 stdout_delta fallback
+      {
+        const b = new Builder("t7", "claude-sdk", ts());
+        b.ingest(mkMsg("你好", false));     // 完整 message
+        b.ingest(mkStdout("你好"));         // 同一文本的 stdout_delta
+        const view = b.toView();
+        const ok7 = view.finalAnswer === "你好";
+        addTest("P4-D: full message + stdout_delta 同文本不重复（你好）", ok7 ? "pass" : "fail",
+          ok7 ? "" : `got="${view.finalAnswer}"`);
+      }
+
+      // Test 8: SDK result success text + prior partial deltas 不得重复
+      // P4-D 场景：partial 增量累加完成后，completed 终态携带完整 text（reconcile）
+      {
+        const b = new Builder("t8", "claude-sdk", ts());
+        b.ingest(mkMsg("Hello", true));        // partial delta
+        b.ingest(mkMsg(" World", true));       // partial delta → "Hello World"
+        b.ingest(mkCompleted("Hello World", 5000)); // completed 携带完整 text
+        const view = b.toView();
+        const ok8 = view.finalAnswer === "Hello World" && view.status === "completed";
+        addTest("P4-D: result success text + prior partial deltas 不重复", ok8 ? "pass" : "fail",
+          ok8 ? "" : `got="${view.finalAnswer}" status=${view.status}`);
       }
     }
 
@@ -4377,6 +4462,46 @@ if (!runV17Unit) {
       addTest("V1.7 mapSdkMessageToWorkflowEvents: result success/error 终态",
         successOk && errorOk ? "pass" : "fail",
         `successOk=${successOk} errorOk=${errorOk}`);
+    }
+
+    // ---- Test 4b: P4-D SDKResultMessage subtype=success && is_error=true 不得产生 "SDK error: success" ----
+    {
+      // 场景：subtype=success 但 is_error=true（逻辑异常），errors 为空
+      const logicalErrorMsg = {
+        type: "result", subtype: "success", is_error: true,
+        errors: [], result: "",
+      };
+      const r = mapSdkMessageToWorkflowEvents(logicalErrorMsg, TS);
+      const errorEv = r.events.find((e) => e.type === "error");
+      const noMisleadingText = errorEv && !errorEv.message.includes("SDK error: success");
+      const hasDiagnosticText = errorEv && (errorEv.message.includes("is_error=true") || errorEv.message.includes("逻辑异常"));
+      addTest("P4-D mapSdkMessageToWorkflowEvents: subtype=success && is_error=true 不产生 'SDK error: success'",
+        noMisleadingText && hasDiagnosticText ? "pass" : "fail",
+        `msg="${errorEv?.message ?? ""}"`);
+
+      // 场景：subtype=success && is_error=true，但有 errors 数组 → 使用 errors
+      const logicalWithErrors = {
+        type: "result", subtype: "success", is_error: true,
+        errors: ["real error reason"], result: "",
+      };
+      const r2 = mapSdkMessageToWorkflowEvents(logicalWithErrors, TS);
+      const errorEv2 = r2.events.find((e) => e.type === "error");
+      const usesErrors = errorEv2 && errorEv2.message === "real error reason";
+      addTest("P4-D mapSdkMessageToWorkflowEvents: subtype=success && is_error=true 优先使用 errors 数组",
+        usesErrors ? "pass" : "fail",
+        `msg="${errorEv2?.message ?? ""}"`);
+
+      // 场景：subtype=error_during_execution && is_error=true，errors 为空，result 非空 → 用 result
+      const errorWithResult = {
+        type: "result", subtype: "error_during_execution", is_error: true,
+        errors: [], result: "detailed error info",
+      };
+      const r3 = mapSdkMessageToWorkflowEvents(errorWithResult, TS);
+      const errorEv3 = r3.events.find((e) => e.type === "error");
+      const usesResult = errorEv3 && errorEv3.message === "detailed error info";
+      addTest("P4-D mapSdkMessageToWorkflowEvents: errors 空时 fallback 到 result 文案",
+        usesResult ? "pass" : "fail",
+        `msg="${errorEv3?.message ?? ""}"`);
     }
 
     // ---- Test 5: partial event (stream_event) 标记 partial，并产出 progress 事件 ----
@@ -13633,9 +13758,12 @@ if (!runNoteSummarizeSmoke) {
     const timelineAdapterSrc = readFileSync(join(PROJECT_ROOT, "src", "timelineAdapter.ts"), "utf8");
     const ok = sdkBackendSrc.includes("deriveAssistantTextDelta")
       && sdkBackendSrc.includes("includePartialMessages: true")
-      && sdkBackendSrc.includes('if (ev.type !== "message" || ev.role !== "assistant" || !ev.text) continue;')
-      && sdkBackendSrc.includes('onEvent({ type: "stdout_delta", data: deltaText })')
-      && sdkBackendSrc.includes("const terminalDelta = deriveAssistantTextDelta(streamedAssistantText, terminalText)")
+      // P4-D: SDK assistant 正文只走 WorkflowEvent.message -> AssistantTurnView，不再二次发射 stdout_delta
+      // 仅在 developer mode 追踪 streamedAssistantText 用于 fallback reconcile 审计
+      && sdkBackendSrc.includes("if (settings.developerMode)")
+      // P4-D: terminal fallback —— 仅当无 message 事件时才用 stdout_delta 补齐
+      && sdkBackendSrc.includes('if (terminalText && streamedAssistantText.length === 0)')
+      && sdkBackendSrc.includes('onEvent({ type: "stdout_delta", data: terminalText })')
       && sdkMessageMapperSrc.includes("mapPartialStreamEvent")
       && sdkMessageMapperSrc.includes("text_delta")
       && sdkMessageMapperSrc.includes("thinking_delta")
