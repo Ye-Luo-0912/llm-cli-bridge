@@ -14457,14 +14457,18 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 15c: SDK permission 改为 turn 内紧凑 approval UI，旧 panel 仅 developer mode ----
   {
     const ok = viewSrc.includes('wrap.setAttribute("data-final-answer-disposition", model.finalAnswerDisposition)')
-      && viewSrc.includes('approvalSection.createEl("div", { cls: "llm-bridge-turn-section-label", text: "Pending approval" })')
-      && viewSrc.includes('createActionButton("Allow once", "allow_once", "is-allow-once")')
-      && viewSrc.includes('createActionButton("Allow session", "allow_session", "is-allow-session")')
-      && viewSrc.includes('createActionButton("Deny", "deny_session", "is-deny")')
+      && viewSrc.includes('const apEl = body.createDiv({ cls: `llm-bridge-phase-approval is-risk-${ap.riskLevel} ${ap.pending ? "is-pending" : "is-resolved"}` });')
+      && viewSrc.includes('const btns = apEl.createDiv({ cls: "llm-bridge-phase-approval-btns" });')
+      && viewSrc.includes('const allowOnce = btns.createEl("button", { cls: "llm-bridge-approval-btn is-allow-once", text: "Allow once" });')
+      && viewSrc.includes('const allowSession = btns.createEl("button", { cls: "llm-bridge-approval-btn is-allow-session", text: "Allow session" });')
+      && viewSrc.includes('const deny = btns.createEl("button", { cls: "llm-bridge-approval-btn is-deny", text: "Deny" });')
+      && viewSrc.includes('details.createEl("summary", { text: "Details" });')
+      && viewSrc.includes('if (isHighRisk) details.setAttribute("open", "");')
       && viewSrc.includes('if (!this.plugin.settings.developerMode || this.pendingPermissions.size === 0)')
-      && stylesSrc.includes(".llm-bridge-turn-approval-card")
-      && stylesSrc.includes(".llm-bridge-turn-approval-actions");
-    addTest("V16.4-D permission UI: turn 内紧凑审批卡片 + developerMode 才显示旧 panel",
+      && stylesSrc.includes(".llm-bridge-phase-approval")
+      && stylesSrc.includes(".llm-bridge-phase-approval-btns")
+      && stylesSrc.includes(".llm-bridge-phase-approval-details");
+    addTest("V16.4-D permission UI: phase 内紧凑审批 + developerMode 才显示旧 panel",
       ok ? "pass" : "fail", "");
   }
 
