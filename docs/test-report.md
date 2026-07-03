@@ -1,23 +1,23 @@
-# LLM CLI Bridge 测试报告 — 单元测试（unit）
+# LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-02T16:48:06.880Z
+- **测试时间**: 2026-07-02T18:16:18.332Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
 - **main.js 大小**: 578.9 KB
 - **Vault 路径**: `C:\Users\Ye_Luo\.trae-cn\worktrees\llm-cli-bridge\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
-- **commit sha**: 74537c445287326fc23d645fbd247817f67f04db
-- **commit 短 sha**: 74537c445287
-- **运行命令**: node scripts/run-tests.mjs --unit
+- **commit sha**: b2aeee28734821f5ec672a93f22649b34d431a40
+- **commit 短 sha**: b2aeee287348
+- **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
 
-- ✅ **通过**: 756
+- ✅ **通过**: 89
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 27
+- ⏭️ **跳过**: 57
 - ⚪ **需人工验证**: 0
-- **总计**: 783
+- **总计**: 146
 
 ### 审计模式说明
 
@@ -156,7 +156,13 @@
 | ⏭️ | --wait --timeout | Obsidian 未运行，跳过 integration 测试 |
 | ⏭️ | bridge.json 缺失错误提示 | Obsidian 未运行，跳过 integration 测试 |
 
-### Contract
+### Bridge Core tests 段
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ⏭️ | Bridge Core tests 段 | 当前为非 unit 模式，跳过 |
+
+### AgentBackend contract tests 段
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
@@ -2573,6 +2579,12 @@
 | ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
 | ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=74537c445287 |
 | ✅ | 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑） | scriptExists=true auditFailExit=true testedCodeShaCheck=true codexSmokeCheck=true docsOnlyLogic=true |
+
+### Codex schema alignment 测试段
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ⏭️ | Codex schema alignment 测试段 | 当前模式不运行 unit |
 
 ## 失败项详情
 

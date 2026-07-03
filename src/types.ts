@@ -143,6 +143,13 @@ export interface ChatMessage {
   fileRefs?: ReadonlyArray<import("./fileRefs").FileRef>;
   // V2.17-A: 本次运行的 EffectiveRunPlan（Developer mode 审计用；普通用户态不渲染）
   effectiveRunPlan?: EffectiveRunPlan;
+  // P3: AssistantTurnView 快照（普通用户态主 UI 状态源）。
+  // 运行中每次 ingest 更新；终态后保存最终快照供历史消息渲染。
+  // 普通用户态 process/thoughts/tools/fileChanges/approvals 从此字段渲染，
+  // 不再从 sdkEvents/workflowTrace 派生。
+  assistantTurnView?: import("./runtime/core/types").AssistantTurnView;
+  // P3: attachment audit (Developer mode only). Records packing decisions.
+  attachmentPlan?: AttachmentPlan;
 }
 
 export interface LLMBridgeSettings {
