@@ -44,6 +44,7 @@ export class AssistantTurnViewBuilder {
   private status: AssistantTurnView["status"] = "running";
 
   private finalAnswerBuffer = "";
+  private hasPartialMessages = false;
   private thinkingBlock: ThoughtSegment | null = null;
   private readonly toolMap = new Map<string, ToolSegment>();
   private readonly toolOrder: string[] = [];
@@ -159,6 +160,7 @@ export class AssistantTurnViewBuilder {
           });
         } else if (p.partial) {
           // 主 agent partial text_delta：累加到 finalAnswer
+          this.hasPartialMessages = true;
           this.finalAnswerBuffer += p.text;
         } else {
           // 完整快照
@@ -166,10 +168,11 @@ export class AssistantTurnViewBuilder {
             this.finalAnswerBuffer = p.text;
           } else if (this.finalAnswerBuffer === p.text) {
             // 重复快照：跳过
-          } else if (p.text.endsWith(this.finalAnswerBuffer)) {
+          } else if (p.text.startsWith(this.finalAnswerBuffer)) {
+            // 累积快照：新快照以 buffer 为前缀（累积增长），替换
             this.finalAnswerBuffer = p.text;
-          } else if (this.finalAnswerBuffer.endsWith(p.text)) {
-            // buffer 已包含快照：跳过
+          } else if (this.finalAnswerBuffer.startsWith(p.text)) {
+            // buffer 已包含新快照（新快照是旧前缀）：跳过
           } else {
             // 不同文本：作为 process 段
             this.processList.push({
@@ -283,7 +286,8 @@ export class AssistantTurnViewBuilder {
 
       case "stdout_delta": {
         // CLI 路径：stdout 增量累加到 finalAnswer（CLI 无 partial stream）
-        // 注：final answer 始终由聚合器输出，不再由 view 旁路直接写 content
+        // SDK 路径：partial messages 已是 source of truth，stdout_delta 是冗余副本，跳过
+        if (this.hasPartialMessages) break;
         this.finalAnswerBuffer += p.data;
         break;
       }
@@ -299,9 +303,14 @@ export class AssistantTurnViewBuilder {
         this.endedAt = event.timestamp;
         if (p.durationMs !== undefined) this.durationMs = p.durationMs;
         if (p.sessionId) this.terminalSessionId = p.sessionId;
-        // 若 completed 携带 text 且 finalAnswer 为空，用 completed text 兜底
-        if (p.text && this.finalAnswerBuffer.length === 0) {
-          this.finalAnswerBuffer = p.text;
+        if (p.text) {
+          if (this.finalAnswerBuffer.length === 0) {
+            // 无文本：用 completed text 兜底
+            this.finalAnswerBuffer = p.text;
+          } else if (this.hasPartialMessages && p.text.startsWith(this.finalAnswerBuffer)) {
+            // SDK 路径 reconcile：completed text 是 partial 累加的超集，替换为完整快照
+            this.finalAnswerBuffer = p.text;
+          }
         }
         break;
       }

@@ -279,7 +279,7 @@ function mapPartialStreamEvent(pm: SdkPartialAssistantMessage, timestamp: string
   if (raw.type === "content_block_start") {
     const block = raw.content_block;
     if (block?.type === "thinking" || block?.type === "redacted_thinking") {
-      events.push(createProgressEvent(timestamp, "Thinking started", undefined, "thinking"));
+      // P4-D: 不再发 "Thinking started" progress 事件，避免普通用户态噪声
     } else if (block?.type === "tool_use" || block?.type === "server_tool_use" || block?.type === "mcp_tool_use") {
       events.push(createProgressEvent(timestamp, `Preparing ${block.name ?? "tool"}`, undefined, "tool"));
     } else {

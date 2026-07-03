@@ -932,6 +932,10 @@
   border: 1.5px solid var(--background-primary);
   box-shadow: 0 0 0 1px var(--background-modifier-border);
 }
+/* P4-D: Compression feedback on ring */
+.llm-bridge-context-ring.is-compressed {
+  box-shadow: 0 0 0 1px var(--background-modifier-border), 0 0 0 3px color-mix(in srgb, #f59e0b 40%, transparent);
+}
 .llm-bridge-context-label {
   flex: 0 0 auto;
   font-weight: 500;
@@ -1070,35 +1074,66 @@
 
 .llm-bridge-context-toggles,
 .llm-bridge-pinned-context,
-.llm-bridge-context-refs {
+.llm-bridge-context-refs,
+.llm-bridge-context-tags {
   flex: 0 0 auto;
-  padding: 6px 12px;
+  padding: 4px 12px;
   border-bottom: 1px solid var(--background-modifier-border);
 }
 
-.llm-bridge-context-toggles {
+/* P4-D: Lightweight context tags */
+.llm-bridge-context-tags {
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-
-.llm-bridge-context-toggles-label {
-  color: var(--text-faint);
-  font-size: var(--font-smallest);
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-.llm-bridge-context-toggle-chips,
-.llm-bridge-pinned-context-body,
-.llm-bridge-context-section-body {
-  display: flex;
-  flex-wrap: wrap;
   gap: 6px;
-  align-items: center;
+  flex-wrap: wrap;
 }
 
-.llm-bridge-pinned-context[hidden] {
+.llm-bridge-context-tag-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.llm-bridge-context-tag-wrap[hidden] {
+  display: none;
+}
+
+.llm-bridge-context-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 999px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.llm-bridge-context-tag:hover {
+  background: var(--background-modifier-hover);
+  border-color: var(--interactive-accent);
+}
+
+.llm-bridge-context-tag.is-active {
+  background: color-mix(in srgb, var(--interactive-accent) 15%, transparent);
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+}
+
+.llm-bridge-context-tag-file {
+  font-size: var(--font-smallest);
+  color: var(--text-faint);
+  font-weight: 400;
+}
+
+.llm-bridge-context-tag-file:empty {
   display: none;
 }
 
@@ -4319,6 +4354,31 @@
 
 .llm-bridge-timeline-head:hover {
   background: var(--background-modifier-hover);
+}
+
+.llm-bridge-timeline-head-noclick {
+  cursor: default;
+}
+.llm-bridge-timeline-head-noclick:hover {
+  background: color-mix(in srgb, var(--llm-agent-surface-raised) 80%, transparent);
+}
+
+/* P4-D: Lightweight spinner for running state */
+.llm-bridge-msg-spinner,
+.llm-bridge-turn-header-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--background-modifier-border);
+  border-top-color: var(--interactive-accent);
+  border-radius: 50%;
+  animation: llm-bridge-spin 0.8s linear infinite;
+  flex-shrink: 0;
+  margin-right: 4px;
+}
+
+@keyframes llm-bridge-spin {
+  to { transform: rotate(360deg); }
 }
 
 .llm-bridge-timeline-toggle,

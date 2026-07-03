@@ -197,7 +197,7 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   codexArgs: "exec -",
   customCommand: "",
   customArgs: "",
-  includeActiveNote: false,
+  includeActiveNote: true,
   includeSelection: true,
   maxActiveNoteChars: 6000,
   maxSelectionChars: 3000,
