@@ -49,6 +49,8 @@ export interface ThinkingCard extends AgentRunCardBase {
 export interface ToolCallCard extends AgentRunCardBase {
   kind: "tool-call";
   toolName: string;
+  /** P4-D: 普通用户态简洁标签（如 "Read AGENTS.md"），不含 raw JSON */
+  label: string;
   toolInput: string;
   durationMs?: number;
   output?: string;
@@ -163,6 +165,61 @@ export function toolToActivity(toolName: string): string {
 }
 
 /**
+ * P4-D: 工具调用 → 普通用户态简洁标签（不含 raw JSON input）。
+ * - Read {"file_path":"AGENTS.md"} → "Read AGENTS.md"
+ * - Write {"file_path":"TASKS_Summary.md"} → "Write TASKS_Summary.md"
+ * - Create {"file_path":"x.md"} → "Created x.md"
+ * - Bash {"command":"ls"} → "Run command"（不暴露 command 内容）
+ * - 其他 → 原始 toolName
+ */
+export function toolDisplayLabel(toolName: string, toolInput?: string): string {
+  const lower = toolName.toLowerCase();
+  const extractPath = (input?: string): string | null => {
+    if (!input) return null;
+    try {
+      const parsed = JSON.parse(input);
+      const p = parsed.file_path ?? parsed.notebook_path ?? parsed.path ?? parsed.pattern;
+      if (typeof p === "string" && p.length > 0) {
+        // basename only, avoid leaking full path in normal user UI
+        const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
+        return parts[parts.length - 1] ?? p;
+      }
+    } catch {
+      // 非 JSON：如果本身像路径，取 basename
+      if (/[/\\]/.test(input)) {
+        const parts = input.replace(/\\/g, "/").split("/").filter(Boolean);
+        return parts[parts.length - 1] ?? null;
+      }
+    }
+    return null;
+  };
+  if (/^read|getfile|file_read|view$/.test(lower) || lower === "read") {
+    const p = extractPath(toolInput);
+    return p ? `Read ${p}` : "Read";
+  }
+  if (/write|edit|str_replace|patch|update_file|insert/.test(lower)) {
+    const p = extractPath(toolInput);
+    return p ? `Write ${p}` : "Write";
+  }
+  if (/create_file/.test(lower)) {
+    const p = extractPath(toolInput);
+    return p ? `Created ${p}` : "Created";
+  }
+  if (/delete_file|remove/.test(lower)) {
+    const p = extractPath(toolInput);
+    return p ? `Deleted ${p}` : "Deleted";
+  }
+  if (/bash|execute|run|command|shell/.test(lower)) {
+    // 不暴露 command 内容，避免噪音
+    return "Run command";
+  }
+  if (/grep|glob|search|ls|list/.test(lower)) {
+    return "Search";
+  }
+  return toolName;
+}
+
+/**
  * P5: 脱敏 debugView 中的敏感信息（API key / token / Bearer / password）。
  *
  * debugView 是 developer mode 唯一调试入口，其中 rawProviderEvents / commandPreview /
@@ -227,15 +284,17 @@ export function buildAgentRunDisplayModel(
     }
     if (durSecs > 0) headerParts.push(`${durSecs}s`);
   } else if (turnView.status === "completed") {
-    // Completed: lightweight summary
+    // P4-D: Completed 轻量摘要 —— 仅显示高价值信息（文件变化、耗时）。
+    // 无文件变化时：有耗时显示 "Xs"，无耗时则 header 留空（不显示 "Done"）。
     const summaryParts: string[] = [];
     if (fileChangeCount > 0) summaryParts.push(`Edited ${fileChangeCount} file${fileChangeCount > 1 ? "s" : ""}`);
     if (summaryParts.length > 0) {
       headerParts.push(summaryParts.join(" · "));
       if (durSecs > 0) headerParts.push(`${durSecs}s`);
-    } else {
-      headerParts.push(durSecs > 0 ? `${durSecs}s` : "Done");
+    } else if (durSecs > 0) {
+      headerParts.push(`${durSecs}s`);
     }
+    // else: 无文件变化且无耗时 → headerParts 留空，不显示 "Done"
   } else if (turnView.status === "failed") {
     headerParts.push("Failed");
     if (durSecs > 0) headerParts.push(`${durSecs}s`);
@@ -291,19 +350,24 @@ export function buildAgentRunDisplayModel(
     const count = callIdCounter.get(tool.callId) ?? 0;
     callIdCounter.set(tool.callId, count + 1);
     const isToolError = tool.status === "error";
+    // P4-D: 普通用户态用简洁 label（如 "Read AGENTS.md"），developer mode 保留 raw toolName
+    const label = options.developerMode ? tool.toolName : toolDisplayLabel(tool.toolName, tool.toolInput);
+    // P4-D: 普通用户态不显示 raw JSON toolInput 和 output（降噪）；developer mode 保留
+    const showRawIO = options.developerMode === true;
     timelineCards.push({
       id: `tool-${tool.callId}${count > 0 ? `-${count}` : ""}`,
       kind: "tool-call",
-      title: tool.toolName,
+      title: label,
       status: tool.status === "running" ? "running" : isToolError ? "failed" : "completed",
-      summary: tool.toolInput ? `${tool.toolName}: ${tool.toolInput.slice(0, 80)}` : tool.toolName,
-      detail: tool.output,
+      summary: label,
+      detail: showRawIO ? tool.output : undefined,
       timestamp: tool.startTime,
       defaultExpanded: tool.status === "running" || isToolError,
       toolName: tool.toolName,
-      toolInput: tool.toolInput,
+      label,
+      toolInput: showRawIO ? tool.toolInput : "",
       durationMs: tool.durationMs,
-      output: tool.output,
+      output: showRawIO ? tool.output : undefined,
       isError: isToolError,
       progress: tool.progress,
     });

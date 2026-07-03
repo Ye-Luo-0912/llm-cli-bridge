@@ -3136,10 +3136,13 @@ export class LLMBridgeView extends ItemView {
     const content = node.createDiv({ cls: "llm-bridge-tl-content" });
     const titleRow = content.createDiv({ cls: "llm-bridge-tl-tool-head" });
     titleRow.createEl("span", { cls: `llm-bridge-tl-tool-icon is-${iconCat.category}`, text: iconCat.icon });
-    titleRow.createEl("span", { cls: "llm-bridge-tl-tool-name", text: card.toolName });
+    // P4-D: 普通用户态用简洁 label（如 "Read AGENTS.md"），developer mode 显示 raw toolName
+    const displayLabel = (card as { label?: string }).label ?? card.toolName;
+    titleRow.createEl("span", { cls: "llm-bridge-tl-tool-name", text: displayLabel });
     if (card.durationMs !== undefined) {
       titleRow.createEl("span", { cls: "llm-bridge-tl-tool-duration", text: this.formatDurationMs(card.durationMs) });
     }
+    // P4-D: 仅在 developer mode（card.toolInput 非空时由 builder 注入）显示 raw JSON input
     if (card.toolInput) {
       content.createEl("div", { cls: "llm-bridge-tl-tool-input", text: truncateText(card.toolInput, 100), attr: { title: card.toolInput } });
     }
@@ -3148,6 +3151,7 @@ export class LLMBridgeView extends ItemView {
       const progText = prog.detail ? `${prog.label}: ${prog.detail}` : prog.label;
       progEl.createEl("span", { cls: "llm-bridge-tl-tool-progress-text", text: truncateText(progText, 120) });
     }
+    // P4-D: 仅在 developer mode（card.output 非空时由 builder 注入）显示 raw output
     if (card.output) {
       content.createEl("div", { cls: "llm-bridge-tl-tool-output", text: truncateText(card.output, 120), attr: { title: card.output } });
     }

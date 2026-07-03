@@ -803,13 +803,17 @@ async function runRealSdkQuery(
         }
       }
 
-      // V2.16-G: 将 assistant 文本按到达顺序增量写入正文，避免等终态一次性落地。
-      for (const ev of result.events) {
-        if (ev.type !== "message" || ev.role !== "assistant" || !ev.text) continue;
-        const deltaText = deriveAssistantTextDelta(streamedAssistantText, ev.text);
-        if (!deltaText) continue;
-        onEvent({ type: "stdout_delta", data: deltaText });
-        streamedAssistantText += deltaText;
+      // P4-D: SDK assistant 正文只走 WorkflowEvent.message -> Normalized message -> AssistantTurnView，
+      // 不再二次发射 stdout_delta（历史双写根因，导致 finalAnswer 重复）。
+      // stdout_delta 仅保留给 CLI/mock 路径或无 message 事件时的 terminal fallback。
+      // 仅在 developer mode 追踪 streamedAssistantText 用于 terminal fallback reconcile 审计。
+      if (settings.developerMode) {
+        for (const ev of result.events) {
+          if (ev.type !== "message" || ev.role !== "assistant" || !ev.text) continue;
+          const deltaText = deriveAssistantTextDelta(streamedAssistantText, ev.text);
+          if (!deltaText) continue;
+          streamedAssistantText += deltaText;
+        }
       }
 
       // 处理终态
@@ -824,13 +828,12 @@ async function runRealSdkQuery(
       }
     }
 
-    // 终态再补齐一次，兼容仅在 result success 上携带最终文本的实现，但避免重复输出。
-    if (terminalText) {
-      const terminalDelta = deriveAssistantTextDelta(streamedAssistantText, terminalText);
-      if (terminalDelta) {
-        onEvent({ type: "stdout_delta", data: terminalDelta });
-        streamedAssistantText += terminalDelta;
-      }
+    // P4-D: terminal fallback —— 仅当整个流式过程未产生任何 assistant message 时，
+    // 才用 stdout_delta 把 terminalText 补齐到 finalAnswer（CLI 无 stream 的兼容路径）。
+    // 有 message 事件时 AssistantTurnView 已是 source of truth，terminalText 仅用于 result.text 审计。
+    if (terminalText && streamedAssistantText.length === 0) {
+      onEvent({ type: "stdout_delta", data: terminalText });
+      streamedAssistantText = terminalText;
     }
 
     const effectiveTerminalText = terminalText || streamedAssistantText;
