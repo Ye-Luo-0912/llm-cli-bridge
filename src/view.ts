@@ -20,6 +20,7 @@ import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalW
 import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse } from "./runtime/core/types";
+import { buildAgentRunDisplayModel, getToolIconCategory, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
 import { AssistantTurnViewBuilder } from "./runtime/core/assistantTurnView";
 import { mapNormalizedToWorkflowEvent } from "./runtime/providers/workflowEventMapper";
@@ -2812,108 +2813,83 @@ export class LLMBridgeView extends ItemView {
     const developerMode = !!this.plugin.settings.developerMode;
     const terminalSuccess = msg.status === "completed" || msg.status === "stopped";
 
-    if (msg.role === "assistant" && terminalSuccess && !developerMode) {
+    // P3: 普通用户态 + developer mode 都优先从 AgentRunDisplayModel 渲染
+    if (msg.role === "assistant" && (terminalSuccess || msg.status === "running") && msg.assistantTurnView) {
       block.querySelector<HTMLElement>(".llm-bridge-timeline-live")?.remove();
-      // P3: 普通用户态优先从 AssistantTurnView 渲染 process/thoughts/tools/fileChanges；
-      //     无 turnView 时回退到 workflowTrace（向后兼容历史消息）。
-      if (msg.assistantTurnView) {
-        const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
-        if (beforeEl) block.insertBefore(details, beforeEl);
-        this.appendAssistantTurnView(details, msg.assistantTurnView, msg.status);
-      } else if (msg.sdkEvents && msg.sdkEvents.length > 0) {
-        const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
-        if (beforeEl) block.insertBefore(details, beforeEl);
-        this.appendSdkWorkflow(details, msg.sdkEvents, { processOnly: true });
-        this.updateLastSdkStats(msg.sdkEvents);
-      } else if (msg.workflowTrace && msg.workflowTrace.length > 0) {
-        const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
-        if (beforeEl) block.insertBefore(details, beforeEl);
-        this.appendWorkflowProcess(details, msg.workflowTrace, msg.status);
+      const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
+      if (beforeEl) block.insertBefore(details, beforeEl);
+
+      // P3: 构建 debugView（仅 developer mode；汇总 audit/raw/legacy，不散落在 appendMsgDetails）
+      const debug: AgentRunDebugView | undefined = developerMode ? {
+        commandPreview: msg.commandPreview,
+        effectiveRunPlan: msg.effectiveRunPlan,
+        providerThreadId: this.session?.providerThreadId,
+        providerSessionId: this.session?.providerSessionId,
+        sessionResumed: this.sessionResumed,
+        attachmentPlan: msg.attachmentPlan,
+        rawProviderEvents: msg.assistantTurnView.rawProviderEvents,
+      } : undefined;
+
+      this.renderAgentRunDisplayModel(details, msg.assistantTurnView, msg.status, { developerMode, debug });
+
+      // legacy: Workflow Trace / SDK events（keep as developer log; remove or migrate in P4）
+      if (developerMode) {
+        if (msg.workflowTrace && msg.workflowTrace.length > 0) {
+          this.appendWorkflowTrace(details, msg.workflowTrace);
+        } else if (msg.timeline && msg.timeline.length > 0) {
+          this.appendTimeline(details, msg.timeline);
+        }
+        if (msg.sdkEvents && msg.sdkEvents.length > 0) {
+          this.appendSdkWorkflow(details, msg.sdkEvents);
+          this.updateLastSdkStats(msg.sdkEvents);
+        }
       }
+
+      this.appendMsgDetailsTail(details, msg, failed, developerMode);
       return;
     }
 
+    // 回退：无 assistantTurnView 时走旧路径（向后兼容历史消息）
     const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
     if (beforeEl) block.insertBefore(details, beforeEl);
     if (msg.role === "assistant" && msg.status === "running") {
-      // P3: 普通用户态运行中从 AssistantTurnView 渲染 live process/thoughts/tools，
-      //     不再依赖 liveAggregator（仅 developerMode 喂入）。
-      //     developerMode 仍走 liveAggregator/appendLiveSdkEvent 路径（下方 sdkEvents 分支）。
       if (!developerMode) {
-        if (msg.assistantTurnView) {
-          this.appendAssistantTurnView(details, msg.assistantTurnView, msg.status);
-        } else {
-          this.appendRunningProcessPlaceholder(details);
-        }
-        return;
-      }
-      // developerMode 运行中：保留 liveAggregator live timeline 路径
-      if (!msg.sdkEvents || msg.sdkEvents.length === 0) {
+        this.appendRunningProcessPlaceholder(details);
+      } else if (!msg.sdkEvents || msg.sdkEvents.length === 0) {
+        // developerMode 运行中无 turnView：保留 liveAggregator live timeline 路径（keep as developer log）
         if (this.liveAggregator.toRawEvents().length === 0) {
           this.appendRunningProcessPlaceholder(details);
         }
       }
     }
 
-    // V1.5: 命令预览区（UI-only，展示本次实际执行的 command/args/cwd/上下文）
+    // developer mode legacy（无 turnView 时才走到这里；keep as developer log; remove or migrate in P4）
     if (developerMode && msg.role === "assistant" && msg.commandPreview && msg.commandPreview.length > 0) {
       this.appendCommandPreview(details, msg.commandPreview);
     }
-
-    // V2.17-A: EffectiveRunPlan 面板（Developer mode 审计用；普通用户态不渲染）
     if (developerMode && msg.role === "assistant" && msg.effectiveRunPlan) {
       this.appendEffectiveRunPlan(details, msg.effectiveRunPlan);
     }
-    // P3: provider session audit（Developer mode 审计用；普通用户态不渲染 providerThreadId/SessionId）
-    if (developerMode && msg.role === "assistant") {
-      const ptid = this.session?.providerThreadId;
-      const psid = this.session?.providerSessionId;
-      if (ptid || psid) {
-        const auditBody = this.createCollapsibleSection(details, "provider session", "llm-bridge-provider-session-audit", false);
-        const lines = [];
-        if (ptid) lines.push(`providerThreadId: ${ptid}`);
-        if (psid) lines.push(`providerSessionId: ${psid}`);
-        if (this.sessionResumed) lines.push("sessionResumed: true（恢复的会话）");
-        auditBody.createEl("pre", { cls: "llm-bridge-provider-session-audit-text", text: lines.join("\n") });
-      }
-    }
-    // P3: attachment audit (Developer mode only)
-    if (developerMode && msg.role === "assistant" && msg.attachmentPlan) {
-      const ap = msg.attachmentPlan;
-      const apBody = this.createCollapsibleSection(details, "attachment audit", "llm-bridge-attachment-audit", false);
-      const apLines = [
-        `message-scoped refs: ${ap.messageScopedRefs}`,
-        `pinned refs: ${ap.pinnedRefs}`,
-        `inline snippets: ${ap.inlineSnippets}`,
-        `image streaming blocks: ${ap.imageStreamingBlocks}`,
-        `native ref only: ${ap.nativeRefOnly}`,
-      ];
-      if (ap.entries && ap.entries.length > 0) {
-        apLines.push("", "entries:");
-        for (const entry of ap.entries) {
-          apLines.push(`  ${entry.refId} | ${entry.scope} | ${entry.fileType} | ${entry.packing} | ${entry.reason}`);
-        }
-      }
-      apBody.createEl("pre", { cls: "llm-bridge-attachment-audit-text", text: apLines.join("\n") });
-    }
-
-    // V1.5: Workflow Trace 区域（UI-only，比 V1.2 timeline 更细粒度）
-    // 优先显示 workflowTrace；若不存在则回退到 V1.2 timeline
+    // legacy: Workflow Trace（keep as developer log; remove or migrate in P4）
     if (developerMode && msg.role === "assistant" && msg.workflowTrace && msg.workflowTrace.length > 0) {
       this.appendWorkflowTrace(details, msg.workflowTrace);
     } else if (developerMode && msg.role === "assistant" && msg.timeline && msg.timeline.length > 0) {
-      // V1.2: 运行过程时间线（向后兼容）
       this.appendTimeline(details, msg.timeline);
     }
-
-    // V1.6: SDK 工作流事件（工具级：tool_start/tool_result/file_change/permission/error/message）
-    // 仅 sdk backend 产生；CLI/mock backend 无此数据
+    // legacy: SDK events（keep as developer log; remove or migrate in P4）
     if (msg.role === "assistant" && msg.sdkEvents && msg.sdkEvents.length > 0) {
       this.appendSdkWorkflow(details, msg.sdkEvents);
-      // V2.3: 更新状态栏工具步骤/agent 计数
       this.updateLastSdkStats(msg.sdkEvents);
     }
 
+    this.appendMsgDetailsTail(details, msg, failed, developerMode);
+  }
+
+  /**
+   * P3: appendMsgDetails 尾部共享逻辑（stderr + debug log + log + generatedFiles）。
+   * 被 turnView 分支和回退分支共同调用，避免重复代码。
+   */
+  private appendMsgDetailsTail(details: HTMLElement, msg: ChatMessage, failed: boolean, developerMode: boolean): void {
     if (msg.stderr && (failed || developerMode)) {
       const startOpen = false;
       this.appendCollapsible(details, failed ? "查看详情" : "stderr", msg.stderr, "llm-bridge-stderr-text", startOpen, failed);
@@ -2940,6 +2916,7 @@ export class LLMBridgeView extends ItemView {
       }
     }
   }
+
 
   private appendWorkflowProcess(
     parent: HTMLElement,
@@ -2998,137 +2975,85 @@ export class LLMBridgeView extends ItemView {
     content.createEl("div", { cls: "llm-bridge-tl-agent-text", text: "正在连接 runtime，等待首个事件..." });
   }
 
-  /**
-   * P3: 从 AssistantTurnView 渲染普通用户态主链路（process/thoughts/tools/fileChanges/errors）。
-   *
-   * 取代 appendWorkflowProcess / appendSdkWorkflow 作为普通用户态主 UI 数据源。
-   * 运行中：live 展示当前 thoughts + running tools（始终展开）。
-   * 终态：折叠摘要 + 展开内容（thoughts/tools/fileChanges）。
-   *
-   * 不渲染 approvals（由 pendingPermissions 面板 + turnView.approvals 驱动，见 handleNormalizedEvent）。
-   * 不渲染 rawProviderEvents（developerMode 由 appendSdkWorkflow/appendWorkflowTrace 覆盖）。
-   */
-  private appendAssistantTurnView(
+/**
+ * P3: 从 AssistantTurnView 构建 AgentRunDisplayModel 并渲染普通用户态主链路。
+ *
+ * 业务分类逻辑由 buildAgentRunDisplayModel 承担；此方法只做 DOM 渲染。
+ * developer mode 的 audit/raw/legacy 信息通过 debugView 汇总渲染，不散落在 appendMsgDetails。
+ *
+ * legacy: WorkflowEvent / RunStateAggregator 不参与普通用户主 UI（keep as developer log）。
+ */
+  private renderAgentRunDisplayModel(
     parent: HTMLElement,
     turnView: import("./runtime/core/types").AssistantTurnView,
     status: RunStatus,
+    options: { developerMode: boolean; debug?: AgentRunDebugView },
   ): void {
+    const model = buildAgentRunDisplayModel(turnView, {
+      isRunning: status === "running",
+      statusLabel: STATUS_LABEL[status],
+      developerMode: options.developerMode,
+      debug: options.debug,
+    });
+
     const isRunning = status === "running";
-    const toolCount = turnView.tools.length;
-    const fileChangeCount = turnView.fileChanges.length;
-    const thoughtCount = turnView.thoughts.length;
-    const resolvedApprovalCount = turnView.approvals.filter((a) => !a.pending).length;
-    const hasContent = toolCount > 0 || fileChangeCount > 0 || thoughtCount > 0 || turnView.errors.length > 0 || resolvedApprovalCount > 0;
+    const isFailed = status === "failed";
+    const hasTimelineContent = model.timelineCards.length > 0;
+    const hasFileChanges = model.fileChangeCards.length > 0;
+    const hasDiagnostics = model.diagnosticCards.length > 0;
 
-    // 摘要
-    const parts = ["过程"];
-    const statusLabel = isRunning ? "运行中" : STATUS_LABEL[status];
-    parts.push(statusLabel);
-    if (thoughtCount > 0) parts.push(`${thoughtCount} thinking`);
-    if (toolCount > 0) parts.push(`${toolCount} tool${toolCount > 1 ? "s" : ""}`);
-    if (fileChangeCount > 0) parts.push(`${fileChangeCount} file change${fileChangeCount > 1 ? "s" : ""}`);
-    if (turnView.durationMs && turnView.durationMs > 0) {
-      const secs = Math.round(turnView.durationMs / 1000);
-      if (secs > 0) parts.push(`${secs}s`);
-    }
-    const summary = parts.join(" · ");
-
+    // --- header (折叠头) ---
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap llm-bridge-turn-view" });
     const head = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
     const toggle = head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: isRunning ? "▼ " : "▶ " });
-    head.createEl("span", { cls: "llm-bridge-timeline-summary", text: summary });
+    head.createEl("span", { cls: "llm-bridge-timeline-summary", text: model.header });
 
     const body = wrap.createDiv({ cls: "llm-bridge-timeline-body" });
     // 运行中始终展开；终态默认折叠（failed 时展开）
-    if (!isRunning && status !== "failed") body.setAttribute("hidden", "");
+    if (!isRunning && !isFailed) body.setAttribute("hidden", "");
 
-    const timeline = body.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-final" });
+    // --- currentActivity (运行中显示在 header 下方) ---
+    if (isRunning && model.currentActivity) {
+      body.createDiv({ cls: "llm-bridge-turn-current-activity", text: model.currentActivity });
+    }
 
-    // thoughts（0 或 1 个，多 thinking_delta 合并）
-    for (const thought of turnView.thoughts) {
-      const node = timeline.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-thinking" });
-      node.createDiv({ cls: "llm-bridge-tl-dot" });
-      const content = node.createDiv({ cls: "llm-bridge-tl-content" });
-      content.createEl("div", { cls: "llm-bridge-tl-title", text: "思考" });
-      if (thought.meta) {
-        content.createEl("div", { cls: "llm-bridge-tl-detail", text: thought.meta });
-      }
-      if (thought.text) {
-        content.createEl("div", { cls: "llm-bridge-tl-thought-text", text: truncateText(thought.text, 280) });
+    // --- fileChangeCards (单独区域，普通用户态默认显示) ---
+    if (hasFileChanges) {
+      const fcSection = body.createDiv({ cls: "llm-bridge-turn-file-changes" });
+      fcSection.createEl("div", { cls: "llm-bridge-turn-section-label", text: "文件变更" });
+      for (const card of model.fileChangeCards) {
+        this.renderAgentRunCard(fcSection, card);
       }
     }
 
-    // tools（按 callId；含 progress 子条目）
-    for (const tool of turnView.tools) {
-      const iconCat = this.getToolIconAndCategory(tool.toolName);
-      const node = timeline.createDiv({ cls: `llm-bridge-tl-node llm-bridge-tl-tool is-${tool.status}` });
-      node.createDiv({ cls: "llm-bridge-tl-dot" });
-      const content = node.createDiv({ cls: "llm-bridge-tl-content" });
-      const titleRow = content.createDiv({ cls: "llm-bridge-tl-tool-head" });
-      titleRow.createEl("span", { cls: `llm-bridge-tl-tool-icon is-${iconCat.category}`, text: iconCat.icon });
-      titleRow.createEl("span", { cls: "llm-bridge-tl-tool-name", text: tool.toolName });
-      if (tool.durationMs !== undefined) {
-        titleRow.createEl("span", { cls: "llm-bridge-tl-tool-duration", text: this.formatDurationMs(tool.durationMs) });
-      }
-      if (tool.toolInput) {
-        content.createEl("div", { cls: "llm-bridge-tl-tool-input", text: truncateText(tool.toolInput, 100), attr: { title: tool.toolInput } });
-      }
-      // progress 子条目
-      for (const prog of tool.progress) {
-        const progEl = content.createDiv({ cls: "llm-bridge-tl-tool-progress" });
-        const progText = prog.detail ? `${prog.label}: ${prog.detail}` : prog.label;
-        progEl.createEl("span", { cls: "llm-bridge-tl-tool-progress-text", text: truncateText(progText, 120) });
-      }
-      if (tool.output) {
-        content.createEl("div", { cls: "llm-bridge-tl-tool-output", text: truncateText(tool.output, 120), attr: { title: tool.output } });
+    // --- diagnosticCards (warnings，普通用户态默认显示) ---
+    if (hasDiagnostics) {
+      const diagSection = body.createDiv({ cls: "llm-bridge-turn-diagnostics" });
+      diagSection.createEl("div", { cls: "llm-bridge-turn-section-label", text: "警告" });
+      for (const card of model.diagnosticCards) {
+        this.renderAgentRunCard(diagSection, card);
       }
     }
 
-    // file changes（internal 路径已过滤）
-    for (const fc of turnView.fileChanges) {
-      const node = timeline.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-file" });
-      node.createDiv({ cls: "llm-bridge-tl-dot" });
-      const content = node.createDiv({ cls: "llm-bridge-tl-content" });
-      const actionLabel = fc.action === "create" ? "新建" : fc.action === "modify" ? "修改" : "删除";
-      content.createEl("div", { cls: "llm-bridge-tl-title", text: `${actionLabel}文件` });
-      content.createEl("div", { cls: "llm-bridge-tl-detail", text: fc.path });
-    }
-
-    // errors（不可恢复错误）
-    for (const err of turnView.errors) {
-      const node = timeline.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-error" });
-      node.createDiv({ cls: "llm-bridge-tl-dot" });
-      const content = node.createDiv({ cls: "llm-bridge-tl-content" });
-      content.createEl("div", { cls: "llm-bridge-tl-title is-error", text: "错误" });
-      content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(err, 280) });
-    }
-
-    // resolved approvals（已决策的权限请求；pending 由 pendingPermissions 面板渲染）
-    for (const ap of turnView.approvals) {
-      if (ap.pending) continue; // 只渲染已解决
-      const node = timeline.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-approval" });
-      node.createDiv({ cls: "llm-bridge-tl-dot" });
-      const content = node.createDiv({ cls: "llm-bridge-tl-content" });
-      const resolutionLabel = ap.resolution?.type === "accept" ? "允许一次"
-        : ap.resolution?.type === "acceptForSession" ? "本会话允许"
-        : ap.resolution?.type === "decline" ? "已拒绝"
-        : "已取消";
-      const sourceLabel = ap.resolutionSource === "session_allow" ? "（会话允许）"
-        : ap.resolutionSource === "session_deny" ? "（会话拒绝）"
-        : ap.resolutionSource === "mode" ? "（模式自动）"
-        : "";
-      content.createEl("div", { cls: "llm-bridge-tl-title", text: `权限: ${ap.toolName} → ${resolutionLabel}${sourceLabel}` });
-      if (ap.inputSummary) {
-        content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(ap.inputSummary, 120) });
+    // --- timelineCards (thoughts/tools/resolved approvals/errors，默认折叠) ---
+    if (hasTimelineContent) {
+      const timeline = body.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-final" });
+      for (const card of model.timelineCards) {
+        this.renderAgentRunCard(timeline, card);
       }
     }
 
-    // 无内容时提示
-    if (!hasContent && isRunning) {
-      timeline.createDiv({ cls: "llm-bridge-timeline-waiting", text: "正在等待 runtime 首个事件..." });
+    // --- 无内容时提示 ---
+    if (!hasTimelineContent && !hasFileChanges && !hasDiagnostics && isRunning) {
+      body.createDiv({ cls: "llm-bridge-timeline-waiting", text: "正在等待 runtime 首个事件..." });
     }
 
-    // 折叠交互
+    // --- debugView (developer mode only；汇总 audit/raw/legacy) ---
+    if (options.developerMode && options.debug) {
+      this.renderAgentRunDebugView(body, options.debug);
+    }
+
+    // --- 折叠交互 ---
     head.addEventListener("click", () => {
       const hidden = body.hasAttribute("hidden");
       if (hidden) {
@@ -3140,6 +3065,160 @@ export class LLMBridgeView extends ItemView {
       }
     });
   }
+
+  /**
+   * P3: 渲染单个 AgentRunCard。纯 DOM 渲染，不含业务分类逻辑。
+   */
+  private renderAgentRunCard(parent: HTMLElement, card: AgentRunCard): void {
+    switch (card.kind) {
+      case "thinking":
+        this.renderThinkingCard(parent, card);
+        break;
+      case "tool-call":
+        this.renderToolCallCard(parent, card);
+        break;
+      case "file-change":
+        this.renderFileChangeCard(parent, card);
+        break;
+      case "approval":
+        this.renderApprovalCard(parent, card);
+        break;
+      case "warning":
+        this.renderWarningCard(parent, card);
+        break;
+      case "error":
+        this.renderErrorCard(parent, card);
+        break;
+      case "final-answer":
+      case "debug-raw-event":
+        // final-answer 由 msg content 渲染；debug-raw-event 由 debugView 渲染
+        break;
+    }
+  }
+
+  private renderThinkingCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "thinking" }>): void {
+    const node = parent.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-thinking" });
+    node.createDiv({ cls: "llm-bridge-tl-dot" });
+    const content = node.createDiv({ cls: "llm-bridge-tl-content" });
+    content.createEl("div", { cls: "llm-bridge-tl-title", text: card.title });
+    if (card.meta) content.createEl("div", { cls: "llm-bridge-tl-detail", text: card.meta });
+    if (card.text) content.createEl("div", { cls: "llm-bridge-tl-thought-text", text: truncateText(card.text, 280) });
+  }
+
+  private renderToolCallCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "tool-call" }>): void {
+    const iconCat = getToolIconCategory(card.toolName);
+    const node = parent.createDiv({ cls: `llm-bridge-tl-node llm-bridge-tl-tool is-${card.status}` });
+    node.createDiv({ cls: "llm-bridge-tl-dot" });
+    const content = node.createDiv({ cls: "llm-bridge-tl-content" });
+    const titleRow = content.createDiv({ cls: "llm-bridge-tl-tool-head" });
+    titleRow.createEl("span", { cls: `llm-bridge-tl-tool-icon is-${iconCat.category}`, text: iconCat.icon });
+    titleRow.createEl("span", { cls: "llm-bridge-tl-tool-name", text: card.toolName });
+    if (card.durationMs !== undefined) {
+      titleRow.createEl("span", { cls: "llm-bridge-tl-tool-duration", text: this.formatDurationMs(card.durationMs) });
+    }
+    if (card.toolInput) {
+      content.createEl("div", { cls: "llm-bridge-tl-tool-input", text: truncateText(card.toolInput, 100), attr: { title: card.toolInput } });
+    }
+    for (const prog of card.progress) {
+      const progEl = content.createDiv({ cls: "llm-bridge-tl-tool-progress" });
+      const progText = prog.detail ? `${prog.label}: ${prog.detail}` : prog.label;
+      progEl.createEl("span", { cls: "llm-bridge-tl-tool-progress-text", text: truncateText(progText, 120) });
+    }
+    if (card.output) {
+      content.createEl("div", { cls: "llm-bridge-tl-tool-output", text: truncateText(card.output, 120), attr: { title: card.output } });
+    }
+  }
+
+  private renderFileChangeCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "file-change" }>): void {
+    const node = parent.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-file" });
+    node.createDiv({ cls: "llm-bridge-tl-dot" });
+    const content = node.createDiv({ cls: "llm-bridge-tl-content" });
+    content.createEl("div", { cls: "llm-bridge-tl-title", text: card.title });
+    content.createEl("div", { cls: "llm-bridge-tl-detail", text: card.path });
+  }
+
+  private renderApprovalCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "approval" }>): void {
+    const node = parent.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-approval" });
+    node.createDiv({ cls: "llm-bridge-tl-dot" });
+    const content = node.createDiv({ cls: "llm-bridge-tl-content" });
+    const resolutionLabel = card.resolution?.type === "accept" ? "允许一次"
+      : card.resolution?.type === "acceptForSession" ? "本会话允许"
+      : card.resolution?.type === "decline" ? "已拒绝"
+      : "已取消";
+    const sourceLabel = card.resolutionSource === "session_allow" ? "（会话允许）"
+      : card.resolutionSource === "session_deny" ? "（会话拒绝）"
+      : card.resolutionSource === "mode" ? "（模式自动）"
+      : "";
+    content.createEl("div", { cls: "llm-bridge-tl-title", text: `权限: ${card.toolName} → ${resolutionLabel}${sourceLabel}` });
+    if (card.inputSummary) {
+      content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(card.inputSummary, 120) });
+    }
+  }
+
+  private renderWarningCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "warning" }>): void {
+    const node = parent.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-warning" });
+    node.createDiv({ cls: "llm-bridge-tl-dot" });
+    const content = node.createDiv({ cls: "llm-bridge-tl-content" });
+    content.createEl("div", { cls: "llm-bridge-tl-title", text: card.title });
+    content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(card.message, 280) });
+  }
+
+  private renderErrorCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "error" }>): void {
+    const node = parent.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-error" });
+    node.createDiv({ cls: "llm-bridge-tl-dot" });
+    const content = node.createDiv({ cls: "llm-bridge-tl-content" });
+    content.createEl("div", { cls: "llm-bridge-tl-title is-error", text: card.title });
+    content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(card.message, 280) });
+  }
+
+  /**
+   * P3: 渲染 debugView（developer mode only）。汇总 provider session audit / attachment audit /
+   * effectiveRunPlan / raw events，不散落在 appendMsgDetails。
+   */
+  private renderAgentRunDebugView(parent: HTMLElement, debug: AgentRunDebugView): void {
+    // commandPreview
+    if (debug.commandPreview && debug.commandPreview.length > 0) {
+      this.appendCommandPreview(parent, debug.commandPreview);
+    }
+    // effectiveRunPlan
+    if (debug.effectiveRunPlan) {
+      this.appendEffectiveRunPlan(parent, debug.effectiveRunPlan);
+    }
+    // provider session audit
+    if (debug.providerThreadId || debug.providerSessionId) {
+      const auditBody = this.createCollapsibleSection(parent, "provider session", "llm-bridge-provider-session-audit", false);
+      const lines: string[] = [];
+      if (debug.providerThreadId) lines.push(`providerThreadId: ${debug.providerThreadId}`);
+      if (debug.providerSessionId) lines.push(`providerSessionId: ${debug.providerSessionId}`);
+      if (debug.sessionResumed) lines.push("sessionResumed: true（恢复的会话）");
+      auditBody.createEl("pre", { cls: "llm-bridge-provider-session-audit-text", text: lines.join("\n") });
+    }
+    // attachment audit
+    if (debug.attachmentPlan) {
+      const ap = debug.attachmentPlan;
+      const apBody = this.createCollapsibleSection(parent, "attachment audit", "llm-bridge-attachment-audit", false);
+      const apLines = [
+        `message-scoped refs: ${ap.messageScopedRefs}`,
+        `pinned refs: ${ap.pinnedRefs}`,
+        `inline snippets: ${ap.inlineSnippets}`,
+        `image streaming blocks: ${ap.imageStreamingBlocks}`,
+        `native ref only: ${ap.nativeRefOnly}`,
+      ];
+      if (ap.entries && ap.entries.length > 0) {
+        apLines.push("", "entries:");
+        for (const entry of ap.entries) {
+          apLines.push(`  ${entry.refId} | ${entry.scope} | ${entry.fileType} | ${entry.packing} | ${entry.reason}`);
+        }
+      }
+      apBody.createEl("pre", { cls: "llm-bridge-attachment-audit-text", text: apLines.join("\n") });
+    }
+    // raw provider events (developer-only)
+    if (debug.rawProviderEvents && debug.rawProviderEvents.length > 0) {
+      const rawBody = this.createCollapsibleSection(parent, `raw provider events (${debug.rawProviderEvents.length})`, "llm-bridge-raw-events", false);
+      rawBody.createEl("pre", { cls: "llm-bridge-raw-events-text", text: debug.rawProviderEvents.map((e) => JSON.stringify(e)).slice(0, 50).join("\n") });
+    }
+  }
+
 
   // V1.5: 渲染命令预览区（command / args / cwd / model / stdin / selection / note / env）
   private appendCommandPreview(

@@ -1016,6 +1016,7 @@ if (runMode !== "all" && runMode !== "unit") {
     const tempAssistantViewBundle = join(PROJECT_ROOT, ".test-assistant-view-temp.mjs");
     const tempPermBoundaryBundle = join(PROJECT_ROOT, ".test-perm-boundary-temp.mjs");
     const tempWorkflowMapperBundle = join(PROJECT_ROOT, ".test-workflow-mapper-temp.mjs");
+    const tempAgentRunDisplayModelBundle = join(PROJECT_ROOT, ".test-agent-run-display-model-temp.mjs");
 
     const bundleOpts = (entry) => ({
       entryPoints: [join(PROJECT_ROOT, "src", entry)],
@@ -1030,12 +1031,14 @@ if (runMode !== "all" && runMode !== "unit") {
     await esbuild.build({ ...bundleOpts("runtime/core/assistantTurnView.ts"), outfile: tempAssistantViewBundle });
     await esbuild.build({ ...bundleOpts("runtime/core/permissionBoundary.ts"), outfile: tempPermBoundaryBundle });
     await esbuild.build({ ...bundleOpts("runtime/providers/workflowEventMapper.ts"), outfile: tempWorkflowMapperBundle });
+    await esbuild.build({ ...bundleOpts("runtime/core/agentRunDisplayModel.ts"), outfile: tempAgentRunDisplayModelBundle });
 
     const codexProviderMod = await import(pathToFileURL(tempCodexProviderBundle).href);
     const promptPkgMod = await import(pathToFileURL(tempPromptPkgBundle).href);
     const assistantViewMod = await import(pathToFileURL(tempAssistantViewBundle).href);
     const permBoundaryMod = await import(pathToFileURL(tempPermBoundaryBundle).href);
     const workflowMapperMod = await import(pathToFileURL(tempWorkflowMapperBundle).href);
+    const agentRunDisplayModelMod = await import(pathToFileURL(tempAgentRunDisplayModelBundle).href);
 
     // ---------- 最小 settings + snapshot ----------
     const baseBridgeSettings = {
@@ -1440,6 +1443,100 @@ if (runMode !== "all" && runMode !== "unit") {
       const allOk = statusOk && finalOk && toolsOk && filesOk && thoughtsOk && sessionOk;
       addTest("AssistantTurnView: fixture stream → completed view (process/thoughts/tools/files/final)", allOk ? "pass" : "fail",
         allOk ? "" : `status=${view.status}, final=${view.finalAnswer}, tools=${view.tools.length}, files=${view.fileChanges.length}, thoughts=${view.thoughts.length}, session=${view.terminalSessionId}`);
+    }
+    // ---------- 5b. AgentRunDisplayModel: AssistantTurnView → DisplayModel → Cards ----------
+    {
+      const { buildAgentRunDisplayModel, getToolIconCategory } = agentRunDisplayModelMod;
+      const { buildAssistantTurnViewFromEvents } = assistantViewMod;
+      const mkEvent = (payload, providerId = "codex-app-server") => ({
+        providerId,
+        timestamp: "2026-07-02T00:00:00.000Z",
+        payload,
+      });
+      const events = [
+        mkEvent({ kind: "thinking", text: "Analyzing..." }),
+        mkEvent({ kind: "message", role: "assistant", text: "Hello world", partial: true }),
+        mkEvent({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"a.md"}', callId: "c1" }),
+        mkEvent({ kind: "tool_result", callId: "c1", toolName: "Read", output: "# a", isError: false }),
+        mkEvent({ kind: "file_change", action: "create", path: "output/summary.md" }),
+        mkEvent({ kind: "approval_request", requestId: "ap1", toolName: "Bash", description: "run cmd", riskLevel: "medium" }),
+        mkEvent({ kind: "approval_resolved", requestId: "ap1", response: { type: "accept" }, source: "user" }),
+        mkEvent({ kind: "error", message: "fatal", recoverable: false }),
+        mkEvent({ kind: "completed", text: "Hello world", durationMs: 5000 }),
+      ];
+      const view = buildAssistantTurnViewFromEvents("turn-dm-1", "codex-app-server", events, "2026-07-02T00:00:00.000Z");
+      const model = buildAgentRunDisplayModel(view, { developerMode: false });
+
+      // header 含 tool/file change 计数
+      const headerOk = model.header.includes("过程") && model.header.includes("1 tool") && model.header.includes("1 file change");
+      addTest("AgentRunDisplayModel: header 含摘要计数（tools/file changes）", headerOk ? "pass" : "fail",
+        headerOk ? "" : `header=${model.header}`);
+
+      // finalAnswer 透传
+      const finalOk = model.finalAnswer === "Hello world";
+      addTest("AgentRunDisplayModel: finalAnswer 透传自 AssistantTurnView", finalOk ? "pass" : "fail",
+        finalOk ? "" : `finalAnswer=${model.finalAnswer}`);
+
+      // timelineCards: thinking + tool + resolved approval + error
+      const thinkingCard = model.timelineCards.find((c) => c.kind === "thinking");
+      const toolCard = model.timelineCards.find((c) => c.kind === "tool-call");
+      const approvalCard = model.timelineCards.find((c) => c.kind === "approval");
+      const errorCard = model.timelineCards.find((c) => c.kind === "error");
+      const timelineOk = thinkingCard && toolCard && approvalCard && errorCard
+        && toolCard.toolName === "Read" && toolCard.status === "completed"
+        && approvalCard.pending === false && approvalCard.resolution?.type === "accept"
+        && errorCard.message === "fatal" && errorCard.defaultExpanded === true;
+      addTest("AgentRunDisplayModel: timelineCards 含 thinking/tool/approval/error（resolved approval 进入 timeline）", timelineOk ? "pass" : "fail",
+        timelineOk ? "" : `thinking=${!!thinkingCard} tool=${!!toolCard} approval=${!!approvalCard} error=${!!errorCard}`);
+
+      // approvalCards: pending only
+      const pendingApprovals = model.approvalCards.filter((c) => c.pending);
+      const approvalOk = pendingApprovals.length === 0; // ap1 已 resolved，不应在 pending
+      addTest("AgentRunDisplayModel: pending approvalCards 只含 pending（resolved 进入 timeline）", approvalOk ? "pass" : "fail",
+        approvalOk ? "" : `pendingCount=${pendingApprovals.length}`);
+
+      // fileChangeCards
+      const fcOk = model.fileChangeCards.length === 1 && model.fileChangeCards[0].path === "output/summary.md" && model.fileChangeCards[0].action === "create";
+      addTest("AgentRunDisplayModel: fileChangeCards 从 fileChanges 派生", fcOk ? "pass" : "fail",
+        fcOk ? "" : `count=${model.fileChangeCards.length} path=${model.fileChangeCards[0]?.path}`);
+
+      // diagnosticCards (warnings)
+      // errors 不可恢复 → ErrorCard（timeline），不进 diagnosticCards
+      const diagOk = model.diagnosticCards.length === 0;
+      addTest("AgentRunDisplayModel: diagnosticCards 只含 warnings（errors 进 timeline）", diagOk ? "pass" : "fail",
+        diagOk ? "" : `diagCount=${model.diagnosticCards.length}`);
+
+      // debugView: 普通用户态不渲染
+      const debugOk = model.debugView === undefined;
+      addTest("AgentRunDisplayModel: developerMode=false → debugView=undefined", debugOk ? "pass" : "fail",
+        debugOk ? "" : `debugView=${!!model.debugView}`);
+
+      // developerMode=true → debugView 含 rawProviderEvents
+      const modelDev = buildAgentRunDisplayModel(view, {
+        developerMode: true,
+        debug: { rawProviderEvents: [{ test: true, kind: "raw" }] },
+      });
+      const debugDevOk = modelDev.debugView !== undefined && modelDev.debugView.rawProviderEvents.length > 0;
+      addTest("AgentRunDisplayModel: developerMode=true → debugView 含 rawProviderEvents", debugDevOk ? "pass" : "fail",
+        debugDevOk ? "" : `debugView=${!!modelDev.debugView} rawCount=${modelDev.debugView?.rawProviderEvents?.length}`);
+
+      // running 状态: currentActivity 非空
+      const runningEvents = [
+        mkEvent({ kind: "tool_start", toolName: "Bash", toolInput: "ls", callId: "c2" }),
+      ];
+      const runningView = buildAssistantTurnViewFromEvents("turn-dm-2", "codex-app-server", runningEvents, "2026-07-02T00:00:00.000Z");
+      const runningModel = buildAgentRunDisplayModel(runningView, { isRunning: true });
+      const activityOk = runningModel.currentActivity.includes("Bash") && runningModel.header.includes("运行中");
+      addTest("AgentRunDisplayModel: running 状态 → currentActivity + header 含运行中", activityOk ? "pass" : "fail",
+        activityOk ? "" : `currentActivity=${runningModel.currentActivity} header=${runningModel.header}`);
+
+      // getToolIconCategory
+      const iconRead = getToolIconCategory("Read");
+      const iconBash = getToolIconCategory("Bash");
+      const iconWrite = getToolIconCategory("Write");
+      const iconOk = iconRead.category === "read" && iconBash.category === "command" && iconWrite.category === "write";
+      addTest("AgentRunDisplayModel: getToolIconCategory 分类正确", iconOk ? "pass" : "fail",
+        iconOk ? "" : `read=${iconRead.category} bash=${iconBash.category} write=${iconWrite.category}`);
     }
 
     // ---------- 6. approval request → PermissionBoundary → provider response ----------
@@ -14432,6 +14529,7 @@ if (!runCodexSchemaAlignment) {
     try { if (codexSessionMapperBundle) rmSync(codexSessionMapperBundle, { force: true }); } catch {}
     try { if (codexEffectiveRunPlanBundle) rmSync(codexEffectiveRunPlanBundle, { force: true }); } catch {}
     try { if (assistantTurnViewBundle) rmSync(assistantTurnViewBundle, { force: true }); } catch {}
+    try { if (tempAgentRunDisplayModelBundle) rmSync(tempAgentRunDisplayModelBundle, { force: true }); } catch {}
     try { if (codexAppServerProviderBundle) rmSync(codexAppServerProviderBundle, { force: true }); } catch {}
   }
 }
