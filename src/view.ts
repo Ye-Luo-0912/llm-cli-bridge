@@ -5193,6 +5193,8 @@ export class LLMBridgeView extends ItemView {
       hasActiveNote: settings.includeActiveNote && !!activeFile,
       activeFileName: activeFile?.path ?? null,
       promptLength: prompt.length,
+      // V16.3: 传入活动笔记内容字符数用于 token 估算（与实际 prompt 注入一致）
+      activeNoteContentLength: snapshot.activeFileContent?.length ?? 0,
     }));
 
     // 渲染用户消息 + assistant 占位

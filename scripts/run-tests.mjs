@@ -277,6 +277,17 @@ try {
   });
   const { truncateText, buildPromptPackage } = await import(pathToFileURL(promptPackageBundle).href);
 
+  // V16.3: 同时导入 runtime/core/promptPackage.ts 的 buildUserPrompt（provider-neutral 主路径）
+  const runtimePromptPkgBundle = join(PROJECT_ROOT, ".test-runtime-prompt-pkg-temp.mjs");
+  await esbuild.build({
+    entryPoints: [join(PROJECT_ROOT, "src", "runtime", "core", "promptPackage.ts")],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    outfile: runtimePromptPkgBundle,
+  });
+  const runtimePromptPkgMod = await import(pathToFileURL(runtimePromptPkgBundle).href);
+
   // 辅助 settings（outputDir 用中性配置值，证明是配置驱动而非硬编码）
   function makePromptSettings(includeActiveNote, includeSelection, outputDir) {
     return {
@@ -376,6 +387,61 @@ try {
     const ok = !hasNote && !hasSelection;
     addTest("Prompt Package: 不包含未启用内容", ok ? "pass" : "fail",
       ok ? "" : `hasNote=${hasNote}, hasSelection=${hasSelection}`);
+  }
+
+  // V16.3 Test 5b: includeActiveNote=true + activeFilePath 存在 + activeFileContent=null → 路径仍注入（语义一致性修复）
+  {
+    const settings = makePromptSettings(true, false);
+    const snapshot = {
+      vaultPath: "/test/vault",
+      activeFilePath: "AGENTS.md",
+      activeFileContent: null, // 内容读取失败
+      selection: null,
+      timestamp: "2026-06-28T12:00:00Z",
+    };
+    const prompt = buildPromptPackage("当前活动笔记是什么", snapshot, settings);
+    const hasPath = prompt.includes("AGENTS.md");
+    const hasNoteHeader = prompt.includes("当前活动笔记");
+    const hasReadFailHint = prompt.includes("读取失败");
+    const ok = hasPath && hasNoteHeader && hasReadFailHint;
+    addTest("V16.3 Prompt Package: activeFileContent=null 时路径仍注入（语义一致性）", ok ? "pass" : "fail",
+      ok ? "" : `hasPath=${hasPath}, hasNoteHeader=${hasNoteHeader}, hasReadFailHint=${hasReadFailHint}`);
+  }
+
+  // V16.3 Test 5c: buildUserPrompt (runtime/core) 同样语义一致性
+  {
+    const settings = makePromptSettings(true, false);
+    const snapshot = {
+      vaultPath: "/test/vault",
+      activeFilePath: "AGENTS.md",
+      activeFileContent: null,
+      selection: null,
+      timestamp: "2026-06-28T12:00:00Z",
+    };
+    const prompt = runtimePromptPkgMod.buildUserPrompt("当前活动笔记是什么", snapshot, settings);
+    const hasPath = prompt.includes("AGENTS.md");
+    const hasNoteHeader = prompt.includes("当前活动笔记");
+    const hasReadFailHint = prompt.includes("读取失败");
+    const ok = hasPath && hasNoteHeader && hasReadFailHint;
+    addTest("V16.3 buildUserPrompt (runtime): activeFileContent=null 时路径仍注入", ok ? "pass" : "fail",
+      ok ? "" : `hasPath=${hasPath}, hasNoteHeader=${hasNoteHeader}, hasReadFailHint=${hasReadFailHint}`);
+  }
+
+  // V16.3 Test 5d: includeActiveNote=true + activeFilePath=null → 不注入（无路径可注入）
+  {
+    const settings = makePromptSettings(true, false);
+    const snapshot = {
+      vaultPath: "/test/vault",
+      activeFilePath: null,
+      activeFileContent: "# Test",
+      selection: null,
+      timestamp: "2026-06-28T12:00:00Z",
+    };
+    const prompt = buildPromptPackage("用户请求", snapshot, settings);
+    const hasNote = prompt.includes("当前活动笔记");
+    const ok = !hasNote;
+    addTest("V16.3 Prompt Package: activeFilePath=null 时不注入（无路径可注入）", ok ? "pass" : "fail",
+      ok ? "" : `hasNote=${hasNote}`);
   }
 
   // Test 6: buildPromptPackage 输出规则（配置驱动）
@@ -3859,6 +3925,36 @@ if (!runV15Unit) {
       const ok = !labels.includes("session") && !labels.includes("permission");
       addTest("CommandProfile: default 模式 previewToRows 不含 session/permission 行",
         ok ? "pass" : "fail", ok ? "" : `labels=${JSON.stringify(labels)}`);
+    }
+
+    // --- V16.3 Test 13b: commandPreview token estimate 调试信息 ---
+    {
+      const preview = buildCommandPreview(makeSettings(), "/v", {
+        hasSelection: true, selectionLength: 70,
+        hasActiveNote: true, activeFileName: "note.md",
+        promptLength: 100, activeNoteContentLength: 350,
+      });
+      const rows = previewToRows(preview);
+      const noteRow = rows.find((r) => r.label === "note");
+      const selRow = rows.find((r) => r.label === "selection");
+      // 350 / 3.5 = 100 tokens; 70 / 3.5 = 20 tokens
+      const noteOk = noteRow?.value.includes("note.md") && noteRow?.value.includes("~100 tokens");
+      const selOk = selRow?.value.includes("70 chars") && selRow?.value.includes("~20 tokens");
+      const ok = noteOk && selOk;
+      addTest("V16.3 CommandProfile: previewToRows 含 token estimate（note ~100, selection ~20）",
+        ok ? "pass" : "fail", ok ? "" : `note="${noteRow?.value}", sel="${selRow?.value}"`);
+    }
+
+    // --- V16.3 Test 13c: commandPreview activeNoteContentLength=0 → token estimate=0 ---
+    {
+      const preview = buildCommandPreview(makeSettings(), "/v", {
+        hasSelection: false, selectionLength: 0,
+        hasActiveNote: true, activeFileName: "note.md",
+        promptLength: 100, activeNoteContentLength: 0,
+      });
+      const ok = preview.activeNoteTokenEstimate === 0 && preview.selectionTokenEstimate === 0;
+      addTest("V16.3 CommandProfile: activeNoteContentLength=0 → token estimate=0（语义一致）",
+        ok ? "pass" : "fail", ok ? "" : `activeNote=${preview.activeNoteTokenEstimate}, sel=${preview.selectionTokenEstimate}`);
     }
 
     // --- Test 14: resolveProfile 兼容旧接口（name/command/args/versionArgs） ---

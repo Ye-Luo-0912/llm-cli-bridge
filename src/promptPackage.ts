@@ -95,15 +95,23 @@ export function buildPromptPackage(
 - SDK attachment evidence: ${policy.sdkDirectAttachmentEvidence}`);
   }
 
-  // 2. 当前活动笔记（仅当 includeActiveNote=true 且有内容时）
-  if (settings.includeActiveNote && snapshot.activeFilePath && snapshot.activeFileContent) {
-    const truncated = truncateText(snapshot.activeFileContent, settings.maxActiveNoteChars);
-    parts.push(`
+  // 2. 当前活动笔记（V16.3: 拆分条件 — 路径始终注入，内容可选，保证 UI 与 prompt 语义一致）
+  if (settings.includeActiveNote && snapshot.activeFilePath) {
+    if (snapshot.activeFileContent) {
+      const truncated = truncateText(snapshot.activeFileContent, settings.maxActiveNoteChars);
+      parts.push(`
 ========== 当前活动笔记 ==========
 路径：${snapshot.activeFilePath}
 内容：
 ${truncated}
 `);
+    } else {
+      parts.push(`
+========== 当前活动笔记 ==========
+路径：${snapshot.activeFilePath}
+内容：（读取失败，仅提供路径）
+`);
+    }
   }
 
   // 3. 选区内容（仅当 includeSelection=true 且有内容时）

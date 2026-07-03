@@ -51,6 +51,10 @@ export interface CommandPreview {
   readonly resumeSessionId: string;
   /** 环境变量 key 名（存在性，不含 value） */
   readonly envKeys: string[];
+  /** V16.3: 开发调试信息 — active note token 估算（与 contextMetrics 一致） */
+  readonly activeNoteTokenEstimate: number;
+  /** V16.3: 开发调试信息 — selection token 估算 */
+  readonly selectionTokenEstimate: number;
 }
 
 /**
@@ -142,10 +146,17 @@ export function buildCommandPreview(
     hasActiveNote: boolean;
     activeFileName: string | null;
     promptLength: number;
+    /** V16.3: 活动笔记内容字符数（用于 token 估算） */
+    activeNoteContentLength?: number;
   },
   envKeys: string[] = [],
 ): CommandPreview {
   const { command, args } = buildCommandLine(settings, cwd);
+  // V16.3: token 估算与 contextMetrics.ts estimateTokens 一致（Math.ceil(len / 3.5)）
+  const activeNoteTokenEstimate = opts.hasActiveNote && opts.activeNoteContentLength
+    ? Math.ceil(opts.activeNoteContentLength / 3.5) : 0;
+  const selectionTokenEstimate = opts.hasSelection
+    ? Math.ceil(opts.selectionLength / 3.5) : 0;
   return {
     command,
     args,
@@ -161,6 +172,8 @@ export function buildCommandPreview(
     continueSession: settings.claudeContinueSession,
     resumeSessionId: settings.claudeResumeSessionId,
     envKeys,
+    activeNoteTokenEstimate,
+    selectionTokenEstimate,
   };
 }
 
@@ -207,12 +220,17 @@ export function previewToRows(preview: CommandPreview): Array<{ label: string; v
     value: `${preview.promptLength} chars`,
   });
   rows.push({
-    label: "selection",
-    value: preview.hasSelection ? `${preview.selectionLength} chars` : "off",
-  });
-  rows.push({
     label: "note",
-    value: preview.hasActiveNote && preview.activeFileName ? preview.activeFileName : "off",
+    value: preview.hasActiveNote && preview.activeFileName
+      ? `${preview.activeFileName} (~${preview.activeNoteTokenEstimate} tokens)`
+      : "off",
+  });
+  // V16.3: selection 行增加 token 估算（开发调试信息）
+  rows.push({
+    label: "selection",
+    value: preview.hasSelection
+      ? `${preview.selectionLength} chars (~${preview.selectionTokenEstimate} tokens)`
+      : "off",
   });
   if (preview.envKeys.length > 0) {
     rows.push({ label: "env", value: preview.envKeys.join(", ") });
