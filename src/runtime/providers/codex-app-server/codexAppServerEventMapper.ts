@@ -325,7 +325,7 @@ export class CodexAppServerEventMapper {
    *
    * 支持官方 nested params.item 结构；旧 flat params 作为 legacy alias 兼容。
    */
-  mapItemCompleted(params: CodexItemCompletedParams): NormalizedRuntimeEvent | null {
+  mapItemCompleted(params: CodexItemCompletedParams, changeIndex?: number): NormalizedRuntimeEvent | null {
     const ts = new Date().toISOString();
     const base = {
       providerId: this.providerId,
@@ -410,18 +410,18 @@ export class CodexAppServerEventMapper {
       }
       case "fileChange": {
         const fcItem = item as CodexFileChangeItem | undefined;
-        // fileChange item 含 changes 数组（每条 path+kind+diff）；每个 change 映射为一条 file_change 事件
-        // 但 mapper 一次只能返回一条事件；这里返回第一条（caller 若需多条可由 provider 拆 changes）
-        // 为保持 mapper 纯函数 + 单事件语义，provider 在 onNotification 时遍历 changes 调多次
-        // 这里返回首条；若 changes 为空则用 flat 兼容字段
+        // fileChange item 含 changes 数组（每条 path+kind+diff）；每个 change 映射为一条 file_change 事件。
+        // mapper 保持纯函数 + 单事件语义：provider 在 onNotification 时遍历 changes 调多次，
+        // 通过 changeIndex 指定本次返回第几条（默认 0）。
         if (fcItem?.changes && fcItem.changes.length > 0) {
-          const first = fcItem.changes[0];
+          const change = fcItem.changes[changeIndex ?? 0];
+          if (!change) return null;
           return {
             ...base,
             payload: {
               kind: "file_change",
-              action: first.kind,
-              path: first.path,
+              action: change.kind,
+              path: change.path,
             },
           };
         }

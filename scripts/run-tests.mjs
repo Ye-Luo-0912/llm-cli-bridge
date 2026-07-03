@@ -1676,6 +1676,67 @@ if (runMode !== "all" && runMode !== "unit") {
         noDeadTranscript ? "" : "buildRuntimeTranscriptFromEvents 仍存在");
     }
 
+    // ---------- 5e. P5: Stabilization bug sweep round 2 ----------
+    {
+      // Bug 1: fileChange mapper 接受 changeIndex 参数
+      const mapperSrc = readFileSync(join(PROJECT_ROOT, "src/runtime/providers/codex-app-server/codexAppServerEventMapper.ts"), "utf8");
+      const hasChangeIndex = mapperSrc.includes("mapItemCompleted(params: CodexItemCompletedParams, changeIndex?: number)");
+      const usesChangeIndex = mapperSrc.includes("fcItem.changes[changeIndex ?? 0]");
+      const mapperOk = hasChangeIndex && usesChangeIndex;
+      addTest("P5: fileChange mapper 接受 changeIndex 参数（修复多 change 重复第一个 path）", mapperOk ? "pass" : "fail",
+        mapperOk ? "" : "hasChangeIndex=" + hasChangeIndex + " usesChangeIndex=" + usesChangeIndex);
+
+      // 验证 provider 循环传入 idx
+      const providerSrc = readFileSync(join(PROJECT_ROOT, "src/runtime/providers/codex-app-server/codexAppServerProvider.ts"), "utf8");
+      const providerLoopOk = providerSrc.includes("for (let i = 0; i < fcItem.changes.length; i++)") &&
+        providerSrc.includes("push(eventMapper.mapItemCompleted(completedParams, i))");
+      addTest("P5: provider 循环传入 changeIndex idx（每个 change 映射为独立事件）", providerLoopOk ? "pass" : "fail",
+        providerLoopOk ? "" : "provider 未循环传入 idx");
+
+      // Bug 2: JSON-RPC respondToServerRequestError 使用 top-level error
+      const clientSrc = readFileSync(join(PROJECT_ROOT, "src/runtime/providers/codex-app-server/jsonRpcClient.ts"), "utf8");
+      const hasErrorMethod = clientSrc.includes("respondToServerRequestError(id: number | string, code: number, message: string, data?: unknown)");
+      const usesTopLevelError = clientSrc.includes("const msg = { id, error: { code, message");
+      const noNestedError = !clientSrc.includes("this.respondToServerRequest(id, {\n                error:");
+      const rpcOk = hasErrorMethod && usesTopLevelError && noNestedError;
+      addTest("P5: JSON-RPC server request error 使用 top-level error（符合规范）", rpcOk ? "pass" : "fail",
+        rpcOk ? "" : "hasMethod=" + hasErrorMethod + " topLevel=" + usesTopLevelError + " noNested=" + noNestedError);
+
+      // 验证三处调用改为 respondToServerRequestError
+      const callCount = (clientSrc.match(/this\.respondToServerRequestError\(/g) || []).length;
+      const callOk = callCount >= 3;
+      addTest("P5: 三处 error 回复改为 respondToServerRequestError", callOk ? "pass" : "fail",
+        callOk ? "" : "调用次数=" + callCount + "（期望 >= 3）");
+
+      // Bug 3: BridgeSession currentRunId 清理移进 finally
+      const sessionSrc = readFileSync(join(PROJECT_ROOT, "src/runtime/core/bridgeSession.ts"), "utf8");
+      // P5: currentRunId 清理在 syncProviderThreadFromMapper 之后（finally 块内），不在 try-finally 之外
+      const syncIdx = sessionSrc.indexOf("this.syncProviderThreadFromMapper();");
+      const nullAfterSync = sessionSrc.indexOf("this.currentRunId = null;", syncIdx);
+      const startFinallyOk = nullAfterSync > syncIdx && syncIdx > 0;
+      // cancel 方法包含 currentRunId = null
+      const cancelIdx = sessionSrc.indexOf("cancel(runId: string)");
+      const cancelRegion = sessionSrc.slice(cancelIdx, cancelIdx + 300);
+      const cancelOk = cancelRegion.includes("this.currentRunId = null;");
+      const sessionOk = startFinallyOk && cancelOk;
+      addTest("P5: BridgeSession currentRunId 清理移进 finally + cancel 清理", sessionOk ? "pass" : "fail",
+        sessionOk ? "" : "startFinally=" + startFinallyOk + " cancel=" + cancelOk);
+
+      // 验证 provider currentRunId 赋值移进 try
+      const providerTryOk = providerSrc.includes("// P5: currentRunId 在 try 内赋值") &&
+        providerSrc.indexOf("this.currentRunId = ctx.runId;") > providerSrc.indexOf("try {");
+      addTest("P5: provider currentRunId 赋值移进 try 块（setup 抛错时不泄漏）", providerTryOk ? "pass" : "fail",
+        providerTryOk ? "" : "currentRunId 未移进 try");
+
+      // Bug 4: debugView 脱敏
+      const displaySrc = readFileSync(join(PROJECT_ROOT, "src/runtime/core/agentRunDisplayModel.ts"), "utf8");
+      const hasRedactFn = displaySrc.includes("function redactDebugView(debug: AgentRunDebugView)");
+      const callsRedact = displaySrc.includes("redactDebugView(options.debug)");
+      const redactOk = hasRedactFn && callsRedact;
+      addTest("P5: debugView 脱敏（redactDebugView 函数 + 调用）", redactOk ? "pass" : "fail",
+        redactOk ? "" : "hasFn=" + hasRedactFn + " calls=" + callsRedact);
+    }
+
     // ---------- 6. approval request → PermissionBoundary → provider response ----------
     {
       const { createPermissionBoundary } = permBoundaryMod;

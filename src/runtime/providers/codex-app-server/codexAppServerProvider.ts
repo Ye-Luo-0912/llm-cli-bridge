@@ -122,7 +122,6 @@ export class CodexAppServerProvider implements RuntimeProvider {
       cwd: ctx.plan.cwd,
     });
     this.currentProcess = process;
-    this.currentRunId = ctx.runId;
 
     // 构造 JsonRpcClient
     const client = this.createClient(process);
@@ -186,6 +185,8 @@ export class CodexAppServerProvider implements RuntimeProvider {
     }));
 
     try {
+      // P5: currentRunId 在 try 内赋值，确保 setup 阶段抛错时不泄漏（finally 会清理）
+      this.currentRunId = ctx.runId;
       // 1. initialize handshake（官方 shape：clientInfo + capabilities；不再用 clientName/clientVersion）
       //    experimentalApi 默认 false；options.initialize 已由 buildCodexAppServerRunOptions 构造。
       const initResult = await client.send<CodexInitializeResult>(
@@ -278,7 +279,6 @@ export class CodexAppServerProvider implements RuntimeProvider {
       cwd: ctx.plan.cwd,
     });
     this.currentProcess = process;
-    this.currentRunId = ctx.runId;
 
     const client = this.createClient(process);
     this.currentClient = client;
@@ -335,6 +335,8 @@ export class CodexAppServerProvider implements RuntimeProvider {
     }));
 
     try {
+      // P5: currentRunId 在 try 内赋值，确保 setup 阶段抛错时不泄漏（finally 会清理）
+      this.currentRunId = ctx.runId;
       // 1. initialize handshake（与 run 一致；clientInfo + capabilities）
       const initResult = await client.send<CodexInitializeResult>(
         "initialize", options.initialize,
@@ -461,8 +463,8 @@ export class CodexAppServerProvider implements RuntimeProvider {
       if (item?.type === "fileChange") {
         const fcItem = item as CodexFileChangeItem;
         if (fcItem.changes && fcItem.changes.length > 0) {
-          for (const _change of fcItem.changes) {
-            push(eventMapper.mapItemCompleted(completedParams));
+          for (let i = 0; i < fcItem.changes.length; i++) {
+            push(eventMapper.mapItemCompleted(completedParams, i));
           }
           return;
         }

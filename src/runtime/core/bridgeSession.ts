@@ -115,29 +115,32 @@ export class BridgeSessionImpl implements BridgeSession {
   async *start(input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.currentRunId = runId;
-    const plan = this.provider.buildPlan(input, settings);
-    const ctx = {
-      plan,
-      promptPackage: input.promptPackage,
-      permission: this.permission,
-      runId,
-      bridgeSessionId: this.sessionId,
-      resumeSessionId: undefined as string | undefined,
-      sdkStreamingInput: input.sdkStreamingInput,
-      runtimeFileToolAdapter: input.runtimeFileToolAdapter,
-    };
     try {
+      const plan = this.provider.buildPlan(input, settings);
+      const ctx = {
+        plan,
+        promptPackage: input.promptPackage,
+        permission: this.permission,
+        runId,
+        bridgeSessionId: this.sessionId,
+        resumeSessionId: undefined as string | undefined,
+        sdkStreamingInput: input.sdkStreamingInput,
+        runtimeFileToolAdapter: input.runtimeFileToolAdapter,
+      };
       yield* this.provider.run(ctx, settings);
     } finally {
       // V2.17-A Completion: run 完成后同步 provider thread/session（供 keepLastSession resume 用）
       this.syncProviderThreadFromMapper();
+      // P5: currentRunId 清理移进 finally，确保 buildPlan/run 抛错时也清理（避免泄漏）
+      this.currentRunId = null;
     }
-    this.currentRunId = null;
   }
 
   cancel(runId: string): void {
     this.provider.cancel(runId);
     this.permission.cancelAllPending();
+    // P5: 清理 session 侧 currentRunId（provider.cancel 已清理 provider 侧）
+    this.currentRunId = null;
   }
 
   /**
@@ -162,24 +165,25 @@ export class BridgeSessionImpl implements BridgeSession {
   async *resume(sessionId: string, input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     const runId = `resume-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.currentRunId = runId;
-    const plan = this.provider.buildPlan(input, settings);
-    const ctx = {
-      plan,
-      promptPackage: input.promptPackage,
-      permission: this.permission,
-      runId,
-      bridgeSessionId: this.sessionId,
-      resumeSessionId: sessionId,
-      sdkStreamingInput: input.sdkStreamingInput,
-      runtimeFileToolAdapter: input.runtimeFileToolAdapter,
-    };
     try {
+      const plan = this.provider.buildPlan(input, settings);
+      const ctx = {
+        plan,
+        promptPackage: input.promptPackage,
+        permission: this.permission,
+        runId,
+        bridgeSessionId: this.sessionId,
+        resumeSessionId: sessionId,
+        sdkStreamingInput: input.sdkStreamingInput,
+        runtimeFileToolAdapter: input.runtimeFileToolAdapter,
+      };
       yield* this.provider.resume(sessionId, ctx, settings);
     } finally {
       // V2.17-A Completion: resume 完成后同步 provider thread/session（thread/resume 返回的新 threadId）
       this.syncProviderThreadFromMapper();
+      // P5: currentRunId 清理移进 finally，确保 buildPlan/resume 抛错时也清理（避免泄漏）
+      this.currentRunId = null;
     }
-    this.currentRunId = null;
   }
 
   /**

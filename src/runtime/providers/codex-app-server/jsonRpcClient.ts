@@ -133,6 +133,20 @@ export class JsonRpcClient {
   }
 
   /**
+   * 回复 server-initiated request 的错误（top-level error，符合 JSON-RPC 规范）。
+   *
+   * 用于 handler 抛错或无 handler 时。error 为 top-level 字段（非嵌在 result 内），
+   * 与 routeMessage 接收响应时的解析逻辑对称。
+   */
+  respondToServerRequestError(id: number | string, code: number, message: string, data?: unknown): void {
+    if (this.closed) return;
+    if (this.respondedServerRequests.has(id)) return; // 防重复回复
+    this.respondedServerRequests.add(id);
+    const msg = { id, error: { code, message, ...(data !== undefined ? { data } : {}) } };
+    this.writeLine(serialize(msg));
+  }
+
+  /**
    * 注册通知 handler（按 method 多播）。
    */
   onNotification(method: string, handler: NotificationHandler): () => void {
@@ -266,9 +280,7 @@ export class JsonRpcClient {
                 }
               },
               (err) => {
-                this.respondToServerRequest(id, {
-                  error: err instanceof Error ? err.message : String(err),
-                });
+                this.respondToServerRequestError(id, -32603, err instanceof Error ? err.message : String(err));
               },
             );
           } else if (ret !== undefined) {
@@ -276,13 +288,11 @@ export class JsonRpcClient {
           }
           // 若 ret === undefined：handler 将稍后手动调 respondToServerRequest
         } catch (err) {
-          this.respondToServerRequest(id, {
-            error: err instanceof Error ? err.message : String(err),
-          });
+          this.respondToServerRequestError(id, -32603, err instanceof Error ? err.message : String(err));
         }
       } else {
-        // 无 handler：回复 method not supported
-        this.respondToServerRequest(id, { error: `method '${req.method}' not supported` });
+        // 无 handler：回复 method not found
+        this.respondToServerRequestError(id, -32601, `method '${req.method}' not supported`);
       }
       return;
     }

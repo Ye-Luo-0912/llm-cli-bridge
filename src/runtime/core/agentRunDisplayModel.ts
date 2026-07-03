@@ -11,6 +11,7 @@
 
 import type { AssistantTurnView, ApprovalResponse } from "./types";
 import type { AttachmentPlan, EffectiveRunPlan } from "../../types";
+import { redactSecrets } from "../../workflowEvent";
 
 // ---------- Card Types ----------
 
@@ -148,6 +149,33 @@ export interface BuildDisplayModelOptions {
 // ---------- Builder ----------
 
 const EMPTY_CARDS: readonly AgentRunCard[] = [];
+
+/**
+ * P5: 脱敏 debugView 中的敏感信息（API key / token / Bearer / password）。
+ *
+ * debugView 是 developer mode 唯一调试入口，其中 rawProviderEvents / commandPreview /
+ * effectiveRunPlan / attachmentPlan 可能包含敏感信息（命令行 env、API key、文件路径等）。
+ * 本函数对字符串字段走 redactSecrets，对对象字段走 JSON.stringify → redactSecrets → JSON.parse。
+ * providerThreadId / providerSessionId / sessionResumed 敏感度低，保留原值。
+ */
+function redactDebugView(debug: AgentRunDebugView): AgentRunDebugView {
+  const redactObject = <T>(obj: T): T => {
+    try {
+      return JSON.parse(redactSecrets(JSON.stringify(obj))) as T;
+    } catch {
+      return obj;
+    }
+  };
+  return {
+    ...debug,
+    commandPreview: debug.commandPreview?.map((row) => ({ ...row, value: redactSecrets(row.value) })),
+    effectiveRunPlan: debug.effectiveRunPlan ? redactObject(debug.effectiveRunPlan) : debug.effectiveRunPlan,
+    attachmentPlan: debug.attachmentPlan ? redactObject(debug.attachmentPlan) : debug.attachmentPlan,
+    rawProviderEvents: debug.rawProviderEvents.map((e) => redactObject(e)),
+    workflowTrace: debug.workflowTrace?.map((t) => ({ ...t, detail: redactSecrets(t.detail) })),
+    sdkEvents: debug.sdkEvents?.map((e) => redactObject(e)),
+  };
+}
 
 /**
  * 从 AssistantTurnView 构建 AgentRunDisplayModel。
@@ -357,7 +385,7 @@ export function buildAgentRunDisplayModel(
     approvalCards,
     fileChangeCards,
     diagnosticCards,
-    debugView: options.developerMode ? options.debug : undefined,
+    debugView: options.developerMode && options.debug ? redactDebugView(options.debug) : undefined,
   };
 }
 
