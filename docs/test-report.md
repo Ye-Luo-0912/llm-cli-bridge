@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-03T20:27:33.072Z
-- **测试环境**: win32 / Node.js v24.14.0
+- **测试时间**: 2026-07-03T20:53:52.255Z
+- **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.16.0
-- **main.js 大小**: 691.0 KB
+- **main.js 大小**: 689.0 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\.tmp-vault`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
-- **commit sha**: e1c86d6c3b97beaf200d2f7e0032a30106750dde
-- **commit 短 sha**: e1c86d6c3b97
+- **commit sha**: 475dd4527a79e10c1aaf422546ae66063bfdbf92
+- **commit 短 sha**: 475dd4527a79
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
 
-- ✅ **通过**: 94
+- ✅ **通过**: 95
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 57
 - ⚪ **需人工验证**: 0
-- **总计**: 151
+- **总计**: 152
 
 ### 审计模式说明
 
@@ -526,7 +526,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | phase 内紧凑审批 + developerMode 才显示旧 panel | - |
+| ✅ | approval dock 固定在 composer 上方，assistant turn 不放决策按钮 | - |
+
+### V16.4-D user bubble
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 文本可选择复制且不新增复制按钮 | - |
 
 ### V2.16-H timeline
 
