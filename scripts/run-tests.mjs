@@ -1737,6 +1737,133 @@ if (runMode !== "all" && runMode !== "unit") {
         redactOk ? "" : "hasFn=" + hasRedactFn + " calls=" + callsRedact);
     }
 
+    // ---------- 5f. P5 behavior tests ----------
+    {
+      // Bundle modules for behavior tests
+      const tempMapperBundle = join(PROJECT_ROOT, ".test-p5-mapper.mjs");
+      await esbuild.build({ ...bundleOpts("runtime/providers/codex-app-server/codexAppServerEventMapper.ts"), outfile: tempMapperBundle });
+      const { CodexAppServerEventMapper: MapperP5 } = await import(pathToFileURL(tempMapperBundle).href);
+
+      const tempClientBundle = join(PROJECT_ROOT, ".test-p5-client.mjs");
+      await esbuild.build({ ...bundleOpts("runtime/providers/codex-app-server/jsonRpcClient.ts"), outfile: tempClientBundle });
+      const { JsonRpcClient: ClientP5 } = await import(pathToFileURL(tempClientBundle).href);
+
+      const tempDisplayBundle = join(PROJECT_ROOT, ".test-p5-display.mjs");
+      await esbuild.build({ ...bundleOpts("runtime/core/agentRunDisplayModel.ts"), outfile: tempDisplayBundle });
+      const { redactDebugView: redactFn } = await import(pathToFileURL(tempDisplayBundle).href);
+
+      // Test 1: fileChange 2+ changes 产出 2+ 个不同 file_change event
+      const mapperP5 = new MapperP5("codex-app-server", true);
+      const fcParams = {
+        threadId: "t1", itemId: "fc-multi",
+        item: {
+          id: "fc-multi", type: "fileChange",
+          changes: [
+            { kind: "create", path: "output/a.md" },
+            { kind: "modify", path: "src/b.ts" },
+            { kind: "delete", path: "tmp/c.txt" },
+          ],
+        },
+      };
+      const ev0 = mapperP5.mapItemCompleted(fcParams, 0);
+      const ev1 = mapperP5.mapItemCompleted(fcParams, 1);
+      const ev2 = mapperP5.mapItemCompleted(fcParams, 2);
+      const pathsOk = ev0.payload.path === "output/a.md" && ev1.payload.path === "src/b.ts" && ev2.payload.path === "tmp/c.txt";
+      const actionsOk = ev0.payload.action === "create" && ev1.payload.action === "modify" && ev2.payload.action === "delete";
+      const fcBehaviorOk = pathsOk && actionsOk && ev0.payload.kind === "file_change";
+      addTest("P5 behavior: fileChange 3 changes 产出 3 个不同 path/action 事件", fcBehaviorOk ? "pass" : "fail",
+        fcBehaviorOk ? "" : "paths=" + ev0.payload.path + "," + ev1.payload.path + "," + ev2.payload.path);
+
+      // Test 2: fileChangeCards 路径全部正确（通过 buildAgentRunDisplayModel 间接验证）
+      // 构造最小 AssistantTurnView，含 3 个 fileChanges
+      const { buildAgentRunDisplayModel: buildModel } = await import(pathToFileURL(tempDisplayBundle).href);
+      const turnView = {
+        turnId: "t1", providerId: "codex-app-server", status: "completed",
+        process: [], thoughts: [], tools: [],
+        fileChanges: [
+          { action: "create", path: "output/a.md", timestamp: "2026-07-03T00:00:00Z" },
+          { action: "modify", path: "src/b.ts", timestamp: "2026-07-03T00:00:01Z" },
+          { action: "delete", path: "tmp/c.txt", timestamp: "2026-07-03T00:00:02Z" },
+        ],
+        approvals: [], finalAnswer: "done", warnings: [], errors: [],
+        rawProviderEvents: [], startedAt: "2026-07-03T00:00:00Z",
+      };
+      const model = buildModel(turnView, { developerMode: false });
+      const cardPaths = model.fileChangeCards.map((c) => c.path);
+      const cardsOk = cardPaths.length === 3 && cardPaths[0] === "output/a.md" && cardPaths[1] === "src/b.ts" && cardPaths[2] === "tmp/c.txt";
+      addTest("P5 behavior: fileChangeCards 路径全部正确（3 个不同 path）", cardsOk ? "pass" : "fail",
+        cardsOk ? "" : "cardPaths=" + JSON.stringify(cardPaths));
+
+      // Test 3: JsonRpcClient top-level error 三场景
+      // 用 onLineHandler 方式：构造 client 时传入 onLine 注册器
+      const sentLines2 = [];
+      let lineHandler2 = null;
+      const client2 = new ClientP5(
+        (line) => sentLines2.push(line),
+        (h) => { lineHandler2 = h; return () => { lineHandler2 = null; }; },
+      );
+      // 场景 a: handler throw
+      client2.onServerRequest("test/throw", () => { throw new Error("boom"); });
+      // 场景 b: rejected promise
+      client2.onServerRequest("test/reject", () => Promise.reject(new Error("rejected")));
+      // 场景 c: unsupported method (不注册 handler)
+      // 传入 3 个 server request
+      lineHandler2(JSON.stringify({ id: 101, method: "test/throw", params: {} }));
+      lineHandler2(JSON.stringify({ id: 102, method: "test/reject", params: {} }));
+      lineHandler2(JSON.stringify({ id: 103, method: "test/unsupported", params: {} }));
+      // 等待 rejected promise 落地
+      await new Promise((r) => setTimeout(r, 50));
+      // 验证 3 条回复都是 top-level error
+      const parseLine = (l) => { try { return JSON.parse(l); } catch { return null; } };
+      const findById = (id) => sentLines2.map(parseLine).find((r) => r && r.id === id);
+      const resp1 = findById(101);
+      const resp2 = findById(102);
+      const resp3 = findById(103);
+      const err1Ok = resp1 && resp1.id === 101 && resp1.error && resp1.error.code === -32603 && resp1.error.message === "boom" && resp1.result === undefined;
+      const err2Ok = resp2 && resp2.id === 102 && resp2.error && resp2.error.code === -32603 && resp2.error.message === "rejected" && resp2.result === undefined;
+      const err3Ok = resp3 && resp3.id === 103 && resp3.error && resp3.error.code === -32601 && resp3.error.message.includes("not supported") && resp3.result === undefined;
+      const rpcBehaviorOk = err1Ok && err2Ok && err3Ok;
+      addTest("P5 behavior: JsonRpcClient handler throw/reject/unsupported → top-level error", rpcBehaviorOk ? "pass" : "fail",
+        rpcBehaviorOk ? "" : "err1=" + JSON.stringify(resp1) + " err2=" + JSON.stringify(resp2) + " err3=" + JSON.stringify(resp3));
+
+      // Test 4: redactDebugView 实际样本脱敏
+      const debugSample = {
+        rawProviderEvents: [
+          { token: "token: abc123def456ghi789jkl012mno345pqr789stu012vwx345" },
+          { apiKey: "api_key: sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789" },
+          { authorization: "authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0" },
+          { cookie: "cookie: sessionid=abcdefghijklmnopqrstuvwxyz0123456789" },
+          { password: "password: supersecretvalue123" },
+          { secret: "secret: mysecretvalue12345678" },
+          { credential: "credential: mycredentialvalue123" },
+        ],
+        commandPreview: [{ label: "env", value: "ANTHROPIC_API_KEY=sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789" }],
+        effectiveRunPlan: undefined,
+        providerThreadId: "thread-1",
+        providerSessionId: "sess-1",
+        sessionResumed: false,
+        attachmentPlan: undefined,
+        workflowTrace: [{ stage: "init", timestamp: "2026-07-03T00:00:00Z", detail: "token: abc123def456ghi789jkl012mno345pqr789stu012vwx345", status: "ok" }],
+        sdkEvents: [],
+      };
+      const redacted = redactFn(debugSample);
+      const rawJson = JSON.stringify(redacted.rawProviderEvents);
+      const cmdJson = JSON.stringify(redacted.commandPreview);
+      const wfJson = JSON.stringify(redacted.workflowTrace);
+      const noToken = !rawJson.includes("abc123def456ghi789jkl012mno345pqr789stu012vwx345");
+      const noApiKey = !rawJson.includes("sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789");
+      const noBearer = !rawJson.includes("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9");
+      const noCookie = !rawJson.includes("sessionid=abcdefghijklmnopqrstuvwxyz0123456789");
+      const noPassword = !rawJson.includes("supersecretvalue123");
+      const noSecret = !rawJson.includes("mysecretvalue12345678");
+      const noCredential = !rawJson.includes("mycredentialvalue123");
+      const noCmdKey = !cmdJson.includes("sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789");
+      const noWfToken = !wfJson.includes("abc123def456ghi789jkl012mno345pqr789stu012vwx345");
+      const redactBehaviorOk = noToken && noApiKey && noBearer && noCookie && noPassword && noSecret && noCredential && noCmdKey && noWfToken;
+      addTest("P5 behavior: redactDebugView 对 token/apiKey/authorization/cookie/password/secret/credential 脱敏", redactBehaviorOk ? "pass" : "fail",
+        redactBehaviorOk ? "" : "token=" + !noToken + " key=" + !noApiKey + " bearer=" + !noBearer + " cookie=" + !noCookie + " pwd=" + !noPassword + " secret=" + !noSecret + " cred=" + !noCredential + " cmd=" + !noCmdKey + " wf=" + !noWfToken);
+    }
+
     // ---------- 6. approval request → PermissionBoundary → provider response ----------
     {
       const { createPermissionBoundary } = permBoundaryMod;

@@ -158,7 +158,7 @@ const EMPTY_CARDS: readonly AgentRunCard[] = [];
  * 本函数对字符串字段走 redactSecrets，对对象字段走 JSON.stringify → redactSecrets → JSON.parse。
  * providerThreadId / providerSessionId / sessionResumed 敏感度低，保留原值。
  */
-function redactDebugView(debug: AgentRunDebugView): AgentRunDebugView {
+export function redactDebugView(debug: AgentRunDebugView): AgentRunDebugView {
   const redactObject = <T>(obj: T): T => {
     try {
       return JSON.parse(redactSecrets(JSON.stringify(obj))) as T;
