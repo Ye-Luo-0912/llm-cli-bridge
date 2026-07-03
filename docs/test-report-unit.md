@@ -7,17 +7,17 @@
 - **Vault 路径**: `C:\Users\Ye_Luo\.trae-cn\worktrees\llm-cli-bridge\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
-- **commit sha**: 6b4ac6bf5edd7b58067504c5d13b13c0e1e69456
-- **commit 短 sha**: 6b4ac6bf5edd
+- **commit sha**: 869ca6010cf84627060c958aba8d7f75c5dca75a
+- **commit 短 sha**: 869ca60
 - **运行命令**: node scripts/run-tests.mjs unit
 
 ## 测试汇总
 
-- ✅ **通过**: 831
+- ✅ **通过**: 836
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 856
+- **总计**: 861
 
 ### 审计模式说明
 

@@ -8,16 +8,16 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-03T10:12:07.576Z
-- **reportCommitSha**: 6b4ac6bf5edd7b58067504c5d13b13c0e1e69456
-- **reportCommitSha 短**: 6b4ac6bf5edd
-- **reportParentSha**: 6b4ac6bf5edd7b58067504c5d13b13c0e1e69456
-- **reportParentSha 短**: 6b4ac6bf5edd
-- **testedCodeCommitSha**: 6b4ac6bf5edd7b58067504c5d13b13c0e1e69456
-- **testedCodeCommitSha 短**: 6b4ac6bf5edd
+- **生成时间**: 2026-07-03T11:31:32.021Z
+- **reportCommitSha**: 869ca6010cf84627060c958aba8d7f75c5dca75a
+- **reportCommitSha 短**: 869ca6010cf8
+- **reportParentSha**: 869ca6010cf84627060c958aba8d7f75c5dca75a
+- **reportParentSha 短**: 869ca6010cf8
+- **testedCodeCommitSha**: 869ca6010cf84627060c958aba8d7f75c5dca75a
+- **testedCodeCommitSha 短**: 869ca6010cf8
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: 6b4ac6bf5edd7b58067504c5d13b13c0e1e69456
-- **processReportCommitSha**: 6b4ac6bf5edd7b58067504c5d13b13c0e1e69456
+- **unitReportCommitSha**: 869ca6010cf84627060c958aba8d7f75c5dca75a
+- **processReportCommitSha**: 869ca6010cf84627060c958aba8d7f75c5dca75a
 - **codexSmokeStatus**: skip
 - **codexHandshakeStatus**: skip
 - **codexTurnStatus**: skip
@@ -32,17 +32,17 @@
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=6b4ac6bf5edd。
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=869ca6010cf8。
 - **当前 commit 改动文件**：(无改动 / 无法获取)
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 831 | 0 | 25 | 0 | 856 | 6b4ac6bf5edd | ✅ 通过 |
-| process | 831 | 0 | 25 | 0 | 856 | 6b4ac6bf5edd | ✅ 通过 |
+| unit | 836 | 0 | 25 | 0 | 861 | 869ca6010cf8 | ✅ 通过 |
+| process | 836 | 0 | 25 | 0 | 861 | 869ca6010cf8 | ✅ 通过 |
 | codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **1662** | **0** | **50** | **0** | **1712** | 6b4ac6bf5edd | ✅ **主线通过** |
+| **合计** | **1672** | **0** | **50** | **0** | **1722** | 869ca6010cf8 | ✅ **主线通过** |
 
 **双轨均 0 失败 → P2 Codex app-server Runtime 主线闭环测试通过。**
 
