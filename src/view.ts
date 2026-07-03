@@ -20,7 +20,7 @@ import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalW
 import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse } from "./runtime/core/types";
-import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
+import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
 import { AssistantTurnViewBuilder } from "./runtime/core/assistantTurnView";
@@ -3128,7 +3128,7 @@ export class LLMBridgeView extends ItemView {
     wrap.addClass(`is-disposition-${model.finalAnswerDisposition}`);
     const head = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
     // V16.4: completed 时用 phaseModel.resultSummary 作为 header
-    const headerText = (!isRunning && !isFailed && model.phaseModel.resultSummary)
+    const headerText = (!isRunning && !isFailed && model.finalAnswerDisposition === "completed" && model.phaseModel.resultSummary)
       ? model.phaseModel.resultSummary
       : model.header;
     const toggle = hasProcessContent
@@ -3340,9 +3340,10 @@ export class LLMBridgeView extends ItemView {
     // 高风险显示强调样式；详细信息折叠到 Details
     for (const ap of phase.approvals) {
       const isHighRisk = ap.riskLevel === "high";
+      const approvalLabel = approvalDisplayLabel(ap.toolName, ap.inputSummary, ap.description);
       const apEl = body.createDiv({ cls: `llm-bridge-phase-approval is-risk-${ap.riskLevel} ${ap.pending ? "is-pending" : "is-resolved"}` });
       const apHead = apEl.createDiv({ cls: "llm-bridge-phase-approval-head" });
-      apHead.createEl("span", { cls: "llm-bridge-phase-approval-tool", text: ap.toolName });
+      apHead.createEl("span", { cls: "llm-bridge-phase-approval-tool", text: approvalLabel });
       if (ap.pending) {
         // 内联决策按钮：[Allow once] [Allow session] [Deny]
         const btns = apEl.createDiv({ cls: "llm-bridge-phase-approval-btns" });
