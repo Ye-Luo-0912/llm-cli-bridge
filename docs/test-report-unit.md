@@ -1,23 +1,23 @@
-# LLM CLI Bridge 测试报告 — 单元测试（unit）
+# LLM CLI Bridge 测试报告 — 全量测试（all）
 
-- **测试时间**: 2026-07-02T16:50:04.749Z
+- **测试时间**: 2026-07-03T04:25:41.788Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
 - **main.js 大小**: 578.9 KB
 - **Vault 路径**: `C:\Users\Ye_Luo\.trae-cn\worktrees\llm-cli-bridge\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
-- **commit sha**: 74537c445287326fc23d645fbd247817f67f04db
-- **commit 短 sha**: 74537c445287
-- **运行命令**: node scripts/run-tests.mjs --unit
+- **commit sha**: cf55436fd518b4f5d05e7702a0474bc2b3c78dec
+- **commit 短 sha**: cf55436fd518
+- **运行命令**: node scripts/run-tests.mjs unit
 
 ## 测试汇总
 
-- ✅ **通过**: 756
+- ✅ **通过**: 805
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 27
+- ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 783
+- **总计**: 830
 
 ### 审计模式说明
 
@@ -107,16 +107,11 @@
 | ✅ | .obsidian/ 不参与 diff | - |
 | ✅ | .llm-bridge/ 不参与 diff | - |
 
-### HTTP Bridge 测试段
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ⏭️ | HTTP Bridge 测试段 | 当前为 unit 模式，跳过 integration 测试 |
-
 ### HTTP
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
+| ⏭️ | bridge.json 不存在 | Obsidian 未运行，跳过 integration 测试 |
 | ⏭️ | GET /state | Obsidian 未运行，跳过 integration 测试 |
 | ⏭️ | POST /action show_notice | Obsidian 未运行，跳过 integration 测试 |
 | ⏭️ | POST /action open_note | Obsidian 未运行，跳过 integration 测试 |
@@ -233,6 +228,42 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | fixture stream → completed view (process/thoughts/tools/files/final) | - |
+
+### AgentRunDisplayModel
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | header 含摘要计数（tools/file changes） | - |
+| ✅ | finalAnswer 透传自 AssistantTurnView | - |
+| ✅ | timelineCards 含 thinking/tool/approval/error（resolved approval 进入 timeline） | - |
+| ✅ | pending approvalCards 只含 pending（resolved 进入 timeline） | - |
+| ✅ | fileChangeCards 从 fileChanges 派生 | - |
+| ✅ | diagnosticCards 只含 warnings（errors 进 timeline） | - |
+| ✅ | developerMode=false → debugView=undefined | - |
+| ✅ | developerMode=true → debugView 含 rawProviderEvents | - |
+| ✅ | running 状态 → currentActivity + header 含运行中 | - |
+| ✅ | getToolIconCategory 分类正确 | - |
+
+### P3-C
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 普通用户态 debugView=undefined（不渲染 audit/raw/legacy） | - |
+| ✅ | developerMode=true → debugView 含 rawProviderEvents/effectiveRunPlan/attachmentPlan/workflowTrace/sdkEvents | - |
+| ✅ | AgentRunDisplayModel 不依赖 WorkflowEvent / RunStateAggregator | - |
+| ✅ | turnView 分支不直接调用 appendSdkWorkflow/appendWorkflowTrace（通过 debugView） | - |
+| ✅ | historical fallback 分支 sdkEvents 必须 developerMode gated | - |
+
+### P4
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | doNewSession 置空 this.session + this.sessionMode（修复跨会话 PermissionBoundary 泄漏） | - |
+| ✅ | PermissionBoundary.resetSessionCache 清空 allowsList（修复跨会话 auto-allow 泄漏） | - |
+| ✅ | resetSessionCache 后同类 approval 进入 pending（不再 auto-allow） | - |
+| ✅ | PermissionBoundary 接口包含 resetSessionCache 方法 | - |
+| ✅ | 死代码 mapWorkflowEventsToNormalized 已删除 | - |
+| ✅ | 死代码 buildRuntimeTranscriptFromEvents 已删除 | - |
 
 ### WorkflowEvent→Normalized
 
@@ -393,6 +424,15 @@
 | ✅ | available 状态含 version | - |
 | ✅ | unavailable 状态含退出码原因 | - |
 | ✅ | command 为空时 detail 含 skipReason | - |
+| ✅ | cwd 不存在 → failed diagnostic | - |
+| ✅ | command 不存在 → unavailable | - |
+| ✅ | version 成功 → available | - |
+| ✅ | command 为空 → unavailable | - |
+| ✅ | debug log 不含 secret | - |
+| ✅ | 路径带空格可运行 | - |
+| ✅ | claude 真实命令探测 | available=true, stdout="2.1.198 (Claude Code)
+" |
+| ⏭️ | codex 真实命令探测 | codex 未安装或不可用 (exitCode=1) |
 
 ### ErrorSummary
 
@@ -1211,7 +1251,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-02T16-50-32-886Z-46vy5i |
+| ✅ | 返回非空 id | id=s-2026-07-03T04-26-09-949Z-xf3o31 |
 
 ### V2.5 Session 版本
 
@@ -1230,7 +1270,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-02T16-50-32-964Z-ga24nz second=s-2026-07-02T16-50-32-898Z-cqipw6 |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-03T04-26-10-027Z-hwm3f7 second=s-2026-07-03T04-26-09-959Z-uxs0qf |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1257,7 +1297,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-02T16-50-32-989Z-pp2r07 id2=s-2026-07-02T16-50-32-989Z-2wcdw9 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-03T04-26-10-047Z-u70ttg id2=s-2026-07-03T04-26-10-048Z-6dywxa |
 
 ### V2.5 Session 上限
 
@@ -1355,7 +1395,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-02T16:50:33.050Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-03T04:26:10.112Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1443,7 +1483,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-02T16:50:33.103Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-03T04:26:10.173Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -1557,7 +1597,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-02T16:50:33.181Z after=2026-07-02T16:50:33.242Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-03T04:26:10.249Z after=2026-07-03T04:26:10.305Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -1928,13 +1968,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-02T16:50:33.893Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-03T04:26:10.997Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-02T16:50:33.904Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-03T04:26:11.007Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -2245,7 +2285,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-KLTq91\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-njT228\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-MPFMeW\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-jqcKXF\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -2257,7 +2297,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-lWUihY\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-quxZgS\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-B0bmmD\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-H5fxW8\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -2269,7 +2309,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-CIldgZ\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-Rs0zaW\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-vbF582\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-kOMLKC\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -2343,23 +2383,47 @@
 |------|--------|------|
 | ✅ | 原生 SKILL.md 详情、无 snippets、composer/model picker 修复 | skills=true noDetail=true native=true click=true prompt=true composer=true report=true |
 
-### Process 测试段
+### Process
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | Process 测试段 | 当前为 unit/integration 模式，跳过 process 测试 |
+| ✅ | 启动 fixture success | - |
+| ✅ | 接收多段 stdout_delta | - |
+| ✅ | 接收 stderr_delta | - |
+| ✅ | exit 0 → completed | - |
+| ✅ | exit 1 → failed | - |
+| ✅ | stop() 终止 slow fixture | - |
+| ✅ | cwd 路径带空格可运行 | - |
+| ✅ | cwd 指向临时目录可运行 | - |
+| ✅ | large-output 不污染诊断日志 | - |
 
-### Claude Smoke 段
+### Process File Diff
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | Claude Smoke 段 | 当前模式不运行 claude smoke |
+| ✅ | fixture write-file completed | - |
+| ✅ | diff 检测到 fixture 写入的新文件 | - |
 
-### Claude Note Summarize Smoke 段
+### Claude Smoke
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | Claude Note Summarize Smoke 段 | 当前模式不运行 note summarize smoke |
+| ✅ | claude 可用性 | version: 2.1.198 (Claude Code) |
+| ✅ | started 先发出 | - |
+| ✅ | 接收 stdout_delta | - |
+| ✅ | completed exitCode 0 | - |
+| ✅ | stdout 含 OK | - |
+
+### Claude Note Summarize
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | claude 可用性 | version: 2.1.198 (Claude Code) |
+| ✅ | prompt 包含标记词 | - |
+| ✅ | started 先发出 | - |
+| ✅ | completed exitCode 0 | - |
+| ✅ | stdout 包含标记词 | - |
+| ✅ | stdout 提到总结/关键 | - |
 
 ### V2.16-D contextMetrics.ts
 
@@ -2508,12 +2572,6 @@
 |------|--------|------|
 | ✅ | partial 累加 + 单 thinking + 单 tool + sessionStarted 记录 + completed 终态 | finalAnswer="我来读取完成" thinking="分析中... 需要读文件" toolSize=1 terminal=true |
 
-### V2.17-A buildRuntimeTranscriptFromEvents
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ✅ | 与 RunStateAggregator 等价 | same=true buffer="answer" |
-
 ### V2.17-A buildAttachmentPlan
 
 | 状态 | 测试项 | 详情 |
@@ -2571,7 +2629,7 @@
 |------|--------|------|
 | ✅ | unit/process 报告含 commit sha + 运行命令字段 | unitExists=true processExists=true unitSha=true processSha=true unitCmd=true processCmd=true |
 | ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
-| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=74537c445287 |
+| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=cf55436fd518 |
 | ✅ | 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑） | scriptExists=true auditFailExit=true testedCodeShaCheck=true codexSmokeCheck=true docsOnlyLogic=true |
 
 ## 失败项详情
