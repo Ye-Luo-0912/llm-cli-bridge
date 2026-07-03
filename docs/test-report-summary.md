@@ -8,16 +8,16 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-03T17:34:38.647Z
-- **reportCommitSha**: 6a59b57079b92f9571191623afca1273c42cb574
-- **reportCommitSha 短**: 6a59b57079b9
-- **reportParentSha**: 7a77b4adf75c1515408e5dcb9c7d70314e8fdf57
-- **reportParentSha 短**: 7a77b4adf75c
-- **testedCodeCommitSha**: 6a59b57079b92f9571191623afca1273c42cb574
-- **testedCodeCommitSha 短**: 6a59b57079b9
+- **生成时间**: 2026-07-03T18:10:32.804Z
+- **reportCommitSha**: ce19c727b2d53196dad8825dc5b05af458cb5b7d
+- **reportCommitSha 短**: ce19c727b2d5
+- **reportParentSha**: 6ae5621c10ab10b4a79624e4f36dcd8e4ee28ab9
+- **reportParentSha 短**: 6ae5621c10ab
+- **testedCodeCommitSha**: ce19c727b2d53196dad8825dc5b05af458cb5b7d
+- **testedCodeCommitSha 短**: ce19c727b2d5
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: 6a59b57079b92f9571191623afca1273c42cb574
-- **processReportCommitSha**: 6a59b57079b92f9571191623afca1273c42cb574
+- **unitReportCommitSha**: ce19c727b2d53196dad8825dc5b05af458cb5b7d
+- **processReportCommitSha**: ce19c727b2d53196dad8825dc5b05af458cb5b7d
 - **codexSmokeStatus**: skip
 - **codexHandshakeStatus**: skip
 - **codexTurnStatus**: skip
@@ -25,24 +25,24 @@
 - **codexSchemaSource**: fixture
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-03T17:34:03.180Z
-- **process 测试时间**: 2026-07-03T17:34:34.184Z
+- **unit 测试时间**: 2026-07-03T18:09:46.677Z
+- **process 测试时间**: 2026-07-03T18:10:23.494Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=6a59b57079b9。
-- **当前 commit 改动文件**：docs/test-report-process.md, docs/test-report-summary.md, docs/test-report-unit.md, docs/test-report.md, scripts/cdp-smoke.mjs, src/view.ts, styles.css
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=ce19c727b2d5。
+- **当前 commit 改动文件**：scripts/cdp-v164d-smoke.mjs, src/view.ts
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 816 | 0 | 25 | 0 | 841 | 6a59b57079b9 | ✅ 通过 |
-| process | 95 | 0 | 56 | 0 | 151 | 6a59b57079b9 | ✅ 通过 |
+| unit | 863 | 0 | 25 | 0 | 888 | ce19c727b2d5 | ✅ 通过 |
+| process | 95 | 0 | 56 | 0 | 151 | ce19c727b2d5 | ✅ 通过 |
 | codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **911** | **0** | **81** | **0** | **992** | 6a59b57079b9 | ✅ **主线通过** |
+| **合计** | **958** | **0** | **81** | **0** | **1039** | ce19c727b2d5 | ✅ **主线通过** |
 
 **双轨均 0 失败 → P2 Codex app-server Runtime 主线闭环测试通过。**
 

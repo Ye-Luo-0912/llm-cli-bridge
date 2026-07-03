@@ -1,14 +1,14 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-03T17:32:55.350Z
+- **测试时间**: 2026-07-03T18:10:23.494Z
 - **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.16.0
-- **main.js 大小**: 618.3 KB
+- **main.js 大小**: 669.9 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 60586
-- **commit sha**: 6a59b57079b92f9571191623afca1273c42cb574
-- **commit 短 sha**: 6a59b57079b9
+- **commit sha**: ce19c727b2d53196dad8825dc5b05af458cb5b7d
+- **commit 短 sha**: ce19c727b2d5
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
@@ -526,7 +526,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | turn 内紧凑审批卡片 + developerMode 才显示旧 panel | - |
+| ✅ | phase 内紧凑审批 + developerMode 才显示旧 panel | - |
 
 ### V2.16-H timeline
 
