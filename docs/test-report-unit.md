@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 全量测试（all）
 
-- **测试时间**: 2026-07-03T04:25:41.788Z
+- **测试时间**: 2026-07-03T04:55:31.728Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
 - **main.js 大小**: 578.9 KB
 - **Vault 路径**: `C:\Users\Ye_Luo\.trae-cn\worktrees\llm-cli-bridge\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
-- **commit sha**: cf55436fd518b4f5d05e7702a0474bc2b3c78dec
-- **commit 短 sha**: cf55436fd518
+- **commit sha**: fac6bc10a2f3b85ae4bc4576553b22c9efebb059
+- **commit 短 sha**: fac6bc10a2f3
 - **运行命令**: node scripts/run-tests.mjs unit
 
 ## 测试汇总
 
-- ✅ **通过**: 805
+- ✅ **通过**: 812
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 830
+- **总计**: 837
 
 ### 审计模式说明
 
@@ -264,6 +264,18 @@
 | ✅ | PermissionBoundary 接口包含 resetSessionCache 方法 | - |
 | ✅ | 死代码 mapWorkflowEventsToNormalized 已删除 | - |
 | ✅ | 死代码 buildRuntimeTranscriptFromEvents 已删除 | - |
+
+### P5
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | fileChange mapper 接受 changeIndex 参数（修复多 change 重复第一个 path） | - |
+| ✅ | provider 循环传入 changeIndex idx（每个 change 映射为独立事件） | - |
+| ✅ | JSON-RPC server request error 使用 top-level error（符合规范） | - |
+| ✅ | 三处 error 回复改为 respondToServerRequestError | - |
+| ✅ | BridgeSession currentRunId 清理移进 finally + cancel 清理 | - |
+| ✅ | provider currentRunId 赋值移进 try 块（setup 抛错时不泄漏） | - |
+| ✅ | debugView 脱敏（redactDebugView 函数 + 调用） | - |
 
 ### WorkflowEvent→Normalized
 
@@ -1251,7 +1263,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-03T04-26-09-949Z-xf3o31 |
+| ✅ | 返回非空 id | id=s-2026-07-03T04-55-59-867Z-t8jhg3 |
 
 ### V2.5 Session 版本
 
@@ -1270,7 +1282,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-03T04-26-10-027Z-hwm3f7 second=s-2026-07-03T04-26-09-959Z-uxs0qf |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-03T04-55-59-945Z-2f7l9d second=s-2026-07-03T04-55-59-879Z-zyh1b5 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1297,7 +1309,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-03T04-26-10-047Z-u70ttg id2=s-2026-07-03T04-26-10-048Z-6dywxa |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-03T04-55-59-965Z-3javkp id2=s-2026-07-03T04-55-59-965Z-ymv3sf |
 
 ### V2.5 Session 上限
 
@@ -1395,7 +1407,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-03T04:26:10.112Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-03T04:56:00.029Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1483,7 +1495,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-03T04:26:10.173Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-03T04:56:00.086Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -1597,7 +1609,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-03T04:26:10.249Z after=2026-07-03T04:26:10.305Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-03T04:56:00.167Z after=2026-07-03T04:56:00.222Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -1968,13 +1980,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-03T04:26:10.997Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-03T04:56:00.871Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-03T04:26:11.007Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-03T04:56:00.880Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -2285,7 +2297,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-MPFMeW\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-jqcKXF\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-kzFuQy\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-xIgU1Q\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -2297,7 +2309,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-B0bmmD\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-H5fxW8\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-MKUbM7\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-7IGNID\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -2309,7 +2321,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-vbF582\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-kOMLKC\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-gX1E45\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-RunI1H\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 

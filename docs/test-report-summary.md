@@ -8,16 +8,16 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-03T04:30:02.012Z
-- **reportCommitSha**: cf55436fd518b4f5d05e7702a0474bc2b3c78dec
-- **reportCommitSha 短**: cf55436fd518
-- **reportParentSha**: cf55436fd518b4f5d05e7702a0474bc2b3c78dec
-- **reportParentSha 短**: cf55436fd518
-- **testedCodeCommitSha**: cf55436fd518b4f5d05e7702a0474bc2b3c78dec
-- **testedCodeCommitSha 短**: cf55436fd518
+- **生成时间**: 2026-07-03T04:57:13.219Z
+- **reportCommitSha**: fac6bc10a2f3b85ae4bc4576553b22c9efebb059
+- **reportCommitSha 短**: fac6bc10a2f3
+- **reportParentSha**: fac6bc10a2f3b85ae4bc4576553b22c9efebb059
+- **reportParentSha 短**: fac6bc10a2f3
+- **testedCodeCommitSha**: fac6bc10a2f3b85ae4bc4576553b22c9efebb059
+- **testedCodeCommitSha 短**: fac6bc10a2f3
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: cf55436fd518b4f5d05e7702a0474bc2b3c78dec
-- **processReportCommitSha**: cf55436fd518b4f5d05e7702a0474bc2b3c78dec
+- **unitReportCommitSha**: fac6bc10a2f3b85ae4bc4576553b22c9efebb059
+- **processReportCommitSha**: fac6bc10a2f3b85ae4bc4576553b22c9efebb059
 - **codexSmokeStatus**: skip
 - **codexHandshakeStatus**: skip
 - **codexTurnStatus**: skip
@@ -25,24 +25,24 @@
 - **codexSchemaSource**: fixture
 - **unit 运行命令**: node scripts/run-tests.mjs unit
 - **process 运行命令**: node scripts/run-tests.mjs process
-- **unit 测试时间**: 2026-07-03T04:25:41.788Z
-- **process 测试时间**: 2026-07-03T04:26:34.761Z
+- **unit 测试时间**: 2026-07-03T04:55:31.728Z
+- **process 测试时间**: 2026-07-03T04:56:23.372Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=cf55436fd518。
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=fac6bc10a2f3。
 - **当前 commit 改动文件**：(无改动 / 无法获取)
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 805 | 0 | 25 | 0 | 830 | cf55436fd518 | ✅ 通过 |
-| process | 805 | 0 | 25 | 0 | 830 | cf55436fd518 | ✅ 通过 |
+| unit | 812 | 0 | 25 | 0 | 837 | fac6bc10a2f3 | ✅ 通过 |
+| process | 812 | 0 | 25 | 0 | 837 | fac6bc10a2f3 | ✅ 通过 |
 | codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **1610** | **0** | **50** | **0** | **1660** | cf55436fd518 | ✅ **主线通过** |
+| **合计** | **1624** | **0** | **50** | **0** | **1674** | fac6bc10a2f3 | ✅ **主线通过** |
 
 **双轨均 0 失败 → P2 Codex app-server Runtime 主线闭环测试通过。**
 
