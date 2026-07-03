@@ -151,6 +151,18 @@ export interface BuildDisplayModelOptions {
 const EMPTY_CARDS: readonly AgentRunCard[] = [];
 
 /**
+ * Map tool name to user-friendly activity label.
+ * Read/Write/Bash etc. → Reading files / Editing files / Running checks
+ */
+export function toolToActivity(toolName: string): string {
+  const lower = toolName.toLowerCase();
+  if (/read|getfile|file_read|view|cat|grep|glob|search|ls/.test(lower)) return "Reading files";
+  if (/write|edit|str_replace|patch|create_file|update_file|insert|delete_file/.test(lower)) return "Editing files";
+  if (/bash|execute|run|command|shell|check|test|lint/.test(lower)) return "Running checks";
+  return toolName;
+}
+
+/**
  * P5: 脱敏 debugView 中的敏感信息（API key / token / Bearer / password）。
  *
  * debugView 是 developer mode 唯一调试入口，其中 rawProviderEvents / commandPreview /
@@ -201,40 +213,54 @@ export function buildAgentRunDisplayModel(
   const dur = options.durationMs ?? turnView.durationMs;
 
   // --- header ---
-  const parts: string[] = ["过程"];
-  parts.push(options.statusLabel ?? (isRunning ? "运行中" : turnView.status === "completed" ? "完成" : turnView.status === "failed" ? "失败" : turnView.status));
-  if (thoughtCount > 0) parts.push(`${thoughtCount} thinking`);
-  if (toolCount > 0) parts.push(`${toolCount} tool${toolCount > 1 ? "s" : ""}`);
-  if (fileChangeCount > 0) parts.push(`${fileChangeCount} file change${fileChangeCount > 1 ? "s" : ""}`);
-  if (errorCount > 0) parts.push(`${errorCount} error${errorCount > 1 ? "s" : ""}`);
-  if (warningCount > 0) parts.push(`${warningCount} warning${warningCount > 1 ? "s" : ""}`);
-  if (dur != null && dur > 0) {
-    const secs = Math.round(dur / 1000);
-    if (secs > 0) parts.push(`${secs}s`);
+  const durSecs = dur != null && dur > 0 ? Math.round(dur / 1000) : 0;
+  const pendingApproval = turnView.approvals.some((a) => a.pending);
+  const headerParts: string[] = [];
+
+  if (isRunning) {
+    // Running: show activity label + elapsed time
+    if (pendingApproval) {
+      headerParts.push("Waiting approval");
+    } else {
+      const runningTool = turnView.tools.find((t) => t.status === "running");
+      headerParts.push(runningTool ? toolToActivity(runningTool.toolName) : "Thinking");
+    }
+    if (durSecs > 0) headerParts.push(`${durSecs}s`);
+  } else if (turnView.status === "completed") {
+    // Completed: lightweight summary
+    const summaryParts: string[] = [];
+    if (fileChangeCount > 0) summaryParts.push(`Edited ${fileChangeCount} file${fileChangeCount > 1 ? "s" : ""}`);
+    if (summaryParts.length > 0) {
+      headerParts.push(summaryParts.join(" · "));
+      if (durSecs > 0) headerParts.push(`${durSecs}s`);
+    } else {
+      headerParts.push(durSecs > 0 ? `${durSecs}s` : "Done");
+    }
+  } else if (turnView.status === "failed") {
+    headerParts.push("Failed");
+    if (durSecs > 0) headerParts.push(`${durSecs}s`);
+  } else if (turnView.status === "stopped") {
+    headerParts.push("Stopped");
+    if (durSecs > 0) headerParts.push(`${durSecs}s`);
+  } else {
+    headerParts.push(options.statusLabel ?? turnView.status);
   }
-  const header = parts.join(" · ");
+  const header = headerParts.join(" · ");
 
   // --- currentActivity ---
   let currentActivity = "";
   if (isRunning) {
-    // Find first running tool
-    const runningTool = turnView.tools.find((t) => t.status === "running");
-    if (runningTool) {
-      currentActivity = `运行中: ${runningTool.toolName}`;
-      if (runningTool.toolInput) {
-        const truncated = runningTool.toolInput.length > 60
-          ? runningTool.toolInput.slice(0, 60) + "..."
-          : runningTool.toolInput;
-        currentActivity += ` ${truncated}`;
-      }
-    } else if (turnView.thoughts.length > 0) {
-      currentActivity = "思考中...";
-    } else if (turnView.process.length > 0) {
-      const last = turnView.process[turnView.process.length - 1];
-      currentActivity = last.label;
-      if (last.detail) currentActivity += `: ${last.detail}`;
+    if (pendingApproval) {
+      currentActivity = "Waiting approval";
     } else {
-      currentActivity = "运行中...";
+      const runningTool = turnView.tools.find((t) => t.status === "running");
+      if (runningTool) {
+        currentActivity = toolToActivity(runningTool.toolName);
+      } else if (turnView.thoughts.length > 0) {
+        currentActivity = "Thinking";
+      } else {
+        currentActivity = "Thinking";
+      }
     }
   }
 

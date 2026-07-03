@@ -563,14 +563,8 @@ export class LLMBridgeView extends ItemView {
     this.externalReadPanelEl = filesPanel.createDiv({ cls: "llm-bridge-external-read-panel" });
     this.externalReadPanelEl.style.display = "none";
 
-    // 轻量 Context toggles；不再常驻展示空附件区域。
-    const contextToggles = chatPanel.createDiv({ cls: "llm-bridge-context-toggles" });
-    contextToggles.createEl("span", {
-      cls: "llm-bridge-context-toggles-label",
-      text: "Sources",
-      attr: { title: "当前消息可启用的上下文来源" },
-    });
-    const contextChipsRow = contextToggles.createDiv({ cls: "llm-bridge-context-toggle-chips" });
+    // P4-D: 轻量 Context tags（替代 Sources 大按钮条）
+    const contextTagsRow = chatPanel.createDiv({ cls: "llm-bridge-context-tags" });
     this.pinnedContextEl = chatPanel.createEl("details", { cls: "llm-bridge-pinned-context" });
     this.pinnedContextEl.setAttribute("hidden", "");
 
@@ -699,19 +693,20 @@ export class LLMBridgeView extends ItemView {
     setIcon(this.sendBtn.createEl("span", { cls: "llm-bridge-send-icon" }), "send");
     this.sendBtn.addEventListener("click", () => void this.run());
 
-    // Note / Selection 上下文 toggles：只按开关进入当前 run。
-    const chipsRow = contextChipsRow;
-    this.includeNoteCheckEl = this.buildContextChip(chipsRow, "Note", () => this.plugin.settings.includeActiveNote, async (on) => {
+    // P4-D: 轻量 context tags（替代 Note/Selection 大按钮）
+    // Note tag: "Using {filename}" (clickable to toggle auto-attach)
+    this.includeNoteCheckEl = this.buildContextTag(contextTagsRow, "note", () => this.plugin.settings.includeActiveNote, async (on) => {
       this.plugin.settings.includeActiveNote = on;
       await this.plugin.saveSettings();
     });
-    this.activeFileLabelEl = this.includeNoteCheckEl.parentElement!.createEl("span", { cls: "llm-bridge-chip-file", text: "" });
+    this.activeFileLabelEl = this.includeNoteCheckEl.parentElement!.createEl("span", { cls: "llm-bridge-context-tag-file", text: "" });
 
-    this.includeSelectionCheckEl = this.buildContextChip(chipsRow, "Selection", () => this.plugin.settings.includeSelection, async (on) => {
+    // Selection tag: only visible when there's a selection
+    this.includeSelectionCheckEl = this.buildContextTag(contextTagsRow, "selection", () => this.plugin.settings.includeSelection, async (on) => {
       this.plugin.settings.includeSelection = on;
       await this.plugin.saveSettings();
     });
-    this.selectionLabelEl = this.includeSelectionCheckEl.parentElement!.createEl("span", { cls: "llm-bridge-chip-file", text: "" });
+    this.selectionLabelEl = this.includeSelectionCheckEl.parentElement!.createEl("span", { cls: "llm-bridge-context-tag-file", text: "" });
     this.attachmentFileInputEl = composer.createEl("input", {
       attr: { type: "file", multiple: "true", tabindex: "-1" },
     });
@@ -934,25 +929,30 @@ export class LLMBridgeView extends ItemView {
   }
 
   // 上下文 chip：点击切换开关态
-  private buildContextChip(
+  /**
+   * P4-D: Build a lightweight context tag (replaces bulky chip buttons).
+   * Note tag: shows "Using" label + filename, clickable to toggle.
+   * Selection tag: shows "Selection" + char count, only visible when selection exists.
+   */
+  private buildContextTag(
     parent: HTMLElement,
-    label: string,
+    kind: "note" | "selection",
     getCurrent: () => boolean,
     onToggle: (on: boolean) => Promise<void>,
   ): HTMLInputElement {
-    const wrap = parent.createDiv({ cls: "llm-bridge-chip-wrap" });
+    const wrap = parent.createDiv({ cls: `llm-bridge-context-tag-wrap llm-bridge-context-tag-${kind}` });
     const check = wrap.createEl("input", { type: "checkbox", cls: "llm-bridge-chip-check" });
     check.checked = getCurrent();
-    const chip = wrap.createEl("button", {
-      cls: "llm-bridge-chip llm-bridge-chip-toggle",
-      text: label,
+    const tag = wrap.createEl("button", {
+      cls: "llm-bridge-context-tag",
+      text: kind === "note" ? "Using current note" : "Selection",
       attr: { "aria-pressed": String(check.checked) },
     });
-    chip.addEventListener("click", async (e) => {
+    tag.addEventListener("click", async (e) => {
       e.preventDefault();
       if (this.runHandle) return;
       check.checked = !check.checked;
-      chip.setAttribute("aria-pressed", String(check.checked));
+      tag.setAttribute("aria-pressed", String(check.checked));
       await onToggle(check.checked);
       this.refreshAllChips();
     });
@@ -973,16 +973,19 @@ export class LLMBridgeView extends ItemView {
     this.renderPermissionPopover();
     // V2.4: Mode chip 已移除（仅 Fresh 可用，无需 refresh）
 
-    // 上下文 chip 勾选态
-    const noteChip = this.includeNoteCheckEl.parentElement?.querySelector(".llm-bridge-chip-toggle");
-    if (noteChip) {
-      noteChip.classList.toggle("is-active", this.plugin.settings.includeActiveNote);
-      noteChip.setAttribute("aria-pressed", String(this.plugin.settings.includeActiveNote));
+    // 上下文 tag 勾选态
+    const noteTag = this.includeNoteCheckEl.parentElement?.querySelector(".llm-bridge-context-tag");
+    if (noteTag) {
+      const on = this.plugin.settings.includeActiveNote;
+      noteTag.classList.toggle("is-active", on);
+      noteTag.setAttribute("aria-pressed", String(on));
+      noteTag.textContent = on ? "Using current note" : "Auto attach off";
     }
-    const selChip = this.includeSelectionCheckEl.parentElement?.querySelector(".llm-bridge-chip-toggle");
-    if (selChip) {
-      selChip.classList.toggle("is-active", this.plugin.settings.includeSelection);
-      selChip.setAttribute("aria-pressed", String(this.plugin.settings.includeSelection));
+    const selTag = this.includeSelectionCheckEl.parentElement?.querySelector(".llm-bridge-context-tag");
+    if (selTag) {
+      const on = this.plugin.settings.includeSelection;
+      selTag.classList.toggle("is-active", on);
+      selTag.setAttribute("aria-pressed", String(on));
     }
   }
 
@@ -1271,13 +1274,21 @@ export class LLMBridgeView extends ItemView {
     } else {
       this.selectionLabelEl.textContent = "";
     }
-    const noteChip = this.includeNoteCheckEl.parentElement?.querySelector<HTMLElement>(".llm-bridge-chip-toggle");
-    if (noteChip) {
-      noteChip.setAttribute("title", f ? `当前笔记：${f.path}` : "当前没有活动笔记");
+    // P4-D: Note tag — show filename, title with full path
+    const noteTag = this.includeNoteCheckEl.parentElement?.querySelector<HTMLElement>(".llm-bridge-context-tag");
+    if (noteTag) {
+      noteTag.setAttribute("title", f ? `当前笔记：${f.path}` : "当前没有活动笔记");
     }
-    const selectionChip = this.includeSelectionCheckEl.parentElement?.querySelector<HTMLElement>(".llm-bridge-chip-toggle");
-    if (selectionChip) {
-      selectionChip.setAttribute("title", sel ? `当前选区：${sel.length} chars` : "当前没有选区");
+    // P4-D: Selection tag — hide when no selection
+    const selWrap = this.includeSelectionCheckEl.parentElement;
+    if (selWrap) {
+      if (sel) {
+        selWrap.removeAttribute("hidden");
+        const selTag = selWrap.querySelector<HTMLElement>(".llm-bridge-context-tag");
+        if (selTag) selTag.setAttribute("title", `当前选区：${sel.length} chars`);
+      } else {
+        selWrap.setAttribute("hidden", "");
+      }
     }
   }
 
@@ -2707,12 +2718,20 @@ export class LLMBridgeView extends ItemView {
 
       // 消息头：角色 + 状态（失败时高亮）+ 时间
       const head = block.createDiv({ cls: "llm-bridge-msg-head" });
-      head.createEl("span", { cls: "llm-bridge-msg-role", text: msg.role === "user" ? "You" : this.actualRuntimeLabel });
+      const devMode = !!this.plugin.settings.developerMode;
+      head.createEl("span", { cls: "llm-bridge-msg-role", text: msg.role === "user" ? "You" : (devMode ? this.actualRuntimeLabel : "Assistant") });
       if (msg.role === "assistant") {
-        head.createEl("span", {
-          cls: `llm-bridge-msg-status is-${msg.status}`,
-          text: STATUS_LABEL[msg.status],
-        });
+        // Normal user mode: no "Done"/"Running" status label (shown in turn view header)
+        // Developer mode: keep legacy status label for debugging
+        if (devMode) {
+          head.createEl("span", {
+            cls: `llm-bridge-msg-status is-${msg.status}`,
+            text: STATUS_LABEL[msg.status],
+          });
+        } else if (msg.status === "running") {
+          // Lightweight spinner for running state in normal user mode
+          head.createEl("span", { cls: "llm-bridge-msg-spinner" });
+        }
       }
       head.createEl("span", { cls: "llm-bridge-msg-time", text: new Date(msg.timestamp).toLocaleTimeString() });
 
@@ -2736,9 +2755,7 @@ export class LLMBridgeView extends ItemView {
     const text = msg.content || (msg.role === "assistant" && msg.status === "running" ? "" : "");
     content.empty();
     if (!text) {
-      if (msg.role === "assistant" && msg.status === "running") {
-        content.createEl("span", { cls: "llm-bridge-msg-pending-text", text: "正在等待首次输出..." });
-      }
+      // P4-D: 不显示 "正在等待首次输出..."，spinner + currentActivity 已提供反馈
       return;
     }
     if (msg.role !== "assistant") {
@@ -2962,15 +2979,9 @@ export class LLMBridgeView extends ItemView {
 
   private appendRunningProcessPlaceholder(parent: HTMLElement): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap llm-bridge-process-placeholder" });
-    const head = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
-    head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: "▼ " });
-    head.createEl("span", { cls: "llm-bridge-timeline-summary", text: "过程 · 正在启动" });
-    const body = wrap.createDiv({ cls: "llm-bridge-timeline-body" });
-    const timeline = body.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-live" });
-    const node = timeline.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-agent is-active" });
-    node.createDiv({ cls: "llm-bridge-tl-dot" });
-    const content = node.createDiv({ cls: "llm-bridge-tl-content" });
-    content.createEl("div", { cls: "llm-bridge-tl-agent-text", text: "正在连接 runtime，等待首个事件..." });
+    const head = wrap.createDiv({ cls: "llm-bridge-timeline-head llm-bridge-timeline-head-noclick" });
+    head.createEl("span", { cls: "llm-bridge-turn-header-spinner" });
+    head.createEl("span", { cls: "llm-bridge-timeline-summary", text: "Thinking" });
   }
 
 /**
@@ -2999,18 +3010,29 @@ export class LLMBridgeView extends ItemView {
     const hasTimelineContent = model.timelineCards.length > 0;
     const hasFileChanges = model.fileChangeCards.length > 0;
     const hasDiagnostics = model.diagnosticCards.length > 0;
+    const hasPendingApprovals = model.approvalCards.some((a) => a.status === "pending");
+    const hasDebugView = options.developerMode && options.debug;
+    // P4-D: 没有真正的过程信息时不显示大过程卡片
+    const hasProcessContent = hasTimelineContent || hasFileChanges || hasDiagnostics || hasPendingApprovals || hasDebugView;
 
     // --- header (折叠头) ---
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap llm-bridge-turn-view" });
     const head = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
-    const toggle = head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: isRunning ? "▼ " : "▶ " });
+    // P4-D: 只在有过程内容时显示折叠箭头
+    const toggle = hasProcessContent
+      ? head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: isRunning ? "▼ " : "▶ " })
+      : head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: "" });
+    // Running: add spinner before summary
+    if (isRunning) {
+      head.createEl("span", { cls: "llm-bridge-turn-header-spinner" });
+    }
     head.createEl("span", { cls: "llm-bridge-timeline-summary", text: model.header });
 
     const body = wrap.createDiv({ cls: "llm-bridge-timeline-body" });
     // 运行中始终展开；终态默认折叠（failed 时展开）
     if (!isRunning && !isFailed) body.setAttribute("hidden", "");
 
-    // --- currentActivity (运行中显示在 header 下方) ---
+    // --- currentActivity (运行中显示在 header 下方，单行轻量反馈) ---
     if (isRunning && model.currentActivity) {
       body.createDiv({ cls: "llm-bridge-turn-current-activity", text: model.currentActivity });
     }
@@ -3041,27 +3063,31 @@ export class LLMBridgeView extends ItemView {
       }
     }
 
-    // --- 无内容时提示 ---
-    if (!hasTimelineContent && !hasFileChanges && !hasDiagnostics && isRunning) {
-      body.createDiv({ cls: "llm-bridge-timeline-waiting", text: "正在等待 runtime 首个事件..." });
-    }
+    // --- 无内容时不显示大过程卡片（P4-D: 去掉 "正在等待 runtime 首个事件..."）---
+    // 如果没有任何过程信息，不显示过程区域；currentActivity 已提供轻量反馈
 
     // --- debugView (developer mode only；汇总 audit/raw/legacy) ---
     if (options.developerMode && options.debug) {
       this.renderAgentRunDebugView(body, options.debug);
     }
 
-    // --- 折叠交互 ---
-    head.addEventListener("click", () => {
-      const hidden = body.hasAttribute("hidden");
-      if (hidden) {
-        body.removeAttribute("hidden");
-        toggle.textContent = "▼ ";
-      } else {
-        body.setAttribute("hidden", "");
-        toggle.textContent = "▶ ";
-      }
-    });
+    // --- 折叠交互（仅有过程内容时可折叠）---
+    if (hasProcessContent) {
+      head.addEventListener("click", () => {
+        const hidden = body.hasAttribute("hidden");
+        if (hidden) {
+          body.removeAttribute("hidden");
+          toggle.textContent = "▼ ";
+        } else {
+          body.setAttribute("hidden", "");
+          toggle.textContent = "▶ ";
+        }
+      });
+    } else {
+      // 无过程内容：不可折叠，移除 toggle 指针样式
+      head.removeClass("llm-bridge-timeline-head");
+      head.addClass("llm-bridge-timeline-head-noclick");
+    }
   }
 
   /**
@@ -3988,10 +4014,24 @@ export class LLMBridgeView extends ItemView {
     }
 
     // 状态
+    const devMode = !!this.plugin.settings.developerMode;
     const statusEl = block.querySelector(".llm-bridge-msg-status");
     if (statusEl) {
-      statusEl.textContent = STATUS_LABEL[msg.status];
-      statusEl.className = `llm-bridge-msg-status is-${msg.status}`;
+      if (devMode) {
+        statusEl.textContent = STATUS_LABEL[msg.status];
+        statusEl.className = `llm-bridge-msg-status is-${msg.status}`;
+      } else {
+        // Normal user mode: remove status text, show spinner only for running
+        statusEl.remove();
+      }
+    }
+    // Add/remove spinner for normal user mode
+    const existingSpinner = block.querySelector(".llm-bridge-msg-spinner");
+    if (msg.status === "running" && !devMode && !existingSpinner) {
+      const head = block.querySelector(".llm-bridge-msg-head");
+      if (head) head.createEl("span", { cls: "llm-bridge-msg-spinner" });
+    } else if (msg.status !== "running" && existingSpinner) {
+      existingSpinner.remove();
     }
 
     // 内容
@@ -4188,9 +4228,16 @@ export class LLMBridgeView extends ItemView {
     const win = metrics.contextWindow;
     const pct = win > 0 ? Math.min(100, (total / win) * 100) : 0;
     const color = metrics.precision === "unavailable" ? "var(--text-faint)" : pct > 80 ? "#e53935" : pct > 50 ? "#f59e0b" : "var(--interactive-accent)";
-    this.contextRingEl.classList.remove("is-exact", "is-estimated", "is-unavailable");
+    this.contextRingEl.classList.remove("is-exact", "is-estimated", "is-unavailable", "is-compressed");
     this.contextRingEl.classList.add(`is-${metrics.precision}`);
+    if (metrics.compression) this.contextRingEl.classList.add("is-compressed");
     this.contextRingEl.style.cssText = `background: conic-gradient(${color} ${pct * 3.6}deg, var(--background-modifier-border) ${pct * 3.6}deg);`;
+    // P4-D: Ring tooltip with summary
+    const tipParts = [`${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`];
+    if (metrics.compression) {
+      tipParts.push(`Compression: ${formatTokens(metrics.compression.beforeTokens)} → ${formatTokens(metrics.compression.afterTokens)}`);
+    }
+    this.contextRingEl.setAttribute("title", tipParts.join("\n"));
     // V2.17-A: exact usage 不可用时显示 "Context estimate"（不突出 unavailable，不冒充 exact）；
     // 仅 exact 精度才在主标签展示 token 数字。
     if (metrics.precision === "exact") {

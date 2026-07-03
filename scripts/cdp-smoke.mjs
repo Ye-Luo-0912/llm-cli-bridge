@@ -424,6 +424,119 @@ async function testDeveloperModeRedaction(cdp) {
   } catch (e) { fail("developer-mode", e.message); }
 }
 
+async function testP4DOutputIntegrity(cdp) {
+  console.log("\n--- Test 8: P4-D 输出完整性（无重复文本）---");
+  try {
+    await cdpEvalAsync(cdp, `
+      setBackendMode('mock-success');
+      clearSession();
+      const v = getView(); v.doNewSession();
+    `);
+    await sleep(100);
+    await cdpEvalAsync(cdp, `await triggerRun('output integrity test');`);
+    await sleep(300);
+    const raw = await cdpEval(cdp, `return JSON.stringify(lastAssistantTurnView());`);
+    if (!raw) { fail("P4-D-output: 产出 assistantTurnView", "turnView 为 null"); return; }
+    const tv = JSON.parse(raw);
+    // Check finalAnswer has no obvious duplication patterns
+    const fa = tv.finalAnswer || "";
+    // Check for doubled words (e.g., "我我", "the the", "Claude Claude")
+    const dupPatterns = [/(\S)\1{3,}/, /(\b\w+\b)\s+\1\b/i];
+    const hasDup = dupPatterns.some((re) => re.test(fa));
+    if (!hasDup && fa.length > 0) ok("P4-D-output: finalAnswer 无重复文本", `${fa.length} chars`);
+    else fail("P4-D-output: finalAnswer 无重复文本", `dup detected in "${fa.slice(0, 80)}..."`);
+  } catch (e) { fail("P4-D-output", e.message); }
+}
+
+async function testP4DNormalUserUISimplicity(cdp) {
+  console.log("\n--- Test 9: P4-D 普通用户态 UI 简洁性 ---");
+  try {
+    await cdpEvalAsync(cdp, `
+      const p = getPlugin();
+      p.settings.developerMode = false;
+      await p.saveSettings();
+      p.refreshBridgeView();
+    `);
+    await sleep(200);
+    await cdpEvalAsync(cdp, `
+      setBackendMode('mock-success');
+      clearSession();
+      const v = getView(); v.doNewSession();
+    `);
+    await sleep(100);
+    await cdpEvalAsync(cdp, `await triggerRun('UI simplicity test');`);
+    await sleep(300);
+    const domText = await cdpEval(cdp, `
+      const v = getView();
+      return v ? v.containerEl.textContent : '';
+    `);
+    // Check no "Thinking started"
+    if (!domText.includes("Thinking started")) ok("P4-D-ui: 无 'Thinking started'");
+    else fail("P4-D-ui: 无 'Thinking started'", "检测到 Thinking started");
+    // Check no "正在等待 runtime 首个事件..."
+    if (!domText.includes("正在等待 runtime 首个事件...")) ok("P4-D-ui: 无 '正在等待 runtime 首个事件...'");
+    else fail("P4-D-ui: 无 '正在等待 runtime 首个事件...'", "检测到等待提示");
+    // Check no duplicate "Done" (in normal user mode, Done should not appear as status label)
+    const doneCount = (domText.match(/\bDone\b/g) || []).length;
+    if (doneCount === 0) ok("P4-D-ui: 无重复 'Done' 状态标签");
+    else fail("P4-D-ui: 无重复 'Done' 状态标签", `检测到 ${doneCount} 个 Done`);
+    // Check no "SDK" label in normal user mode
+    const sdkCount = (domText.match(/\bSDK\b/g) || []).length;
+    if (sdkCount === 0) ok("P4-D-ui: 无 'SDK' 标签（普通用户态）");
+    else fail("P4-D-ui: 无 'SDK' 标签", `检测到 ${sdkCount} 个 SDK`);
+    // Check spinner exists when running
+    const hasSpinner = await cdpEval(cdp, `
+      const v = getView();
+      return !!v?.containerEl?.querySelector('.llm-bridge-msg-spinner, .llm-bridge-turn-header-spinner');
+    `);
+    if (hasSpinner) ok("P4-D-ui: spinner 存在（running 时）");
+    else skip("P4-D-ui: spinner 存在", "可能已完成运行");
+  } catch (e) { fail("P4-D-ui", e.message); }
+}
+
+async function testP4DContextRingAndTags(cdp) {
+  console.log("\n--- Test 10: P4-D Context Ring + 轻量 tags ---");
+  try {
+    // Check context ring exists
+    const hasRing = await cdpEval(cdp, `
+      const v = getView();
+      return !!v?.containerEl?.querySelector('.llm-bridge-context-ring');
+    `);
+    if (hasRing) ok("P4-D-context: Context Ring 存在");
+    else fail("P4-D-context: Context Ring 存在", "未找到 .llm-bridge-context-ring");
+    // Check ring has tooltip
+    const ringTitle = await cdpEval(cdp, `
+      const v = getView();
+      const ring = v?.containerEl?.querySelector('.llm-bridge-context-ring');
+      return ring ? ring.getAttribute('title') : null;
+    `);
+    if (ringTitle && ringTitle.length > 0) ok("P4-D-context: Context Ring 有 tooltip", ringTitle.slice(0, 60));
+    else skip("P4-D-context: Context Ring 有 tooltip", "tooltip 可能尚未渲染");
+    // Check lightweight context tags (not Sources label)
+    const hasSourcesLabel = await cdpEval(cdp, `
+      const v = getView();
+      return !!v?.containerEl?.querySelector('.llm-bridge-context-toggles-label');
+    `);
+    if (!hasSourcesLabel) ok("P4-D-context: 无 'Sources' 大按钮标签");
+    else fail("P4-D-context: 无 'Sources' 大按钮标签", "仍检测到 Sources label");
+    // Check context tags exist
+    const hasTags = await cdpEval(cdp, `
+      const v = getView();
+      return !!v?.containerEl?.querySelector('.llm-bridge-context-tag');
+    `);
+    if (hasTags) ok("P4-D-context: 轻量 context tags 存在");
+    else fail("P4-D-context: 轻量 context tags 存在", "未找到 .llm-bridge-context-tag");
+    // Check auto-attach note tag visible (default includeActiveNote=true)
+    const noteTagText = await cdpEval(cdp, `
+      const v = getView();
+      const tag = v?.containerEl?.querySelector('.llm-bridge-context-tag-note .llm-bridge-context-tag');
+      return tag ? tag.textContent : null;
+    `);
+    if (noteTagText && noteTagText.includes("Using")) ok("P4-D-context: 自动引用当前笔记 tag 可见", noteTagText);
+    else skip("P4-D-context: 自动引用当前笔记 tag", `tagText="${noteTagText}"`);
+  } catch (e) { fail("P4-D-context", e.message); }
+}
+
 async function testClaudeCliAvailability(cdp) {
   console.log("\n--- Test 8: claude-cli/sdk 运行路径（如可用）---");
   try {
@@ -522,6 +635,9 @@ async function main() {
   await testKeepLastSessionResume(cdp);
   await testNormalUserUI(cdp);
   await testDeveloperModeRedaction(cdp);
+  await testP4DOutputIntegrity(cdp);
+  await testP4DNormalUserUISimplicity(cdp);
+  await testP4DContextRingAndTags(cdp);
   await testClaudeCliAvailability(cdp);
 
   try {

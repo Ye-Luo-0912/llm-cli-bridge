@@ -1467,8 +1467,8 @@ if (runMode !== "all" && runMode !== "unit") {
       const view = buildAssistantTurnViewFromEvents("turn-dm-1", "codex-app-server", events, "2026-07-02T00:00:00.000Z");
       const model = buildAgentRunDisplayModel(view, { developerMode: false });
 
-      // header 含 tool/file change 计数
-      const headerOk = model.header.includes("过程") && model.header.includes("1 tool") && model.header.includes("1 file change");
+      // header 含 tool/file change 计数（P4-D: 轻量摘要 "Edited N files · Xs"）
+      const headerOk = model.header.includes("Edited 1 file") && model.header.includes("5s");
       addTest("AgentRunDisplayModel: header 含摘要计数（tools/file changes）", headerOk ? "pass" : "fail",
         headerOk ? "" : `header=${model.header}`);
 
@@ -1526,7 +1526,8 @@ if (runMode !== "all" && runMode !== "unit") {
       ];
       const runningView = buildAssistantTurnViewFromEvents("turn-dm-2", "codex-app-server", runningEvents, "2026-07-02T00:00:00.000Z");
       const runningModel = buildAgentRunDisplayModel(runningView, { isRunning: true });
-      const activityOk = runningModel.currentActivity.includes("Bash") && runningModel.header.includes("运行中");
+      // P4-D: currentActivity 使用 toolToActivity（Bash → "Running checks"），header 显示 activity 而非 "运行中"
+      const activityOk = runningModel.currentActivity === "Running checks" && runningModel.header === "Running checks";
       addTest("AgentRunDisplayModel: running 状态 → currentActivity + header 含运行中", activityOk ? "pass" : "fail",
         activityOk ? "" : `currentActivity=${runningModel.currentActivity} header=${runningModel.header}`);
 
@@ -1862,6 +1863,113 @@ if (runMode !== "all" && runMode !== "unit") {
       const redactBehaviorOk = noToken && noApiKey && noBearer && noCookie && noPassword && noSecret && noCredential && noCmdKey && noWfToken;
       addTest("P5 behavior: redactDebugView 对 token/apiKey/authorization/cookie/password/secret/credential 脱敏", redactBehaviorOk ? "pass" : "fail",
         redactBehaviorOk ? "" : "token=" + !noToken + " key=" + !noApiKey + " bearer=" + !noBearer + " cookie=" + !noCookie + " pwd=" + !noPassword + " secret=" + !noSecret + " cred=" + !noCredential + " cmd=" + !noCmdKey + " wf=" + !noWfToken);
+    }
+
+    // ---------- 5g. P4-D output integrity tests ----------
+    {
+      const tempTurnViewBundle = join(PROJECT_ROOT, ".test-p4d-turnview.mjs");
+      await esbuild.build({ ...bundleOpts("runtime/core/assistantTurnView.ts"), outfile: tempTurnViewBundle });
+      const { AssistantTurnViewBuilder: Builder } = await import(pathToFileURL(tempTurnViewBundle).href);
+
+      const ts = () => new Date().toISOString();
+      const mkMsg = (text, partial, role = "assistant") => ({
+        providerId: "claude-sdk", timestamp: ts(),
+        payload: { kind: "message", role, text, partial },
+      });
+      const mkStdout = (data) => ({
+        providerId: "claude-sdk", timestamp: ts(),
+        payload: { kind: "stdout_delta", data },
+      });
+      const mkCompleted = (text, durationMs) => ({
+        providerId: "claude-sdk", timestamp: ts(),
+        payload: { kind: "completed", text, durationMs },
+      });
+
+      // Test 1: SDK dual-path (partial + stdout_delta) 不得重复
+      // 模拟 SDK 同时发出 partial message 和 stdout_delta（同一文本）
+      {
+        const b = new Builder("t1", "claude-sdk", ts());
+        b.ingest(mkMsg("我", true));
+        b.ingest(mkStdout("我"));       // 冗余副本
+        b.ingest(mkMsg("现在", true));
+        b.ingest(mkStdout("现在"));     // 冗余副本
+        b.ingest(mkMsg("运行", true));
+        b.ingest(mkStdout("运行"));     // 冗余副本
+        const view = b.toView();
+        const ok1 = view.finalAnswer === "我现在运行";
+        addTest("P4-D: SDK dual-path partial+stdout_delta 不重复（我→我现在→我现在运行）", ok1 ? "pass" : "fail",
+          ok1 ? "" : `got="${view.finalAnswer}"`);
+      }
+
+      // Test 2: 中英文混合不重复
+      {
+        const b = new Builder("t2", "claude-sdk", ts());
+        b.ingest(mkMsg("Obsidian ", true));
+        b.ingest(mkStdout("Obsidian "));  // 冗余
+        b.ingest(mkMsg("Vault", true));
+        b.ingest(mkStdout("Vault"));      // 冗余
+        b.ingest(mkMsg(" / ", true));
+        b.ingest(mkStdout(" / "));        // 冗余
+        b.ingest(mkMsg("Claude ", true));
+        b.ingest(mkStdout("Claude "));    // 冗余
+        b.ingest(mkMsg("SDK", true));
+        b.ingest(mkStdout("SDK"));        // 冗余
+        const view = b.toView();
+        const ok2 = view.finalAnswer === "Obsidian Vault / Claude SDK";
+        const noObObs = !view.finalAnswer.includes("ObObsidian");
+        const noClaudeClaude = !view.finalAnswer.includes("Claude Claude");
+        const noVaultVault = !view.finalAnswer.includes("Vault Vault");
+        addTest("P4-D: 中英文混合不重复（Obsidian Vault / Claude SDK）", ok2 && noObObs && noClaudeClaude && noVaultVault ? "pass" : "fail",
+          ok2 ? "" : `got="${view.finalAnswer}" obObs=${!noObObs} claudeClaude=${!noClaudeClaude} vaultVault=${!noVaultVault}`);
+      }
+
+      // Test 3: CLI 路径（仅 stdout_delta，无 partial）正常累加
+      {
+        const b = new Builder("t3", "claude-cli", ts());
+        b.ingest(mkStdout("Hello"));
+        b.ingest(mkStdout(" "));
+        b.ingest(mkStdout("World"));
+        const view = b.toView();
+        const ok3 = view.finalAnswer === "Hello World";
+        addTest("P4-D: CLI 路径仅 stdout_delta 正常累加（Hello World）", ok3 ? "pass" : "fail",
+          ok3 ? "" : `got="${view.finalAnswer}"`);
+      }
+
+      // Test 4: completed reconcile — partial 累加后 completed 携带完整快照
+      {
+        const b = new Builder("t4", "claude-sdk", ts());
+        b.ingest(mkMsg("Hello", true));
+        b.ingest(mkStdout("Hello"));     // 冗余
+        b.ingest(mkMsg(" World", true));
+        b.ingest(mkStdout(" World"));    // 冗余
+        b.ingest(mkCompleted("Hello World", 5000));
+        const view = b.toView();
+        const ok4 = view.finalAnswer === "Hello World" && view.status === "completed";
+        addTest("P4-D: completed reconcile 用完整快照替换 partial 累加", ok4 ? "pass" : "fail",
+          ok4 ? "" : `got="${view.finalAnswer}" status=${view.status}`);
+      }
+
+      // Test 5: 完整快照不重复（快照后再次完整快照）
+      {
+        const b = new Builder("t5", "claude-sdk", ts());
+        b.ingest(mkMsg("Hello World", false));  // 完整快照
+        b.ingest(mkMsg("Hello World", false));  // 重复快照
+        const view = b.toView();
+        const ok5 = view.finalAnswer === "Hello World";
+        addTest("P4-D: 重复完整快照不重复（Hello World ×2）", ok5 ? "pass" : "fail",
+          ok5 ? "" : `got="${view.finalAnswer}"`);
+      }
+
+      // Test 6: 累积快照模式（snapshot 是 buffer 超集）
+      {
+        const b = new Builder("t6", "claude-sdk", ts());
+        b.ingest(mkMsg("Hello", false));       // 完整快照
+        b.ingest(mkMsg("Hello World", false)); // 超集快照
+        const view = b.toView();
+        const ok6 = view.finalAnswer === "Hello World";
+        addTest("P4-D: 累积快照模式（Hello → Hello World）", ok6 ? "pass" : "fail",
+          ok6 ? "" : `got="${view.finalAnswer}"`);
+      }
     }
 
     // ---------- 6. approval request → PermissionBoundary → provider response ----------
@@ -12026,13 +12134,12 @@ if (!runV214BUnit) {
         && prompt.includes("SDK 原生能力")
         && prompt.includes("插件不做 OCR")
         && prompt.includes("base64 注入");
-      const workingSetUxOk = viewSrc.includes("llm-bridge-context-toggles")
+      const workingSetUxOk = viewSrc.includes("llm-bridge-context-tags")
         && viewSrc.includes("llm-bridge-pinned-context")
-        && viewSrc.includes("Current message attachments")
-        && viewSrc.includes("native ref")
-        && viewSrc.includes("bounded text")
-        && stylesSrc.includes(".llm-bridge-context-empty")
-        && stylesSrc.includes(".llm-bridge-context-toggles");
+        && viewSrc.includes("llm-bridge-context-tag")
+        && viewSrc.includes("llm-bridge-context-ring")
+        && stylesSrc.includes(".llm-bridge-context-tags")
+        && stylesSrc.includes(".llm-bridge-context-ring");
       const reportSmokeOk = reportSrcV214M.includes("bridge offline")
         && reportSrcV214M.includes("Computer Use Node REPL tool was not exposed")
         && reportSrcV214M.includes("No self-hosted write executor was added");
@@ -12192,11 +12299,11 @@ if (!runV214BUnit) {
         && viewSrc.includes("llm-bridge-model-list")
         && viewSrc.includes("llm-bridge-effort-list")
         && !viewSrc.includes("rightTools.appendChild(agentSelect)");
-      const workingSetOk = viewSrc.includes("llm-bridge-context-toggles")
-        && viewSrc.includes("llm-bridge-context-toggle-chips")
+      const workingSetOk = viewSrc.includes("llm-bridge-context-tags")
+        && viewSrc.includes("llm-bridge-context-tag")
         && viewSrc.includes("llm-bridge-pinned-context")
-        && viewSrc.includes("renderFilesContext")
-        && viewSrc.includes("this.filesContextEl");
+        && viewSrc.includes("llm-bridge-context-ring")
+        && viewSrc.includes("this.includeNoteCheckEl");
       const secondaryOk = viewSrc.includes("llm-bridge-files-page")
         && viewSrc.includes("FileRef index")
         && viewSrc.includes("renderAgentSkillsPanel(skillsPanel)")
@@ -12205,7 +12312,7 @@ if (!runV214BUnit) {
       const stylesOk = stylesSrc.includes(".llm-bridge-nav-rail")
         && stylesSrc.includes(".llm-bridge-topbar")
         && stylesSrc.includes(".llm-bridge-composer-bar")
-        && stylesSrc.includes(".llm-bridge-context-toggles")
+        && stylesSrc.includes(".llm-bridge-context-tags")
         && stylesSrc.includes(".llm-bridge-files-page");
       const noRuntimeExpansion = !runtimeFileToolAdapterSrc.includes("\"write\"")
         && !runtimeFileToolAdapterSrc.includes("\"delete\"")
@@ -13502,18 +13609,20 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("llm-bridge-msg-stream-text")
       && viewSrc.includes("private appendAssistantContentDelta")
       && viewSrc.includes("appendRunningProcessPlaceholder")
-      && viewSrc.includes("正在连接 runtime，等待首个事件")
+      && viewSrc.includes("llm-bridge-turn-header-spinner")
       && viewSrc.includes("Developer mode keeps the legacy global Run Flow")
       && viewSrc.includes("if (this.plugin.settings.developerMode) {\n      this.renderRunFlowPanel(chatPanel);");
     addTest("V2.16-F assistant turn: Markdown 输出 + 内联过程 + 用户态无全局 Run Flow", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 19: 聊天 Markdown 代码块复制按钮隐藏；Context 源显示改为更轻量文案 ----
+  // ---- Test 19: 聊天 Markdown 代码块复制按钮隐藏；Context 改为 Context Ring + 轻量 tags（P4-D）----
   {
     const ok = stylesSrc.includes(".llm-bridge-msg-markdown .copy-code-button")
       && stylesSrc.includes("display: none !important;")
-      && viewSrc.includes('text: "Sources"')
-      && viewSrc.includes('text: "Context estimate"');
+      && viewSrc.includes("llm-bridge-context-ring")
+      && viewSrc.includes("llm-bridge-context-tags")
+      && viewSrc.includes('text: "Context estimate"')
+      && !viewSrc.includes('text: "Sources"');
     addTest("V2.16-F chat/context polish: 隐藏复制按钮并压缩 Context 文案", ok ? "pass" : "fail", "");
   }
 
