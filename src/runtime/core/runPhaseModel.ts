@@ -84,6 +84,10 @@ export interface RunPhaseModel {
 export interface BuildRunPhaseModelOptions {
   durationMs?: number;
   isRunning?: boolean;
+  /** V16.4-C: provider 直接提供的精确文件统计（最高优先级，如 codex change.diff / SDK 文件 diff） */
+  providerStats?: ReadonlyArray<FileChangeStat>;
+  /** V16.4-C: vault snapshot diff 统计（中优先级，before/after snapshot 对比） */
+  snapshotStats?: ReadonlyArray<FileChangeStat>;
 }
 
 // ---------- Tool Categorization ----------
@@ -251,6 +255,10 @@ export function buildRunPhaseModel(
     startedAt: startedAt ?? firstTool?.startTime ?? turnView.startedAt,
   });
 
+  // closePhase: 关闭阶段并设置 endedAt/durationMs。
+  // 注意：closePhase 会把 status="running" 的阶段标记为 "completed"。
+  // 运行中的 currentPhase 不应调用 closePhase —— 由 buildRunPhaseModel 末尾的 running 分支处理
+  // （仅设 endedAt/durationMs 供 UI 显示 elapsed，保持 status="running"）。
   const closePhase = (phase: MutablePhase, endedAt?: string) => {
     if (!phase) return;
     if (endedAt) phase.endedAt = endedAt;
@@ -258,8 +266,6 @@ export function buildRunPhaseModel(
       const ms = new Date(phase.endedAt).getTime() - new Date(phase.startedAt).getTime();
       if (Number.isFinite(ms) && ms >= 0) phase.durationMs = ms;
     }
-    // V16.4: running 阶段不在此处标记 completed —— 由调用方在 run 终态时显式关闭。
-    // 这避免运行中 currentPhase 被误标记 completed。
     if (phase.status === "running") phase.status = "completed";
   };
 
@@ -522,7 +528,25 @@ export function buildRunPhaseModel(
     ? phases.find((p) => p.status === "running") ?? null
     : null;
 
-  // 转 RunPhase（设 defaultExpanded）
+  // V16.4-C: fileChangeStats —— tool input 估算作为 fallback（source="fallback"）
+  const fallbackStats: FileChangeStat[] = turnView.fileChanges.map((fc) => ({
+    path: fc.path,
+    action: fc.action,
+    additions: fc.additions,
+    deletions: fc.deletions,
+    source: "fallback" as FileChangeStatSource,
+  }));
+  // V16.4-C: 合并 provider/snapshot stats（优先级 provider > snapshot > fallback）
+  const fileChangeStats = mergeFileChangeStats(
+    options.providerStats ?? [],
+    fallbackStats,
+    options.snapshotStats,
+  );
+  // 建立 path → 合并后 stat 映射，用于更新 phase.fileChanges 的 additions/deletions
+  const statsByPath = new Map<string, FileChangeStat>();
+  for (const s of fileChangeStats) statsByPath.set(s.path, s);
+
+  // 转 RunPhase（设 defaultExpanded；fileChanges 用合并后的 stats 覆盖 additions/deletions）
   const finalPhases: RunPhase[] = phases.map((p) => ({
     id: p.id,
     type: p.type,
@@ -530,7 +554,12 @@ export function buildRunPhaseModel(
     label: p.label,
     thoughts: p.thoughts,
     tools: p.tools,
-    fileChanges: p.fileChanges,
+    fileChanges: p.fileChanges.map((fc) => {
+      const stat = statsByPath.get(fc.path);
+      return stat
+        ? { ...fc, additions: stat.additions ?? fc.additions, deletions: stat.deletions ?? fc.deletions }
+        : fc;
+    }),
     approvals: p.approvals,
     startedAt: p.startedAt,
     endedAt: p.endedAt,
@@ -549,17 +578,6 @@ export function buildRunPhaseModel(
       currentActivity = "Thinking";
     }
   }
-
-  // fileChangeStats —— tool input 估算作为 fallback（source="fallback"）
-  const fallbackStats: FileChangeStat[] = turnView.fileChanges.map((fc) => ({
-    path: fc.path,
-    action: fc.action,
-    additions: fc.additions,
-    deletions: fc.deletions,
-    source: "fallback" as FileChangeStatSource,
-  }));
-  // V16.4: 合并 provider/snapshot stats（优先级 provider > snapshot > fallback）
-  const fileChangeStats = mergeFileChangeStats([], fallbackStats);
 
   // resultSummary
   const resultSummary = buildResultSummary(turnView, fileChangeStats, dur);

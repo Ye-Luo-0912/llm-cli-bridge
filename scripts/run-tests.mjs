@@ -1598,8 +1598,8 @@ if (runMode !== "all" && runMode !== "unit") {
       ];
       const runningView = buildAssistantTurnViewFromEvents("turn-dm-2", "codex-app-server", runningEvents, "2026-07-02T00:00:00.000Z");
       const runningModel = buildAgentRunDisplayModel(runningView, { isRunning: true });
-      // P4-D: currentActivity 使用 toolToActivity（Bash → "Running checks"），header 显示 activity 而非 "运行中"
-      const activityOk = runningModel.currentActivity === "Running checks" && runningModel.header === "Running checks";
+      // V16.4-C: currentActivity/header 优先使用 phaseModel.currentActivity（Bash → checking → "Running command"）
+      const activityOk = runningModel.currentActivity === "Running command" && runningModel.header === "Running command";
       addTest("AgentRunDisplayModel: running 状态 → currentActivity + header 含运行中", activityOk ? "pass" : "fail",
         activityOk ? "" : `currentActivity=${runningModel.currentActivity} header=${runningModel.header}`);
 
@@ -1975,6 +1975,92 @@ if (runMode !== "all" && runMode !== "unit") {
       addTest("V16.4 mergeFileChangeStats: provider > snapshot > fallback 优先级",
         mergedOk ? "pass" : "fail",
         mergedOk ? "" : `additions=${mergedStat?.additions} source=${mergedStat?.source}`);
+
+      // ========== V16.4-C: Phase UI wiring 回归测试 ==========
+
+      // --- Test U: phaseModel.currentActivity 与 AgentRunDisplayModel.currentActivity 一致 ---
+      const runningReadEvents = [
+        mkEv({ kind: "thinking", text: "Reading the file." }, 1),
+        mkEv({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"AGENTS.md"}', callId: "uc1" }, 2),
+      ];
+      const runningReadView = buildAssistantTurnViewFromEvents("turn-u", "claude-sdk", runningReadEvents, ts(0));
+      const runningReadModel = buildAgentRunDisplayModel(runningReadView, { isRunning: true, durationMs: 12000 });
+      const consistencyOk = runningReadModel.currentActivity === runningReadModel.phaseModel.currentActivity
+        && runningReadModel.currentActivity !== "";
+      addTest("V16.4-C: phaseModel.currentActivity 与 AgentRunDisplayModel.currentActivity 一致",
+        consistencyOk ? "pass" : "fail",
+        consistencyOk ? "" : `display="${runningReadModel.currentActivity}" phase="${runningReadModel.phaseModel.currentActivity}"`);
+
+      // --- Test V: running header 使用 phaseModel.currentActivity（具体标签 + elapsed） ---
+      // 期望: "Reading AGENTS.md · 12s"（非泛化 "Reading files"）
+      const headerReadOk = runningReadModel.header === "Reading AGENTS.md · 12s";
+      addTest("V16.4-C: running header 显示 phaseModel.currentActivity + elapsed（Reading AGENTS.md · 12s）",
+        headerReadOk ? "pass" : "fail",
+        headerReadOk ? "" : `header="${runningReadModel.header}"`);
+
+      // --- Test W: checking phase 的 running header 是 Running tests / Running command ---
+      const runningBashEvents = [
+        mkEv({ kind: "thinking", text: "Running command." }, 1),
+        mkEv({ kind: "tool_start", toolName: "Bash", toolInput: '{"command":"ls"}', callId: "wc1" }, 2),
+      ];
+      const runningBashView = buildAssistantTurnViewFromEvents("turn-w1", "claude-sdk", runningBashEvents, ts(0));
+      const runningBashModel = buildAgentRunDisplayModel(runningBashView, { isRunning: true });
+      const bashHeaderOk = runningBashModel.header === "Running command";
+      addTest("V16.4-C: checking phase running header（Running command）",
+        bashHeaderOk ? "pass" : "fail",
+        bashHeaderOk ? "" : `header="${runningBashModel.header}"`);
+
+      const runningTestEvents = [
+        mkEv({ kind: "thinking", text: "Running tests." }, 1),
+        mkEv({ kind: "tool_start", toolName: "npm test", toolInput: '{}', callId: "wc2" }, 2),
+      ];
+      const runningTestView = buildAssistantTurnViewFromEvents("turn-w2", "claude-sdk", runningTestEvents, ts(0));
+      const runningTestModel = buildAgentRunDisplayModel(runningTestView, { isRunning: true });
+      const testHeaderOk = runningTestModel.header === "Running tests";
+      addTest("V16.4-C: checking phase running header（Running tests）",
+        testHeaderOk ? "pass" : "fail",
+        testHeaderOk ? "" : `header="${runningTestModel.header}"`);
+
+      // --- Test X: buildRunPhaseModel 接受 providerStats/snapshotStats，优先级 provider > snapshot > fallback ---
+      const providerStatsModel = buildRunPhaseModel(view, lifecycle, {
+        durationMs: 9000,
+        providerStats: [{ path: "Project_Scan_2026.md", action: "create", additions: 100, deletions: 0 }],
+      });
+      const providerStatEntry = providerStatsModel.fileChangeStats.find((f) => f.path === "Project_Scan_2026.md");
+      const providerStatOk = providerStatEntry && providerStatEntry.additions === 100 && providerStatEntry.source === "provider";
+      addTest("V16.4-C: buildRunPhaseModel providerStats 覆盖 fallback（additions=100 source=provider）",
+        providerStatOk ? "pass" : "fail",
+        providerStatOk ? "" : `additions=${providerStatEntry?.additions} source=${providerStatEntry?.source}`);
+
+      const snapshotStatsModel = buildRunPhaseModel(view, lifecycle, {
+        durationMs: 9000,
+        snapshotStats: [{ path: "Project_Scan_2026.md", action: "create", additions: 50, deletions: 0 }],
+      });
+      const snapshotStatEntry = snapshotStatsModel.fileChangeStats.find((f) => f.path === "Project_Scan_2026.md");
+      const snapshotStatOk = snapshotStatEntry && snapshotStatEntry.additions === 50 && snapshotStatEntry.source === "snapshot";
+      addTest("V16.4-C: buildRunPhaseModel snapshotStats 覆盖 fallback（additions=50 source=snapshot）",
+        snapshotStatOk ? "pass" : "fail",
+        snapshotStatOk ? "" : `additions=${snapshotStatEntry?.additions} source=${snapshotStatEntry?.source}`);
+
+      // --- Test Y: phase.fileChanges 用合并后的 stats（provider 覆盖 fallback） ---
+      const phaseWithProviderStats = providerStatsModel.phases.find(
+        (p) => p.fileChanges.some((fc) => fc.path === "Project_Scan_2026.md"),
+      );
+      const phaseFcStat = phaseWithProviderStats?.fileChanges.find((fc) => fc.path === "Project_Scan_2026.md");
+      const phaseStatOk = phaseFcStat && phaseFcStat.additions === 100;
+      addTest("V16.4-C: phase.fileChanges 用合并后的 stats（provider 覆盖 fallback additions=100）",
+        phaseStatOk ? "pass" : "fail",
+        phaseStatOk ? "" : `additions=${phaseFcStat?.additions}`);
+
+      // --- Test Z: fileChangeCards 用合并后的 stats（provider 覆盖 fallback） ---
+      const modelWithProviderStats = buildAgentRunDisplayModel(view, {
+        providerStats: [{ path: "Project_Scan_2026.md", action: "create", additions: 100, deletions: 0 }],
+      });
+      const cardStat = modelWithProviderStats.fileChangeCards.find((fc) => fc.path === "Project_Scan_2026.md");
+      const cardStatOk = cardStat && cardStat.additions === 100;
+      addTest("V16.4-C: fileChangeCards 用合并后的 stats（provider 覆盖 fallback additions=100）",
+        cardStatOk ? "pass" : "fail",
+        cardStatOk ? "" : `additions=${cardStat?.additions}`);
     }
 
     // ---------- 5c. P3-C: Developer mode / legacy 分层隔离 ----------

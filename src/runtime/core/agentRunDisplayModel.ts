@@ -156,6 +156,10 @@ export interface BuildDisplayModelOptions {
   durationMs?: number;
   isRunning?: boolean;
   statusLabel?: string;
+  /** V16.4-C: provider 直接提供的精确文件统计（最高优先级） */
+  providerStats?: ReadonlyArray<import("./runPhaseModel").FileChangeStat>;
+  /** V16.4-C: vault snapshot diff 统计（中优先级） */
+  snapshotStats?: ReadonlyArray<import("./runPhaseModel").FileChangeStat>;
 }
 
 // ---------- Builder ----------
@@ -290,6 +294,8 @@ export function buildAgentRunDisplayModel(
   const phaseModel = buildRunPhaseModel(turnView, lifecycleEvents, {
     durationMs: dur,
     isRunning,
+    providerStats: options.providerStats,
+    snapshotStats: options.snapshotStats,
   });
 
   // --- header ---
@@ -298,12 +304,12 @@ export function buildAgentRunDisplayModel(
   const headerParts: string[] = [];
 
   if (isRunning) {
-    // Running: show activity label + elapsed time
+    // V16.4-C: running header 优先使用 phaseModel.currentActivity（具体阶段标签，如 "Reading AGENTS.md"），
+    // 不再使用旧的 runningTool -> toolToActivity 泛化状态（如 "Reading files"）。
     if (pendingApproval) {
       headerParts.push("Waiting approval");
     } else {
-      const runningTool = turnView.tools.find((t) => t.status === "running");
-      headerParts.push(runningTool ? toolToActivity(runningTool.toolName) : "Thinking");
+      headerParts.push(phaseModel.currentActivity || "Thinking");
     }
     if (durSecs > 0) headerParts.push(`${durSecs}s`);
   } else if (turnView.status === "completed") {
@@ -330,19 +336,14 @@ export function buildAgentRunDisplayModel(
   const header = headerParts.join(" · ");
 
   // --- currentActivity ---
+  // V16.4-C: currentActivity 优先使用 phaseModel.currentActivity（具体阶段标签），
+  // fallback 才用 Thinking。不再使用旧的 runningTool -> toolToActivity 作为普通用户态主状态。
   let currentActivity = "";
   if (isRunning) {
     if (pendingApproval) {
       currentActivity = "Waiting approval";
     } else {
-      const runningTool = turnView.tools.find((t) => t.status === "running");
-      if (runningTool) {
-        currentActivity = toolToActivity(runningTool.toolName);
-      } else if (turnView.thoughts.length > 0) {
-        currentActivity = "Thinking";
-      } else {
-        currentActivity = "Thinking";
-      }
+      currentActivity = phaseModel.currentActivity || "Thinking";
     }
   }
 
@@ -458,14 +459,20 @@ export function buildAgentRunDisplayModel(
   }
 
   // --- fileChangeCards ---
+  // V16.4-C: 用合并后的 stats（provider > snapshot > fallback）覆盖 additions/deletions
+  const fcStatsByPath = new Map<string, typeof phaseModel.fileChangeStats[number]>();
+  for (const s of phaseModel.fileChangeStats) fcStatsByPath.set(s.path, s);
   const fileChangeCards: FileChangeCard[] = [];
   for (let i = 0; i < turnView.fileChanges.length; i++) {
     const fc = turnView.fileChanges[i];
+    const mergedStat = fcStatsByPath.get(fc.path);
+    const additions = mergedStat?.additions ?? fc.additions;
+    const deletions = mergedStat?.deletions ?? fc.deletions;
     const actionLabel = fc.action === "create" ? "新建" : fc.action === "modify" ? "修改" : "删除";
     // V16.4: 构建 +N -M 统计文案
     const statsParts: string[] = [];
-    if (typeof fc.additions === "number" && fc.additions >= 0) statsParts.push(`+${fc.additions}`);
-    if (typeof fc.deletions === "number" && fc.deletions >= 0) statsParts.push(`-${fc.deletions}`);
+    if (typeof additions === "number" && additions >= 0) statsParts.push(`+${additions}`);
+    if (typeof deletions === "number" && deletions >= 0) statsParts.push(`-${deletions}`);
     const statsLabel = statsParts.length > 0 ? ` · ${statsParts.join(" ")}` : "";
     fileChangeCards.push({
       id: `filechange-${i}`,
@@ -477,8 +484,8 @@ export function buildAgentRunDisplayModel(
       timestamp: fc.timestamp,
       action: fc.action,
       path: fc.path,
-      additions: fc.additions,
-      deletions: fc.deletions,
+      additions,
+      deletions,
     });
   }
 

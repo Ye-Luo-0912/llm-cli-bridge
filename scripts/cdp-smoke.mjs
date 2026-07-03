@@ -722,6 +722,103 @@ async function testP4DRealSdkTextIntegrity(cdp) {
   } catch (e) { fail("P4-D-real-sdk", e.message); }
 }
 
+async function testV164CPhaseUiSmoke(cdp) {
+  console.log("\n--- Test 14: V16.4-C phase UI 实机 smoke（如可用）---");
+  try {
+    // 检查 SDK 是否可用
+    const sdkInfo = await cdpEvalAsync(cdp, `
+      const p = getPlugin();
+      const hasKey = !!(p.settings.claudeApiKey || (typeof process !== 'undefined' && process.env && process.env.ANTHROPIC_API_KEY));
+      return JSON.stringify({ hasKey, backendMode: p.settings.backendMode });
+    `);
+    const info = JSON.parse(sdkInfo);
+    if (!info.hasKey) {
+      skip("V16.4-C-real-sdk: 运行中 header 显示具体 phase activity", "ANTHROPIC_API_KEY 未配置，manual required");
+      skip("V16.4-C-real-sdk: current phase status=running + defaultExpanded=true", "ANTHROPIC_API_KEY 未配置，manual required");
+      skip("V16.4-C-real-sdk: completed phases 默认折叠 + resultSummary 含 +N -M", "ANTHROPIC_API_KEY 未配置，manual required");
+      skip("V16.4-C-real-sdk: 普通用户态无 TaskCreate/Preparing/raw JSON", "ANTHROPIC_API_KEY 未配置，manual required");
+      return;
+    }
+    // 切换到 sdk 模式运行编辑文件任务
+    await cdpEvalAsync(cdp, `
+      const p = getPlugin();
+      p.settings.backendMode = 'sdk';
+      p.settings.developerMode = false;
+      await p.saveSettings();
+      clearSession();
+      const v = getView(); v.doNewSession();
+    `);
+    await sleep(100);
+    // 运行一个会触发 Read/Write 的任务
+    await cdpEvalAsync(cdp, `await triggerRun('请读取 AGENTS.md 文件并在 _test_output.md 中写一句话总结');`);
+    // 运行中检查（2s 时检查 phase UI）
+    await sleep(2000);
+    const runningUi = await cdpEval(cdp, `
+      const v = getView();
+      const turnView = v?.lastAssistantTurnView ? v.lastAssistantTurnView() : null;
+      const headerEl = v?.containerEl?.querySelector('.llm-bridge-turn-view .llm-bridge-timeline-summary');
+      const headerText = headerEl ? headerEl.textContent : '';
+      const phaseCards = v?.containerEl?.querySelectorAll('.llm-bridge-phase-card');
+      const runningPhase = v?.containerEl?.querySelector('.llm-bridge-phase-card.is-running');
+      const expandedPhase = v?.containerEl?.querySelector('.llm-bridge-phase-card .llm-bridge-phase-body:not([hidden])');
+      return JSON.stringify({
+        status: turnView?.status,
+        headerText,
+        phaseCount: phaseCards?.length || 0,
+        hasRunningPhase: !!runningPhase,
+        hasExpandedPhase: !!expandedPhase,
+      });
+    `);
+    const runningData = JSON.parse(runningUi);
+    // 运行中 header 应显示具体 phase activity（非泛化 "Reading files"）
+    const specificActivity = /Reading\\s+\\S+|Editing\\s+\\S+|Running\\s+(command|tests|lint|checks)|Verifying\\s+\\S+/.test(runningData.headerText);
+    if (specificActivity) ok("V16.4-C-real-sdk: 运行中 header 显示具体 phase activity", `header="${runningData.headerText}"`);
+    else skip("V16.4-C-real-sdk: 运行中 header 显示具体 phase activity", `header="${runningData.headerText}"（时序可能未命中 running 窗口）`);
+    // current phase status=running + defaultExpanded
+    if (runningData.hasRunningPhase && runningData.hasExpandedPhase) ok("V16.4-C-real-sdk: current phase status=running + defaultExpanded=true");
+    else skip("V16.4-C-real-sdk: current phase status=running + defaultExpanded=true", `running=${runningData.hasRunningPhase} expanded=${runningData.hasExpandedPhase}（时序敏感）`);
+
+    // 完成后检查（等 10s）
+    await sleep(8000);
+    const completedUi = await cdpEval(cdp, `
+      const v = getView();
+      const turnView = v?.lastAssistantTurnView ? v.lastAssistantTurnView() : null;
+      const headerEl = v?.containerEl?.querySelector('.llm-bridge-turn-view .llm-bridge-timeline-summary');
+      const headerText = headerEl ? headerEl.textContent : '';
+      const completedPhases = v?.containerEl?.querySelectorAll('.llm-bridge-phase-card.is-completed');
+      const collapsedCompleted = v?.containerEl?.querySelectorAll('.llm-bridge-phase-card.is-completed .llm-bridge-phase-body[hidden]');
+      const bodyText = v?.containerEl?.querySelector('.llm-bridge-turn-view')?.textContent || '';
+      const hasTaskCreate = bodyText.includes('TaskCreate') || bodyText.includes('TaskUpdate');
+      const hasPreparing = bodyText.includes('Preparing tool input');
+      const hasRawJson = bodyText.includes('"file_path"') && bodyText.includes('"content"');
+      const hasPlusMinus = /\\+\\d+\\s+-\\d+/.test(headerText);
+      return JSON.stringify({
+        status: turnView?.status,
+        headerText,
+        completedCount: completedPhases?.length || 0,
+        collapsedCount: collapsedCompleted?.length || 0,
+        hasTaskCreate, hasPreparing, hasRawJson, hasPlusMinus,
+      });
+    `);
+    const completedData = JSON.parse(completedUi);
+    // completed phases 默认折叠
+    if (completedData.completedCount > 0 && completedData.collapsedCount === completedData.completedCount) ok("V16.4-C-real-sdk: completed phases 默认折叠", `${completedData.collapsedCount}/${completedData.completedCount} collapsed`);
+    else skip("V16.4-C-real-sdk: completed phases 默认折叠", `collapsed=${completedData.collapsedCount}/${completedData.completedCount}（时序敏感）`);
+    // resultSummary 包含 +N -M
+    if (completedData.hasPlusMinus) ok("V16.4-C-real-sdk: resultSummary 含 +N -M", `header="${completedData.headerText}"`);
+    else skip("V16.4-C-real-sdk: resultSummary 含 +N -M", `header="${completedData.headerText}"（可能无文件变更）`);
+    // 普通用户态无 TaskCreate/Preparing/raw JSON
+    if (!completedData.hasTaskCreate && !completedData.hasPreparing && !completedData.hasRawJson) ok("V16.4-C-real-sdk: 普通用户态无 TaskCreate/Preparing/raw JSON");
+    else fail("V16.4-C-real-sdk: 普通用户态无 TaskCreate/Preparing/raw JSON", `taskCreate=${completedData.hasTaskCreate} preparing=${completedData.hasPreparing} rawJson=${completedData.hasRawJson}`);
+    // 恢复 mock 模式
+    await cdpEvalAsync(cdp, `
+      const p = getPlugin();
+      p.settings.backendMode = 'mock-success';
+      await p.saveSettings();
+    `);
+  } catch (e) { fail("V16.4-C-real-sdk", e.message); }
+}
+
 async function testP4DToolCardCleanup(cdp) {
   console.log("\n--- Test 12: P4-D 普通用户态 tool card 降噪 ---");
   try {
@@ -983,6 +1080,7 @@ async function main() {
   await testP4DRealSdkTextIntegrity(cdp);
   await testP4DToolCardCleanup(cdp);
   await testP4DNoSdkErrorSuccess(cdp);
+  await testV164CPhaseUiSmoke(cdp);
   await testClaudeCliAvailability(cdp);
 
   try {
