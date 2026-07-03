@@ -3208,6 +3208,10 @@
 .llm-bridge-agent-select { display: none; }
 .llm-bridge-model-effort-picker {
   position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: 0 0 auto;
 }
 .llm-bridge-model-effort-chip {
   max-width: 150px;
@@ -3225,6 +3229,35 @@
 }
 .llm-bridge-model-effort-chip:hover:not(:disabled) {
   border-color: rgba(var(--interactive-accent-rgb), 0.45);
+  color: var(--interactive-accent);
+}
+/* V16.3 Round 3: Codex-like 极简 inline chip — 无边框/无背景/轻量文本 */
+/* 双类选择器提升 specificity，覆盖主题块 .llm-bridge-model-effort-chip 的厚按钮样式 */
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline,
+.llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline {
+  max-width: none;
+  height: auto;
+  padding: 0 4px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  font-weight: 500;
+  line-height: 1.6;
+  cursor: pointer;
+  box-shadow: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline:hover:not(:disabled),
+.llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline:hover:not(:disabled) {
+  border: none;
+  background: transparent;
+  color: var(--interactive-accent);
+}
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline[aria-expanded="true"],
+.llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline[aria-expanded="true"] {
   color: var(--interactive-accent);
 }
 .llm-bridge-model-effort-popover {

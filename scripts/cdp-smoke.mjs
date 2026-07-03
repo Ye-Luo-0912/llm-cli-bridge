@@ -519,14 +519,33 @@ async function testP4DContextRingAndTags(cdp) {
     `);
     if (hasRing) ok("P4-D-context: Context Ring 存在");
     else fail("P4-D-context: Context Ring 存在", "未找到 .llm-bridge-context-ring");
-    // Check ring has tooltip
+    // V16.3 Round 3: Check ring title contains used / total
     const ringTitle = await cdpEval(cdp, `
       const v = getView();
       const ring = v?.containerEl?.querySelector('.llm-bridge-context-ring');
       return ring ? ring.getAttribute('title') : null;
     `);
-    if (ringTitle && ringTitle.length > 0) ok("P4-D-context: Context Ring 有 tooltip", ringTitle.slice(0, 60));
-    else skip("P4-D-context: Context Ring 有 tooltip", "tooltip 可能尚未渲染");
+    if (ringTitle && /used|tokens/i.test(ringTitle)) ok("V16.3R3-context: Context Ring title 含 used/total", ringTitle.slice(0, 80));
+    else skip("V16.3R3-context: Context Ring title 含 used/total", `title="${ringTitle}"`);
+    // V16.3 Round 3: 普通用户态不渲染 context detail 可见内容
+    const detailVisible = await cdpEval(cdp, `
+      const v = getView();
+      const detail = v?.containerEl?.querySelector('.llm-bridge-context-detail');
+      if (!detail) return false;
+      // 检查是否有可见子元素（行）
+      return detail.querySelectorAll('.llm-bridge-context-detail-row').length > 0;
+    `);
+    if (!detailVisible) ok("V16.3R3-context: 普通用户态无 context detail 可见内容");
+    else fail("V16.3R3-context: 普通用户态无 context detail 可见内容", "detail 区仍有可见行（应仅 developerMode 渲染）");
+    // V16.3 Round 3: 不出现 "Source local estimate" / "Prompt xxx tokens estimated"
+    const bodyText = await cdpEval(cdp, `
+      const v = getView();
+      return v?.containerEl?.textContent || "";
+    `);
+    if (!/Source local estimate/i.test(bodyText)) ok("V16.3R3-context: 不出现 'Source local estimate'");
+    else fail("V16.3R3-context: 不出现 'Source local estimate'", "普通用户态不应显示 Source 明细");
+    if (!/Prompt .+ tokens estimated/i.test(bodyText)) ok("V16.3R3-context: 不出现 'Prompt xxx tokens estimated'");
+    else fail("V16.3R3-context: 不出现 'Prompt xxx tokens estimated'", "普通用户态不应显示 Prompt token 明细");
     // Check lightweight context tags (not Sources label)
     const hasSourcesLabel = await cdpEval(cdp, `
       const v = getView();
@@ -541,28 +560,51 @@ async function testP4DContextRingAndTags(cdp) {
     `);
     if (hasTags) ok("P4-D-context: 轻量 context tags 存在");
     else skip("P4-D-context: 轻量 context tags 存在", "Obsidian 可能缓存旧 main.js，需手动确认插件已重载最新代码");
-    // Check auto-attach note tag visible (default includeActiveNote=true)
+    // V16.3 Round 3: note chip 合并为单 chip — "{filename} · attached" / "{filename} · path only" / "Auto attach off"
     const noteTagText = await cdpEval(cdp, `
       const v = getView();
       const tag = v?.containerEl?.querySelector('.llm-bridge-context-tag-note .llm-bridge-context-tag');
       return tag ? tag.textContent : null;
     `);
-    // V16.3: 三态文案 — "Using current note" / "Note path only" / "Auto attach off"
-    if (noteTagText && (noteTagText.includes("Using") || noteTagText.includes("path only") || noteTagText.includes("off"))) {
-      ok("V16.3-context: active note chip 三态文案可见", noteTagText);
+    if (noteTagText && (noteTagText.includes("attached") || noteTagText.includes("path only") || noteTagText.includes("off"))) {
+      ok("V16.3R3-context: active note chip 单 chip 文案", noteTagText);
     } else {
-      skip("V16.3-context: active note chip 三态文案", `tagText="${noteTagText}"`);
+      skip("V16.3R3-context: active note chip 单 chip 文案", `tagText="${noteTagText}"`);
     }
-    // V16.3: 验证 chip title 含状态说明
+    // V16.3 Round 3: 验证 chip title 含状态说明
     const noteTagTitle = await cdpEval(cdp, `
       const v = getView();
       const tag = v?.containerEl?.querySelector('.llm-bridge-context-tag-note .llm-bridge-context-tag');
       return tag ? tag.getAttribute('title') : null;
     `);
-    if (noteTagTitle && (noteTagTitle.includes("路径") || noteTagTitle.includes("未附带") || noteTagTitle.includes("off"))) {
+    if (noteTagTitle && (noteTagTitle.includes("路径") || noteTagTitle.includes("未附带") || noteTagTitle.includes("off") || noteTagTitle.includes("注入"))) {
       ok("V16.3-context: active note chip title 含状态说明", noteTagTitle.slice(0, 60));
     } else {
       skip("V16.3-context: active note chip title", `title="${noteTagTitle}"`);
+    }
+    // V16.3 Round 3: model/effort 拆成独立 inline chip
+    const inlineChips = await cdpEval(cdp, `
+      const v = getView();
+      const picker = v?.containerEl?.querySelector('.llm-bridge-model-effort-picker');
+      if (!picker) return null;
+      const modelChip = picker.querySelector('.llm-bridge-model-chip-inline');
+      const effortChip = picker.querySelector('.llm-bridge-effort-chip-inline');
+      return JSON.stringify({
+        hasModel: !!modelChip,
+        modelText: modelChip ? modelChip.textContent : null,
+        hasEffort: !!effortChip,
+        effortText: effortChip ? effortChip.textContent : null,
+      });
+    `);
+    if (inlineChips) {
+      const chips = JSON.parse(inlineChips);
+      if (chips.hasModel && chips.hasEffort && chips.modelText && chips.effortText) {
+        ok("V16.3R3-context: model/effort 独立 inline chip", `model="${chips.modelText}" effort="${chips.effortText}"`);
+      } else {
+        skip("V16.3R3-context: model/effort 独立 inline chip", `hasModel=${chips.hasModel} hasEffort=${chips.hasEffort}`);
+      }
+    } else {
+      skip("V16.3R3-context: model/effort 独立 inline chip", "picker 未找到");
     }
   } catch (e) { fail("P4-D-context", e.message); }
 }
@@ -582,16 +624,17 @@ async function testV163ActiveNoteChipStates(cdp) {
     `);
     await sleep(500);
     // 状态 1: full 或 path-only（取决于当前活动笔记是否可读）
+    // V16.3 Round 3: 单 chip 文案 "{filename} · attached" / "{filename} · path only"
     const state1Text = await cdpEval(cdp, `
       const v = getView();
       const tag = v?.containerEl?.querySelector('.llm-bridge-context-tag-note .llm-bridge-context-tag');
       return tag ? tag.textContent : null;
     `);
     const state1AttachState = await cdpEval(cdp, `return getView().activeNoteAttachState;`);
-    if (state1AttachState === "full" || state1AttachState === "path-only") {
-      ok("V16.3-chip-state: on 状态 attachState=" + state1AttachState, `tagText="${state1Text}"`);
+    if ((state1AttachState === "full" || state1AttachState === "path-only") && state1Text && (state1Text.includes("attached") || state1Text.includes("path only"))) {
+      ok("V16.3R3-chip-state: on 状态 attachState=" + state1AttachState, `tagText="${state1Text}"`);
     } else {
-      skip("V16.3-chip-state: on 状态", `attachState=${state1AttachState}, tagText="${state1Text}"`);
+      skip("V16.3R3-chip-state: on 状态", `attachState=${state1AttachState}, tagText="${state1Text}"`);
     }
     // 切换为 off
     await cdpEvalAsync(cdp, `
@@ -900,6 +943,30 @@ async function main() {
     console.error(`FATAL: 探测失败: ${e.message}`);
     cdp.close();
     process.exit(1);
+  }
+
+  // V16.3 Round 3: 重载插件以加载最新 main.js（清 require cache + disable/enable）
+  try {
+    console.log("\n--- Reload plugin (clear require cache) ---");
+    await cdpEvalAsync(cdp, `
+      // 清除插件 main.js 的 require cache
+      const pluginDir = getPlugin().manifest.dir;
+      const cacheKeys = Object.keys(require.cache).filter(k => k.includes(pluginDir) && k.endsWith('main.js'));
+      for (const k of cacheKeys) delete require.cache[k];
+      // disable + enable 重载插件
+      await app.plugins.disablePlugin('${"llm-cli-bridge"}');
+      await app.plugins.enablePlugin('${"llm-cli-bridge"}');
+      // 激活 view
+      await app.workspace.getActiveViewOfType?.();
+      // 等待 view 初始化
+      await new Promise(r => setTimeout(r, 800));
+    `);
+    // 验证重载后 view 可用
+    const reloaded = await cdpEval(cdp, `return !!getView();`);
+    if (reloaded) console.log("PASS reload: 插件已重载");
+    else console.log("SKIP reload: view 不可用（可能需要手动激活侧边栏）");
+  } catch (e) {
+    console.log(`SKIP reload: ${e.message}`);
   }
 
   await testMockSuccess(cdp);

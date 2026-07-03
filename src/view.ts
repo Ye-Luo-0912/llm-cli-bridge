@@ -267,6 +267,7 @@ export class LLMBridgeView extends ItemView {
   private effortChipGroup!: HTMLElement;
   private modelEffortPickerEl!: HTMLElement;
   private modelEffortButtonEl!: HTMLButtonElement;
+  private effortChipEl!: HTMLButtonElement;
   private modelEffortPopoverEl!: HTMLElement;
   /** V2.16-C: 运行时模型目录（不再硬编码） */
   private modelCatalog: RuntimeModelCatalog = getRuntimeModelCatalog();
@@ -570,7 +571,7 @@ export class LLMBridgeView extends ItemView {
     this.pinnedContextEl = chatPanel.createEl("details", { cls: "llm-bridge-pinned-context" });
     this.pinnedContextEl.setAttribute("hidden", "");
 
-    // V2.16-D: Context indicator（composer 上方轻量条，点击展开明细）
+    // V2.16-D: Context indicator（V16.3: 普通用户态只显示 ring，developer mode 点击展开明细）
     const contextStrip = chatPanel.createDiv({ cls: "llm-bridge-context-strip" });
     this.contextRingEl = contextStrip.createDiv({ cls: "llm-bridge-context-ring" });
     this.contextLabelEl = contextStrip.createDiv({ cls: "llm-bridge-context-label", text: "Context estimate" });
@@ -579,6 +580,8 @@ export class LLMBridgeView extends ItemView {
     contextStrip.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       if (target.closest(".llm-bridge-context-detail")) return;
+      // V16.3: 普通用户态不展开明细，只 hover/title 看 used/total；developer mode 可点击展开
+      if (!this.plugin.settings.developerMode) return;
       if (this.contextDetailEl.hasAttribute("hidden")) {
         this.contextDetailEl.removeAttribute("hidden");
       } else {
@@ -701,7 +704,8 @@ export class LLMBridgeView extends ItemView {
       this.plugin.settings.includeActiveNote = on;
       await this.plugin.saveSettings();
     });
-    this.activeFileLabelEl = this.includeNoteCheckEl.parentElement!.createEl("span", { cls: "llm-bridge-context-tag-file", text: "" });
+    // V16.3 Round 3: 文件名合并进 chip 按钮文案，独立 span 仅作隐藏存储
+    this.activeFileLabelEl = this.includeNoteCheckEl.parentElement!.createEl("span", { cls: "llm-bridge-context-tag-file", text: "", attr: { hidden: "" } });
 
     // Selection tag: only visible when there's a selection
     this.includeSelectionCheckEl = this.buildContextTag(contextTagsRow, "selection", () => this.plugin.settings.includeSelection, async (on) => {
@@ -981,20 +985,22 @@ export class LLMBridgeView extends ItemView {
       const on = this.plugin.settings.includeActiveNote;
       noteTag.classList.toggle("is-active", on);
       noteTag.setAttribute("aria-pressed", String(on));
-      // V16.3: 三态文案 — full / path-only / off
+      // V16.3 Round 3: 合并为单 chip — "{filename} · attached" / "{filename} · path only" / "Auto attach off"
+      const fname = this.activeFileLabelEl.textContent || "";
+      const fnameOrFallback = fname || "current note";
       if (!on) {
         noteTag.textContent = "Auto attach off";
         noteTag.setAttribute("title", "未附带当前活动笔记（点击开启自动引用）");
       } else if (this.activeNoteAttachState === "full") {
-        noteTag.textContent = "Using current note";
-        noteTag.setAttribute("title", "当前活动笔记：路径 + 内容已注入 prompt（点击关闭）");
+        noteTag.textContent = `${fnameOrFallback} · attached`;
+        noteTag.setAttribute("title", `${fname ? fname : "当前活动笔记"}：路径 + 内容已注入 prompt（点击关闭）`);
       } else if (this.activeNoteAttachState === "path-only") {
-        noteTag.textContent = "Note path only";
-        noteTag.setAttribute("title", "当前活动笔记：仅路径注入 prompt，内容读取失败（点击关闭）");
+        noteTag.textContent = `${fnameOrFallback} · path only`;
+        noteTag.setAttribute("title", `${fname ? fname : "当前活动笔记"}：仅路径注入 prompt，内容读取失败（点击关闭）`);
       } else {
-        // on 但状态未知（如尚未读取）— 兜底显示
-        noteTag.textContent = "Using current note";
-        noteTag.setAttribute("title", "当前活动笔记已开启自动引用");
+        // on 但状态未知（如尚未读取）— 兜底显示为 attached
+        noteTag.textContent = `${fnameOrFallback} · attached`;
+        noteTag.setAttribute("title", `${fname ? fname : "当前活动笔记"}：已开启自动引用（点击关闭）`);
       }
     }
     const selTag = this.includeSelectionCheckEl.parentElement?.querySelector(".llm-bridge-context-tag");
@@ -1012,11 +1018,21 @@ export class LLMBridgeView extends ItemView {
 
   private renderModelEffortPicker(parent: HTMLElement): void {
     this.modelEffortPickerEl = parent.createDiv({ cls: "llm-bridge-model-effort-picker" });
+    // V16.3 Round 3: 拆成两个独立轻量 inline chip（model / effort），共享一个 popover
     this.modelEffortButtonEl = this.modelEffortPickerEl.createEl("button", {
-      cls: "llm-bridge-model-effort-chip",
-      attr: { title: "选择模型与推理等级", "aria-haspopup": "true", "aria-expanded": "false" },
+      cls: "llm-bridge-model-effort-chip llm-bridge-model-chip-inline",
+      attr: { title: "选择模型", "aria-haspopup": "true", "aria-expanded": "false" },
     });
     this.modelEffortButtonEl.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (this.runHandle) return;
+      this.toggleModelEffortPopover();
+    });
+    this.effortChipEl = this.modelEffortPickerEl.createEl("button", {
+      cls: "llm-bridge-model-effort-chip llm-bridge-effort-chip-inline",
+      attr: { title: "选择推理等级", "aria-haspopup": "true", "aria-expanded": "false" },
+    });
+    this.effortChipEl.addEventListener("click", (event) => {
       event.stopPropagation();
       if (this.runHandle) return;
       this.toggleModelEffortPopover();
@@ -1092,6 +1108,7 @@ export class LLMBridgeView extends ItemView {
       this.modelEffortPopoverEl.removeAttribute("hidden");
       this.modelEffortPopoverEl.classList.add("is-open");
       this.modelEffortButtonEl?.setAttribute("aria-expanded", "true");
+      this.effortChipEl?.setAttribute("aria-expanded", "true");
     } else {
       this.closeModelEffortPopover();
     }
@@ -1102,6 +1119,7 @@ export class LLMBridgeView extends ItemView {
     this.modelEffortPopoverEl.setAttribute("hidden", "");
     this.modelEffortPopoverEl.classList.remove("is-open");
     this.modelEffortButtonEl?.setAttribute("aria-expanded", "false");
+    this.effortChipEl?.setAttribute("aria-expanded", "false");
   }
 
   private refreshModelEffortPicker(): void {
@@ -1111,7 +1129,9 @@ export class LLMBridgeView extends ItemView {
     const effort = findEffortEntry(this.modelCatalog, this.plugin.settings.effortLevel);
     const modelLabel = model?.label ?? this.plugin.settings.model ?? "unknown";
     const effortLabel = effort?.label ?? this.plugin.settings.effortLevel ?? "unknown";
-    this.modelEffortButtonEl.textContent = `${modelLabel} · ${effortLabel}`;
+    // V16.3 Round 3: 两个独立 chip 分别显示 model / effort
+    this.modelEffortButtonEl.textContent = modelLabel;
+    this.effortChipEl.textContent = effortLabel;
     const currentModelValue = model?.value ?? this.plugin.settings.model;
     const currentEffortValue = effort?.value ?? this.plugin.settings.effortLevel;
     this.modelEffortPopoverEl?.querySelectorAll<HTMLElement>(".llm-bridge-model-option").forEach((option) => {
@@ -1290,20 +1310,9 @@ export class LLMBridgeView extends ItemView {
     } else {
       this.selectionLabelEl.textContent = "";
     }
-    // V16.3: Note tag — title 反映三态 + 文件路径
-    const noteTag = this.includeNoteCheckEl.parentElement?.querySelector<HTMLElement>(".llm-bridge-context-tag");
-    if (noteTag) {
-      const on = this.plugin.settings.includeActiveNote;
-      if (!on) {
-        noteTag.setAttribute("title", "未附带当前活动笔记（点击开启自动引用）");
-      } else if (this.activeNoteAttachState === "path-only") {
-        noteTag.setAttribute("title", f ? `当前笔记：${f.path}（仅路径，内容读取失败）` : "当前没有活动笔记");
-      } else if (this.activeNoteAttachState === "full") {
-        noteTag.setAttribute("title", f ? `当前笔记：${f.path}（路径 + 内容已注入）` : "当前没有活动笔记");
-      } else {
-        noteTag.setAttribute("title", f ? `当前笔记：${f.path}` : "当前没有活动笔记");
-      }
-    }
+    // V16.3 Round 3: note tag title/文案统一由 refreshAllChips 处理（合并单 chip 语义）
+    // 这里只刷新 chip 文案以立即反映文件名变化（不等异步 refreshContextMetrics）
+    this.refreshAllChips();
     // P4-D: Selection tag — hide when no selection
     const selWrap = this.includeSelectionCheckEl.parentElement;
     if (selWrap) {
@@ -4264,6 +4273,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V2.16-D: 渲染 context metrics 到 UI
+  // V16.3 Round 3: 普通用户态只显示 ring + 简短标签；developerMode=true 才填充明细
   private renderContextMetrics(metrics: ContextMetrics): void {
     const total = metrics.total.tokens;
     const win = metrics.contextWindow;
@@ -4273,21 +4283,36 @@ export class LLMBridgeView extends ItemView {
     this.contextRingEl.classList.add(`is-${metrics.precision}`);
     if (metrics.compression) this.contextRingEl.classList.add("is-compressed");
     this.contextRingEl.style.cssText = `background: conic-gradient(${color} ${pct * 3.6}deg, var(--background-modifier-border) ${pct * 3.6}deg);`;
-    // P4-D: Ring tooltip with summary
-    const tipParts = [`${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`];
-    if (metrics.compression) {
-      tipParts.push(`Compression: ${formatTokens(metrics.compression.beforeTokens)} → ${formatTokens(metrics.compression.afterTokens)}`);
-    }
-    this.contextRingEl.setAttribute("title", tipParts.join("\n"));
-    // V2.17-A: exact usage 不可用时显示 "Context estimate"（不突出 unavailable，不冒充 exact）；
-    // 仅 exact 精度才在主标签展示 token 数字。
-    if (metrics.precision === "exact") {
-      this.contextLabelEl.textContent = `Context ${formatTokens(total)} / ${formatTokens(win)}`;
+    const isDev = !!this.plugin.settings.developerMode;
+    // V16.3 Round 3: 普通用户态 title 简化为 "Context used: X / total tokens"；
+    // developerMode 保留完整 breakdown（含 compression）
+    if (isDev) {
+      const tipParts = [`${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`];
+      if (metrics.compression) {
+        tipParts.push(`Compression: ${formatTokens(metrics.compression.beforeTokens)} → ${formatTokens(metrics.compression.afterTokens)}`);
+      }
+      this.contextRingEl.setAttribute("title", tipParts.join("\n"));
     } else {
-      this.contextLabelEl.textContent = "Context estimate";
+      this.contextRingEl.setAttribute("title", `Context used: ${formatTokens(total)} / ${formatTokens(win)} tokens`);
     }
-    this.contextLabelEl.setAttribute("title", `Exact runtime usage: ${metrics.precision === "exact" ? "available" : "unavailable"}\nLocal estimate: ${metrics.total.tokens} tokens (${metrics.total.chars} chars)\nWindow: ${formatTokens(win)}\nPrecision: ${metrics.precision}`);
+    // V16.3 Round 3: 普通用户态短标签 "Context 0.5%"；developerMode 显示完整比例
+    if (isDev) {
+      if (metrics.precision === "exact") {
+        this.contextLabelEl.textContent = `Context ${formatTokens(total)} / ${formatTokens(win)}`;
+      } else {
+        this.contextLabelEl.textContent = "Context estimate";
+      }
+      this.contextLabelEl.setAttribute("title", `Exact runtime usage: ${metrics.precision === "exact" ? "available" : "unavailable"}\nLocal estimate: ${metrics.total.tokens} tokens (${metrics.total.chars} chars)\nWindow: ${formatTokens(win)}\nPrecision: ${metrics.precision}`);
+    } else {
+      this.contextLabelEl.textContent = `Context ${pct > 0 && pct < 0.1 ? "<0.1" : Math.round(pct * 10) / 10}%`;
+      this.contextLabelEl.setAttribute("title", `Context used: ${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`);
+    }
+    // V16.3 Round 3: 普通用户态不填充明细；developerMode 保留完整明细
     this.contextDetailEl.empty();
+    if (!isDev) {
+      // 普通用户态：明细区保持空且隐藏（click handler 已 gate developerMode）
+      return;
+    }
     const precisionRow = this.contextDetailEl.createDiv({ cls: "llm-bridge-context-detail-row" });
     precisionRow.createEl("span", { cls: "llm-bridge-context-detail-label", text: "Source" });
     precisionRow.createEl("span", {
