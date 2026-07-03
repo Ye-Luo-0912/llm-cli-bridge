@@ -19,7 +19,7 @@ import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, pre
 import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
 import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
-import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse } from "./runtime/core/types";
+import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse } from "./runtime/core/types";
 import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
@@ -312,6 +312,7 @@ export class LLMBridgeView extends ItemView {
   // V2.3s: 待决策权限请求面板（运行中实时展示 pending 权限请求，用户点击允许/拒绝）
   private permissionPanelEl!: HTMLElement;
   private pendingPermissions: Map<string, PermissionEvent> = new Map();
+  private pendingUserInputDrafts = new Map<string, { value: string; selections: Record<string, string> }>();
   // V2.14.0-E: 外部 read 授权仅存在于当前 Bridge View/session 生命周期
   private externalReadGrantStore: SessionReadGrantStore = createSessionReadGrantStore();
   private externalReadPanelEl!: HTMLElement;
@@ -1022,6 +1023,50 @@ export class LLMBridgeView extends ItemView {
     if (chip) chip.textContent = this.labelForValue(options, v);
   }
 
+  private eventTargetElement(event: Event): HTMLElement | null {
+    const target = event.target;
+    if (target instanceof HTMLElement) return target;
+    if (target instanceof Text) return target.parentElement;
+    return target instanceof Element ? target as HTMLElement : null;
+  }
+
+  private isEventInsideSelector(event: Event, selector: string): boolean {
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+    for (const node of path) {
+      if (node instanceof HTMLElement && (node.matches(selector) || !!node.closest(selector))) {
+        return true;
+      }
+    }
+    const target = this.eventTargetElement(event);
+    return !!target?.closest(selector);
+  }
+
+  private sanitizeUserFacingSummaryText(text?: string): string | undefined {
+    if (!text) return text;
+    return text.replace(/\[object Object\](\s*,\s*\[object Object\])*/g, (match) => {
+      const count = match.match(/\[object Object\]/g)?.length ?? 0;
+      return count > 1 ? `${count} items` : "{ object }";
+    });
+  }
+
+  private getUserInputDraft(requestId: string): { value: string; selections: Record<string, string> } {
+    const existing = this.pendingUserInputDrafts.get(requestId);
+    if (existing) return existing;
+    const created = { value: "", selections: {} };
+    this.pendingUserInputDrafts.set(requestId, created);
+    return created;
+  }
+
+  private composeUserInputDraftValue(
+    questions: ReadonlyArray<UserInputQuestion>,
+    selections: Record<string, string>,
+  ): string {
+    return questions
+      .map((q) => selections[q.id])
+      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .join(" + ");
+  }
+
   private renderModelEffortPicker(parent: HTMLElement): void {
     this.modelEffortPickerEl = parent.createDiv({ cls: "llm-bridge-model-effort-picker" });
     // V16.3 Round 3: 拆成两个独立轻量 inline chip（model / effort），共享一个 popover
@@ -1083,11 +1128,10 @@ export class LLMBridgeView extends ItemView {
       if (event.key === "Escape") this.closeModelEffortPopover();
     });
     this.registerDomEvent(document, "pointerdown", (event) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.closest(".llm-bridge-model-effort-picker")) return;
+      if (this.isEventInsideSelector(event, ".llm-bridge-model-effort-picker")) return;
       this.closeModelEffortPopover();
-      if (target?.closest(".llm-bridge-permission-chip")) return;
-      if (target?.closest(".llm-bridge-perm-popover")) return;
+      if (this.isEventInsideSelector(event, ".llm-bridge-permission-chip")) return;
+      if (this.isEventInsideSelector(event, ".llm-bridge-perm-popover")) return;
       this.closePermissionPopover();
     });
     this.registerDomEvent(document, "keydown", (event) => {
@@ -1211,37 +1255,17 @@ export class LLMBridgeView extends ItemView {
       this.closeModelEffortPopover();
       this.renderPermissionPopover();
       this.permissionPopoverEl.removeAttribute("hidden");
-      // V16.4-D: 添加 click-outside handler（延迟绑定，避免本次 click 立即关闭）
-      setTimeout(() => {
-        if (!this.permissionPopoverEl || this.permissionPopoverEl.hasAttribute("hidden")) return;
-        document.addEventListener("click", this.permissionPopoverOutsideClickHandler, { capture: true });
-      }, 0);
       this.permissionModeChipEl.setAttribute("aria-expanded", "true");
     } else {
       this.closePermissionPopover();
     }
   }
 
-  /** V16.4-D: click-outside handler（绑定到 document，关闭 popover） */
-  private permissionPopoverOutsideClickHandler = (e: MouseEvent): void => {
-    if (!this.permissionPopoverEl || this.permissionPopoverEl.hasAttribute("hidden")) {
-      document.removeEventListener("click", this.permissionPopoverOutsideClickHandler, { capture: true });
-      return;
-    }
-    const target = e.target as HTMLElement;
-    if (this.permissionPopoverEl.contains(target)) return;
-    if (this.permissionModeChipEl?.contains(target)) return;
-    // 点击 popover 外部 → 关闭
-    this.closePermissionPopover();
-    document.removeEventListener("click", this.permissionPopoverOutsideClickHandler, { capture: true });
-  };
-
   /**
    * V16.4-D: 关闭 permission mode popover
    */
   private closePermissionPopover(): void {
     this.permissionPopoverEl?.setAttribute("hidden", "");
-    document.removeEventListener("click", this.permissionPopoverOutsideClickHandler, { capture: true });
     this.permissionModeChipEl?.setAttribute("aria-expanded", "false");
   }
 
@@ -1513,7 +1537,7 @@ export class LLMBridgeView extends ItemView {
 
     // 标题
     const header = panel.createDiv({ cls: "llm-bridge-perm-panel-header" });
-    header.createEl("span", { cls: "llm-bridge-perm-panel-title", text: "Permission audit" });
+    header.createEl("span", { cls: "llm-bridge-perm-panel-title", text: "SDK permission audit" });
     header.createEl("span", { cls: "llm-bridge-perm-panel-count", text: `${this.pendingPermissions.size} pending` });
 
     // 按 mergeKey 合并展示（相同工具+风险+路径前缀合并）
@@ -1602,6 +1626,12 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
+  private resolveUserInputRequest(requestId: string, response: UserInputResponse): void {
+    if (this.getSession().userInput.resolveInput(requestId, response)) {
+      this.pendingUserInputDrafts.delete(requestId);
+    }
+  }
+
   // V2.3s: 清空待决策权限请求（新会话/停止时调用）
   private clearPendingPermissions(): void {
     if (this.pendingPermissions.size === 0) return;
@@ -1610,6 +1640,11 @@ export class LLMBridgeView extends ItemView {
     this.getSession().permission.cancelAllPending();
     this.pendingPermissions.clear();
     this.refreshPermissionPanel();
+  }
+
+  private clearPendingUserInputRequests(): void {
+    this.getSession().userInput.cancelAllPending();
+    this.pendingUserInputDrafts.clear();
   }
 
   // V2.14.0-E: 将外部文件访问请求转换为 pending read request；非 read 不进入 pending。
@@ -3116,11 +3151,12 @@ export class LLMBridgeView extends ItemView {
     const hasFileChanges = model.fileChangeCards.length > 0;
     const hasDiagnostics = model.diagnosticCards.length > 0;
     const hasPendingApprovals = model.approvalCards.some((a) => a.status === "pending");
+    const hasPendingUserInputs = model.userInputCards.some((c) => c.status === "pending");
     const hasDebugView = developerMode && options.debug;
     // V16.4: 普通用户态有 phases 就算有过程内容
     const hasProcessContent = developerMode
-      ? (hasTimelineContent || hasFileChanges || hasDiagnostics || hasPendingApprovals || hasDebugView)
-      : (hasPhases || hasPendingApprovals || hasDiagnostics);
+      ? (hasTimelineContent || hasFileChanges || hasDiagnostics || hasPendingApprovals || hasPendingUserInputs || hasDebugView)
+      : (hasPhases || hasPendingApprovals || hasPendingUserInputs || hasDiagnostics);
 
     // --- header (折叠头) ---
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap llm-bridge-turn-view" });
@@ -3150,6 +3186,14 @@ export class LLMBridgeView extends ItemView {
     }
 
     if (developerMode) {
+      if (model.phaseModel.pendingUserInputRequests.length > 0) {
+        const inputSection = body.createDiv({ cls: "llm-bridge-turn-user-inputs" });
+        inputSection.createEl("div", { cls: "llm-bridge-turn-section-label", text: "User input" });
+        for (const req of model.phaseModel.pendingUserInputRequests) {
+          this.renderPhaseUserInputRequest(inputSection, req);
+        }
+      }
+
       // --- Developer mode: raw timeline + file changes + diagnostics ---
       // --- fileChangeCards (单独区域) ---
       if (hasFileChanges) {
@@ -3336,17 +3380,26 @@ export class LLMBridgeView extends ItemView {
       }
     }
 
+    for (const req of phase.userInputRequests) {
+      this.renderPhaseUserInputRequest(body, req);
+    }
+
     // V16.4-D: approvals — 低风险嵌入当前 phase 为内联 chips（不常驻大面板）
     // 高风险显示强调样式；详细信息折叠到 Details
     for (const ap of phase.approvals) {
       const isHighRisk = ap.riskLevel === "high";
-      const approvalLabel = approvalDisplayLabel(ap.toolName, ap.inputSummary, ap.description);
+      const inputSummary = this.sanitizeUserFacingSummaryText(ap.inputSummary);
+      const approvalLabel = approvalDisplayLabel(ap.toolName, inputSummary, ap.description);
       const apEl = body.createDiv({ cls: `llm-bridge-phase-approval is-risk-${ap.riskLevel} ${ap.pending ? "is-pending" : "is-resolved"}` });
-      const apHead = apEl.createDiv({ cls: "llm-bridge-phase-approval-head" });
+      const apRow = apEl.createDiv({ cls: "llm-bridge-phase-approval-row" });
+      const apHead = apRow.createDiv({ cls: "llm-bridge-phase-approval-head" });
       apHead.createEl("span", { cls: "llm-bridge-phase-approval-tool", text: approvalLabel });
       if (ap.pending) {
+        if (isHighRisk) {
+          apHead.createEl("span", { cls: "llm-bridge-phase-approval-risk", text: "High risk" });
+        }
         // 内联决策按钮：[Allow once] [Allow session] [Deny]
-        const btns = apEl.createDiv({ cls: "llm-bridge-phase-approval-btns" });
+        const btns = apRow.createDiv({ cls: "llm-bridge-phase-approval-btns" });
         const allowOnce = btns.createEl("button", { cls: "llm-bridge-approval-btn is-allow-once", text: "Allow once" });
         allowOnce.addEventListener("click", (e) => {
           e.stopPropagation();
@@ -3362,16 +3415,15 @@ export class LLMBridgeView extends ItemView {
           e.stopPropagation();
           this.resolvePermissionRequests([ap.requestId], "deny_session");
         });
-        // 详细信息折叠到 Details（高风险默认展开，低风险折叠）
-        if (ap.inputSummary || ap.riskReason || (ap.highRiskFlags && ap.highRiskFlags.length > 0)) {
+        // 详细信息折叠到 Details（默认折叠；高风险仅样式强调）
+        if (inputSummary || ap.riskReason || (ap.highRiskFlags && ap.highRiskFlags.length > 0)) {
           const details = apEl.createEl("details", { cls: "llm-bridge-phase-approval-details" });
-          if (isHighRisk) details.setAttribute("open", "");
           details.createEl("summary", { text: "Details" });
           if (ap.riskReason) details.createDiv({ cls: "llm-bridge-phase-approval-risk-reason", text: ap.riskReason });
           if (ap.highRiskFlags && ap.highRiskFlags.length > 0) {
             details.createDiv({ cls: "llm-bridge-phase-approval-flags", text: `高风险: ${ap.highRiskFlags.join(", ")}` });
           }
-          if (ap.inputSummary) details.createDiv({ cls: "llm-bridge-phase-approval-input", text: ap.inputSummary });
+          if (inputSummary) details.createDiv({ cls: "llm-bridge-phase-approval-input", text: inputSummary });
         }
       } else {
         // 已解决：显示简洁标签
@@ -3395,6 +3447,122 @@ export class LLMBridgeView extends ItemView {
         toggle.textContent = "▶ ";
       }
     });
+  }
+
+  private renderPhaseUserInputRequest(
+    parent: HTMLElement,
+    req: RunPhase["userInputRequests"][number],
+  ): void {
+    const draft = this.getUserInputDraft(req.requestId);
+    const card = parent.createDiv({ cls: `llm-bridge-phase-user-input ${req.pending ? "is-pending" : "is-resolved"}` });
+    const row = card.createDiv({ cls: "llm-bridge-phase-user-input-row" });
+    row.createEl("span", {
+      cls: "llm-bridge-phase-user-input-title",
+      text: req.pending ? "Needs input" : "Input received",
+    });
+    row.createEl("span", {
+      cls: "llm-bridge-phase-user-input-tool",
+      text: req.pending ? "Clarification" : (req.response?.type === "submit" ? "Answered" : "Cancelled"),
+    });
+
+    const promptEl = card.createDiv({ cls: "llm-bridge-phase-user-input-prompt" });
+    void MarkdownRenderer.render(this.app, req.prompt, promptEl, "", this).catch(() => {
+      promptEl.empty();
+      promptEl.setText(req.prompt);
+    });
+
+    let inputEl: HTMLInputElement | null = null;
+    if (req.questions && req.questions.length > 0) {
+      const questionsEl = card.createDiv({ cls: "llm-bridge-phase-user-input-questions" });
+      for (const question of req.questions) {
+        const qEl = questionsEl.createDiv({ cls: "llm-bridge-phase-user-input-question" });
+        if (question.header) {
+          qEl.createEl("div", { cls: "llm-bridge-phase-user-input-question-header", text: question.header });
+        }
+        qEl.createEl("div", { cls: "llm-bridge-phase-user-input-question-text", text: question.question });
+        if (question.options.length > 0) {
+          const optionsEl = qEl.createDiv({ cls: "llm-bridge-phase-user-input-options" });
+          const selectedValue = draft.selections[question.id];
+          for (const option of question.options) {
+            const optionValue = option.value ?? option.label;
+            const btn = optionsEl.createEl("button", {
+              cls: `llm-bridge-phase-user-input-option${selectedValue === optionValue ? " is-selected" : ""}`,
+              text: option.label,
+              attr: {
+                type: "button",
+                ...(option.description ? { title: option.description } : {}),
+              },
+            });
+            btn.addEventListener("click", (event) => {
+              event.stopPropagation();
+              draft.selections[question.id] = optionValue;
+              const nextValue = this.composeUserInputDraftValue(req.questions ?? [], draft.selections);
+              if (nextValue) {
+                draft.value = nextValue;
+                if (inputEl) inputEl.value = nextValue;
+              }
+              for (const el of Array.from(optionsEl.querySelectorAll(".llm-bridge-phase-user-input-option"))) {
+                if (el instanceof HTMLElement) el.classList.remove("is-selected");
+              }
+              btn.classList.add("is-selected");
+            });
+          }
+        }
+      }
+    }
+
+    if (req.pending) {
+      const composeEl = card.createDiv({ cls: "llm-bridge-phase-user-input-compose" });
+      inputEl = composeEl.createEl("input", {
+        cls: "llm-bridge-phase-user-input-input",
+        attr: {
+          type: req.inputType === "secret" ? "password" : "text",
+          placeholder: req.placeholder ?? "Reply to continue",
+          value: draft.value,
+        },
+      });
+      const actions = composeEl.createDiv({ cls: "llm-bridge-phase-user-input-actions" });
+      const submitBtn = actions.createEl("button", {
+        cls: "llm-bridge-phase-user-input-btn is-submit",
+        text: "Submit",
+        attr: { type: "button" },
+      });
+      const cancelBtn = actions.createEl("button", {
+        cls: "llm-bridge-phase-user-input-btn is-cancel",
+        text: "Cancel",
+        attr: { type: "button" },
+      });
+      const syncSubmitState = () => {
+        if (!inputEl) return;
+        submitBtn.toggleAttribute("disabled", inputEl.value.trim().length === 0);
+      };
+      inputEl.addEventListener("input", () => {
+        draft.value = inputEl?.value ?? "";
+        syncSubmitState();
+      });
+      inputEl.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          if (!submitBtn.hasAttribute("disabled")) submitBtn.click();
+        }
+      });
+      submitBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const value = inputEl?.value.trim() ?? "";
+        if (!value) return;
+        this.resolveUserInputRequest(req.requestId, { type: "submit", value });
+      });
+      cancelBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.resolveUserInputRequest(req.requestId, { type: "cancel" });
+      });
+      syncSubmitState();
+    } else if (req.response) {
+      const resolvedText = req.response.type === "submit"
+        ? (req.inputType === "secret" ? "Response submitted" : req.response.value)
+        : "Request cancelled";
+      card.createDiv({ cls: "llm-bridge-phase-user-input-response", text: resolvedText });
+    }
   }
 
   /**
@@ -3461,6 +3629,9 @@ export class LLMBridgeView extends ItemView {
         break;
       case "approval":
         this.renderApprovalCard(parent, card);
+        break;
+      case "user-input":
+        this.renderUserInputCard(parent, card);
         break;
       case "warning":
         this.renderWarningCard(parent, card);
@@ -3602,6 +3773,18 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
+  private renderUserInputCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "user-input" }>): void {
+    const node = parent.createDiv({ cls: `llm-bridge-tl-node llm-bridge-tl-user-input is-${card.status}` });
+    node.createDiv({ cls: "llm-bridge-tl-dot" });
+    const content = node.createDiv({ cls: "llm-bridge-tl-content" });
+    content.createEl("div", { cls: "llm-bridge-tl-title", text: card.pending ? "Needs input" : "Input received" });
+    content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(card.prompt, 240) });
+    if (!card.pending && card.response?.type === "submit") {
+      const responseText = card.inputType === "secret" ? "Response submitted" : card.response.value;
+      content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(responseText, 180) });
+    }
+  }
+
   private renderWarningCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "warning" }>): void {
     const node = parent.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-warning" });
     node.createDiv({ cls: "llm-bridge-tl-dot" });
@@ -3662,7 +3845,7 @@ export class LLMBridgeView extends ItemView {
     // V16.4-D: permission snapshot（developer mode 审计）
     if (debug.permissionSnapshot) {
       const ps = debug.permissionSnapshot;
-      const psBody = this.createCollapsibleSection(parent, "permission snapshot", "llm-bridge-perm-snapshot", false);
+      const psBody = this.createCollapsibleSection(parent, "sdk permission audit", "llm-bridge-perm-snapshot", false);
       const psLines: string[] = [];
       if (ps.configuredPermissionMode) psLines.push(`configured: ${ps.configuredPermissionMode}`);
       if (ps.effectivePermissionMode) psLines.push(`effective: ${ps.effectivePermissionMode}`);
@@ -4587,6 +4770,7 @@ export class LLMBridgeView extends ItemView {
     this.lastSdkAgentCount = 0;
     // V2.3s: 清空待决策权限请求
     this.clearPendingPermissions();
+    this.clearPendingUserInputRequests();
     this.clearExternalReadRequests();
     this.clearFileContext();
     this.refreshStatusBar();
@@ -5055,6 +5239,7 @@ export class LLMBridgeView extends ItemView {
     this.lastSdkToolCount = 0;
     this.lastSdkAgentCount = 0;
     this.clearPendingPermissions();
+    this.clearPendingUserInputRequests();
     this.clearExternalReadRequests();
     this.refreshStatusBar();
     this.scrollToBottom(); // V2.8: 恢复后滚到最新消息
@@ -5190,6 +5375,7 @@ export class LLMBridgeView extends ItemView {
     this.lastSdkToolCount = 0;
     this.lastSdkAgentCount = 0;
     this.clearPendingPermissions();
+    this.clearPendingUserInputRequests();
     this.clearExternalReadRequests();
     this.refreshStatusBar();
     this.scrollToBottom();
@@ -5805,6 +5991,7 @@ export class LLMBridgeView extends ItemView {
    * - completed/failed 触发终态
    * - WorkflowEvent 映射仅保留为 legacy log（sdkEvents），不作主 UI 数据源
    * - approval pending 仍驱动 pendingPermissions 面板
+   * - user_input pending 走独立 question UI，不进入 permission 面板
    */
   private handleNormalizedEvent(
     ev: NormalizedRuntimeEvent,
@@ -5887,6 +6074,12 @@ export class LLMBridgeView extends ItemView {
       }
     }
 
+    for (const req of (turnView.userInputRequests ?? [])) {
+      if (!req.pending) {
+        this.pendingUserInputDrafts.delete(req.requestId);
+      }
+    }
+
     // 5. completed/failed 触发终态
     if (p.kind === "completed") {
       const result: RunResult = {
@@ -5936,6 +6129,7 @@ export class LLMBridgeView extends ItemView {
       this.runHandle.stop();
       // V2.3s: 清空待决策权限请求
       this.clearPendingPermissions();
+      this.clearPendingUserInputRequests();
       const msg = this.messages.find((m) => m.id === this.currentAssistantId);
       if (msg) {
         this.updateAssistantMessage(this.currentAssistantId!, {

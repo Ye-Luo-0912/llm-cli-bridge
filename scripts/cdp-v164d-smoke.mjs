@@ -132,15 +132,22 @@ async function permissionPopoverSmoke(client) {
       await plugin.saveSettings();
       view.refreshAllChips();
 
+      const triggerClick = (el) => {
+        if (!el) return false;
+        el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
+        el.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, cancelable: true }));
+        el.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+        return true;
+      };
+
       const clickMode = async (modeValue) => {
-        view.permissionModeChipEl.click();
+        triggerClick(view.permissionModeChipEl);
         await new Promise(r => setTimeout(r, 100));
         const popover = view.permissionPopoverEl;
         const beforeOpen = popover && !popover.hasAttribute("hidden");
         const option = popover?.querySelector('[data-permission-mode="' + modeValue + '"]');
         if (!option) return { beforeOpen, clicked: false, modeValue };
-        option.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
-        option.click();
+        triggerClick(option);
         await new Promise(r => setTimeout(r, 160));
         return {
           beforeOpen,
@@ -153,7 +160,7 @@ async function permissionPopoverSmoke(client) {
       };
 
       const noRunHandle = [];
-      for (const modeValue of ["default", "acceptEdits", "plan", "auto"]) {
+      for (const modeValue of ["default", "acceptEdits", "plan", "auto", "bypassPermissions"]) {
         noRunHandle.push(await clickMode(modeValue));
       }
 
@@ -175,7 +182,7 @@ async function permissionPopoverSmoke(client) {
   const r = res.result.value;
   if (r.error) { fail("Permission popover", r.error); return; }
   const allModesOk = Array.isArray(r.noRunHandle)
-    && r.noRunHandle.length === 4
+    && r.noRunHandle.length === 5
     && r.noRunHandle.every((item) => item.beforeOpen && item.clicked && item.setting === item.modeValue && item.closed);
   const runHandleOk = r.withRunHandle?.beforeOpen && r.withRunHandle?.clicked
     && r.withRunHandle?.setting === "acceptEdits" && r.withRunHandle?.closed;
@@ -233,7 +240,7 @@ async function approvalAndHeaderSmoke(client) {
         description: "Write _test_output.md",
         riskLevel: "medium",
         riskReason: "中风险：文件编辑操作",
-        inputSummary: "file: _test_output.md",
+        inputSummary: "file: _test_output.md | questions: [object Object], [object Object]",
         mergeKey: "Write:medium:_test_output.md",
         providerContext: { kind: "smoke" },
       });
@@ -247,7 +254,7 @@ async function approvalAndHeaderSmoke(client) {
         requestId,
         riskLevel: "medium",
         riskReason: "中风险：文件编辑操作",
-        inputSummary: "file: _test_output.md",
+        inputSummary: "file: _test_output.md | questions: [object Object], [object Object]",
         mergeKey: "Write:medium:_test_output.md",
       });
       const assistantId = view.appendAssistantPlaceholder();
@@ -262,13 +269,13 @@ async function approvalAndHeaderSmoke(client) {
         approvals: [{
           requestId,
           toolName: "Write",
-          description: "Write _test_output.md",
-          riskLevel: "medium",
-          riskReason: "中风险：文件编辑操作",
-          inputSummary: "file: _test_output.md",
-          mergeKey: "Write:medium:_test_output.md",
-          pending: true,
-        }],
+            description: "Write _test_output.md",
+            riskLevel: "medium",
+            riskReason: "中风险：文件编辑操作",
+            inputSummary: "file: _test_output.md | questions: [object Object], [object Object]",
+            mergeKey: "Write:medium:_test_output.md",
+            pending: true,
+          }],
         finalAnswer: "",
         warnings: [],
         errors: [],

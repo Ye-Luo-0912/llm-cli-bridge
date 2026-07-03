@@ -268,6 +268,10 @@ export function mapNormalizedToWorkflowEvent(
         source: p.source,
       };
 
+    case "user_input_request":
+    case "user_input_resolved":
+      return null;
+
     case "progress":
       return {
         type: "progress",

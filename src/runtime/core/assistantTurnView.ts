@@ -14,6 +14,8 @@
 // - file_change：作为 fileChange 段（internal 路径过滤；V16.4 含 additions/deletions 若可获取）
 // - approval_request：作为 approval 段（pending=true）
 // - approval_resolved：更新 approval 段（pending=false, resolution）
+// - user_input_request：作为 user input 段（pending=true）
+// - user_input_resolved：更新 user input 段（pending=false, response）
 // - error：recoverable→warnings，不可恢复→errors
 // - stdout_delta：累加到 finalAnswer（CLI 路径，若 SDK 无 partial 时兜底）
 //   注：final answer 始终由聚合器输出，不再由 stdout_delta 旁路直接写 content
@@ -30,6 +32,7 @@ import type {
   ProcessSegment,
   ThoughtSegment,
   ToolSegment,
+  UserInputRequestSegment,
 } from "./types";
 import type { ProviderLifecycleEvent } from "./providerLifecycleEvent";
 import { isInternalFilePath } from "../../timelineAdapter";
@@ -63,6 +66,7 @@ export class AssistantTurnViewBuilder {
   private readonly processList: ProcessSegment[] = [];
   private readonly fileChangeList: FileChangeSegment[] = [];
   private readonly approvalMap = new Map<string, ApprovalSegment>();
+  private readonly userInputMap = new Map<string, UserInputRequestSegment>();
   private readonly warnings: string[] = [];
   private readonly errors: string[] = [];
   private readonly rawProviderEvents: unknown[] = [];
@@ -425,6 +429,50 @@ export class AssistantTurnViewBuilder {
         break;
       }
 
+      case "user_input_request": {
+        const seg: UserInputRequestSegment = {
+          requestId: p.requestId,
+          toolName: p.toolName,
+          prompt: p.prompt,
+          timestamp: event.timestamp,
+          inputType: p.inputType,
+          questions: p.questions,
+          placeholder: p.placeholder,
+          pending: true,
+        };
+        this.userInputMap.set(p.requestId, seg);
+        this.lifecycleEventsList.push({
+          type: "user_input_requested",
+          providerId: this.providerId,
+          timestamp: event.timestamp,
+          approvalId: p.requestId,
+          toolName: p.toolName,
+          label: p.prompt,
+        });
+        break;
+      }
+
+      case "user_input_resolved": {
+        const existing = this.userInputMap.get(p.requestId);
+        if (existing) {
+          this.userInputMap.set(p.requestId, {
+            ...existing,
+            pending: false,
+            response: p.response,
+            resolutionSource: p.source,
+          });
+        }
+        this.lifecycleEventsList.push({
+          type: "user_input_resolved",
+          providerId: this.providerId,
+          timestamp: event.timestamp,
+          approvalId: p.requestId,
+          label: p.response.type === "submit" ? p.response.value : "cancelled",
+          toolName: existing?.toolName,
+        });
+        break;
+      }
+
       case "error": {
         if (p.recoverable) this.warnings.push(p.message);
         else this.errors.push(p.message);
@@ -530,6 +578,7 @@ export class AssistantTurnViewBuilder {
       tools: this.toolOrder.map((id) => this.toolMap.get(id)!).filter(Boolean),
       fileChanges: this.fileChangeList,
       approvals: Array.from(this.approvalMap.values()),
+      userInputRequests: Array.from(this.userInputMap.values()),
       finalAnswer: this.finalAnswerBuffer,
       warnings: this.warnings,
       errors: this.errors,

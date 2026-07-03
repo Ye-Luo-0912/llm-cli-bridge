@@ -1703,6 +1703,18 @@ if (runMode !== "all" && runMode !== "unit") {
         answeredOk ? "pass" : "fail",
         `header="${answeredModel.header}" disposition=${answeredModel.finalAnswerDisposition}`);
 
+      // V16.4-D: 无文件变化且无终态回答 → Completed · Xs（不裸露时长）
+      const completedOnlyEvents = [
+        mkEvent({ kind: "completed", text: "", durationMs: 32000 }),
+      ];
+      const completedOnlyView = buildAssistantTurnViewFromEvents("turn-completed-only", "codex-app-server", completedOnlyEvents, "2026-07-02T00:00:00.000Z");
+      const completedOnlyModel = buildAgentRunDisplayModel(completedOnlyView, { developerMode: false });
+      const completedOnlyOk = completedOnlyModel.finalAnswerDisposition === "completed"
+        && completedOnlyModel.header === "Completed · 32s";
+      addTest("V16.4-D AgentRunDisplayModel: completed 无法判定时不裸露时长",
+        completedOnlyOk ? "pass" : "fail",
+        `header="${completedOnlyModel.header}" disposition=${completedOnlyModel.finalAnswerDisposition}`);
+
       // V16.4-D: 待审批 header → Needs approval
       const needsApprovalEvents = [
         mkEvent({ kind: "approval_request", requestId: "ap-pending", toolName: "Write", description: "write file", riskLevel: "medium", inputSummary: "path: _test_output.md" }),
@@ -2285,11 +2297,12 @@ if (runMode !== "all" && runMode !== "unit") {
         const hasBypass = viewSrc.includes("bypassPermissions")
           && viewSrc.includes("Bypass");
         const hasParentMount = viewSrc.includes("parentElement");
-        const hasClickOutside = viewSrc.includes("permissionPopoverOutsideClickHandler");
-        const permPopoverOk = hasBypass && hasParentMount && hasClickOutside;
-        addTest("V16.4-D: 权限 popover 含 5 模式（含 Bypass）+ 外部挂载 + click-outside handler",
+        const hasPointerdownClose = viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-permission-chip")')
+          && viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-perm-popover")');
+        const permPopoverOk = hasBypass && hasParentMount && hasPointerdownClose;
+        addTest("V16.4-D: 权限 popover 含 5 模式（含 Bypass）+ 外部挂载 + pointerdown close",
           permPopoverOk ? "pass" : "fail",
-          permPopoverOk ? "" : `hasBypass=${hasBypass} hasParentMount=${hasParentMount} hasClickOutside=${hasClickOutside}`);
+          permPopoverOk ? "" : `hasBypass=${hasBypass} hasParentMount=${hasParentMount} hasPointerdownClose=${hasPointerdownClose}`);
 
         // Test AJ: setPermissionMode 不被 runHandle 阻塞
         const setPermFnMatch = viewSrc.match(/setPermissionMode\([^)]*\)[^{]*\{[\s\S]*?\n  private /);
@@ -7057,6 +7070,15 @@ if (!runV23sUnit) {
       const summary = summarizeToolInput({ questions: { key1: true, key2: false } });
       const ok = summary.includes("questions: { key1, key2 }") && !summary.includes("[object Object]");
       addTest("V16.4-D summarizeToolInput: 对象显示为 { key1, key2 }",
+        ok ? "pass" : "fail",
+        `summary=${summary}`);
+    }
+
+    // ---- Test 20d: summarizeToolInput 清理已字符串化的 [object Object] 占位符 ----
+    {
+      const summary = summarizeToolInput({ questions: "[object Object], [object Object]" });
+      const ok = summary.includes("questions: 2 items") && !summary.includes("[object Object]");
+      addTest("V16.4-D summarizeToolInput: 已字符串化对象数组仍不输出 [object Object]",
         ok ? "pass" : "fail",
         `summary=${summary}`);
     }
@@ -14444,9 +14466,10 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 15b: permission popover 点击守卫排除 chip/popover，setPermissionMode 不受 runHandle 阻塞 ----
   {
-    const pointerGuardOk = viewSrc.includes('target?.closest(".llm-bridge-permission-chip")')
-      && viewSrc.includes('target?.closest(".llm-bridge-perm-popover")')
-      && viewSrc.includes('opt.addEventListener("pointerdown", (event) => event.stopPropagation())');
+    const pointerGuardOk = viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-permission-chip")')
+      && viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-perm-popover")')
+      && viewSrc.includes('opt.addEventListener("pointerdown", (event) => event.stopPropagation())')
+      && !viewSrc.includes("permissionPopoverOutsideClickHandler");
     const setModeBlockMatch = viewSrc.match(/private async setPermissionMode\(mode: string\): Promise<void> \{([\s\S]*?)\n  \}/);
     const setModeOk = setModeBlockMatch ? !setModeBlockMatch[1].includes("this.runHandle") : false;
     addTest("V16.4-D permission popover: pointerdown 排除 chip/popover，且 next-round setting 不受 runHandle 阻塞",
@@ -14458,14 +14481,16 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes('wrap.setAttribute("data-final-answer-disposition", model.finalAnswerDisposition)')
       && viewSrc.includes('const apEl = body.createDiv({ cls: `llm-bridge-phase-approval is-risk-${ap.riskLevel} ${ap.pending ? "is-pending" : "is-resolved"}` });')
-      && viewSrc.includes('const btns = apEl.createDiv({ cls: "llm-bridge-phase-approval-btns" });')
+      && viewSrc.includes('const apRow = apEl.createDiv({ cls: "llm-bridge-phase-approval-row" });')
+      && viewSrc.includes('const btns = apRow.createDiv({ cls: "llm-bridge-phase-approval-btns" });')
       && viewSrc.includes('const allowOnce = btns.createEl("button", { cls: "llm-bridge-approval-btn is-allow-once", text: "Allow once" });')
       && viewSrc.includes('const allowSession = btns.createEl("button", { cls: "llm-bridge-approval-btn is-allow-session", text: "Allow session" });')
       && viewSrc.includes('const deny = btns.createEl("button", { cls: "llm-bridge-approval-btn is-deny", text: "Deny" });')
       && viewSrc.includes('details.createEl("summary", { text: "Details" });')
-      && viewSrc.includes('if (isHighRisk) details.setAttribute("open", "");')
+      && !viewSrc.includes('if (isHighRisk) details.setAttribute("open", "");')
       && viewSrc.includes('if (!this.plugin.settings.developerMode || this.pendingPermissions.size === 0)')
       && stylesSrc.includes(".llm-bridge-phase-approval")
+      && stylesSrc.includes(".llm-bridge-phase-approval-row")
       && stylesSrc.includes(".llm-bridge-phase-approval-btns")
       && stylesSrc.includes(".llm-bridge-phase-approval-details");
     addTest("V16.4-D permission UI: phase 内紧凑审批 + developerMode 才显示旧 panel",

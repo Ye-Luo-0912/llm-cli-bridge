@@ -46,7 +46,7 @@
 //    不再在 wire 层使用 allow/allowSession/deny。
 // 10. serverRequest/resolved 通知：携带 requestId/threadId/turnId/itemId/decision，
 //     用于 UI 同步（标记 approval 已落地）。
-// 11. item/tool/requestUserInput 同为 server request，当前转 unsupported/pending。
+// 11. item/tool/requestUserInput 同为 server request，承载 agent 对用户的确认/选择请求。
 //
 // 这些类型只被 codex-app-server provider 内部消费；UI 永远不直接 import 本文件。
 
@@ -629,7 +629,7 @@ export interface CodexItemArgumentDeltaParams {
 // 三种 server request：
 // - item/commandExecution/requestApproval：命令执行审批
 // - item/fileChange/requestApproval：文件变更审批
-// - item/tool/requestUserInput：工具需要用户输入（当前转 unsupported/pending）
+// - item/tool/requestUserInput：工具需要用户输入
 
 export interface CodexCommandExecutionApprovalRequestParams {
   threadId: string;
@@ -663,12 +663,22 @@ export interface CodexFileChangeApprovalRequestParams {
 
 export interface CodexToolUserInputRequestParams {
   threadId: string;
+  turnId?: string;
+  itemId?: string;
   /** 工具名 */
   toolName: string;
   /** 提示语 */
   prompt: string;
   /** 输入类型（如 "text" / "secret"） */
   inputType?: string;
+  /** 可选：输入框占位 */
+  placeholder?: string;
+  /** 可选：结构化问题（兼容 request_user_input 工具形状） */
+  questions?: unknown[];
+  /** 可选：单题简写 */
+  question?: string;
+  /** 可选：单题选项简写 */
+  options?: unknown[];
 }
 
 /**

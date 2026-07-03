@@ -8,14 +8,14 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-03T18:10:32.804Z
-- **reportCommitSha**: ce19c727b2d53196dad8825dc5b05af458cb5b7d
-- **reportCommitSha 短**: ce19c727b2d5
-- **reportParentSha**: 6ae5621c10ab10b4a79624e4f36dcd8e4ee28ab9
-- **reportParentSha 短**: 6ae5621c10ab
+- **生成时间**: 2026-07-03T20:27:46.612Z
+- **reportCommitSha**: e1c86d6c3b97beaf200d2f7e0032a30106750dde
+- **reportCommitSha 短**: e1c86d6c3b97
+- **reportParentSha**: ce19c727b2d53196dad8825dc5b05af458cb5b7d
+- **reportParentSha 短**: ce19c727b2d5
 - **testedCodeCommitSha**: ce19c727b2d53196dad8825dc5b05af458cb5b7d
 - **testedCodeCommitSha 短**: ce19c727b2d5
-- **commitKind**: code commit（报告证明当前 HEAD）
+- **commitKind**: docs-only（报告证明父 commit 代码）
 - **unitReportCommitSha**: ce19c727b2d53196dad8825dc5b05af458cb5b7d
 - **processReportCommitSha**: ce19c727b2d53196dad8825dc5b05af458cb5b7d
 - **codexSmokeStatus**: skip
@@ -32,8 +32,8 @@
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=ce19c727b2d5。
-- **当前 commit 改动文件**：scripts/cdp-v164d-smoke.mjs, src/view.ts
+- **本次判定**：docs-only（报告证明父 commit 代码）；testedCodeCommitSha=ce19c727b2d5。
+- **当前 commit 改动文件**：docs/test-report-process.md, docs/test-report-summary.md, docs/test-report-unit.md, docs/test-report.md
 
 ## 主线结论
 

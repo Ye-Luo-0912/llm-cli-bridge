@@ -17,6 +17,7 @@ import type {
   FileChangeSegment,
   ThoughtSegment,
   ToolSegment,
+  UserInputRequestSegment,
 } from "./types";
 import type { ProviderLifecycleEvent } from "./providerLifecycleEvent";
 
@@ -28,6 +29,7 @@ export type RunPhaseType =
   | "editing"
   | "checking"
   | "verifying"
+  | "waiting-input"
   | "waiting-approval"
   | "failed"
   | "completed";
@@ -44,6 +46,7 @@ export interface RunPhase {
   readonly tools: ReadonlyArray<ToolSegment>;
   readonly fileChanges: ReadonlyArray<FileChangeSegment>;
   readonly approvals: ReadonlyArray<ApprovalSegment>;
+  readonly userInputRequests: ReadonlyArray<UserInputRequestSegment>;
   readonly startedAt: string;
   readonly endedAt?: string;
   readonly durationMs?: number;
@@ -77,6 +80,7 @@ export interface RunPhaseModel {
   readonly errors: ReadonlyArray<string>;
   readonly warnings: ReadonlyArray<string>;
   readonly pendingApprovals: ReadonlyArray<ApprovalSegment>;
+  readonly pendingUserInputRequests: ReadonlyArray<UserInputRequestSegment>;
 }
 
 // ---------- Build Options ----------
@@ -137,6 +141,7 @@ export function isUserVisibleTool(toolName: string): boolean {
  */
 export function phaseLabel(type: RunPhaseType, firstTool?: ToolSegment): string {
   if (type === "planning") return "Planning";
+  if (type === "waiting-input") return "Waiting for input";
   if (type === "waiting-approval") return "Waiting approval";
   if (type === "failed") return "Failed";
   if (type === "completed") return "Completed";
@@ -199,7 +204,7 @@ function pathBasename(p: string): string | null {
 /**
  * V16.4-D: 重算 phase type + label — 基于全部已绑定 tools/fileChanges/approvals/status。
  *
- * 优先级：failed > waiting-approval > editing > checking > verifying > reading > planning
+ * 优先级：failed > waiting-input > waiting-approval > editing > checking > verifying > reading > planning
  *
  * 修复问题：
  * - "Write 不得出现在 Reading phase"：若阶段含 editing tool，type 升级为 editing
@@ -217,7 +222,11 @@ function recomputePhaseTypesAndLabels(
       phase.label = "Failed";
       continue;
     }
-    // 2. waiting-approval → 保持
+    // 2. waiting-input / waiting-approval → 保持
+    if (phase.type === "waiting-input") {
+      phase.label = "Waiting for input";
+      continue;
+    }
     if (phase.type === "waiting-approval") {
       phase.label = "Waiting approval";
       continue;
@@ -264,6 +273,7 @@ function computePhaseLabel(
   fileChanges: ReadonlyArray<FileChangeSegment>,
 ): string {
   if (type === "failed") return "Failed";
+  if (type === "waiting-input") return "Waiting for input";
   if (type === "waiting-approval") return "Waiting approval";
   if (type === "planning") return "Planning";
 
@@ -332,6 +342,7 @@ interface MutablePhase {
   tools: ToolSegment[];
   fileChanges: FileChangeSegment[];
   approvals: ApprovalSegment[];
+  userInputRequests: UserInputRequestSegment[];
   startedAt: string;
   endedAt?: string;
   durationMs?: number;
@@ -350,7 +361,7 @@ interface MutablePhase {
  * 3. tool_started 后若无 thought，用 tool 类型变化作为 fallback 边界
  * 4. tool_result = observation_received，归入当前阶段
  * 5. file_change 归入最近的 editing 阶段
- * 6. pending approval → waiting-approval 阶段
+ * 6. pending user input / approval → waiting-input / waiting-approval 阶段
  * 7. failed 终态追加 failed 阶段
  *
  * Verifying 规则：读取曾写入的文件 → verifying（覆盖 reading）
@@ -362,8 +373,11 @@ export function buildRunPhaseModel(
 ): RunPhaseModel {
   const isRunning = options.isRunning ?? turnView.status === "running";
   const dur = options.durationMs ?? turnView.durationMs;
+  const userInputRequests = turnView.userInputRequests ?? [];
   const pendingApprovals = turnView.approvals.filter((a) => a.pending);
+  const pendingUserInputRequests = userInputRequests.filter((r) => r.pending);
   const hasPendingApproval = pendingApprovals.length > 0;
+  const hasPendingUserInput = pendingUserInputRequests.length > 0;
 
   // V16.4: 是否有 provider-native 边界（evaluation_started）。
   // 有时以 SDK 生命周期为权威边界；fallback tool-type-change 边界仅在无 native 边界时启用，
@@ -379,6 +393,10 @@ export function buildRunPhaseModel(
   for (const ap of turnView.approvals) {
     approvalByRequestId.set(ap.requestId, ap);
   }
+  const userInputByRequestId = new Map<string, UserInputRequestSegment>();
+  for (const req of userInputRequests) {
+    userInputByRequestId.set(req.requestId, req);
+  }
 
   let currentPhase: MutablePhase | null = null;
 
@@ -391,6 +409,7 @@ export function buildRunPhaseModel(
     tools: [],
     fileChanges: [],
     approvals: [],
+    userInputRequests: [],
     startedAt: startedAt ?? firstTool?.startTime ?? turnView.startedAt,
     toolUseIds: new Set<string>(),
   });
@@ -593,6 +612,41 @@ export function buildRunPhaseModel(
         }
         break;
       }
+      case "user_input_requested": {
+        if (currentPhase) {
+          closePhase(currentPhase, ev.timestamp);
+          phases.push(currentPhase);
+        }
+        currentPhase = newPhase("waiting-input", undefined, ev.timestamp);
+        if (ev.approvalId) {
+          const reqSeg = userInputByRequestId.get(ev.approvalId);
+          if (reqSeg && !currentPhase.userInputRequests.some((r) => r.requestId === reqSeg.requestId)) {
+            currentPhase.userInputRequests.push(reqSeg);
+          }
+        }
+        currentPhase.status = "pending";
+        break;
+      }
+      case "user_input_resolved": {
+        if (ev.approvalId) {
+          for (const phase of phases) {
+            const req = phase.userInputRequests.find((r) => r.requestId === ev.approvalId);
+            if (req) {
+              req.pending = false;
+              if (phase.status === "pending") phase.status = "completed";
+              break;
+            }
+          }
+          if (currentPhase) {
+            const req = currentPhase.userInputRequests.find((r) => r.requestId === ev.approvalId);
+            if (req) {
+              req.pending = false;
+              if (currentPhase.status === "pending") currentPhase.status = "completed";
+            }
+          }
+        }
+        break;
+      }
       case "result": {
         // run 终态
         if (currentPhase) {
@@ -610,6 +664,7 @@ export function buildRunPhaseModel(
             tools: [],
             fileChanges: [],
             approvals: [],
+            userInputRequests: [],
             startedAt: ev.timestamp,
             endedAt: ev.timestamp,
             toolUseIds: new Set<string>(),
@@ -658,13 +713,32 @@ export function buildRunPhaseModel(
     phase.tools = visibleTools;
   }
 
-  // V16.4-D: 重算 phase type + label — 基于全部已绑定 tools/fileChanges/approvals/status
-  // 优先级：failed > waiting-approval > editing > checking > verifying > reading > planning
+  // V16.4-D: 重算 phase type + label — 基于全部已绑定 tools/fileChanges/userInput/approvals/status
+  // 优先级：failed > waiting-input > waiting-approval > editing > checking > verifying > reading > planning
   // 修复 "Write 不得出现在 Reading phase"：若阶段含 editing tool，type 升级为 editing
   recomputePhaseTypesAndLabels(phases, allEditedPaths);
 
+  const hasPendingUserInputPhase = phases.some((p) => p.userInputRequests.some((r) => r.pending));
+  // pending user inputs → waiting-input 阶段
+  if (hasPendingUserInput && !hasPendingUserInputPhase) {
+    phases.push({
+      id: `phase-${phaseIdx++}`,
+      type: "waiting-input",
+      status: "pending",
+      label: "Waiting for input",
+      thoughts: [],
+      tools: [],
+      fileChanges: [],
+      approvals: [],
+      userInputRequests: pendingUserInputRequests.slice(),
+      startedAt: turnView.endedAt ?? turnView.startedAt,
+      toolUseIds: new Set<string>(),
+    });
+  }
+
+  const hasPendingApprovalPhase = phases.some((p) => p.approvals.some((a) => a.pending));
   // pending approvals → waiting-approval 阶段
-  if (hasPendingApproval) {
+  if (hasPendingApproval && !hasPendingApprovalPhase) {
     phases.push({
       id: `phase-${phaseIdx++}`,
       type: "waiting-approval",
@@ -674,6 +748,7 @@ export function buildRunPhaseModel(
       tools: [],
       fileChanges: [],
       approvals: pendingApprovals.slice(),
+      userInputRequests: [],
       startedAt: turnView.endedAt ?? turnView.startedAt,
       toolUseIds: new Set<string>(),
     });
@@ -741,6 +816,7 @@ export function buildRunPhaseModel(
         : fc;
     }),
     approvals: p.approvals,
+    userInputRequests: p.userInputRequests,
     startedAt: p.startedAt,
     endedAt: p.endedAt,
     durationMs: p.durationMs,
@@ -750,7 +826,9 @@ export function buildRunPhaseModel(
   // currentActivity
   let currentActivity = "";
   if (isRunning) {
-    if (hasPendingApproval) {
+    if (hasPendingUserInput) {
+      currentActivity = "Waiting for input";
+    } else if (hasPendingApproval) {
       currentActivity = "Waiting approval";
     } else if (currentRunningPhase) {
       currentActivity = currentRunningPhase.label;
@@ -773,6 +851,7 @@ export function buildRunPhaseModel(
     errors: turnView.errors,
     warnings: turnView.warnings,
     pendingApprovals,
+    pendingUserInputRequests,
   };
 }
 
@@ -841,6 +920,7 @@ function buildResultSummary(
       parts.push(`+${totalAdd} -${totalDel}`);
     }
   }
+  if (parts.length === 0) parts.push("Completed");
   if (dur != null && dur > 0) parts.push(formatDuration(dur));
   return parts.join(" · ");
 }

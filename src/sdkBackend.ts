@@ -490,9 +490,19 @@ function truncateToolInputSummary(text: string, maxChars: number): string {
   return text.length > maxChars ? `${text.slice(0, maxChars)}...` : text;
 }
 
+function summarizeObjectPlaceholderString(text: string): string | null {
+  const next = text.replace(/\[object Object\](\s*,\s*\[object Object\])*/g, (match) => {
+    const count = match.match(/\[object Object\]/g)?.length ?? 0;
+    return count > 1 ? `${count} items` : "{ object }";
+  });
+  return next === text ? null : next;
+}
+
 function summarizeToolInputValue(value: unknown): string | null {
   if (value == null) return null;
-  if (typeof value === "string") return truncateToolInputSummary(value, 60);
+  if (typeof value === "string") {
+    return truncateToolInputSummary(summarizeObjectPlaceholderString(value) ?? value, 60);
+  }
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   if (Array.isArray(value)) {
     if (value.length === 0) return "0 items";
@@ -537,11 +547,11 @@ export function summarizeToolInput(
   if (typeof input.url === "string") parts.push(`url: ${input.url}`);
   if (typeof input.query === "string") parts.push(`query: ${input.query.slice(0, 60)}`);
   if (parts.length === 0) {
-    const keys = Object.keys(input).slice(0, 3);
-    for (const k of keys) {
+    for (const k of Object.keys(input)) {
       const summary = summarizeToolInputValue(input[k]);
       if (!summary) continue;
       parts.push(`${k}: ${summary}`);
+      if (parts.length >= 3) break;
     }
   }
   return parts.join(" | ");

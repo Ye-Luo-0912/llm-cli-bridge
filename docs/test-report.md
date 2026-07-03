@@ -1,21 +1,21 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-03T18:10:23.494Z
-- **测试环境**: win32 / Node.js v22.22.2
+- **测试时间**: 2026-07-03T20:27:33.072Z
+- **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 669.9 KB
-- **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
-- **bridge.json 存在**: 是
-- **HTTP 端口**: 60586
-- **commit sha**: ce19c727b2d53196dad8825dc5b05af458cb5b7d
-- **commit 短 sha**: ce19c727b2d5
+- **main.js 大小**: 691.0 KB
+- **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\.tmp-vault`
+- **bridge.json 存在**: 否
+- **HTTP 端口**: N/A
+- **commit sha**: e1c86d6c3b97beaf200d2f7e0032a30106750dde
+- **commit 短 sha**: e1c86d6c3b97
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
 
-- ✅ **通过**: 95
+- ✅ **通过**: 94
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 56
+- ⏭️ **跳过**: 57
 - ⚪ **需人工验证**: 0
 - **总计**: 151
 
@@ -103,7 +103,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成运行前快照 | 文件数: 30 |
+| ⏭️ | 生成运行前快照 | 文件数: 0（空 vault，快照机制由 diff 测试验证） |
 
 ### diff
 
@@ -423,7 +423,7 @@
 | ✅ | command 为空 → unavailable | - |
 | ✅ | debug log 不含 secret | - |
 | ✅ | 路径带空格可运行 | - |
-| ✅ | claude 真实命令探测 | available=true, stdout="2.1.198 (Claude Code)
+| ✅ | claude 真实命令探测 | available=true, stdout="2.1.200 (Claude Code)
 " |
 | ⏭️ | codex 真实命令探测 | codex 未安装或不可用 (exitCode=1) |
 

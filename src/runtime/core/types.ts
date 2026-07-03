@@ -186,10 +186,25 @@ export type NormalizedRuntimeEventPayload =
       subagentRisk?: string;
     }
   | {
+      kind: "user_input_request";
+      requestId: string;
+      toolName: string;
+      prompt: string;
+      inputType?: "text" | "secret";
+      questions?: ReadonlyArray<UserInputQuestion>;
+      placeholder?: string;
+    }
+  | {
       kind: "approval_resolved";
       requestId: string;
       response: ApprovalResponse;
       source: "user" | "session_allow" | "session_deny" | "mode";
+    }
+  | {
+      kind: "user_input_resolved";
+      requestId: string;
+      response: UserInputResponse;
+      source: "user" | "cancel";
     }
   | { kind: "error"; message: string; recoverable: boolean }
   | { kind: "stdout_delta"; data: string }
@@ -213,6 +228,23 @@ export type ApprovalResponse =
   | { type: "decline" }
   | { type: "cancel" };
 
+export interface UserInputOption {
+  readonly label: string;
+  readonly description?: string;
+  readonly value?: string;
+}
+
+export interface UserInputQuestion {
+  readonly id: string;
+  readonly header?: string;
+  readonly question: string;
+  readonly options: ReadonlyArray<UserInputOption>;
+}
+
+export type UserInputResponse =
+  | { type: "submit"; value: string }
+  | { type: "cancel" };
+
 /**
  * 统一 approval 请求（由 provider 发出，PermissionBoundary 暂存等待用户决策）。
  *
@@ -233,6 +265,22 @@ export interface ApprovalRequest {
   readonly parentToolUseId?: string;
   readonly subagentRisk?: string;
   /** provider 私有上下文（如 codex request_id / sdk requestId），resolveApproval 时回传给 provider */
+  readonly providerContext?: unknown;
+}
+
+/**
+ * 统一 user input 请求（如 Codex item/tool/requestUserInput）。
+ *
+ * 与 PermissionBoundary 分离：这类中断要求用户提供答案，而不是授权某个动作。
+ */
+export interface UserInputRequest {
+  readonly requestId: string;
+  readonly providerId: ProviderId;
+  readonly toolName: string;
+  readonly prompt: string;
+  readonly inputType?: "text" | "secret";
+  readonly questions?: ReadonlyArray<UserInputQuestion>;
+  readonly placeholder?: string;
   readonly providerContext?: unknown;
 }
 
@@ -272,6 +320,19 @@ export interface PermissionBoundary {
   waitForApproval(requestId: string): Promise<{ response: ApprovalResponse; source: "user" | "session_allow" | "session_deny" | "mode" }>;
 }
 
+export interface UserInputBoundary {
+  /** 当前 pending 的 user input 请求（按 requestId 索引） */
+  readonly pending: ReadonlyMap<string, UserInputRequest>;
+  /** 提交一个 user input 请求（provider 调用） */
+  requestInput(req: UserInputRequest): "pending";
+  /** 用户提交答案（UI 调用）；返回 true=成功解析 */
+  resolveInput(requestId: string, response: UserInputResponse): boolean;
+  /** 取消所有 pending（stop/新会话时调用） */
+  cancelAllPending(): ReadonlyArray<{ requestId: string; providerContext: unknown }>;
+  /** Provider 在 requestInput 后调用，挂起直到 UI 回复 */
+  waitForInput(requestId: string): Promise<{ response: UserInputResponse; source: "user" | "cancel" }>;
+}
+
 /** 会话级允许缓存条目 */
 export interface SessionAllowEntry {
   readonly toolName: string;
@@ -302,6 +363,7 @@ export interface SessionDenyEntry {
  * - tools:       工具调用（按 callId，含 progress 子条目）
  * - fileChanges: 用户可见文件变更（internal 路径过滤）
  * - approvals:   approval 请求（pending 与已解决）
+ * - userInputRequests: agent 询问/澄清请求（pending 与已解决）
  * - finalAnswer: 最终答案（单 buffer，流式累加）
  * - warnings:    可恢复错误
  * - errors:      不可恢复错误
@@ -316,6 +378,7 @@ export interface AssistantTurnView {
   tools: ReadonlyArray<ToolSegment>;
   fileChanges: ReadonlyArray<FileChangeSegment>;
   approvals: ReadonlyArray<ApprovalSegment>;
+  userInputRequests: ReadonlyArray<UserInputRequestSegment>;
   finalAnswer: string;
   warnings: ReadonlyArray<string>;
   errors: ReadonlyArray<string>;
@@ -420,6 +483,19 @@ export interface ApprovalSegment {
   resolutionSource?: "user" | "session_allow" | "session_deny" | "mode";
 }
 
+export interface UserInputRequestSegment {
+  readonly requestId: string;
+  readonly toolName: string;
+  readonly prompt: string;
+  readonly timestamp: string;
+  readonly inputType?: "text" | "secret";
+  readonly questions?: ReadonlyArray<UserInputQuestion>;
+  readonly placeholder?: string;
+  pending: boolean;
+  response?: UserInputResponse;
+  resolutionSource?: "user" | "cancel";
+}
+
 // ---------- BridgeSession / RunContext ----------
 
 /**
@@ -432,6 +508,7 @@ export interface RunContext {
   readonly plan: EffectiveRunPlan;
   readonly promptPackage: BridgePromptPackage;
   readonly permission: PermissionBoundary;
+  readonly userInput: UserInputBoundary;
   /** run 唯一 id（用于 cancel 配对） */
   readonly runId: string;
   /**
@@ -468,6 +545,8 @@ export interface BridgeSession {
   readonly provider: RuntimeProvider;
   /** 会话级 PermissionBoundary（UI 观察 pending approvals） */
   readonly permission: PermissionBoundary;
+  /** 会话级 UserInputBoundary（UI 观察 pending 澄清请求） */
+  readonly userInput: UserInputBoundary;
   /**
    * provider 侧 thread id（V2.17-A Completion 主线闭环）。
    *

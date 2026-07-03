@@ -16,7 +16,7 @@
 //    - item/fileChange/requestApproval（带 id）
 //    client 按原 id 返回 result（{ decision: "accept"|"acceptForSession"|"decline"|"cancel" }）。
 //    不再在 wire 层使用 allow/allowSession/deny。
-//    item/tool/requestUserInput 同为 server request，当前转 unsupported/pending。
+//    item/tool/requestUserInput 同为 server request，走独立 user input 通道。
 // 5. serverRequest/resolved 通知携带真实 requestId/threadId/turnId/itemId/decision，用于 UI 同步。
 // 6. item delta 通知（官方 method 名）：
 //    item/agentMessage/delta, item/reasoning/summaryTextDelta, item/reasoning/textDelta,
@@ -35,6 +35,7 @@ import type {
 } from "../../core/types";
 import { CodexAppServerEventMapper } from "./codexAppServerEventMapper";
 import { CodexAppServerApprovalMapper } from "./codexAppServerApprovalMapper";
+import { CodexAppServerUserInputMapper } from "./codexAppServerUserInputMapper";
 import { CodexAppServerSessionMapper } from "./codexAppServerSessionMapper";
 import {
   buildCodexAppServerEffectiveRunPlan,
@@ -56,6 +57,7 @@ import type {
   CodexItemStartedParams,
   CodexItemTextDeltaParams,
   CodexServerRequestResolvedParams,
+  CodexToolUserInputRequestParams,
   CodexThreadResumeResult,
   CodexThreadStartResult,
   CodexTurnCompletedParams,
@@ -74,6 +76,7 @@ export class CodexAppServerProvider implements RuntimeProvider {
   readonly displayName = "Codex app-server";
 
   private readonly approvalMapper: CodexAppServerApprovalMapper;
+  private readonly userInputMapper: CodexAppServerUserInputMapper;
   private readonly sessionMapper: CodexAppServerSessionMapper;
   /** 当前活动进程（cancel 用） */
   private currentProcess: AppServerProcessLike | null = null;
@@ -85,6 +88,7 @@ export class CodexAppServerProvider implements RuntimeProvider {
   constructor(_developerMode: boolean = false) {
     // developerMode 由 run() 内部根据 settings 注入；构造时无需缓存
     this.approvalMapper = new CodexAppServerApprovalMapper(this.providerId);
+    this.userInputMapper = new CodexAppServerUserInputMapper(this.providerId);
     this.sessionMapper = new CodexAppServerSessionMapper();
   }
 
@@ -519,11 +523,18 @@ export class CodexAppServerProvider implements RuntimeProvider {
       },
     ));
 
-    // item/tool/requestUserInput：当前转 unsupported/pending
-    // 返回 cancelled，让 server 知道 client 暂不支持交互式用户输入
-    unreg.push(client.onServerRequest("item/tool/requestUserInput", (_params, _id) => {
-      return { cancelled: true as const };
-    }));
+    // item/tool/requestUserInput：独立 user input 通道
+    unreg.push(client.onServerRequest(
+      "item/tool/requestUserInput",
+      (params, serverRequestId) => {
+        const inputReq = this.userInputMapper.mapUserInputRequest({
+          method: "item/tool/requestUserInput",
+          serverRequestId,
+          params: params as CodexToolUserInputRequestParams,
+        });
+        return this.handleUserInputRequest(inputReq, ctx, push, developerMode, params);
+      },
+    ));
 
     return unreg;
   }
@@ -587,6 +598,45 @@ export class CodexAppServerProvider implements RuntimeProvider {
         return this.approvalMapper.mapServerRequestResult({ type: "decline" });
       },
     );
+  }
+
+  private handleUserInputRequest(
+    inputReq: import("../../core/types").UserInputRequest,
+    ctx: RunContext,
+    push: (ev: NormalizedRuntimeEvent | null) => void,
+    developerMode: boolean,
+    rawParams: unknown,
+  ): Promise<unknown> {
+    ctx.userInput.requestInput(inputReq);
+    push({
+      providerId: this.providerId,
+      timestamp: new Date().toISOString(),
+      rawProviderEvent: developerMode ? { method: "user-input-server-request", params: rawParams } : undefined,
+      payload: {
+        kind: "user_input_request",
+        requestId: inputReq.requestId,
+        toolName: inputReq.toolName,
+        prompt: inputReq.prompt,
+        inputType: inputReq.inputType,
+        questions: inputReq.questions,
+        placeholder: inputReq.placeholder,
+      },
+    });
+
+    return ctx.userInput.waitForInput(inputReq.requestId).then((result) => {
+      push({
+        providerId: this.providerId,
+        timestamp: new Date().toISOString(),
+        rawProviderEvent: developerMode ? { method: "user-input-resolved", requestId: inputReq.requestId, response: result.response } : undefined,
+        payload: {
+          kind: "user_input_resolved",
+          requestId: inputReq.requestId,
+          response: result.response,
+          source: result.source,
+        },
+      });
+      return this.userInputMapper.mapServerRequestResult(result.response);
+    });
   }
 
   /**

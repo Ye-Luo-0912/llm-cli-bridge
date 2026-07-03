@@ -35,6 +35,7 @@ import type {
   ToolSegment,
   FileChangeSegment,
   ApprovalSegment,
+  UserInputRequestSegment,
   ProviderId,
 } from "./types";
 
@@ -52,6 +53,8 @@ export type ProviderLifecycleEventType =
   | "tool_started"
   | "approval_requested"
   | "approval_resolved"
+  | "user_input_requested"
+  | "user_input_resolved"
   | "tool_completed"
   | "tool_failed"
   | "tool_batch_completed"
@@ -129,7 +132,8 @@ export function buildLifecycleEventsFromTurnView(
     | { kind: "tool_start"; ts: string; data: ToolSegment }
     | { kind: "tool_end"; ts: string; data: ToolSegment }
     | { kind: "file_change"; ts: string; data: FileChangeSegment }
-    | { kind: "approval"; ts: string; data: ApprovalSegment };
+    | { kind: "approval"; ts: string; data: ApprovalSegment }
+    | { kind: "user_input"; ts: string; data: UserInputRequestSegment };
 
   const timeline: TimelineItem[] = [];
 
@@ -148,6 +152,9 @@ export function buildLifecycleEventsFromTurnView(
   for (const ap of turnView.approvals) {
     // approval 使用 turnView.startedAt 作为 fallback 时间戳（ApprovalSegment 无独立时间戳）
     timeline.push({ kind: "approval", ts: turnView.startedAt, data: ap });
+  }
+  for (const req of (turnView.userInputRequests ?? [])) {
+    timeline.push({ kind: "user_input", ts: req.timestamp, data: req });
   }
 
   // 按时间戳排序（稳定排序：相同时间戳保持插入顺序）
@@ -273,6 +280,28 @@ export function buildLifecycleEventsFromTurnView(
             approvalId: item.data.requestId,
             approvalResolution: item.data.resolution?.type,
             toolName: item.data.toolName,
+          });
+        }
+        break;
+      }
+      case "user_input": {
+        if (item.data.pending) {
+          events.push({
+            type: "user_input_requested",
+            providerId,
+            timestamp: item.data.timestamp,
+            approvalId: item.data.requestId,
+            toolName: item.data.toolName,
+            label: item.data.prompt,
+          });
+        } else {
+          events.push({
+            type: "user_input_resolved",
+            providerId,
+            timestamp: item.data.timestamp,
+            approvalId: item.data.requestId,
+            toolName: item.data.toolName,
+            label: item.data.response?.type === "submit" ? item.data.response.value : "cancelled",
           });
         }
         break;

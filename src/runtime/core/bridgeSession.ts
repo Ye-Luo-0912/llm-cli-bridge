@@ -29,6 +29,7 @@ import type {
 } from "./types";
 import type { PermissionBoundary } from "./types";
 import { createPermissionBoundary, PermissionBoundaryImpl } from "./permissionBoundary";
+import { createUserInputBoundary, UserInputBoundaryImpl } from "./userInputBoundary";
 import { ClaudeSdkProvider } from "../providers/claude-sdk/claudeSdkProvider";
 import { ClaudeCliProvider } from "../providers/claude-cli/claudeCliProvider";
 import { MockProvider } from "../providers/mock/mockProvider";
@@ -81,6 +82,7 @@ export class BridgeSessionImpl implements BridgeSession {
   readonly provider: RuntimeProvider;
   readonly providerId: ProviderId;
   readonly permission: PermissionBoundaryImpl;
+  readonly userInput: UserInputBoundaryImpl;
   readonly displayLabel: string;
 
   /**
@@ -102,6 +104,7 @@ export class BridgeSessionImpl implements BridgeSession {
     this.providerId = provider.providerId;
     this.displayLabel = label;
     this.permission = createPermissionBoundary(settings.claudePermissionMode, settings.permissionPolicy);
+    this.userInput = createUserInputBoundary();
   }
 
   get providerThreadId(): string | undefined {
@@ -121,6 +124,7 @@ export class BridgeSessionImpl implements BridgeSession {
         plan,
         promptPackage: input.promptPackage,
         permission: this.permission,
+        userInput: this.userInput,
         runId,
         bridgeSessionId: this.sessionId,
         resumeSessionId: undefined as string | undefined,
@@ -139,6 +143,7 @@ export class BridgeSessionImpl implements BridgeSession {
   cancel(runId: string): void {
     this.provider.cancel(runId);
     this.permission.cancelAllPending();
+    this.userInput.cancelAllPending();
     // P5: 清理 session 侧 currentRunId（provider.cancel 已清理 provider 侧）
     this.currentRunId = null;
   }
@@ -171,6 +176,7 @@ export class BridgeSessionImpl implements BridgeSession {
         plan,
         promptPackage: input.promptPackage,
         permission: this.permission,
+        userInput: this.userInput,
         runId,
         bridgeSessionId: this.sessionId,
         resumeSessionId: sessionId,

@@ -748,13 +748,13 @@
 }
 
 .llm-bridge-permission-chip {
-  height: 28px;
-  padding: 0 9px;
+  height: 26px;
+  padding: 0 8px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
   background: var(--interactive-normal);
   color: var(--text-normal);
-  font-size: var(--font-smallest);
+  font-size: 10px;
   white-space: nowrap;
   cursor: pointer;
 }
@@ -3816,14 +3816,21 @@
   padding-left: 2px;
 }
 .llm-bridge-phase-card {
+  border: 1px solid var(--llm-agent-line);
   border-left: 2px solid var(--background-modifier-border);
-  padding-left: 10px;
-  transition: border-color 0.15s ease;
+  border-radius: 10px;
+  padding: 4px 8px 6px 10px;
+  background: color-mix(in srgb, var(--llm-agent-surface) 90%, transparent);
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 .llm-bridge-phase-card.is-running { border-left-color: var(--interactive-accent); }
 .llm-bridge-phase-card.is-failed { border-left-color: #e53935; }
 .llm-bridge-phase-card.is-completed { border-left-color: rgba(var(--interactive-accent-rgb), 0.25); }
 .llm-bridge-phase-card.is-pending { border-left-color: var(--background-modifier-border); }
+.llm-bridge-phase-card.is-waiting-input {
+  border-left-color: color-mix(in srgb, var(--interactive-accent) 72%, transparent);
+  background: color-mix(in srgb, var(--llm-agent-surface-raised) 92%, transparent);
+}
 .llm-bridge-phase-head {
   display: flex;
   align-items: center;
@@ -3880,10 +3887,10 @@
 }
 .llm-bridge-phase-body {
   margin-top: 2px;
-  padding: 2px 0 4px 20px;
+  padding: 2px 0 2px 20px;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 4px;
 }
 .llm-bridge-phase-body[hidden] {
   display: none;
@@ -4026,47 +4033,193 @@
 }
 .llm-bridge-phase-tool.is-running .llm-bridge-phase-tool-icon { color: var(--interactive-accent); }
 .llm-bridge-phase-tool.is-error .llm-bridge-phase-tool-icon { color: #e53935; }
-.llm-bridge-phase-approval {
+.llm-bridge-phase-user-input {
+  display: grid;
+  gap: 6px;
+  padding: 8px 10px;
+  border: 1px solid var(--llm-agent-line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--llm-agent-surface-raised) 90%, transparent);
+}
+.llm-bridge-phase-user-input.is-pending {
+  border-left: 2px solid color-mix(in srgb, var(--interactive-accent) 70%, transparent);
+}
+.llm-bridge-phase-user-input-row {
   display: flex;
   align-items: center;
-  gap: 5px;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.llm-bridge-phase-user-input-title {
   font-size: var(--font-smallest);
-  color: #fb8c00;
-  padding: 2px 4px;
-  border-left: 2px solid #fb8c00;
-  background: rgba(251, 140, 0, 0.08);
-  border-radius: 2px;
+  font-weight: 700;
+  color: var(--text-normal);
+}
+.llm-bridge-phase-user-input-tool {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.llm-bridge-phase-user-input-prompt {
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  line-height: 1.5;
+}
+.llm-bridge-phase-user-input-prompt ul,
+.llm-bridge-phase-user-input-prompt ol {
+  margin: 4px 0 0 18px;
+}
+.llm-bridge-phase-user-input-questions {
+  display: grid;
+  gap: 6px;
+}
+.llm-bridge-phase-user-input-question {
+  display: grid;
+  gap: 4px;
+}
+.llm-bridge-phase-user-input-question-header {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.llm-bridge-phase-user-input-question-text {
+  font-size: var(--font-smallest);
+  color: var(--text-normal);
+}
+.llm-bridge-phase-user-input-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.llm-bridge-phase-user-input-option {
+  padding: 2px 8px;
+  border: 1px solid var(--llm-agent-line);
+  border-radius: 999px;
+  background: var(--llm-agent-surface);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.35;
+}
+.llm-bridge-phase-user-input-option:hover {
+  border-color: rgba(var(--interactive-accent-rgb), 0.4);
+  color: var(--text-normal);
+}
+.llm-bridge-phase-user-input-option.is-selected {
+  border-color: rgba(var(--interactive-accent-rgb), 0.45);
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--llm-agent-surface));
+  color: var(--text-normal);
+}
+.llm-bridge-phase-user-input-compose {
+  display: grid;
+  gap: 6px;
+}
+.llm-bridge-phase-user-input-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--llm-agent-line);
+  border-radius: 8px;
+  background: var(--llm-agent-surface);
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+}
+.llm-bridge-phase-user-input-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.llm-bridge-phase-user-input-btn {
+  padding: 3px 9px;
+  border: 1px solid var(--llm-agent-line);
+  border-radius: 999px;
+  background: var(--llm-agent-surface);
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  line-height: 1.3;
+}
+.llm-bridge-phase-user-input-btn:hover {
+  border-color: rgba(var(--interactive-accent-rgb), 0.35);
+  background: var(--background-modifier-hover);
+}
+.llm-bridge-phase-user-input-btn[disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+.llm-bridge-phase-user-input-btn.is-submit {
+  color: var(--interactive-accent);
+}
+.llm-bridge-phase-user-input-btn.is-cancel {
+  color: var(--text-muted);
+}
+.llm-bridge-phase-user-input-response {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  word-break: break-word;
+}
+.llm-bridge-phase-approval {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  font-size: var(--font-smallest);
+  color: var(--text-normal);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  border-radius: 8px;
 }
 /* V16.4-D: 内联 approval chips — 低风险嵌入 phase，高风险强调 */
 .llm-bridge-phase-approval.is-pending {
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 6px;
-  border-left-width: 3px;
+  padding: 0;
 }
 .llm-bridge-phase-approval.is-risk-low.is-pending {
-  border-left-color: #fb8c00;
-  background: rgba(251, 140, 0, 0.06);
+  color: var(--text-normal);
 }
 .llm-bridge-phase-approval.is-risk-high.is-pending {
-  border-left-color: #e53935;
-  background: rgba(229, 57, 53, 0.1);
-  color: #e53935;
-  font-weight: 600;
+  padding: 6px 8px;
+  border: 1px solid rgba(229, 57, 53, 0.35);
+  background: rgba(229, 57, 53, 0.08);
 }
 .llm-bridge-phase-approval.is-resolved {
   color: var(--text-muted);
-  border-left-color: var(--background-modifier-border);
   background: transparent;
   font-weight: 400;
+}
+.llm-bridge-phase-approval-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  min-width: 0;
 }
 .llm-bridge-phase-approval-head {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
 }
-.llm-bridge-phase-approval-tool { font-weight: 600; }
+.llm-bridge-phase-approval-tool {
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-phase-approval-risk {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(229, 57, 53, 0.25);
+  background: rgba(229, 57, 53, 0.1);
+  color: #e53935;
+  font-size: 10px;
+  font-weight: 600;
+}
 .llm-bridge-phase-approval-resolution {
   color: var(--text-muted);
   font-size: var(--font-smallest);
@@ -4076,39 +4229,47 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .llm-bridge-approval-btn {
-  padding: 2px 8px;
+  padding: 1px 8px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 5px;
-  background: var(--background-secondary);
+  border-radius: 999px;
+  background: transparent;
   color: var(--text-normal);
-  font-size: var(--font-smallest);
+  font-size: 10px;
   cursor: pointer;
-  line-height: 1.4;
+  line-height: 1.45;
 }
-.llm-bridge-approval-btn:hover { border-color: var(--interactive-accent); }
+.llm-bridge-approval-btn:hover {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
 .llm-bridge-approval-btn.is-allow-once { color: var(--text-normal); }
 .llm-bridge-approval-btn.is-allow-session { color: #4caf50; border-color: rgba(76, 175, 80, 0.4); }
 .llm-bridge-approval-btn.is-allow-session:hover { background: rgba(76, 175, 80, 0.1); }
 .llm-bridge-approval-btn.is-deny { color: #e53935; border-color: rgba(229, 57, 53, 0.4); }
 .llm-bridge-approval-btn.is-deny:hover { background: rgba(229, 57, 53, 0.1); }
 .llm-bridge-phase-approval-details {
-  margin-top: 3px;
-  font-size: var(--font-smallest);
+  margin-top: 0;
+  font-size: 10px;
   color: var(--text-muted);
 }
 .llm-bridge-phase-approval-details > summary {
   cursor: pointer;
   user-select: none;
   color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
 }
 .llm-bridge-phase-approval-risk-reason,
 .llm-bridge-phase-approval-flags,
 .llm-bridge-phase-approval-input {
-  margin-top: 2px;
-  padding: 2px 4px;
+  margin-top: 3px;
+  padding: 0;
   font-family: var(--font-monospace);
+  font-size: 10px;
   word-break: break-word;
 }
 /* V16.4-D: editing tool 自动批准来源标签 */
@@ -4404,15 +4565,15 @@
   bottom: calc(100% + 6px);
   left: 0;
   z-index: 100;
-  width: min(236px, calc(100vw - 32px));
-  padding: 4px;
+  width: min(212px, calc(100vw - 24px));
+  padding: 3px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 9px;
+  border-radius: 8px;
   background: var(--background-primary);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 0;
 }
 .llm-bridge-perm-popover[hidden] {
   display: none;
@@ -4420,9 +4581,9 @@
 .llm-bridge-perm-option {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 7px;
   width: 100%;
-  padding: 5px 7px;
+  padding: 4px 6px;
   border-radius: 6px;
   cursor: pointer;
   border: 1px solid transparent;
@@ -4449,7 +4610,7 @@
 }
 .llm-bridge-perm-option-title {
   font-weight: 600;
-  font-size: var(--font-smallest);
+  font-size: 10px;
   color: var(--text-normal);
 }
 .llm-bridge-perm-option-desc {
@@ -4713,6 +4874,21 @@
   overflow: hidden;
 }
 
+.llm-bridge-turn-current-activity {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 2px 0 8px;
+  padding: 5px 9px;
+  border: 1px solid var(--llm-agent-line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--llm-agent-surface-raised) 88%, transparent);
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
 .llm-bridge-timeline-head {
   padding: 7px 10px;
   background: color-mix(in srgb, var(--llm-agent-surface-raised) 80%, transparent);
@@ -4777,6 +4953,13 @@
 }
 
 .llm-bridge-turn-approvals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.llm-bridge-turn-user-inputs {
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -4889,6 +5072,10 @@
   font-size: 10px;
   line-height: 1.35;
   word-break: break-word;
+}
+
+.llm-bridge-tl-user-input .llm-bridge-tl-dot {
+  background: var(--interactive-accent);
 }
 
 .llm-bridge-timeline-final,

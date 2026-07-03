@@ -5,11 +5,11 @@
 //
 // 设计原则：
 // 1. 输入只接受 AssistantTurnView 和少量 options，不直接依赖 NormalizedRuntimeEvent / WorkflowEvent。
-// 2. 输出按普通用户态信息架构分层：header/finalAnswer/currentActivity/timelineCards/approvalCards/
+// 2. 输出按普通用户态信息架构分层：header/finalAnswer/currentActivity/timelineCards/approvalCards/userInputCards/
 //    fileChangeCards/diagnosticCards/debugView。
 // 3. developer mode 信息汇总到 debugView，不散落在业务字段。
 
-import type { AssistantTurnView, ApprovalResponse } from "./types";
+import type { AssistantTurnView, ApprovalResponse, UserInputQuestion, UserInputResponse } from "./types";
 import type { AttachmentPlan, EffectiveRunPlan } from "../../types";
 import { redactSecrets } from "../../workflowEvent";
 import { buildLifecycleEventsFromTurnView, type ProviderLifecycleEvent } from "./providerLifecycleEvent";
@@ -22,6 +22,7 @@ export type AgentRunCardKind =
   | "tool-call"
   | "file-change"
   | "approval"
+  | "user-input"
   | "warning"
   | "error"
   | "final-answer"
@@ -88,6 +89,18 @@ export interface ApprovalCard extends AgentRunCardBase {
   pending: boolean;
 }
 
+export interface UserInputCard extends AgentRunCardBase {
+  kind: "user-input";
+  requestId: string;
+  toolName: string;
+  prompt: string;
+  inputType?: "text" | "secret";
+  questions?: ReadonlyArray<UserInputQuestion>;
+  placeholder?: string;
+  response?: UserInputResponse;
+  pending: boolean;
+}
+
 export interface WarningCard extends AgentRunCardBase {
   kind: "warning";
   message: string;
@@ -113,6 +126,7 @@ export type AgentRunCard =
   | ToolCallCard
   | FileChangeCard
   | ApprovalCard
+  | UserInputCard
   | WarningCard
   | ErrorCard
   | FinalAnswerCard
@@ -173,6 +187,8 @@ export interface AgentRunDisplayModel {
   timelineCards: AgentRunCard[];
   /** 待审批卡片（pending approvals，驱动 pending panel） */
   approvalCards: ApprovalCard[];
+  /** 待回答卡片（pending user input requests） */
+  userInputCards: UserInputCard[];
   /** 文件变更卡片（单独区域展示；developer mode 用） */
   fileChangeCards: FileChangeCard[];
   /** 诊断卡片（warnings） */
@@ -325,7 +341,9 @@ function buildFileChangeSummary(
 }
 
 export function inferFinalAnswerDisposition(turnView: AssistantTurnView): FinalAnswerDisposition {
+  const userInputRequests = turnView.userInputRequests ?? [];
   if (turnView.status === "failed") return "failed";
+  if (userInputRequests.some((r) => r.pending)) return "needs-input";
   if (turnView.approvals.some((a) => a.pending)) return "needs-approval";
   if (looksLikeNeedsInput(turnView.finalAnswer)) return "needs-input";
   if (turnView.fileChanges.length > 0) return "completed";
@@ -404,6 +422,7 @@ export function redactDebugView(debug: AgentRunDebugView): AgentRunDebugView {
  * 纯数据转换，不涉及任何 UI/DOM 操作。
  * - timelineCards: thoughts + tools + resolved approvals + errors
  * - approvalCards: pending approvals
+ * - userInputCards: pending user input requests
  * - fileChangeCards: file changes（与 timeline 分离便于 UI 单独展示）
  * - diagnosticCards: warnings
  * - debugView: developer mode 信息（仅设选项开启时填充）
@@ -421,6 +440,7 @@ export function buildAgentRunDisplayModel(
   const errorCount = turnView.errors.length;
   const dur = options.durationMs ?? turnView.durationMs;
   const finalAnswerDisposition = inferFinalAnswerDisposition(turnView);
+  const userInputRequests = turnView.userInputRequests ?? [];
 
   // V16.4: 构建 lifecycle events + phase model（普通用户态主链路）
   // 优先使用 provider-native lifecycleEvents（由 AssistantTurnViewBuilder 从 NormalizedRuntimeEvent 派生）；
@@ -439,12 +459,15 @@ export function buildAgentRunDisplayModel(
   // --- header ---
   const durSecs = dur != null && dur > 0 ? Math.round(dur / 1000) : 0;
   const pendingApproval = turnView.approvals.some((a) => a.pending);
+  const pendingUserInput = userInputRequests.some((r) => r.pending);
   const headerParts: string[] = [];
 
   if (isRunning) {
     // V16.4-C: running header 优先使用 phaseModel.currentActivity（具体阶段标签，如 "Reading AGENTS.md"），
     // 不再使用旧的 runningTool -> toolToActivity 泛化状态（如 "Reading files"）。
-    if (pendingApproval) {
+    if (pendingUserInput) {
+      headerParts.push("Needs input");
+    } else if (pendingApproval) {
       headerParts.push("Needs approval");
     } else {
       headerParts.push(phaseModel.currentActivity || "Thinking");
@@ -479,7 +502,9 @@ export function buildAgentRunDisplayModel(
   // fallback 才用 Thinking。不再使用旧的 runningTool -> toolToActivity 作为普通用户态主状态。
   let currentActivity = "";
   if (isRunning) {
-    if (pendingApproval) {
+    if (pendingUserInput) {
+      currentActivity = "Needs input";
+    } else if (pendingApproval) {
       currentActivity = "Needs approval";
     } else {
       currentActivity = phaseModel.currentActivity || "Thinking";
@@ -565,6 +590,29 @@ export function buildAgentRunDisplayModel(
     });
   }
 
+  // resolved user inputs → UserInputCard（timeline）
+  for (const req of userInputRequests) {
+    if (req.pending) continue;
+    timelineCards.push({
+      id: `user-input-${req.requestId}`,
+      kind: "user-input",
+      title: "User input",
+      status: "completed",
+      summary: req.prompt,
+      detail: req.response?.type === "submit" ? req.response.value : "cancelled",
+      timestamp: req.timestamp,
+      defaultExpanded: false,
+      requestId: req.requestId,
+      toolName: req.toolName,
+      prompt: req.prompt,
+      inputType: req.inputType,
+      questions: req.questions,
+      placeholder: req.placeholder,
+      response: req.response,
+      pending: false,
+    });
+  }
+
   // errors → ErrorCard
   for (let i = 0; i < turnView.errors.length; i++) {
     timelineCards.push({
@@ -605,6 +653,29 @@ export function buildAgentRunDisplayModel(
       subagentRisk: ap.subagentRisk,
       resolution: undefined,
       resolutionSource: undefined,
+      pending: true,
+    });
+  }
+
+  // --- userInputCards (pending) ---
+  const userInputCards: UserInputCard[] = [];
+  for (const req of userInputRequests) {
+    if (!req.pending) continue;
+    userInputCards.push({
+      id: `user-input-pending-${req.requestId}`,
+      kind: "user-input",
+      title: req.toolName,
+      status: "pending",
+      summary: req.prompt,
+      detail: req.prompt,
+      timestamp: req.timestamp,
+      requestId: req.requestId,
+      toolName: req.toolName,
+      prompt: req.prompt,
+      inputType: req.inputType,
+      questions: req.questions,
+      placeholder: req.placeholder,
+      response: undefined,
       pending: true,
     });
   }
@@ -663,6 +734,7 @@ export function buildAgentRunDisplayModel(
     phaseModel,
     timelineCards,
     approvalCards,
+    userInputCards,
     fileChangeCards,
     diagnosticCards,
     debugView: options.developerMode && options.debug
@@ -736,6 +808,7 @@ export function getToolIconCategory(toolName: string): { icon: string; category:
  * - editing → pencil
  * - checking → terminal
  * - verifying → check-circle
+ * - waiting-input → message-square
  * - waiting-approval → shield
  * - failed → x-circle
  * - completed → check
@@ -747,6 +820,7 @@ export function getPhaseIconName(phaseType: string): string {
     case "editing": return "pencil";
     case "checking": return "terminal";
     case "verifying": return "check-circle";
+    case "waiting-input": return "message-square";
     case "waiting-approval": return "shield";
     case "failed": return "x-circle";
     case "completed": return "check";
