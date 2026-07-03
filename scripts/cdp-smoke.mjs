@@ -547,9 +547,84 @@ async function testP4DContextRingAndTags(cdp) {
       const tag = v?.containerEl?.querySelector('.llm-bridge-context-tag-note .llm-bridge-context-tag');
       return tag ? tag.textContent : null;
     `);
-    if (noteTagText && noteTagText.includes("Using")) ok("P4-D-context: 自动引用当前笔记 tag 可见", noteTagText);
-    else skip("P4-D-context: 自动引用当前笔记 tag", `tagText="${noteTagText}"`);
+    // V16.3: 三态文案 — "Using current note" / "Note path only" / "Auto attach off"
+    if (noteTagText && (noteTagText.includes("Using") || noteTagText.includes("path only") || noteTagText.includes("off"))) {
+      ok("V16.3-context: active note chip 三态文案可见", noteTagText);
+    } else {
+      skip("V16.3-context: active note chip 三态文案", `tagText="${noteTagText}"`);
+    }
+    // V16.3: 验证 chip title 含状态说明
+    const noteTagTitle = await cdpEval(cdp, `
+      const v = getView();
+      const tag = v?.containerEl?.querySelector('.llm-bridge-context-tag-note .llm-bridge-context-tag');
+      return tag ? tag.getAttribute('title') : null;
+    `);
+    if (noteTagTitle && (noteTagTitle.includes("路径") || noteTagTitle.includes("未附带") || noteTagTitle.includes("off"))) {
+      ok("V16.3-context: active note chip title 含状态说明", noteTagTitle.slice(0, 60));
+    } else {
+      skip("V16.3-context: active note chip title", `title="${noteTagTitle}"`);
+    }
   } catch (e) { fail("P4-D-context", e.message); }
+}
+
+// V16.3: active note chip 三态切换测试
+async function testV163ActiveNoteChipStates(cdp) {
+  console.log("\n--- Test V16.3: Active note chip 三态切换 ---");
+  try {
+    // 确保 includeActiveNote=true 且有活动笔记
+    await cdpEvalAsync(cdp, `
+      const p = getPlugin();
+      p.settings.includeActiveNote = true;
+      await p.saveSettings();
+      const v = getView();
+      v.refreshContextMetrics();
+      v.refreshAllChips();
+    `);
+    await sleep(500);
+    // 状态 1: full 或 path-only（取决于当前活动笔记是否可读）
+    const state1Text = await cdpEval(cdp, `
+      const v = getView();
+      const tag = v?.containerEl?.querySelector('.llm-bridge-context-tag-note .llm-bridge-context-tag');
+      return tag ? tag.textContent : null;
+    `);
+    const state1AttachState = await cdpEval(cdp, `return getView().activeNoteAttachState;`);
+    if (state1AttachState === "full" || state1AttachState === "path-only") {
+      ok("V16.3-chip-state: on 状态 attachState=" + state1AttachState, `tagText="${state1Text}"`);
+    } else {
+      skip("V16.3-chip-state: on 状态", `attachState=${state1AttachState}, tagText="${state1Text}"`);
+    }
+    // 切换为 off
+    await cdpEvalAsync(cdp, `
+      const p = getPlugin();
+      p.settings.includeActiveNote = false;
+      await p.saveSettings();
+      const v = getView();
+      v.refreshContextMetrics();
+      v.refreshAllChips();
+    `);
+    await sleep(300);
+    const state2Text = await cdpEval(cdp, `
+      const v = getView();
+      const tag = v?.containerEl?.querySelector('.llm-bridge-context-tag-note .llm-bridge-context-tag');
+      return tag ? tag.textContent : null;
+    `);
+    const state2AttachState = await cdpEval(cdp, `return getView().activeNoteAttachState;`);
+    if (state2AttachState === "off" && state2Text && state2Text.includes("off")) {
+      ok("V16.3-chip-state: off 状态 attachState=off", `tagText="${state2Text}"`);
+    } else {
+      fail("V16.3-chip-state: off 状态", `attachState=${state2AttachState}, tagText="${state2Text}"`);
+    }
+    // 恢复 on
+    await cdpEvalAsync(cdp, `
+      const p = getPlugin();
+      p.settings.includeActiveNote = true;
+      await p.saveSettings();
+      const v = getView();
+      v.refreshContextMetrics();
+      v.refreshAllChips();
+    `);
+    await sleep(300);
+  } catch (e) { fail("V16.3-chip-state", e.message); }
 }
 
 async function testP4DRealSdkTextIntegrity(cdp) {
@@ -837,6 +912,7 @@ async function main() {
   await testP4DOutputIntegrity(cdp);
   await testP4DNormalUserUISimplicity(cdp);
   await testP4DContextRingAndTags(cdp);
+  await testV163ActiveNoteChipStates(cdp);
   await testP4DRealSdkTextIntegrity(cdp);
   await testP4DToolCardCleanup(cdp);
   await testP4DNoSdkErrorSuccess(cdp);

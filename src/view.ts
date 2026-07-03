@@ -328,6 +328,8 @@ export class LLMBridgeView extends ItemView {
   private contextLabelEl!: HTMLElement;
   private contextDetailEl!: HTMLElement;
   private lastContextMetrics: ContextMetrics | null = null;
+  // V16.3: active note 三态 — "full"（路径+内容）/ "path-only"（仅路径，内容读取失败）/ "off"（未注入）
+  private activeNoteAttachState: "full" | "path-only" | "off" = "off";
   // V2.3: 最近一次 SDK 运行的工具数与 agent 数（用于状态栏展示）
   private lastSdkToolCount = 0;
   private lastSdkAgentCount = 0;
@@ -979,7 +981,21 @@ export class LLMBridgeView extends ItemView {
       const on = this.plugin.settings.includeActiveNote;
       noteTag.classList.toggle("is-active", on);
       noteTag.setAttribute("aria-pressed", String(on));
-      noteTag.textContent = on ? "Using current note" : "Auto attach off";
+      // V16.3: 三态文案 — full / path-only / off
+      if (!on) {
+        noteTag.textContent = "Auto attach off";
+        noteTag.setAttribute("title", "未附带当前活动笔记（点击开启自动引用）");
+      } else if (this.activeNoteAttachState === "full") {
+        noteTag.textContent = "Using current note";
+        noteTag.setAttribute("title", "当前活动笔记：路径 + 内容已注入 prompt（点击关闭）");
+      } else if (this.activeNoteAttachState === "path-only") {
+        noteTag.textContent = "Note path only";
+        noteTag.setAttribute("title", "当前活动笔记：仅路径注入 prompt，内容读取失败（点击关闭）");
+      } else {
+        // on 但状态未知（如尚未读取）— 兜底显示
+        noteTag.textContent = "Using current note";
+        noteTag.setAttribute("title", "当前活动笔记已开启自动引用");
+      }
     }
     const selTag = this.includeSelectionCheckEl.parentElement?.querySelector(".llm-bridge-context-tag");
     if (selTag) {
@@ -1274,10 +1290,19 @@ export class LLMBridgeView extends ItemView {
     } else {
       this.selectionLabelEl.textContent = "";
     }
-    // P4-D: Note tag — show filename, title with full path
+    // V16.3: Note tag — title 反映三态 + 文件路径
     const noteTag = this.includeNoteCheckEl.parentElement?.querySelector<HTMLElement>(".llm-bridge-context-tag");
     if (noteTag) {
-      noteTag.setAttribute("title", f ? `当前笔记：${f.path}` : "当前没有活动笔记");
+      const on = this.plugin.settings.includeActiveNote;
+      if (!on) {
+        noteTag.setAttribute("title", "未附带当前活动笔记（点击开启自动引用）");
+      } else if (this.activeNoteAttachState === "path-only") {
+        noteTag.setAttribute("title", f ? `当前笔记：${f.path}（仅路径，内容读取失败）` : "当前没有活动笔记");
+      } else if (this.activeNoteAttachState === "full") {
+        noteTag.setAttribute("title", f ? `当前笔记：${f.path}（路径 + 内容已注入）` : "当前没有活动笔记");
+      } else {
+        noteTag.setAttribute("title", f ? `当前笔记：${f.path}` : "当前没有活动笔记");
+      }
     }
     // P4-D: Selection tag — hide when no selection
     const selWrap = this.includeSelectionCheckEl.parentElement;
@@ -4193,10 +4218,20 @@ export class LLMBridgeView extends ItemView {
       const activeFile = this.app.workspace.getActiveFile();
       const selection = this.getSelection();
       let activeNoteContent = "";
+      let activeNoteReadOk = false;
       if (settings.includeActiveNote && activeFile) {
         try {
           activeNoteContent = await this.app.vault.read(activeFile);
+          activeNoteReadOk = activeNoteContent.length > 0;
         } catch { /* 读取失败用空字符串 */ }
+      }
+      // V16.3: 计算 active note 三态
+      if (!settings.includeActiveNote || !activeFile) {
+        this.activeNoteAttachState = "off";
+      } else if (activeNoteReadOk) {
+        this.activeNoteAttachState = "full";
+      } else {
+        this.activeNoteAttachState = "path-only";
       }
       const snapshot: StateSnapshot = {
         vaultPath,
@@ -4221,6 +4256,8 @@ export class LLMBridgeView extends ItemView {
       // - compression 无信号时不传，不伪造
       this.lastContextMetrics = metrics;
       this.renderContextMetrics(metrics);
+      // V16.3: chip 三态刷新（依赖 activeNoteAttachState，在异步读取后设置）
+      this.refreshAllChips();
     } catch {
       this.contextLabelEl.textContent = "Context estimate";
     }
@@ -4262,7 +4299,14 @@ export class LLMBridgeView extends ItemView {
     for (const part of parts) {
       const row = this.contextDetailEl.createDiv({ cls: "llm-bridge-context-detail-row" });
       row.createEl("span", { cls: "llm-bridge-context-detail-label", text: part.label });
-      row.createEl("span", { cls: "llm-bridge-context-detail-value", text: `${formatTokens(part.tokens)} tokens estimated` });
+      // V16.3: path-only active note 明确标注 0 content tokens 但路径已附带
+      let valueText = `${formatTokens(part.tokens)} tokens estimated`;
+      if (part.label === "Active note" && this.activeNoteAttachState === "path-only") {
+        valueText = "0 content tokens（路径已附带，内容读取失败）";
+      } else if (part.label === "Active note" && this.activeNoteAttachState === "off") {
+        valueText = "off（未注入）";
+      }
+      row.createEl("span", { cls: "llm-bridge-context-detail-value", text: valueText });
       if (part.chars > 0) {
         row.createEl("span", { cls: "llm-bridge-context-detail-chars", text: `${part.chars} chars` });
       }
