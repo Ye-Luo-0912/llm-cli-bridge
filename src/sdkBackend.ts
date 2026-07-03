@@ -486,10 +486,48 @@ export interface SdkAgentSkillsOptions {
   readonly reason?: string;
 }
 
+function truncateToolInputSummary(text: string, maxChars: number): string {
+  return text.length > maxChars ? `${text.slice(0, maxChars)}...` : text;
+}
+
+function summarizeToolInputValue(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") return truncateToolInputSummary(value, 60);
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return "0 items";
+    const scalarOnly = value.every((item) => item == null || ["string", "number", "boolean"].includes(typeof item));
+    if (scalarOnly) {
+      const joined = value
+        .map((item) => item == null ? "null" : String(item))
+        .join(", ");
+      return truncateToolInputSummary(joined, 60);
+    }
+    return `${value.length} items`;
+  }
+  if (typeof value === "object") {
+    const keys = Object.keys(value as Record<string, unknown>);
+    if (keys.length === 0) return "{}";
+    const preview = keys.slice(0, 3).join(", ");
+    return `{ ${preview}${keys.length > 3 ? ", ..." : ""} }`;
+  }
+  return null;
+}
+
 /**
  * V2.3s: 摘要工具输入参数（用于 UI 展示，已脱敏）
  */
-function summarizeToolInput(input: Record<string, unknown>): string {
+export function summarizeToolInput(
+  input: Record<string, unknown>,
+  options: { developerMode?: boolean } = {},
+): string {
+  if (options.developerMode) {
+    try {
+      return truncateToolInputSummary(JSON.stringify(input), 200);
+    } catch {
+      // ignore and fall back to structured summary
+    }
+  }
   const parts: string[] = [];
   if (typeof input.file_path === "string") parts.push(`file: ${input.file_path}`);
   if (typeof input.notebook_path === "string") parts.push(`notebook: ${input.notebook_path}`);
@@ -501,8 +539,9 @@ function summarizeToolInput(input: Record<string, unknown>): string {
   if (parts.length === 0) {
     const keys = Object.keys(input).slice(0, 3);
     for (const k of keys) {
-      const v = String(input[k]).slice(0, 60);
-      parts.push(`${k}: ${v}`);
+      const summary = summarizeToolInputValue(input[k]);
+      if (!summary) continue;
+      parts.push(`${k}: ${summary}`);
     }
   }
   return parts.join(" | ");
@@ -691,7 +730,7 @@ async function runRealSdkQuery(
       const mode = settings.claudePermissionMode ?? "default";
       const risk = assessToolRisk(toolName, input);
       const mergeKey = buildRequestMergeKey(toolName, risk, input);
-      const inputSummary = summarizeToolInput(input);
+      const inputSummary = summarizeToolInput(input, { developerMode: settings.developerMode });
       const sessionId = opts.sessionId;
       const parentToolUseId = opts.parentToolUseId;
       const isSubagent = !!parentToolUseId;

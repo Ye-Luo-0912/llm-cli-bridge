@@ -272,6 +272,7 @@ export class LLMBridgeView extends ItemView {
   private modelEffortPopoverEl!: HTMLElement;
   /** V2.16-C: 运行时模型目录（不再硬编码） */
   private modelCatalog: RuntimeModelCatalog = getRuntimeModelCatalog();
+  private permissionModePickerEl!: HTMLElement;
   private permissionModeChipEl!: HTMLButtonElement;
   /** V2.16-C: permission mode popover 容器 */
   private permissionPopoverEl!: HTMLDivElement;
@@ -645,11 +646,15 @@ export class LLMBridgeView extends ItemView {
       commandMenu.removeAttribute("open");
       void this.promptAndAddAttachmentFile();
     });
-    this.permissionModeChipEl = leftTools.createEl("button", {
+    this.permissionModePickerEl = leftTools.createDiv({ cls: "llm-bridge-permission-picker" });
+    this.permissionModeChipEl = this.permissionModePickerEl.createEl("button", {
       cls: "llm-bridge-permission-chip",
-      attr: { title: "切换权限模式：受限 / 默认 / acceptEdits" },
+      attr: { title: "切换权限模式：受限 / 默认 / acceptEdits", "aria-haspopup": "true", "aria-expanded": "false" },
     });
-    this.permissionModeChipEl.addEventListener("click", () => void this.togglePermissionPopover());
+    this.permissionModeChipEl.addEventListener("click", (event) => {
+      event.stopPropagation();
+      void this.togglePermissionPopover();
+    });
 
     const inputRow = composerBar.createDiv({ cls: "llm-bridge-input-row" });
     this.composerFileRefsEl = inputRow.createDiv({ cls: "llm-bridge-composer-file-refs" });
@@ -1082,6 +1087,7 @@ export class LLMBridgeView extends ItemView {
       if (target?.closest(".llm-bridge-model-effort-picker")) return;
       this.closeModelEffortPopover();
       if (target?.closest(".llm-bridge-permission-chip")) return;
+      if (target?.closest(".llm-bridge-perm-popover")) return;
       this.closePermissionPopover();
     });
     this.registerDomEvent(document, "keydown", (event) => {
@@ -1156,7 +1162,7 @@ export class LLMBridgeView extends ItemView {
    * 修复：popover 挂载到 leftTools 容器（按钮外部），避免 click 事件冒泡和 pointer-events 问题。
    */
   private renderPermissionPopover(): void {
-    if (!this.permissionModeChipEl) return;
+    if (!this.permissionModePickerEl) return;
     // 移除旧 popover
     this.permissionPopoverEl?.remove();
     // V16.4-D: 挂载到 chip 的父容器（leftTools），不挂在 button 内部
@@ -1166,6 +1172,8 @@ export class LLMBridgeView extends ItemView {
       cls: "llm-bridge-perm-popover",
       attr: { hidden: "" },
     });
+    this.permissionPopoverEl.addEventListener("pointerdown", (event) => event.stopPropagation());
+    this.permissionPopoverEl.addEventListener("click", (event) => event.stopPropagation());
     const modes: Array<{ value: string; icon: string; title: string; desc: string }> = [
       { value: "plan", icon: "☐", title: "Plan mode", desc: "只读规划，不执行修改" },
       { value: "default", icon: "✓", title: "Ask before edits", desc: "编辑前询问确认" },
@@ -1175,19 +1183,20 @@ export class LLMBridgeView extends ItemView {
     ];
     const current = this.plugin.settings.claudePermissionMode;
     for (const mode of modes) {
-      const opt = this.permissionPopoverEl.createDiv({
+      const opt = this.permissionPopoverEl.createEl("button", {
         cls: "llm-bridge-perm-option" + (current === mode.value ? " is-active" : ""),
+        attr: { type: "button", "data-permission-mode": mode.value },
       });
       opt.createEl("span", { cls: "llm-bridge-perm-option-icon", text: mode.icon });
       const text = opt.createDiv({ cls: "llm-bridge-perm-option-text" });
       text.createEl("div", { cls: "llm-bridge-perm-option-title", text: mode.title });
       text.createEl("div", { cls: "llm-bridge-perm-option-desc", text: mode.desc });
       opt.createEl("span", { cls: "llm-bridge-perm-option-check", text: "✓" });
-      // V16.4-D: stopPropagation 防止 click 冒泡到 chip 导致 popover 先关闭
-      opt.addEventListener("click", async (e) => {
-        e.stopPropagation();
-        await this.setPermissionMode(mode.value);
+      opt.addEventListener("pointerdown", (event) => event.stopPropagation());
+      opt.addEventListener("click", async (event) => {
+        event.stopPropagation();
         this.closePermissionPopover();
+        await this.setPermissionMode(mode.value);
       });
     }
   }
@@ -1207,6 +1216,7 @@ export class LLMBridgeView extends ItemView {
         if (!this.permissionPopoverEl || this.permissionPopoverEl.hasAttribute("hidden")) return;
         document.addEventListener("click", this.permissionPopoverOutsideClickHandler, { capture: true });
       }, 0);
+      this.permissionModeChipEl.setAttribute("aria-expanded", "true");
     } else {
       this.closePermissionPopover();
     }
@@ -1232,6 +1242,7 @@ export class LLMBridgeView extends ItemView {
   private closePermissionPopover(): void {
     this.permissionPopoverEl?.setAttribute("hidden", "");
     document.removeEventListener("click", this.permissionPopoverOutsideClickHandler, { capture: true });
+    this.permissionModeChipEl?.setAttribute("aria-expanded", "false");
   }
 
   /**
@@ -1484,7 +1495,7 @@ export class LLMBridgeView extends ItemView {
     const panel = this.permissionPanelEl;
     panel.empty();
 
-    if (this.pendingPermissions.size === 0) {
+    if (!this.plugin.settings.developerMode || this.pendingPermissions.size === 0) {
       panel.style.display = "none";
       return;
     }
@@ -1502,8 +1513,8 @@ export class LLMBridgeView extends ItemView {
 
     // 标题
     const header = panel.createDiv({ cls: "llm-bridge-perm-panel-header" });
-    header.createEl("span", { cls: "llm-bridge-perm-panel-title", text: "权限请求" });
-    header.createEl("span", { cls: "llm-bridge-perm-panel-count", text: `${this.pendingPermissions.size} 项待决策` });
+    header.createEl("span", { cls: "llm-bridge-perm-panel-title", text: "Permission audit" });
+    header.createEl("span", { cls: "llm-bridge-perm-panel-count", text: `${this.pendingPermissions.size} pending` });
 
     // 按 mergeKey 合并展示（相同工具+风险+路径前缀合并）
     const mergeGroups = new Map<string, PermissionEvent[]>();
@@ -3113,6 +3124,8 @@ export class LLMBridgeView extends ItemView {
 
     // --- header (折叠头) ---
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap llm-bridge-turn-view" });
+    wrap.setAttribute("data-final-answer-disposition", model.finalAnswerDisposition);
+    wrap.addClass(`is-disposition-${model.finalAnswerDisposition}`);
     const head = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
     // V16.4: completed 时用 phaseModel.resultSummary 作为 header
     const headerText = (!isRunning && !isFailed && model.phaseModel.resultSummary)
@@ -3507,6 +3520,70 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderApprovalCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "approval" }>): void {
+    if (card.pending) {
+      const approval = parent.createDiv({ cls: `llm-bridge-turn-approval-card is-risk-${card.riskLevel}` });
+      approval.setAttribute("data-request-id", card.requestId);
+      const row = approval.createDiv({ cls: "llm-bridge-turn-approval-row" });
+      row.createEl("span", { cls: "llm-bridge-turn-approval-title", text: card.label || card.summary || card.toolName });
+      if (card.riskLevel !== "low") {
+        row.createEl("span", {
+          cls: `llm-bridge-turn-approval-risk is-${card.riskLevel}`,
+          text: card.riskLevel === "high" ? "High risk" : "Needs review",
+        });
+      }
+
+      const actions = approval.createDiv({ cls: "llm-bridge-turn-approval-actions" });
+      const createActionButton = (label: string, choice: PermissionChoice, extraClass: string): void => {
+        const button = actions.createEl("button", {
+          cls: `llm-bridge-turn-approval-btn ${extraClass}`,
+          text: label,
+          attr: { type: "button", "data-decision": choice },
+        });
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this.resolvePermissionRequests([card.requestId], choice);
+        });
+      };
+      createActionButton("Allow once", "allow_once", "is-allow-once");
+      createActionButton("Allow session", "allow_session", "is-allow-session");
+      createActionButton("Deny", "deny_session", "is-deny");
+
+      const detailItems: string[] = [];
+      if (card.riskReason) detailItems.push(`Risk: ${card.riskReason}`);
+      if (card.highRiskFlags && card.highRiskFlags.length > 0) {
+        detailItems.push(`Flags: ${card.highRiskFlags.join(", ")}`);
+      }
+      if (card.inputSummary) detailItems.push(card.inputSummary);
+      if (card.subagentRisk) detailItems.push(card.subagentRisk);
+      if (detailItems.length > 0) {
+        const details = approval.createDiv({ cls: "llm-bridge-turn-approval-details" });
+        const toggle = details.createEl("button", {
+          cls: "llm-bridge-turn-approval-details-toggle",
+          text: "Details",
+          attr: { type: "button" },
+        });
+        const detailBody = details.createDiv({
+          cls: "llm-bridge-turn-approval-details-body",
+          attr: { hidden: "" },
+        });
+        for (const line of detailItems) {
+          detailBody.createEl("div", { cls: "llm-bridge-turn-approval-detail-item", text: line, attr: { title: line } });
+        }
+        toggle.addEventListener("click", (event) => {
+          event.stopPropagation();
+          const hidden = detailBody.hasAttribute("hidden");
+          if (hidden) {
+            detailBody.removeAttribute("hidden");
+            toggle.textContent = "Hide details";
+          } else {
+            detailBody.setAttribute("hidden", "");
+            toggle.textContent = "Details";
+          }
+        });
+      }
+      return;
+    }
+
     const node = parent.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-approval" });
     node.createDiv({ cls: "llm-bridge-tl-dot" });
     const content = node.createDiv({ cls: "llm-bridge-tl-content" });
@@ -3518,7 +3595,7 @@ export class LLMBridgeView extends ItemView {
       : card.resolutionSource === "session_deny" ? "（会话拒绝）"
       : card.resolutionSource === "mode" ? "（模式自动）"
       : "";
-    content.createEl("div", { cls: "llm-bridge-tl-title", text: `权限: ${card.toolName} → ${resolutionLabel}${sourceLabel}` });
+    content.createEl("div", { cls: "llm-bridge-tl-title", text: `权限: ${card.label || card.toolName} → ${resolutionLabel}${sourceLabel}` });
     if (card.inputSummary) {
       content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(card.inputSummary, 120) });
     }
@@ -5793,8 +5870,11 @@ export class LLMBridgeView extends ItemView {
             requestId: ap.requestId,
             riskLevel: ap.riskLevel,
             riskReason: ap.riskReason,
+            highRiskFlags: ap.highRiskFlags,
             inputSummary: ap.inputSummary,
             mergeKey: ap.mergeKey,
+            parentToolUseId: ap.parentToolUseId,
+            subagentRisk: ap.subagentRisk,
           } as PermissionEvent);
           this.refreshPermissionPanel();
         }

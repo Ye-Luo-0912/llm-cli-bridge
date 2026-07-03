@@ -1518,7 +1518,11 @@ if (runMode !== "all" && runMode !== "unit") {
     }
     // ---------- 5b. AgentRunDisplayModel: AssistantTurnView → DisplayModel → Cards ----------
     {
-      const { buildAgentRunDisplayModel, getToolIconCategory } = agentRunDisplayModelMod;
+      const {
+        buildAgentRunDisplayModel,
+        getToolIconCategory,
+        inferFinalAnswerDisposition,
+      } = agentRunDisplayModelMod;
       const { buildAssistantTurnViewFromEvents } = assistantViewMod;
       const mkEvent = (payload, providerId = "codex-app-server") => ({
         providerId,
@@ -1539,8 +1543,8 @@ if (runMode !== "all" && runMode !== "unit") {
       const view = buildAssistantTurnViewFromEvents("turn-dm-1", "codex-app-server", events, "2026-07-02T00:00:00.000Z");
       const model = buildAgentRunDisplayModel(view, { developerMode: false });
 
-      // header 含 tool/file change 计数（P4-D: 轻量摘要 "Edited N files · Xs"）
-      const headerOk = model.header.includes("Edited 1 file") && model.header.includes("5s");
+      // header 含文件摘要与耗时（create → Created 1 file）
+      const headerOk = model.header === "Created 1 file · 5s";
       addTest("AgentRunDisplayModel: header 含摘要计数（tools/file changes）", headerOk ? "pass" : "fail",
         headerOk ? "" : `header=${model.header}`);
 
@@ -1657,19 +1661,60 @@ if (runMode !== "all" && runMode !== "unit") {
       ];
       const noSummaryView = buildAssistantTurnViewFromEvents("turn-nosum", "codex-app-server", noSummaryEvents, "2026-07-02T00:00:00.000Z");
       const noSummaryModel = buildAgentRunDisplayModel(noSummaryView, { developerMode: false });
-      const noDoneOk = !noSummaryModel.header.includes("Done") && noSummaryModel.header === "";
-      addTest("P4-D AgentRunDisplayModel: completed 无摘要不显示 Done", noDoneOk ? "pass" : "fail",
+      const noDoneOk = noSummaryModel.header === "Answered" && noSummaryModel.finalAnswerDisposition === "answered";
+      addTest("P4-D AgentRunDisplayModel: completed 无文件变化但有回答 → Answered", noDoneOk ? "pass" : "fail",
         noDoneOk ? "" : `header="${noSummaryModel.header}"`);
 
-      // P4-D: completed 有耗时无文件变化 → header 显示 "Xs"（不显示 Done）
+      // P4-D: completed 有终态文本且无文件变化 → header 显示 Answered · Xs（不裸露时长）
       const durOnlyEvents = [
         mkEvent({ kind: "completed", text: "done", durationMs: 17000 }),
       ];
       const durOnlyView = buildAssistantTurnViewFromEvents("turn-dur", "codex-app-server", durOnlyEvents, "2026-07-02T00:00:00.000Z");
       const durOnlyModel = buildAgentRunDisplayModel(durOnlyView, { developerMode: false });
-      const durOnlyOk = durOnlyModel.header === "17s" && !durOnlyModel.header.includes("Done");
-      addTest("P4-D AgentRunDisplayModel: completed 有耗时显示 Xs（不显示 Done）", durOnlyOk ? "pass" : "fail",
+      const durOnlyOk = durOnlyModel.header === "Answered · 17s" && durOnlyModel.finalAnswerDisposition === "answered";
+      addTest("P4-D AgentRunDisplayModel: completed 仅有终态回答时显示 Answered · Xs", durOnlyOk ? "pass" : "fail",
         durOnlyOk ? "" : `header="${durOnlyModel.header}"`);
+
+      // V16.4-D: 最终回答要求用户确认/选择 → Needs input
+      const needsInputEvents = [
+        mkEvent({ kind: "message", role: "assistant", text: "我需要你确认使用哪个文件名，然后我再继续。", partial: true }),
+        mkEvent({ kind: "completed", text: "我需要你确认使用哪个文件名，然后我再继续。", durationMs: 32000 }),
+      ];
+      const needsInputView = buildAssistantTurnViewFromEvents("turn-needs-input", "codex-app-server", needsInputEvents, "2026-07-02T00:00:00.000Z");
+      const needsInputDisposition = inferFinalAnswerDisposition(needsInputView);
+      const needsInputModel = buildAgentRunDisplayModel(needsInputView, { developerMode: false });
+      const needsInputOk = needsInputDisposition === "needs-input"
+        && needsInputModel.finalAnswerDisposition === "needs-input"
+        && needsInputModel.header === "Needs input · 32s";
+      addTest("V16.4-D AgentRunDisplayModel: 需要用户确认的最终回答 → Needs input",
+        needsInputOk ? "pass" : "fail",
+        `disposition=${needsInputDisposition} header="${needsInputModel.header}"`);
+
+      // V16.4-D: 无文件变化普通回答 → Answered · Xs
+      const answeredEvents = [
+        mkEvent({ kind: "message", role: "assistant", text: "这是普通回答。", partial: true }),
+        mkEvent({ kind: "completed", text: "这是普通回答。", durationMs: 32000 }),
+      ];
+      const answeredView = buildAssistantTurnViewFromEvents("turn-answered", "codex-app-server", answeredEvents, "2026-07-02T00:00:00.000Z");
+      const answeredModel = buildAgentRunDisplayModel(answeredView, { developerMode: false });
+      const answeredOk = answeredModel.finalAnswerDisposition === "answered"
+        && answeredModel.header === "Answered · 32s";
+      addTest("V16.4-D AgentRunDisplayModel: 无文件变化普通回答 → Answered",
+        answeredOk ? "pass" : "fail",
+        `header="${answeredModel.header}" disposition=${answeredModel.finalAnswerDisposition}`);
+
+      // V16.4-D: 待审批 header → Needs approval
+      const needsApprovalEvents = [
+        mkEvent({ kind: "approval_request", requestId: "ap-pending", toolName: "Write", description: "write file", riskLevel: "medium", inputSummary: "path: _test_output.md" }),
+      ];
+      const needsApprovalView = buildAssistantTurnViewFromEvents("turn-needs-approval", "codex-app-server", needsApprovalEvents, "2026-07-02T00:00:00.000Z");
+      const needsApprovalModel = buildAgentRunDisplayModel(needsApprovalView, { isRunning: true, developerMode: false });
+      const needsApprovalOk = needsApprovalModel.finalAnswerDisposition === "needs-approval"
+        && needsApprovalModel.header === "Needs approval"
+        && needsApprovalModel.approvalCards[0]?.label === "Write _test_output.md";
+      addTest("V16.4-D AgentRunDisplayModel: pending approval → Needs approval + concise label",
+        needsApprovalOk ? "pass" : "fail",
+        `header="${needsApprovalModel.header}" label="${needsApprovalModel.approvalCards[0]?.label}"`);
     }
 
     // ---------- 5d. V16.4: ProviderLifecycleEvent + RunPhaseModel ----------
@@ -6792,7 +6837,7 @@ if (!runV23sUnit) {
       assessSubagentPermissionRisk,
       extractToolPathPattern,
     } = await import(pathToFileURL(sdkPermBundleV23s).href);
-    const { SdkBackend, createPermissionState } = await import(pathToFileURL(sdkBackendBundleV23s).href);
+    const { SdkBackend, createPermissionState, summarizeToolInput } = await import(pathToFileURL(sdkBackendBundleV23s).href);
     const { redactWorkflowEvent } = await import(pathToFileURL(workflowEventBundleV23s).href);
     const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV23s).href);
 
@@ -6996,6 +7041,24 @@ if (!runV23sUnit) {
       addTest("V2.3s createPermissionState: 返回空状态",
         state.allows.length === 0 && state.denies.length === 0 && state.pending.size === 0 ? "pass" : "fail",
         `allows=${state.allows.length} denies=${state.denies.length} pending=${state.pending.size}`);
+    }
+
+    // ---- Test 20b: summarizeToolInput 普通用户态不输出 [object Object] ----
+    {
+      const summary = summarizeToolInput({ questions: [{ id: "q1" }, { id: "q2" }] });
+      const ok = summary.includes("questions: 2 items") && !summary.includes("[object Object]");
+      addTest("V16.4-D summarizeToolInput: 数组对象显示为 N items，且不输出 [object Object]",
+        ok ? "pass" : "fail",
+        `summary=${summary}`);
+    }
+
+    // ---- Test 20c: summarizeToolInput 普通用户态对象显示 key 列表 ----
+    {
+      const summary = summarizeToolInput({ questions: { key1: true, key2: false } });
+      const ok = summary.includes("questions: { key1, key2 }") && !summary.includes("[object Object]");
+      addTest("V16.4-D summarizeToolInput: 对象显示为 { key1, key2 }",
+        ok ? "pass" : "fail",
+        `summary=${summary}`);
     }
 
     // ===== PermissionEvent 脱敏 =====
@@ -14377,6 +14440,32 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("const developerMode = !!this.plugin.settings.developerMode")
       && viewSrc.includes("if (this.plugin.settings.developerMode) {");
     addTest("V2.16-D developer mode: 用户态隐藏 raw log/command", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 15b: permission popover 点击守卫排除 chip/popover，setPermissionMode 不受 runHandle 阻塞 ----
+  {
+    const pointerGuardOk = viewSrc.includes('target?.closest(".llm-bridge-permission-chip")')
+      && viewSrc.includes('target?.closest(".llm-bridge-perm-popover")')
+      && viewSrc.includes('opt.addEventListener("pointerdown", (event) => event.stopPropagation())');
+    const setModeBlockMatch = viewSrc.match(/private async setPermissionMode\(mode: string\): Promise<void> \{([\s\S]*?)\n  \}/);
+    const setModeOk = setModeBlockMatch ? !setModeBlockMatch[1].includes("this.runHandle") : false;
+    addTest("V16.4-D permission popover: pointerdown 排除 chip/popover，且 next-round setting 不受 runHandle 阻塞",
+      pointerGuardOk && setModeOk ? "pass" : "fail",
+      `pointerGuard=${pointerGuardOk} setMode=${setModeOk}`);
+  }
+
+  // ---- Test 15c: SDK permission 改为 turn 内紧凑 approval UI，旧 panel 仅 developer mode ----
+  {
+    const ok = viewSrc.includes('wrap.setAttribute("data-final-answer-disposition", model.finalAnswerDisposition)')
+      && viewSrc.includes('approvalSection.createEl("div", { cls: "llm-bridge-turn-section-label", text: "Pending approval" })')
+      && viewSrc.includes('createActionButton("Allow once", "allow_once", "is-allow-once")')
+      && viewSrc.includes('createActionButton("Allow session", "allow_session", "is-allow-session")')
+      && viewSrc.includes('createActionButton("Deny", "deny_session", "is-deny")')
+      && viewSrc.includes('if (!this.plugin.settings.developerMode || this.pendingPermissions.size === 0)')
+      && stylesSrc.includes(".llm-bridge-turn-approval-card")
+      && stylesSrc.includes(".llm-bridge-turn-approval-actions");
+    addTest("V16.4-D permission UI: turn 内紧凑审批卡片 + developerMode 才显示旧 panel",
+      ok ? "pass" : "fail", "");
   }
 
   // ---- Test 16: 用户态 timeline 隐藏 session/text/raw tool input，只保留过程节点 ----

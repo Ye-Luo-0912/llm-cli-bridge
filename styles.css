@@ -741,9 +741,15 @@
   background: var(--background-modifier-hover);
 }
 
+.llm-bridge-permission-picker {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+}
+
 .llm-bridge-permission-chip {
-  height: 30px;
-  padding: 0 10px;
+  height: 28px;
+  padding: 0 9px;
   border: 1px solid var(--background-modifier-border);
   border-radius: 8px;
   background: var(--interactive-normal);
@@ -4398,15 +4404,15 @@
   bottom: calc(100% + 6px);
   left: 0;
   z-index: 100;
-  width: min(260px, calc(100vw - 32px));
-  padding: 6px;
+  width: min(236px, calc(100vw - 32px));
+  padding: 4px;
   border: 1px solid var(--background-modifier-border);
-  border-radius: 10px;
+  border-radius: 9px;
   background: var(--background-primary);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 .llm-bridge-perm-popover[hidden] {
   display: none;
@@ -4415,10 +4421,13 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
-  padding: 6px 8px;
+  width: 100%;
+  padding: 5px 7px;
   border-radius: 6px;
   cursor: pointer;
   border: 1px solid transparent;
+  background: transparent;
+  text-align: left;
 }
 .llm-bridge-perm-option:hover {
   background: var(--background-modifier-hover);
@@ -4429,9 +4438,9 @@
 }
 .llm-bridge-perm-option-icon {
   flex-shrink: 0;
-  width: 18px;
+  width: 16px;
   text-align: center;
-  font-size: 14px;
+  font-size: 13px;
   margin-top: 1px;
 }
 .llm-bridge-perm-option-text {
@@ -4444,7 +4453,7 @@
   color: var(--text-normal);
 }
 .llm-bridge-perm-option-desc {
-  font-size: 10px;
+  font-size: 9px;
   color: var(--text-muted);
   line-height: 1.3;
   margin-top: 1px;
@@ -4756,6 +4765,130 @@
 .llm-bridge-timeline-body {
   margin-top: 0;
   padding: 6px 10px 9px;
+}
+
+.llm-bridge-turn-section-label {
+  margin: 2px 0 6px;
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.llm-bridge-turn-approvals {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.llm-bridge-turn-approval-card {
+  padding: 7px 8px;
+  border: 1px solid var(--llm-agent-line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--llm-agent-surface-raised) 82%, transparent);
+}
+
+.llm-bridge-turn-approval-card.is-risk-medium {
+  border-left: 2px solid color-mix(in srgb, var(--llm-agent-warning) 72%, transparent);
+}
+
+.llm-bridge-turn-approval-card.is-risk-high {
+  border-left: 2px solid color-mix(in srgb, var(--llm-agent-danger) 82%, transparent);
+  background: color-mix(in srgb, var(--llm-agent-danger) 6%, var(--llm-agent-surface-raised));
+}
+
+.llm-bridge-turn-approval-row,
+.llm-bridge-turn-approval-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.llm-bridge-turn-approval-title,
+.llm-bridge-turn-approval-detail-item {
+  font-family: var(--font-monospace);
+}
+
+.llm-bridge-turn-approval-title {
+  min-width: 0;
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  font-weight: 600;
+}
+
+.llm-bridge-turn-approval-risk {
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 600;
+  background: color-mix(in srgb, var(--background-secondary) 72%, transparent);
+  color: var(--text-muted);
+}
+
+.llm-bridge-turn-approval-risk.is-medium {
+  color: var(--llm-agent-warning);
+}
+
+.llm-bridge-turn-approval-risk.is-high {
+  color: var(--llm-agent-danger);
+}
+
+.llm-bridge-turn-approval-actions {
+  margin-top: 6px;
+}
+
+.llm-bridge-turn-approval-btn {
+  padding: 3px 9px;
+  border: 1px solid var(--llm-agent-line);
+  border-radius: 999px;
+  background: var(--llm-agent-surface);
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  line-height: 1.3;
+}
+
+.llm-bridge-turn-approval-btn:hover {
+  border-color: rgba(var(--interactive-accent-rgb), 0.35);
+  background: var(--background-modifier-hover);
+}
+
+.llm-bridge-turn-approval-btn.is-allow-session {
+  color: var(--llm-agent-success);
+}
+
+.llm-bridge-turn-approval-btn.is-deny {
+  color: var(--llm-agent-danger);
+}
+
+.llm-bridge-turn-approval-details {
+  margin-top: 4px;
+}
+
+.llm-bridge-turn-approval-details-toggle {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.llm-bridge-turn-approval-details-body {
+  display: grid;
+  gap: 3px;
+  margin-top: 5px;
+  padding-top: 5px;
+  border-top: 1px dashed var(--llm-agent-line);
+}
+
+.llm-bridge-turn-approval-detail-item {
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.35;
+  word-break: break-word;
 }
 
 .llm-bridge-timeline-final,

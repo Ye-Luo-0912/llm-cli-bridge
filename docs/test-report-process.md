@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-03T16:53:33.131Z
-- **测试环境**: win32 / Node.js v24.14.0
+- **测试时间**: 2026-07-03T17:34:34.184Z
+- **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.16.0
-- **main.js 大小**: 661.4 KB
-- **Vault 路径**: `C:\Users\Ye_Luo\.trae-cn\worktrees\llm-cli-bridge\Obsidian\LLM-Wiki`
-- **bridge.json 存在**: 否
-- **HTTP 端口**: N/A
-- **commit sha**: 0f5ad33901957adb83a8008848a1b1879376f95f
-- **commit 短 sha**: 0f5ad3390195
+- **main.js 大小**: 618.3 KB
+- **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
+- **bridge.json 存在**: 是
+- **HTTP 端口**: 60586
+- **commit sha**: 6a59b57079b92f9571191623afca1273c42cb574
+- **commit 短 sha**: 6a59b57079b9
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
 
-- ✅ **通过**: 92
+- ✅ **通过**: 95
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 57
+- ⏭️ **跳过**: 56
 - ⚪ **需人工验证**: 0
-- **总计**: 149
+- **总计**: 151
 
 ### 审计模式说明
 
@@ -103,7 +103,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | 生成运行前快照 | 文件数: 0（空 vault，快照机制由 diff 测试验证） |
+| ✅ | 生成运行前快照 | 文件数: 30 |
 
 ### diff
 
@@ -515,6 +515,18 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | 用户态隐藏 raw log/command | - |
+
+### V16.4-D permission popover
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | pointerdown 排除 chip/popover，且 next-round setting 不受 runHandle 阻塞 | pointerGuard=true setMode=true |
+
+### V16.4-D permission UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | turn 内紧凑审批卡片 + developerMode 才显示旧 panel | - |
 
 ### V2.16-H timeline
 

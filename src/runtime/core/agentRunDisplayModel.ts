@@ -28,6 +28,7 @@ export type AgentRunCardKind =
   | "debug-raw-event";
 
 export type AgentRunCardStatus = "running" | "completed" | "failed" | "pending" | "idle";
+export type FinalAnswerDisposition = "completed" | "needs-input" | "needs-approval" | "answered" | "failed";
 
 export interface AgentRunCardBase {
   id: string;
@@ -72,11 +73,16 @@ export interface FileChangeCard extends AgentRunCardBase {
 
 export interface ApprovalCard extends AgentRunCardBase {
   kind: "approval";
+  requestId: string;
   toolName: string;
+  label: string;
   description: string;
   riskLevel: "low" | "medium" | "high";
   riskReason?: string;
+  highRiskFlags?: ReadonlyArray<string>;
   inputSummary?: string;
+  mergeKey?: string;
+  subagentRisk?: string;
   resolution?: ApprovalResponse;
   resolutionSource?: "user" | "session_allow" | "session_deny" | "mode";
   pending: boolean;
@@ -155,6 +161,8 @@ export interface AgentRunDebugView {
 export interface AgentRunDisplayModel {
   /** 摘要头：如 "过程 · 运行中 · 2 tools · 3 file changes · 30s" */
   header: string;
+  /** 最终回答落点：完成/需确认/需授权/普通回答/失败 */
+  finalAnswerDisposition: FinalAnswerDisposition;
   /** 最终答案（普通用户态主内容） */
   finalAnswer: string;
   /** 当前活动摘要（运行中时显示，如 "运行中: Read file..."） */
@@ -256,6 +264,75 @@ export function toolDisplayLabel(toolName: string, toolInput?: string): string {
   return toolName;
 }
 
+function extractApprovalPath(inputSummary?: string): string | null {
+  if (!inputSummary) return null;
+  const match = inputSummary.match(/(?:^|\|\s*)(?:file|path|notebook):\s*([^|]+)/i);
+  if (!match?.[1]) return null;
+  return match[1].trim();
+}
+
+export function approvalDisplayLabel(toolName: string, inputSummary?: string, description?: string): string {
+  const path = extractApprovalPath(inputSummary);
+  if (path) {
+    return toolDisplayLabel(toolName, JSON.stringify({ path }));
+  }
+  const toolLabel = toolDisplayLabel(toolName);
+  if (toolLabel !== toolName) return toolLabel;
+  if (description && description.length <= 80 && !/^tool:\s*/i.test(description)) return description;
+  return toolName;
+}
+
+function looksLikeNeedsInput(finalAnswer: string): boolean {
+  const trimmed = finalAnswer.trim();
+  if (!trimmed) return false;
+  const explicitPatterns = [
+    /我需要你确认/u,
+    /需要你确认/u,
+    /请确认/u,
+    /请先确认/u,
+    /请选择/u,
+    /请告诉我/u,
+    /告诉我你/u,
+    /你希望我/u,
+    /please confirm/i,
+    /confirm (?:which|whether|if)/i,
+    /choose (?:one|an option)/i,
+    /which (?:one|option|file|path)/i,
+    /what would you like/i,
+    /let me know/i,
+  ];
+  if (explicitPatterns.some((pattern) => pattern.test(trimmed))) return true;
+  const lastLine = trimmed.split(/\r?\n/).filter(Boolean).pop() ?? trimmed;
+  return /[?？]\s*$/.test(lastLine) && /(你|your|you|which|what|whether|要|希望|选择|确认)/i.test(lastLine);
+}
+
+function buildFileChangeSummary(
+  fileChanges: ReadonlyArray<{ action: "create" | "modify" | "delete" }>,
+): string {
+  const created = fileChanges.filter((fc) => fc.action === "create").length;
+  const edited = fileChanges.filter((fc) => fc.action === "modify").length;
+  const deleted = fileChanges.filter((fc) => fc.action === "delete").length;
+  if (created > 0 && edited === 0 && deleted === 0) {
+    return `Created ${created} file${created > 1 ? "s" : ""}`;
+  }
+  if (created === 0 && edited > 0 && deleted === 0) {
+    return `Edited ${edited} file${edited > 1 ? "s" : ""}`;
+  }
+  if (created === 0 && edited === 0 && deleted > 0) {
+    return `Deleted ${deleted} file${deleted > 1 ? "s" : ""}`;
+  }
+  return `Created/Edited +${created + edited} -${deleted}`;
+}
+
+export function inferFinalAnswerDisposition(turnView: AssistantTurnView): FinalAnswerDisposition {
+  if (turnView.status === "failed") return "failed";
+  if (turnView.approvals.some((a) => a.pending)) return "needs-approval";
+  if (looksLikeNeedsInput(turnView.finalAnswer)) return "needs-input";
+  if (turnView.fileChanges.length > 0) return "completed";
+  if (turnView.finalAnswer.trim().length > 0) return "answered";
+  return "completed";
+}
+
 /**
  * V16.4-D: 解释自动批准来源 — 当 editing tool 完成且无 pending approval 时，说明为何未弹窗。
  *
@@ -343,6 +420,7 @@ export function buildAgentRunDisplayModel(
   const warningCount = turnView.warnings.length;
   const errorCount = turnView.errors.length;
   const dur = options.durationMs ?? turnView.durationMs;
+  const finalAnswerDisposition = inferFinalAnswerDisposition(turnView);
 
   // V16.4: 构建 lifecycle events + phase model（普通用户态主链路）
   // 优先使用 provider-native lifecycleEvents（由 AssistantTurnViewBuilder 从 NormalizedRuntimeEvent 派生）；
@@ -367,23 +445,24 @@ export function buildAgentRunDisplayModel(
     // V16.4-C: running header 优先使用 phaseModel.currentActivity（具体阶段标签，如 "Reading AGENTS.md"），
     // 不再使用旧的 runningTool -> toolToActivity 泛化状态（如 "Reading files"）。
     if (pendingApproval) {
-      headerParts.push("Waiting approval");
+      headerParts.push("Needs approval");
     } else {
       headerParts.push(phaseModel.currentActivity || "Thinking");
     }
     if (durSecs > 0) headerParts.push(`${durSecs}s`);
   } else if (turnView.status === "completed") {
-    // P4-D: Completed 轻量摘要 —— 仅显示高价值信息（文件变化、耗时）。
-    // 无文件变化时：有耗时显示 "Xs"，无耗时则 header 留空（不显示 "Done"）。
-    const summaryParts: string[] = [];
-    if (fileChangeCount > 0) summaryParts.push(`Edited ${fileChangeCount} file${fileChangeCount > 1 ? "s" : ""}`);
-    if (summaryParts.length > 0) {
-      headerParts.push(summaryParts.join(" · "));
-      if (durSecs > 0) headerParts.push(`${durSecs}s`);
-    } else if (durSecs > 0) {
-      headerParts.push(`${durSecs}s`);
+    if (finalAnswerDisposition === "needs-approval") {
+      headerParts.push("Needs approval");
+    } else if (finalAnswerDisposition === "needs-input") {
+      headerParts.push("Needs input");
+    } else if (finalAnswerDisposition === "answered") {
+      headerParts.push("Answered");
+    } else if (fileChangeCount > 0) {
+      headerParts.push(buildFileChangeSummary(turnView.fileChanges));
+    } else {
+      headerParts.push("Completed");
     }
-    // else: 无文件变化且无耗时 → headerParts 留空，不显示 "Done"
+    if (durSecs > 0) headerParts.push(`${durSecs}s`);
   } else if (turnView.status === "failed") {
     headerParts.push("Failed");
     if (durSecs > 0) headerParts.push(`${durSecs}s`);
@@ -401,7 +480,7 @@ export function buildAgentRunDisplayModel(
   let currentActivity = "";
   if (isRunning) {
     if (pendingApproval) {
-      currentActivity = "Waiting approval";
+      currentActivity = "Needs approval";
     } else {
       currentActivity = phaseModel.currentActivity || "Thinking";
     }
@@ -460,19 +539,25 @@ export function buildAgentRunDisplayModel(
   // resolved approvals → ApprovalCard（timeline）
   for (const ap of turnView.approvals) {
     if (ap.pending) continue;
+    const label = approvalDisplayLabel(ap.toolName, ap.inputSummary, ap.description);
     timelineCards.push({
       id: `approval-resolved-${ap.requestId}`,
       kind: "approval",
-      title: `权限: ${ap.toolName}`,
+      title: `权限: ${label}`,
       status: "completed",
       summary: buildApprovalResolutionSummary(ap.resolution, ap.resolutionSource),
       detail: ap.inputSummary,
       timestamp: undefined,
+      requestId: ap.requestId,
       toolName: ap.toolName,
+      label,
       description: ap.description,
       riskLevel: ap.riskLevel,
       riskReason: ap.riskReason,
+      highRiskFlags: ap.highRiskFlags,
       inputSummary: ap.inputSummary,
+      mergeKey: ap.mergeKey,
+      subagentRisk: ap.subagentRisk,
       resolution: ap.resolution,
       resolutionSource: ap.resolutionSource,
       pending: false,
@@ -499,19 +584,25 @@ export function buildAgentRunDisplayModel(
   const approvalCards: ApprovalCard[] = [];
   for (const ap of turnView.approvals) {
     if (!ap.pending) continue;
+    const label = approvalDisplayLabel(ap.toolName, ap.inputSummary, ap.description);
     approvalCards.push({
       id: `approval-pending-${ap.requestId}`,
       kind: "approval",
-      title: `权限请求: ${ap.toolName}`,
+      title: label,
       status: "pending",
-      summary: ap.description,
+      summary: label,
       detail: ap.inputSummary,
       timestamp: undefined,
+      requestId: ap.requestId,
       toolName: ap.toolName,
+      label,
       description: ap.description,
       riskLevel: ap.riskLevel,
       riskReason: ap.riskReason,
+      highRiskFlags: ap.highRiskFlags,
       inputSummary: ap.inputSummary,
+      mergeKey: ap.mergeKey,
+      subagentRisk: ap.subagentRisk,
       resolution: undefined,
       resolutionSource: undefined,
       pending: true,
@@ -566,6 +657,7 @@ export function buildAgentRunDisplayModel(
 
   return {
     header,
+    finalAnswerDisposition,
     finalAnswer: turnView.finalAnswer,
     currentActivity,
     phaseModel,
