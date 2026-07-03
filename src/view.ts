@@ -562,9 +562,6 @@ export class LLMBridgeView extends ItemView {
     this.messagesEl = chatPanel.createDiv({ cls: "llm-bridge-messages" });
     this.renderEmptyState();
 
-    // V2.3s: 权限请求面板（运行中实时展示 pending 权限请求，用户点击允许/拒绝）
-    this.permissionPanelEl = chatPanel.createDiv({ cls: "llm-bridge-perm-panel" });
-    this.permissionPanelEl.style.display = "none";
     // V2.14.0-E: 外部读取授权请求面板（只管理授权，不读取文件内容）
     this.externalReadPanelEl = filesPanel.createDiv({ cls: "llm-bridge-external-read-panel" });
     this.externalReadPanelEl.style.display = "none";
@@ -591,6 +588,10 @@ export class LLMBridgeView extends ItemView {
         this.contextDetailEl.setAttribute("hidden", "");
       }
     });
+
+    // Pending approvals live next to the composer, not inside assistant output.
+    this.permissionPanelEl = chatPanel.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" });
+    this.permissionPanelEl.style.display = "none";
 
     // ===== 底部 composer =====
     const composer = chatPanel.createDiv({ cls: "llm-bridge-composer" });
@@ -1514,31 +1515,24 @@ export class LLMBridgeView extends ItemView {
   }
 
   // V2.3s: 刷新权限请求面板（实时展示 pending 权限请求）
-  // V16.4-D: 低风险 approval 嵌入当前 phase 为内联 chips，大面板仅高风险时显示
+  // V16.4-E: approval 决策固定在 composer 上方，assistant turn 只展示状态。
   private refreshPermissionPanel(): void {
     const panel = this.permissionPanelEl;
     panel.empty();
 
-    if (!this.plugin.settings.developerMode || this.pendingPermissions.size === 0) {
-      panel.style.display = "none";
-      return;
-    }
-
-    // V16.4-D: 检查是否所有 pending 都为低风险 — 低风险已嵌入 phase 内联 chips，不显示大面板
-    const allLowRisk = Array.from(this.pendingPermissions.values()).every(
-      (ev) => (ev.riskLevel ?? "low") === "low",
-    );
-    if (allLowRisk) {
+    if (this.pendingPermissions.size === 0) {
       panel.style.display = "none";
       return;
     }
 
     panel.style.display = "block";
 
-    // 标题
     const header = panel.createDiv({ cls: "llm-bridge-perm-panel-header" });
-    header.createEl("span", { cls: "llm-bridge-perm-panel-title", text: "SDK permission audit" });
-    header.createEl("span", { cls: "llm-bridge-perm-panel-count", text: `${this.pendingPermissions.size} pending` });
+    const title = header.createDiv({ cls: "llm-bridge-perm-panel-title" });
+    const titleIcon = title.createEl("span", { cls: "llm-bridge-perm-panel-title-icon" });
+    setIcon(titleIcon, "shield");
+    title.createEl("span", { text: "Needs approval" });
+    header.createEl("span", { cls: "llm-bridge-perm-panel-count", text: `${this.pendingPermissions.size}` });
 
     // 按 mergeKey 合并展示（相同工具+风险+路径前缀合并）
     const mergeGroups = new Map<string, PermissionEvent[]>();
@@ -1550,58 +1544,49 @@ export class LLMBridgeView extends ItemView {
 
     for (const [, group] of mergeGroups) {
       const first = group[0];
-      const card = panel.createDiv({ cls: `llm-bridge-perm-card is-risk-${first.riskLevel ?? "low"}` });
+      const riskLevel = first.riskLevel ?? "low";
+      const inputSummary = this.sanitizeUserFacingSummaryText(first.inputSummary);
+      const label = approvalDisplayLabel(first.toolName, inputSummary, first.description);
+      const card = panel.createDiv({ cls: `llm-bridge-perm-card is-risk-${riskLevel}` });
 
-      // 工具名 + 来源 agent
       const cardHeader = card.createDiv({ cls: "llm-bridge-perm-card-header" });
-      cardHeader.createEl("span", { cls: "llm-bridge-perm-card-tool", text: first.toolName });
+      const toolIcon = cardHeader.createEl("span", { cls: "llm-bridge-perm-card-icon" });
+      setIcon(toolIcon, riskLevel === "high" ? "alert-triangle" : "shield");
+      cardHeader.createEl("span", { cls: "llm-bridge-perm-card-tool", text: label });
       if (first.parentToolUseId) {
         cardHeader.createEl("span", { cls: "llm-bridge-perm-card-source is-subagent", text: "Subagent", attr: { title: `parent: ${first.parentToolUseId}` } });
-      } else {
-        cardHeader.createEl("span", { cls: "llm-bridge-perm-card-source is-main", text: "Main agent" });
       }
       if (group.length > 1) {
         cardHeader.createEl("span", { cls: "llm-bridge-perm-card-merge-count", text: `×${group.length}` });
-      }
-
-      // 风险等级 + 风险说明
-      const riskEl = card.createDiv({ cls: "llm-bridge-perm-card-risk" });
-      riskEl.createEl("span", { cls: `llm-bridge-perm-risk-level is-${first.riskLevel ?? "low"}`, text: first.riskLevel ?? "low" });
-      if (first.riskReason) {
-        riskEl.createEl("span", { cls: "llm-bridge-perm-risk-reason", text: first.riskReason });
-      }
-
-      // 高风险标记（明确提示）
-      if (first.highRiskFlags && first.highRiskFlags.length > 0) {
-        const flagsEl = card.createDiv({ cls: "llm-bridge-perm-card-flags" });
-        flagsEl.createEl("span", { cls: "llm-bridge-perm-flags-label", text: "高风险：" });
-        for (const flag of first.highRiskFlags) {
-          flagsEl.createEl("span", { cls: "llm-bridge-perm-flag", text: flag });
-        }
-      }
-
-      // 参数摘要
-      if (first.inputSummary) {
-        card.createDiv({ cls: "llm-bridge-perm-card-input", text: first.inputSummary, attr: { title: first.inputSummary } });
-      }
-
-      // subagent 权限继承风险提示
-      if (first.subagentRisk) {
-        card.createDiv({ cls: "llm-bridge-perm-card-subagent-warn", text: first.subagentRisk });
       }
 
       // 决策按钮（允许一次 / 本会话允许 / 拒绝）
       const btns = card.createDiv({ cls: "llm-bridge-perm-card-btns" });
       const requestIds = group.map((g) => g.requestId!).filter(Boolean);
 
-      const allowOnceBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-allow-once", text: "允许一次" });
+      const allowOnceBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-allow-once", text: "Allow once" });
       allowOnceBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "allow_once"));
 
-      const allowSessionBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-allow-session", text: "本会话允许" });
+      const allowSessionBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-allow-session", text: "Allow session" });
       allowSessionBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "allow_session"));
 
-      const denyBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-deny", text: "拒绝" });
+      const denyBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-deny", text: "Deny" });
       denyBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "deny_session"));
+
+      if (inputSummary || first.riskReason || first.subagentRisk || (first.highRiskFlags && first.highRiskFlags.length > 0)) {
+        const details = card.createEl("details", { cls: "llm-bridge-perm-card-details" });
+        details.createEl("summary", { text: "Details" });
+        const detailBody = details.createDiv({ cls: "llm-bridge-perm-card-details-body" });
+        if (first.riskReason) detailBody.createDiv({ cls: "llm-bridge-perm-card-detail-line", text: first.riskReason });
+        if (first.highRiskFlags && first.highRiskFlags.length > 0) {
+          detailBody.createDiv({ cls: "llm-bridge-perm-card-detail-line", text: `High risk: ${first.highRiskFlags.join(", ")}` });
+        }
+        if (inputSummary) detailBody.createDiv({ cls: "llm-bridge-perm-card-detail-line", text: inputSummary, attr: { title: inputSummary } });
+        if (first.subagentRisk) detailBody.createDiv({ cls: "llm-bridge-perm-card-detail-line", text: first.subagentRisk });
+        if (this.plugin.settings.developerMode) {
+          detailBody.createDiv({ cls: "llm-bridge-perm-card-detail-line", text: `tool: ${first.toolName}` });
+        }
+      }
     }
   }
 
@@ -3382,58 +3367,6 @@ export class LLMBridgeView extends ItemView {
 
     for (const req of phase.userInputRequests) {
       this.renderPhaseUserInputRequest(body, req);
-    }
-
-    // V16.4-D: approvals — 低风险嵌入当前 phase 为内联 chips（不常驻大面板）
-    // 高风险显示强调样式；详细信息折叠到 Details
-    for (const ap of phase.approvals) {
-      const isHighRisk = ap.riskLevel === "high";
-      const inputSummary = this.sanitizeUserFacingSummaryText(ap.inputSummary);
-      const approvalLabel = approvalDisplayLabel(ap.toolName, inputSummary, ap.description);
-      const apEl = body.createDiv({ cls: `llm-bridge-phase-approval is-risk-${ap.riskLevel} ${ap.pending ? "is-pending" : "is-resolved"}` });
-      const apRow = apEl.createDiv({ cls: "llm-bridge-phase-approval-row" });
-      const apHead = apRow.createDiv({ cls: "llm-bridge-phase-approval-head" });
-      apHead.createEl("span", { cls: "llm-bridge-phase-approval-tool", text: approvalLabel });
-      if (ap.pending) {
-        if (isHighRisk) {
-          apHead.createEl("span", { cls: "llm-bridge-phase-approval-risk", text: "High risk" });
-        }
-        // 内联决策按钮：[Allow once] [Allow session] [Deny]
-        const btns = apRow.createDiv({ cls: "llm-bridge-phase-approval-btns" });
-        const allowOnce = btns.createEl("button", { cls: "llm-bridge-approval-btn is-allow-once", text: "Allow once" });
-        allowOnce.addEventListener("click", (e) => {
-          e.stopPropagation();
-          this.resolvePermissionRequests([ap.requestId], "allow_once");
-        });
-        const allowSession = btns.createEl("button", { cls: "llm-bridge-approval-btn is-allow-session", text: "Allow session" });
-        allowSession.addEventListener("click", (e) => {
-          e.stopPropagation();
-          this.resolvePermissionRequests([ap.requestId], "allow_session");
-        });
-        const deny = btns.createEl("button", { cls: "llm-bridge-approval-btn is-deny", text: "Deny" });
-        deny.addEventListener("click", (e) => {
-          e.stopPropagation();
-          this.resolvePermissionRequests([ap.requestId], "deny_session");
-        });
-        // 详细信息折叠到 Details（默认折叠；高风险仅样式强调）
-        if (inputSummary || ap.riskReason || (ap.highRiskFlags && ap.highRiskFlags.length > 0)) {
-          const details = apEl.createEl("details", { cls: "llm-bridge-phase-approval-details" });
-          details.createEl("summary", { text: "Details" });
-          if (ap.riskReason) details.createDiv({ cls: "llm-bridge-phase-approval-risk-reason", text: ap.riskReason });
-          if (ap.highRiskFlags && ap.highRiskFlags.length > 0) {
-            details.createDiv({ cls: "llm-bridge-phase-approval-flags", text: `高风险: ${ap.highRiskFlags.join(", ")}` });
-          }
-          if (inputSummary) details.createDiv({ cls: "llm-bridge-phase-approval-input", text: inputSummary });
-        }
-      } else {
-        // 已解决：显示简洁标签
-        const resolutionLabel = ap.resolution?.type === "accept" ? "approved"
-          : ap.resolution?.type === "acceptForSession" ? "approved (session)"
-          : ap.resolution?.type === "decline" ? "denied"
-          : ap.resolution?.type === "cancel" ? "cancelled"
-          : "resolved";
-        apHead.createEl("span", { cls: "llm-bridge-phase-approval-resolution", text: resolutionLabel });
-      }
     }
 
     // 折叠交互

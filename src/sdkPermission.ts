@@ -124,6 +124,22 @@ const MEDIUM_RISK_TOOL_NAMES: ReadonlySet<string> = new Set([
   "NotebookEdit",
 ]);
 
+const USER_INPUT_TOOL_NAMES: ReadonlySet<string> = new Set([
+  "AskUserQuestion",
+  "request_user_input",
+]);
+
+/**
+ * Claude SDK 内部的用户询问工具。
+ *
+ * 这类工具不是权限请求，不应进入 approval UI；实际用户输入由 assistant 正文
+ * 或 provider-native user input 通道承载。
+ */
+export function isSdkUserInputTool(toolName: string): boolean {
+  const normalized = toolName.trim();
+  return USER_INPUT_TOOL_NAMES.has(normalized) || normalized.toLowerCase() === "askuserquestion";
+}
+
 /** 敏感目录关键词（Vault 外/.obsidian/env 等） */
 const SENSITIVE_PATH_PATTERNS: ReadonlyArray<{ re: RegExp; flag: string }> = [
   { re: /^\/(?:Users|home|tmp|var|etc|opt|usr)\//i, flag: "Vault 外绝对路径" },

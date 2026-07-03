@@ -128,6 +128,7 @@ export function toolToPhaseType(toolName: string): RunPhaseType {
 export function isUserVisibleTool(toolName: string): boolean {
   const n = toolName.toLowerCase();
   if (n.includes("taskcreate") || n.includes("taskupdate") || n.includes("todowrite") || n.includes("todo_write")) return false;
+  if (n === "askuserquestion" || n === "request_user_input") return false;
   if (n === "preparing tool input" || n.includes("preparing_tool_input") || n.includes("preparingtoolinput")) return false;
   return true;
 }

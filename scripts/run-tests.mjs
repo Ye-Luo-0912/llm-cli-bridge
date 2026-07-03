@@ -1820,11 +1820,12 @@ if (runMode !== "all" && runMode !== "unit") {
       const taskCreateVisible = isUserVisibleTool("TaskCreate");
       const taskUpdateVisible = isUserVisibleTool("TaskUpdate");
       const todoWriteVisible = isUserVisibleTool("TodoWrite");
+      const askUserQuestionVisible = isUserVisibleTool("AskUserQuestion");
       const planningType = toolToPhaseType("TaskCreate");
-      const hideOk = !taskCreateVisible && !taskUpdateVisible && !todoWriteVisible && planningType === "planning";
-      addTest("V16.4 RunPhaseModel: TaskCreate/TaskUpdate/TodoWrite 聚合为 planning（普通用户态不可见）",
+      const hideOk = !taskCreateVisible && !taskUpdateVisible && !todoWriteVisible && !askUserQuestionVisible && planningType === "planning";
+      addTest("V16.4 RunPhaseModel: TaskCreate/TaskUpdate/TodoWrite/AskUserQuestion 普通用户态不可见",
         hideOk ? "pass" : "fail",
-        hideOk ? "" : `TaskCreate=${taskCreateVisible} TaskUpdate=${taskUpdateVisible} TodoWrite=${todoWriteVisible} planningType=${planningType}`);
+        hideOk ? "" : `TaskCreate=${taskCreateVisible} TaskUpdate=${taskUpdateVisible} TodoWrite=${todoWriteVisible} AskUserQuestion=${askUserQuestionVisible} planningType=${planningType}`);
 
       // --- Test G: phaseLabel 生成合理标签 ---
       const labelRead = phaseLabel("reading", { callId: "c", toolName: "Read", toolInput: '{"file_path":"AGENTS.md"}', startTime: ts(0), isError: false, status: "done", progress: [] });
@@ -6849,6 +6850,7 @@ if (!runV23sUnit) {
       buildRequestMergeKey,
       assessSubagentPermissionRisk,
       extractToolPathPattern,
+      isSdkUserInputTool,
     } = await import(pathToFileURL(sdkPermBundleV23s).href);
     const { SdkBackend, createPermissionState, summarizeToolInput } = await import(pathToFileURL(sdkBackendBundleV23s).href);
     const { redactWorkflowEvent } = await import(pathToFileURL(workflowEventBundleV23s).href);
@@ -6892,6 +6894,19 @@ if (!runV23sUnit) {
     }
 
     // ===== assessToolRisk 工具风险分级 =====
+
+    // ---- Test 3b: SDK 用户询问工具不进入 permission approval ----
+    {
+      const askOk = isSdkUserInputTool("AskUserQuestion");
+      const snakeOk = isSdkUserInputTool("request_user_input");
+      const readOk = !isSdkUserInputTool("Read");
+      const sdkSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
+      const bypassOk = sdkSrc.includes("if (isSdkUserInputTool(toolName))")
+        && sdkSrc.includes('return { behavior: "allow", updatedInput: input };');
+      addTest("V16.4-D SDK canUseTool: AskUserQuestion 作为用户询问工具放行，不进入 permission UI",
+        askOk && snakeOk && readOk && bypassOk ? "pass" : "fail",
+        `ask=${askOk} snake=${snakeOk} read=${readOk} bypass=${bypassOk}`);
+    }
 
     // ---- Test 4: assessToolRisk 低/中/高 ----
     {
@@ -14477,23 +14492,31 @@ if (!runNoteSummarizeSmoke) {
       `pointerGuard=${pointerGuardOk} setMode=${setModeOk}`);
   }
 
-  // ---- Test 15c: SDK permission 改为 turn 内紧凑 approval UI，旧 panel 仅 developer mode ----
+  // ---- Test 15c: SDK permission 固定在 composer 上方 approval dock，不嵌入 assistant turn ----
   {
-    const ok = viewSrc.includes('wrap.setAttribute("data-final-answer-disposition", model.finalAnswerDisposition)')
-      && viewSrc.includes('const apEl = body.createDiv({ cls: `llm-bridge-phase-approval is-risk-${ap.riskLevel} ${ap.pending ? "is-pending" : "is-resolved"}` });')
-      && viewSrc.includes('const apRow = apEl.createDiv({ cls: "llm-bridge-phase-approval-row" });')
-      && viewSrc.includes('const btns = apRow.createDiv({ cls: "llm-bridge-phase-approval-btns" });')
-      && viewSrc.includes('const allowOnce = btns.createEl("button", { cls: "llm-bridge-approval-btn is-allow-once", text: "Allow once" });')
-      && viewSrc.includes('const allowSession = btns.createEl("button", { cls: "llm-bridge-approval-btn is-allow-session", text: "Allow session" });')
-      && viewSrc.includes('const deny = btns.createEl("button", { cls: "llm-bridge-approval-btn is-deny", text: "Deny" });')
+    const ok = viewSrc.includes('chatPanel.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" })')
+      && viewSrc.includes('title.createEl("span", { text: "Needs approval" });')
+      && viewSrc.includes('const allowOnceBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-allow-once", text: "Allow once" });')
+      && viewSrc.includes('const allowSessionBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-allow-session", text: "Allow session" });')
+      && viewSrc.includes('const denyBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-deny", text: "Deny" });')
       && viewSrc.includes('details.createEl("summary", { text: "Details" });')
-      && !viewSrc.includes('if (isHighRisk) details.setAttribute("open", "");')
-      && viewSrc.includes('if (!this.plugin.settings.developerMode || this.pendingPermissions.size === 0)')
+      && !viewSrc.includes('llm-bridge-phase-approval-btns')
+      && !viewSrc.includes('llm-bridge-approval-btn is-allow-once')
       && stylesSrc.includes(".llm-bridge-phase-approval")
-      && stylesSrc.includes(".llm-bridge-phase-approval-row")
-      && stylesSrc.includes(".llm-bridge-phase-approval-btns")
-      && stylesSrc.includes(".llm-bridge-phase-approval-details");
-    addTest("V16.4-D permission UI: phase 内紧凑审批 + developerMode 才显示旧 panel",
+      && stylesSrc.includes(".llm-bridge-perm-panel")
+      && stylesSrc.includes(".llm-bridge-perm-card-details");
+    addTest("V16.4-D permission UI: approval dock 固定在 composer 上方，assistant turn 不放决策按钮",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 15d: 用户气泡文本可直接选择复制，不新增复制按钮 ----
+  {
+    const ok = stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content")
+      && stylesSrc.includes("user-select: text;")
+      && stylesSrc.includes("cursor: text;")
+      && !viewSrc.includes("llm-bridge-user-copy")
+      && !stylesSrc.includes("llm-bridge-user-copy");
+    addTest("V16.4-D user bubble: 文本可选择复制且不新增复制按钮",
       ok ? "pass" : "fail", "");
   }
 

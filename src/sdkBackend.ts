@@ -50,6 +50,7 @@ import {
   createSessionDeny,
   buildRequestMergeKey,
   assessSubagentPermissionRisk,
+  isSdkUserInputTool,
   type PermissionChoice,
   type SessionPermissionAllow,
   type SessionPermissionDeny,
@@ -737,6 +738,10 @@ async function runRealSdkQuery(
       input: Record<string, unknown>,
       opts: { toolUseID?: string; description?: string; displayName?: string; sessionId?: string; parentToolUseId?: string },
     ): Promise<{ behavior: "allow" | "deny"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string }> => {
+      if (isSdkUserInputTool(toolName)) {
+        return { behavior: "allow", updatedInput: input };
+      }
+
       const mode = settings.claudePermissionMode ?? "default";
       const risk = assessToolRisk(toolName, input);
       const mergeKey = buildRequestMergeKey(toolName, risk, input);

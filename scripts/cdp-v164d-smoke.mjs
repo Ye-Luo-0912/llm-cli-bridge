@@ -257,6 +257,7 @@ async function approvalAndHeaderSmoke(client) {
         inputSummary: "file: _test_output.md | questions: [object Object], [object Object]",
         mergeKey: "Write:medium:_test_output.md",
       });
+      view.refreshPermissionPanel();
       const assistantId = view.appendAssistantPlaceholder();
       renderTurn(assistantId, "running", {
         turnId: "smoke-write",
@@ -283,10 +284,9 @@ async function approvalAndHeaderSmoke(client) {
         lifecycleEvents: [],
         startedAt: now(),
       }, "");
-      const writeBlockBefore = lastBlock();
-      const approvalCard = writeBlockBefore?.querySelector(".llm-bridge-phase-approval.is-pending");
+      const approvalCard = view.permissionPanelEl?.querySelector(".llm-bridge-perm-card");
       const approvalText = approvalCard ? approvalCard.textContent || "" : "";
-      const allowOnceBtn = approvalCard ? approvalCard.querySelector(".llm-bridge-approval-btn.is-allow-once") : null;
+      const allowOnceBtn = approvalCard ? approvalCard.querySelector(".llm-bridge-perm-btn.is-allow-once") : null;
       if (allowOnceBtn) allowOnceBtn.click();
       const resolved = !session.permission.pending.has(requestId) && !view.pendingPermissions.has(requestId);
       fs.writeFileSync(outputPath, "OK\\n", "utf8");
@@ -318,7 +318,7 @@ async function approvalAndHeaderSmoke(client) {
       const writeBlock = lastBlock();
       const writeHeader = writeBlock?.querySelector(".llm-bridge-timeline-summary")?.textContent || "";
       const writeDisposition = writeBlock?.querySelector(".llm-bridge-turn-view")?.getAttribute("data-final-answer-disposition") || "";
-      const approvalGone = !view.messagesEl.querySelector(".llm-bridge-phase-approval.is-pending");
+      const approvalGone = !view.permissionPanelEl?.querySelector(".llm-bridge-perm-card");
       const fileExists = fs.existsSync(outputPath);
       const userFacingText = writeBlock?.textContent || "";
 
