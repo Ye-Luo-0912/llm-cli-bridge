@@ -133,10 +133,10 @@ function parseCodexSmokeReport(path) {
 // ============================================================
 
 function classifyCurrentCommit(headSha) {
-  // parentSha
+  // parentSha（V16.3: Windows cmd 会把 ^ 当转义字符吃掉，改用 HEAD~1）
   let parentSha = null;
   try {
-    parentSha = execSync("git rev-parse HEAD^", { cwd: PROJECT_ROOT, encoding: "utf8" }).trim();
+    parentSha = execSync("git rev-parse HEAD~1", { cwd: PROJECT_ROOT, encoding: "utf8" }).trim();
   } catch {
     // 无 parent（初始 commit / shallow clone）→ 无法判定 docs-only，退化为 code commit
   }
@@ -145,7 +145,7 @@ function classifyCurrentCommit(headSha) {
   let changedFiles = [];
   if (parentSha) {
     try {
-      const out = execSync("git diff --name-only HEAD^ HEAD", { cwd: PROJECT_ROOT, encoding: "utf8" });
+      const out = execSync("git diff --name-only HEAD~1 HEAD", { cwd: PROJECT_ROOT, encoding: "utf8" });
       changedFiles = out.split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
     } catch {
       // diff 失败 → 退化为 code commit

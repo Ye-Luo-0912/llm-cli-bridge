@@ -8,14 +8,14 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-03T11:31:32.021Z
-- **reportCommitSha**: 869ca6010cf84627060c958aba8d7f75c5dca75a
-- **reportCommitSha 短**: 869ca6010cf8
+- **生成时间**: 2026-07-03T11:33:05.178Z
+- **reportCommitSha**: 863048bf9a2b6f67152ff83b0b73521b5e65434b
+- **reportCommitSha 短**: 863048bf9a2b
 - **reportParentSha**: 869ca6010cf84627060c958aba8d7f75c5dca75a
 - **reportParentSha 短**: 869ca6010cf8
 - **testedCodeCommitSha**: 869ca6010cf84627060c958aba8d7f75c5dca75a
 - **testedCodeCommitSha 短**: 869ca6010cf8
-- **commitKind**: code commit（报告证明当前 HEAD）
+- **commitKind**: docs-only（报告证明父 commit 代码）
 - **unitReportCommitSha**: 869ca6010cf84627060c958aba8d7f75c5dca75a
 - **processReportCommitSha**: 869ca6010cf84627060c958aba8d7f75c5dca75a
 - **codexSmokeStatus**: skip
@@ -32,8 +32,8 @@
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=869ca6010cf8。
-- **当前 commit 改动文件**：(无改动 / 无法获取)
+- **本次判定**：docs-only（报告证明父 commit 代码）；testedCodeCommitSha=869ca6010cf8。
+- **当前 commit 改动文件**：docs/test-report-process.md, docs/test-report-summary.md, docs/test-report-unit.md
 
 ## 主线结论
 
