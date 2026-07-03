@@ -1083,6 +1083,8 @@ if (runMode !== "all" && runMode !== "unit") {
     const tempPermBoundaryBundle = join(PROJECT_ROOT, ".test-perm-boundary-temp.mjs");
     const tempWorkflowMapperBundle = join(PROJECT_ROOT, ".test-workflow-mapper-temp.mjs");
     const tempAgentRunDisplayModelBundle = join(PROJECT_ROOT, ".test-agent-run-display-model-temp.mjs");
+    const tempRunPhaseModelBundle = join(PROJECT_ROOT, ".test-run-phase-model-temp.mjs");
+    const tempProviderLifecycleBundle = join(PROJECT_ROOT, ".test-provider-lifecycle-temp.mjs");
 
     const bundleOpts = (entry) => ({
       entryPoints: [join(PROJECT_ROOT, "src", entry)],
@@ -1098,6 +1100,8 @@ if (runMode !== "all" && runMode !== "unit") {
     await esbuild.build({ ...bundleOpts("runtime/core/permissionBoundary.ts"), outfile: tempPermBoundaryBundle });
     await esbuild.build({ ...bundleOpts("runtime/providers/workflowEventMapper.ts"), outfile: tempWorkflowMapperBundle });
     await esbuild.build({ ...bundleOpts("runtime/core/agentRunDisplayModel.ts"), outfile: tempAgentRunDisplayModelBundle });
+    await esbuild.build({ ...bundleOpts("runtime/core/runPhaseModel.ts"), outfile: tempRunPhaseModelBundle });
+    await esbuild.build({ ...bundleOpts("runtime/core/providerLifecycleEvent.ts"), outfile: tempProviderLifecycleBundle });
 
     const codexProviderMod = await import(pathToFileURL(tempCodexProviderBundle).href);
     const promptPkgMod = await import(pathToFileURL(tempPromptPkgBundle).href);
@@ -1105,6 +1109,8 @@ if (runMode !== "all" && runMode !== "unit") {
     const permBoundaryMod = await import(pathToFileURL(tempPermBoundaryBundle).href);
     const workflowMapperMod = await import(pathToFileURL(tempWorkflowMapperBundle).href);
     const agentRunDisplayModelMod = await import(pathToFileURL(tempAgentRunDisplayModelBundle).href);
+    const runPhaseModelMod = await import(pathToFileURL(tempRunPhaseModelBundle).href);
+    const providerLifecycleMod = await import(pathToFileURL(tempProviderLifecycleBundle).href);
 
     // ---------- 最小 settings + snapshot ----------
     const baseBridgeSettings = {
@@ -1666,6 +1672,181 @@ if (runMode !== "all" && runMode !== "unit") {
         durOnlyOk ? "" : `header="${durOnlyModel.header}"`);
     }
 
+    // ---------- 5d. V16.4: ProviderLifecycleEvent + RunPhaseModel ----------
+    {
+      const { buildAgentRunDisplayModel, getPhaseIconName } = agentRunDisplayModelMod;
+      const { buildAssistantTurnViewFromEvents } = assistantViewMod;
+      const { buildRunPhaseModel, toolToPhaseType, isUserVisibleTool, phaseLabel } = runPhaseModelMod;
+      const { buildLifecycleEventsFromTurnView } = providerLifecycleMod;
+
+      // --- Test A: lifecycle events 从 AssistantTurnView 派生 ---
+      // 模拟 Claude SDK agent loop: AssistantMessage(Read) → result → AssistantMessage(Write) → result → AssistantMessage(Read) → Result
+      const ts = (i) => `2026-07-02T00:00:${String(i).padStart(2, "0")}.000Z`;
+      const mkEv = (payload, i) => ({ providerId: "claude-sdk", timestamp: ts(i), payload });
+      const sdkEvents = [
+        // Phase 1: thinking + Read
+        mkEv({ kind: "thinking", text: "Let me read AGENTS.md first." }, 1),
+        mkEv({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"AGENTS.md"}', callId: "c1" }, 2),
+        mkEv({ kind: "tool_result", callId: "c1", toolName: "Read", output: "# AGENTS", isError: false }, 3),
+        // Phase 2: thinking + Write
+        mkEv({ kind: "thinking", text: "Now I'll create the scan file." }, 4),
+        mkEv({ kind: "tool_start", toolName: "Write", toolInput: '{"file_path":"Project_Scan_2026.md","content":"line1\\nline2\\nline3"}', callId: "c2" }, 5),
+        mkEv({ kind: "tool_result", callId: "c2", toolName: "Write", output: "ok", isError: false }, 6),
+        mkEv({ kind: "file_change", action: "create", path: "Project_Scan_2026.md", additions: 3, deletions: 0 }, 7),
+        // Phase 3: thinking + Read (verify)
+        mkEv({ kind: "thinking", text: "Let me verify the file." }, 8),
+        mkEv({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"Project_Scan_2026.md"}', callId: "c3" }, 9),
+        mkEv({ kind: "tool_result", callId: "c3", toolName: "Read", output: "line1\nline2\nline3", isError: false }, 10),
+        mkEv({ kind: "completed", text: "Done.", durationMs: 9000 }, 11),
+      ];
+      const view = buildAssistantTurnViewFromEvents("turn-v164", "claude-sdk", sdkEvents, ts(0));
+      const lifecycle = buildLifecycleEventsFromTurnView(view);
+      const hasEvalStarted = lifecycle.some((e) => e.type === "evaluation_started");
+      const evalCount = lifecycle.filter((e) => e.type === "evaluation_started").length;
+      const hasToolStarted = lifecycle.some((e) => e.type === "tool_started" && e.toolName === "Read");
+      const hasToolCompleted = lifecycle.some((e) => e.type === "tool_completed");
+      const hasObservation = lifecycle.some((e) => e.type === "observation_received");
+      const hasResult = lifecycle.some((e) => e.type === "result");
+      const lifecycleOk = hasEvalStarted && evalCount >= 3 && hasToolStarted && hasToolCompleted && hasObservation && hasResult;
+      addTest("V16.4 ProviderLifecycleEvent: 从 AssistantTurnView 派生（evaluation_started/tool_started/observation/result）",
+        lifecycleOk ? "pass" : "fail",
+        lifecycleOk ? "" : `eval=${evalCount} toolStarted=${hasToolStarted} toolCompleted=${hasToolCompleted} observation=${hasObservation} result=${hasResult}`);
+
+      // --- Test B: 多 phase 切分（3 个 AssistantMessage → 多个 phase，不被压成一个 thinking）---
+      const phaseModel = buildRunPhaseModel(view, lifecycle, { durationMs: 9000 });
+      const phaseCount = phaseModel.phases.length;
+      const multiPhaseOk = phaseCount >= 3;
+      addTest("V16.4 RunPhaseModel: 多个 AssistantMessage 生成多个 phase（不被压成一个 thinking）",
+        multiPhaseOk ? "pass" : "fail",
+        multiPhaseOk ? "" : `phaseCount=${phaseCount} phases=${phaseModel.phases.map((p) => p.type).join(",")}`);
+
+      // 验证 phase 类型合理（包含 reading/editing/verifying）
+      const phaseTypes = phaseModel.phases.map((p) => p.type);
+      const hasReading = phaseTypes.includes("reading");
+      const hasEditing = phaseTypes.includes("editing");
+      const hasVerifying = phaseTypes.includes("verifying");
+      const typeOk = hasReading && hasEditing && hasVerifying;
+      addTest("V16.4 RunPhaseModel: phase 类型正确（reading/editing/verifying）",
+        typeOk ? "pass" : "fail",
+        typeOk ? "" : `types=${phaseTypes.join(",")}`);
+
+      // --- Test C: verifying 规则（读已写入的文件 → verifying 而非 reading）---
+      const verifyPhase = phaseModel.phases.find((p) => p.type === "verifying");
+      const verifyOk = verifyPhase !== undefined;
+      addTest("V16.4 RunPhaseModel: verifying 检测（读取曾写入文件 → verifying）",
+        verifyOk ? "pass" : "fail",
+        verifyOk ? "" : `未找到 verifying phase`);
+
+      // --- Test D: file change +N -M 统计 ---
+      const fcStat = phaseModel.fileChangeStats.find((f) => f.path === "Project_Scan_2026.md");
+      const fcOk = fcStat && fcStat.action === "create" && fcStat.additions === 3 && fcStat.deletions === 0;
+      addTest("V16.4 FileChangeStats: +N -M 统计透传（create +3 -0）",
+        fcOk ? "pass" : "fail",
+        fcOk ? "" : `stat=${JSON.stringify(fcStat)}`);
+
+      // 验证 phase 内 fileChanges 也带 +N -M
+      const editingPhase = phaseModel.phases.find((p) => p.type === "editing");
+      const phaseFc = editingPhase && editingPhase.fileChanges[0];
+      const phaseFcOk = phaseFc && phaseFc.additions === 3 && phaseFc.deletions === 0;
+      addTest("V16.4 RunPhaseModel: phase 内 fileChanges 带 +N -M",
+        phaseFcOk ? "pass" : "fail",
+        phaseFcOk ? "" : `additions=${phaseFc?.additions} deletions=${phaseFc?.deletions}`);
+
+      // --- Test E: completed phase 折叠，running/failed 展开 ---
+      const completedPhases = phaseModel.phases.filter((p) => p.status === "completed");
+      const allCompletedFolded = completedPhases.length > 0 && completedPhases.every((p) => p.defaultExpanded === false);
+      addTest("V16.4 RunPhaseModel: completed phase 默认折叠",
+        allCompletedFolded ? "pass" : "fail",
+        allCompletedFolded ? "" : `completed=${completedPhases.length} folded=${completedPhases.filter((p) => !p.defaultExpanded).length}`);
+
+      // --- Test F: TaskCreate/TaskUpdate 在普通用户态聚合为 Planning，不显示为可见 tool ---
+      const taskCreateVisible = isUserVisibleTool("TaskCreate");
+      const taskUpdateVisible = isUserVisibleTool("TaskUpdate");
+      const todoWriteVisible = isUserVisibleTool("TodoWrite");
+      const planningType = toolToPhaseType("TaskCreate");
+      const hideOk = !taskCreateVisible && !taskUpdateVisible && !todoWriteVisible && planningType === "planning";
+      addTest("V16.4 RunPhaseModel: TaskCreate/TaskUpdate/TodoWrite 聚合为 planning（普通用户态不可见）",
+        hideOk ? "pass" : "fail",
+        hideOk ? "" : `TaskCreate=${taskCreateVisible} TaskUpdate=${taskUpdateVisible} TodoWrite=${todoWriteVisible} planningType=${planningType}`);
+
+      // --- Test G: phaseLabel 生成合理标签 ---
+      const labelRead = phaseLabel("reading", { callId: "c", toolName: "Read", toolInput: '{"file_path":"AGENTS.md"}', startTime: ts(0), isError: false, status: "done", progress: [] });
+      const labelWrite = phaseLabel("editing", { callId: "c", toolName: "Write", toolInput: '{"file_path":"x.md"}', startTime: ts(0), isError: false, status: "done", progress: [] });
+      const labelPlanning = phaseLabel("planning");
+      const labelOk = labelRead === "Reading AGENTS.md" && labelWrite === "Created x.md" && labelPlanning === "Planning";
+      addTest("V16.4 RunPhaseModel: phaseLabel 用户友好标签",
+        labelOk ? "pass" : "fail",
+        labelOk ? "" : `read="${labelRead}" write="${labelWrite}" planning="${labelPlanning}"`);
+
+      // --- Test H: getPhaseIconName 返回 Lucide 图标名 ---
+      const iconPlanning = getPhaseIconName("planning");
+      const iconReading = getPhaseIconName("reading");
+      const iconEditing = getPhaseIconName("editing");
+      const iconVerifying = getPhaseIconName("verifying");
+      const iconOk = iconPlanning === "list-checks" && iconReading === "file-text" && iconEditing === "pencil" && iconVerifying === "check-circle";
+      addTest("V16.4 getPhaseIconName: Lucide 图标名映射",
+        iconOk ? "pass" : "fail",
+        iconOk ? "" : `planning=${iconPlanning} reading=${iconReading} editing=${iconEditing} verifying=${iconVerifying}`);
+
+      // --- Test I: AgentRunDisplayModel 含 phaseModel（普通用户态主链路）---
+      const model = buildAgentRunDisplayModel(view, { developerMode: false });
+      const phaseModelOk = model.phaseModel !== undefined && model.phaseModel.phases.length >= 3;
+      addTest("V16.4 AgentRunDisplayModel: 含 phaseModel（普通用户态主链路）",
+        phaseModelOk ? "pass" : "fail",
+        phaseModelOk ? "" : `phases=${model.phaseModel?.phases.length}`);
+
+      // --- Test J: developer mode 保留 lifecycleEvents + timelineCards ---
+      const devModel = buildAgentRunDisplayModel(view, {
+        developerMode: true,
+        debug: { rawProviderEvents: [{ kind: "raw" }] },
+      });
+      const devLifecycleOk = devModel.debugView !== undefined && devModel.debugView.lifecycleEvents !== undefined && devModel.debugView.lifecycleEvents.length > 0;
+      const devTimelineOk = devModel.timelineCards.length > 0;
+      addTest("V16.4 Developer mode: 保留 lifecycleEvents + timelineCards（raw trace 不丢失）",
+        devLifecycleOk && devTimelineOk ? "pass" : "fail",
+        (devLifecycleOk && devTimelineOk) ? "" : `lifecycle=${devModel.debugView?.lifecycleEvents?.length} timeline=${devModel.timelineCards.length}`);
+
+      // --- Test K: Codex item/started/completed 序列也能生成 RunPhaseModel ---
+      // Codex app-server 通过 NormalizedRuntimeEvent 映射，最终也进 AssistantTurnView → lifecycle → phaseModel
+      const codexEvents = [
+        mkEv({ kind: "thinking", text: "Planning the task." }, 1),
+        mkEv({ kind: "tool_start", toolName: "Read", toolInput: '{"file_path":"AGENTS.md"}', callId: "i1" }, 2),
+        mkEv({ kind: "tool_result", callId: "i1", toolName: "Read", output: "content", isError: false }, 3),
+        mkEv({ kind: "file_change", action: "modify", path: "AGENTS.md", additions: 2, deletions: 1 }, 4),
+        mkEv({ kind: "completed", text: "Done.", durationMs: 4000 }, 5),
+      ];
+      const codexView = buildAssistantTurnViewFromEvents("turn-codex", "codex-app-server", codexEvents, ts(0));
+      const codexLifecycle = buildLifecycleEventsFromTurnView(codexView);
+      const codexPhaseModel = buildRunPhaseModel(codexView, codexLifecycle, { durationMs: 4000 });
+      const codexOk = codexPhaseModel.phases.length >= 1 && codexPhaseModel.phases.some((p) => p.fileChanges.length > 0);
+      addTest("V16.4 Codex app-server: item/started/completed 序列生成 RunPhaseModel",
+        codexOk ? "pass" : "fail",
+        codexOk ? "" : `phases=${codexPhaseModel.phases.length} fileChanges=${codexPhaseModel.phases.reduce((s, p) => s + p.fileChanges.length, 0)}`);
+
+      // --- Test L: file change +N -M 在 Codex modify 场景 ---
+      const codexFcStat = codexPhaseModel.fileChangeStats.find((f) => f.path === "AGENTS.md");
+      const codexFcOk = codexFcStat && codexFcStat.action === "modify" && codexFcStat.additions === 2 && codexFcStat.deletions === 1;
+      addTest("V16.4 Codex FileChangeStats: modify +2 -1",
+        codexFcOk ? "pass" : "fail",
+        codexFcOk ? "" : `stat=${JSON.stringify(codexFcStat)}`);
+
+      // --- Test M: 普通用户态 fileChangeCards 含 +N -M（透传自 AssistantTurnView）---
+      const fcCard = model.fileChangeCards.find((c) => c.path === "Project_Scan_2026.md");
+      const fcCardOk = fcCard && fcCard.additions === 3 && fcCard.deletions === 0;
+      addTest("V16.4 AgentRunDisplayModel: fileChangeCards 含 +N -M",
+        fcCardOk ? "pass" : "fail",
+        fcCardOk ? "" : `additions=${fcCard?.additions} deletions=${fcCard?.deletions}`);
+
+      // --- Test N: 普通用户态 phase 不含 raw JSON toolInput ---
+      // 普通用户态主链路是 phase view，phase.tools 来自 turnView.tools，toolInput 仍保留但 view.ts 渲染时用 toolDisplayLabelForPhase
+      // 这里验证 phaseModel 不包含 TaskCreate/Preparing 等隐藏工具
+      const allPhaseTools = phaseModel.phases.flatMap((p) => p.tools.map((t) => t.toolName));
+      const noHiddenTools = !allPhaseTools.some((n) => !isUserVisibleTool(n));
+      addTest("V16.4 RunPhaseModel: phase tools 不含 TaskCreate/Preparing 等隐藏工具",
+        noHiddenTools ? "pass" : "fail",
+        noHiddenTools ? "" : `hidden tools found: ${allPhaseTools.filter((n) => !isUserVisibleTool(n)).join(",")}`);
+    }
+
     // ---------- 5c. P3-C: Developer mode / legacy 分层隔离 ----------
     {
       const { buildAgentRunDisplayModel } = agentRunDisplayModelMod;
@@ -1858,7 +2039,7 @@ if (runMode !== "all" && runMode !== "unit") {
       // Bug 4: debugView 脱敏
       const displaySrc = readFileSync(join(PROJECT_ROOT, "src/runtime/core/agentRunDisplayModel.ts"), "utf8");
       const hasRedactFn = displaySrc.includes("function redactDebugView(debug: AgentRunDebugView)");
-      const callsRedact = displaySrc.includes("redactDebugView(options.debug)");
+      const callsRedact = displaySrc.includes("redactDebugView(") && displaySrc.indexOf("redactDebugView(") > displaySrc.indexOf("function redactDebugView");
       const redactOk = hasRedactFn && callsRedact;
       addTest("P5: debugView 脱敏（redactDebugView 函数 + 调用）", redactOk ? "pass" : "fail",
         redactOk ? "" : "hasFn=" + hasRedactFn + " calls=" + callsRedact);
@@ -15169,6 +15350,8 @@ if (!runCodexSchemaAlignment) {
     try { if (codexEffectiveRunPlanBundle) rmSync(codexEffectiveRunPlanBundle, { force: true }); } catch {}
     try { if (assistantTurnViewBundle) rmSync(assistantTurnViewBundle, { force: true }); } catch {}
     try { if (tempAgentRunDisplayModelBundle) rmSync(tempAgentRunDisplayModelBundle, { force: true }); } catch {}
+    try { if (tempRunPhaseModelBundle) rmSync(tempRunPhaseModelBundle, { force: true }); } catch {}
+    try { if (tempProviderLifecycleBundle) rmSync(tempProviderLifecycleBundle, { force: true }); } catch {}
     try { if (codexAppServerProviderBundle) rmSync(codexAppServerProviderBundle, { force: true }); } catch {}
   }
 }

@@ -12,6 +12,8 @@
 import type { AssistantTurnView, ApprovalResponse } from "./types";
 import type { AttachmentPlan, EffectiveRunPlan } from "../../types";
 import { redactSecrets } from "../../workflowEvent";
+import { buildLifecycleEventsFromTurnView, type ProviderLifecycleEvent } from "./providerLifecycleEvent";
+import { buildRunPhaseModel, type RunPhaseModel } from "./runPhaseModel";
 
 // ---------- Card Types ----------
 
@@ -62,6 +64,10 @@ export interface FileChangeCard extends AgentRunCardBase {
   kind: "file-change";
   action: "create" | "modify" | "delete";
   path: string;
+  /** V16.4: 新增行数（若 provider 提供） */
+  additions?: number;
+  /** V16.4: 删除行数（若 provider 提供） */
+  deletions?: number;
 }
 
 export interface ApprovalCard extends AgentRunCardBase {
@@ -116,6 +122,8 @@ export interface AgentRunDebugView {
   sessionResumed?: boolean;
   attachmentPlan?: AttachmentPlan;
   rawProviderEvents: ReadonlyArray<unknown>;
+  /** V16.4: lifecycle events（developer mode 调试用） */
+  lifecycleEvents?: ReadonlyArray<ProviderLifecycleEvent>;
   /** legacy: Workflow Trace / SDK events（仅 developer mode 展示） */
   workflowTrace?: ReadonlyArray<{ stage: string; timestamp: string; detail: string; status: string }>;
   sdkEvents?: ReadonlyArray<unknown>;
@@ -128,11 +136,13 @@ export interface AgentRunDisplayModel {
   finalAnswer: string;
   /** 当前活动摘要（运行中时显示，如 "运行中: Read file..."） */
   currentActivity: string;
-  /** 时间线卡片（thoughts / tools / resolved approvals / errors） */
+  /** V16.4: 阶段化执行模型（普通用户态主链路） */
+  phaseModel: RunPhaseModel;
+  /** 时间线卡片（thoughts / tools / resolved approvals / errors；developer mode 用） */
   timelineCards: AgentRunCard[];
   /** 待审批卡片（pending approvals，驱动 pending panel） */
   approvalCards: ApprovalCard[];
-  /** 文件变更卡片（单独区域展示） */
+  /** 文件变更卡片（单独区域展示；developer mode 用） */
   fileChangeCards: FileChangeCard[];
   /** 诊断卡片（warnings） */
   diagnosticCards: WarningCard[];
@@ -241,6 +251,7 @@ export function redactDebugView(debug: AgentRunDebugView): AgentRunDebugView {
     effectiveRunPlan: debug.effectiveRunPlan ? redactObject(debug.effectiveRunPlan) : debug.effectiveRunPlan,
     attachmentPlan: debug.attachmentPlan ? redactObject(debug.attachmentPlan) : debug.attachmentPlan,
     rawProviderEvents: debug.rawProviderEvents.map((e) => redactObject(e)),
+    lifecycleEvents: debug.lifecycleEvents?.map((e) => redactObject(e)),
     workflowTrace: debug.workflowTrace?.map((t) => ({ ...t, detail: redactSecrets(t.detail) })),
     sdkEvents: debug.sdkEvents?.map((e) => redactObject(e)),
   };
@@ -268,6 +279,13 @@ export function buildAgentRunDisplayModel(
   const warningCount = turnView.warnings.length;
   const errorCount = turnView.errors.length;
   const dur = options.durationMs ?? turnView.durationMs;
+
+  // V16.4: 构建 lifecycle events + phase model（普通用户态主链路）
+  const lifecycleEvents = buildLifecycleEventsFromTurnView(turnView);
+  const phaseModel = buildRunPhaseModel(turnView, lifecycleEvents, {
+    durationMs: dur,
+    isRunning,
+  });
 
   // --- header ---
   const durSecs = dur != null && dur > 0 ? Math.round(dur / 1000) : 0;
@@ -439,16 +457,23 @@ export function buildAgentRunDisplayModel(
   for (let i = 0; i < turnView.fileChanges.length; i++) {
     const fc = turnView.fileChanges[i];
     const actionLabel = fc.action === "create" ? "新建" : fc.action === "modify" ? "修改" : "删除";
+    // V16.4: 构建 +N -M 统计文案
+    const statsParts: string[] = [];
+    if (typeof fc.additions === "number" && fc.additions >= 0) statsParts.push(`+${fc.additions}`);
+    if (typeof fc.deletions === "number" && fc.deletions >= 0) statsParts.push(`-${fc.deletions}`);
+    const statsLabel = statsParts.length > 0 ? ` · ${statsParts.join(" ")}` : "";
     fileChangeCards.push({
       id: `filechange-${i}`,
       kind: "file-change",
       title: `${actionLabel}文件`,
       status: "completed",
-      summary: fc.path,
+      summary: `${fc.path}${statsLabel}`,
       detail: fc.path,
       timestamp: fc.timestamp,
       action: fc.action,
       path: fc.path,
+      additions: fc.additions,
+      deletions: fc.deletions,
     });
   }
 
@@ -471,11 +496,14 @@ export function buildAgentRunDisplayModel(
     header,
     finalAnswer: turnView.finalAnswer,
     currentActivity,
+    phaseModel,
     timelineCards,
     approvalCards,
     fileChangeCards,
     diagnosticCards,
-    debugView: options.developerMode && options.debug ? redactDebugView(options.debug) : undefined,
+    debugView: options.developerMode && options.debug
+      ? redactDebugView({ ...options.debug, lifecycleEvents })
+      : undefined,
   };
 }
 
@@ -495,31 +523,69 @@ function buildApprovalResolutionSummary(
   return `${resolutionLabel}${sourceLabel}`;
 }
 
-/** 工具名 → 图标与分类（纯数据映射，与 view.ts 一致） */
+/**
+ * V16.4: 工具名 → Lucide 图标名 + 分类。
+ * 不再返回 emoji；view.ts 用 setIcon() 渲染单色 Lucide 图标。
+ * - read → file-text
+ * - search → search
+ * - write/edit → pencil
+ * - delete → trash-2
+ * - command → terminal
+ * - think → brain
+ * - web → globe
+ * - notify → bell
+ * - default → settings
+ */
 export function getToolIconCategory(toolName: string): { icon: string; category: string } {
   const name = toolName.toLowerCase();
-  if (name.includes("read") || name.includes("list") || name.includes("search") || name.includes("grep") || name.includes("stat") || name.includes("glob")) {
-    return { icon: "📖", category: "read" };
+  if (name.includes("read") || name.includes("list") || name.includes("grep") || name.includes("stat") || name.includes("glob")) {
+    return { icon: "file-text", category: "read" };
+  }
+  if (name.includes("search")) {
+    return { icon: "search", category: "search" };
   }
   if (name.includes("write") || name.includes("create") || name.includes("edit") || name.includes("replace") || name.includes("insert") || name.includes("patch")) {
-    return { icon: "✏️", category: "write" };
+    return { icon: "pencil", category: "write" };
   }
   if (name.includes("delete") || name.includes("remove") || name.includes("rm")) {
-    return { icon: "🗑️", category: "delete" };
+    return { icon: "trash-2", category: "delete" };
   }
   if (name.includes("bash") || name.includes("command") || name.includes("execute") || name.includes("run") || name.includes("shell") || name.includes("terminal")) {
-    return { icon: ">_", category: "command" };
+    return { icon: "terminal", category: "command" };
   }
   if (name.includes("think") || name.includes("reason")) {
-    return { icon: "💭", category: "think" };
+    return { icon: "brain", category: "think" };
   }
   if (name.includes("web") || name.includes("fetch") || name.includes("curl") || name.includes("http") || name.includes("browse")) {
-    return { icon: "🌐", category: "web" };
+    return { icon: "globe", category: "web" };
   }
   if (name.includes("notify") || name.includes("notice") || name.includes("toast")) {
-    return { icon: "🔔", category: "notify" };
+    return { icon: "bell", category: "notify" };
   }
-  return { icon: "⚙️", category: "tool" };
+  return { icon: "settings", category: "tool" };
+}
+
+/**
+ * V16.4: 阶段类型 → Lucide 图标名。
+ * - planning → list-checks
+ * - reading → file-text
+ * - editing → pencil
+ * - verifying → check-circle
+ * - waiting-approval → shield
+ * - failed → x-circle
+ * - completed → check
+ */
+export function getPhaseIconName(phaseType: string): string {
+  switch (phaseType) {
+    case "planning": return "list-checks";
+    case "reading": return "file-text";
+    case "editing": return "pencil";
+    case "verifying": return "check-circle";
+    case "waiting-approval": return "shield";
+    case "failed": return "x-circle";
+    case "completed": return "check";
+    default: return "circle";
+  }
 }
 
 export { EMPTY_CARDS };

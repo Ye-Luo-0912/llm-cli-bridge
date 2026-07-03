@@ -3801,6 +3801,183 @@
   margin: 4px 0;
 }
 
+/* ===== V16.4: Phase view (普通用户态阶段化执行视图) ===== */
+.llm-bridge-phase-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0;
+  padding-left: 2px;
+}
+.llm-bridge-phase-card {
+  border-left: 2px solid var(--background-modifier-border);
+  padding-left: 10px;
+  transition: border-color 0.15s ease;
+}
+.llm-bridge-phase-card.is-running { border-left-color: var(--interactive-accent); }
+.llm-bridge-phase-card.is-failed { border-left-color: #e53935; }
+.llm-bridge-phase-card.is-completed { border-left-color: rgba(var(--interactive-accent-rgb), 0.25); }
+.llm-bridge-phase-card.is-pending { border-left-color: var(--background-modifier-border); }
+.llm-bridge-phase-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  padding: 3px 0;
+}
+.llm-bridge-phase-toggle {
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  flex-shrink: 0;
+  width: 10px;
+  display: inline-block;
+}
+.llm-bridge-phase-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+}
+.llm-bridge-phase-icon svg { width: 14px; height: 14px; }
+.llm-bridge-phase-card.is-running .llm-bridge-phase-icon { color: var(--interactive-accent); }
+.llm-bridge-phase-card.is-failed .llm-bridge-phase-icon { color: #e53935; }
+.llm-bridge-phase-card.is-verifying .llm-bridge-phase-icon { color: #4caf50; }
+.llm-bridge-phase-card.is-completed .llm-bridge-phase-icon { color: var(--text-faint); }
+.llm-bridge-phase-label {
+  font-weight: 600;
+  font-size: var(--font-smallest);
+  color: var(--text-normal);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-phase-status {
+  font-size: 10px;
+  color: var(--text-faint);
+  text-transform: lowercase;
+  flex-shrink: 0;
+}
+.llm-bridge-phase-status.is-running { color: var(--interactive-accent); }
+.llm-bridge-phase-status.is-failed { color: #e53935; }
+.llm-bridge-phase-status.is-pending { color: var(--text-faint); }
+.llm-bridge-phase-duration {
+  font-size: 10px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.llm-bridge-phase-body {
+  margin-top: 2px;
+  padding: 2px 0 4px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.llm-bridge-phase-body[hidden] {
+  display: none;
+}
+.llm-bridge-phase-thought {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  padding: 2px 6px;
+  background: var(--background-secondary);
+  border-radius: 3px;
+  border-left: 2px solid var(--text-faint);
+}
+.llm-bridge-phase-thought-meta {
+  font-size: 10px;
+  color: var(--text-faint);
+  margin-bottom: 2px;
+}
+.llm-bridge-phase-thought-text {
+  color: var(--text-muted);
+  line-height: 1.4;
+  word-break: break-word;
+}
+.llm-bridge-phase-file-change {
+  display: flex;
+  align-items: center;
+  font-size: var(--font-smallest);
+  color: var(--text-normal);
+  padding: 2px 4px;
+}
+.llm-bridge-phase-file-change-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.llm-bridge-phase-file-change-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.llm-bridge-phase-file-change-icon svg { width: 12px; height: 12px; }
+.llm-bridge-phase-file-change.is-create .llm-bridge-phase-file-change-icon { color: #4caf50; }
+.llm-bridge-phase-file-change.is-delete .llm-bridge-phase-file-change-icon { color: #e53935; }
+.llm-bridge-phase-file-change-label {
+  font-size: var(--font-smallest);
+  color: var(--text-normal);
+}
+.llm-bridge-phase-tool {
+  display: flex;
+  align-items: center;
+  padding: 2px 4px;
+}
+.llm-bridge-phase-tool-head {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+}
+.llm-bridge-phase-tool-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 12px;
+  height: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.llm-bridge-phase-tool-icon svg { width: 12px; height: 12px; }
+.llm-bridge-phase-tool-label {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-phase-tool-duration {
+  font-size: 10px;
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.llm-bridge-phase-tool.is-running .llm-bridge-phase-tool-icon { color: var(--interactive-accent); }
+.llm-bridge-phase-tool.is-error .llm-bridge-phase-tool-icon { color: #e53935; }
+.llm-bridge-phase-approval {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--font-smallest);
+  color: #fb8c00;
+  padding: 2px 4px;
+  border-left: 2px solid #fb8c00;
+  background: rgba(251, 140, 0, 0.08);
+  border-radius: 2px;
+}
+
 /* ===== V2.16-C: Timeline tool badges + connecting line + category colors ===== */
 .llm-bridge-tl-node::before {
   content: "";

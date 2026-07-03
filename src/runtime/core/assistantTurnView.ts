@@ -4,13 +4,14 @@
 //
 // 聚合规则（与现有 RunStateAggregator 一致，但产出 AssistantTurnView 而非 TimelineNode）：
 // - message partial=true (assistant, main agent)：累加到 finalAnswer
-// - thinking：累加到单个 thinking block（始终 0 或 1 个）
-// - progress category=thinking：只更新 thinking 标题 meta（不产生新段）
+// - thinking：V16.4 多段 — 连续 thinking_delta 累加到当前段；穿插 tool/file_change 后再
+//   出现 thinking 则开新段（不再压成单个 thinkingBlock）
+// - progress category=thinking：更新最近一段 thinking 的 meta/tokens（不产生新段）
 // - progress category=tool：附加到最近 running tool 段
 // - progress 其他：作为 process 段
 // - tool_start：upsert tool 段（status=running）
 // - tool_result：更新 tool 段（status=done/error）
-// - file_change：作为 fileChange 段（internal 路径过滤）
+// - file_change：作为 fileChange 段（internal 路径过滤；V16.4 含 additions/deletions 若可获取）
 // - approval_request：作为 approval 段（pending=true）
 // - approval_resolved：更新 approval 段（pending=false, resolution）
 // - error：recoverable→warnings，不可恢复→errors
@@ -48,7 +49,11 @@ export class AssistantTurnViewBuilder {
   // P4-D: 追踪是否已有 message 事件填充了 finalAnswer（partial 或 full snapshot）。
   // 用于 stdout_delta 去重：有 message 事件时 stdout_delta 是冗余副本，跳过。
   private hasMessageEvents = false;
-  private thinkingBlock: ThoughtSegment | null = null;
+  // V16.4: 多段 thinking — thoughtsList 替代旧版单 thinkingBlock
+  // 规则：连续 thinking_delta 累加到当前段；中间穿插 tool/file_change 后再出现 thinking → 新段
+  private readonly thoughtsList: ThoughtSegment[] = [];
+  // 最近事件类别（用于判断 thinking 是否连续；progress-thinking 也算连续 thinking）
+  private lastThinkingTick = false;
   private readonly toolMap = new Map<string, ToolSegment>();
   private readonly toolOrder: string[] = [];
   private readonly processList: ProcessSegment[] = [];
@@ -74,6 +79,9 @@ export class AssistantTurnViewBuilder {
     }
 
     const p = event.payload;
+    // V16.4: 本事件是否属于 thinking 流（连续 thinking / progress-thinking）
+    // 用于多段 thinking 切分判断；非 thinking 事件会重置 lastThinkingTick
+    let isThinkingTick = false;
     switch (p.kind) {
       case "session_started":
         // session_started 不直接展示在普通用户态；作为 process 段记录
@@ -86,38 +94,33 @@ export class AssistantTurnViewBuilder {
         break;
 
       case "thinking": {
-        if (!this.thinkingBlock) {
-          this.thinkingBlock = {
-            timestamp: event.timestamp,
-            text: p.text,
-          };
+        // V16.4: 多段 thinking — 若上一事件不是 thinking/progress-thinking，开新段
+        if (!this.lastThinkingTick && this.thoughtsList.length > 0) {
+          this.thoughtsList.push({ timestamp: event.timestamp, text: p.text });
+        } else if (this.thoughtsList.length === 0) {
+          this.thoughtsList.push({ timestamp: event.timestamp, text: p.text });
         } else {
-          this.thinkingBlock = {
-            ...this.thinkingBlock,
-            text: this.thinkingBlock.text + p.text,
-          };
+          const last = this.thoughtsList[this.thoughtsList.length - 1];
+          last.text = last.text + p.text;
         }
+        isThinkingTick = true;
         break;
       }
 
       case "progress": {
         if (p.category === "thinking") {
-          // thinking_tokens：只更新 thinking 标题 meta
-          if (!this.thinkingBlock) {
-            this.thinkingBlock = { timestamp: event.timestamp, text: "" };
+          // thinking_tokens：更新最近一段 thinking 的 meta/tokens（不产生新段）
+          if (this.thoughtsList.length === 0) {
+            this.thoughtsList.push({ timestamp: event.timestamp, text: "" });
           }
+          const last = this.thoughtsList[this.thoughtsList.length - 1];
           const meta = [p.label, p.detail].filter(Boolean).join(" · ") || undefined;
-          this.thinkingBlock = {
-            ...this.thinkingBlock,
-            meta: meta ?? this.thinkingBlock.meta,
-          };
+          last.meta = meta ?? last.meta;
           const tokenMatch = p.detail?.match(/~?(\d+)\s*tokens/i);
           if (tokenMatch) {
-            this.thinkingBlock = {
-              ...this.thinkingBlock,
-              tokens: parseInt(tokenMatch[1], 10),
-            };
+            last.tokens = parseInt(tokenMatch[1], 10);
           }
+          isThinkingTick = true;
         } else if (p.category === "tool") {
           const target = this.findRunningTool();
           if (target) {
@@ -245,11 +248,17 @@ export class AssistantTurnViewBuilder {
 
       case "file_change": {
         if (isInternalFilePath(p.path)) break;
-        this.fileChangeList.push({
+        // V16.4: 透传 additions/deletions（来自 provider mapper；可能 undefined）
+        const additions = (p as { additions?: number }).additions;
+        const deletions = (p as { deletions?: number }).deletions;
+        const fcSeg: FileChangeSegment = {
           timestamp: event.timestamp,
           action: p.action,
           path: p.path,
-        });
+          ...(typeof additions === "number" && additions >= 0 ? { additions } : {}),
+          ...(typeof deletions === "number" && deletions >= 0 ? { deletions } : {}),
+        };
+        this.fileChangeList.push(fcSeg);
         break;
       }
 
@@ -331,6 +340,9 @@ export class AssistantTurnViewBuilder {
       }
     }
 
+    // V16.4: 更新 lastThinkingTick — 仅 thinking / progress-thinking 视为连续 thinking 流
+    this.lastThinkingTick = isThinkingTick;
+
     return this.toView();
   }
 
@@ -352,10 +364,10 @@ export class AssistantTurnViewBuilder {
 
   /** 当前快照 */
   toView(): AssistantTurnView {
-    const thoughts: ThoughtSegment[] = [];
-    if (this.thinkingBlock && (this.thinkingBlock.text.trim().length > 0 || this.thinkingBlock.meta)) {
-      thoughts.push(this.thinkingBlock);
-    }
+    // V16.4: 多段 thoughts — 仅保留有 text 或 meta 的段（过滤空 meta 占位）
+    const thoughts: ThoughtSegment[] = this.thoughtsList.filter(
+      (t) => t.text.trim().length > 0 || (t.meta !== undefined && t.meta.length > 0),
+    );
     return {
       turnId: this.turnId,
       providerId: this.providerId,

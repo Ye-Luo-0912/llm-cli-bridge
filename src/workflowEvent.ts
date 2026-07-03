@@ -89,6 +89,10 @@ export interface FileChangeEvent extends WorkflowEventBase {
   readonly type: "file_change";
   readonly action: "create" | "modify" | "delete";
   readonly path: string;
+  /** V16.4: 新增行数（若可从 tool input 推断） */
+  readonly additions?: number;
+  /** V16.4: 删除行数（若可从 tool input 推断） */
+  readonly deletions?: number;
 }
 
 /** 权限请求（只展示，不自动批准） */

@@ -20,7 +20,8 @@ import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalW
 import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse } from "./runtime/core/types";
-import { buildAgentRunDisplayModel, getToolIconCategory, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
+import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
+import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
 import { AssistantTurnViewBuilder } from "./runtime/core/assistantTurnView";
 import { mapNormalizedToWorkflowEvent } from "./runtime/providers/workflowEventMapper";
@@ -3041,18 +3042,25 @@ export class LLMBridgeView extends ItemView {
 
     const isRunning = status === "running";
     const isFailed = status === "failed";
+    const developerMode = options.developerMode;
+    const hasPhases = model.phaseModel.phases.length > 0;
     const hasTimelineContent = model.timelineCards.length > 0;
     const hasFileChanges = model.fileChangeCards.length > 0;
     const hasDiagnostics = model.diagnosticCards.length > 0;
     const hasPendingApprovals = model.approvalCards.some((a) => a.status === "pending");
-    const hasDebugView = options.developerMode && options.debug;
-    // P4-D: 没有真正的过程信息时不显示大过程卡片
-    const hasProcessContent = hasTimelineContent || hasFileChanges || hasDiagnostics || hasPendingApprovals || hasDebugView;
+    const hasDebugView = developerMode && options.debug;
+    // V16.4: 普通用户态有 phases 就算有过程内容
+    const hasProcessContent = developerMode
+      ? (hasTimelineContent || hasFileChanges || hasDiagnostics || hasPendingApprovals || hasDebugView)
+      : (hasPhases || hasPendingApprovals || hasDiagnostics);
 
     // --- header (折叠头) ---
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap llm-bridge-turn-view" });
     const head = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
-    // P4-D: 只在有过程内容时显示折叠箭头
+    // V16.4: completed 时用 phaseModel.resultSummary 作为 header
+    const headerText = (!isRunning && !isFailed && model.phaseModel.resultSummary)
+      ? model.phaseModel.resultSummary
+      : model.header;
     const toggle = hasProcessContent
       ? head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: isRunning ? "▼ " : "▶ " })
       : head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: "" });
@@ -3060,7 +3068,7 @@ export class LLMBridgeView extends ItemView {
     if (isRunning) {
       head.createEl("span", { cls: "llm-bridge-turn-header-spinner" });
     }
-    head.createEl("span", { cls: "llm-bridge-timeline-summary", text: model.header });
+    head.createEl("span", { cls: "llm-bridge-timeline-summary", text: headerText });
 
     const body = wrap.createDiv({ cls: "llm-bridge-timeline-body" });
     // 运行中始终展开；终态默认折叠（failed 时展开）
@@ -3071,38 +3079,52 @@ export class LLMBridgeView extends ItemView {
       body.createDiv({ cls: "llm-bridge-turn-current-activity", text: model.currentActivity });
     }
 
-    // --- fileChangeCards (单独区域，普通用户态默认显示) ---
-    if (hasFileChanges) {
-      const fcSection = body.createDiv({ cls: "llm-bridge-turn-file-changes" });
-      fcSection.createEl("div", { cls: "llm-bridge-turn-section-label", text: "文件变更" });
-      for (const card of model.fileChangeCards) {
-        this.renderAgentRunCard(fcSection, card);
+    if (developerMode) {
+      // --- Developer mode: raw timeline + file changes + diagnostics ---
+      // --- fileChangeCards (单独区域) ---
+      if (hasFileChanges) {
+        const fcSection = body.createDiv({ cls: "llm-bridge-turn-file-changes" });
+        fcSection.createEl("div", { cls: "llm-bridge-turn-section-label", text: "文件变更" });
+        for (const card of model.fileChangeCards) {
+          this.renderAgentRunCard(fcSection, card);
+        }
       }
-    }
 
-    // --- diagnosticCards (warnings，普通用户态默认显示) ---
-    if (hasDiagnostics) {
-      const diagSection = body.createDiv({ cls: "llm-bridge-turn-diagnostics" });
-      diagSection.createEl("div", { cls: "llm-bridge-turn-section-label", text: "警告" });
-      for (const card of model.diagnosticCards) {
-        this.renderAgentRunCard(diagSection, card);
+      // --- diagnosticCards (warnings) ---
+      if (hasDiagnostics) {
+        const diagSection = body.createDiv({ cls: "llm-bridge-turn-diagnostics" });
+        diagSection.createEl("div", { cls: "llm-bridge-turn-section-label", text: "警告" });
+        for (const card of model.diagnosticCards) {
+          this.renderAgentRunCard(diagSection, card);
+        }
       }
-    }
 
-    // --- timelineCards (thoughts/tools/resolved approvals/errors，默认折叠) ---
-    if (hasTimelineContent) {
-      const timeline = body.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-final" });
-      for (const card of model.timelineCards) {
-        this.renderAgentRunCard(timeline, card);
+      // --- timelineCards (raw thoughts/tools/resolved approvals/errors) ---
+      if (hasTimelineContent) {
+        const timeline = body.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-final" });
+        for (const card of model.timelineCards) {
+          this.renderAgentRunCard(timeline, card);
+        }
       }
-    }
 
-    // --- 无内容时不显示大过程卡片（P4-D: 去掉 "正在等待 runtime 首个事件..."）---
-    // 如果没有任何过程信息，不显示过程区域；currentActivity 已提供轻量反馈
+      // --- debugView (developer mode only) ---
+      if (hasDebugView) {
+        this.renderAgentRunDebugView(body, options.debug!);
+      }
+    } else {
+      // --- V16.4: Normal user mode — phase view ---
+      if (hasPhases) {
+        this.renderPhaseView(body, model.phaseModel);
+      }
 
-    // --- debugView (developer mode only；汇总 audit/raw/legacy) ---
-    if (options.developerMode && options.debug) {
-      this.renderAgentRunDebugView(body, options.debug);
+      // --- diagnosticCards (warnings，普通用户态仍显示) ---
+      if (hasDiagnostics) {
+        const diagSection = body.createDiv({ cls: "llm-bridge-turn-diagnostics" });
+        diagSection.createEl("div", { cls: "llm-bridge-turn-section-label", text: "警告" });
+        for (const card of model.diagnosticCards) {
+          this.renderAgentRunCard(diagSection, card);
+        }
+      }
     }
 
     // --- 折叠交互（仅有过程内容时可折叠）---
@@ -3122,6 +3144,159 @@ export class LLMBridgeView extends ItemView {
       head.removeClass("llm-bridge-timeline-head");
       head.addClass("llm-bridge-timeline-head-noclick");
     }
+  }
+
+  /**
+   * V16.4: 渲染阶段化执行视图（普通用户态主链路）。
+   * completed phase 默认折叠；running/failed phase 默认展开。
+   */
+  private renderPhaseView(parent: HTMLElement, phaseModel: RunPhaseModel): void {
+    const phaseList = parent.createDiv({ cls: "llm-bridge-phase-list" });
+    for (const phase of phaseModel.phases) {
+      this.renderPhaseCard(phaseList, phase);
+    }
+  }
+
+  /**
+   * V16.4: 渲染单个阶段卡片。
+   */
+  private renderPhaseCard(parent: HTMLElement, phase: RunPhase): void {
+    const card = parent.createDiv({ cls: `llm-bridge-phase-card is-${phase.type} is-${phase.status}` });
+    const head = card.createDiv({ cls: "llm-bridge-phase-head" });
+
+    // 折叠箭头
+    const toggle = head.createEl("span", {
+      cls: "llm-bridge-phase-toggle",
+      text: phase.defaultExpanded ? "▼ " : "▶ ",
+    });
+
+    // Lucide 图标
+    const iconSpan = head.createEl("span", { cls: "llm-bridge-phase-icon" });
+    setIcon(iconSpan, getPhaseIconName(phase.type));
+
+    // 标签
+    head.createEl("span", { cls: "llm-bridge-phase-label", text: phase.label });
+
+    // 状态
+    const statusLabel = phase.status === "running" ? "running"
+      : phase.status === "failed" ? "failed"
+      : phase.status === "pending" ? "pending"
+      : "completed";
+    head.createEl("span", { cls: `llm-bridge-phase-status is-${phase.status}`, text: statusLabel });
+
+    // 耗时
+    if (phase.durationMs !== undefined && phase.durationMs > 0) {
+      head.createEl("span", { cls: "llm-bridge-phase-duration", text: this.formatDurationMs(phase.durationMs) });
+    }
+
+    // body（折叠区域）
+    const body = card.createDiv({ cls: "llm-bridge-phase-body" });
+    if (!phase.defaultExpanded) body.setAttribute("hidden", "");
+
+    // thoughts（多段 thinking）
+    for (const thought of phase.thoughts) {
+      const thoughtEl = body.createDiv({ cls: "llm-bridge-phase-thought" });
+      if (thought.meta) thoughtEl.createEl("div", { cls: "llm-bridge-phase-thought-meta", text: thought.meta });
+      if (thought.text) thoughtEl.createEl("div", { cls: "llm-bridge-phase-thought-text", text: truncateText(thought.text, 280) });
+    }
+
+    // file changes（带 +N -M）
+    for (const fc of phase.fileChanges) {
+      const fcEl = body.createDiv({ cls: `llm-bridge-phase-file-change is-${fc.action}` });
+      const fcHead = fcEl.createDiv({ cls: "llm-bridge-phase-file-change-head" });
+      const fcIconSpan = fcHead.createEl("span", { cls: "llm-bridge-phase-file-change-icon" });
+      const fcIconName = fc.action === "create" ? "file-plus" : fc.action === "delete" ? "file-minus" : "file-text";
+      setIcon(fcIconSpan, fcIconName);
+      const actionLabel = fc.action === "create" ? "Created" : fc.action === "delete" ? "Deleted" : "Modified";
+      const basename = fc.path.replace(/\\/g, "/").split("/").filter(Boolean).pop() ?? fc.path;
+      // V16.4: +N -M 统计
+      const statsParts: string[] = [];
+      if (typeof fc.additions === "number" && fc.additions >= 0) statsParts.push(`+${fc.additions}`);
+      if (typeof fc.deletions === "number" && fc.deletions >= 0) statsParts.push(`-${fc.deletions}`);
+      const statsLabel = statsParts.length > 0 ? ` · ${statsParts.join(" ")}` : "";
+      fcHead.createEl("span", { cls: "llm-bridge-phase-file-change-label", text: `${actionLabel} ${basename}${statsLabel}` });
+    }
+
+    // tools（普通用户态可见的；简洁标签）
+    for (const tool of phase.tools) {
+      const toolEl = body.createDiv({ cls: `llm-bridge-phase-tool is-${tool.status}` });
+      const toolHead = toolEl.createDiv({ cls: "llm-bridge-phase-tool-head" });
+      const toolIconSpan = toolHead.createEl("span", { cls: "llm-bridge-phase-tool-icon" });
+      const iconCat = getToolIconCategory(tool.toolName);
+      setIcon(toolIconSpan, iconCat.icon);
+      // 普通用户态用简洁 label
+      const label = this.toolDisplayLabelForPhase(tool.toolName, tool.toolInput);
+      toolHead.createEl("span", { cls: "llm-bridge-phase-tool-label", text: label });
+      if (tool.durationMs !== undefined && tool.durationMs > 0) {
+        toolHead.createEl("span", { cls: "llm-bridge-phase-tool-duration", text: this.formatDurationMs(tool.durationMs) });
+      }
+    }
+
+    // approvals
+    for (const ap of phase.approvals) {
+      const apEl = body.createDiv({ cls: "llm-bridge-phase-approval" });
+      apEl.createEl("span", { text: `Approval: ${ap.toolName} — ${ap.pending ? "pending" : "resolved"}` });
+    }
+
+    // 折叠交互
+    head.addEventListener("click", () => {
+      const hidden = body.hasAttribute("hidden");
+      if (hidden) {
+        body.removeAttribute("hidden");
+        toggle.textContent = "▼ ";
+      } else {
+        body.setAttribute("hidden", "");
+        toggle.textContent = "▶ ";
+      }
+    });
+  }
+
+  /**
+   * V16.4: 普通用户态阶段视图内的工具简洁标签。
+   * 不含 raw JSON input/output。
+   */
+  private toolDisplayLabelForPhase(toolName: string, toolInput?: string): string {
+    const lower = toolName.toLowerCase();
+    const extractPath = (input?: string): string | null => {
+      if (!input) return null;
+      try {
+        const parsed = JSON.parse(input);
+        const p = parsed.file_path ?? parsed.notebook_path ?? parsed.path ?? parsed.pattern;
+        if (typeof p === "string" && p.length > 0) {
+          const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
+          return parts[parts.length - 1] ?? p;
+        }
+      } catch {
+        if (/[/\\]/.test(input)) {
+          const parts = input.replace(/\\/g, "/").split("/").filter(Boolean);
+          return parts[parts.length - 1] ?? null;
+        }
+      }
+      return null;
+    };
+    if (/^read|getfile|file_read|view$/.test(lower) || lower === "read") {
+      const p = extractPath(toolInput);
+      return p ? `Read ${p}` : "Read";
+    }
+    if (/write|edit|str_replace|patch|update_file|insert/.test(lower)) {
+      const p = extractPath(toolInput);
+      return p ? `Write ${p}` : "Write";
+    }
+    if (/create_file/.test(lower)) {
+      const p = extractPath(toolInput);
+      return p ? `Created ${p}` : "Created";
+    }
+    if (/delete_file|remove/.test(lower)) {
+      const p = extractPath(toolInput);
+      return p ? `Deleted ${p}` : "Deleted";
+    }
+    if (/bash|execute|run|command|shell/.test(lower)) {
+      return "Run command";
+    }
+    if (/grep|glob|search|ls|list/.test(lower)) {
+      return "Search";
+    }
+    return toolName;
   }
 
   /**

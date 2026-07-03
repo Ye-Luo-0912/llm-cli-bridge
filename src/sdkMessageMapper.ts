@@ -166,6 +166,11 @@ function extractFilePath(toolName: string, input: unknown): string | null {
 /**
  * 检测 tool_use 是否产生文件变更
  * @returns FileChangeEvent 或 null（非文件写入工具）
+ *
+ * V16.4: 同时计算 additions/deletions：
+ * - Write: additions = content 行数, deletions = 0
+ * - Edit: additions = new_string 行数, deletions = old_string 行数
+ * - MultiEdit: 累加所有 edits 的 new_string/old_string 行数
  */
 export function detectFileChangeFromToolUse(toolName: string, input: unknown, timestamp: string): FileChangeEvent | null {
   if (!FILE_WRITING_TOOLS.has(toolName)) return null;
@@ -173,12 +178,60 @@ export function detectFileChangeFromToolUse(toolName: string, input: unknown, ti
   if (!filePath) return null;
   // Edit/MultiEdit = modify; Write = create（Write 也可能覆盖已有文件，但 SDK 层面无法区分，统一用 modify 保守标记）
   const action: FileChangeEvent["action"] = toolName === "Write" ? "create" : "modify";
-  return {
+  // V16.4: 计算 additions/deletions
+  const stats = computeAdditionsDeletions(toolName, input);
+  const ev: FileChangeEvent = {
     type: "file_change",
     timestamp,
     action,
     path: filePath,
+    ...(stats ? { additions: stats.additions, deletions: stats.deletions } : {}),
   };
+  return ev;
+}
+
+/** 计算行数（按 \n 分割，空串算 0 行） */
+function countLines(text: string | undefined | null): number {
+  if (!text) return 0;
+  const trimmed = text.endsWith("\n") ? text.slice(0, -1) : text;
+  if (trimmed.length === 0) return 0;
+  return trimmed.split(/\r?\n/).length;
+}
+
+/** 从 tool input 推断 additions/deletions */
+function computeAdditionsDeletions(toolName: string, input: unknown): { additions: number; deletions: number } | null {
+  if (!input || typeof input !== "object") return null;
+  const obj = input as Record<string, unknown>;
+  try {
+    if (toolName === "Write") {
+      const content = typeof obj.content === "string" ? obj.content : typeof obj.file_text === "string" ? obj.file_text : null;
+      if (content !== null) return { additions: countLines(content), deletions: 0 };
+      return null;
+    }
+    if (toolName === "Edit") {
+      const oldStr = typeof obj.old_string === "string" ? obj.old_string : typeof obj.search === "string" ? obj.search : null;
+      const newStr = typeof obj.new_string === "string" ? obj.new_string : typeof obj.replace === "string" ? obj.replace : null;
+      return { additions: countLines(newStr), deletions: countLines(oldStr) };
+    }
+    if (toolName === "MultiEdit") {
+      const edits = Array.isArray(obj.edits) ? obj.edits : null;
+      if (!edits) return null;
+      let totalAdd = 0;
+      let totalDel = 0;
+      for (const e of edits) {
+        if (!e || typeof e !== "object") continue;
+        const eo = e as Record<string, unknown>;
+        const oldStr = typeof eo.old_string === "string" ? eo.old_string : null;
+        const newStr = typeof eo.new_string === "string" ? eo.new_string : null;
+        totalAdd += countLines(newStr);
+        totalDel += countLines(oldStr);
+      }
+      return { additions: totalAdd, deletions: totalDel };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 // ---------- 工具输入序列化 ----------

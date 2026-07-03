@@ -164,7 +164,7 @@ export type NormalizedRuntimeEventPayload =
       output: string;
       isError: boolean;
     }
-  | { kind: "file_change"; action: "create" | "modify" | "delete"; path: string }
+  | { kind: "file_change"; action: "create" | "modify" | "delete"; path: string; additions?: number; deletions?: number }
   | {
       kind: "progress";
       label: string;
@@ -298,7 +298,7 @@ export interface SessionDenyEntry {
  *
  * 结构固定：
  * - process:     运行中状态/进度（status/notice/request）
- * - thoughts:    思考块（始终 0 或 1 个，多 thinking_delta 合并）
+ * - thoughts:    思考段数组（V16.4: 多段 — 每次新 reasoning block 产生新段；旧版 0/1 个）
  * - tools:       工具调用（按 callId，含 progress 子条目）
  * - fileChanges: 用户可见文件变更（internal 路径过滤）
  * - approvals:   approval 请求（pending 与已解决）
@@ -336,7 +336,14 @@ export interface ProcessSegment {
   readonly category?: "request" | "thinking" | "tool" | "status" | "notice";
 }
 
-/** 思考段（始终 0 或 1 个；多 thinking_delta 合并到同一 block） */
+/**
+ * 思考段（V16.4: 多段 — 每次新的 reasoning/thinking block 产生新段）。
+ *
+ * 旧版 V2.17-A 始终 0 或 1 个 thinkingBlock；V16.4 改为 thoughts[] 多段：
+ * - 连续 thinking_delta 累加到当前段
+ * - 中间穿插 tool/file_change 后再出现 thinking → 新段
+ * - progress category=thinking 更新最近一段的 meta/tokens
+ */
 export interface ThoughtSegment {
   readonly timestamp: string;
   text: string;
@@ -360,11 +367,21 @@ export interface ToolSegment {
   readonly sessionId?: string;
 }
 
-/** 文件变更段（internal 路径已过滤） */
+/**
+ * 文件变更段（internal 路径已过滤）。
+ *
+ * V16.4: 扩展 additions/deletions（可选 — 来自 tool input 或 codex change.diff）：
+ * - create: additions = 新文件行数，deletions = 0
+ * - delete: additions = 0，deletions = 旧文件行数（若可获取）
+ * - modify: additions/deletions 由 line diff 得出
+ * 未提供时为 undefined（UI 降级为只显示 action + path）。
+ */
 export interface FileChangeSegment {
   readonly timestamp: string;
   readonly action: "create" | "modify" | "delete";
   readonly path: string;
+  readonly additions?: number;
+  readonly deletions?: number;
 }
 
 /** approval 段（pending 与已解决） */

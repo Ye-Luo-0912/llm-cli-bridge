@@ -71,7 +71,14 @@ export function mapWorkflowEventToNormalized(
     case "file_change":
       return {
         ...base,
-        payload: { kind: "file_change", action: ev.action, path: ev.path },
+        // V16.4: 透传 additions/deletions（若 WorkflowEvent 提供）
+        payload: {
+          kind: "file_change",
+          action: ev.action,
+          path: ev.path,
+          ...(ev.additions !== undefined ? { additions: ev.additions } : {}),
+          ...(ev.deletions !== undefined ? { deletions: ev.deletions } : {}),
+        },
       };
 
     case "permission":
