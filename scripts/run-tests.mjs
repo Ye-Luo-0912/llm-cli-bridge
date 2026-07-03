@@ -1539,6 +1539,80 @@ if (runMode !== "all" && runMode !== "unit") {
         iconOk ? "" : `read=${iconRead.category} bash=${iconBash.category} write=${iconWrite.category}`);
     }
 
+    // ---------- 5c. P3-C: Developer mode / legacy 分层隔离 ----------
+    {
+      const { buildAgentRunDisplayModel } = agentRunDisplayModelMod;
+      const { buildAssistantTurnViewFromEvents } = assistantViewMod;
+      const mkEvent = (payload, providerId = "codex-app-server") => ({
+        providerId,
+        timestamp: "2026-07-02T00:00:00.000Z",
+        payload,
+      });
+      const events = [
+        mkEvent({ kind: "message", role: "assistant", text: "done", partial: true }),
+        mkEvent({ kind: "completed", text: "done", durationMs: 100 }),
+      ];
+      const view = buildAssistantTurnViewFromEvents("turn-p3c", "codex-app-server", events, "2026-07-02T00:00:00.000Z");
+
+      // 1. developerMode=false -> debugView undefined
+      const modelUser = buildAgentRunDisplayModel(view, { developerMode: false });
+      const userDebugOk = modelUser.debugView === undefined;
+      addTest("P3-C: 普通用户态 debugView=undefined（不渲染 audit/raw/legacy）", userDebugOk ? "pass" : "fail",
+        userDebugOk ? "" : `debugView=${!!modelUser.debugView}`);
+
+      // 2. developerMode=true -> debugView 含 rawProviderEvents / effectiveRunPlan / attachmentPlan
+      const modelDev = buildAgentRunDisplayModel(view, {
+        developerMode: true,
+        debug: {
+          rawProviderEvents: [{ kind: "raw" }],
+          effectiveRunPlan: { backend: "codex-app-server", cwd: "/tmp", model: "gpt-5", effort: "high", session: { continueSession: false }, settingSources: [], skills: [], promptPackageHash: "abc", attachmentPlan: { messageScopedRefs: 1, pinnedRefs: 0, inlineSnippets: 1, imageStreamingBlocks: 0, nativeRefOnly: 0, entries: [] }, createdAt: "2026-07-02T00:00:00Z", instructionsSource: "instructions" },
+          attachmentPlan: { messageScopedRefs: 1, pinnedRefs: 0, inlineSnippets: 1, imageStreamingBlocks: 0, nativeRefOnly: 0, entries: [] },
+          providerThreadId: "thread-1",
+          providerSessionId: "session-1",
+          sessionResumed: true,
+          commandPreview: [{ label: "cwd", value: "/tmp" }],
+          workflowTrace: [{ stage: "spawn", timestamp: "2026-07-02T00:00:00Z", detail: "started", status: "ok" }],
+          sdkEvents: [{ type: "tool_start", toolName: "Read" }],
+        },
+      });
+      const devRawOk = modelDev.debugView.rawProviderEvents.length === 1;
+      const devPlanOk = modelDev.debugView.effectiveRunPlan !== undefined;
+      const devAttachOk = modelDev.debugView.attachmentPlan !== undefined;
+      const devThreadOk = modelDev.debugView.providerThreadId === "thread-1";
+      const devWfOk = modelDev.debugView.workflowTrace !== undefined && modelDev.debugView.workflowTrace.length === 1;
+      const devSdkOk = modelDev.debugView.sdkEvents !== undefined && modelDev.debugView.sdkEvents.length === 1;
+      const devAllOk = devRawOk && devPlanOk && devAttachOk && devThreadOk && devWfOk && devSdkOk;
+      addTest("P3-C: developerMode=true → debugView 含 rawProviderEvents/effectiveRunPlan/attachmentPlan/workflowTrace/sdkEvents", devAllOk ? "pass" : "fail",
+        devAllOk ? "" : `raw=${devRawOk} plan=${devPlanOk} attach=${devAttachOk} thread=${devThreadOk} wf=${devWfOk} sdk=${devSdkOk}`);
+
+      // 3. AgentRunDisplayModel 不依赖 WorkflowEvent
+      // 验证：buildAgentRunDisplayModel 只接受 AssistantTurnView，不接触 WorkflowEvent
+      const displayModelSrc = readFileSync(join(PROJECT_ROOT, "src/runtime/core/agentRunDisplayModel.ts"), "utf8");
+      // 检查 import 语句不引用 WorkflowEvent / RunStateAggregator（注释提及不算）
+      const importLines = displayModelSrc.split(/\r?\n/).filter((l) => l.startsWith("import"));
+      const noWfImport = !importLines.some((l) => l.includes("WorkflowEvent") || l.includes("RunStateAggregator"));
+      addTest("P3-C: AgentRunDisplayModel 不依赖 WorkflowEvent / RunStateAggregator", noWfImport ? "pass" : "fail",
+        noWfImport ? "" : "agentRunDisplayModel.ts import 了 WorkflowEvent 或 RunStateAggregator");
+
+      // 4. 普通用户态 renderer 不调用 legacy workflow renderer
+      // 验证 view.ts: appendSdkWorkflow / appendWorkflowTrace 在 turnView 分支只通过 debugView 调用
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src/view.ts"), "utf8");
+      // turnView 分支不应直接调用 appendSdkWorkflow/appendWorkflowTrace（应通过 debugView）
+      // 检查：turnView 分支（msg.assistantTurnView 存在时）不包含直接 appendSdkWorkflow 调用
+      const turnViewBranchIdx = viewSrc.indexOf("msg.assistantTurnView");
+      const fallbackBranchIdx = viewSrc.indexOf("HISTORICAL FALLBACK");
+      const turnViewRegion = viewSrc.slice(turnViewBranchIdx, fallbackBranchIdx);
+      const noLegacyInTurnView = !turnViewRegion.includes("this.appendSdkWorkflow(") && !turnViewRegion.includes("this.appendWorkflowTrace(");
+      addTest("P3-C: turnView 分支不直接调用 appendSdkWorkflow/appendWorkflowTrace（通过 debugView）", noLegacyInTurnView ? "pass" : "fail",
+        noLegacyInTurnView ? "" : "turnView 分支中发现直接调用 legacy renderer");
+
+      // 5. historical fallback 分支 sdkEvents 必须 developerMode gated
+      // 验证：fallback 分支中 appendSdkWorkflow 前有 developerMode 检查
+      const fallbackRegion = viewSrc.slice(fallbackBranchIdx, fallbackBranchIdx + 3000);
+      const sdkGateOk = fallbackRegion.includes("if (developerMode && msg.role === \"assistant\" && msg.sdkEvents");
+      addTest("P3-C: historical fallback 分支 sdkEvents 必须 developerMode gated", sdkGateOk ? "pass" : "fail",
+        sdkGateOk ? "" : "fallback 分支中 sdkEvents 未 developerMode gate");
+    }
     // ---------- 6. approval request → PermissionBoundary → provider response ----------
     {
       const { createPermissionBoundary } = permBoundaryMod;
