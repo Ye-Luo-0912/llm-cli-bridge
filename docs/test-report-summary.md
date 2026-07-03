@@ -8,13 +8,13 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-02T16:55:18.526Z
-- **reportCommitSha**: 74537c445287326fc23d645fbd247817f67f04db
-- **reportCommitSha 短**: 74537c445287
-- **reportParentSha**: 74537c445287326fc23d645fbd247817f67f04db
-- **reportParentSha 短**: 74537c445287
-- **testedCodeCommitSha**: 74537c445287326fc23d645fbd247817f67f04db
-- **testedCodeCommitSha 短**: 74537c445287
+- **生成时间**: 2026-07-02T18:17:25.503Z
+- **reportCommitSha**: b2aeee28734821f5ec672a93f22649b34d431a40
+- **reportCommitSha 短**: b2aeee287348
+- **reportParentSha**: b2aeee28734821f5ec672a93f22649b34d431a40
+- **reportParentSha 短**: b2aeee287348
+- **testedCodeCommitSha**: b2aeee28734821f5ec672a93f22649b34d431a40
+- **testedCodeCommitSha 短**: b2aeee287348
 - **commitKind**: code commit（报告证明当前 HEAD）
 - **unitReportCommitSha**: 74537c445287326fc23d645fbd247817f67f04db
 - **processReportCommitSha**: 74537c445287326fc23d645fbd247817f67f04db
@@ -32,7 +32,7 @@
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=74537c445287。
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=b2aeee287348。
 - **当前 commit 改动文件**：(无改动 / 无法获取)
 
 ## 主线结论
@@ -42,9 +42,9 @@
 | unit | 756 | 0 | 27 | 0 | 783 | 74537c445287 | ✅ 通过 |
 | process | 89 | 0 | 57 | 0 | 146 | 74537c445287 | ✅ 通过 |
 | codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **845** | **0** | **84** | **0** | **929** | 74537c445287 | ✅ **主线通过** |
+| **合计** | **845** | **0** | **84** | **0** | **929** | b2aeee287348 | ✅ **主线通过** |
 
-**双轨均 0 失败 → P2 Codex app-server Runtime 主线闭环测试通过。**
+**主线状态: 通过（审计失败: 2）**
 
 ## 审计模式说明（P2 integrity check）
 
@@ -57,7 +57,9 @@
 
 ## 审计结果
 
-✅ **审计通过**：testedCodeCommitSha 一致 + codexSmokeStatus 合法 + uncaught/unhandled 为 0 + 字段解析完整。
+❌ **审计失败**：
+- unit commit sha 与 testedCodeCommitSha 不匹配: unit=74537c445287326fc23d645fbd247817f67f04db vs testedCode=b2aeee28734821f5ec672a93f22649b34d431a40（commitKind=code commit（报告证明当前 HEAD））
+- process commit sha 与 testedCodeCommitSha 不匹配: process=74537c445287326fc23d645fbd247817f67f04db vs testedCode=b2aeee28734821f5ec672a93f22649b34d431a40（commitKind=code commit（报告证明当前 HEAD））
 
 ## skip 策略与覆盖替代
 
