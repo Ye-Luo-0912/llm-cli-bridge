@@ -103,14 +103,25 @@ export function buildUserPrompt(
   const parts: string[] = [];
 
   // 1. 当前活动笔记
-  if (settings.includeActiveNote && snapshot.activeFilePath && snapshot.activeFileContent) {
-    const truncated = truncateText(snapshot.activeFileContent, settings.maxActiveNoteChars);
-    parts.push(`
+  // V16.3: 拆分条件 — includeActiveNote && activeFilePath 始终注入路径；
+  // activeFileContent 非空时再追加内容。修复"UI 显示 attached 但 prompt 未注入路径"的语义不一致。
+  if (settings.includeActiveNote && snapshot.activeFilePath) {
+    if (snapshot.activeFileContent) {
+      const truncated = truncateText(snapshot.activeFileContent, settings.maxActiveNoteChars);
+      parts.push(`
 ========== 当前活动笔记 ==========
 路径：${snapshot.activeFilePath}
 内容：
 ${truncated}
 `);
+    } else {
+      // 内容读取失败：仍注入路径，让模型知道当前活动笔记是什么（语义一致）
+      parts.push(`
+========== 当前活动笔记 ==========
+路径：${snapshot.activeFilePath}
+内容：（读取失败，仅提供路径）
+`);
+    }
   }
 
   // 2. 选区内容
