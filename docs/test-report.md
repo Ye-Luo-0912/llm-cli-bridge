@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 全量测试（all）
 
-- **测试时间**: 2026-07-03T02:49:40.449Z
+- **测试时间**: 2026-07-03T03:07:26.052Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
 - **main.js 大小**: 578.9 KB
 - **Vault 路径**: `C:\Users\Ye_Luo\.trae-cn\worktrees\llm-cli-bridge\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 否
 - **HTTP 端口**: N/A
-- **commit sha**: 00a02a9e39f5a1cbac847326dfc99f4df3e4adae
-- **commit 短 sha**: 00a02a9e39f5
+- **commit sha**: dbf54fca13ef0e323207376b3141401f4349c85f
+- **commit 短 sha**: dbf54fca13ef
 - **运行命令**: node scripts/run-tests.mjs unit
 
 ## 测试汇总
 
-- ✅ **通过**: 795
+- ✅ **通过**: 800
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 820
+- **总计**: 825
 
 ### 审计模式说明
 
@@ -243,6 +243,16 @@
 | ✅ | developerMode=true → debugView 含 rawProviderEvents | - |
 | ✅ | running 状态 → currentActivity + header 含运行中 | - |
 | ✅ | getToolIconCategory 分类正确 | - |
+
+### P3-C
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 普通用户态 debugView=undefined（不渲染 audit/raw/legacy） | - |
+| ✅ | developerMode=true → debugView 含 rawProviderEvents/effectiveRunPlan/attachmentPlan/workflowTrace/sdkEvents | - |
+| ✅ | AgentRunDisplayModel 不依赖 WorkflowEvent / RunStateAggregator | - |
+| ✅ | turnView 分支不直接调用 appendSdkWorkflow/appendWorkflowTrace（通过 debugView） | - |
+| ✅ | historical fallback 分支 sdkEvents 必须 developerMode gated | - |
 
 ### WorkflowEvent→Normalized
 
@@ -1230,7 +1240,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-03T02-50-08-582Z-c99r7b |
+| ✅ | 返回非空 id | id=s-2026-07-03T03-07-54-174Z-njncvx |
 
 ### V2.5 Session 版本
 
@@ -1249,7 +1259,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-03T02-50-08-650Z-6nfen0 second=s-2026-07-03T02-50-08-595Z-tqo8qd |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-03T03-07-54-243Z-hjdkv8 second=s-2026-07-03T03-07-54-186Z-czqahd |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1276,7 +1286,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-03T02-50-08-671Z-xe172n id2=s-2026-07-03T02-50-08-671Z-pclxt4 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-03T03-07-54-264Z-usptz5 id2=s-2026-07-03T03-07-54-264Z-8cbqdd |
 
 ### V2.5 Session 上限
 
@@ -1374,7 +1384,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-03T02:50:08.737Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-03T03:07:54.329Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1462,7 +1472,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-03T02:50:08.795Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-03T03:07:54.389Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -1576,7 +1586,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-03T02:50:08.868Z after=2026-07-03T02:50:08.927Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-03T03:07:54.463Z after=2026-07-03T03:07:54.521Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -1947,13 +1957,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-03T02:50:09.553Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-03T03:07:55.150Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-03T02:50:09.563Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-03T03:07:55.158Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -2264,7 +2274,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-5uKt2d\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-4fx2tz\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-UJVU3j\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-9jwimL\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -2276,7 +2286,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-YAwhmr\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-0Zuw8m\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-7HHNce\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-skRFjj\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -2288,7 +2298,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-6992Vp\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-O7Bay2\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-UUzKz7\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-9CHCPl\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 

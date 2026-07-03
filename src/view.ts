@@ -2819,7 +2819,10 @@ export class LLMBridgeView extends ItemView {
       const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
       if (beforeEl) block.insertBefore(details, beforeEl);
 
-      // P3: 构建 debugView（仅 developer mode；汇总 audit/raw/legacy，不散落在 appendMsgDetails）
+      // P3-C: debugView 是 developer mode 的唯一调试入口。
+      // 汇总 rawProviderEvents / effectiveRunPlan / provider session / attachmentPlan /
+      // commandPreview / workflowTrace / sdkEvents，不散落在 appendMsgDetails。
+      // 普通用户态不显示 providerThreadId / providerSessionId / raw events / effectiveRunPlan。
       const debug: AgentRunDebugView | undefined = developerMode ? {
         commandPreview: msg.commandPreview,
         effectiveRunPlan: msg.effectiveRunPlan,
@@ -2828,56 +2831,51 @@ export class LLMBridgeView extends ItemView {
         sessionResumed: this.sessionResumed,
         attachmentPlan: msg.attachmentPlan,
         rawProviderEvents: msg.assistantTurnView.rawProviderEvents,
+        workflowTrace: msg.workflowTrace,
+        sdkEvents: msg.sdkEvents,
       } : undefined;
 
       this.renderAgentRunDisplayModel(details, msg.assistantTurnView, msg.status, { developerMode, debug });
-
-      // legacy: Workflow Trace / SDK events（keep as developer log; remove or migrate in P4）
-      if (developerMode) {
-        if (msg.workflowTrace && msg.workflowTrace.length > 0) {
-          this.appendWorkflowTrace(details, msg.workflowTrace);
-        } else if (msg.timeline && msg.timeline.length > 0) {
-          this.appendTimeline(details, msg.timeline);
-        }
-        if (msg.sdkEvents && msg.sdkEvents.length > 0) {
-          this.appendSdkWorkflow(details, msg.sdkEvents);
-          this.updateLastSdkStats(msg.sdkEvents);
-        }
-      }
 
       this.appendMsgDetailsTail(details, msg, failed, developerMode);
       return;
     }
 
-    // 回退：无 assistantTurnView 时走旧路径（向后兼容历史消息）
+    // HISTORICAL FALLBACK: 无 assistantTurnView 时走旧路径（向后兼容历史消息）。
+    // fallback 不得影响新 run；新 run 必须写入 assistantTurnView。
+    // legacy renderer 仅在 developerMode 下调用；普通用户态只显示 placeholder。
     const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
     if (beforeEl) block.insertBefore(details, beforeEl);
     if (msg.role === "assistant" && msg.status === "running") {
       if (!developerMode) {
+        // 普通用户态：不调用 legacy renderer，只显示 placeholder
         this.appendRunningProcessPlaceholder(details);
       } else if (!msg.sdkEvents || msg.sdkEvents.length === 0) {
-        // developerMode 运行中无 turnView：保留 liveAggregator live timeline 路径（keep as developer log）
+        // developerMode 运行中无 turnView：保留 liveAggregator live timeline 路径
+        // (keep as developer log; remove or migrate in P4)
         if (this.liveAggregator.toRawEvents().length === 0) {
           this.appendRunningProcessPlaceholder(details);
         }
       }
     }
 
-    // developer mode legacy（无 turnView 时才走到这里；keep as developer log; remove or migrate in P4）
+    // historical fallback: developer mode legacy（无 turnView 时才走到这里）
+    // (keep as developer log; remove or migrate in P4)
     if (developerMode && msg.role === "assistant" && msg.commandPreview && msg.commandPreview.length > 0) {
       this.appendCommandPreview(details, msg.commandPreview);
     }
     if (developerMode && msg.role === "assistant" && msg.effectiveRunPlan) {
       this.appendEffectiveRunPlan(details, msg.effectiveRunPlan);
     }
-    // legacy: Workflow Trace（keep as developer log; remove or migrate in P4）
+    // historical fallback: Workflow Trace（keep as developer log; remove or migrate in P4）
     if (developerMode && msg.role === "assistant" && msg.workflowTrace && msg.workflowTrace.length > 0) {
       this.appendWorkflowTrace(details, msg.workflowTrace);
     } else if (developerMode && msg.role === "assistant" && msg.timeline && msg.timeline.length > 0) {
       this.appendTimeline(details, msg.timeline);
     }
-    // legacy: SDK events（keep as developer log; remove or migrate in P4）
-    if (msg.role === "assistant" && msg.sdkEvents && msg.sdkEvents.length > 0) {
+    // historical fallback: SDK events（keep as developer log; remove or migrate in P4）
+    // 普通用户态不得调用 appendSdkWorkflow 作为主 UI
+    if (developerMode && msg.role === "assistant" && msg.sdkEvents && msg.sdkEvents.length > 0) {
       this.appendSdkWorkflow(details, msg.sdkEvents);
       this.updateLastSdkStats(msg.sdkEvents);
     }
@@ -3216,6 +3214,15 @@ export class LLMBridgeView extends ItemView {
     if (debug.rawProviderEvents && debug.rawProviderEvents.length > 0) {
       const rawBody = this.createCollapsibleSection(parent, `raw provider events (${debug.rawProviderEvents.length})`, "llm-bridge-raw-events", false);
       rawBody.createEl("pre", { cls: "llm-bridge-raw-events-text", text: debug.rawProviderEvents.map((e) => JSON.stringify(e)).slice(0, 50).join("\n") });
+    }
+    // legacy: Workflow Trace（keep as developer log; remove or migrate in P4）
+    if (debug.workflowTrace && debug.workflowTrace.length > 0) {
+      this.appendWorkflowTrace(parent, debug.workflowTrace);
+    }
+    // legacy: SDK events（keep as developer log; remove or migrate in P4）
+    if (debug.sdkEvents && debug.sdkEvents.length > 0) {
+      this.appendSdkWorkflow(parent, debug.sdkEvents as ReadonlyArray<import("./workflowEvent").WorkflowEvent>);
+      this.updateLastSdkStats(debug.sdkEvents as ReadonlyArray<import("./workflowEvent").WorkflowEvent>);
     }
   }
 
@@ -5376,10 +5383,11 @@ export class LLMBridgeView extends ItemView {
       return;
     }
 
-    // 6. legacy log：把事件映射为 WorkflowEvent 存入 sdkEvents（供 onRunFinished 日志/trace 用）
-    //    V2.17-A Completion: appendLiveSdkEvent/WorkflowEvent 只是 developer/legacy log，
-    //    不参与主 UI。普通用户态主链路完全由 turnView（AssistantTurnView）驱动（步骤 2-4）。
+    // 6. LEGACY LOG: 把事件映射为 WorkflowEvent 存入 sdkEvents（供 onRunFinished 日志/trace 用）
+    //    P3-C: appendLiveSdkEvent/WorkflowEvent 只是 developer/legacy log，不参与普通用户主 UI。
+    //    普通用户态主链路完全由 turnView（AssistantTurnView）驱动（步骤 2-4）。
     //    仅在 developerMode 下推送 live progress，避免普通用户态依赖 WorkflowEvent/RunStateAggregator。
+    //    (keep as developer log; remove or migrate in P4)
     const developerMode = !!this.plugin.settings.developerMode;
     const wfEvent = developerMode ? mapNormalizedToWorkflowEvent(ev) : null;
     if (wfEvent) {
