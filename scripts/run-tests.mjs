@@ -1690,6 +1690,24 @@ if (runMode !== "all" && runMode !== "unit") {
         needsInputOk ? "pass" : "fail",
         `disposition=${needsInputDisposition} header="${needsInputModel.header}"`);
 
+      // V16.4-E: 兼容旧 SDK/历史事件 — AskUserQuestion 即使以 approval_request 进入，也应视为用户输入
+      const askAsApprovalEvents = [
+        mkEvent({ kind: "approval_request", requestId: "ask-1", toolName: "AskUserQuestion", description: "选择文件名", riskLevel: "low", inputSummary: "questions: 2 items" }),
+        mkEvent({ kind: "message", role: "assistant", text: "你这次要我按哪个来做？\n\n直接回复 1 / 2 / 3 就行。", partial: true }),
+      ];
+      const askAsApprovalView = buildAssistantTurnViewFromEvents("turn-ask-as-approval", "claude-sdk", askAsApprovalEvents, "2026-07-02T00:00:00.000Z");
+      const askAsApprovalModel = buildAgentRunDisplayModel(askAsApprovalView, { isRunning: true, durationMs: 40000, developerMode: false });
+      const askAsApprovalPhase = askAsApprovalModel.phaseModel.phases.find((p) => p.type === "waiting-input");
+      const askAsApprovalOk = askAsApprovalModel.finalAnswerDisposition === "needs-input"
+        && askAsApprovalModel.header === "Needs input · 40s"
+        && askAsApprovalModel.approvalCards.length === 0
+        && askAsApprovalModel.userInputCards.length === 1
+        && !!askAsApprovalPhase
+        && !askAsApprovalModel.phaseModel.phases.some((p) => p.type === "waiting-approval");
+      addTest("V16.4-E AgentRunDisplayModel: AskUserQuestion approval_request 归类为 Needs input（非 permission）",
+        askAsApprovalOk ? "pass" : "fail",
+        `header="${askAsApprovalModel.header}" approvals=${askAsApprovalModel.approvalCards.length} userInputs=${askAsApprovalModel.userInputCards.length}`);
+
       // V16.4-D: 无文件变化普通回答 → Answered · Xs
       const answeredEvents = [
         mkEvent({ kind: "message", role: "assistant", text: "这是普通回答。", partial: true }),

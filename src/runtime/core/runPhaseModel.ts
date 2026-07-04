@@ -133,6 +133,11 @@ export function isUserVisibleTool(toolName: string): boolean {
   return true;
 }
 
+function isUserInputApprovalTool(toolName: string): boolean {
+  const normalized = toolName.trim().toLowerCase();
+  return normalized === "askuserquestion" || normalized === "request_user_input";
+}
+
 /**
  * 工具名 → 用户友好阶段标签。
  * - Read {"file_path":"AGENTS.md"} → "Reading AGENTS.md"
@@ -375,8 +380,18 @@ export function buildRunPhaseModel(
   const isRunning = options.isRunning ?? turnView.status === "running";
   const dur = options.durationMs ?? turnView.durationMs;
   const userInputRequests = turnView.userInputRequests ?? [];
-  const pendingApprovals = turnView.approvals.filter((a) => a.pending);
-  const pendingUserInputRequests = userInputRequests.filter((r) => r.pending);
+  const userInputApprovals = turnView.approvals.filter((a) => a.pending && isUserInputApprovalTool(a.toolName));
+  const pendingApprovals = turnView.approvals.filter((a) => a.pending && !isUserInputApprovalTool(a.toolName));
+  const pendingUserInputRequests = [
+    ...userInputRequests.filter((r) => r.pending),
+    ...userInputApprovals.map((ap): UserInputRequestSegment => ({
+      requestId: ap.requestId,
+      toolName: ap.toolName,
+      prompt: ap.description || ap.inputSummary || ap.toolName,
+      timestamp: turnView.endedAt ?? turnView.startedAt,
+      pending: true,
+    })),
+  ];
   const hasPendingApproval = pendingApprovals.length > 0;
   const hasPendingUserInput = pendingUserInputRequests.length > 0;
 
@@ -392,6 +407,7 @@ export function buildRunPhaseModel(
   // V16.4-D: approvalId → ApprovalSegment 映射（用于将 approval 附加到当前 phase）
   const approvalByRequestId = new Map<string, ApprovalSegment>();
   for (const ap of turnView.approvals) {
+    if (isUserInputApprovalTool(ap.toolName)) continue;
     approvalByRequestId.set(ap.requestId, ap);
   }
   const userInputByRequestId = new Map<string, UserInputRequestSegment>();
@@ -583,6 +599,21 @@ export function buildRunPhaseModel(
         break;
       }
       case "approval_requested": {
+        if (isUserInputApprovalTool(ev.toolName ?? "")) {
+          if (currentPhase) {
+            closePhase(currentPhase, ev.timestamp);
+            phases.push(currentPhase);
+          }
+          currentPhase = newPhase("waiting-input", undefined, ev.timestamp);
+          if (ev.approvalId) {
+            const reqSeg = pendingUserInputRequests.find((r) => r.requestId === ev.approvalId);
+            if (reqSeg && !currentPhase.userInputRequests.some((r) => r.requestId === reqSeg.requestId)) {
+              currentPhase.userInputRequests.push(reqSeg);
+            }
+          }
+          currentPhase.status = "pending";
+          break;
+        }
         // V16.4-D: pending approval 嵌入当前 phase（轻量化 — 不常驻大面板）
         // 将 ApprovalSegment 附加到 currentPhase.approvals，UI 在 phase 内渲染内联 chips
         if (!currentPhase) {

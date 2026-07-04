@@ -37,6 +37,11 @@ import type {
 import type { ProviderLifecycleEvent } from "./providerLifecycleEvent";
 import { isInternalFilePath } from "../../timelineAdapter";
 
+function isUserInputApprovalTool(toolName: string): boolean {
+  const normalized = toolName.trim().toLowerCase();
+  return normalized === "askuserquestion" || normalized === "request_user_input";
+}
+
 /**
  * AssistantTurnView 聚合器：从 NormalizedRuntimeEvent 流增量构建 AssistantTurnView。
  *
@@ -381,6 +386,26 @@ export class AssistantTurnViewBuilder {
       }
 
       case "approval_request": {
+        if (isUserInputApprovalTool(p.toolName)) {
+          const seg: UserInputRequestSegment = {
+            requestId: p.requestId,
+            toolName: p.toolName,
+            prompt: p.description || p.inputSummary || p.toolName,
+            timestamp: event.timestamp,
+            pending: true,
+          };
+          this.userInputMap.set(p.requestId, seg);
+          this.lifecycleEventsList.push({
+            type: "user_input_requested",
+            providerId: this.providerId,
+            timestamp: event.timestamp,
+            approvalId: p.requestId,
+            toolName: p.toolName,
+            label: seg.prompt,
+          });
+          break;
+        }
+
         const seg: ApprovalSegment = {
           requestId: p.requestId,
           toolName: p.toolName,

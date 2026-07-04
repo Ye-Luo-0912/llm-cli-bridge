@@ -322,6 +322,11 @@ function looksLikeNeedsInput(finalAnswer: string): boolean {
   return /[?？]\s*$/.test(lastLine) && /(你|your|you|which|what|whether|要|希望|选择|确认)/i.test(lastLine);
 }
 
+function isUserInputApprovalTool(toolName: string): boolean {
+  const normalized = toolName.trim().toLowerCase();
+  return normalized === "askuserquestion" || normalized === "request_user_input";
+}
+
 function buildFileChangeSummary(
   fileChanges: ReadonlyArray<{ action: "create" | "modify" | "delete" }>,
 ): string {
@@ -342,10 +347,11 @@ function buildFileChangeSummary(
 
 export function inferFinalAnswerDisposition(turnView: AssistantTurnView): FinalAnswerDisposition {
   const userInputRequests = turnView.userInputRequests ?? [];
+  const pendingApprovals = turnView.approvals.filter((a) => a.pending && !isUserInputApprovalTool(a.toolName));
   if (turnView.status === "failed") return "failed";
   if (userInputRequests.some((r) => r.pending)) return "needs-input";
-  if (turnView.approvals.some((a) => a.pending)) return "needs-approval";
   if (looksLikeNeedsInput(turnView.finalAnswer)) return "needs-input";
+  if (pendingApprovals.length > 0) return "needs-approval";
   if (turnView.fileChanges.length > 0) return "completed";
   if (turnView.finalAnswer.trim().length > 0) return "answered";
   return "completed";
@@ -458,8 +464,8 @@ export function buildAgentRunDisplayModel(
 
   // --- header ---
   const durSecs = dur != null && dur > 0 ? Math.round(dur / 1000) : 0;
-  const pendingApproval = turnView.approvals.some((a) => a.pending);
-  const pendingUserInput = userInputRequests.some((r) => r.pending);
+  const pendingApproval = turnView.approvals.some((a) => a.pending && !isUserInputApprovalTool(a.toolName));
+  const pendingUserInput = userInputRequests.some((r) => r.pending) || looksLikeNeedsInput(turnView.finalAnswer);
   const headerParts: string[] = [];
 
   if (isRunning) {
@@ -632,6 +638,7 @@ export function buildAgentRunDisplayModel(
   const approvalCards: ApprovalCard[] = [];
   for (const ap of turnView.approvals) {
     if (!ap.pending) continue;
+    if (isUserInputApprovalTool(ap.toolName)) continue;
     const label = approvalDisplayLabel(ap.toolName, ap.inputSummary, ap.description);
     approvalCards.push({
       id: `approval-pending-${ap.requestId}`,
