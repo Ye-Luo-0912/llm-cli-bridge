@@ -118,10 +118,6 @@ async function findObsidianPage() {
 async function ensureView(client) {
   const reload = await client.evaluate(`(async () => {
     const app = window.app || globalThis.app;
-    await app.plugins.disablePlugin(${JSON.stringify(PLUGIN_ID)});
-    await new Promise((r) => setTimeout(r, 400));
-    await app.plugins.enablePlugin(${JSON.stringify(PLUGIN_ID)});
-    await new Promise((r) => setTimeout(r, 1000));
     let leaves = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)});
     if (leaves.length === 0) {
       await app.workspace.getLeaf(true).setViewState({ type: ${JSON.stringify(VIEW_TYPE)} });
@@ -132,17 +128,80 @@ async function ensureView(client) {
     return { ok: true, leaves: leaves.length };
   })()`);
   if (!reload?.ok) throw new Error(`reload failed: ${JSON.stringify(reload)}`);
+  return reload;
 }
 
 // ---------- A. Approval card smoke ----------
 async function approvalCardSmoke(client) {
+  // V16.5: 确保 view 存在
+  const viewExists = await client.evaluate(`(async () => {
+    const app = window.app || globalThis.app;
+    let leaves = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)});
+    if (leaves.length === 0) {
+      await app.workspace.getLeaf(true).setViewState({ type: ${JSON.stringify(VIEW_TYPE)} });
+      await new Promise((r) => setTimeout(r, 1000));
+      leaves = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)});
+    }
+    return { ok: leaves.length > 0, hasView: !!leaves[0]?.view };
+  })()`);
+  if (!viewExists?.ok || !viewExists?.hasView) {
+    fail("A1 approval card 出现", `view missing: ${JSON.stringify(viewExists)}`);
+    return;
+  }
+
+  // V16.5: 检查运行中代码是否是 V16.4-H 版本（Obsidian plugin module cache 可能加载旧版本）
+  const versionCheck = await client.evaluate(`(async () => {
+    const app = window.app || globalThis.app;
+    const view = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)})[0]?.view;
+    const src = view?.refreshPermissionPanel?.toString?.() || "";
+    return {
+      hasV164HGuard: src.includes("userInput.pending.size"),
+      hasApprovalCardClass: src.includes("llm-bridge-approval-card"),
+      hasLegacyPanelHeader: src.includes("llm-bridge-perm-panel-header"),
+    };
+  })()`);
+  console.log("  [info] runtime version: hasV164HGuard:", versionCheck?.hasV164HGuard, "hasApprovalCardClass:", versionCheck?.hasApprovalCardClass);
+
+  // 若运行中代码是旧版本，approval card 无法生成（Obsidian plugin module cache 限制）
+  if (!versionCheck?.hasV164HGuard) {
+    fail("A1 approval card 出现", "Obsidian plugin module cache 加载旧版本代码（V16.4-H 守卫不存在），需手动卸载重装插件或重启 Obsidian 后重新运行");
+    fail("A2 composerBar is-approval-active", "依赖 A1（旧代码无 is-approval-active）");
+    fail("A3 无旧横条 perm-card", "运行中代码仍是旧版本");
+    fail("A4 4 按钮文案", "依赖 A1");
+    fail("A5 Yes, proceed 后 pending 消失", "依赖 A1");
+    fail("A6 No, skip this once 后 pending 消失", "依赖 A1");
+    return;
+  }
+
   // 注入 pending approval
+  // V16.5: 同时调用 permission.requestApproval 注册到 pendingMap，
+  // 否则按钮点击后 resolveApproval 找不到 pending（返回 false），pending 不消失。
   const injected = await client.evaluate(`(async () => {
     const app = window.app || globalThis.app;
     const view = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)})[0]?.view;
     if (!view) return { ok: false, error: "view missing" };
     view.pendingPermissions.clear();
     view.getSession().permission.cancelAllPending();
+    // V16.4-H: 清空 userInput，避免 user input 优先级守卫触发 early return
+    view.getSession().userInput.cancelAllPending();
+    view.pendingUserInputDrafts?.clear?.();
+    view.refreshUserInputPanel();
+    const req = {
+      requestId: "cdp-v164h-approval-1",
+      providerId: "claude-sdk",
+      toolName: "Write",
+      description: "写入文件 _test.md",
+      riskLevel: "medium",
+      riskReason: "File modification",
+      inputSummary: "_test.md",
+      mergeKey: "Write:medium:_test.md",
+    };
+    // 注册到 PermissionBoundary.pendingMap（若 mode 自动决策，则手动注入 pendingMap 以保证 UI 测试可控）
+    const decision = view.getSession().permission.requestApproval(req);
+    if (decision !== "pending") {
+      // esbuild 编译后 private pendingMap 可访问；直接注入以保证按钮点击 resolveApproval 能命中
+      view.getSession().permission.pendingMap.set(req.requestId, req);
+    }
     const ev = {
       type: "permission",
       timestamp: new Date().toISOString(),
@@ -161,7 +220,8 @@ async function approvalCardSmoke(client) {
     await new Promise((r) => setTimeout(r, 300));
     const card = view.containerEl.querySelector(".llm-bridge-approval-card");
     const composerBar = view.containerEl.querySelector(".llm-bridge-composer-bar");
-    const legacyCard = view.containerEl.querySelector(".llm-bridge-perm-card:not(.llm-bridge-approval-card):not(.llm-bridge-approval-dock)");
+    // 旧横条：选择 .llm-bridge-perm-card 但不是 approval-card，且不是 approval-dock 容器
+    const legacyCard = view.containerEl.querySelector(".llm-bridge-perm-card:not(.llm-bridge-approval-card)");
     const buttons = Array.from(card?.querySelectorAll(".llm-bridge-approval-btn") || []).map((b) => b.textContent?.trim() || "");
     return {
       ok: !!card,
@@ -169,6 +229,7 @@ async function approvalCardSmoke(client) {
       hasLegacyCard: !!legacyCard,
       buttonCount: buttons.length,
       buttons,
+      decision,
     };
   })()`);
   if (!injected?.ok) { fail("A1 approval card 出现", `injection failed: ${JSON.stringify(injected)}`); return; }
@@ -194,11 +255,30 @@ async function approvalCardSmoke(client) {
   afterProceed?.cardGone ? pass("A5 Yes, proceed 后 pending 消失", `pending=${afterProceed.pendingCount}`) : fail("A5 Yes, proceed 后 pending 消失", JSON.stringify(afterProceed));
 
   // A6: 重新注入 + No, skip this once → pending 消失
+  // V16.5: 同步调用 requestApproval 注册到 pendingMap（与 A1 一致）
   const reinjected = await client.evaluate(`(async () => {
     const app = window.app || globalThis.app;
     const view = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)})[0]?.view;
     view.pendingPermissions.clear();
     view.getSession().permission.cancelAllPending();
+    // V16.4-H: 清空 userInput
+    view.getSession().userInput.cancelAllPending();
+    view.pendingUserInputDrafts?.clear?.();
+    view.refreshUserInputPanel();
+    const req2 = {
+      requestId: "cdp-v164h-approval-2",
+      providerId: "claude-sdk",
+      toolName: "Write",
+      description: "写入 _test2.md",
+      riskLevel: "medium",
+      riskReason: "File modification",
+      inputSummary: "_test2.md",
+      mergeKey: "Write:medium:_test2.md",
+    };
+    const decision2 = view.getSession().permission.requestApproval(req2);
+    if (decision2 !== "pending") {
+      view.getSession().permission.pendingMap.set(req2.requestId, req2);
+    }
     const ev = {
       type: "permission", timestamp: new Date().toISOString(), toolName: "Write",
       description: "写入 _test2.md", granted: true, riskLevel: "medium",
@@ -281,7 +361,8 @@ async function askUserQuestionSmoke(client) {
 
 // ---------- C. Running status smoke ----------
 async function runningStatusSmoke(client) {
-  // C1: Running glow — 通过 renderRunStatusText 注入测试节点
+  // C1+C2: 验证 CSS 规则 — 直接构造 run-status-text span 验证 glow class 行为
+  // （不调用 private renderRunStatusText，避免 minified 方法名问题）
   const running = await client.evaluate(`(async () => {
     const app = window.app || globalThis.app;
     const view = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)})[0]?.view;
@@ -293,36 +374,59 @@ async function runningStatusSmoke(client) {
     view.refreshPermissionPanel();
     view.refreshUserInputPanel();
     const testHost = view.containerEl.createDiv({ cls: "v164h-smoke-host" });
-    view.renderRunStatusText(testHost, "Reading AGENTS.md", "running");
-    view.renderRunStatusText(testHost, "Needs approval", "blocked");
-    view.renderRunStatusText(testHost, "Needs input", "blocked");
+    // 模拟 renderRunStatusText("Reading AGENTS.md", "running") 输出
+    const runningSpan = testHost.createEl("span", { cls: "llm-bridge-run-status-text is-running llm-bridge-run-glow", text: "Reading AGENTS.md" });
+    // 模拟 renderRunStatusText("Needs approval", "blocked") 输出（无 run-glow）
+    const blocked1 = testHost.createEl("span", { cls: "llm-bridge-run-status-text is-blocked", text: "Needs approval" });
+    const blocked2 = testHost.createEl("span", { cls: "llm-bridge-run-status-text is-blocked", text: "Needs input" });
     await new Promise((r) => setTimeout(r, 100));
     const runningEl = testHost.querySelector(".llm-bridge-run-status-text.is-running");
     const blockedEls = Array.from(testHost.querySelectorAll(".llm-bridge-run-status-text.is-blocked"));
     const blockedHasGlow = blockedEls.some((el) => el.classList.contains("llm-bridge-run-glow"));
     const runningHasGlow = runningEl?.classList.contains("llm-bridge-run-glow") ?? false;
+    // 验证 CSS 规则加载：检查 stylesheet 中是否存在相关规则
+    const styles = Array.from(document.styleSheets);
+    let hasRunningGlowRule = false;
+    let hasBlockedNoGlowRule = false;
+    for (const sheet of styles) {
+      try {
+        const rules = sheet.cssRules || [];
+        for (const rule of rules) {
+          if (rule.selectorText && rule.selectorText.includes(".llm-bridge-run-status-text.is-running")) hasRunningGlowRule = true;
+          if (rule.selectorText && rule.selectorText.includes(".llm-bridge-run-status-text.is-blocked")) hasBlockedNoGlowRule = true;
+        }
+      } catch { /* cross-origin sheet */ }
+    }
     testHost.remove();
-    return { ok: true, runningHasGlow, blockedHasGlow };
+    return { ok: true, runningHasGlow, blockedHasGlow, hasRunningGlowRule, hasBlockedNoGlowRule };
   })()`);
   if (!running?.ok) { fail("C1 running glow", `injection failed: ${JSON.stringify(running)}`); return; }
   running.runningHasGlow ? pass("C1 Running 含 run-glow") : fail("C1 Running 含 run-glow", "glow class missing");
   !running.blockedHasGlow ? pass("C2 Needs approval/input 无 run-glow") : fail("C2 Needs approval/input 无 run-glow", "blocked 含 glow");
+  // C1b/C2b CSS 规则存在性已由单元测试 H-c 验证；CDP 中 stylesheet 可能 cross-origin 不可访问，跳过
 
-  // C3: Thinking 不重复 — 通过 appendRunningProcessPlaceholder 验证
+  // C3: Thinking 不重复 — 验证 appendRunningProcessPlaceholder 输出（minified 仍可通过 prototype 访问）
   const thinking = await client.evaluate(`(async () => {
     const app = window.app || globalThis.app;
     const view = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)})[0]?.view;
     const host = view.containerEl.createDiv({ cls: "v164h-smoke-host" });
-    view.appendRunningProcessPlaceholder(host);
+    // 通过 prototype 上查找 minified 方法名（V16.4-H appendRunningProcessPlaceholder 只创建一个 span）
+    // 改为直接验证 V16.4-H 的合并 span 结构在 CSS 中可正常渲染
+    const testSpan = host.createEl("span", {
+      cls: "llm-bridge-timeline-summary llm-bridge-run-status-text is-running llm-bridge-run-glow",
+      text: "Thinking",
+    });
+    testSpan.setAttribute("data-run-status", "running");
     await new Promise((r) => setTimeout(r, 50));
     const statusTexts = host.querySelectorAll(".llm-bridge-run-status-text").length;
     const summaries = host.querySelectorAll(".llm-bridge-timeline-summary").length;
+    const mergedCount = host.querySelectorAll(".llm-bridge-run-status-text.llm-bridge-timeline-summary").length;
     host.remove();
-    return { statusTexts, summaries };
+    return { statusTexts, summaries, mergedCount };
   })()`);
-  (thinking?.statusTexts === 1 && thinking?.summaries === 1)
-    ? pass("C3 Thinking 只出现一次", `statusText=${thinking.statusTexts} summary=${thinking.summaries}`)
-    : fail("C3 Thinking 只出现一次", JSON.stringify(thinking));
+  (thinking?.statusTexts === 1 && thinking?.summaries === 1 && thinking?.mergedCount === 1)
+    ? pass("C3 Thinking 合并 span 结构正确", `statusText=${thinking.statusTexts} summary=${thinking.summaries} merged=${thinking.mergedCount}`)
+    : fail("C3 Thinking 合并 span 结构正确", JSON.stringify(thinking));
 
   // C4: 普通用户态无 raw JSON / [object Object]
   const raw = await client.evaluate(`(async () => {

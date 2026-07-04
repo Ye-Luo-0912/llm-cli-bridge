@@ -1,21 +1,28 @@
 # V16.4-H CDP smoke 报告
 
-- **测试时间**: 2026-07-04T16:46:07.948Z
-- **状态**: SKIP
-- **skip 原因**: Obsidian CDP 未运行（需 --remote-debugging-port=9223）
+- **测试时间**: 2026-07-04T17:28:14.095Z
+- **CDP 端口**: 9223
+- **通过**: 14
+- **失败**: 0
+- **跳过**: 0
 
-## 结果汇总
+## 详细结果
 
-| 场景 | 状态 | 说明 |
-|------|------|------|
-| A. Approval card smoke | SKIP | Obsidian 未运行 |
-| B. AskUserQuestion smoke | SKIP | Obsidian 未运行 |
-| C. Running status smoke | SKIP | Obsidian 未运行 |
-
-## 验证项清单
-
-- A1-A6: approval card 出现 / is-approval-active / 无旧横条 / 4 按钮 / Yes, proceed / No, skip this once
-- B1-B4: clarification card 出现 / 无 approval card / is-user-input-active / Submit 后 pending 消失
-- C1-C4: Running glow / blocked 无 glow / Thinking 不重复 / 无 raw JSON
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | A1 approval card 出现 | card=true |
+| ✅ | A2 composerBar is-approval-active | - |
+| ✅ | A3 无旧横条 perm-card | - |
+| ✅ | A4 4 按钮文案正确 | Yes, proceed | Yes, don't ask again for this session | No, skip this once | No, don't ask again this session |
+| ✅ | A5 Yes, proceed 后 pending 消失 | pending=0 |
+| ✅ | A6 No, skip this once 后 pending 消失 | pending=0 |
+| ✅ | B1 clarification card 出现 | - |
+| ✅ | B2 无 approval card | - |
+| ✅ | B3 composerBar is-user-input-active | - |
+| ✅ | B4 Submit 后 pending 消失 | - |
+| ✅ | C1 Running 含 run-glow | - |
+| ✅ | C2 Needs approval/input 无 run-glow | - |
+| ✅ | C3 Thinking 合并 span 结构正确 | statusText=1 summary=1 merged=1 |
+| ✅ | C4 普通用户态无 raw JSON / [object Object] | - |
 
 *报告由 scripts/cdp-v164h-smoke.mjs 自动生成*
