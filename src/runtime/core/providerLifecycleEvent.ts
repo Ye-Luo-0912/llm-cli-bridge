@@ -85,7 +85,7 @@ export interface ProviderLifecycleEvent {
   readonly additions?: number;
   readonly deletions?: number;
   readonly approvalId?: string;
-  readonly approvalResolution?: "accept" | "acceptForSession" | "decline" | "cancel";
+  readonly approvalResolution?: "accept" | "acceptForSession" | "decline" | "declineForSession" | "cancel";
   readonly label?: string;
   readonly detail?: string;
   readonly category?: string;

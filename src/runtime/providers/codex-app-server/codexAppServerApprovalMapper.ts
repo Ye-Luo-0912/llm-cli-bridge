@@ -129,6 +129,9 @@ export class CodexAppServerApprovalMapper {
    *
    * commandExecution decision：accept / acceptForSession / decline / cancel
    * （acceptWithExecpolicyAmendment / applyNetworkPolicyAmendment 由专用扩展路径触发）
+   *
+   * V16.4-G: declineForSession 统一映射为 "decline"（codex server 协议无 declineForSession）；
+   * 会话级 deny 缓存由 PermissionBoundary 内部维护，不影响 server 协议层。
    */
   private mapApprovalResponseToDecision(
     unified: ApprovalResponse,
@@ -139,6 +142,9 @@ export class CodexAppServerApprovalMapper {
       case "acceptForSession":
         return "acceptForSession";
       case "decline":
+        return "decline";
+      case "declineForSession":
+        // codex server 协议只有 decline，无 declineForSession；会话级 deny 由 PermissionBoundary 维护
         return "decline";
       case "cancel":
         return "cancel";

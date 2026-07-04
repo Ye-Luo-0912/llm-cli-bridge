@@ -209,8 +209,12 @@ export function assessToolRisk(toolName: string, input: Record<string, unknown>)
 
 /**
  * 用户决策类型
+ *
+ * V16.4-G: 拆分 deny_once / deny_session。
+ * - deny_once:    只拒绝本次，不写 deniesList（对应 ApprovalResponse.decline）
+ * - deny_session: 本会话拒绝，写 deniesList（对应 ApprovalResponse.declineForSession）
  */
-export type PermissionChoice = "allow_once" | "allow_session" | "deny_session";
+export type PermissionChoice = "allow_once" | "allow_session" | "deny_once" | "deny_session";
 
 /**
  * 会话级允许缓存条目

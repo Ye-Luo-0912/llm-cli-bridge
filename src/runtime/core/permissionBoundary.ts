@@ -103,6 +103,7 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
     // 更新会话级缓存：直接构造 SessionAllowEntry/SessionDenyEntry（此处无解析后的 tool
     // input record，pathPattern 退化为通配；真实 pathPattern 由 provider 在 requestApproval
     // 时通过 mergeKey 携带）
+    // V16.4-G: decline 只拒绝本次不写 deniesList；declineForSession 才写会话级 deny 缓存。
     const pathPattern = req.mergeKey ?? extractToolPathPattern({});
     const now = new Date().toISOString();
     if (response.type === "acceptForSession") {
@@ -112,7 +113,7 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
         pathPattern,
         grantedAt: now,
       });
-    } else if (response.type === "decline") {
+    } else if (response.type === "declineForSession") {
       this.deniesList.push({
         toolName: req.toolName,
         riskLevel: req.riskLevel,
@@ -126,7 +127,7 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
     if (resolver) {
       this.resolvers.delete(requestId);
       const source = response.type === "acceptForSession" ? "session_allow"
-        : response.type === "decline" ? "session_deny"
+        : response.type === "declineForSession" ? "session_deny"
         : "user";
       resolver({ response, source });
     }

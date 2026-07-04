@@ -1045,7 +1045,8 @@ async function runRealSdkQuery(
         emitPerm(true, result.source, false, requestId);
         return { behavior: "allow", updatedInput: input };
       }
-      // decline / cancel
+      // V16.4-G: decline / declineForSession / cancel 都返回 deny；
+      // declineForSession 的会话级 deny 缓存由 PermissionBoundary 内部维护
       emitPerm(false, result.source, false, requestId);
       return { behavior: "deny", message: `用户拒绝：${toolName}（${risk.reason}）` };
     }

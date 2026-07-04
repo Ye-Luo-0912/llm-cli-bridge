@@ -1668,8 +1668,31 @@ export class LLMBridgeView extends ItemView {
     const proceedSessionBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-proceed-session", text: "Yes, don't ask again for this session" });
     proceedSessionBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "allow_session"));
 
-    const declineBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-decline", text: "No, continue without running it" });
-    declineBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "deny_session"));
+    const declineBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-decline", text: "No, skip this once" });
+    declineBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "deny_once"));
+
+    const declineSessionBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-decline-session", text: "No, don't ask again this session" });
+    declineSessionBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "deny_session"));
+  }
+
+  /**
+   * V16.4-G: 统一运行状态文本渲染（Codex-style glow text）。
+   *
+   * - kind="running": shimmer/glow text（Thinking / Reading <file> / Running command / Editing <file>）
+   * - kind="blocked": 无 shimmer（Needs approval / Needs input）
+   * - kind="completed": 无 shimmer（静态文本）
+   *
+   * 取代旧 .llm-bridge-msg-spinner / .llm-bridge-turn-header-spinner 旋转圈。
+   * prefers-reduced-motion: reduce 时由 CSS 降级为静态文字。
+   */
+  private renderRunStatusText(parent: HTMLElement, text: string, kind: "running" | "blocked" | "completed"): void {
+    const statusEl = parent.createEl("span", {
+      cls: `llm-bridge-run-status-text is-${kind}`,
+      text,
+    });
+    if (kind === "running") {
+      statusEl.addClass("llm-bridge-run-glow");
+    }
   }
 
   /** V16.4-F: 按工具类型生成语义化 card title */
@@ -1934,11 +1957,14 @@ export class LLMBridgeView extends ItemView {
   // 不再调用 SdkBackend.resolvePermission；所有 provider 的 approval 都走统一路径。
   private resolvePermissionRequests(requestIds: string[], choice: PermissionChoice): void {
     const permission = this.getSession().permission;
+    // V16.4-G: deny_once -> decline (no deniesList); deny_session -> declineForSession (writes deniesList)
     const response: ApprovalResponse = choice === "allow_once"
       ? { type: "accept" }
       : choice === "allow_session"
         ? { type: "acceptForSession" }
-        : { type: "decline" };
+        : choice === "deny_session"
+          ? { type: "declineForSession" }
+          : { type: "decline" };
     let resolved = 0;
     for (const id of requestIds) {
       if (permission.resolveApproval(id, response)) {
@@ -3177,8 +3203,8 @@ export class LLMBridgeView extends ItemView {
             text: STATUS_LABEL[msg.status],
           });
         } else if (msg.status === "running") {
-          // Lightweight spinner for running state in normal user mode
-          head.createEl("span", { cls: "llm-bridge-msg-spinner" });
+          // V16.4-G: Codex-style glow text 取代旋转圈
+          this.renderRunStatusText(head, "Thinking", "running");
         }
       }
       head.createEl("span", { cls: "llm-bridge-msg-time", text: new Date(msg.timestamp).toLocaleTimeString() });
@@ -3445,7 +3471,8 @@ export class LLMBridgeView extends ItemView {
   private appendRunningProcessPlaceholder(parent: HTMLElement): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap llm-bridge-process-placeholder" });
     const head = wrap.createDiv({ cls: "llm-bridge-timeline-head llm-bridge-timeline-head-noclick" });
-    head.createEl("span", { cls: "llm-bridge-turn-header-spinner" });
+    // V16.4-G: Codex-style glow text 取代旋转圈
+    this.renderRunStatusText(head, "Thinking", "running");
     head.createEl("span", { cls: "llm-bridge-timeline-summary", text: "Thinking" });
   }
 
@@ -3497,9 +3524,10 @@ export class LLMBridgeView extends ItemView {
     const toggle = hasProcessContent
       ? head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: isRunning ? "▼ " : "▶ " })
       : head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: "" });
-    // Running: add spinner before summary
+    // V16.4-G: Running 状态用 Codex-style glow text 取代旋转圈
     if (isRunning) {
-      head.createEl("span", { cls: "llm-bridge-turn-header-spinner" });
+      const statusText = model.currentActivity || "Thinking";
+      this.renderRunStatusText(head, statusText, "running");
     }
     head.createEl("span", { cls: "llm-bridge-timeline-summary", text: headerText });
 
@@ -3508,8 +3536,10 @@ export class LLMBridgeView extends ItemView {
     if (!isRunning && !isFailed) body.setAttribute("hidden", "");
 
     // --- currentActivity (运行中显示在 header 下方，单行轻量反馈) ---
+    // V16.4-G: blocked 状态（Needs approval / Needs input）不用 shimmer
     if (isRunning && model.currentActivity) {
-      body.createDiv({ cls: "llm-bridge-turn-current-activity", text: model.currentActivity });
+      const isBlocked = model.currentActivity === "Needs approval" || model.currentActivity === "Needs input";
+      this.renderRunStatusText(body, model.currentActivity, isBlocked ? "blocked" : "running");
     }
 
     if (developerMode) {
@@ -4924,13 +4954,13 @@ export class LLMBridgeView extends ItemView {
         statusEl.remove();
       }
     }
-    // Add/remove spinner for normal user mode
-    const existingSpinner = block.querySelector(".llm-bridge-msg-spinner");
-    if (msg.status === "running" && !devMode && !existingSpinner) {
+    // V16.4-G: Add/remove Codex-style glow text for normal user mode running state
+    const existingRunStatus = block.querySelector(".llm-bridge-run-status-text");
+    if (msg.status === "running" && !devMode && !existingRunStatus) {
       const head = block.querySelector(".llm-bridge-msg-head");
-      if (head) head.createEl("span", { cls: "llm-bridge-msg-spinner" });
-    } else if (msg.status !== "running" && existingSpinner) {
-      existingSpinner.remove();
+      if (head) this.renderRunStatusText(head as HTMLElement, "Thinking", "running");
+    } else if (msg.status !== "running" && existingRunStatus) {
+      existingRunStatus.remove();
     }
 
     // 内容

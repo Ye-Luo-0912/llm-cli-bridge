@@ -3054,6 +3054,148 @@ if (runMode !== "all" && runMode !== "unit") {
       }
     }
 
+    // ===== V16.4-G: Approval decline 语义 + Running status UI =====
+
+    // Test G-a: decline 只拒绝本次，不写 deniesList
+    {
+      const boundary = permBoundaryMod.createPermissionBoundary("default", "medium");
+      const req1 = {
+        requestId: "req-ga1",
+        providerId: "claude-sdk",
+        toolName: "Bash",
+        description: "run command",
+        riskLevel: "medium",
+        mergeKey: "cmd-ga",
+      };
+      // default mode + medium risk → ask → pending
+      const d1 = boundary.requestApproval(req1);
+      // 用户选择 decline（只拒绝本次，不写 deniesList）
+      const resolved = boundary.resolveApproval("req-ga1", { type: "decline" });
+      // 第二次同 mergeKey → 仍 pending（decline 不写 deniesList）
+      const req2 = { ...req1, requestId: "req-ga2" };
+      const d2 = boundary.requestApproval(req2);
+      addTest("V16.4-G Approval: decline 只拒绝本次，第二次仍 pending",
+        d1 === "pending" && resolved && d2 === "pending" ? "pass" : "fail",
+        `d1=${d1} resolved=${resolved} d2=${d2}`);
+    }
+
+    // Test G-b: declineForSession 写 deniesList，第二次 auto-deny
+    {
+      const boundary = permBoundaryMod.createPermissionBoundary("default", "medium");
+      const req1 = {
+        requestId: "req-gb1",
+        providerId: "claude-sdk",
+        toolName: "Bash",
+        description: "run command",
+        riskLevel: "medium",
+        mergeKey: "cmd-gb",
+      };
+      const d1 = boundary.requestApproval(req1);
+      // 用户选择 declineForSession（写 deniesList）
+      const resolved = boundary.resolveApproval("req-gb1", { type: "declineForSession" });
+      // 第二次同 mergeKey → auto-deny（V16.4-F2 mergeKey 匹配）
+      const req2 = { ...req1, requestId: "req-gb2" };
+      const d2 = boundary.requestApproval(req2);
+      addTest("V16.4-G Approval: declineForSession 写 deniesList，第二次 auto-deny",
+        d1 === "pending" && resolved && d2 === "auto-deny" ? "pass" : "fail",
+        `d1=${d1} resolved=${resolved} d2=${d2}`);
+    }
+
+    // Test G-c: acceptForSession 仍 auto-allow（回归测试）
+    {
+      const boundary = permBoundaryMod.createPermissionBoundary("default", "medium");
+      const req1 = {
+        requestId: "req-gc1",
+        providerId: "claude-sdk",
+        toolName: "Bash",
+        description: "run command",
+        riskLevel: "medium",
+        mergeKey: "cmd-gc",
+      };
+      const d1 = boundary.requestApproval(req1);
+      const resolved = boundary.resolveApproval("req-gc1", { type: "acceptForSession" });
+      const req2 = { ...req1, requestId: "req-gc2" };
+      const d2 = boundary.requestApproval(req2);
+      addTest("V16.4-G Approval: acceptForSession 仍 auto-allow（回归）",
+        d1 === "pending" && resolved && d2 === "auto-allow" ? "pass" : "fail",
+        `d1=${d1} resolved=${resolved} d2=${d2}`);
+    }
+
+    // Test G-d: 普通用户态 running 不存在旧 spinner class，存在 run-status-text
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      // 普通用户态代码路径不再创建旧 spinner（developerMode 分支保留旧 STATUS_LABEL）
+      // 检查 renderRunStatusText 方法存在
+      const hasRenderMethod = viewSrc.includes("renderRunStatusText(parent: HTMLElement, text: string, kind:");
+      // 检查 is-running / is-blocked kind 使用
+      const usesRunningKind = viewSrc.includes('"running"') && viewSrc.includes('"blocked"');
+      // 检查 renderAgentRunDisplayModel 中调用 renderRunStatusText
+      const callsRenderInTurnView = viewSrc.includes("this.renderRunStatusText(head, statusText, \"running\")");
+      // 检查 appendRunningProcessPlaceholder 调用 renderRunStatusText
+      const callsRenderInPlaceholder = viewSrc.includes("this.renderRunStatusText(head, \"Thinking\", \"running\")");
+      // 检查 currentActivity blocked kind
+      const blockedKind = viewSrc.includes("isBlocked ? \"blocked\" : \"running\"");
+      const ok = hasRenderMethod && usesRunningKind && callsRenderInTurnView && callsRenderInPlaceholder && blockedKind;
+      addTest("V16.4-G UI: renderRunStatusText 方法 + running/blocked kind 使用",
+        ok ? "pass" : "fail",
+        `method=${hasRenderMethod} runningKind=${usesRunningKind} turnView=${callsRenderInTurnView} placeholder=${callsRenderInPlaceholder} blockedKind=${blockedKind}`);
+    }
+
+    // Test G-e: CSS 存在 run-status-text + prefers-reduced-motion + 旧 spinner display:none
+    {
+      const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf8");
+      const hasRunStatus = stylesSrc.includes(".llm-bridge-run-status-text")
+        && stylesSrc.includes(".is-running")
+        && stylesSrc.includes(".is-blocked")
+        && stylesSrc.includes(".llm-bridge-run-glow");
+      const hasGlowKeyframes = stylesSrc.includes("@keyframes llm-bridge-run-glow");
+      const hasReducedMotion = stylesSrc.includes("@media (prefers-reduced-motion: reduce)");
+      const reducedMotionDisablesGlow = stylesSrc.includes(".llm-bridge-run-status-text.is-running.llm-bridge-run-glow")
+        && stylesSrc.includes("-webkit-text-fill-color: var(--interactive-accent)");
+      const oldSpinnerHidden = stylesSrc.includes(".llm-bridge-msg-spinner,")
+        && stylesSrc.includes(".llm-bridge-turn-header-spinner {")
+        && stylesSrc.includes("display: none;");
+      const hasDeclineSessionBtn = stylesSrc.includes(".llm-bridge-approval-btn.is-decline-session")
+        && stylesSrc.includes(".llm-bridge-approval-btn.is-proceed-session");
+      const ok = hasRunStatus && hasGlowKeyframes && hasReducedMotion && reducedMotionDisablesGlow && oldSpinnerHidden && hasDeclineSessionBtn;
+      addTest("V16.4-G CSS: run-status-text + glow keyframes + reduced-motion + 旧 spinner display:none + decline-session btn",
+        ok ? "pass" : "fail",
+        `runStatus=${hasRunStatus} glow=${hasGlowKeyframes} reducedMotion=${hasReducedMotion} disablesGlow=${reducedMotionDisablesGlow} spinnerHidden=${oldSpinnerHidden} declineBtn=${hasDeclineSessionBtn}`);
+    }
+
+    // Test G-f: UI approval card 4 按钮（No, skip this once / No, don't ask again this session）
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const hasProceed = viewSrc.includes('"Yes, proceed"');
+      const hasProceedSession = viewSrc.includes('"Yes, don\'t ask again for this session"');
+      const hasDeclineOnce = viewSrc.includes('"No, skip this once"');
+      const hasDeclineSession = viewSrc.includes('"No, don\'t ask again this session"');
+      // deny_once → decline；deny_session → declineForSession
+      const mapsDeclineOnce = viewSrc.includes('"deny_once"') && viewSrc.includes('{ type: "decline" }');
+      const mapsDeclineSession = viewSrc.includes('"deny_session"') && viewSrc.includes('{ type: "declineForSession" }');
+      const ok = hasProceed && hasProceedSession && hasDeclineOnce && hasDeclineSession && mapsDeclineOnce && mapsDeclineSession;
+      addTest("V16.4-G UI: approval card 4 按钮 + deny_once/deny_session 映射",
+        ok ? "pass" : "fail",
+        `proceed=${hasProceed} proceedSession=${hasProceedSession} declineOnce=${hasDeclineOnce} declineSession=${hasDeclineSession} mapOnce=${mapsDeclineOnce} mapSession=${mapsDeclineSession}`);
+    }
+
+    // Test G-g: ApprovalResponse 类型包含 declineForSession
+    {
+      const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "types.ts"), "utf8");
+      const hasDeclineForSession = typesSrc.includes('| { type: "declineForSession" }');
+      // PermissionChoice 包含 deny_once / deny_session
+      const sdkPermSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkPermission.ts"), "utf8");
+      const hasDenyOnce = sdkPermSrc.includes('"deny_once"');
+      const hasDenySession = sdkPermSrc.includes('"deny_session"');
+      // Codex mapper 把 declineForSession 映射为 decline
+      const codexMapperSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerApprovalMapper.ts"), "utf8");
+      const codexMapsDeclineForSession = codexMapperSrc.includes('case "declineForSession":');
+      const ok = hasDeclineForSession && hasDenyOnce && hasDenySession && codexMapsDeclineForSession;
+      addTest("V16.4-G types: ApprovalResponse declineForSession + PermissionChoice deny_once/deny_session + Codex mapper",
+        ok ? "pass" : "fail",
+        `declineForSession=${hasDeclineForSession} denyOnce=${hasDenyOnce} denySession=${hasDenySession} codexMapper=${codexMapsDeclineForSession}`);
+    }
+
     // 清理临时 bundles
     for (const f of [
       tempCodexProviderBundle, tempPromptPkgBundle, tempAssistantViewBundle,
@@ -14743,7 +14885,7 @@ if (!runNoteSummarizeSmoke) {
       `pointerGuard=${pointerGuardOk} setMode=${setModeOk}`);
   }
 
-  // ---- Test 15c: SDK permission approval dock 在 composer 内部，Codex-style card（V16.4-F 重构）----
+  // ---- Test 15c: SDK permission approval dock 在 composer 内部，Codex-style card（V16.4-F/G 重构）----
   {
     const ok = viewSrc.includes('composer.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" })')
       && viewSrc.includes('llm-bridge-approval-card')
@@ -14752,11 +14894,12 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('"Would you like to make these edits?"')
       && viewSrc.includes('"Yes, proceed"')
       && viewSrc.includes('"Yes, don\'t ask again for this session"')
-      && viewSrc.includes('"No, continue without running it"')
+      && viewSrc.includes('"No, skip this once"')
+      && viewSrc.includes('"No, don\'t ask again this session"')
       && viewSrc.includes('llm-bridge-approval-card-dev-details')
       && stylesSrc.includes(".llm-bridge-approval-card")
       && stylesSrc.includes(".llm-bridge-approval-btn.is-proceed");
-    addTest("V16.4-F permission UI: Codex-style approval card in composer, 语义化按钮",
+    addTest("V16.4-F/G permission UI: Codex-style approval card in composer, 4 语义化按钮",
       ok ? "pass" : "fail", "");
   }
 

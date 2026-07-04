@@ -217,15 +217,17 @@ export type NormalizedRuntimeEventPayload =
 /**
  * 用户对 approval 请求的响应（provider-neutral）。
  *
- * - accept:           允许本次（allow once）
- * - acceptForSession: 本会话允许（allow session）
- * - decline:          拒绝（deny）
- * - cancel:           取消整个 run（用户点停止按钮时）
+ * - accept:             允许本次（allow once）
+ * - acceptForSession:   本会话允许（allow session）
+ * - decline:            只拒绝本次，不写 deniesList（deny once）
+ * - declineForSession:  本会话拒绝，写 deniesList，下次同 mergeKey auto-deny
+ * - cancel:             取消整个 run（用户点停止按钮时）
  */
 export type ApprovalResponse =
   | { type: "accept" }
   | { type: "acceptForSession" }
   | { type: "decline" }
+  | { type: "declineForSession" }
   | { type: "cancel" };
 
 export interface UserInputOption {

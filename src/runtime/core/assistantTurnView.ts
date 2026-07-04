@@ -656,11 +656,12 @@ export function buildAssistantTurnViewFromEvents(
  *
  * 迁移期辅助；新代码应直接用 ApprovalResponse。
  */
-export function approvalResponseToLegacyChoice(response: ApprovalResponse): "allow_once" | "allow_session" | "deny_session" {
+export function approvalResponseToLegacyChoice(response: ApprovalResponse): "allow_once" | "allow_session" | "deny_once" | "deny_session" {
   switch (response.type) {
     case "accept": return "allow_once";
     case "acceptForSession": return "allow_session";
-    case "decline": return "deny_session";
+    case "decline": return "deny_once";
+    case "declineForSession": return "deny_session";
     case "cancel": return "deny_session";
   }
 }

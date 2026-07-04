@@ -2692,6 +2692,20 @@
 .llm-bridge-approval-btn.is-decline {
   color: var(--text-muted);
 }
+.llm-bridge-approval-btn.is-proceed-session {
+  color: var(--text-success);
+  border-color: color-mix(in srgb, var(--text-success) 40%, transparent);
+}
+.llm-bridge-approval-btn.is-proceed-session:hover {
+  background: color-mix(in srgb, var(--text-success) 10%, transparent);
+}
+.llm-bridge-approval-btn.is-decline-session {
+  color: var(--text-error);
+  border-color: color-mix(in srgb, var(--text-error) 40%, transparent);
+}
+.llm-bridge-approval-btn.is-decline-session:hover {
+  background: color-mix(in srgb, var(--text-error) 10%, transparent);
+}
 
 .llm-bridge-user-input-panel {
   display: grid;
@@ -2902,6 +2916,8 @@
   color: var(--background-primary);
 }
 
+/* V16.4-G legacy developer-only: 旧权限请求卡片样式（已由 .llm-bridge-approval-card 取代） */
+/* 普通用户态不再使用；保留供 developerMode 历史消息兼容，不影响主链路 */
 /* 权限请求卡片 */
 .llm-bridge-perm-card {
   display: grid;
@@ -5323,18 +5339,65 @@
   background: color-mix(in srgb, var(--llm-agent-surface-raised) 80%, transparent);
 }
 
-/* P4-D: Lightweight spinner for running state */
+/* V16.4-G: Codex-style run status glow text（取代旧 spinner 旋转圈） */
+.llm-bridge-run-status-text {
+  display: inline-flex;
+  align-items: center;
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+
+.llm-bridge-run-status-text.is-running {
+  color: var(--interactive-accent);
+  font-weight: 500;
+}
+
+.llm-bridge-run-status-text.is-running.llm-bridge-run-glow {
+  background: linear-gradient(
+    90deg,
+    var(--interactive-accent) 0%,
+    var(--text-muted) 50%,
+    var(--interactive-accent) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: llm-bridge-run-glow 2s linear infinite;
+}
+
+.llm-bridge-run-status-text.is-blocked {
+  color: var(--text-warning);
+  font-weight: 500;
+}
+
+.llm-bridge-run-status-text.is-completed {
+  color: var(--text-muted);
+}
+
+@keyframes llm-bridge-run-glow {
+  0% { background-position: 100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+/* V16.4-G: prefers-reduced-motion 降级为静态文字（无 shimmer） */
+@media (prefers-reduced-motion: reduce) {
+  .llm-bridge-run-status-text.is-running.llm-bridge-run-glow {
+    background: none;
+    -webkit-text-fill-color: var(--interactive-accent);
+    animation: none;
+  }
+  .llm-bridge-status-dot-running {
+    animation: none;
+  }
+}
+
+/* P4-D legacy: spinner（developer-only，普通用户态不再使用，保留供 developerMode 调试） */
 .llm-bridge-msg-spinner,
 .llm-bridge-turn-header-spinner {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border: 2px solid var(--background-modifier-border);
-  border-top-color: var(--interactive-accent);
-  border-radius: 50%;
-  animation: llm-bridge-spin 0.8s linear infinite;
-  flex-shrink: 0;
-  margin-right: 4px;
+  display: none;
 }
 
 @keyframes llm-bridge-spin {
