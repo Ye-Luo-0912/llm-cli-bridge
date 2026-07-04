@@ -8,16 +8,16 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-04T16:12:34.777Z
-- **reportCommitSha**: 0faa893a35c0b2b72cab9e3e8b54d67c6d714f16
-- **reportCommitSha 短**: 0faa893a35c0
-- **reportParentSha**: 78575ee6cd3a9c03c579a17f9fc133832e96c6f7
-- **reportParentSha 短**: 78575ee6cd3a
-- **testedCodeCommitSha**: 0faa893a35c0b2b72cab9e3e8b54d67c6d714f16
-- **testedCodeCommitSha 短**: 0faa893a35c0
+- **生成时间**: 2026-07-04T16:46:19.182Z
+- **reportCommitSha**: 1d0f74745b2aaefb02fb11008d3ce6ab4c01db0d
+- **reportCommitSha 短**: 1d0f74745b2a
+- **reportParentSha**: 6529a4a788d94f813b139e70f439f3a691d8006f
+- **reportParentSha 短**: 6529a4a788d9
+- **testedCodeCommitSha**: 1d0f74745b2aaefb02fb11008d3ce6ab4c01db0d
+- **testedCodeCommitSha 短**: 1d0f74745b2a
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: 0faa893a35c0b2b72cab9e3e8b54d67c6d714f16
-- **processReportCommitSha**: 0faa893a35c0b2b72cab9e3e8b54d67c6d714f16
+- **unitReportCommitSha**: 1d0f74745b2aaefb02fb11008d3ce6ab4c01db0d
+- **processReportCommitSha**: 1d0f74745b2aaefb02fb11008d3ce6ab4c01db0d
 - **codexSmokeStatus**: skip
 - **codexHandshakeStatus**: skip
 - **codexTurnStatus**: skip
@@ -25,24 +25,24 @@
 - **codexSchemaSource**: fixture
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-04T16:11:51.954Z
-- **process 测试时间**: 2026-07-04T16:12:26.766Z
+- **unit 测试时间**: 2026-07-04T16:44:57.783Z
+- **process 测试时间**: 2026-07-04T16:45:41.942Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=0faa893a35c0。
-- **当前 commit 改动文件**：docs/V16.4-G_AGENT_STATUS_AND_APPROVAL_UX.md, scripts/run-tests.mjs, src/runtime/core/assistantTurnView.ts, src/runtime/core/permissionBoundary.ts, src/runtime/core/providerLifecycleEvent.ts, src/runtime/core/types.ts, src/runtime/providers/codex-app-server/codexAppServerApprovalMapper.ts, src/sdkBackend.ts, src/sdkPermission.ts, src/view.ts, styles.css
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=1d0f74745b2a。
+- **当前 commit 改动文件**：docs/V16.4-H_RUNTIME_UX_FINAL_HARDENING.md, scripts/cdp-v164h-smoke.mjs, scripts/run-tests.mjs, src/view.ts, styles.css
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 882 | 0 | 25 | 0 | 907 | 0faa893a35c0 | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | 0faa893a35c0 | ✅ 通过 |
+| unit | 886 | 0 | 25 | 0 | 911 | 1d0f74745b2a | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | 1d0f74745b2a | ✅ 通过 |
 | codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **979** | **0** | **81** | **0** | **1060** | 0faa893a35c0 | ✅ **主线通过** |
+| **合计** | **983** | **0** | **81** | **0** | **1064** | 1d0f74745b2a | ✅ **主线通过** |
 
 **双轨均 0 失败 → P2 Codex app-server Runtime 主线闭环测试通过。**
 
