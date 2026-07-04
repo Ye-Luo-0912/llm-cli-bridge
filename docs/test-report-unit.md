@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-04T09:52:15.331Z
-- **测试环境**: win32 / Node.js v22.22.2
+- **测试时间**: 2026-07-04T11:00:44.685Z
+- **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 712.7 KB
+- **main.js 大小**: 716.0 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 60586
-- **commit sha**: 769b64a997ce938d8f7f89836c411dde426c1139
-- **commit 短 sha**: 769b64a997ce
+- **commit sha**: bd1dd8222e601274209cf3a46caf9901b9321407
+- **commit 短 sha**: bd1dd8222e60
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 871
+- ✅ **通过**: 872
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 896
+- **总计**: 897
 
 ### 审计模式说明
 
@@ -1224,6 +1224,12 @@
 |------|--------|------|
 | ✅ | 默认 10 分钟后自动 cancel | timeoutMs=600000 |
 
+### V16.4-F runtimePermission
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | AgentTask + provider 注入 + canUseTool 走 PermissionBoundary | task=true inject=true canUseTool=true |
+
 ### V2.3s assessToolRisk
 
 | 状态 | 测试项 | 详情 |
@@ -1466,7 +1472,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-04T09-52-43-834Z-k4g8yz |
+| ✅ | 返回非空 id | id=s-2026-07-04T11-01-13-161Z-zp5g8o |
 
 ### V2.5 Session 版本
 
@@ -1485,7 +1491,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-04T09-52-43-935Z-9zr2go second=s-2026-07-04T09-52-43-865Z-mkkpem |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-04T11-01-13-239Z-fxns2j second=s-2026-07-04T11-01-13-174Z-xj6xqg |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1512,7 +1518,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-04T09-52-43-964Z-v04a97 id2=s-2026-07-04T09-52-43-964Z-btjlk9 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-04T11-01-13-260Z-lirklv id2=s-2026-07-04T11-01-13-260Z-ooibhw |
 
 ### V2.5 Session 上限
 
@@ -1610,7 +1616,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-04T09:52:44.039Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-04T11:01:13.328Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1698,7 +1704,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-04T09:52:44.113Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-04T11:01:13.396Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -1812,7 +1818,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-04T09:52:44.225Z after=2026-07-04T09:52:44.292Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-04T11:01:13.479Z after=2026-07-04T11:01:13.545Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -2183,13 +2189,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-04T09:52:45.079Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-04T11:01:14.218Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-04T09:52:45.094Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-04T11:01:14.227Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -2500,7 +2506,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-M7CcEJ\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-EZL2dR\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-YTPL4J\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-MGTbrm\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -2512,7 +2518,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-JOJnES\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-i72Pcq\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-VYkENb\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-gJJrze\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -2524,7 +2530,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-yOs5zg\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-JlrzCa\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-eEr4rW\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-sLNOfp\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -2692,11 +2698,11 @@
 |------|--------|------|
 | ✅ | pointerdown 排除 chip/popover，且 next-round setting 不受 runHandle 阻塞 | pointerGuard=true setMode=true |
 
-### V16.4-D permission UI
+### V16.4-F permission UI
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | approval dock 固定在 composer 上方，assistant turn 不放决策按钮 | - |
+| ✅ | Codex-style approval card in composer, 语义化按钮 | - |
 
 ### V16.4-E2 user input UI
 
