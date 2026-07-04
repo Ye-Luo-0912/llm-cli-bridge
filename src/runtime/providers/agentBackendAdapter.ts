@@ -148,8 +148,13 @@ export function adaptAgentBackendToProvider(
     push(mapWorkflowEventToNormalized(wfEvent, providerId, developerMode));
   };
 
-  // 启动 backend（同步返回 handle）
-  const handle = backend.run(task, settings, onEvent, onWorkflowEvent);
+  // 启动 backend（同步返回 handle）。注入 direct normalized event sink，
+  // 供 SDK canUseTool 这类 callback-only 通道发出 provider-native events。
+  const backendTask: AgentTask = {
+    ...task,
+    emitRuntimeEvent: push,
+  };
+  const handle = backend.run(backendTask, settings, onEvent, onWorkflowEvent);
 
   async function* events(): AsyncIterable<NormalizedRuntimeEvent> {
     while (!done) {

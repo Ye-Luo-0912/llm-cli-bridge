@@ -132,8 +132,8 @@ const USER_INPUT_TOOL_NAMES: ReadonlySet<string> = new Set([
 /**
  * Claude SDK 内部的用户询问工具。
  *
- * 这类工具不是权限请求，不应进入 approval UI；实际用户输入由 assistant 正文
- * 或 provider-native user input 通道承载。
+ * 这类工具不是权限请求，不应进入 approval UI；实际用户输入必须走
+ * provider-native user input 通道承载。
  */
 export function isSdkUserInputTool(toolName: string): boolean {
   const normalized = toolName.trim();

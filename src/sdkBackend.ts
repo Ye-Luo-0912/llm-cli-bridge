@@ -41,6 +41,12 @@ import {
   updateDiagnostics,
   formatDiagnosticsForLog,
 } from "./sdkMessageMapper";
+import type {
+  UserInputOption,
+  UserInputQuestion,
+  UserInputRequest,
+  UserInputResponse,
+} from "./runtime/core/types";
 import {
   assessToolRisk,
   decideByMode,
@@ -558,6 +564,185 @@ export function summarizeToolInput(
   return parts.join(" | ");
 }
 
+function readStringField(input: Record<string, unknown>, keys: ReadonlyArray<string>): string | undefined {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+  }
+  return undefined;
+}
+
+function parseAskUserQuestionOptions(value: unknown): ReadonlyArray<UserInputOption> {
+  if (!Array.isArray(value)) return [];
+  const parsed: UserInputOption[] = [];
+  for (const item of value) {
+    if (typeof item === "string" || typeof item === "number" || typeof item === "boolean") {
+      const label = String(item).trim();
+      if (label) parsed.push({ label, value: label });
+      continue;
+    }
+    if (!item || typeof item !== "object") continue;
+    const raw = item as Record<string, unknown>;
+    const label = typeof raw.label === "string" && raw.label.trim().length > 0
+      ? raw.label.trim()
+      : typeof raw.title === "string" && raw.title.trim().length > 0
+        ? raw.title.trim()
+        : typeof raw.value === "string" && raw.value.trim().length > 0
+          ? raw.value.trim()
+          : "";
+    if (!label) continue;
+    parsed.push({
+      label,
+      description: typeof raw.description === "string" && raw.description.trim().length > 0
+        ? raw.description.trim()
+        : undefined,
+      value: typeof raw.value === "string" && raw.value.trim().length > 0
+        ? raw.value.trim()
+        : label,
+    });
+  }
+  return parsed;
+}
+
+function parseAskUserQuestionQuestion(
+  value: unknown,
+  index: number,
+  fallbackOptions: ReadonlyArray<UserInputOption>,
+): UserInputQuestion | null {
+  if (typeof value === "string") {
+    const question = value.trim();
+    if (!question) return null;
+    return { id: `question-${index + 1}`, question, options: fallbackOptions };
+  }
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const question = readStringField(raw, ["question", "prompt", "text", "label"]);
+  if (!question) return null;
+  const options = parseAskUserQuestionOptions(raw.options ?? raw.choices);
+  return {
+    id: readStringField(raw, ["id", "name", "key"]) ?? `question-${index + 1}`,
+    header: readStringField(raw, ["header", "title"]),
+    question,
+    options: options.length > 0 ? options : fallbackOptions,
+  };
+}
+
+export function parseAskUserQuestionRequest(
+  toolName: string,
+  input: Record<string, unknown>,
+  opts: { toolUseID?: string; description?: string; displayName?: string },
+): UserInputRequest {
+  const prompt = readStringField(input, ["prompt", "message", "description"])
+    ?? opts.description
+    ?? opts.displayName
+    ?? "Input required";
+  const fallbackOptions = parseAskUserQuestionOptions(input.options ?? input.choices);
+  const structuredQuestions = Array.isArray(input.questions)
+    ? input.questions
+      .map((q, index) => parseAskUserQuestionQuestion(q, index, fallbackOptions))
+      .filter((q): q is UserInputQuestion => q !== null)
+    : [];
+  const singleQuestion = structuredQuestions.length === 0
+    ? parseAskUserQuestionQuestion(
+      input.question ?? (fallbackOptions.length > 0 ? prompt : undefined),
+      0,
+      fallbackOptions,
+    )
+    : null;
+  const questions = structuredQuestions.length > 0
+    ? structuredQuestions
+    : singleQuestion ? [singleQuestion] : undefined;
+  const toolUseId = opts.toolUseID ? String(opts.toolUseID).replace(/[^A-Za-z0-9_-]/g, "_") : "";
+  return {
+    requestId: toolUseId
+      ? `sdk-input-${toolUseId}`
+      : `sdk-input-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    providerId: "claude-sdk",
+    toolName,
+    prompt,
+    inputType: input.inputType === "secret" || input.type === "secret" ? "secret" : "text",
+    questions,
+    placeholder: readStringField(input, ["placeholder"]),
+    providerContext: {
+      toolUseID: opts.toolUseID,
+    },
+  };
+}
+
+function buildAskUserQuestionAnswers(
+  response: UserInputResponse,
+  questions: ReadonlyArray<UserInputQuestion> | undefined,
+): Record<string, string> {
+  if (response.type === "cancel") return {};
+  const answerValue = response.value.trim();
+  if (!questions || questions.length === 0) return { answer: answerValue };
+  const splitValues = answerValue.split(/\s+\+\s+/).map((v) => v.trim()).filter(Boolean);
+  const answers: Record<string, string> = {};
+  questions.forEach((question, index) => {
+    answers[question.id] = splitValues[index] ?? answerValue;
+  });
+  return answers;
+}
+
+export async function handleAskUserQuestion(
+  toolName: string,
+  input: Record<string, unknown>,
+  opts: { toolUseID?: string; description?: string; displayName?: string },
+  task: AgentTask,
+  developerMode: boolean,
+): Promise<{ behavior: "allow"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string }> {
+  const userInput = task.runtimeUserInput;
+  const emitRuntimeEvent = task.emitRuntimeEvent;
+  if (!userInput || !emitRuntimeEvent) {
+    return { behavior: "deny", message: "AskUserQuestion requires runtime user input bridge" };
+  }
+
+  const request = parseAskUserQuestionRequest(toolName, input, opts);
+  userInput.requestInput(request);
+  emitRuntimeEvent({
+    providerId: "claude-sdk",
+    timestamp: new Date().toISOString(),
+    rawProviderEvent: developerMode ? { method: "sdk-canUseTool-user-input", toolName, input, opts } : undefined,
+    payload: {
+      kind: "user_input_request",
+      requestId: request.requestId,
+      toolName: request.toolName,
+      prompt: request.prompt,
+      inputType: request.inputType,
+      questions: request.questions,
+      placeholder: request.placeholder,
+    },
+  });
+
+  const result = await userInput.waitForInput(request.requestId);
+  emitRuntimeEvent({
+    providerId: "claude-sdk",
+    timestamp: new Date().toISOString(),
+    rawProviderEvent: developerMode ? { method: "sdk-user-input-resolved", requestId: request.requestId, response: result.response } : undefined,
+    payload: {
+      kind: "user_input_resolved",
+      requestId: request.requestId,
+      response: result.response,
+      source: result.source,
+    },
+  });
+
+  if (result.response.type === "cancel") {
+    return { behavior: "deny", message: "User cancelled AskUserQuestion" };
+  }
+  const value = result.response.value.trim();
+  return {
+    behavior: "allow",
+    updatedInput: {
+      ...input,
+      value,
+      answer: value,
+      response: value,
+      answers: buildAskUserQuestionAnswers(result.response, request.questions),
+    },
+  };
+}
+
 export function buildSdkAgentSkillsOptions(vaultPath: string): SdkAgentSkillsOptions {
   const preparation = prepareAgentSkillsForClaudeRuntimeSync(vaultPath);
   const skills = preparation.manifest.skills
@@ -739,7 +924,7 @@ async function runRealSdkQuery(
       opts: { toolUseID?: string; description?: string; displayName?: string; sessionId?: string; parentToolUseId?: string },
     ): Promise<{ behavior: "allow" | "deny"; updatedInput: Record<string, unknown> } | { behavior: "deny"; message: string }> => {
       if (isSdkUserInputTool(toolName)) {
-        return { behavior: "allow", updatedInput: input };
+        return handleAskUserQuestion(toolName, input, opts, task, !!settings.developerMode);
       }
 
       const mode = settings.claudePermissionMode ?? "default";

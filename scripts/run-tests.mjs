@@ -6833,12 +6833,18 @@ if (!runV23sUnit) {
   let sdkBackendBundleV23s = null;
   let workflowEventBundleV23s = null;
   let cliBackendBundleV23s = null;
+  let userInputBoundaryBundleV23s = null;
+  let assistantTurnViewBundleV23s = null;
+  let displayModelBundleV23s = null;
   try {
     const esbuild = (await import("esbuild")).default;
     sdkPermBundleV23s = join(PROJECT_ROOT, ".test-sdk-perm-v23s-temp.mjs");
     sdkBackendBundleV23s = join(PROJECT_ROOT, ".test-sdk-backend-v23s-temp.mjs");
     workflowEventBundleV23s = join(PROJECT_ROOT, ".test-workflow-event-v23s-temp.mjs");
     cliBackendBundleV23s = join(PROJECT_ROOT, ".test-cli-backend-v23s-temp.mjs");
+    userInputBoundaryBundleV23s = join(PROJECT_ROOT, ".test-user-input-boundary-v23s-temp.mjs");
+    assistantTurnViewBundleV23s = join(PROJECT_ROOT, ".test-assistant-turn-view-v23s-temp.mjs");
+    displayModelBundleV23s = join(PROJECT_ROOT, ".test-agent-run-display-model-v23s-temp.mjs");
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "sdkPermission.ts")],
       bundle: true, format: "esm", platform: "node", outfile: sdkPermBundleV23s,
@@ -6855,6 +6861,18 @@ if (!runV23sUnit) {
       entryPoints: [join(PROJECT_ROOT, "src", "claudeCliBackend.ts")],
       bundle: true, format: "esm", platform: "node", outfile: cliBackendBundleV23s,
     });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "core", "userInputBoundary.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: userInputBoundaryBundleV23s,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "core", "assistantTurnView.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: assistantTurnViewBundleV23s,
+    });
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "core", "agentRunDisplayModel.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: displayModelBundleV23s,
+    });
 
     const {
       getPermissionModeInfo,
@@ -6870,9 +6888,12 @@ if (!runV23sUnit) {
       extractToolPathPattern,
       isSdkUserInputTool,
     } = await import(pathToFileURL(sdkPermBundleV23s).href);
-    const { SdkBackend, createPermissionState, summarizeToolInput } = await import(pathToFileURL(sdkBackendBundleV23s).href);
+    const { SdkBackend, createPermissionState, summarizeToolInput, handleAskUserQuestion } = await import(pathToFileURL(sdkBackendBundleV23s).href);
     const { redactWorkflowEvent } = await import(pathToFileURL(workflowEventBundleV23s).href);
     const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV23s).href);
+    const { createUserInputBoundary } = await import(pathToFileURL(userInputBoundaryBundleV23s).href);
+    const { AssistantTurnViewBuilder } = await import(pathToFileURL(assistantTurnViewBundleV23s).href);
+    const { buildAgentRunDisplayModel } = await import(pathToFileURL(displayModelBundleV23s).href);
 
     // ===== permissionMode 映射（6 种） =====
 
@@ -6913,17 +6934,71 @@ if (!runV23sUnit) {
 
     // ===== assessToolRisk 工具风险分级 =====
 
-    // ---- Test 3b: SDK 用户询问工具不进入 permission approval ----
+    // ---- Test 3b: SDK 用户询问工具不再 direct allow，必须走 user input bridge ----
     {
       const askOk = isSdkUserInputTool("AskUserQuestion");
       const snakeOk = isSdkUserInputTool("request_user_input");
       const readOk = !isSdkUserInputTool("Read");
       const sdkSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
-      const bypassOk = sdkSrc.includes("if (isSdkUserInputTool(toolName))")
-        && sdkSrc.includes('return { behavior: "allow", updatedInput: input };');
-      addTest("V16.4-D SDK canUseTool: AskUserQuestion 作为用户询问工具放行，不进入 permission UI",
-        askOk && snakeOk && readOk && bypassOk ? "pass" : "fail",
-        `ask=${askOk} snake=${snakeOk} read=${readOk} bypass=${bypassOk}`);
+      const directAllowRemoved = !sdkSrc.includes('if (isSdkUserInputTool(toolName)) {\n        return { behavior: "allow", updatedInput: input };');
+      const bridgeOk = sdkSrc.includes("return handleAskUserQuestion(toolName, input, opts, task");
+      addTest("V16.4-E2 SDK canUseTool: AskUserQuestion 禁止 direct allow，改走 user input bridge",
+        askOk && snakeOk && readOk && directAllowRemoved && bridgeOk ? "pass" : "fail",
+        `ask=${askOk} snake=${snakeOk} read=${readOk} directAllowRemoved=${directAllowRemoved} bridge=${bridgeOk}`);
+    }
+
+    // ---- Test 3c: AskUserQuestion runtime bridge 真实链路 ----
+    {
+      const boundary = createUserInputBoundary();
+      const emitted = [];
+      const task = {
+        id: "run-v164-e2",
+        userMessage: "请选择",
+        prompt: "请选择",
+        cwd: PROJECT_ROOT,
+        createdAt: new Date().toISOString(),
+        includeActiveNote: false,
+        includeSelection: false,
+        runtimeUserInput: boundary,
+        emitRuntimeEvent: (ev) => emitted.push(ev),
+      };
+      const bridgePromise = handleAskUserQuestion(
+        "AskUserQuestion",
+        {
+          prompt: "我需要你确认目标文件",
+          questions: [
+            { id: "source", question: "源文件？", options: [{ label: "AGENTS.md", value: "AGENTS.md" }] },
+            { id: "target", question: "目标文件？", options: [{ label: "test.md", value: "test.md" }] },
+          ],
+          placeholder: "直接输入答案",
+        },
+        { toolUseID: "toolu_ask_1", description: "确认文件" },
+        task,
+        false,
+      );
+      await Promise.resolve();
+      const pending = Array.from(boundary.pending.values())[0];
+      const requestEvent = emitted.find((ev) => ev.payload?.kind === "user_input_request");
+      const builder = new AssistantTurnViewBuilder("turn-v164-e2", "claude-sdk", new Date().toISOString());
+      for (const ev of emitted) builder.ingest(ev);
+      const pendingView = builder.toView();
+      const pendingModel = buildAgentRunDisplayModel(pendingView, { isRunning: true, durationMs: 21000 });
+      const renderCardOk = pendingModel.userInputCards?.length === 1
+        && pendingModel.userInputCards[0].requestId === pending?.requestId
+        && pendingModel.header.includes("Needs input");
+
+      const resolvedByBoundary = pending
+        ? boundary.resolveInput(pending.requestId, { type: "submit", value: "AGENTS.md + test.md" })
+        : false;
+      const sdkResult = await bridgePromise;
+      const resolvedEvent = emitted.find((ev) => ev.payload?.kind === "user_input_resolved");
+      const sdkAnswerOk = sdkResult.behavior === "allow"
+        && sdkResult.updatedInput?.response === "AGENTS.md + test.md"
+        && sdkResult.updatedInput?.answers?.source === "AGENTS.md"
+        && sdkResult.updatedInput?.answers?.target === "test.md";
+      addTest("V16.4-E2 AskUserQuestion runtime bridge: pending → render card → submit → resolved → SDK answer",
+        pending && requestEvent && renderCardOk && resolvedByBoundary && resolvedEvent && sdkAnswerOk ? "pass" : "fail",
+        `pending=${!!pending} requestEvent=${!!requestEvent} renderCard=${renderCardOk} resolved=${resolvedByBoundary} resolvedEvent=${!!resolvedEvent} sdkAnswer=${sdkAnswerOk}`);
     }
 
     // ---- Test 4: assessToolRisk 低/中/高 ----
@@ -7310,6 +7385,9 @@ if (!runV23sUnit) {
     try { if (sdkBackendBundleV23s) rmSync(sdkBackendBundleV23s, { force: true }); } catch {}
     try { if (workflowEventBundleV23s) rmSync(workflowEventBundleV23s, { force: true }); } catch {}
     try { if (cliBackendBundleV23s) rmSync(cliBackendBundleV23s, { force: true }); } catch {}
+    try { if (userInputBoundaryBundleV23s) rmSync(userInputBoundaryBundleV23s, { force: true }); } catch {}
+    try { if (assistantTurnViewBundleV23s) rmSync(assistantTurnViewBundleV23s, { force: true }); } catch {}
+    try { if (displayModelBundleV23s) rmSync(displayModelBundleV23s, { force: true }); } catch {}
   }
 }
 
