@@ -81,7 +81,8 @@ export class BridgeSessionImpl implements BridgeSession {
   readonly sessionId: string;
   readonly provider: RuntimeProvider;
   readonly providerId: ProviderId;
-  readonly permission: PermissionBoundaryImpl;
+  /** V16.4-F2: 非 readonly，rebuildPermissionBoundary 可重建（接口仍 readonly 约束外部赋值） */
+  permission: PermissionBoundaryImpl;
   readonly userInput: UserInputBoundaryImpl;
   readonly displayLabel: string;
 
@@ -165,6 +166,20 @@ export class BridgeSessionImpl implements BridgeSession {
     if (typeof providerWithRestore.restoreProviderSession === "function") {
       providerWithRestore.restoreProviderSession(this.sessionId, providerThreadId, providerSessionId);
     }
+  }
+
+  /**
+   * V16.4-F2: 用最新 settings 重建 PermissionBoundary。
+   *
+   * 仅在无 run 进行时（currentRunId === null）且 mode 变化时才重建：
+   * - 当前 run 已持有 ctx.permission（旧 boundary 引用），不受影响；
+   * - 下一次 run 调用 start/resume 时读取 this.permission（新 boundary），使用新 mode；
+   * - session allow/deny 缓存随重建丢失（mode 切换意味着权限策略改变）。
+   */
+  rebuildPermissionBoundary(settings: LLMBridgeSettings): void {
+    if (this.currentRunId !== null) return;
+    if (this.permission.mode === settings.claudePermissionMode) return;
+    this.permission = createPermissionBoundary(settings.claudePermissionMode, settings.permissionPolicy);
   }
 
   async *resume(sessionId: string, input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {

@@ -2933,6 +2933,127 @@ if (runMode !== "all" && runMode !== "unit") {
         ok ? "" : `step6Comment=${step6Comment}, gatedMapping=${gatedMapping}, gatedAppend=${gatedAppend}, turnViewDriven=${turnViewDriven}`);
     }
 
+    // ===== V16.4-F2: PermissionBoundary 行为测试 =====
+    // Test a: acceptForSession → next same mergeKey auto-allow
+    {
+      const boundary = permBoundaryMod.createPermissionBoundary("default", "medium");
+      const req1 = {
+        requestId: "req-a1",
+        providerId: "claude-sdk",
+        toolName: "Bash",
+        description: "run command",
+        riskLevel: "medium",
+        mergeKey: "cmd-prefix-a",
+      };
+      // default mode + medium risk → ask → pending
+      const d1 = boundary.requestApproval(req1);
+      const d1Ok = d1 === "pending";
+      // 用户选择 acceptForSession
+      const resolved = boundary.resolveApproval("req-a1", { type: "acceptForSession" });
+      const resolvedOk = resolved === true;
+      // 第二次：同 mergeKey → auto-allow（V16.4-F2 修复：mergeKey 匹配 allowsList.pathPattern）
+      const req2 = { ...req1, requestId: "req-a2" };
+      const d2 = boundary.requestApproval(req2);
+      const d2Ok = d2 === "auto-allow";
+      addTest("V16.4-F2 PermissionBoundary: acceptForSession 后同 mergeKey auto-allow",
+        d1Ok && resolvedOk && d2Ok ? "pass" : "fail",
+        `d1=${d1} resolved=${resolved} d2=${d2}`);
+    }
+
+    // Test b: canUseTool pending → resolveApproval → promise resumed
+    {
+      const boundary = permBoundaryMod.createPermissionBoundary("default", "medium");
+      const req = {
+        requestId: "req-b1",
+        providerId: "claude-sdk",
+        toolName: "Write",
+        description: "write file",
+        riskLevel: "medium",
+        mergeKey: "file-path-b",
+      };
+      // default mode + medium risk → ask → pending
+      const decision = boundary.requestApproval(req);
+      const decisionOk = decision === "pending";
+      // 异步等待
+      const waitPromise = boundary.waitForApproval("req-b1");
+      // 用户决策 accept
+      const resolved = boundary.resolveApproval("req-b1", { type: "accept" });
+      const resolvedOk = resolved === true;
+      // 验证 Promise resolved with accept + source=user
+      let promiseResult = null;
+      await waitPromise.then((r) => { promiseResult = r; });
+      const promiseOk = promiseResult && promiseResult.response.type === "accept" && promiseResult.source === "user";
+      addTest("V16.4-F2 PermissionBoundary: canUseTool pending → resolveApproval → promise resumed",
+        decisionOk && resolvedOk && promiseOk ? "pass" : "fail",
+        `decision=${decision} resolved=${resolved} promiseType=${promiseResult?.response?.type} source=${promiseResult?.source}`);
+    }
+
+    // Test c: permissionMode 切换后 rebuildPermissionBoundary 重建 + 行为差异
+    // 打包 bridgeSession.ts 测试实际 BridgeSessionImpl.rebuildPermissionBoundary
+    {
+      let testCResult = null;
+      try {
+        const tempBridgeSessionBundle = join(PROJECT_ROOT, ".test-bridge-session-v164f2-temp.mjs");
+        await esbuild.build({
+          entryPoints: [join(PROJECT_ROOT, "src", "runtime", "core", "bridgeSession.ts")],
+          bundle: true, format: "esm", platform: "node", logLevel: "silent",
+          outfile: tempBridgeSessionBundle,
+        });
+        const bridgeSessionMod = await import(pathToFileURL(tempBridgeSessionBundle).href);
+
+        // 创建 mock provider（实现 RuntimeProvider 接口形状）
+        const mockProvider = {
+          providerId: "mock",
+          displayName: "Mock",
+          isAvailable: () => true,
+          buildPlan: () => ({ backend: "mock", cwd: "/test", model: "test" }),
+          run: async function* () { /* empty */ },
+          cancel: () => {},
+          resume: async function* () { /* empty */ },
+        };
+
+        // 创建 BridgeSessionImpl with mode="default"
+        const settings1 = { ...baseBridgeSettings, claudePermissionMode: "default" };
+        const session = new bridgeSessionMod.BridgeSessionImpl("sess-c", mockProvider, "Mock", settings1);
+        const modeOk1 = session.permission.mode === "default";
+
+        // 切换 mode 到 "acceptEdits"，无 run 进行（currentRunId===null）→ 重建
+        const settings2 = { ...baseBridgeSettings, claudePermissionMode: "acceptEdits" };
+        session.rebuildPermissionBoundary(settings2);
+        const modeOk2 = session.permission.mode === "acceptEdits";
+
+        // 验证行为差异：default mode + medium risk → pending；acceptEdits mode + medium risk → auto-allow
+        const oldBoundary = permBoundaryMod.createPermissionBoundary("default", "medium");
+        const newBoundary = session.permission;
+        const req = {
+          requestId: "req-c1",
+          providerId: "claude-sdk",
+          toolName: "Write",
+          description: "write file",
+          riskLevel: "medium",
+          mergeKey: "path-c",
+        };
+        const oldDecision = oldBoundary.requestApproval(req);
+        const newDecision = newBoundary.requestApproval({ ...req, requestId: "req-c2" });
+        const behaviorOk = oldDecision === "pending" && newDecision === "auto-allow";
+
+        rmSync(tempBridgeSessionBundle, { force: true });
+        testCResult = { modeOk1, modeOk2, behaviorOk, oldDecision, newDecision };
+      } catch (e) {
+        testCResult = { error: e?.stack || e?.message || String(e) };
+      }
+
+      if (testCResult.error) {
+        addTest("V16.4-F2: permissionMode 切换后 rebuildPermissionBoundary 重建 + 行为差异",
+          "fail", testCResult.error);
+      } else {
+        const { modeOk1, modeOk2, behaviorOk, oldDecision, newDecision } = testCResult;
+        addTest("V16.4-F2: permissionMode 切换后 rebuildPermissionBoundary 重建 + 行为差异",
+          modeOk1 && modeOk2 && behaviorOk ? "pass" : "fail",
+          `mode1=default(${modeOk1}) mode2=acceptEdits(${modeOk2}) oldDecision=${oldDecision} newDecision=${newDecision}`);
+      }
+    }
+
     // 清理临时 bundles
     for (const f of [
       tempCodexProviderBundle, tempPromptPkgBundle, tempAssistantViewBundle,

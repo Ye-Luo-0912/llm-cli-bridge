@@ -1463,6 +1463,8 @@ export class LLMBridgeView extends ItemView {
   private getSession(): BridgeSessionImpl {
     const mode = this.plugin.settings.backendMode;
     if (this.session && this.sessionMode === mode) {
+      // V16.4-F2: permissionMode 切换后，在无 run 进行时重建 PermissionBoundary（下一次 run 生效）
+      this.session.rebuildPermissionBoundary(this.plugin.settings);
       return this.session;
     }
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();

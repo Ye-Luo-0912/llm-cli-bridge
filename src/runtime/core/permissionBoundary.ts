@@ -59,7 +59,26 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
       highRiskFlags: req.highRiskFlags ?? [],
       reason: req.riskReason ?? "",
     };
-    // 1. 查会话级 allow 缓存
+    // V16.4-F2: 先按 mergeKey 检查会话级 allow/deny 缓存。
+    // resolveApproval 时 acceptForSession/decline 把 mergeKey 写入 pathPattern；
+    // checkSessionAllow 用空 input 提取 pathPattern 无法命中 mergeKey，故此处显式匹配。
+    if (req.mergeKey) {
+      for (const allow of this.allowsList) {
+        if (allow.toolName === req.toolName
+          && allow.riskLevel === req.riskLevel
+          && allow.pathPattern === req.mergeKey) {
+          return "auto-allow";
+        }
+      }
+      for (const deny of this.deniesList) {
+        if (deny.toolName === req.toolName
+          && deny.riskLevel === req.riskLevel
+          && deny.pathPattern === req.mergeKey) {
+          return "auto-deny";
+        }
+      }
+    }
+    // 1. 查会话级 allow 缓存（pathPattern 前缀匹配）
     if (checkSessionAllow(this.allowsList, req.toolName, riskAssessment, {})) {
       return "auto-allow";
     }

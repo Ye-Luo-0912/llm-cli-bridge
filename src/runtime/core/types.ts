@@ -585,6 +585,14 @@ export interface BridgeSession {
    * 注入 provider 的 sessionMapper，使后续 resume() 命中 thread/resume 路径。
    */
   restoreProviderSession(providerThreadId?: string, providerSessionId?: string): void;
+  /**
+   * V16.4-F2: 用最新 settings 重建 PermissionBoundary（permissionMode 切换后下一次 run 生效）。
+   *
+   * 当前 run 不受影响（ctx.permission 已持有旧 boundary 引用）；
+   * 仅在无 run 进行时（currentRunId === null）才重建，下一次 run 使用新 mode。
+   * session allow/deny 缓存会随重建丢失（mode 切换意味着权限策略改变）。
+   */
+  rebuildPermissionBoundary(settings: import("../../types").LLMBridgeSettings): void;
 }
 
 // ---------- RuntimeProvider 接口（前向声明，实现在 runtimeProvider.ts） ----------
