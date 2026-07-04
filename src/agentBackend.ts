@@ -5,7 +5,7 @@
 import { LLMBridgeSettings } from "./types";
 import type { EffectiveRunPlan } from "./types";
 import type { RuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
-import type { NormalizedRuntimeEvent, UserInputBoundary } from "./runtime/core/types";
+import type { NormalizedRuntimeEvent, PermissionBoundary, UserInputBoundary } from "./runtime/core/types";
 import type { WorkflowEventHandler } from "./workflowEvent";
 
 export interface SdkImageContentBlock {
@@ -53,6 +53,8 @@ export interface AgentTask {
   effectiveRunPlan?: EffectiveRunPlan;
   /** V16.4-E2: SDK native user input bridge（AskUserQuestion 等非权限询问）。 */
   runtimeUserInput?: UserInputBoundary;
+  /** V16.4-F: SDK 真实权限工具（Write/Edit/MultiEdit/Bash 等）统一走 PermissionBoundary。 */
+  runtimePermission?: PermissionBoundary;
   /** V16.4-E2: 允许 callback-based backend 直接发出 provider-native normalized events。 */
   emitRuntimeEvent?: (event: NormalizedRuntimeEvent) => void;
 }

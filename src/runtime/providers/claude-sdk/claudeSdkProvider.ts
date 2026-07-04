@@ -76,6 +76,7 @@ export class ClaudeSdkProvider implements RuntimeProvider {
       runtimeFileToolAdapter: ctx.runtimeFileToolAdapter,
       effectiveRunPlan: ctx.plan,
       runtimeUserInput: ctx.userInput,
+      runtimePermission: ctx.permission,
     };
     const { events, handle } = adaptAgentBackendToProvider(
       this.backend, task, settings, this.providerId, developerMode,

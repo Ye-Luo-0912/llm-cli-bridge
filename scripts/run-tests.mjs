@@ -7020,6 +7020,21 @@ if (!runV23sUnit) {
         `timeoutMs=${DEFAULT_ASK_USER_QUESTION_TIMEOUT_MS}`);
     }
 
+    // ---- Test 3e: V16.4-F runtimePermission 注入到 AgentTask + canUseTool 走 PermissionBoundary ----
+    {
+      const agentBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "agentBackend.ts"), "utf8");
+      const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
+      const providerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "claude-sdk", "claudeSdkProvider.ts"), "utf8");
+      const taskHasField = agentBackendSrc.includes("runtimePermission?: PermissionBoundary");
+      const providerInjects = providerSrc.includes("runtimePermission: ctx.permission");
+      const canUseToolUsesBoundary = sdkBackendSrc.includes("const boundary = task.runtimePermission;")
+        && sdkBackendSrc.includes("boundary.requestApproval(approvalReq)")
+        && sdkBackendSrc.includes("boundary.waitForApproval(requestId)");
+      addTest("V16.4-F runtimePermission: AgentTask + provider 注入 + canUseTool 走 PermissionBoundary",
+        taskHasField && providerInjects && canUseToolUsesBoundary ? "pass" : "fail",
+        `task=${taskHasField} inject=${providerInjects} canUseTool=${canUseToolUsesBoundary}`);
+    }
+
     // ---- Test 4: assessToolRisk 低/中/高 ----
     {
       const low = assessToolRisk("Read", { file_path: "notes/test.md" });
@@ -14607,20 +14622,20 @@ if (!runNoteSummarizeSmoke) {
       `pointerGuard=${pointerGuardOk} setMode=${setModeOk}`);
   }
 
-  // ---- Test 15c: SDK permission 固定在 composer 上方 approval dock，不嵌入 assistant turn ----
+  // ---- Test 15c: SDK permission approval dock 在 composer 内部，Codex-style card（V16.4-F 重构）----
   {
-    const ok = viewSrc.includes('chatPanel.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" })')
-      && viewSrc.includes('title.createEl("span", { text: "Needs approval" });')
-      && viewSrc.includes('const allowOnceBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-allow-once", text: "Allow once" });')
-      && viewSrc.includes('const allowSessionBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-allow-session", text: "Allow session" });')
-      && viewSrc.includes('const denyBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-deny", text: "Deny" });')
-      && viewSrc.includes('details.createEl("summary", { text: "Details" });')
-      && !viewSrc.includes('llm-bridge-phase-approval-btns')
-      && !viewSrc.includes('llm-bridge-approval-btn is-allow-once')
-      && stylesSrc.includes(".llm-bridge-phase-approval")
-      && stylesSrc.includes(".llm-bridge-perm-panel")
-      && stylesSrc.includes(".llm-bridge-perm-card-details");
-    addTest("V16.4-D permission UI: approval dock 固定在 composer 上方，assistant turn 不放决策按钮",
+    const ok = viewSrc.includes('composer.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" })')
+      && viewSrc.includes('llm-bridge-approval-card')
+      && viewSrc.includes('buildApprovalCardTitle')
+      && viewSrc.includes('"Would you like to run this command?"')
+      && viewSrc.includes('"Would you like to make these edits?"')
+      && viewSrc.includes('"Yes, proceed"')
+      && viewSrc.includes('"Yes, don\'t ask again for this session"')
+      && viewSrc.includes('"No, continue without running it"')
+      && viewSrc.includes('llm-bridge-approval-card-dev-details')
+      && stylesSrc.includes(".llm-bridge-approval-card")
+      && stylesSrc.includes(".llm-bridge-approval-btn.is-proceed");
+    addTest("V16.4-F permission UI: Codex-style approval card in composer, 语义化按钮",
       ok ? "pass" : "fail", "");
   }
 

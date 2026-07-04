@@ -42,6 +42,8 @@ import {
   formatDiagnosticsForLog,
 } from "./sdkMessageMapper";
 import type {
+  ApprovalRequest,
+  ApprovalResponse,
   UserInputAnswerValue,
   UserInputOption,
   UserInputQuestion,
@@ -1001,52 +1003,99 @@ async function runRealSdkQuery(
         wfEventCount++;
       };
 
-      // 1. 检查会话级允许缓存
-      if (checkSessionAllow(permissionState.allows, toolName, risk, input)) {
-        emitPerm(true, "session_allow");
-        return { behavior: "allow", updatedInput: input };
-      }
-
-      // 2. 检查会话级拒绝缓存
-      if (checkSessionDeny(permissionState.denies, toolName, risk, input)) {
-        emitPerm(false, "session_deny");
-        return { behavior: "deny", message: `会话已拒绝：${toolName}（${risk.reason}）` };
-      }
-
-      // 3. 调用 decideByMode 统一决策（唯一真相源）
-      const decision = decideByMode(mode, risk);
-      if (decision.behavior === "allow") {
+      // V16.4-F: 真实权限工具统一走 PermissionBoundary（与 Codex app-server 一致）。
+    // runtimePermission 注入时，由 PermissionBoundary 内部处理 sessionAllows/sessionDenies/
+    // decideByMode 决策，UI 的 resolvePermissionRequests → resolveApproval 唤醒 waitForApproval。
+    // 未注入时（mock/无 provider 上下文）回退到旧 permissionState.pending 路径。
+    const boundary = task.runtimePermission;
+    if (boundary) {
+      const requestId = `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const approvalReq: ApprovalRequest = {
+        requestId,
+        providerId: "claude-sdk",
+        toolName,
+        description: opts.description ?? opts.displayName ?? `Tool: ${toolName}`,
+        riskLevel: risk.level,
+        riskReason: risk.reason,
+        highRiskFlags: risk.highRiskFlags.length > 0 ? risk.highRiskFlags : undefined,
+        inputSummary,
+        mergeKey,
+        sessionId,
+        parentToolUseId,
+        subagentRisk: subagentRiskWarn || undefined,
+      };
+      const decision = boundary.requestApproval(approvalReq);
+      if (decision === "auto-allow") {
         emitPerm(true, "mode");
         return { behavior: "allow", updatedInput: input };
       }
-      if (decision.behavior === "deny") {
+      if (decision === "auto-deny") {
         emitPerm(false, "mode");
-        return { behavior: "deny", message: decision.reason };
+        return { behavior: "deny", message: `mode 拒绝：${toolName}（${risk.reason}）` };
       }
-
-      // 4. decision.behavior === "ask"：等待用户决策
-      const requestId = `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      emitPerm(true, "user", true, requestId); // pending=true
-
-      const choice = await new Promise<PermissionChoice>((resolve) => {
-        permissionState.pending.set(requestId, resolve);
-      });
-
-      // 应用用户决策
-      if (choice === "allow_once") {
-        emitPerm(true, "user", false, requestId);
+      // pending：发出 pending 权限事件，等待 UI 决策
+      emitPerm(true, "user", true, requestId);
+      const result = await boundary.waitForApproval(requestId);
+      // 映射 ApprovalResponse → PermissionChoice 语义
+      if (result.response.type === "accept") {
+        emitPerm(true, result.source, false, requestId);
         return { behavior: "allow", updatedInput: input };
       }
-      if (choice === "allow_session") {
-        permissionState.allows.push(createSessionAllow(toolName, risk, input));
-        emitPerm(true, "user", false, requestId);
+      if (result.response.type === "acceptForSession") {
+        emitPerm(true, result.source, false, requestId);
         return { behavior: "allow", updatedInput: input };
       }
-      // deny_session
-      permissionState.denies.push(createSessionDeny(toolName, risk, input));
-      emitPerm(false, "user", false, requestId);
+      // decline / cancel
+      emitPerm(false, result.source, false, requestId);
       return { behavior: "deny", message: `用户拒绝：${toolName}（${risk.reason}）` };
-    };
+    }
+
+    // 1. 检查会话级允许缓存
+    if (checkSessionAllow(permissionState.allows, toolName, risk, input)) {
+      emitPerm(true, "session_allow");
+      return { behavior: "allow", updatedInput: input };
+    }
+
+    // 2. 检查会话级拒绝缓存
+    if (checkSessionDeny(permissionState.denies, toolName, risk, input)) {
+      emitPerm(false, "session_deny");
+      return { behavior: "deny", message: `会话已拒绝：${toolName}（${risk.reason}）` };
+    }
+
+    // 3. 调用 decideByMode 统一决策（唯一真相源）
+    const decision = decideByMode(mode, risk);
+    if (decision.behavior === "allow") {
+      emitPerm(true, "mode");
+      return { behavior: "allow", updatedInput: input };
+    }
+    if (decision.behavior === "deny") {
+      emitPerm(false, "mode");
+      return { behavior: "deny", message: decision.reason };
+    }
+
+    // 4. decision.behavior === "ask"：等待用户决策
+    const requestId = `perm_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    emitPerm(true, "user", true, requestId); // pending=true
+
+    const choice = await new Promise<PermissionChoice>((resolve) => {
+      permissionState.pending.set(requestId, resolve);
+    });
+
+    // 应用用户决策
+    if (choice === "allow_once") {
+      emitPerm(true, "user", false, requestId);
+      return { behavior: "allow", updatedInput: input };
+    }
+    if (choice === "allow_session") {
+      permissionState.allows.push(createSessionAllow(toolName, risk, input));
+      emitPerm(true, "user", false, requestId);
+      return { behavior: "allow", updatedInput: input };
+    }
+    // deny_session
+    permissionState.denies.push(createSessionDeny(toolName, risk, input));
+    emitPerm(false, "user", false, requestId);
+    return { behavior: "deny", message: `用户拒绝：${toolName}（${risk.reason}）` };
+  };
     options.canUseTool = canUseTool;
 
     // V2.16-A: 安装 Node 兼容 AbortController（SDK 内部 setMaxListeners 需要 EventEmitter-based signal）

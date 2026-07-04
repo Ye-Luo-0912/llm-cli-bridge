@@ -602,12 +602,11 @@ export class LLMBridgeView extends ItemView {
       }
     });
 
-    // Pending approvals live next to the composer, not inside assistant output.
-    this.permissionPanelEl = chatPanel.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" });
-    this.permissionPanelEl.style.display = "none";
-
     // ===== 底部 composer =====
     const composer = chatPanel.createDiv({ cls: "llm-bridge-composer" });
+    // V16.4-F: permission approval dock 与 AskUserQuestion dock 同级，均在 composer 内部、composerBar 上方
+    this.permissionPanelEl = composer.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" });
+    this.permissionPanelEl.style.display = "none";
     this.userInputPanelEl = composer.createDiv({ cls: "llm-bridge-user-input-panel llm-bridge-user-input-dock" });
     this.userInputPanelEl.style.display = "none";
 
@@ -1587,17 +1586,12 @@ export class LLMBridgeView extends ItemView {
 
     if (this.pendingPermissions.size === 0) {
       panel.style.display = "none";
+      this.composerBarEl?.removeClass("is-approval-active");
       return;
     }
 
     panel.style.display = "block";
-
-    const header = panel.createDiv({ cls: "llm-bridge-perm-panel-header" });
-    const title = header.createDiv({ cls: "llm-bridge-perm-panel-title" });
-    const titleIcon = title.createEl("span", { cls: "llm-bridge-perm-panel-title-icon" });
-    setIcon(titleIcon, "shield");
-    title.createEl("span", { text: "Needs approval" });
-    header.createEl("span", { cls: "llm-bridge-perm-panel-count", text: `${this.pendingPermissions.size}` });
+    this.composerBarEl?.addClass("is-approval-active");
 
     // 按 mergeKey 合并展示（相同工具+风险+路径前缀合并）
     const mergeGroups = new Map<string, PermissionEvent[]>();
@@ -1607,52 +1601,88 @@ export class LLMBridgeView extends ItemView {
       mergeGroups.get(key)!.push(ev);
     }
 
-    for (const [, group] of mergeGroups) {
-      const first = group[0];
-      const riskLevel = first.riskLevel ?? "low";
-      const inputSummary = this.sanitizeUserFacingSummaryText(first.inputSummary);
-      const label = approvalDisplayLabel(first.toolName, inputSummary, first.description);
-      const card = panel.createDiv({ cls: `llm-bridge-perm-card is-risk-${riskLevel}` });
+    const groups = Array.from(mergeGroups.values());
+    const totalGroups = groups.length;
 
-      const cardHeader = card.createDiv({ cls: "llm-bridge-perm-card-header" });
-      const toolIcon = cardHeader.createEl("span", { cls: "llm-bridge-perm-card-icon" });
-      setIcon(toolIcon, riskLevel === "high" ? "alert-triangle" : "shield");
-      cardHeader.createEl("span", { cls: "llm-bridge-perm-card-tool", text: label });
-      if (first.parentToolUseId) {
-        cardHeader.createEl("span", { cls: "llm-bridge-perm-card-source is-subagent", text: "Subagent", attr: { title: `parent: ${first.parentToolUseId}` } });
-      }
-      if (group.length > 1) {
-        cardHeader.createEl("span", { cls: "llm-bridge-perm-card-merge-count", text: `×${group.length}` });
-      }
+    // V16.4-F: Codex-style approval card（单卡片为主，多卡片显示 queue count）
+    const card = panel.createDiv({ cls: "llm-bridge-approval-card" });
 
-      // 决策按钮（允许一次 / 本会话允许 / 拒绝）
-      const btns = card.createDiv({ cls: "llm-bridge-perm-card-btns" });
-      const requestIds = group.map((g) => g.requestId!).filter(Boolean);
-
-      const allowOnceBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-allow-once", text: "Allow once" });
-      allowOnceBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "allow_once"));
-
-      const allowSessionBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-allow-session", text: "Allow session" });
-      allowSessionBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "allow_session"));
-
-      const denyBtn = btns.createEl("button", { cls: "llm-bridge-perm-btn is-deny", text: "Deny" });
-      denyBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "deny_session"));
-
-      if (inputSummary || first.riskReason || first.subagentRisk || (first.highRiskFlags && first.highRiskFlags.length > 0)) {
-        const details = card.createEl("details", { cls: "llm-bridge-perm-card-details" });
-        details.createEl("summary", { text: "Details" });
-        const detailBody = details.createDiv({ cls: "llm-bridge-perm-card-details-body" });
-        if (first.riskReason) detailBody.createDiv({ cls: "llm-bridge-perm-card-detail-line", text: first.riskReason });
-        if (first.highRiskFlags && first.highRiskFlags.length > 0) {
-          detailBody.createDiv({ cls: "llm-bridge-perm-card-detail-line", text: `High risk: ${first.highRiskFlags.join(", ")}` });
-        }
-        if (inputSummary) detailBody.createDiv({ cls: "llm-bridge-perm-card-detail-line", text: inputSummary, attr: { title: inputSummary } });
-        if (first.subagentRisk) detailBody.createDiv({ cls: "llm-bridge-perm-card-detail-line", text: first.subagentRisk });
-        if (this.plugin.settings.developerMode) {
-          detailBody.createDiv({ cls: "llm-bridge-perm-card-detail-line", text: `tool: ${first.toolName}` });
-        }
-      }
+    // ---- Card header: title + queue count ----
+    const cardHeader = card.createDiv({ cls: "llm-bridge-approval-card-header" });
+    const titleEl = cardHeader.createDiv({ cls: "llm-bridge-approval-card-title" });
+    const titleIcon = titleEl.createEl("span", { cls: "llm-bridge-approval-card-title-icon" });
+    const first = groups[0][0];
+    const riskLevel = first.riskLevel ?? "low";
+    setIcon(titleIcon, riskLevel === "high" ? "alert-triangle" : "shield");
+    const cardTitle = this.buildApprovalCardTitle(first.toolName);
+    titleEl.createEl("span", { text: cardTitle });
+    if (totalGroups > 1) {
+      cardHeader.createEl("span", { cls: "llm-bridge-approval-card-queue", text: `1 of ${totalGroups}` });
     }
+
+    // ---- Card body: command/path/reason/risk 直接展示 ----
+    const body = card.createDiv({ cls: "llm-bridge-approval-card-body" });
+    const inputSummary = this.sanitizeUserFacingSummaryText(first.inputSummary);
+    const label = approvalDisplayLabel(first.toolName, inputSummary, first.description);
+    body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-label", text: label });
+    if (inputSummary) {
+      body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-command", text: inputSummary, attr: { title: inputSummary } });
+    }
+    if (first.riskReason) {
+      const riskRow = body.createDiv({ cls: `llm-bridge-approval-card-row llm-bridge-approval-card-row-risk is-risk-${riskLevel}` });
+      const riskIcon = riskRow.createEl("span", { cls: "llm-bridge-approval-card-risk-icon" });
+      setIcon(riskIcon, riskLevel === "high" ? "alert-triangle" : "info");
+      riskRow.createEl("span", { text: first.riskReason });
+    }
+    if (first.highRiskFlags && first.highRiskFlags.length > 0) {
+      body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-highrisk", text: `High risk: ${first.highRiskFlags.join(", ")}` });
+    }
+    if (first.subagentRisk) {
+      body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-subagent", text: first.subagentRisk });
+    }
+    if (first.parentToolUseId) {
+      body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-subagent", text: `Subagent (parent: ${first.parentToolUseId})` });
+    }
+
+    // ---- Developer mode: raw/provider details ----
+    if (this.plugin.settings.developerMode) {
+      const devDetails = card.createEl("details", { cls: "llm-bridge-approval-card-dev-details" });
+      devDetails.createEl("summary", { text: "Raw details (developer)" });
+      const devBody = devDetails.createDiv({ cls: "llm-bridge-approval-card-dev-body" });
+      devBody.createDiv({ cls: "llm-bridge-approval-card-dev-line", text: `tool: ${first.toolName}` });
+      devBody.createDiv({ cls: "llm-bridge-approval-card-dev-line", text: `requestId: ${first.requestId ?? "n/a"}` });
+      devBody.createDiv({ cls: "llm-bridge-approval-card-dev-line", text: `mergeKey: ${first.mergeKey ?? "n/a"}` });
+      devBody.createDiv({ cls: "llm-bridge-approval-card-dev-line", text: `riskLevel: ${riskLevel}` });
+      if (first.inputSummary) devBody.createDiv({ cls: "llm-bridge-approval-card-dev-line", text: `inputSummary: ${first.inputSummary}` });
+    }
+
+    // ---- Decision buttons: 语义化文案 ----
+    const btns = card.createDiv({ cls: "llm-bridge-approval-card-btns" });
+    const requestIds = groups[0].map((g) => g.requestId!).filter(Boolean);
+
+    const proceedBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-proceed", text: "Yes, proceed" });
+    proceedBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "allow_once"));
+
+    const proceedSessionBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-proceed-session", text: "Yes, don't ask again for this session" });
+    proceedSessionBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "allow_session"));
+
+    const declineBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-decline", text: "No, continue without running it" });
+    declineBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "deny_session"));
+  }
+
+  /** V16.4-F: 按工具类型生成语义化 card title */
+  private buildApprovalCardTitle(toolName: string): string {
+    const lower = toolName.toLowerCase();
+    if (lower === "bash" || lower === "terminal" || lower === "command") {
+      return "Would you like to run this command?";
+    }
+    if (lower === "write" || lower === "edit" || lower === "multiedit" || lower === "filechange" || lower === "create_file" || lower === "edit_file" || lower === "str_replace" || lower === "insert") {
+      return "Would you like to make these edits?";
+    }
+    if (lower === "permission" || lower === "grant") {
+      return "Would you like to grant these permissions?";
+    }
+    return "Would you like to proceed?";
   }
 
   private refreshUserInputPanel(): void {
