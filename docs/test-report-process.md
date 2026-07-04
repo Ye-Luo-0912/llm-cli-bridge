@@ -1,21 +1,21 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-04T02:26:36.531Z
+- **测试时间**: 2026-07-04T03:17:17.463Z
 - **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.16.0
-- **main.js 大小**: 691.6 KB
-- **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\.tmp-vault`
-- **bridge.json 存在**: 否
-- **HTTP 端口**: N/A
-- **commit sha**: 9eb852c8279211c554b73817a0e3aa8b75170c1d
-- **commit 短 sha**: 9eb852c82792
+- **main.js 大小**: 697.4 KB
+- **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
+- **bridge.json 存在**: 是
+- **HTTP 端口**: 60586
+- **commit sha**: 07d17c096f927668866d6b0f2b02e086ec8e5bcd
+- **commit 短 sha**: 07d17c096f92
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
 
-- ✅ **通过**: 95
+- ✅ **通过**: 96
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 57
+- ⏭️ **跳过**: 56
 - ⚪ **需人工验证**: 0
 - **总计**: 152
 
@@ -103,7 +103,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | 生成运行前快照 | 文件数: 0（空 vault，快照机制由 diff 测试验证） |
+| ✅ | 生成运行前快照 | 文件数: 30 |
 
 ### diff
 
