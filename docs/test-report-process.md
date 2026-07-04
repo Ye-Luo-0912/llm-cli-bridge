@@ -1,14 +1,14 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-04T12:29:31.245Z
+- **测试时间**: 2026-07-04T16:12:26.766Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 717.2 KB
+- **main.js 大小**: 718.7 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 60586
-- **commit sha**: f56ca3ab5ec7f83b2c47473fc3d3ee533fdffcb8
-- **commit 短 sha**: f56ca3ab5ec7
+- **commit sha**: 0faa893a35c0b2b72cab9e3e8b54d67c6d714f16
+- **commit 短 sha**: 0faa893a35c0
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
@@ -522,11 +522,11 @@
 |------|--------|------|
 | ✅ | pointerdown 排除 chip/popover，且 next-round setting 不受 runHandle 阻塞 | pointerGuard=true setMode=true |
 
-### V16.4-F permission UI
+### V16.4-F/G permission UI
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | Codex-style approval card in composer, 语义化按钮 | - |
+| ✅ | Codex-style approval card in composer, 4 语义化按钮 | - |
 
 ### V16.4-E2 user input UI
 
