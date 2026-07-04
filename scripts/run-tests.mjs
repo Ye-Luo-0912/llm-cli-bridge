@@ -3129,10 +3129,10 @@ if (runMode !== "all" && runMode !== "unit") {
       const hasRenderMethod = viewSrc.includes("renderRunStatusText(parent: HTMLElement, text: string, kind:");
       // 检查 is-running / is-blocked kind 使用
       const usesRunningKind = viewSrc.includes('"running"') && viewSrc.includes('"blocked"');
-      // 检查 renderAgentRunDisplayModel 中调用 renderRunStatusText
-      const callsRenderInTurnView = viewSrc.includes("this.renderRunStatusText(head, statusText, \"running\")");
-      // 检查 appendRunningProcessPlaceholder 调用 renderRunStatusText
-      const callsRenderInPlaceholder = viewSrc.includes("this.renderRunStatusText(head, \"Thinking\", \"running\")");
+      // V16.4-H: renderAgentRunDisplayModel 中调用 renderRunStatusText 改为 isBlocked 三元
+      const callsRenderInTurnView = viewSrc.includes("this.renderRunStatusText(head, statusText, isBlocked ? \"blocked\" : \"running\")");
+      // V16.4-H: appendRunningProcessPlaceholder 改为合并 span（不重复调用 renderRunStatusText）
+      const callsRenderInPlaceholder = viewSrc.includes("llm-bridge-timeline-summary llm-bridge-run-status-text is-running llm-bridge-run-glow");
       // 检查 currentActivity blocked kind
       const blockedKind = viewSrc.includes("isBlocked ? \"blocked\" : \"running\"");
       const ok = hasRenderMethod && usesRunningKind && callsRenderInTurnView && callsRenderInPlaceholder && blockedKind;
@@ -3194,6 +3194,70 @@ if (runMode !== "all" && runMode !== "unit") {
       addTest("V16.4-G types: ApprovalResponse declineForSession + PermissionChoice deny_once/deny_session + Codex mapper",
         ok ? "pass" : "fail",
         `declineForSession=${hasDeclineForSession} denyOnce=${hasDenyOnce} denySession=${hasDenySession} codexMapper=${codexMapsDeclineForSession}`);
+    }
+
+    // ===== V16.4-H: Runtime UX Final Hardening =====
+
+    // Test H-a: Needs approval / Needs input header 用 kind="blocked"（不含 run-glow）
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      // 检查 isBlocked 判断逻辑存在
+      const hasBlockedCheck = viewSrc.includes('statusText === "Needs approval" || statusText === "Needs input"')
+        && viewSrc.includes("isBlocked ? \"blocked\" : \"running\"");
+      // 检查 renderRunStatusText 在 blocked kind 时不添加 run-glow class
+      const blockedNoGlow = viewSrc.includes("if (kind === \"running\")")
+        && viewSrc.includes("statusEl.addClass(\"llm-bridge-run-glow\")");
+      const ok = hasBlockedCheck && blockedNoGlow;
+      addTest("V16.4-H UI: Needs approval/input header 用 kind=blocked 不含 run-glow",
+        ok ? "pass" : "fail",
+        `blockedCheck=${hasBlockedCheck} blockedNoGlow=${blockedNoGlow}`);
+    }
+
+    // Test H-b: Thinking 不重复（appendRunningProcessPlaceholder 仅一个 run-status-text）
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      // 找到 appendRunningProcessPlaceholder 方法体，验证不重复创建 Thinking
+      const placeholderIdx = viewSrc.indexOf("appendRunningProcessPlaceholder(parent: HTMLElement)");
+      if (placeholderIdx < 0) {
+        addTest("V16.4-H UI: Thinking 不重复", "fail", "appendRunningProcessPlaceholder 未找到");
+      } else {
+        const methodBody = viewSrc.slice(placeholderIdx, placeholderIdx + 1200);
+        // 合并为单个 span：同时含 run-status-text + timeline-summary class
+        const hasMergedSpan = methodBody.includes("llm-bridge-timeline-summary llm-bridge-run-status-text")
+          || methodBody.includes("llm-bridge-run-status-text llm-bridge-timeline-summary");
+        // 不应出现两个独立的 createEl 调用都输出 "Thinking"
+        const thinkingCount = (methodBody.match(/text:\s*"Thinking"/g) || []).length;
+        const ok = hasMergedSpan && thinkingCount === 1;
+        addTest("V16.4-H UI: Thinking 只出现一次（appendRunningProcessPlaceholder 不重复）",
+          ok ? "pass" : "fail",
+          `mergedSpan=${hasMergedSpan} thinkingCount=${thinkingCount}`);
+      }
+    }
+
+    // Test H-c: is-approval-active CSS 规则存在（composerBar 隐藏）
+    {
+      const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf8");
+      const hasApprovalActive = stylesSrc.includes(".llm-bridge-composer-bar.is-approval-active")
+        && stylesSrc.includes("display: none");
+      const hasUserInputActive = stylesSrc.includes(".llm-bridge-composer-bar.is-user-input-active");
+      const ok = hasApprovalActive && hasUserInputActive;
+      addTest("V16.4-H CSS: is-approval-active 隐藏 composerBar",
+        ok ? "pass" : "fail",
+        `approvalActive=${hasApprovalActive} userInputActive=${hasUserInputActive}`);
+    }
+
+    // Test H-d: user input 优先级守卫（approval panel 在 user input pending 时隐藏）
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const hasGuard = viewSrc.includes("this.getSession().userInput.pending.size > 0")
+        && viewSrc.includes("V16.4-H: user input 优先级守卫");
+      // resolveUserInputRequest 解析后刷新 approval panel
+      const hasResolveRefresh = viewSrc.includes("// V16.4-H: user input 解析后刷新 approval panel")
+        && viewSrc.includes("this.refreshPermissionPanel();");
+      const ok = hasGuard && hasResolveRefresh;
+      addTest("V16.4-H UI: user input 优先级守卫 + 解析后刷新 approval panel",
+        ok ? "pass" : "fail",
+        `guard=${hasGuard} resolveRefresh=${hasResolveRefresh}`);
     }
 
     // 清理临时 bundles

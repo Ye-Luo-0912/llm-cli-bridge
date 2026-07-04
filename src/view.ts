@@ -1592,6 +1592,14 @@ export class LLMBridgeView extends ItemView {
       return;
     }
 
+    // V16.4-H: user input 优先级守卫 — 若 user input 同时 pending，则隐藏 approval panel
+    // （pending request 仍保留在 this.pendingPermissions，不丢失；user input 解析后再刷新）
+    if (this.getSession().userInput.pending.size > 0) {
+      panel.style.display = "none";
+      this.composerBarEl?.removeClass("is-approval-active");
+      return;
+    }
+
     panel.style.display = "block";
     this.composerBarEl?.addClass("is-approval-active");
 
@@ -1981,6 +1989,8 @@ export class LLMBridgeView extends ItemView {
     if (this.getSession().userInput.resolveInput(requestId, response)) {
       this.pendingUserInputDrafts.delete(requestId);
       this.refreshUserInputPanel();
+      // V16.4-H: user input 解析后刷新 approval panel，显示之前被延迟的 approval
+      this.refreshPermissionPanel();
     }
   }
 
@@ -3471,9 +3481,9 @@ export class LLMBridgeView extends ItemView {
   private appendRunningProcessPlaceholder(parent: HTMLElement): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap llm-bridge-process-placeholder" });
     const head = wrap.createDiv({ cls: "llm-bridge-timeline-head llm-bridge-timeline-head-noclick" });
-    // V16.4-G: Codex-style glow text 取代旋转圈
-    this.renderRunStatusText(head, "Thinking", "running");
-    head.createEl("span", { cls: "llm-bridge-timeline-summary", text: "Thinking" });
+    // V16.4-H: 避免重复 Thinking，仅用 timeline-summary + run-glow class（CSS 控制是否 shimmer）
+    const summary = head.createEl("span", { cls: "llm-bridge-timeline-summary llm-bridge-run-status-text is-running llm-bridge-run-glow", text: "Thinking" });
+    summary.setAttribute("data-run-status", "running");
   }
 
 /**
@@ -3524,10 +3534,12 @@ export class LLMBridgeView extends ItemView {
     const toggle = hasProcessContent
       ? head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: isRunning ? "▼ " : "▶ " })
       : head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: "" });
-    // V16.4-G: Running 状态用 Codex-style glow text 取代旋转圈
+    // V16.4-G/H: Running 状态用 Codex-style glow text 取代旋转圈
+    // V16.4-H: blocked 状态（Needs approval / Needs input）不用 running glow，用 kind="blocked"
     if (isRunning) {
       const statusText = model.currentActivity || "Thinking";
-      this.renderRunStatusText(head, statusText, "running");
+      const isBlocked = statusText === "Needs approval" || statusText === "Needs input";
+      this.renderRunStatusText(head, statusText, isBlocked ? "blocked" : "running");
     }
     head.createEl("span", { cls: "llm-bridge-timeline-summary", text: headerText });
 

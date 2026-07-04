@@ -2713,7 +2713,8 @@
   margin: 0;
   padding: 0;
 }
-.llm-bridge-composer-bar.is-user-input-active {
+.llm-bridge-composer-bar.is-user-input-active,
+.llm-bridge-composer-bar.is-approval-active {
   display: none;
 }
 .llm-bridge-clarification-card {
