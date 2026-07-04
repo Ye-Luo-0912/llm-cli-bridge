@@ -1,14 +1,14 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-04T08:50:01.749Z
+- **测试时间**: 2026-07-04T09:52:46.466Z
 - **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.16.0
-- **main.js 大小**: 698.9 KB
+- **main.js 大小**: 712.7 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 60586
-- **commit sha**: 710be95ed0e35ea2131d7098bb39035060130f18
-- **commit 短 sha**: 710be95ed0e3
+- **commit sha**: 769b64a997ce938d8f7f89836c411dde426c1139
+- **commit 短 sha**: 769b64a997ce
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
@@ -532,7 +532,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | AskUserQuestion dock 固定在 composer 上方且随事件刷新 | - |
+| ✅ | AskUserQuestion dock 支持单选/多选/多页并随事件刷新 | - |
 
 ### V16.4-D user bubble
 
