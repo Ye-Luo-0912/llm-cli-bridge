@@ -14605,6 +14605,21 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 15c2: SDK AskUserQuestion 固定在 composer 上方 user input dock，不藏进折叠过程 ----
+  {
+    const ok = viewSrc.includes('chatPanel.createDiv({ cls: "llm-bridge-user-input-panel llm-bridge-user-input-dock" })')
+      && viewSrc.includes("private refreshUserInputPanel(): void")
+      && viewSrc.includes("Array.from(this.getSession().userInput.pending.values())")
+      && viewSrc.includes('title.createEl("span", { text: "Needs input" });')
+      && viewSrc.includes('setIcon(titleIcon, "message-circle-question")')
+      && viewSrc.includes('if (p.kind === "user_input_request" || p.kind === "user_input_resolved")')
+      && viewSrc.includes("this.refreshUserInputPanel();")
+      && stylesSrc.includes(".llm-bridge-user-input-panel")
+      && stylesSrc.includes(".llm-bridge-user-input-panel-header");
+    addTest("V16.4-E2 user input UI: AskUserQuestion dock 固定在 composer 上方且随事件刷新",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 15d: 用户气泡文本可直接选择复制，不新增复制按钮 ----
   {
     const ok = stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content")

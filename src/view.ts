@@ -19,7 +19,7 @@ import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, pre
 import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
 import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
-import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse } from "./runtime/core/types";
+import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment } from "./runtime/core/types";
 import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
@@ -311,6 +311,7 @@ export class LLMBridgeView extends ItemView {
   private statusPermModeEl!: HTMLElement;
   // V2.3s: 待决策权限请求面板（运行中实时展示 pending 权限请求，用户点击允许/拒绝）
   private permissionPanelEl!: HTMLElement;
+  private userInputPanelEl!: HTMLElement;
   private pendingPermissions: Map<string, PermissionEvent> = new Map();
   private pendingUserInputDrafts = new Map<string, { value: string; selections: Record<string, string> }>();
   // V2.14.0-E: 外部 read 授权仅存在于当前 Bridge View/session 生命周期
@@ -589,7 +590,9 @@ export class LLMBridgeView extends ItemView {
       }
     });
 
-    // Pending approvals live next to the composer, not inside assistant output.
+    // Pending user input / approvals live next to the composer, not inside assistant output.
+    this.userInputPanelEl = chatPanel.createDiv({ cls: "llm-bridge-user-input-panel llm-bridge-user-input-dock" });
+    this.userInputPanelEl.style.display = "none";
     this.permissionPanelEl = chatPanel.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" });
     this.permissionPanelEl.style.display = "none";
 
@@ -1590,6 +1593,39 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
+  private refreshUserInputPanel(): void {
+    const panel = this.userInputPanelEl;
+    panel.empty();
+
+    const pending = Array.from(this.getSession().userInput.pending.values());
+    if (pending.length === 0) {
+      panel.style.display = "none";
+      return;
+    }
+
+    panel.style.display = "block";
+    const header = panel.createDiv({ cls: "llm-bridge-user-input-panel-header" });
+    const title = header.createDiv({ cls: "llm-bridge-user-input-panel-title" });
+    const titleIcon = title.createEl("span", { cls: "llm-bridge-user-input-panel-title-icon" });
+    setIcon(titleIcon, "message-circle-question");
+    title.createEl("span", { text: "Needs input" });
+    header.createEl("span", { cls: "llm-bridge-user-input-panel-count", text: `${pending.length}` });
+
+    for (const req of pending) {
+      const seg: UserInputRequestSegment = {
+        requestId: req.requestId,
+        toolName: req.toolName,
+        prompt: req.prompt,
+        timestamp: new Date().toISOString(),
+        inputType: req.inputType,
+        questions: req.questions,
+        placeholder: req.placeholder,
+        pending: true,
+      };
+      this.renderPhaseUserInputRequest(panel, seg);
+    }
+  }
+
   // V2.17-A Completion: 解析权限请求通过 PermissionBoundary（provider-neutral）
   // 不再调用 SdkBackend.resolvePermission；所有 provider 的 approval 都走统一路径。
   private resolvePermissionRequests(requestIds: string[], choice: PermissionChoice): void {
@@ -1614,6 +1650,7 @@ export class LLMBridgeView extends ItemView {
   private resolveUserInputRequest(requestId: string, response: UserInputResponse): void {
     if (this.getSession().userInput.resolveInput(requestId, response)) {
       this.pendingUserInputDrafts.delete(requestId);
+      this.refreshUserInputPanel();
     }
   }
 
@@ -1630,6 +1667,7 @@ export class LLMBridgeView extends ItemView {
   private clearPendingUserInputRequests(): void {
     this.getSession().userInput.cancelAllPending();
     this.pendingUserInputDrafts.clear();
+    this.refreshUserInputPanel();
   }
 
   // V2.14.0-E: 将外部文件访问请求转换为 pending read request；非 read 不进入 pending。
@@ -3384,7 +3422,7 @@ export class LLMBridgeView extends ItemView {
 
   private renderPhaseUserInputRequest(
     parent: HTMLElement,
-    req: RunPhase["userInputRequests"][number],
+    req: UserInputRequestSegment,
   ): void {
     const draft = this.getUserInputDraft(req.requestId);
     const card = parent.createDiv({ cls: `llm-bridge-phase-user-input ${req.pending ? "is-pending" : "is-resolved"}` });
@@ -6011,6 +6049,9 @@ export class LLMBridgeView extends ItemView {
       if (!req.pending) {
         this.pendingUserInputDrafts.delete(req.requestId);
       }
+    }
+    if (p.kind === "user_input_request" || p.kind === "user_input_resolved") {
+      this.refreshUserInputPanel();
     }
 
     // 5. completed/failed 触发终态
