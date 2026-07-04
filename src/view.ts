@@ -69,6 +69,17 @@ interface AgentSkillDocumentState {
   title?: string;
 }
 
+interface UserInputDraft {
+  value: string;
+  supplement: string;
+  selections: Record<string, string | string[]>;
+  customInputs: Record<string, string>;
+  optionPages: Record<string, number>;
+  stepIndex: number;
+}
+
+const USER_INPUT_OPTIONS_PER_PAGE = 6;
+
 export class AgentSkillDocumentView extends ItemView {
   private state: AgentSkillDocumentState = {};
 
@@ -286,6 +297,7 @@ export class LLMBridgeView extends ItemView {
   // V2.7: 长会话旧消息折叠（false=折叠显示最近 N 条；true=展开全部）
   private messagesFoldExpanded = false;
   private inputEl!: HTMLTextAreaElement;
+  private composerBarEl!: HTMLElement;
   // V2.15-H: @ 提及文件选择器（输入框上方 inline popup）
   private mentionPickerEl: HTMLElement | null = null;
   private mentionPickerRange: { start: number; end: number } | null = null;
@@ -313,7 +325,7 @@ export class LLMBridgeView extends ItemView {
   private permissionPanelEl!: HTMLElement;
   private userInputPanelEl!: HTMLElement;
   private pendingPermissions: Map<string, PermissionEvent> = new Map();
-  private pendingUserInputDrafts = new Map<string, { value: string; selections: Record<string, string> }>();
+  private pendingUserInputDrafts = new Map<string, UserInputDraft>();
   // V2.14.0-E: 外部 read 授权仅存在于当前 Bridge View/session 生命周期
   private externalReadGrantStore: SessionReadGrantStore = createSessionReadGrantStore();
   private externalReadPanelEl!: HTMLElement;
@@ -590,16 +602,17 @@ export class LLMBridgeView extends ItemView {
       }
     });
 
-    // Pending user input / approvals live next to the composer, not inside assistant output.
-    this.userInputPanelEl = chatPanel.createDiv({ cls: "llm-bridge-user-input-panel llm-bridge-user-input-dock" });
-    this.userInputPanelEl.style.display = "none";
+    // Pending approvals live next to the composer, not inside assistant output.
     this.permissionPanelEl = chatPanel.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" });
     this.permissionPanelEl.style.display = "none";
 
     // ===== 底部 composer =====
     const composer = chatPanel.createDiv({ cls: "llm-bridge-composer" });
+    this.userInputPanelEl = composer.createDiv({ cls: "llm-bridge-user-input-panel llm-bridge-user-input-dock" });
+    this.userInputPanelEl.style.display = "none";
 
     const composerBar = composer.createDiv({ cls: "llm-bridge-composer-bar" });
+    this.composerBarEl = composerBar;
     composerBar.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       if (target.closest("button, select, summary, details, input, textarea")) return;
@@ -1053,22 +1066,71 @@ export class LLMBridgeView extends ItemView {
     });
   }
 
-  private getUserInputDraft(requestId: string): { value: string; selections: Record<string, string> } {
+  private getUserInputDraft(requestId: string): UserInputDraft {
     const existing = this.pendingUserInputDrafts.get(requestId);
     if (existing) return existing;
-    const created = { value: "", selections: {} };
+    const created: UserInputDraft = {
+      value: "",
+      supplement: "",
+      selections: {},
+      customInputs: {},
+      optionPages: {},
+      stepIndex: 0,
+    };
     this.pendingUserInputDrafts.set(requestId, created);
     return created;
   }
 
+  private getClarificationQuestions(req: UserInputRequestSegment): ReadonlyArray<UserInputQuestion> {
+    return req.questions && req.questions.length > 0
+      ? req.questions
+      : [{ id: "answer", question: req.prompt, options: [] }];
+  }
+
+  private isMultiSelectQuestion(question: UserInputQuestion): boolean {
+    return question.multiSelect === true || question.selectionType === "multiple";
+  }
+
+  private normalizeUserInputSelection(value: string | string[] | undefined): string[] {
+    if (Array.isArray(value)) return value.filter((item) => item.trim().length > 0);
+    return typeof value === "string" && value.trim().length > 0 ? [value] : [];
+  }
+
   private composeUserInputDraftValue(
     questions: ReadonlyArray<UserInputQuestion>,
-    selections: Record<string, string>,
+    selections: Record<string, string | string[]>,
+    customInputs: Record<string, string> = {},
   ): string {
     return questions
-      .map((q) => selections[q.id])
-      .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+      .map((q) => {
+        const custom = customInputs[q.id]?.trim();
+        if (custom) return custom;
+        const selected = this.normalizeUserInputSelection(selections[q.id]);
+        return selected.join(", ");
+      })
+      .filter((value) => value.trim().length > 0)
       .join(" + ");
+  }
+
+  private composeUserInputAnswers(
+    questions: ReadonlyArray<UserInputQuestion>,
+    draft: UserInputDraft,
+  ): Record<string, string | string[]> {
+    const answers: Record<string, string | string[]> = {};
+    for (const question of questions) {
+      const custom = draft.customInputs[question.id]?.trim();
+      if (custom) {
+        answers[question.id] = custom;
+        continue;
+      }
+      const selected = this.normalizeUserInputSelection(draft.selections[question.id]);
+      if (this.isMultiSelectQuestion(question)) {
+        answers[question.id] = selected;
+      } else {
+        answers[question.id] = selected[0] ?? "";
+      }
+    }
+    return answers;
   }
 
   private renderModelEffortPicker(parent: HTMLElement): void {
@@ -1600,16 +1662,12 @@ export class LLMBridgeView extends ItemView {
     const pending = Array.from(this.getSession().userInput.pending.values());
     if (pending.length === 0) {
       panel.style.display = "none";
+      this.composerBarEl?.removeClass("is-user-input-active");
       return;
     }
 
     panel.style.display = "block";
-    const header = panel.createDiv({ cls: "llm-bridge-user-input-panel-header" });
-    const title = header.createDiv({ cls: "llm-bridge-user-input-panel-title" });
-    const titleIcon = title.createEl("span", { cls: "llm-bridge-user-input-panel-title-icon" });
-    setIcon(titleIcon, "message-circle-question");
-    title.createEl("span", { text: "Needs input" });
-    header.createEl("span", { cls: "llm-bridge-user-input-panel-count", text: `${pending.length}` });
+    this.composerBarEl?.addClass("is-user-input-active");
 
     for (const req of pending) {
       const seg: UserInputRequestSegment = {
@@ -1622,8 +1680,222 @@ export class LLMBridgeView extends ItemView {
         placeholder: req.placeholder,
         pending: true,
       };
-      this.renderPhaseUserInputRequest(panel, seg);
+      this.renderClarificationUserInputRequest(panel, seg, pending.length);
     }
+  }
+
+  private renderClarificationUserInputRequest(
+    parent: HTMLElement,
+    req: UserInputRequestSegment,
+    total: number,
+  ): void {
+    const draft = this.getUserInputDraft(req.requestId);
+    const questions = this.getClarificationQuestions(req);
+    const totalSteps = questions.length + 1;
+    draft.stepIndex = Math.max(0, Math.min(draft.stepIndex, totalSteps - 1));
+    const isSupplementStep = draft.stepIndex >= questions.length;
+    const currentQuestion = isSupplementStep ? undefined : questions[draft.stepIndex];
+    const card = parent.createDiv({ cls: `llm-bridge-clarification-card is-step-${draft.stepIndex + 1}` });
+    const header = card.createDiv({ cls: "llm-bridge-clarification-head" });
+    const title = header.createEl("div", {
+      cls: "llm-bridge-clarification-title",
+      text: isSupplementStep
+        ? "是否有更多的补充信息需要提供？（可选）"
+        : currentQuestion?.header ?? req.prompt,
+    });
+    title.setAttribute("title", isSupplementStep ? req.prompt : currentQuestion?.question ?? req.prompt);
+    const nav = header.createDiv({ cls: "llm-bridge-clarification-nav" });
+    const up = nav.createEl("button", { cls: "llm-bridge-clarification-icon-btn", attr: { type: "button", title: "上一步" } });
+    setIcon(up, "chevron-up");
+    up.toggleAttribute("disabled", draft.stepIndex === 0);
+    up.addEventListener("click", (event) => {
+      event.stopPropagation();
+      draft.stepIndex = Math.max(0, draft.stepIndex - 1);
+      this.refreshUserInputPanel();
+    });
+    nav.createEl("span", { cls: "llm-bridge-clarification-step", text: `${draft.stepIndex + 1} of ${totalSteps}` });
+    const down = nav.createEl("button", { cls: "llm-bridge-clarification-icon-btn", attr: { type: "button", title: "下一步" } });
+    setIcon(down, "chevron-down");
+    down.toggleAttribute("disabled", draft.stepIndex >= totalSteps - 1);
+    down.addEventListener("click", (event) => {
+      event.stopPropagation();
+      draft.stepIndex = Math.min(totalSteps - 1, draft.stepIndex + 1);
+      this.refreshUserInputPanel();
+    });
+    const close = nav.createEl("button", { cls: "llm-bridge-clarification-close", attr: { type: "button", title: "取消" } });
+    setIcon(close, "x");
+    close.addEventListener("click", (event) => {
+      event.stopPropagation();
+      this.resolveUserInputRequest(req.requestId, { type: "cancel" });
+    });
+
+    if (total > 1) {
+      card.createDiv({ cls: "llm-bridge-clarification-count", text: `${total} pending questions` });
+    }
+
+    if (currentQuestion) {
+      this.renderClarificationChoiceStep(card, req, draft, questions, currentQuestion, totalSteps);
+    } else {
+      this.renderClarificationSupplementStep(card, req, draft, questions);
+    }
+  }
+
+  private renderClarificationChoiceStep(
+    card: HTMLElement,
+    req: UserInputRequestSegment,
+    draft: UserInputDraft,
+    questions: ReadonlyArray<UserInputQuestion>,
+    question: UserInputQuestion,
+    totalSteps: number,
+  ): void {
+    const body = card.createDiv({ cls: "llm-bridge-clarification-choice-body" });
+    if (question.question && question.question !== req.prompt) {
+      body.createDiv({ cls: "llm-bridge-clarification-question", text: question.question });
+    }
+
+    const multiSelect = this.isMultiSelectQuestion(question);
+    const pageCount = Math.max(1, Math.ceil(question.options.length / USER_INPUT_OPTIONS_PER_PAGE));
+    const pageIndex = Math.max(0, Math.min(draft.optionPages[question.id] ?? 0, pageCount - 1));
+    draft.optionPages[question.id] = pageIndex;
+    const visibleOptions = question.options.slice(
+      pageIndex * USER_INPUT_OPTIONS_PER_PAGE,
+      (pageIndex + 1) * USER_INPUT_OPTIONS_PER_PAGE,
+    );
+
+    for (const option of visibleOptions) {
+      const optionValue = option.value ?? option.label;
+      const selectedValues = this.normalizeUserInputSelection(draft.selections[question.id]);
+      const selected = selectedValues.includes(optionValue);
+      const row = body.createEl("button", {
+        cls: `llm-bridge-clarification-option${selected ? " is-selected" : ""}${multiSelect ? " is-multi" : " is-single"}`,
+        attr: { type: "button" },
+      });
+      row.createEl("span", { cls: "llm-bridge-clarification-option-label", text: option.label });
+      if (option.description) {
+        row.createEl("span", { cls: "llm-bridge-clarification-option-desc", text: option.description });
+      }
+      const enter = row.createEl("span", { cls: "llm-bridge-clarification-option-enter" });
+      setIcon(enter, selected ? "check" : multiSelect ? "plus" : "corner-down-left");
+      row.addEventListener("click", (event) => {
+        event.stopPropagation();
+        draft.customInputs[question.id] = "";
+        if (multiSelect) {
+          const nextValues = selected
+            ? selectedValues.filter((value) => value !== optionValue)
+            : [...selectedValues, optionValue];
+          draft.selections[question.id] = nextValues;
+        } else {
+          draft.selections[question.id] = optionValue;
+          draft.value = this.composeUserInputDraftValue(questions, draft.selections, draft.customInputs);
+          draft.stepIndex = Math.min(totalSteps - 1, draft.stepIndex + 1);
+        }
+        draft.value = this.composeUserInputDraftValue(questions, draft.selections, draft.customInputs);
+        this.refreshUserInputPanel();
+      });
+    }
+
+    if (pageCount > 1) {
+      const pager = body.createDiv({ cls: "llm-bridge-clarification-option-pages" });
+      const prev = pager.createEl("button", { cls: "llm-bridge-clarification-page-btn", text: "上一组选项", attr: { type: "button" } });
+      prev.toggleAttribute("disabled", pageIndex === 0);
+      prev.addEventListener("click", () => {
+        draft.optionPages[question.id] = Math.max(0, pageIndex - 1);
+        this.refreshUserInputPanel();
+      });
+      pager.createEl("span", { cls: "llm-bridge-clarification-page-count", text: `${pageIndex + 1}/${pageCount}` });
+      const nextPage = pager.createEl("button", { cls: "llm-bridge-clarification-page-btn", text: "下一组选项", attr: { type: "button" } });
+      nextPage.toggleAttribute("disabled", pageIndex >= pageCount - 1);
+      nextPage.addEventListener("click", () => {
+        draft.optionPages[question.id] = Math.min(pageCount - 1, pageIndex + 1);
+        this.refreshUserInputPanel();
+      });
+    }
+
+    const otherRow = body.createDiv({ cls: "llm-bridge-clarification-other-row" });
+    otherRow.createEl("span", { cls: "llm-bridge-clarification-other-label", text: "其他" });
+    const otherInput = otherRow.createEl("input", {
+      cls: "llm-bridge-clarification-other-input",
+      attr: {
+        type: "text",
+        placeholder: req.placeholder ?? "请输入",
+        maxlength: "500",
+        value: draft.customInputs[question.id] ?? "",
+      },
+    });
+    otherRow.createEl("span", {
+      cls: "llm-bridge-clarification-char-count",
+      text: `${otherInput.value.length}/500`,
+    });
+    otherInput.addEventListener("input", () => {
+      draft.customInputs[question.id] = otherInput.value.slice(0, 500);
+      delete draft.selections[question.id];
+      draft.value = this.composeUserInputDraftValue(questions, draft.selections, draft.customInputs);
+      const count = otherRow.querySelector<HTMLElement>(".llm-bridge-clarification-char-count");
+      if (count) count.setText(`${draft.customInputs[question.id].length}/500`);
+    });
+    otherInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        draft.stepIndex = Math.min(totalSteps - 1, draft.stepIndex + 1);
+        this.refreshUserInputPanel();
+      }
+    });
+
+    const footer = card.createDiv({ cls: "llm-bridge-clarification-footer" });
+    const cancel = footer.createEl("button", { cls: "llm-bridge-clarification-btn is-secondary", text: "取消", attr: { type: "button" } });
+    cancel.addEventListener("click", () => this.resolveUserInputRequest(req.requestId, { type: "cancel" }));
+    const next = footer.createEl("button", { cls: "llm-bridge-clarification-btn is-primary", text: "下一步", attr: { type: "button" } });
+    next.addEventListener("click", () => {
+      draft.value = this.composeUserInputDraftValue(questions, draft.selections, draft.customInputs);
+      draft.stepIndex = Math.min(totalSteps - 1, draft.stepIndex + 1);
+      this.refreshUserInputPanel();
+    });
+  }
+
+  private renderClarificationSupplementStep(
+    card: HTMLElement,
+    req: UserInputRequestSegment,
+    draft: UserInputDraft,
+    questions: ReadonlyArray<UserInputQuestion>,
+  ): void {
+    const body = card.createDiv({ cls: "llm-bridge-clarification-supplement-body" });
+    const textarea = body.createEl("textarea", {
+      cls: "llm-bridge-clarification-supplement-textarea",
+      attr: {
+        placeholder: "添加补充信息",
+        maxlength: "1000",
+      },
+    });
+    textarea.value = draft.supplement;
+    const count = body.createDiv({ cls: "llm-bridge-clarification-supplement-count", text: `${textarea.value.length}/1000` });
+    textarea.addEventListener("input", () => {
+      draft.supplement = textarea.value.slice(0, 1000);
+      count.setText(`${draft.supplement.length}/1000`);
+    });
+
+    const footer = card.createDiv({ cls: "llm-bridge-clarification-footer" });
+    const cancel = footer.createEl("button", { cls: "llm-bridge-clarification-btn is-secondary", text: "取消", attr: { type: "button" } });
+    cancel.addEventListener("click", () => this.resolveUserInputRequest(req.requestId, { type: "cancel" }));
+    const prev = footer.createEl("button", { cls: "llm-bridge-clarification-btn is-secondary", text: "上一步", attr: { type: "button" } });
+    prev.addEventListener("click", () => {
+      draft.stepIndex = Math.max(0, draft.stepIndex - 1);
+      this.refreshUserInputPanel();
+    });
+    const submit = footer.createEl("button", { cls: "llm-bridge-clarification-btn is-primary", text: "提交", attr: { type: "button" } });
+    submit.addEventListener("click", () => {
+      const answers = this.composeUserInputAnswers(questions, draft);
+      const primary = (draft.value || this.composeUserInputDraftValue(questions, draft.selections, draft.customInputs)).trim();
+      const supplement = draft.supplement.trim();
+      const value = supplement
+        ? `${primary || "未选择"}\n\n补充信息：${supplement}`
+        : primary || "未选择";
+      this.resolveUserInputRequest(req.requestId, {
+        type: "submit",
+        value,
+        answers,
+        supplement: supplement || undefined,
+      });
+    });
   }
 
   // V2.17-A Completion: 解析权限请求通过 PermissionBoundary（provider-neutral）

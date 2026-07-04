@@ -48,7 +48,7 @@ export class CodexAppServerUserInputMapper {
 
   mapServerRequestResult(response: UserInputResponse): CodexServerRequestResult {
     if (response.type === "cancel") return { cancelled: true };
-    return { value: response.value };
+    return { value: response.value, answers: response.answers, supplement: response.supplement };
   }
 
   private parseQuestions(params: CodexToolUserInputRequestParams): ReadonlyArray<UserInputQuestion> | undefined {
@@ -66,6 +66,8 @@ export class CodexAppServerUserInputMapper {
       id: "question-1",
       question: singleQuestion,
       options,
+      multiSelect: this.readBoolean(params as unknown as Record<string, unknown>),
+      selectionType: this.readBoolean(params as unknown as Record<string, unknown>) ? "multiple" : "single",
     }];
   }
 
@@ -78,13 +80,28 @@ export class CodexAppServerUserInputMapper {
         ? raw.prompt.trim()
         : "";
     const options = this.parseOptions(raw.options);
+    const multiSelect = this.readBoolean(raw);
     if (!question) return null;
     return {
       id: typeof raw.id === "string" && raw.id.trim().length > 0 ? raw.id.trim() : `question-${index + 1}`,
       header: typeof raw.header === "string" && raw.header.trim().length > 0 ? raw.header.trim() : undefined,
       question,
       options,
+      multiSelect,
+      selectionType: multiSelect ? "multiple" : "single",
     };
+  }
+
+  private readBoolean(raw: Record<string, unknown>): boolean {
+    for (const key of ["multiSelect", "multiple", "allowMultiple", "multipleSelect"]) {
+      const value = raw[key];
+      if (typeof value === "boolean") return value;
+      if (typeof value !== "string") continue;
+      const normalized = value.trim().toLowerCase();
+      if (normalized === "true" || normalized === "multi" || normalized === "multiple") return true;
+      if (normalized === "false" || normalized === "single") return false;
+    }
+    return false;
   }
 
   private parseOptions(value: unknown): ReadonlyArray<UserInputOption> {

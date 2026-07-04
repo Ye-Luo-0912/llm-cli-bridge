@@ -6888,7 +6888,7 @@ if (!runV23sUnit) {
       extractToolPathPattern,
       isSdkUserInputTool,
     } = await import(pathToFileURL(sdkPermBundleV23s).href);
-    const { SdkBackend, createPermissionState, summarizeToolInput, handleAskUserQuestion } = await import(pathToFileURL(sdkBackendBundleV23s).href);
+    const { SdkBackend, createPermissionState, summarizeToolInput, handleAskUserQuestion, DEFAULT_ASK_USER_QUESTION_TIMEOUT_MS } = await import(pathToFileURL(sdkBackendBundleV23s).href);
     const { redactWorkflowEvent } = await import(pathToFileURL(workflowEventBundleV23s).href);
     const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV23s).href);
     const { createUserInputBoundary } = await import(pathToFileURL(userInputBoundaryBundleV23s).href);
@@ -6967,7 +6967,7 @@ if (!runV23sUnit) {
         {
           prompt: "我需要你确认目标文件",
           questions: [
-            { id: "source", question: "源文件？", options: [{ label: "AGENTS.md", value: "AGENTS.md" }] },
+            { id: "source", question: "源文件？", multiSelect: true, options: [{ label: "AGENTS.md", value: "AGENTS.md" }, { label: "README.md", value: "README.md" }] },
             { id: "target", question: "目标文件？", options: [{ label: "test.md", value: "test.md" }] },
           ],
           placeholder: "直接输入答案",
@@ -6988,17 +6988,36 @@ if (!runV23sUnit) {
         && pendingModel.header.includes("Needs input");
 
       const resolvedByBoundary = pending
-        ? boundary.resolveInput(pending.requestId, { type: "submit", value: "AGENTS.md + test.md" })
+        ? boundary.resolveInput(pending.requestId, {
+          type: "submit",
+          value: "AGENTS.md, README.md + test.md\n\n补充信息：保留大小写",
+          answers: { source: ["AGENTS.md", "README.md"], target: "test.md" },
+          supplement: "保留大小写",
+        })
         : false;
       const sdkResult = await bridgePromise;
       const resolvedEvent = emitted.find((ev) => ev.payload?.kind === "user_input_resolved");
       const sdkAnswerOk = sdkResult.behavior === "allow"
-        && sdkResult.updatedInput?.response === "AGENTS.md + test.md"
-        && sdkResult.updatedInput?.answers?.source === "AGENTS.md"
+        && sdkResult.updatedInput?.response.includes("补充信息：保留大小写")
+        && Array.isArray(sdkResult.updatedInput?.answers?.source)
+        && sdkResult.updatedInput.answers.source.length === 2
+        && sdkResult.updatedInput.answers.source.includes("AGENTS.md")
         && sdkResult.updatedInput?.answers?.target === "test.md";
       addTest("V16.4-E2 AskUserQuestion runtime bridge: pending → render card → submit → resolved → SDK answer",
         pending && requestEvent && renderCardOk && resolvedByBoundary && resolvedEvent && sdkAnswerOk ? "pass" : "fail",
         `pending=${!!pending} requestEvent=${!!requestEvent} renderCard=${renderCardOk} resolved=${resolvedByBoundary} resolvedEvent=${!!resolvedEvent} sdkAnswer=${sdkAnswerOk}`);
+    }
+
+    // ---- Test 3d: AskUserQuestion timeout 默认 10 分钟，避免无限挂起 ----
+    {
+      const sdkSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
+      const timeoutOk = DEFAULT_ASK_USER_QUESTION_TIMEOUT_MS === 600000
+        && sdkSrc.includes("setTimeout(() =>")
+        && sdkSrc.includes("userInput.resolveInput(request.requestId, { type: \"cancel\" })")
+        && sdkSrc.includes("clearTimeout(timeout)");
+      addTest("V16.4-E2 AskUserQuestion timeout: 默认 10 分钟后自动 cancel",
+        timeoutOk ? "pass" : "fail",
+        `timeoutMs=${DEFAULT_ASK_USER_QUESTION_TIMEOUT_MS}`);
     }
 
     // ---- Test 4: assessToolRisk 低/中/高 ----
@@ -14607,16 +14626,28 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 15c2: SDK AskUserQuestion 固定在 composer 上方 user input dock，不藏进折叠过程 ----
   {
-    const ok = viewSrc.includes('chatPanel.createDiv({ cls: "llm-bridge-user-input-panel llm-bridge-user-input-dock" })')
+    const ok = viewSrc.includes('composer.createDiv({ cls: "llm-bridge-user-input-panel llm-bridge-user-input-dock" })')
+      && viewSrc.includes("private composerBarEl!: HTMLElement;")
+      && viewSrc.includes("this.composerBarEl = composerBar;")
       && viewSrc.includes("private refreshUserInputPanel(): void")
       && viewSrc.includes("Array.from(this.getSession().userInput.pending.values())")
-      && viewSrc.includes('title.createEl("span", { text: "Needs input" });')
-      && viewSrc.includes('setIcon(titleIcon, "message-circle-question")')
+      && viewSrc.includes("renderClarificationUserInputRequest")
+      && viewSrc.includes("renderClarificationChoiceStep")
+      && viewSrc.includes("renderClarificationSupplementStep")
+      && viewSrc.includes("USER_INPUT_OPTIONS_PER_PAGE")
+      && viewSrc.includes("isMultiSelectQuestion")
+      && viewSrc.includes("draft.optionPages")
+      && viewSrc.includes("draft.stepIndex")
+      && viewSrc.includes('text: `${draft.stepIndex + 1} of ${totalSteps}`')
+      && viewSrc.includes("answers,")
+      && viewSrc.includes("supplement: supplement || undefined")
       && viewSrc.includes('if (p.kind === "user_input_request" || p.kind === "user_input_resolved")')
       && viewSrc.includes("this.refreshUserInputPanel();")
       && stylesSrc.includes(".llm-bridge-user-input-panel")
-      && stylesSrc.includes(".llm-bridge-user-input-panel-header");
-    addTest("V16.4-E2 user input UI: AskUserQuestion dock 固定在 composer 上方且随事件刷新",
+      && stylesSrc.includes(".llm-bridge-composer-bar.is-user-input-active")
+      && stylesSrc.includes(".llm-bridge-clarification-card")
+      && stylesSrc.includes(".llm-bridge-clarification-option-pages");
+    addTest("V16.4-E2 user input UI: AskUserQuestion dock 支持单选/多选/多页并随事件刷新",
       ok ? "pass" : "fail", "");
   }
 

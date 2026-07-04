@@ -42,6 +42,7 @@ import {
   formatDiagnosticsForLog,
 } from "./sdkMessageMapper";
 import type {
+  UserInputAnswerValue,
   UserInputOption,
   UserInputQuestion,
   UserInputRequest,
@@ -72,6 +73,7 @@ const SDK_PACKAGE_CANDIDATES = [
 ];
 
 export const SDK_SKILL_SETTING_SOURCES = ["user", "project", "local"] as const;
+export const DEFAULT_ASK_USER_QUESTION_TIMEOUT_MS = 10 * 60 * 1000;
 
 export interface SdkLoadResult {
   readonly mod: unknown;
@@ -572,6 +574,18 @@ function readStringField(input: Record<string, unknown>, keys: ReadonlyArray<str
   return undefined;
 }
 
+function readBooleanField(input: Record<string, unknown>, keys: ReadonlyArray<string>): boolean | undefined {
+  for (const key of keys) {
+    const value = input[key];
+    if (typeof value === "boolean") return value;
+    if (typeof value !== "string") continue;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "true" || normalized === "multi" || normalized === "multiple") return true;
+    if (normalized === "false" || normalized === "single") return false;
+  }
+  return undefined;
+}
+
 function parseAskUserQuestionOptions(value: unknown): ReadonlyArray<UserInputOption> {
   if (!Array.isArray(value)) return [];
   const parsed: UserInputOption[] = [];
@@ -608,22 +622,33 @@ function parseAskUserQuestionQuestion(
   value: unknown,
   index: number,
   fallbackOptions: ReadonlyArray<UserInputOption>,
+  fallbackMultiSelect = false,
 ): UserInputQuestion | null {
   if (typeof value === "string") {
     const question = value.trim();
     if (!question) return null;
-    return { id: `question-${index + 1}`, question, options: fallbackOptions };
+    return {
+      id: `question-${index + 1}`,
+      question,
+      options: fallbackOptions,
+      multiSelect: fallbackMultiSelect,
+      selectionType: fallbackMultiSelect ? "multiple" : "single",
+    };
   }
   if (!value || typeof value !== "object") return null;
   const raw = value as Record<string, unknown>;
   const question = readStringField(raw, ["question", "prompt", "text", "label"]);
   if (!question) return null;
   const options = parseAskUserQuestionOptions(raw.options ?? raw.choices);
+  const multiSelect = readBooleanField(raw, ["multiSelect", "multiple", "allowMultiple", "multipleSelect"])
+    ?? fallbackMultiSelect;
   return {
     id: readStringField(raw, ["id", "name", "key"]) ?? `question-${index + 1}`,
     header: readStringField(raw, ["header", "title"]),
     question,
     options: options.length > 0 ? options : fallbackOptions,
+    multiSelect,
+    selectionType: multiSelect ? "multiple" : "single",
   };
 }
 
@@ -637,9 +662,10 @@ export function parseAskUserQuestionRequest(
     ?? opts.displayName
     ?? "Input required";
   const fallbackOptions = parseAskUserQuestionOptions(input.options ?? input.choices);
+  const fallbackMultiSelect = readBooleanField(input, ["multiSelect", "multiple", "allowMultiple", "multipleSelect"]) ?? false;
   const structuredQuestions = Array.isArray(input.questions)
     ? input.questions
-      .map((q, index) => parseAskUserQuestionQuestion(q, index, fallbackOptions))
+      .map((q, index) => parseAskUserQuestionQuestion(q, index, fallbackOptions, fallbackMultiSelect))
       .filter((q): q is UserInputQuestion => q !== null)
     : [];
   const singleQuestion = structuredQuestions.length === 0
@@ -647,6 +673,7 @@ export function parseAskUserQuestionRequest(
       input.question ?? (fallbackOptions.length > 0 ? prompt : undefined),
       0,
       fallbackOptions,
+      fallbackMultiSelect,
     )
     : null;
   const questions = structuredQuestions.length > 0
@@ -665,6 +692,7 @@ export function parseAskUserQuestionRequest(
     placeholder: readStringField(input, ["placeholder"]),
     providerContext: {
       toolUseID: opts.toolUseID,
+      timeoutMs: DEFAULT_ASK_USER_QUESTION_TIMEOUT_MS,
     },
   };
 }
@@ -672,8 +700,9 @@ export function parseAskUserQuestionRequest(
 function buildAskUserQuestionAnswers(
   response: UserInputResponse,
   questions: ReadonlyArray<UserInputQuestion> | undefined,
-): Record<string, string> {
+): Record<string, UserInputAnswerValue> {
   if (response.type === "cancel") return {};
+  if (response.answers) return { ...response.answers };
   const answerValue = response.value.trim();
   if (!questions || questions.length === 0) return { answer: answerValue };
   const splitValues = answerValue.split(/\s+\+\s+/).map((v) => v.trim()).filter(Boolean);
@@ -699,6 +728,9 @@ export async function handleAskUserQuestion(
 
   const request = parseAskUserQuestionRequest(toolName, input, opts);
   userInput.requestInput(request);
+  const timeout = setTimeout(() => {
+    userInput.resolveInput(request.requestId, { type: "cancel" });
+  }, DEFAULT_ASK_USER_QUESTION_TIMEOUT_MS);
   emitRuntimeEvent({
     providerId: "claude-sdk",
     timestamp: new Date().toISOString(),
@@ -715,6 +747,7 @@ export async function handleAskUserQuestion(
   });
 
   const result = await userInput.waitForInput(request.requestId);
+  clearTimeout(timeout);
   emitRuntimeEvent({
     providerId: "claude-sdk",
     timestamp: new Date().toISOString(),

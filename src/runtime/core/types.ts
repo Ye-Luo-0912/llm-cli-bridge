@@ -239,10 +239,19 @@ export interface UserInputQuestion {
   readonly header?: string;
   readonly question: string;
   readonly options: ReadonlyArray<UserInputOption>;
+  readonly multiSelect?: boolean;
+  readonly selectionType?: "single" | "multiple";
 }
 
+export type UserInputAnswerValue = string | ReadonlyArray<string>;
+
 export type UserInputResponse =
-  | { type: "submit"; value: string }
+  | {
+      type: "submit";
+      value: string;
+      answers?: Readonly<Record<string, UserInputAnswerValue>>;
+      supplement?: string;
+    }
   | { type: "cancel" };
 
 /**
