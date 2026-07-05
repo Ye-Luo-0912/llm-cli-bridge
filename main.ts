@@ -347,32 +347,69 @@ export default class LLMBridgePlugin extends Plugin {
       },
     });
 
-    // V17-C1 任务 B：朋友版 preset 初始化命令
+    // V17-C1 任务 B / V17-C2 任务 A：朋友版 preset 初始化命令
     this.addCommand({
       id: "enable-friend-preview",
       name: "Enable Friend Preview / Portable Mode",
       callback: async () => {
-        // 应用 friend preset：portable + pi-native + trust 未确认（首次需 onboarding）
+        // V17-C2 任务 A：friend preset 必须显式设置 backendMode=auto（不保留旧 cli/sdk/mock）
+        // auto 让 provider 选择器按 backendProfile 优先选 pi-sdk
         this.settings.backendProfile = "portable";
+        this.settings.backendMode = "auto";
         this.settings.piToolMode = "pi-native";
         this.settings.piNativeTrustConfirmed = false;
         await this.saveSettings();
         // 触发 view 刷新以展示 trust onboarding 卡片
         this.refreshBridgeView?.();
-        new Notice("Friend Preview 已启用：portable + pi-native。首次运行前需确认 Pi Native Trust。");
+        new Notice("Friend Preview 已启用：portable + auto + pi-native。首次运行前需确认 Pi Native Trust。");
       },
     });
 
-    // V17-C1 任务 B：切回 developer profile
+    // V17-C1 任务 B / V17-C2 任务 A：切回 developer profile
     this.addCommand({
       id: "disable-friend-preview",
       name: "Disable Friend Preview (back to Developer profile)",
       callback: async () => {
         this.settings.backendProfile = "developer";
+        this.settings.backendMode = "auto";
         this.settings.piToolMode = "bridge-controlled";
         await this.saveSettings();
         this.refreshBridgeView?.();
         new Notice("已切回 Developer profile（bridge-controlled）。");
+      },
+    });
+
+    // V17-C2 任务 C：Pi SDK 依赖检查命令（朋友版手动检测 + 安装引导）
+    this.addCommand({
+      id: "check-pi-sdk-dependency",
+      name: "Check Pi SDK Dependency (Friend Preview)",
+      callback: async () => {
+        let statusMsg = "";
+        let noticeClass = "";
+        try {
+          const { tryLoadPiSdk, probePiSdkAuth } = await import("./src/runtime/providers/pi-sdk/piSdkProvider");
+          const probe = tryLoadPiSdk(true);
+          if (!probe.available) {
+            statusMsg = `Pi SDK 未安装。\n\n请在 Vault 根目录运行：\nnpm install --ignore-scripts @earendil-works/pi-coding-agent\n\n安装后重启 Obsidian。`;
+            noticeClass = "llm-bridge-notice-warn";
+          } else {
+            const authProbe = probePiSdkAuth(probe);
+            if (!authProbe.hasAuth || !authProbe.hasModel) {
+              statusMsg = `Pi SDK 已安装，但认证/模型未配置：\n${authProbe.hint}`;
+              noticeClass = "llm-bridge-notice-warn";
+            } else {
+              statusMsg = "Pi SDK 已安装且配置完成，Friend Preview 可用。";
+              noticeClass = "llm-bridge-notice-ok";
+            }
+          }
+        } catch (e) {
+          statusMsg = `Pi SDK 依赖检查失败：${e instanceof Error ? e.message : String(e)}`;
+          noticeClass = "llm-bridge-notice-error";
+        }
+        const notice = new Notice(statusMsg, 10000);
+        if (noticeClass && notice.noticeEl) {
+          notice.noticeEl.addClass(noticeClass);
+        }
       },
     });
   }

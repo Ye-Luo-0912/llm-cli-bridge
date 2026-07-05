@@ -5465,6 +5465,108 @@ if (runMode !== "all" && runMode !== "unit") {
           hasCompactOrSplit && hasIndexOnly ? "pass" : "fail",
           `compactOrSplit=${hasCompactOrSplit} indexOnly=${hasIndexOnly}`);
       }
+
+      // ===== V17-C2: Friend Preview Release Gate =====
+
+      // Test V17C2-A: Enable Friend Preview preset 设置 backendMode=auto（任务 A）
+      {
+        const mainSrc = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf8");
+        // enable 命令必须设置 backendMode=auto（不保留旧 cli/sdk/mock）
+        const enableSetsAuto = /id: "enable-friend-preview"[\s\S]*?this\.settings\.backendMode = "auto"/.test(mainSrc);
+        // disable 命令也设置 backendMode=auto
+        const disableSetsAuto = /id: "disable-friend-preview"[\s\S]*?this\.settings\.backendMode = "auto"/.test(mainSrc);
+        // enable 设置 portable + pi-native + trust=false
+        const enablePresetOk = /id: "enable-friend-preview"[\s\S]*?backendProfile = "portable"[\s\S]*?piToolMode = "pi-native"[\s\S]*?piNativeTrustConfirmed = false/.test(mainSrc);
+
+        addTest("V17-C2 enable/disable Friend Preview: backendMode=auto + preset 完整",
+          enableSetsAuto && disableSetsAuto && enablePresetOk ? "pass" : "fail",
+          `enableAuto=${enableSetsAuto} disableAuto=${disableSetsAuto} presetOk=${enablePresetOk}`);
+      }
+
+      // Test V17C2-A2: enable 后不会保留旧 backendMode（任务 A 反向断言）
+      {
+        const mainSrc = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf8");
+        // enable 命令块内不应保留旧的 cli/sdk/mock backendMode 设置
+        const enableBlock = mainSrc.match(/id: "enable-friend-preview"[\s\S]*?callback: async \(\) => \{([\s\S]*?)\},\s*\}\);/);
+        const enableBody = enableBlock ? enableBlock[1] : "";
+        const noOldCli = !/backendMode\s*=\s*"cli"/.test(enableBody);
+        const noOldSdk = !/backendMode\s*=\s*"sdk"/.test(enableBody);
+        const noOldMock = !/backendMode\s*=\s*"mock-/.test(enableBody);
+        const setsAuto = /backendMode\s*=\s*"auto"/.test(enableBody);
+
+        addTest("V17-C2 enable Friend Preview: 不保留旧 cli/sdk/mock backendMode",
+          noOldCli && noOldSdk && noOldMock && setsAuto ? "pass" : "fail",
+          `noCli=${noOldCli} noSdk=${noOldSdk} noMock=${noOldMock} setsAuto=${setsAuto}`);
+      }
+
+      // Test V17C2-B: 真实 pi-sdk smoke 状态字段（任务 B gate）
+      // 当前环境无真实 SDK → skip；测试验证 smoke 脚本 gate 逻辑正确
+      {
+        const smokeScript = readFileSync(join(PROJECT_ROOT, "scripts", "pi-sdk-smoke.mjs"), "utf8");
+        // friendReady=true 仅当 piNativeSmokeStatus=pass
+        const friendReadyGate = smokeScript.includes("piNativeSmokeStatus=") && smokeScript.includes("friendReady=" + (smokeScript.includes("(piNativePassed ? \"true\" : \"false\")") ? "" : ""));
+        // skip 时 friendReady=false
+        const skipLogic = smokeScript.includes("piSdkSmokeStatus=skip") && smokeScript.includes("friendReady=false");
+        // pass 时 friendReady=true（仅 piNative passed）
+        const passLogic = smokeScript.includes("piNativePassed ? \"true\" : \"false\"");
+
+        addTest("V17-C2 smoke:pi-sdk gate: skip→friendReady=false / piNative pass→friendReady=true",
+          skipLogic && passLogic ? "pass" : "fail",
+          `skipLogic=${skipLogic} passLogic=${passLogic}`);
+      }
+
+      // Test V17C2-C: Check Pi SDK Dependency 命令（任务 C installer/dependency check）
+      {
+        const mainSrc = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf8");
+        const hasCommand = mainSrc.includes('id: "check-pi-sdk-dependency"') && mainSrc.includes("Check Pi SDK Dependency (Friend Preview)");
+        const callsTryLoadPiSdk = mainSrc.includes("tryLoadPiSdk(true)");
+        const hasInstallHint = mainSrc.includes("npm install --ignore-scripts @earendil-works/pi-coding-agent");
+        const callsProbePiSdkAuth = mainSrc.includes("probePiSdkAuth(probe)");
+
+        addTest("V17-C2 main.ts: Check Pi SDK Dependency 命令 + tryLoadPiSdk + 安装引导",
+          hasCommand && callsTryLoadPiSdk && hasInstallHint && callsProbePiSdkAuth ? "pass" : "fail",
+          `cmd=${hasCommand} load=${callsTryLoadPiSdk} hint=${hasInstallHint} auth=${callsProbePiSdkAuth}`);
+      }
+
+      // Test V17C2-D: 朋友版最小验证 — SDK 不可用时 view.ts 提示卡片（任务 D）
+      {
+        const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+        const hasHintCard = viewSrc.includes("renderPiSdkUnavailableHint") && viewSrc.includes("llm-bridge-pi-sdk-hint-card");
+        const hasTrustCard = viewSrc.includes("renderPiNativeTrustOnboarding") && viewSrc.includes("llm-bridge-pi-native-trust-card");
+        const hasConfirmBtn = viewSrc.includes("我已了解风险并备份，确认启用");
+        const hasInstallHint = viewSrc.includes("npm install --ignore-scripts @earendil-works/pi-coding-agent");
+
+        addTest("V17-C2 朋友版最小验证: SDK 不可用提示 + trust onboarding 卡片",
+          hasHintCard && hasTrustCard && hasConfirmBtn && hasInstallHint ? "pass" : "fail",
+          `hintCard=${hasHintCard} trustCard=${hasTrustCard} confirm=${hasConfirmBtn} install=${hasInstallHint}`);
+      }
+
+      // Test V17C2-D2: 朋友版运行日志不污染 Vault 根目录（任务 D）
+      // Pi session dir 应在 LLM-AgentRuntime/pi-sessions/ 子目录
+      {
+        const piRpcSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "pi-rpc", "piRpcProvider.ts"), "utf8");
+        const piSdkSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "pi-sdk", "piSdkProvider.ts"), "utf8");
+        // pi-rpc 用 LLM-AgentRuntime/pi-sessions
+        const piRpcSessionDir = piRpcSrc.includes("LLM-AgentRuntime/pi-sessions");
+        // pi-sdk 用 sessionManager（inMemory）— 不写 Vault 根目录
+        const piSdkInMemory = piSdkSrc.includes("SessionManager.inMemory") || piSdkSrc.includes("SessionManager?.inMemory");
+
+        addTest("V17-C2 朋友版: 运行日志/session 不污染 Vault 根目录（LLM-AgentRuntime/pi-sessions / inMemory）",
+          piRpcSessionDir && piSdkInMemory ? "pass" : "fail",
+          `piRpcSessionDir=${piRpcSessionDir} piSdkInMemory=${piSdkInMemory}`);
+      }
+
+      // Test V17C2-E: 回归 — V16.5-K1 skill runtime format + materialize 不回退（任务 E）
+      {
+        const workspaceSrc = readFileSync(join(PROJECT_ROOT, "src", "agentRuntimeWorkspace.ts"), "utf8");
+        const hasConvertVaultSkill = workspaceSrc.includes("convertVaultSkillSourceToRuntime");
+        const hasMaterializeAll = /materializeAllVaultSkills|materializeVaultSkill/.test(workspaceSrc);
+        const hasInstructionsSection = /# Instructions|# Instruction/.test(workspaceSrc);
+
+        addTest("V17-C2 回归 V16.5-K1: skill runtime format + materialize all targets 不回退",
+          hasConvertVaultSkill && hasMaterializeAll && hasInstructionsSection ? "pass" : "fail",
+          `convert=${hasConvertVaultSkill} materialize=${hasMaterializeAll} instructions=${hasInstructionsSection}`);
+      }
     } finally {
       try { rmSync(v17bTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
     }
