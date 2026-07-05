@@ -8,16 +8,16 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-05T08:12:29.079Z
-- **reportCommitSha**: fe61318fc15b05617c6b0f7ca75fddc0b2ebc1c1
-- **reportCommitSha 短**: fe61318fc15b
-- **reportParentSha**: 206cee121c46e7c5be154ffd815ed45c70fbd797
-- **reportParentSha 短**: 206cee121c46
-- **testedCodeCommitSha**: fe61318fc15b05617c6b0f7ca75fddc0b2ebc1c1
-- **testedCodeCommitSha 短**: fe61318fc15b
+- **生成时间**: 2026-07-05T08:29:35.289Z
+- **reportCommitSha**: c705abc5060eb94061e92cc83ea5218068d24917
+- **reportCommitSha 短**: c705abc5060e
+- **reportParentSha**: 054b58fa666b8cb32bb20587627eef2d5504afb5
+- **reportParentSha 短**: 054b58fa666b
+- **testedCodeCommitSha**: c705abc5060eb94061e92cc83ea5218068d24917
+- **testedCodeCommitSha 短**: c705abc5060e
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: fe61318fc15b05617c6b0f7ca75fddc0b2ebc1c1
-- **processReportCommitSha**: fe61318fc15b05617c6b0f7ca75fddc0b2ebc1c1
+- **unitReportCommitSha**: c705abc5060eb94061e92cc83ea5218068d24917
+- **processReportCommitSha**: c705abc5060eb94061e92cc83ea5218068d24917
 - **codexSmokeStatus**: skip
 - **codexHandshakeStatus**: skip
 - **codexTurnStatus**: skip
@@ -25,24 +25,24 @@
 - **codexSchemaSource**: fixture
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-05T08:11:37.813Z
-- **process 测试时间**: 2026-07-05T08:12:17.087Z
+- **unit 测试时间**: 2026-07-05T08:28:58.634Z
+- **process 测试时间**: 2026-07-05T08:29:01.633Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=fe61318fc15b。
-- **当前 commit 改动文件**：scripts/pi-sdk-smoke.mjs, scripts/run-tests.mjs, src/runtime/providers/pi-sdk/piSdkProvider.ts, src/settings.ts, src/types.ts
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=c705abc5060e。
+- **当前 commit 改动文件**：main.ts, scripts/run-tests.mjs, src/runtime/providers/pi-sdk/piSdkProvider.ts, src/view.ts
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 986 | 0 | 25 | 0 | 1011 | fe61318fc15b | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | fe61318fc15b | ✅ 通过 |
+| unit | 993 | 0 | 25 | 0 | 1018 | c705abc5060e | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | c705abc5060e | ✅ 通过 |
 | codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **1083** | **0** | **81** | **0** | **1164** | fe61318fc15b | ✅ **主线通过** |
+| **合计** | **1090** | **0** | **81** | **0** | **1171** | c705abc5060e | ✅ **主线通过** |
 
 **双轨均 0 失败 → P2 Codex app-server Runtime 主线闭环测试通过。**
 
