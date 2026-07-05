@@ -44,7 +44,20 @@ import { composePromptForBackend } from "../agentBackendAdapter";
 
 // 运行时动态 require（避免顶层 import 导致 renderer 加载失败 / 包未安装时崩溃）
 // V17-B1: 优先用 globalThis.require（Obsidian renderer 环境），回退到直接 require
-// esbuild bundle 时保留 require 调用（format=esm + platform=node 仍可用 createRequire）
+// V17-C1: ESM bundle（format=esm + platform=node）中 require 未定义，用 createRequire 补齐
+import { createRequire as nodeCreateRequire } from "node:module";
+const esmRequire: ((n: string) => unknown) | null = (() => {
+  try {
+    // @ts-expect-error — import.meta.url 在 ESM 中可用，CJS bundle 中可能 undefined
+    const url = import.meta?.url;
+    if (url) return nodeCreateRequire(url);
+  } catch { /* fallthrough */ }
+  try {
+    return nodeCreateRequire(process.cwd() + "/_require_root.js");
+  } catch { /* fallthrough */ }
+  return null;
+})();
+
 function requireNode<T>(name: string): T | null {
   try {
     const g = globalThis as unknown as { require?: (n: string) => T };
@@ -52,9 +65,11 @@ function requireNode<T>(name: string): T | null {
   } catch { /* fallthrough */ }
   try {
     return (require as (n: string) => T)(name);
-  } catch {
-    return null;
-  }
+  } catch { /* fallthrough — ESM bundle 中 require 未定义 */ }
+  try {
+    if (esmRequire) return esmRequire(name) as T;
+  } catch { /* fallthrough */ }
+  return null;
 }
 
 // ---------- Pi SDK 加载 ----------
@@ -146,20 +161,29 @@ export interface PiSdkProbeResult {
 }
 
 const probeCache: { result: PiSdkProbeResult | null; ts: number } = { result: null, ts: 0 };
+const probeCacheAsync: { promise: Promise<PiSdkProbeResult> | null; ts: number } = { promise: null, ts: 0 };
 const PROBE_CACHE_TTL_MS = 30_000;
 
 /** 清除探测缓存（测试用） */
 export function clearPiSdkProbeCache(): void {
   probeCache.result = null;
   probeCache.ts = 0;
+  probeCacheAsync.promise = null;
+  probeCacheAsync.ts = 0;
 }
 
 /**
- * V17-B 任务 A：尝试加载 @earendil-works/pi-coding-agent SDK。
+ * V17-B 任务 A：尝试加载 @earendil-works/pi-coding-agent SDK（同步，best-effort）。
  *
  * - 包未安装时返回 available=false，reason=not-installed
  * - require 失败时返回 available=false，reason=load-error
  * - 不抛错
+ *
+ * V17-C1 修复：SDK 是 ESM-only（package.json type=module + exports 仅 import），
+ * sync require() 在 Node/Electron 中会失败（ERR_PACKAGE_PATH_NOT_EXPORTED / ERR_REQUIRE_ESM）。
+ * 此同步版本仅用于快速 UI 探测；运行时实际加载改用 tryLoadPiSdkAsync()。
+ * 同步路径若 require 失败但包已物理安装，返回 available=true + module=null + reason=installed，
+ * 让上层（run / hint card）走 async 路径补齐 module。
  */
 export function tryLoadPiSdk(force = false): PiSdkProbeResult {
   const now = Date.now();
@@ -179,16 +203,134 @@ export function tryLoadPiSdk(force = false): PiSdkProbeResult {
     return result;
   }
 
-  // require 返回 null 或 API surface 不全
-  const result: PiSdkProbeResult = {
-    available: false,
-    module: null,
-    reason: mod ? "load-error" : "not-installed",
-    error: mod ? "createAgentSession export missing" : "package @earendil-works/pi-coding-agent not installed",
-  };
+  // require 返回 null — 可能是包未安装，也可能是 ESM-only 无法 require
+  // 用 require.resolve / fs 探测包是否物理安装，区分两种情况
+  const installed = isPiSdkPackageInstalled();
+  const result: PiSdkProbeResult = installed
+    ? {
+        available: true,
+        module: null,
+        reason: "installed",
+        error: "SDK installed but not loaded synchronously (ESM-only); use tryLoadPiSdkAsync()",
+      }
+    : {
+        available: false,
+        module: null,
+        reason: "not-installed",
+        error: "package @earendil-works/pi-coding-agent not installed",
+      };
   probeCache.result = result;
   probeCache.ts = now;
   return result;
+}
+
+/**
+ * V17-C1 任务 D：异步加载 Pi SDK（真实运行时路径）。
+ *
+ * SDK 是 ESM-only，必须用 dynamic import() 加载。
+ * - 成功：available=true, module=<loaded>, reason=installed
+ * - 包未安装：available=false, module=null, reason=not-installed
+ * - import 抛错：available=false, module=null, reason=load-error
+ *
+ * 缓存与 sync 版本独立，避免互相干扰。
+ */
+export async function tryLoadPiSdkAsync(force = false): Promise<PiSdkProbeResult> {
+  const now = Date.now();
+  if (!force && probeCacheAsync.promise && now - probeCacheAsync.ts < PROBE_CACHE_TTL_MS) {
+    return probeCacheAsync.promise;
+  }
+
+  const promise = (async () => {
+    // 先用 sync 探测快速判断 not-installed（避免无意义的 import 尝试）
+    if (!isPiSdkPackageInstalled()) {
+      const notInstalled: PiSdkProbeResult = {
+        available: false,
+        module: null,
+        reason: "not-installed",
+        error: "package @earendil-works/pi-coding-agent not installed",
+      };
+      probeCache.result = notInstalled;
+      probeCache.ts = now;
+      return notInstalled;
+    }
+
+    try {
+      // dynamic import() — 支持 ESM-only 包
+      const imported = await importModule<PiSdkModule>("@earendil-works/pi-coding-agent");
+      if (imported && typeof imported.createAgentSession === "function") {
+        const ok: PiSdkProbeResult = {
+          available: true,
+          module: imported,
+          reason: "installed",
+        };
+        probeCache.result = ok;
+        probeCache.ts = now;
+        return ok;
+      }
+      const loadErr: PiSdkProbeResult = {
+        available: false,
+        module: null,
+        reason: "load-error",
+        error: "createAgentSession export missing",
+      };
+      probeCache.result = loadErr;
+      probeCache.ts = now;
+      return loadErr;
+    } catch (e) {
+      const loadErr: PiSdkProbeResult = {
+        available: false,
+        module: null,
+        reason: "load-error",
+        error: e instanceof Error ? e.message : String(e),
+      };
+      probeCache.result = loadErr;
+      probeCache.ts = now;
+      return loadErr;
+    }
+  })();
+
+  probeCacheAsync.promise = promise;
+  probeCacheAsync.ts = now;
+  return promise;
+}
+
+/** 探测包是否物理安装（不加载模块）— require.resolve + node_modules fallback */
+function isPiSdkPackageInstalled(): boolean {
+  // 路径 1：require.resolve — Obsidian renderer 与 Node 都支持
+  try {
+    const g = globalThis as unknown as { require?: { resolve(p: string): string } };
+    if (g.require) {
+      g.require.resolve("@earendil-works/pi-coding-agent");
+      return true;
+    }
+  } catch { /* fallthrough */ }
+  // 路径 2：require.resolve 子路径（package.json）
+  try {
+    const g = globalThis as unknown as { require?: { resolve(p: string): string } };
+    if (g.require) {
+      g.require.resolve("@earendil-works/pi-coding-agent/package.json");
+      return true;
+    }
+  } catch { /* fallthrough */ }
+  // 路径 3：fs 探测 node_modules（最后回退，cwd 可能不准）
+  try {
+    const fs = requireNode<{ existsSync(p: string): boolean }>("node:fs");
+    const path = requireNode<{ join(...p: string[]): string }>("node:path");
+    if (fs && path) {
+      return fs.existsSync(path.join(process.cwd(), "node_modules", "@earendil-works", "pi-coding-agent", "package.json"));
+    }
+  } catch { /* ignore */ }
+  return false;
+}
+
+/** dynamic import() 包装 — esbuild bundle 时保持 import() 调用原样 */
+async function importModule<T>(name: string): Promise<T | null> {
+  try {
+    const mod: unknown = await import(name);
+    return mod as T;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -210,10 +352,14 @@ export interface PiSdkAuthProbeResult {
 
 export function probePiSdkAuth(probe: PiSdkProbeResult): PiSdkAuthProbeResult {
   if (!probe.available || !probe.module) {
+    // V17-C1: 区分 not-installed 与 installed-but-not-loaded（ESM-only SDK 无法 sync require）
+    const hint = probe.available
+      ? "Pi SDK 已安装但未加载（ESM-only）。请通过插件面板触发运行时加载，或重启 Obsidian。"
+      : "Pi SDK 未安装。请运行：npm install --ignore-scripts @earendil-works/pi-coding-agent";
     return {
       hasAuth: false,
       hasModel: false,
-      hint: "Pi SDK 未安装。请运行：npm install --ignore-scripts @earendil-works/pi-coding-agent",
+      hint,
     };
   }
   const sdk = probe.module;
@@ -918,14 +1064,21 @@ export class PiSdkProvider implements RuntimeProvider {
     // V17-C 任务 A：解析 toolMode（未设置时按 profile 推断默认值）
     const toolMode = resolveToolMode(settings);
 
+    // V17-C1 任务 D：sync probe 可能 module=null（ESM-only SDK 无法 require）。
+    // 若 sync 标 available 但 module 未加载，走 async 路径补齐。
+    let probe: PiSdkProbeResult = this.probe;
+    if (probe.available && !probe.module) {
+      probe = await tryLoadPiSdkAsync(true);
+    }
+
     // 未安装 / import 失败：直接发 failed，不崩溃（任务 A）
-    if (!this.probe.available) {
+    if (!probe.available || !probe.module) {
       yield {
         providerId: this.providerId,
         timestamp: new Date().toISOString(),
         payload: {
           kind: "failed",
-          message: `Pi SDK 不可用：${this.probe.reason}${this.probe.error ? " — " + this.probe.error : ""}。请运行：npm install --ignore-scripts @earendil-works/pi-coding-agent`,
+          message: `Pi SDK 不可用：${probe.reason}${probe.error ? " — " + probe.error : ""}。请运行：npm install --ignore-scripts @earendil-works/pi-coding-agent`,
           recoverable: true,
         },
       };
@@ -947,7 +1100,7 @@ export class PiSdkProvider implements RuntimeProvider {
     }
 
     // V17-B1 任务 F / V17-C 任务 C：认证/模型探测
-    const authProbe = probePiSdkAuth(this.probe);
+    const authProbe = probePiSdkAuth(probe);
     if (!authProbe.hasAuth || !authProbe.hasModel) {
       yield {
         providerId: this.providerId,
@@ -961,7 +1114,7 @@ export class PiSdkProvider implements RuntimeProvider {
       return;
     }
 
-    const sdk = this.probe.module!;
+    const sdk = probe.module!;
     // 组装 prompt（任务 G：session.prompt 传入 composePromptForBackend(ctx, "sdk")）
     const prompt = composePromptForBackend(ctx, "sdk");
 

@@ -12,40 +12,64 @@
 //
 // 运行：npm run smoke:pi-sdk
 
+import { existsSync, readFileSync } from "node:fs";
+import { join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
 
 const require = createRequire(import.meta.url);
-const PROJECT_ROOT = resolve(new URL("..", import.meta.url).pathname.replace(/^\//, "").replace(/^[A-Za-z]:/, (m) => m.toUpperCase() || "C")).replace(/^[a-z]:/, (m) => m.toUpperCase());
+const PROJECT_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 
 console.log("=== Pi SDK Real Smoke (V17-C) ===");
 console.log(`PROJECT_ROOT: ${PROJECT_ROOT}`);
 console.log("");
 
 // 1. 检查 package.json optionalDependencies
-const pkgJson = JSON.parse(
-  await import("node:fs").then(({ readFileSync }) => readFileSync(join(PROJECT_ROOT, "package.json"), "utf8")),
-);
+const pkgJson = JSON.parse(readFileSync(join(PROJECT_ROOT, "package.json"), "utf8"));
 const hasOptionalDep = pkgJson.optionalDependencies?.["@earendil-works/pi-coding-agent"];
 console.log(`package.json optionalDependencies: ${hasOptionalDep || "(missing)"}`);
 
 // 2. 尝试动态 import SDK
+//    SDK 是 ESM-only（package.json type=module + exports 仅 import），不能用 require()。
+//    先用 require.resolve 探测安装状态（穿透 exports map），失败则再探测包目录是否存在。
 let sdk = null;
-let importError = null;
+let sdkLoadError = null;
+let sdkInstalled = false;
 try {
-  sdk = require("@earendil-works/pi-coding-agent");
-  console.log(`SDK loaded: ${typeof sdk.createAgentSession === "function" ? "ok" : "API surface missing"}`);
-} catch (e) {
-  importError = e;
-  console.log(`SDK load failed: ${e?.code || e?.message || String(e)}`);
+  require.resolve("@earendil-works/pi-coding-agent");
+  sdkInstalled = true;
+} catch {
+  // require.resolve 在纯 ESM 包上也可能失败；用 node_modules 物理路径作 fallback。
+  const candidate = join(PROJECT_ROOT, "node_modules", "@earendil-works", "pi-coding-agent", "package.json");
+  if (existsSync(candidate)) {
+    sdkInstalled = true;
+    console.log(`SDK package.json found at ${candidate}`);
+  }
+}
+
+if (sdkInstalled) {
+  try {
+    sdk = await import("@earendil-works/pi-coding-agent");
+    console.log(`SDK loaded: ${typeof sdk.createAgentSession === "function" ? "ok" : "API surface missing"}`);
+  } catch (e) {
+    sdkLoadError = e;
+    console.log(`SDK load failed: ${e?.code || e?.message || String(e)}`);
+  }
+} else {
+  console.log("SDK not installed (require.resolve + node_modules fallback both failed)");
 }
 
 if (!sdk || typeof sdk.createAgentSession !== "function") {
   console.log("");
   console.log("=== SKIP: Pi SDK not installed ===");
   console.log("piSdkSmokeStatus=skip");
-  console.log(`reason=${sdk ? "load-error (createAgentSession export missing)" : "package not installed"}`);
+  console.log("piReadOnlySmokeStatus=skip");
+  console.log("piNativeSmokeStatus=skip");
+  console.log("friendReady=false");
+  const reason = !sdkInstalled
+    ? "package not installed"
+    : (sdkLoadError ? `load-error (${sdkLoadError.code || sdkLoadError.message})` : "load-error (createAgentSession export missing)");
+  console.log(`reason=${reason}`);
   console.log(`hint=npm install --ignore-scripts @earendil-works/pi-coding-agent`);
   process.exit(0);
 }
@@ -89,6 +113,9 @@ if (!hasAuth || !hasModel) {
   console.log("");
   console.log("=== SKIP: Pi SDK auth/model not configured ===");
   console.log("piSdkSmokeStatus=skip");
+  console.log("piReadOnlySmokeStatus=skip");
+  console.log("piNativeSmokeStatus=skip");
+  console.log("friendReady=false");
   console.log(`reason=${!hasAuth && !hasModel ? "no auth and no model" : (!hasAuth ? "no auth" : "no model")}`);
   console.log("hint=请在 ~/.pi/agent 配置 API Key 或运行 pi login，并在插件设置中选择 model");
   process.exit(0);

@@ -36,14 +36,14 @@
     "typescript": "^5.4.5"
   },
   "optionalDependencies": {
-    "@earendil-works/pi-coding-agent": "^0.0.27"
+    "@earendil-works/pi-coding-agent": "^0.80.3"
   },
   "llmCliBridge": {
     "portableBackend": {
       "providerId": "pi-sdk",
       "packageName": "@earendil-works/pi-coding-agent",
       "installHint": "npm install --ignore-scripts @earendil-works/pi-coding-agent",
-      "minVersion": "0.0.27"
+      "minVersion": "0.74.0"
     }
   }
 }
