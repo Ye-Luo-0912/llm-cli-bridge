@@ -455,12 +455,13 @@ try {
       timestamp: "2026-06-28T12:00:00Z",
     };
     const prompt = buildPromptPackage("用户请求", snapshot, settings);
-    const hasNoScreen = prompt.includes("长输出不要直接刷屏");
-    const hasConfigRule = prompt.includes("按配置或项目规则写入文件");
+    // V16.5-C: 输出规则瘦身，文案改为"长输出写入文件...不要在聊天窗口打印完整长文件"
+    const hasNoScreen = prompt.includes("不要在聊天窗口打印完整长文件");
+    const hasOutputRule = prompt.includes("========== 输出规则 ==========");
     const hasConfiguredDir = prompt.includes("my-test-output-dir");
-    const ok = hasNoScreen && hasConfigRule && hasConfiguredDir;
+    const ok = hasNoScreen && hasOutputRule && hasConfiguredDir;
     addTest("Prompt Package: 输出规则配置驱动（含配置值）", ok ? "pass" : "fail",
-      ok ? "" : `hasNoScreen=${hasNoScreen}, hasConfigRule=${hasConfigRule}, hasConfiguredDir=${hasConfiguredDir}`);
+      ok ? "" : `hasNoScreen=${hasNoScreen}, hasOutputRule=${hasOutputRule}, hasConfiguredDir=${hasConfiguredDir}`);
   }
 
   // Test 6b: outputDir 为空时不出现固定目录，改为项目规则驱动
@@ -474,13 +475,14 @@ try {
       timestamp: "2026-06-28T12:00:00Z",
     };
     const prompt = buildPromptPackage("用户请求", snapshot, settings);
-    const hasNoScreen = prompt.includes("长输出不要直接刷屏");
-    const hasConfigRule = prompt.includes("按配置或项目规则写入文件");
+    // V16.5-C: 输出规则瘦身，文案改为"长输出写入文件...不要在聊天窗口打印完整长文件"
+    const hasNoScreen = prompt.includes("不要在聊天窗口打印完整长文件");
+    const hasOutputRule = prompt.includes("========== 输出规则 ==========");
     const hasProjectRule = prompt.includes("AGENTS.md");
     const noFixedDir = !prompt.includes("90_AI整理待确认") && !prompt.includes("my-test-output-dir");
-    const ok = hasNoScreen && hasConfigRule && hasProjectRule && noFixedDir;
+    const ok = hasNoScreen && hasOutputRule && hasProjectRule && noFixedDir;
     addTest("Prompt Package: outputDir 为空时项目规则驱动（无固定目录）", ok ? "pass" : "fail",
-      ok ? "" : `hasNoScreen=${hasNoScreen}, hasConfigRule=${hasConfigRule}, hasProjectRule=${hasProjectRule}, noFixedDir=${noFixedDir}`);
+      ok ? "" : `hasNoScreen=${hasNoScreen}, hasOutputRule=${hasOutputRule}, hasProjectRule=${hasProjectRule}, noFixedDir=${noFixedDir}`);
   }
 
   // Test 7: buildPromptPackage 包含用户请求
@@ -1087,6 +1089,8 @@ if (runMode !== "all" && runMode !== "unit") {
     const tempProviderLifecycleBundle = join(PROJECT_ROOT, ".test-provider-lifecycle-temp.mjs");
     // V16.5-B: sdkPermission bundle 供 normalizeToolName / assessToolRisk 测试
     const tempSdkPermissionBundle = join(PROJECT_ROOT, ".test-sdk-permission-temp.mjs");
+    // V16.5-C: bridgePromptContract bundle 供 capability/autonomy/safety contract 测试
+    const tempBridgeContractBundle = join(PROJECT_ROOT, ".test-bridge-contract-temp.mjs");
 
     const bundleOpts = (entry) => ({
       entryPoints: [join(PROJECT_ROOT, "src", entry)],
@@ -1105,6 +1109,8 @@ if (runMode !== "all" && runMode !== "unit") {
     await esbuild.build({ ...bundleOpts("runtime/core/runPhaseModel.ts"), outfile: tempRunPhaseModelBundle });
     await esbuild.build({ ...bundleOpts("runtime/core/providerLifecycleEvent.ts"), outfile: tempProviderLifecycleBundle });
     await esbuild.build({ ...bundleOpts("sdkPermission.ts"), outfile: tempSdkPermissionBundle });
+    // V16.5-C: bridgePromptContract bundle
+    await esbuild.build({ ...bundleOpts("runtime/core/bridgePromptContract.ts"), outfile: tempBridgeContractBundle });
 
     const codexProviderMod = await import(pathToFileURL(tempCodexProviderBundle).href);
     const promptPkgMod = await import(pathToFileURL(tempPromptPkgBundle).href);
@@ -1117,6 +1123,8 @@ if (runMode !== "all" && runMode !== "unit") {
     // V16.5-B: sdkPermission 模块（normalizeToolName / assessToolRisk）
     const sdkPermissionMod = await import(pathToFileURL(tempSdkPermissionBundle).href);
     const { normalizeToolName, assessToolRisk } = sdkPermissionMod;
+    // V16.5-C: bridgePromptContract 模块（buildCapabilityManifest / buildAutonomyContract / buildSafetyBoundaryContract）
+    const bridgeContractMod = await import(pathToFileURL(tempBridgeContractBundle).href);
 
     // ---------- 最小 settings + snapshot ----------
     const baseBridgeSettings = {
@@ -3495,11 +3503,220 @@ if (runMode !== "all" && runMode !== "unit") {
         `stableKey=${hasStableKey}`);
     }
 
+    // ===== V16.5-C: Minimal Prompt Contract + Permission Final Polish =====
+    // 最小 snapshot 供 V16.5-C contract 测试使用
+    const v165cSnapshot = {
+      vaultPath: "/test/vault",
+      timestamp: "2026-07-05T00:00:00.000Z",
+      activeFilePath: null,
+      activeFileContent: null,
+      selection: null,
+      fileRefIndex: [],
+      attachmentTextSnippets: [],
+      attachmentPackingPolicy: {
+        smallTextInlineMaxBytes: 8192,
+        smallTextInlineMaxChars: 6000,
+        allowedTextExtensions: [".md", ".txt", ".json"],
+        binaryAsNativeRef: true,
+        imageAsSdkAttachmentIfSupported: true,
+        sdkDirectAttachmentSupported: true,
+        sdkDirectAttachmentEvidence: "test",
+      },
+    };
+
+    // Test C-a: bridgePromptContract 只有最小三类 section，不出现大量重复细则
+    {
+      const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES);
+      const autoText = bridgeContractMod.buildAutonomyContract();
+      const safetyText = bridgeContractMod.buildSafetyBoundaryContract();
+      // 三段都应存在且不为空
+      const allPresent = capText.length > 0 && autoText.length > 0 && safetyText.length > 0;
+      // 三段 header 应正确
+      const hasHeaders = capText.includes("========== Capability Manifest ==========")
+        && autoText.includes("========== Autonomy Contract ==========")
+        && safetyText.includes("========== Safety Boundary Contract ==========");
+      // 不应出现大量重复细则（每段 < 1500 chars，避免堆砌规则）
+      const reasonableLen = capText.length < 1500 && autoText.length < 1500 && safetyText.length < 1500;
+      addTest("V16.5-C bridgePromptContract: 最小三类 section，不堆砌细则",
+        allPresent && hasHeaders && reasonableLen ? "pass" : "fail",
+        `allPresent=${allPresent} hasHeaders=${hasHeaders} reasonableLen=${reasonableLen} capLen=${capText.length} autoLen=${autoText.length} safetyLen=${safetyText.length}`);
+    }
+
+    // Test C-b: contract 允许 Obsidian CLI，但要求确认可用性，不禁止使用
+    {
+      const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES);
+      // Obsidian CLI 被声明为可用
+      const allowsCli = capText.includes("Obsidian CLI") && capText.includes("可以使用");
+      // 不被禁止
+      const notBanned = !capText.includes("禁止使用 Obsidian CLI") && !capText.includes("不要使用 Obsidian CLI");
+      // 要求确认可用性（不臆造）
+      const requiresConfirm = (capText.includes("不要臆造") && capText.includes("探测")) || capText.includes("确认");
+      addTest("V16.5-C contract: 允许 Obsidian CLI 但要求确认可用性",
+        allowsCli && notBanned && requiresConfirm ? "pass" : "fail",
+        `allowsCli=${allowsCli} notBanned=${notBanned} requiresConfirm=${requiresConfirm}`);
+    }
+
+    // Test C-c: "用户确认后继续执行，不反复正文确认"的契约存在
+    {
+      const autoText = bridgeContractMod.buildAutonomyContract();
+      const hasNoRepeat = autoText.includes("不要在正文中反复确认") || autoText.includes("不要反复正文确认");
+      const hasContinue = autoText.includes("继续执行") || autoText.includes("上一轮已确认后继续");
+      const hasDirectAction = autoText.includes("直接行动") || autoText.includes("用户意图明确时直接行动");
+      addTest("V16.5-C contract: 用户确认后继续执行，不反复正文确认",
+        hasNoRepeat && hasContinue && hasDirectAction ? "pass" : "fail",
+        `hasNoRepeat=${hasNoRepeat} hasContinue=${hasContinue} hasDirectAction=${hasDirectAction}`);
+    }
+
+    // Test C-d: write/delete/command 由 host approval 承担最终确认
+    {
+      const safetyText = bridgeContractMod.buildSafetyBoundaryContract();
+      const hasHostApproval = safetyText.includes("host approval") || safetyText.includes("Host approval");
+      const hasWriteDelete = safetyText.includes("write/delete/command");
+      const hasNoSimulate = safetyText.includes("不要在正文中模拟") || safetyText.includes("不要假装已授权");
+      const hasHighRiskNotAbandon = safetyText.includes("高风险不是放弃执行的理由") || safetyText.includes("权限系统负责拦截");
+      addTest("V16.5-C contract: write/delete/command 由 host approval 承担",
+        hasHostApproval && hasWriteDelete && hasNoSimulate && hasHighRiskNotAbandon ? "pass" : "fail",
+        `hasHostApproval=${hasHostApproval} hasWriteDelete=${hasWriteDelete} hasNoSimulate=${hasNoSimulate} hasHighRiskNotAbandon=${hasHighRiskNotAbandon}`);
+    }
+
+    // Test C-e: 旧 src/promptPackage.ts 与 runtime/core/promptPackage.ts 不再维护两套不同 policy
+    {
+      // 验证两个 promptPackage 文件都导入并使用 bridgePromptContract
+      const legacySrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
+      const runtimeSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "promptPackage.ts"), "utf8");
+      const legacyUsesContract = legacySrc.includes("buildPromptContract") && legacySrc.includes("from \"./runtime/core/bridgePromptContract\"");
+      const runtimeUsesContract = runtimeSrc.includes("buildPromptContract") && runtimeSrc.includes("from \"./bridgePromptContract\"");
+      // 旧文件不应再维护独立的 native handoff / tool steering 规则文本
+      const legacyNoStandaloneRules = !legacySrc.includes("========== CLI/SDK Native File Handoff ==========")
+        && !legacySrc.includes("========== Tool Steering ==========");
+      const runtimeNoStandaloneRules = !runtimeSrc.includes("========== CLI/SDK Native File Handoff ==========")
+        && !runtimeSrc.includes("========== Tool Steering ==========");
+      addTest("V16.5-C 两套 promptPackage 共用 contract，不维护两套 policy",
+        legacyUsesContract && runtimeUsesContract && legacyNoStandaloneRules && runtimeNoStandaloneRules ? "pass" : "fail",
+        `legacyUsesContract=${legacyUsesContract} runtimeUsesContract=${runtimeUsesContract} legacyNoStandalone=${legacyNoStandaloneRules} runtimeNoStandalone=${runtimeNoStandaloneRules}`);
+    }
+
+    // Test C-f: late waiter replay — requestApproval → resolveApprovalDetailed → waitForApproval 返回 accept
+    {
+      const boundary = permBoundaryMod.createPermissionBoundary("default", "medium");
+      const req = {
+        requestId: "late-waiter-1",
+        providerId: "claude-sdk",
+        toolName: "Write",
+        description: "写入文件 _test.md",
+        riskLevel: "medium",
+        mergeKey: "Write:medium:_test.md",
+      };
+      // requestApproval 进入 pending（default + medium → ask）
+      const decision = boundary.requestApproval(req);
+      const isPending = decision === "pending";
+      // UI 在 provider 调用 waitForApproval 前先 resolve（late waiter 场景）
+      const resolveResult = boundary.resolveApprovalDetailed("late-waiter-1", { type: "accept" });
+      const resolveOk = resolveResult.ok === true;
+      // provider 随后调用 waitForApproval — 应返回真实 accept，而非 cancel
+      const waiterResult = await boundary.waitForApproval("late-waiter-1");
+      const replayCorrect = waiterResult.response.type === "accept" && waiterResult.source === "user";
+      addTest("V16.5-C late waiter replay: resolve 在 waitForApproval 之前，返回 accept",
+        isPending && resolveOk && replayCorrect ? "pass" : "fail",
+        `isPending=${isPending} resolveOk=${resolveOk} replayCorrect=${replayCorrect} responseType=${waiterResult.response.type} source=${waiterResult.source}`);
+    }
+
+    // Test C-g: approval title canonicalization 覆盖 RunCommand / CommandExecution / command_execution / shell / exec
+    {
+      // buildApprovalCardTitle 是 view.ts 私有方法，通过源码验证它复用 normalizeToolName
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const usesNormalize = viewSrc.includes("const normalized = normalizeToolName(toolName);")
+        && viewSrc.includes("if (normalized === \"Bash\")");
+      // 验证 normalizeToolName 覆盖所有 command execution 别名
+      const cases = [
+        { input: "RunCommand", expect: "Bash" },
+        { input: "CommandExecution", expect: "Bash" },
+        { input: "command_execution", expect: "Bash" },
+        { input: "shell", expect: "Bash" },
+        { input: "exec", expect: "Bash" },
+        { input: "execute", expect: "Bash" },
+        { input: "Bash", expect: "Bash" },
+        { input: "bash", expect: "Bash" },
+      ];
+      let allMatch = true;
+      for (const c of cases) {
+        const got = normalizeToolName(c.input);
+        if (got !== c.expect) { allMatch = false; }
+      }
+      addTest("V16.5-C approval title canonicalization: RunCommand/CommandExecution/shell/exec → Bash",
+        usesNormalize && allMatch ? "pass" : "fail",
+        `usesNormalize=${usesNormalize} allMatch=${allMatch}`);
+    }
+
+    // Test C-h: cancelAllPending 后 resolvedMap 被清理，late waiter 返回 cancel
+    {
+      const boundary = permBoundaryMod.createPermissionBoundary("default", "medium");
+      const req = {
+        requestId: "cancel-replay-1",
+        providerId: "claude-sdk",
+        toolName: "Write",
+        description: "写入文件 _test.md",
+        riskLevel: "medium",
+        mergeKey: "Write:medium:_test.md",
+      };
+      boundary.requestApproval(req);
+      // UI resolve 但 resolver 缺失 → 写入 resolvedMap
+      boundary.resolveApprovalDetailed("cancel-replay-1", { type: "accept" });
+      // cancelAllPending 应清理 resolvedMap
+      boundary.cancelAllPending();
+      // late waiter 应返回 cancel，不是 accept
+      const waiterResult = await boundary.waitForApproval("cancel-replay-1");
+      const isCancel = waiterResult.response.type === "cancel";
+      addTest("V16.5-C cancelAllPending 清理 resolvedMap: late waiter 返回 cancel",
+        isCancel ? "pass" : "fail",
+        `isCancel=${isCancel} responseType=${waiterResult.response.type}`);
+    }
+
+    // Test C-i: resetSessionCache 清理 resolvedMap
+    {
+      const boundary = permBoundaryMod.createPermissionBoundary("default", "medium");
+      const req = {
+        requestId: "reset-replay-1",
+        providerId: "claude-sdk",
+        toolName: "Write",
+        description: "写入文件 _test.md",
+        riskLevel: "medium",
+        mergeKey: "Write:medium:_test.md",
+      };
+      boundary.requestApproval(req);
+      boundary.resolveApprovalDetailed("reset-replay-1", { type: "accept" });
+      boundary.resetSessionCache();
+      const waiterResult = await boundary.waitForApproval("reset-replay-1");
+      const isCancel = waiterResult.response.type === "cancel";
+      addTest("V16.5-C resetSessionCache 清理 resolvedMap",
+        isCancel ? "pass" : "fail",
+        `isCancel=${isCancel} responseType=${waiterResult.response.type}`);
+    }
+
+    // Test C-j: buildBridgeSystemAppend 瘦身后包含 contract 三段 + 简短 attachment/output
+    {
+      const appendText = promptPkgMod.buildBridgeSystemAppend(baseBridgeSettings, v165cSnapshot, bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES);
+      // 包含 contract 三段
+      const hasCap = appendText.includes("========== Capability Manifest ==========");
+      const hasAuto = appendText.includes("========== Autonomy Contract ==========");
+      const hasSafety = appendText.includes("========== Safety Boundary Contract ==========");
+      // 包含简短 attachment policy + output
+      const hasAttachment = appendText.includes("========== Attachment Packing Policy ==========");
+      const hasOutput = appendText.includes("========== 输出规则 ==========");
+      // 不再包含旧的 native handoff / tool steering 独立段
+      const noOldNative = !appendText.includes("========== CLI/SDK Native File Handoff ==========");
+      const noOldSteering = !appendText.includes("========== Tool Steering ==========");
+      addTest("V16.5-C buildBridgeSystemAppend 瘦身: contract 三段 + 简短 attachment/output",
+        hasCap && hasAuto && hasSafety && hasAttachment && hasOutput && noOldNative && noOldSteering ? "pass" : "fail",
+        `cap=${hasCap} auto=${hasAuto} safety=${hasSafety} attachment=${hasAttachment} output=${hasOutput} noOldNative=${noOldNative} noOldSteering=${noOldSteering}`);
+    }
+
     // 清理临时 bundles
     for (const f of [
       tempCodexProviderBundle, tempPromptPkgBundle, tempAssistantViewBundle,
       tempPermBoundaryBundle, tempWorkflowMapperBundle,
       tempSdkPermissionBundle,
+      tempBridgeContractBundle,
       join(PROJECT_ROOT, ".test-codex-plan-temp.mjs"),
       join(PROJECT_ROOT, ".test-jsonrpc-temp.mjs"),
       join(PROJECT_ROOT, ".test-codex-mapper-temp.mjs"),
@@ -13081,8 +13298,6 @@ if (!runV214BUnit) {
       const sensitiveDenied = evaluateFileToolPolicy(basePolicy, { operation: "read", path: "D:\\Vault\\.env" });
       const externalWriteDenied = evaluateFileAccess(grantedPolicy, { operation: "write", path: "D:\\External\\tool.md" });
       const promptIndexOk = prompt.includes("========== FileRef Metadata Index ==========")
-        && prompt.includes("CLI/Claude Code 路径")
-        && prompt.includes("SDK 路径")
         && prompt.includes("diagram.png")
         && prompt.includes("manual.pdf")
         && prompt.includes("brief.md")
@@ -13674,13 +13889,14 @@ if (!runV214BUnit) {
           outputDir: "90_AI整理待确认",
         },
       );
-      const promptGuidanceOk = prompt.includes("CLI/SDK Native File Handoff")
-        && prompt.includes("当前 Vault 根目录是本轮工作区")
-        && prompt.includes("Vault 内普通文件可由 Claude Code / Claude SDK 的原生文件能力合理读取、创建或编辑")
-        && prompt.includes("不要写入、删除、重命名 Vault 外路径")
-        && prompt.includes("不要修改 sensitive paths")
-        && prompt.includes("Claude Code Read 或 SDK 原生能力")
-        && prompt.includes("插件不做 OCR、PDF parser 或 base64 注入");
+      // V16.5-C: prompt 规则收敛到 bridgePromptContract（capability/autonomy/safety）
+      // 旧 "CLI/SDK Native File Handoff" 段已移除，改为 contract 三段。
+      const promptGuidanceOk = prompt.includes("========== Capability Manifest ==========")
+        && prompt.includes("========== Safety Boundary Contract ==========")
+        && prompt.includes("provider-native file tools")
+        && prompt.includes("Shell / PowerShell / Bash")
+        && prompt.includes("Obsidian CLI")
+        && prompt.includes("不要修改 sensitive paths");
       const externalBoundaryOk = evaluateFileAccess(createFileAccessPolicy({ vaultPath: "C:\\Vault" }), { operation: "write", path: "D:\\External\\out.md" }).decision === "deny"
         && evaluateFileAccess(createFileAccessPolicy({ vaultPath: "C:\\Vault" }), { operation: "delete", path: "D:\\External\\out.md" }).decision === "deny"
         && evaluateFileAccess(createFileAccessPolicy({ vaultPath: "C:\\Vault" }), { operation: "rename", path: "C:\\Vault\\notes\\a.md", targetPath: "D:\\External\\a.md" }).decision === "deny";
@@ -13732,13 +13948,14 @@ if (!runV214BUnit) {
           outputDir: "90_AI整理待确认",
         },
       );
+      // V16.5-C: prompt 规则收敛到 bridgePromptContract，旧 "Claude Code Read"/"SDK 原生能力"/
+      // "插件不做 OCR"/"base64 注入" 等细碎文案已移除。验证 contract 三段 + FileRef index 存在。
       const attachmentHandoffOk = prompt.includes("diagram.png")
         && prompt.includes("manual.pdf")
         && prompt.includes("FileRef Metadata Index")
-        && prompt.includes("Claude Code Read")
-        && prompt.includes("SDK 原生能力")
-        && prompt.includes("插件不做 OCR")
-        && prompt.includes("base64 注入");
+        && prompt.includes("========== Capability Manifest ==========")
+        && prompt.includes("========== Safety Boundary Contract ==========")
+        && prompt.includes("provider-native file tools");
       const workingSetUxOk = viewSrc.includes("llm-bridge-context-tags")
         && viewSrc.includes("llm-bridge-pinned-context")
         && viewSrc.includes("llm-bridge-context-tag")

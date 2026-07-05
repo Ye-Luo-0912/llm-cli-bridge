@@ -33,7 +33,7 @@ import { computeContextMetrics, formatTokens, formatCompressionRatio, type Conte
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
 import { PersistedSession, SessionListItem, SessionExtras, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
 import { AgentSkillRecord, loadAgentSkillsManifest, saveAgentSkillsManifest } from "./agentSkills";
-import { getPermissionModeInfo, type PermissionChoice } from "./sdkPermission";
+import { getPermissionModeInfo, normalizeToolName, type PermissionChoice } from "./sdkPermission";
 import {
   approvePendingExternalReadRequest,
   createFileAccessPolicy,
@@ -1816,12 +1816,15 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  /** V16.4-F: 按工具类型生成语义化 card title */
+  /** V16.4-F: 按工具类型生成语义化 card title（V16.5-C: 复用 normalizeToolName 归一 command execution） */
   private buildApprovalCardTitle(toolName: string): string {
-    const lower = toolName.toLowerCase();
-    if (lower === "bash" || lower === "terminal" || lower === "command") {
+    // V16.5-C: 复用 sdkPermission.normalizeToolName — bash/Bash/command/shell/terminal/
+    // RunCommand/CommandExecution/command_execution/exec/execute 都归一为 "Bash"。
+    const normalized = normalizeToolName(toolName);
+    if (normalized === "Bash") {
       return "Would you like to run this command?";
     }
+    const lower = normalized.toLowerCase();
     if (lower === "write" || lower === "edit" || lower === "multiedit" || lower === "filechange" || lower === "create_file" || lower === "edit_file" || lower === "str_replace" || lower === "insert") {
       return "Would you like to make these edits?";
     }

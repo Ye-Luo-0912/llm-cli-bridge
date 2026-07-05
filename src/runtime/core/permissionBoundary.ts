@@ -43,6 +43,15 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
   private readonly allowsList: SessionAllowEntry[] = [];
   private readonly deniesList: SessionDenyEntry[] = [];
   private readonly resolvers = new Map<string, (r: { response: ApprovalResponse; source: "user" | "session_allow" | "session_deny" | "mode" }) => void>();
+  /**
+   * V16.5-C: resolvedMap — 记录已 resolve 的 response/source，供 late waiter replay。
+   *
+   * 场景：provider 调用 requestApproval 后未立即调用 waitForApproval（如先处理其他
+   * 事件），UI 在此期间 resolveApprovalDetailed。若 resolver 缺失，旧实现只能丢弃
+   * response；late waiter 调用 waitForApproval 时会拿到 cancel，导致 provider 误以为
+   * 用户取消。resolvedMap 缓存真实 response，waitForApproval 命中时返回真实决策。
+   */
+  private readonly resolvedMap = new Map<string, { response: ApprovalResponse; source: "user" | "session_allow" | "session_deny" | "mode" }>();
 
   constructor(mode: ClaudePermissionMode, policy: PermissionPolicy) {
     this.mode = mode;
@@ -144,12 +153,16 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
 
     // 唤醒 provider 等待的 resolver
     const resolver = this.resolvers.get(requestId);
+    const source = response.type === "acceptForSession" ? "session_allow"
+      : response.type === "declineForSession" ? "session_deny"
+      : "user";
     if (resolver) {
       this.resolvers.delete(requestId);
-      const source = response.type === "acceptForSession" ? "session_allow"
-        : response.type === "declineForSession" ? "session_deny"
-        : "user";
       resolver({ response, source });
+    } else {
+      // V16.5-C: resolver 缺失 — provider 尚未调用 waitForApproval（late waiter）。
+      // 缓存 response/source 到 resolvedMap，waitForApproval 命中时返回真实决策而非 cancel。
+      this.resolvedMap.set(requestId, { response, source });
     }
     // V16.5-B: 若 resolver 不存在但 pendingMap 有 entry，说明 provider 未调用 waitForApproval
     // 或已被另一路径消费 — 仍视为 ok（pending 已清除），但记录原因供 UI 诊断。
@@ -166,6 +179,8 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
   resetSessionCache(): void {
     this.allowsList.length = 0;
     this.deniesList.length = 0;
+    // V16.5-C: 清理 resolvedMap，避免跨会话泄漏 late waiter replay 数据。
+    this.resolvedMap.clear();
   }
 
   cancelAllPending(): ReadonlyArray<{ requestId: string; providerContext: unknown }> {
@@ -179,6 +194,11 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
       }
     }
     this.pendingMap.clear();
+    // V16.5-C: 清理 resolvedMap — cancelAllPending 后 late waiter replay 无意义，
+    // 调用方应拿到 cancel。注意：仅清理 pendingMap 中存在的 requestId 对应的 resolved
+    // entry（避免误清仍可能被其他路径 replay 的条目；当前实现简化为全清，因 cancelAllPending
+    // 语义是停止整个 run，所有 late waiter 都应拿到 cancel）。
+    this.resolvedMap.clear();
     return cancelled;
   }
 
@@ -189,8 +209,17 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
    *
    * V16.5-B: 若 requestId 不在 pendingMap（已 cancelAllPending 或从未进入 pending），
    * 立即返回 { type: "cancel" }，避免 provider 永远 pending。
+   *
+   * V16.5-C: 先查 resolvedMap — 若 UI 在 provider 调用 waitForApproval 前已 resolve
+   * （late waiter 场景），返回真实 response/source，不返回 cancel。
    */
   waitForApproval(requestId: string): Promise<{ response: ApprovalResponse; source: "user" | "session_allow" | "session_deny" | "mode" }> {
+    // V16.5-C: late waiter replay — 先查 resolvedMap，命中返回真实决策。
+    const resolved = this.resolvedMap.get(requestId);
+    if (resolved) {
+      this.resolvedMap.delete(requestId);
+      return Promise.resolve(resolved);
+    }
     // V16.5-B: 检查 request 是否仍存在 — 若已被 cancelAllPending 清除则立即返回 cancel
     if (!this.pendingMap.has(requestId)) {
       return Promise.resolve({ response: { type: "cancel" }, source: "user" });
