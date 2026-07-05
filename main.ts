@@ -346,6 +346,35 @@ export default class LLMBridgePlugin extends Plugin {
         }
       },
     });
+
+    // V17-C1 任务 B：朋友版 preset 初始化命令
+    this.addCommand({
+      id: "enable-friend-preview",
+      name: "Enable Friend Preview / Portable Mode",
+      callback: async () => {
+        // 应用 friend preset：portable + pi-native + trust 未确认（首次需 onboarding）
+        this.settings.backendProfile = "portable";
+        this.settings.piToolMode = "pi-native";
+        this.settings.piNativeTrustConfirmed = false;
+        await this.saveSettings();
+        // 触发 view 刷新以展示 trust onboarding 卡片
+        this.refreshBridgeView?.();
+        new Notice("Friend Preview 已启用：portable + pi-native。首次运行前需确认 Pi Native Trust。");
+      },
+    });
+
+    // V17-C1 任务 B：切回 developer profile
+    this.addCommand({
+      id: "disable-friend-preview",
+      name: "Disable Friend Preview (back to Developer profile)",
+      callback: async () => {
+        this.settings.backendProfile = "developer";
+        this.settings.piToolMode = "bridge-controlled";
+        await this.saveSettings();
+        this.refreshBridgeView?.();
+        new Notice("已切回 Developer profile（bridge-controlled）。");
+      },
+    });
   }
 
   private async openLastGeneratedNote(): Promise<void> {

@@ -5370,6 +5370,101 @@ if (runMode !== "all" && runMode !== "unit") {
           skillRuntimeOk ? "pass" : "fail",
           `frontmatter=${hasFrontmatterGen} instructions=${hasInstructionsSection}`);
       }
+
+      // ===== V17-C1: Friend Preview Packaging + Real Pi Smoke Gate =====
+
+      // Test V17C1-A: 真实 pi-sdk smoke 状态记录（任务 A）
+      // 当前环境无真实 SDK → smoke skip；测试验证 smoke 脚本会输出正确状态字段
+      {
+        const smokeScript = readFileSync(join(PROJECT_ROOT, "scripts", "pi-sdk-smoke.mjs"), "utf8");
+        const hasPiSdkStatus = smokeScript.includes("piSdkSmokeStatus=");
+        const hasReadOnlyStatus = smokeScript.includes("piReadOnlySmokeStatus=");
+        const hasPiNativeStatus = smokeScript.includes("piNativeSmokeStatus=");
+        const hasFriendReady = smokeScript.includes("friendReady=");
+        const hasSkipReason = smokeScript.includes("piSdkSmokeStatus=skip") && smokeScript.includes("reason=");
+        const hasPassGate = smokeScript.includes("friendReady=") && smokeScript.includes("piNativeSmokeStatus=pass");
+
+        addTest("V17-C1 smoke:pi-sdk 状态字段完整（piSdkSmokeStatus/piReadOnlySmokeStatus/piNativeSmokeStatus/friendReady/skip reason）",
+          hasPiSdkStatus && hasReadOnlyStatus && hasPiNativeStatus && hasFriendReady && hasSkipReason ? "pass" : "fail",
+          `piSdk=${hasPiSdkStatus} readOnly=${hasReadOnlyStatus} piNative=${hasPiNativeStatus} friendReady=${hasFriendReady} skip=${hasSkipReason} passGate=${hasPassGate}`);
+      }
+
+      // Test V17C1-B: main.ts 包含 Enable/Disable Friend Preview 命令（任务 B）
+      {
+        const mainSrc = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf8");
+        const hasEnable = mainSrc.includes('id: "enable-friend-preview"') && mainSrc.includes("Enable Friend Preview / Portable Mode");
+        const hasDisable = mainSrc.includes('id: "disable-friend-preview"') && mainSrc.includes("Disable Friend Preview");
+        const enableSetsPortable = mainSrc.includes('this.settings.backendProfile = "portable"') && mainSrc.includes('this.settings.piToolMode = "pi-native"');
+        const enableResetsTrust = mainSrc.includes('this.settings.piNativeTrustConfirmed = false');
+
+        addTest("V17-C1 main.ts: Enable/Disable Friend Preview 命令 + preset 设置正确",
+          hasEnable && hasDisable && enableSetsPortable && enableResetsTrust ? "pass" : "fail",
+          `enable=${hasEnable} disable=${hasDisable} setsPortable=${enableSetsPortable} resetsTrust=${enableResetsTrust}`);
+      }
+
+      // Test V17C1-C: view.ts 包含 Pi Native Trust onboarding 卡片（任务 C）
+      {
+        const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+        const hasMethod = viewSrc.includes("renderPiNativeTrustOnboarding");
+        const hasChatPanelCall = viewSrc.includes("this.renderPiNativeTrustOnboarding(chatPanel)");
+        const hasWarnText = viewSrc.includes("Pi Native Tools 将以本机用户权限读写当前 Vault");
+        const hasBackupTip = viewSrc.includes("建议先备份 Vault");
+        const hasConfirmBtn = viewSrc.includes("我已了解风险并备份，确认启用");
+        const hasSwitchBtn = viewSrc.includes("切换到 bridge-controlled");
+
+        addTest("V17-C1 view.ts: Pi Native Trust onboarding 卡片（风险文案 + 确认/切换按钮）",
+          hasMethod && hasChatPanelCall && hasWarnText && hasBackupTip && hasConfirmBtn && hasSwitchBtn ? "pass" : "fail",
+          `method=${hasMethod} call=${hasChatPanelCall} warn=${hasWarnText} backup=${hasBackupTip} confirm=${hasConfirmBtn} switch=${hasSwitchBtn}`);
+      }
+
+      // Test V17C1-D: view.ts 包含 Pi SDK 不可用提示卡片（任务 D）
+      {
+        const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+        const hasMethod = viewSrc.includes("renderPiSdkUnavailableHint");
+        const hasChatPanelCall = viewSrc.includes("this.renderPiSdkUnavailableHint(chatPanel)");
+        const hasInstallHint = viewSrc.includes("npm install --ignore-scripts @earendil-works/pi-coding-agent");
+        const hasAuthHint = viewSrc.includes("probePiSdkAuth");
+
+        addTest("V17-C1 view.ts: Pi SDK 不可用提示卡片（安装命令 + auth probe）",
+          hasMethod && hasChatPanelCall && hasInstallHint && hasAuthHint ? "pass" : "fail",
+          `method=${hasMethod} call=${hasChatPanelCall} install=${hasInstallHint} auth=${hasAuthHint}`);
+      }
+
+      // Test V17C1-E: bridge-controlled 模式用 excludeTools 而非 tools=["read"]（任务 E）
+      {
+        const providerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "pi-sdk", "piSdkProvider.ts"), "utf8");
+        // bridge-controlled 不应再用 tools=["read"] 作为 allowlist（会过滤 customTools）
+        const noToolsAllowlistInBridge = !/toolMode === "bridge-controlled"[\s\S]*?sessionTools = \["read"\]/.test(providerSrc);
+        // 应使用 excludeTools 排除内置 write/edit/bash
+        const usesExcludeTools = providerSrc.includes('sessionExcludeTools = ["write", "edit", "bash"]');
+        // sessionOpts 应传入 excludeTools
+        const passesExcludeTools = providerSrc.includes("sessionOpts.excludeTools = sessionExcludeTools");
+
+        addTest("V17-C1 bridge-controlled: 用 excludeTools 替代 tools=[\"read\"] allowlist",
+          noToolsAllowlistInBridge && usesExcludeTools && passesExcludeTools ? "pass" : "fail",
+          `noAllowlist=${noToolsAllowlistInBridge} usesExclude=${usesExcludeTools} passesExclude=${passesExcludeTools}`);
+      }
+
+      // Test V17C1-E2: getActiveToolNames 在 AgentSessionLike 接口中声明（任务 E）
+      {
+        const providerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "pi-sdk", "piSdkProvider.ts"), "utf8");
+        const hasGetActiveToolNames = providerSrc.includes("getActiveToolNames?()") && providerSrc.includes("ReadonlyArray<string>");
+
+        addTest("V17-C1 AgentSessionLike: getActiveToolNames 声明（任务 E 真实 SDK fixture 前置）",
+          hasGetActiveToolNames ? "pass" : "fail",
+          `getActiveToolNames=${hasGetActiveToolNames}`);
+      }
+
+      // Test V17C1-F: 回归 — V16.5-K1 split vault-context 保持 index-only（任务 F）
+      {
+        const workspaceSrc = readFileSync(join(PROJECT_ROOT, "src", "agentRuntimeWorkspace.ts"), "utf8");
+        const hasCompactOrSplit = workspaceSrc.includes("compactOrSplitVaultSkill") || workspaceSrc.includes("vault-context");
+        const hasIndexOnly = /index-only|index only|≤ 12000|<= 12000|charCount.*12000|12000.*charCount/.test(workspaceSrc);
+
+        addTest("V17-C1 回归 V16.5-K1: split vault-context 保持 index-only",
+          hasCompactOrSplit && hasIndexOnly ? "pass" : "fail",
+          `compactOrSplit=${hasCompactOrSplit} indexOnly=${hasIndexOnly}`);
+      }
     } finally {
       try { rmSync(v17bTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
     }

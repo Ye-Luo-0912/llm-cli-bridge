@@ -965,11 +965,13 @@ export class PiSdkProvider implements RuntimeProvider {
     // 组装 prompt（任务 G：session.prompt 传入 composePromptForBackend(ctx, "sdk")）
     const prompt = composePromptForBackend(ctx, "sdk");
 
-    // V17-C 任务 B：按 toolMode 构建 session 参数
+    // V17-C 任务 B + V17-C1 任务 E：按 toolMode 构建 session 参数
     // - pi-native: 不传 tools 和 customTools（使用 Pi 默认 read/write/edit/bash）
-    // - bridge-controlled: tools=["read"] + customTools=bridge_*（不启用 Pi 内置 write/edit/bash）
+    // - bridge-controlled: 用 excludeTools 排除 Pi 内置 write/edit/bash（避免同名冲突），
+    //   customTools=bridge_* 不会被 tools allowlist 过滤
     // - read-only: 只 tools=["read"]
     let sessionTools: string[] | undefined;
+    let sessionExcludeTools: string[] | undefined;
     let customTools: unknown[] | undefined;
     if (toolMode === "read-only") {
       sessionTools = ["read"];
@@ -990,7 +992,11 @@ export class PiSdkProvider implements RuntimeProvider {
       } catch {
         customTools = bridgeTools.slice();
       }
-      sessionTools = ["read"];
+      // V17-C1 任务 E：不传 tools=["read"]（会导致 customTools 被 allowlist 过滤）
+      // 改用 excludeTools 排除 Pi 内置 write/edit/bash，让 read + 其他内置工具保留，
+      // 同时 customTools 中的 bridge_* 不受 tools allowlist 影响
+      sessionTools = undefined;
+      sessionExcludeTools = ["write", "edit", "bash"];
     } else {
       // pi-native：不传 tools（用 Pi 默认 read/write/edit/bash），不传 customTools
       sessionTools = undefined;
@@ -1021,10 +1027,13 @@ export class PiSdkProvider implements RuntimeProvider {
         modelRegistry,
         settingsManager,
       };
-      // V17-C 任务 B：仅在 toolMode 明确指定时传入 tools/customTools
+      // V17-C 任务 B + V17-C1 任务 E：按 toolMode 传入 tools/excludeTools/customTools
       // pi-native 不传 tools（用 Pi 默认配置）
       if (sessionTools !== undefined) {
         sessionOpts.tools = sessionTools;
+      }
+      if (sessionExcludeTools !== undefined && sessionExcludeTools.length > 0) {
+        sessionOpts.excludeTools = sessionExcludeTools;
       }
       if (customTools !== undefined && customTools.length > 0) {
         sessionOpts.customTools = customTools;

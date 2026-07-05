@@ -582,6 +582,12 @@ export class LLMBridgeView extends ItemView {
     // ===== V1.2: 首次使用提示（可关闭，关闭后不再显示） =====
     this.renderFirstUseGuide(chatPanel);
 
+    // V17-C1 任务 C：Pi Native Trust onboarding 卡片（首次 portable + pi-native + 未确认）
+    this.renderPiNativeTrustOnboarding(chatPanel);
+
+    // V17-C1 任务 D：Pi SDK 不可用时提示安装步骤（portable profile）
+    this.renderPiSdkUnavailableHint(chatPanel);
+
     // Developer mode keeps the legacy global Run Flow; user mode shows process inside each assistant turn.
     if (this.plugin.settings.developerMode) {
       this.renderRunFlowPanel(chatPanel);
@@ -3284,6 +3290,143 @@ export class LLMBridgeView extends ItemView {
     }
     // footer
     this.guideEl.createDiv({ cls: "llm-bridge-guide-footer", text: guide.footer });
+  }
+
+  // V17-C1 任务 C：Pi Native Trust onboarding 卡片
+  // 首次 portable + pi-native + 未确认时在普通 UI（chatPanel 顶部）展示确认卡片
+  // 文案明确：Pi Native Tools 会以本机用户权限读写当前 Vault；建议先备份；确认后才运行
+  private piNativeTrustEl: HTMLElement | null = null;
+
+  private renderPiNativeTrustOnboarding(parent: HTMLElement): void {
+    // 仅在 portable + pi-native + 未确认时展示
+    const isPortablePiNative =
+      this.settings.backendProfile === "portable" &&
+      this.settings.piToolMode === "pi-native";
+    if (!isPortablePiNative || this.settings.piNativeTrustConfirmed) {
+      if (this.piNativeTrustEl) {
+        this.piNativeTrustEl.remove();
+        this.piNativeTrustEl = null;
+      }
+      return;
+    }
+
+    // 已存在则不重复渲染
+    if (this.piNativeTrustEl && this.piNativeTrustEl.parentNode === parent) return;
+
+    // 清理旧 DOM
+    if (this.piNativeTrustEl) this.piNativeTrustEl.remove();
+
+    const card = parent.createDiv({ cls: "llm-bridge-pi-native-trust-card" });
+    this.piNativeTrustEl = card;
+
+    // header
+    const header = card.createDiv({ cls: "llm-bridge-pi-native-trust-header" });
+    header.createEl("span", { cls: "llm-bridge-pi-native-trust-title", text: "Pi Native Tools — Trust 确认" });
+    const closeBtn = header.createEl("button", { cls: "llm-bridge-pi-native-trust-close", text: "×" });
+    closeBtn.title = "暂时关闭（不确认，下次启动仍会提示）";
+    closeBtn.onclick = () => {
+      card.remove();
+      this.piNativeTrustEl = null;
+    };
+
+    // body — 文案明确风险
+    const body = card.createDiv({ cls: "llm-bridge-pi-native-trust-body" });
+    body.createEl("p", {
+      cls: "llm-bridge-pi-native-trust-warn",
+      text: "Pi Native Tools 将以本机用户权限读写当前 Vault。",
+    });
+    body.createEl("p", {
+      cls: "llm-bridge-pi-native-trust-tip",
+      text: "建议先备份 Vault。确认前 pi-native 模式将不启动。",
+    });
+
+    // actions
+    const actions = card.createDiv({ cls: "llm-bridge-pi-native-trust-actions" });
+    const confirmBtn = actions.createEl("button", {
+      cls: "llm-bridge-pi-native-trust-confirm",
+      text: "我已了解风险并备份，确认启用",
+    });
+    confirmBtn.onclick = async () => {
+      this.settings.piNativeTrustConfirmed = true;
+      await this.saveSettings();
+      card.remove();
+      this.piNativeTrustEl = null;
+      this.refreshPermissionPanel?.();
+    };
+    const switchModeBtn = actions.createEl("button", {
+      cls: "llm-bridge-pi-native-trust-switch",
+      text: "切换到 bridge-controlled（更安全）",
+    });
+    switchModeBtn.onclick = async () => {
+      this.settings.piToolMode = "bridge-controlled";
+      await this.saveSettings();
+      card.remove();
+      this.piNativeTrustEl = null;
+      this.refreshPermissionPanel?.();
+    };
+  }
+
+  // V17-C1 任务 D：Pi SDK 不可用时提示安装步骤
+  // portable profile 下若 SDK 未安装，展示可执行安装命令的提示卡片
+  private piSdkHintEl: HTMLElement | null = null;
+
+  private renderPiSdkUnavailableHint(parent: HTMLElement): void {
+    // 仅在 portable profile 下展示（developer profile 用户可自行处理）
+    if (this.settings.backendProfile !== "portable") {
+      if (this.piSdkHintEl) {
+        this.piSdkHintEl.remove();
+        this.piSdkHintEl = null;
+      }
+      return;
+    }
+
+    // 动态探测 SDK 是否可用（避免阻塞渲染）
+    void this.refreshPiSdkHintCard(parent);
+  }
+
+  private async refreshPiSdkHintCard(parent: HTMLElement): Promise<void> {
+    let probeAvailable = true;
+    let hint = "";
+    try {
+      const { tryLoadPiSdk, probePiSdkAuth } = await import("./runtime/providers/pi-sdk/piSdkProvider");
+      const probe = tryLoadPiSdk(true);
+      if (!probe.available) {
+        probeAvailable = false;
+        hint = "Pi SDK 未安装。请在 Vault 根目录运行：npm install --ignore-scripts @earendil-works/pi-coding-agent";
+      } else {
+        const authProbe = probePiSdkAuth(probe);
+        if (!authProbe.hasAuth || !authProbe.hasModel) {
+          probeAvailable = false;
+          hint = authProbe.hint;
+        }
+      }
+    } catch (e) {
+      probeAvailable = false;
+      hint = `Pi SDK 探测失败：${e instanceof Error ? e.message : String(e)}`;
+    }
+
+    if (probeAvailable) {
+      if (this.piSdkHintEl) {
+        this.piSdkHintEl.remove();
+        this.piSdkHintEl = null;
+      }
+      return;
+    }
+
+    // 已存在则更新文案
+    if (this.piSdkHintEl && this.piSdkHintEl.parentNode === parent) {
+      const body = this.piSdkHintEl.querySelector(".llm-bridge-pi-sdk-hint-body");
+      if (body) body.textContent = hint;
+      return;
+    }
+    if (this.piSdkHintEl) this.piSdkHintEl.remove();
+
+    const card = parent.createDiv({ cls: "llm-bridge-pi-sdk-hint-card" });
+    this.piSdkHintEl = card;
+    card.createDiv({ cls: "llm-bridge-pi-sdk-hint-title", text: "Pi SDK 不可用" });
+    const body = card.createDiv({ cls: "llm-bridge-pi-sdk-hint-body", text: hint });
+    body.style.whiteSpace = "pre-wrap";
+    card.createDiv({ cls: "llm-bridge-pi-sdk-hint-tip", text: "安装完成后重启 Obsidian 或重新打开面板。" });
   }
 
   // ---------- Obsidian 状态 ----------
