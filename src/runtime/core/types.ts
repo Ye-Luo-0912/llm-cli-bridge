@@ -317,6 +317,15 @@ export interface PermissionBoundary {
   requestApproval(req: ApprovalRequest): "pending" | "auto-allow" | "auto-deny";
   /** 用户决策（UI 调用）；返回 true=成功解析 */
   resolveApproval(requestId: string, response: ApprovalResponse): boolean;
+  /**
+   * V16.5-B: 带原因的 resolveApproval。
+   *
+   * 返回 { ok, reason }，UI 可据此显示 stale/error 状态：
+   * - not_found: requestId 不在 pendingMap（stale / 已被另一路径解析）
+   * - already_resolved: resolver 已被消费
+   * - session_mismatch / cancelled: 保留接口位
+   */
+  resolveApprovalDetailed(requestId: string, response: ApprovalResponse): { ok: boolean; reason?: "not_found" | "already_resolved" | "session_mismatch" | "cancelled" };
   /** P4: 重置会话级 allow/deny 缓存（新会话时调用，避免跨会话泄漏） */
   resetSessionCache(): void;
   /** 取消所有 pending（stop/新会话时调用） */

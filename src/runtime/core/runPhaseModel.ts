@@ -23,6 +23,27 @@ import type { ProviderLifecycleEvent } from "./providerLifecycleEvent";
 
 // ---------- Phase Types ----------
 
+/**
+ * V16.5-B: 计算 ThoughtSegment 的稳定去重 key。
+ *
+ * 旧实现使用 `p.thoughts.includes(thought)`（引用相等），但 lifecycle 事件
+ * `reasoning_summary_delta` 会在 currentPhase.thoughts 中创建一个**新的**
+ * ThoughtSegment 对象（与 turnView.thoughts 中的原对象引用不同），导致
+ * post-loop 时间区间关联时引用比较失败 → 同一段 reasoning 被添加两次。
+ *
+ * 改用 messageId + contentBlockIndex + text 内容的稳定 key 去重。
+ */
+function thoughtKey(t: ThoughtSegment): string {
+  const msgId = t.messageId ?? "none";
+  const blockIdx = t.contentBlockIndex ?? 0;
+  // text 可能很长，取首尾 + 长度作为指纹（避免对完整文本做 hash 的开销）
+  const text = t.text ?? "";
+  const len = text.length;
+  const head = len > 32 ? text.slice(0, 32) : text;
+  const tail = len > 32 ? text.slice(-16) : "";
+  return `${msgId}:${blockIdx}:${len}:${head}:${tail}`;
+}
+
 export type RunPhaseType =
   | "planning"
   | "reading"
@@ -787,15 +808,19 @@ export function buildRunPhaseModel(
   }
 
   // 关联 thoughts 到阶段（按时间区间）
+  // V16.5-B: 用 thoughtKey 去重（替代引用比较 includes），避免 lifecycle
+  // reasoning_summary_delta 创建的新对象导致同一段 reasoning 被添加两次。
   for (const thought of turnView.thoughts) {
     const ts = new Date(thought.timestamp).getTime();
+    const key = thoughtKey(thought);
     let found = false;
     for (const p of phases) {
       const start = new Date(p.startedAt).getTime();
       const end = p.endedAt ? new Date(p.endedAt).getTime() : Infinity;
       if (ts >= start && ts <= end) {
-        // 避免重复添加（evaluation_started 阶段可能已添加）
-        if (!p.thoughts.includes(thought)) {
+        // V16.5-B: 按 messageId/contentBlockIndex/text 去重
+        const exists = p.thoughts.some((t) => thoughtKey(t) === key);
+        if (!exists) {
           p.thoughts.push(thought);
         }
         found = true;
@@ -804,7 +829,8 @@ export function buildRunPhaseModel(
     }
     if (!found && phases.length > 0) {
       // 归入第一个阶段
-      if (!phases[0].thoughts.includes(thought)) {
+      const exists = phases[0].thoughts.some((t) => thoughtKey(t) === key);
+      if (!exists) {
         phases[0].thoughts.push(thought);
       }
     }

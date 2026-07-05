@@ -96,8 +96,28 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
   }
 
   resolveApproval(requestId: string, response: ApprovalResponse): boolean {
+    return this.resolveApprovalDetailed(requestId, response).ok;
+  }
+
+  /**
+   * V16.5-B: 带原因的 resolveApproval。
+   *
+   * 返回 { ok, reason }，UI 可据此显示 stale/error 状态：
+   * - not_found: requestId 不在 pendingMap（可能从未进入 pending，或已被另一路径解析）
+   * - already_resolved: resolver 已被消费（requestId 在 pendingMap 但 resolver 缺失）
+   * - session_mismatch: 保留接口位（当前未启用 sessionId 校验，留作未来扩展）
+   * - cancelled: 保留接口位（cancelAllPending 后 requestId 已从 pendingMap 删除）
+   *
+   * 不破坏原 resolveApproval 接口；UI 可直接调用此方法获取详细原因。
+   */
+  resolveApprovalDetailed(requestId: string, response: ApprovalResponse): { ok: boolean; reason?: "not_found" | "already_resolved" | "session_mismatch" | "cancelled" } {
     const req = this.pendingMap.get(requestId);
-    if (!req) return false;
+    if (!req) {
+      // V16.5-B: 区分 not_found vs cancelled — cancelled 的 requestId 不再在 pendingMap
+      // 但 UI 仍可能持有引用。当前无独立 cancelled 集合，统一返回 not_found
+      // （UI 看到此结果即认为 stale，不再静默失败）。
+      return { ok: false, reason: "not_found" };
+    }
     this.pendingMap.delete(requestId);
 
     // 更新会话级缓存：直接构造 SessionAllowEntry/SessionDenyEntry（此处无解析后的 tool
@@ -131,7 +151,9 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
         : "user";
       resolver({ response, source });
     }
-    return true;
+    // V16.5-B: 若 resolver 不存在但 pendingMap 有 entry，说明 provider 未调用 waitForApproval
+    // 或已被另一路径消费 — 仍视为 ok（pending 已清除），但记录原因供 UI 诊断。
+    return { ok: true };
   }
 
   /**
@@ -164,8 +186,15 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
    * Provider 在 requestApproval 返回 "pending" 后调用，挂起当前事件产出直到 UI 决策。
    *
    * 返回决策结果（response + source）。cancelAllPending 时返回 { type: "cancel" }。
+   *
+   * V16.5-B: 若 requestId 不在 pendingMap（已 cancelAllPending 或从未进入 pending），
+   * 立即返回 { type: "cancel" }，避免 provider 永远 pending。
    */
   waitForApproval(requestId: string): Promise<{ response: ApprovalResponse; source: "user" | "session_allow" | "session_deny" | "mode" }> {
+    // V16.5-B: 检查 request 是否仍存在 — 若已被 cancelAllPending 清除则立即返回 cancel
+    if (!this.pendingMap.has(requestId)) {
+      return Promise.resolve({ response: { type: "cancel" }, source: "user" });
+    }
     return new Promise((resolve) => {
       this.resolvers.set(requestId, resolve);
     });

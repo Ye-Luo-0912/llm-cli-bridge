@@ -1,8 +1,8 @@
 # V16.4-H CDP smoke 报告
 
-- **测试时间**: 2026-07-04T17:28:14.095Z
+- **测试时间**: 2026-07-05T02:40:52.559Z
 - **CDP 端口**: 9223
-- **通过**: 14
+- **通过**: 19
 - **失败**: 0
 - **跳过**: 0
 
@@ -16,6 +16,11 @@
 | ✅ | A4 4 按钮文案正确 | Yes, proceed | Yes, don't ask again for this session | No, skip this once | No, don't ask again this session |
 | ✅ | A5 Yes, proceed 后 pending 消失 | pending=0 |
 | ✅ | A6 No, skip this once 后 pending 消失 | pending=0 |
+| ✅ | A11 右上角 Cancel × 按钮存在 | - |
+| ✅ | A7 点击按钮后 is-resolving 视觉反馈 + Approving… 文案 | {"hasResolvingClass":true,"allResolving":true,"hasApprovingText":true} |
+| ✅ | A8 resolve 失败时出现 .is-stale card | - |
+| ✅ | A9 stale card 有 Dismiss stale request / Stop run 按钮 | - |
+| ✅ | A10 点击 Dismiss stale request 后 stale card 消失 | - |
 | ✅ | B1 clarification card 出现 | - |
 | ✅ | B2 无 approval card | - |
 | ✅ | B3 composerBar is-user-input-active | - |

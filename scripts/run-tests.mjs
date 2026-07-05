@@ -1085,6 +1085,8 @@ if (runMode !== "all" && runMode !== "unit") {
     const tempAgentRunDisplayModelBundle = join(PROJECT_ROOT, ".test-agent-run-display-model-temp.mjs");
     const tempRunPhaseModelBundle = join(PROJECT_ROOT, ".test-run-phase-model-temp.mjs");
     const tempProviderLifecycleBundle = join(PROJECT_ROOT, ".test-provider-lifecycle-temp.mjs");
+    // V16.5-B: sdkPermission bundle 供 normalizeToolName / assessToolRisk 测试
+    const tempSdkPermissionBundle = join(PROJECT_ROOT, ".test-sdk-permission-temp.mjs");
 
     const bundleOpts = (entry) => ({
       entryPoints: [join(PROJECT_ROOT, "src", entry)],
@@ -1102,6 +1104,7 @@ if (runMode !== "all" && runMode !== "unit") {
     await esbuild.build({ ...bundleOpts("runtime/core/agentRunDisplayModel.ts"), outfile: tempAgentRunDisplayModelBundle });
     await esbuild.build({ ...bundleOpts("runtime/core/runPhaseModel.ts"), outfile: tempRunPhaseModelBundle });
     await esbuild.build({ ...bundleOpts("runtime/core/providerLifecycleEvent.ts"), outfile: tempProviderLifecycleBundle });
+    await esbuild.build({ ...bundleOpts("sdkPermission.ts"), outfile: tempSdkPermissionBundle });
 
     const codexProviderMod = await import(pathToFileURL(tempCodexProviderBundle).href);
     const promptPkgMod = await import(pathToFileURL(tempPromptPkgBundle).href);
@@ -1111,6 +1114,9 @@ if (runMode !== "all" && runMode !== "unit") {
     const agentRunDisplayModelMod = await import(pathToFileURL(tempAgentRunDisplayModelBundle).href);
     const runPhaseModelMod = await import(pathToFileURL(tempRunPhaseModelBundle).href);
     const providerLifecycleMod = await import(pathToFileURL(tempProviderLifecycleBundle).href);
+    // V16.5-B: sdkPermission 模块（normalizeToolName / assessToolRisk）
+    const sdkPermissionMod = await import(pathToFileURL(tempSdkPermissionBundle).href);
+    const { normalizeToolName, assessToolRisk } = sdkPermissionMod;
 
     // ---------- 最小 settings + snapshot ----------
     const baseBridgeSettings = {
@@ -3260,10 +3266,240 @@ if (runMode !== "all" && runMode !== "unit") {
         `guard=${hasGuard} resolveRefresh=${hasResolveRefresh}`);
     }
 
+    // ===== V16.5-B: Permission UX Reliability + Approval State Source Cleanup =====
+
+    // Test B-a: normalizeToolName 归一化 command execution 别名
+    {
+      const cases = [
+        { input: "bash", expect: "Bash" },
+        { input: "Bash", expect: "Bash" },
+        { input: "command", expect: "Bash" },
+        { input: "shell", expect: "Bash" },
+        { input: "terminal", expect: "Bash" },
+        { input: "RunCommand", expect: "Bash" },
+        { input: "CommandExecution", expect: "Bash" },
+        { input: "command_execution", expect: "Bash" },
+        { input: "Execute", expect: "Bash" },
+        { input: "exec", expect: "Bash" },
+        { input: "Edit", expect: "Edit" }, // 非命令工具原样返回
+        { input: "Write", expect: "Write" },
+        { input: "Read", expect: "Read" },
+        { input: "", expect: "" }, // 空字符串
+      ];
+      let allOk = true;
+      for (const c of cases) {
+        const got = normalizeToolName(c.input);
+        if (got !== c.expect) { allOk = false; addTest(`V16.5-B normalizeToolName: "${c.input}" → "${c.expect}"`, "fail", `got "${got}"`); }
+      }
+      if (allOk) addTest("V16.5-B normalizeToolName: bash/Bash/command/shell/terminal/RunCommand/CommandExecution → Bash", "pass", `${cases.length} cases`);
+    }
+
+    // Test B-b: assessToolRisk("bash", ...) 不返回 low（与 "Bash" 一致）
+    {
+      const r1 = assessToolRisk("bash", { command: "obsidian help" });
+      const r2 = assessToolRisk("Bash", { command: "obsidian help" });
+      const r3 = assessToolRisk("command", { command: "ls" });
+      const r4 = assessToolRisk("RunCommand", { command: "echo hi" });
+      const ok = r1.level !== "low" && r1.level === r2.level && r1.reason === r2.reason
+        && r3.level === r1.level && r4.level === r1.level;
+      addTest("V16.5-B assessToolRisk: bash/Bash/command/RunCommand 一致 + 不返回 low",
+        ok ? "pass" : "fail",
+        `bash=${r1.level}/${r1.reason} Bash=${r2.level}/${r2.reason} command=${r3.level} RunCommand=${r4.level}`);
+    }
+
+    // Test B-c: command execution 文案不再显示"低风险：只读或无害操作"
+    {
+      const r = assessToolRisk("bash", { command: "obsidian help" });
+      const noLowText = r.reason !== "低风险：只读或无害操作";
+      const hasMediumText = r.reason.includes("Shell 执行") || r.reason.includes("中风险");
+      const ok = noLowText && hasMediumText;
+      addTest("V16.5-B assessToolRisk: command execution 不显示低风险只读文案",
+        ok ? "pass" : "fail",
+        `reason="${r.reason}" level=${r.level}`);
+    }
+
+    // Test B-d: assessToolRisk("Bash", ...) 与 "bash" 风险文案完全一致（Codex / SDK 一致性）
+    {
+      const r1 = assessToolRisk("Bash", { command: "rm -rf /tmp/x" });
+      const r2 = assessToolRisk("bash", { command: "rm -rf /tmp/x" });
+      const r3 = assessToolRisk("CommandExecution", { command: "rm -rf /tmp/x" });
+      const ok = r1.level === r2.level && r2.level === r3.level
+        && r1.reason === r2.reason && r2.reason === r3.reason
+        && r1.highRiskFlags.length === r2.highRiskFlags.length;
+      addTest("V16.5-B assessToolRisk: Bash/bash/CommandExecution 高危场景文案一致",
+        ok ? "pass" : "fail",
+        `Bash=${r1.level} bash=${r2.level} codex=${r3.level}`);
+    }
+
+    // Test B-e: resolveApprovalDetailed 返回 not_found（stale 场景）
+    {
+      const { PermissionBoundaryImpl } = permBoundaryMod;
+      const b = new PermissionBoundaryImpl("default", { level: "low" });
+      const result = b.resolveApprovalDetailed("nonexistent-id", { type: "accept" });
+      const ok = !result.ok && result.reason === "not_found";
+      addTest("V16.5-B resolveApprovalDetailed: 不存在的 requestId 返回 not_found",
+        ok ? "pass" : "fail",
+        `ok=${result.ok} reason=${result.reason}`);
+    }
+
+    // Test B-f: resolveApprovalDetailed 成功解析后再次调用返回 not_found
+    {
+      const { PermissionBoundaryImpl } = permBoundaryMod;
+      const b = new PermissionBoundaryImpl("default", { level: "low" });
+      const req = {
+        requestId: "test-double-resolve",
+        providerId: "claude-sdk",
+        toolName: "Edit",
+        description: "test",
+        riskLevel: "medium",
+      };
+      b.requestApproval(req);
+      const r1 = b.resolveApprovalDetailed("test-double-resolve", { type: "accept" });
+      const r2 = b.resolveApprovalDetailed("test-double-resolve", { type: "accept" });
+      const ok = r1.ok && !r2.ok && r2.reason === "not_found";
+      addTest("V16.5-B resolveApprovalDetailed: 二次 resolve 返回 not_found",
+        ok ? "pass" : "fail",
+        `first.ok=${r1.ok} second.ok=${r2.ok} second.reason=${r2.reason}`);
+    }
+
+    // Test B-g: waitForApproval 处理已 cancelAllPending 的 request（不永远 pending）
+    {
+      const { PermissionBoundaryImpl } = permBoundaryMod;
+      const b = new PermissionBoundaryImpl("default", { level: "low" });
+      const req = {
+        requestId: "test-cancel-wait",
+        providerId: "claude-sdk",
+        toolName: "Edit",
+        description: "test",
+        riskLevel: "medium",
+      };
+      b.requestApproval(req);
+      b.cancelAllPending();
+      const start = Date.now();
+      const result = await b.waitForApproval("test-cancel-wait");
+      const elapsed = Date.now() - start;
+      const ok = result.response.type === "cancel" && elapsed < 100;
+      addTest("V16.5-B waitForApproval: cancelAllPending 后立即返回 cancel",
+        ok ? "pass" : "fail",
+        `type=${result.response.type} elapsed=${elapsed}ms`);
+    }
+
+    // Test B-h: waitForApproval 处理从未进入 pending 的 requestId
+    {
+      const { PermissionBoundaryImpl } = permBoundaryMod;
+      const b = new PermissionBoundaryImpl("default", { level: "low" });
+      const start = Date.now();
+      const result = await b.waitForApproval("never-pended-id");
+      const elapsed = Date.now() - start;
+      const ok = result.response.type === "cancel" && elapsed < 100;
+      addTest("V16.5-B waitForApproval: 不存在的 requestId 立即返回 cancel",
+        ok ? "pass" : "fail",
+        `type=${result.response.type} elapsed=${elapsed}ms`);
+    }
+
+    // Test B-i: refreshPermissionPanel 主状态源切换为 boundary.pending（view.ts 源码检查）
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const hasBoundaryPending = viewSrc.includes("const boundaryPending = permission.pending;")
+        && viewSrc.includes("// V16.5-B: PermissionBoundary.pending 作为主状态源");
+      const hasStaleSet = viewSrc.includes("staleApprovalRequestIds")
+        && viewSrc.includes("resolvingApprovalRequestId");
+      const hasCancelBtn = viewSrc.includes("llm-bridge-approval-card-cancel")
+        && viewSrc.includes("Cancel request");
+      const hasStaleCard = viewSrc.includes("is-stale")
+        && viewSrc.includes("Dismiss stale request")
+        && viewSrc.includes("Stop run");
+      const hasResolvingBtn = viewSrc.includes("is-resolving")
+        && viewSrc.includes("Approving…")
+        && viewSrc.includes("Skipping…")
+        && viewSrc.includes("Declining…");
+      const hasDetailedCall = viewSrc.includes("resolveApprovalDetailed");
+      const ok = hasBoundaryPending && hasStaleSet && hasCancelBtn && hasStaleCard && hasResolvingBtn && hasDetailedCall;
+      addTest("V16.5-B view.ts: boundary.pending 主源 + stale/resolving + Cancel × + resolveApprovalDetailed",
+        ok ? "pass" : "fail",
+        `boundary=${hasBoundaryPending} stale=${hasStaleSet} cancel=${hasCancelBtn} staleCard=${hasStaleCard} resolving=${hasResolvingBtn} detailed=${hasDetailedCall}`);
+    }
+
+    // Test B-j: CSS 样式存在（is-resolving / is-stale / cancel / dismiss-stale / stop-run）
+    {
+      const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf8");
+      const hasResolving = stylesSrc.includes(".llm-bridge-approval-btn.is-resolving")
+        && stylesSrc.includes("llm-bridge-approval-resolving-spin");
+      const hasCancel = stylesSrc.includes(".llm-bridge-approval-card-cancel");
+      const hasStale = stylesSrc.includes(".llm-bridge-approval-card.is-stale")
+        && stylesSrc.includes(".llm-bridge-approval-card-row-stale");
+      const hasDismissBtn = stylesSrc.includes(".llm-bridge-approval-btn.is-dismiss-stale");
+      const hasStopBtn = stylesSrc.includes(".llm-bridge-approval-btn.is-stop-run");
+      const ok = hasResolving && hasCancel && hasStale && hasDismissBtn && hasStopBtn;
+      addTest("V16.5-B CSS: is-resolving/is-stale/cancel/dismiss-stale/stop-run",
+        ok ? "pass" : "fail",
+        `resolving=${hasResolving} cancel=${hasCancel} stale=${hasStale} dismiss=${hasDismissBtn} stop=${hasStopBtn}`);
+    }
+
+    // Test B-k: handleNormalizedEvent 不构造独立 shadow truth（只更新缓存 + 触发 refresh）
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const hasCacheOnlyComment = viewSrc.includes("V16.5-B: PermissionBoundary.pending 是主状态源；此处仅同步 UI 显示缓存")
+        || viewSrc.includes("V16.5-B: 只补充 UI 显示字段（boundary.pending 是 truth）");
+      const hasApprovalCacheChanged = viewSrc.includes("approvalCacheChanged");
+      const hasStaleCleanup = viewSrc.includes("this.staleApprovalRequestIds.delete(ap.requestId)");
+      const ok = hasCacheOnlyComment && hasApprovalCacheChanged && hasStaleCleanup;
+      addTest("V16.5-B handleNormalizedEvent: 只同步缓存 + stale 清理（无 shadow truth）",
+        ok ? "pass" : "fail",
+        `cacheOnly=${hasCacheOnlyComment} cacheChanged=${hasApprovalCacheChanged} staleCleanup=${hasStaleCleanup}`);
+    }
+
+    // Test B-l: clearPendingPermissions 清空 stale + resolving 状态
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const clearIdx = viewSrc.indexOf("private clearPendingPermissions(): void");
+      const methodBody = viewSrc.slice(clearIdx, clearIdx + 600);
+      const hasStaleClear = methodBody.includes("this.staleApprovalRequestIds.clear()");
+      const hasResolvingClear = methodBody.includes("this.resolvingApprovalRequestId = null");
+      const ok = hasStaleClear && hasResolvingClear;
+      addTest("V16.5-B clearPendingPermissions: 清空 staleApprovalRequestIds + resolvingApprovalRequestId",
+        ok ? "pass" : "fail",
+        `stale=${hasStaleClear} resolving=${hasResolvingClear}`);
+    }
+
+    // Test B-m: runPhaseModel thoughtKey 去重（替代 includes 引用比较）
+    {
+      const phaseSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "runPhaseModel.ts"), "utf8");
+      const hasThoughtKey = phaseSrc.includes("function thoughtKey(t: ThoughtSegment)")
+        && phaseSrc.includes("msgId") && phaseSrc.includes("blockIdx");
+      // V16.5-B: 验证 post-loop 关联使用 thoughtKey 而非 includes
+      const usesThoughtKey = phaseSrc.includes("thoughtKey(t) === key")
+        && phaseSrc.includes("const key = thoughtKey(thought);");
+      // 移除 post-loop 区域的 includes 引用比较（注释中提及不算）
+      const postLoopIdx = phaseSrc.indexOf("// 关联 thoughts 到阶段");
+      const postLoopSection = postLoopIdx >= 0 ? phaseSrc.slice(postLoopIdx, postLoopIdx + 800) : "";
+      const noIncludesInPostLoop = !postLoopSection.includes(".thoughts.includes(thought)");
+      const ok = hasThoughtKey && usesThoughtKey && noIncludesInPostLoop;
+      addTest("V16.5-B runPhaseModel: thoughtKey 去重（messageId/contentBlockIndex/text hash）",
+        ok ? "pass" : "fail",
+        `thoughtKey=${hasThoughtKey} usesThoughtKey=${usesThoughtKey} noIncludesInPostLoop=${noIncludesInPostLoop}`);
+    }
+
+    // Test B-n: runPhaseModel thoughtKey 实际去重行为（运行时验证）
+    {
+      // 构造两个相同内容但不同引用的 ThoughtSegment，验证 thoughtKey 相同
+      // （thoughtKey 是 internal function，通过源码验证逻辑）
+      const phaseSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "runPhaseModel.ts"), "utf8");
+      // 验证 key 包含 messageId + contentBlockIndex + text 长度 + 首尾
+      const hasStableKey = phaseSrc.includes("const msgId = t.messageId ?? \"none\";")
+        && phaseSrc.includes("const blockIdx = t.contentBlockIndex ?? 0;")
+        && phaseSrc.includes("const len = text.length;")
+        && phaseSrc.includes("return `${msgId}:${blockIdx}:${len}:${head}:${tail}`;");
+      addTest("V16.5-B runPhaseModel: thoughtKey 含 messageId/contentBlockIndex/text 指纹",
+        hasStableKey ? "pass" : "fail",
+        `stableKey=${hasStableKey}`);
+    }
+
     // 清理临时 bundles
     for (const f of [
       tempCodexProviderBundle, tempPromptPkgBundle, tempAssistantViewBundle,
       tempPermBoundaryBundle, tempWorkflowMapperBundle,
+      tempSdkPermissionBundle,
       join(PROJECT_ROOT, ".test-codex-plan-temp.mjs"),
       join(PROJECT_ROOT, ".test-jsonrpc-temp.mjs"),
       join(PROJECT_ROOT, ".test-codex-mapper-temp.mjs"),

@@ -325,7 +325,22 @@ export class LLMBridgeView extends ItemView {
   private permissionPanelEl!: HTMLElement;
   private userInputPanelEl!: HTMLElement;
   private pendingPermissions: Map<string, PermissionEvent> = new Map();
+  /**
+   * V16.5-B: Approval UI 主数据源切换为 PermissionBoundary.pending。
+   * pendingPermissions 降级为兼容显示缓存（保留 description/inputSummary 等 UI 字段，
+   * ApprovalRequest 不携带这些字段，需从 provider event 同步补充）。
+   */
   private pendingUserInputDrafts = new Map<string, UserInputDraft>();
+  /**
+   * V16.5-B: 正在 resolve 中的 requestId（点击按钮后立即设置，resolve 完成后清除）。
+   * 用于按钮 is-resolving 视觉状态（禁用 + 显示 Approving/Skipping/Declining）。
+   */
+  private resolvingApprovalRequestId: string | null = null;
+  /**
+   * V16.5-B: resolveApproval 返回 false 时加入此集合，UI 显示 stale card。
+   * 用户点击 Dismiss 后从集合移除（不重新触发 resolve）。
+   */
+  private staleApprovalRequestIds: Set<string> = new Set();
   // V2.14.0-E: 外部 read 授权仅存在于当前 Bridge View/session 生命周期
   private externalReadGrantStore: SessionReadGrantStore = createSessionReadGrantStore();
   private externalReadPanelEl!: HTMLElement;
@@ -1582,18 +1597,94 @@ export class LLMBridgeView extends ItemView {
 
   // V2.3s: 刷新权限请求面板（实时展示 pending 权限请求）
   // V16.4-E: approval 决策固定在 composer 上方，assistant turn 只展示状态。
+  // V16.5-B: 主数据源切换为 PermissionBoundary.pending；pendingPermissions 仅作 UI 显示缓存。
   private refreshPermissionPanel(): void {
     const panel = this.permissionPanelEl;
     panel.empty();
 
-    if (this.pendingPermissions.size === 0) {
-      panel.style.display = "none";
-      this.composerBarEl?.removeClass("is-approval-active");
+    // V16.5-B: PermissionBoundary.pending 作为主状态源；同步 pendingPermissions 缓存
+    const permission = this.getSession().permission;
+    const boundaryPending = permission.pending;
+
+    // 清理 staleApprovalRequestIds 中已不在 boundary pending 的项（避免累积）
+    // 同时同步 pendingPermissions：boundary 中已消失的 requestId 从缓存删除
+    for (const cachedId of Array.from(this.pendingPermissions.keys())) {
+      if (!boundaryPending.has(cachedId) && !this.staleApprovalRequestIds.has(cachedId)) {
+        this.pendingPermissions.delete(cachedId);
+      }
+    }
+    // boundary 中存在但 pendingPermissions 未缓存的：从 ApprovalRequest 派生 PermissionEvent
+    for (const [id, req] of boundaryPending) {
+      if (!this.pendingPermissions.has(id)) {
+        this.pendingPermissions.set(id, {
+          type: "permission",
+          timestamp: new Date().toISOString(),
+          toolName: req.toolName,
+          description: req.description,
+          granted: false,
+          pending: true,
+          requestId: req.requestId,
+          riskLevel: req.riskLevel,
+          riskReason: req.riskReason,
+          highRiskFlags: req.highRiskFlags ? Array.from(req.highRiskFlags) : undefined,
+          inputSummary: req.inputSummary,
+          mergeKey: req.mergeKey,
+          parentToolUseId: req.parentToolUseId,
+          subagentRisk: req.subagentRisk,
+        } as PermissionEvent);
+      }
+    }
+
+    // V16.5-B: 渲染 stale card（独立于主 approval card，便于用户 dismiss）
+    if (this.staleApprovalRequestIds.size > 0) {
+      const staleIds = Array.from(this.staleApprovalRequestIds);
+      for (const staleId of staleIds) {
+        const cached = this.pendingPermissions.get(staleId);
+        const toolName = cached?.toolName ?? "unknown";
+        const staleCard = panel.createDiv({ cls: "llm-bridge-approval-card is-stale" });
+        const header = staleCard.createDiv({ cls: "llm-bridge-approval-card-header" });
+        const titleEl = header.createDiv({ cls: "llm-bridge-approval-card-title" });
+        const titleIcon = titleEl.createEl("span", { cls: "llm-bridge-approval-card-title-icon" });
+        setIcon(titleIcon, "alert-triangle");
+        titleEl.createEl("span", { text: `Stale approval: ${this.buildApprovalCardTitle(toolName)}` });
+        const body = staleCard.createDiv({ cls: "llm-bridge-approval-card-body" });
+        body.createDiv({
+          cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-stale",
+          text: "This approval request is no longer active. It may have been resolved by another path or the run was cancelled.",
+        });
+        const btns = staleCard.createDiv({ cls: "llm-bridge-approval-card-btns" });
+        const dismissBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-dismiss-stale", text: "Dismiss stale request" });
+        dismissBtn.addEventListener("click", () => {
+          this.staleApprovalRequestIds.delete(staleId);
+          this.pendingPermissions.delete(staleId);
+          this.refreshPermissionPanel();
+        });
+        const stopBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-stop-run", text: "Stop run" });
+        stopBtn.addEventListener("click", () => {
+          this.staleApprovalRequestIds.delete(staleId);
+          this.pendingPermissions.delete(staleId);
+          this.getSession().permission.cancelAllPending();
+          this.refreshPermissionPanel();
+          this.stop();
+        });
+      }
+    }
+
+    // 主 approval card：boundary pending 为空且无 stale 时隐藏
+    if (boundaryPending.size === 0) {
+      // V16.5-B: 仅当无 stale card 时才隐藏面板
+      if (this.staleApprovalRequestIds.size === 0) {
+        panel.style.display = "none";
+        this.composerBarEl?.removeClass("is-approval-active");
+      } else {
+        panel.style.display = "block";
+        this.composerBarEl?.addClass("is-approval-active");
+      }
       return;
     }
 
     // V16.4-H: user input 优先级守卫 — 若 user input 同时 pending，则隐藏 approval panel
-    // （pending request 仍保留在 this.pendingPermissions，不丢失；user input 解析后再刷新）
+    // （pending request 仍保留在 boundary.pending，不丢失；user input 解析后再刷新）
     if (this.getSession().userInput.pending.size > 0) {
       panel.style.display = "none";
       this.composerBarEl?.removeClass("is-approval-active");
@@ -1606,9 +1697,16 @@ export class LLMBridgeView extends ItemView {
     // 按 mergeKey 合并展示（相同工具+风险+路径前缀合并）
     const mergeGroups = new Map<string, PermissionEvent[]>();
     for (const [, ev] of this.pendingPermissions) {
+      // V16.5-B: 只渲染 boundary 中仍 pending 的 requestId（stale 的已单独渲染）
+      if (!boundaryPending.has(ev.requestId ?? "")) continue;
       const key = ev.mergeKey ?? ev.requestId ?? "unknown";
       if (!mergeGroups.has(key)) mergeGroups.set(key, []);
       mergeGroups.get(key)!.push(ev);
+    }
+
+    if (mergeGroups.size === 0) {
+      // boundary 有 pending 但缓存未同步（理论不应发生），不渲染主卡片
+      return;
     }
 
     const groups = Array.from(mergeGroups.values());
@@ -1617,7 +1715,7 @@ export class LLMBridgeView extends ItemView {
     // V16.4-F: Codex-style approval card（单卡片为主，多卡片显示 queue count）
     const card = panel.createDiv({ cls: "llm-bridge-approval-card" });
 
-    // ---- Card header: title + queue count ----
+    // ---- Card header: title + queue count + Cancel × ----
     const cardHeader = card.createDiv({ cls: "llm-bridge-approval-card-header" });
     const titleEl = cardHeader.createDiv({ cls: "llm-bridge-approval-card-title" });
     const titleIcon = titleEl.createEl("span", { cls: "llm-bridge-approval-card-title-icon" });
@@ -1629,6 +1727,14 @@ export class LLMBridgeView extends ItemView {
     if (totalGroups > 1) {
       cardHeader.createEl("span", { cls: "llm-bridge-approval-card-queue", text: `1 of ${totalGroups}` });
     }
+    // V16.5-B: 右上角 Cancel × 按钮（映射为 decline）
+    const cancelBtn = cardHeader.createEl("button", { cls: "llm-bridge-approval-card-cancel", attr: { "aria-label": "Cancel request", title: "Cancel this request (decline)" } });
+    setIcon(cancelBtn, "x");
+    cancelBtn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      const requestIds = groups[0].map((g) => g.requestId!).filter(Boolean);
+      this.resolvePermissionRequests(requestIds, "deny_once");
+    });
 
     // ---- Card body: command/path/reason/risk 直接展示 ----
     const body = card.createDiv({ cls: "llm-bridge-approval-card-body" });
@@ -1666,21 +1772,28 @@ export class LLMBridgeView extends ItemView {
       if (first.inputSummary) devBody.createDiv({ cls: "llm-bridge-approval-card-dev-line", text: `inputSummary: ${first.inputSummary}` });
     }
 
-    // ---- Decision buttons: 语义化文案 ----
+    // ---- Decision buttons: 语义化文案 + V16.5-B resolving 状态 ----
     const btns = card.createDiv({ cls: "llm-bridge-approval-card-btns" });
     const requestIds = groups[0].map((g) => g.requestId!).filter(Boolean);
+    const isResolving = this.resolvingApprovalRequestId !== null
+      && requestIds.includes(this.resolvingApprovalRequestId);
 
-    const proceedBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-proceed", text: "Yes, proceed" });
-    proceedBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "allow_once"));
+    const createApprovalButton = (cls: string, label: string, resolvingLabel: string, choice: PermissionChoice): HTMLButtonElement => {
+      const btn = btns.createEl("button", {
+        cls: `llm-bridge-approval-btn ${cls}${isResolving ? " is-resolving" : ""}`,
+        text: isResolving ? resolvingLabel : label,
+        attr: isResolving ? { disabled: "true" } : {},
+      });
+      if (!isResolving) {
+        btn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, choice));
+      }
+      return btn;
+    };
 
-    const proceedSessionBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-proceed-session", text: "Yes, don't ask again for this session" });
-    proceedSessionBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "allow_session"));
-
-    const declineBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-decline", text: "No, skip this once" });
-    declineBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "deny_once"));
-
-    const declineSessionBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-decline-session", text: "No, don't ask again this session" });
-    declineSessionBtn.addEventListener("click", () => this.resolvePermissionRequests(requestIds, "deny_session"));
+    createApprovalButton("is-proceed", "Yes, proceed", "Approving…", "allow_once");
+    createApprovalButton("is-proceed-session", "Yes, don't ask again for this session", "Approving…", "allow_session");
+    createApprovalButton("is-decline", "No, skip this once", "Skipping…", "deny_once");
+    createApprovalButton("is-decline-session", "No, don't ask again this session", "Declining…", "deny_session");
   }
 
   /**
@@ -1973,16 +2086,26 @@ export class LLMBridgeView extends ItemView {
         : choice === "deny_session"
           ? { type: "declineForSession" }
           : { type: "decline" };
-    let resolved = 0;
-    for (const id of requestIds) {
-      if (permission.resolveApproval(id, response)) {
-        this.pendingPermissions.delete(id);
-        resolved++;
-      }
-    }
-    if (resolved > 0) {
+    // V16.5-B: 设置 resolving 状态并立即刷新 UI（按钮显示 Approving/Skipping/Declining + 禁用）
+    const firstId = requestIds[0];
+    if (firstId) {
+      this.resolvingApprovalRequestId = firstId;
       this.refreshPermissionPanel();
     }
+    let resolved = 0;
+    for (const id of requestIds) {
+      const result = permission.resolveApprovalDetailed(id, response);
+      if (result.ok) {
+        this.pendingPermissions.delete(id);
+        resolved++;
+      } else {
+        // V16.5-B: resolve 失败 — 加入 stale 集合，UI 显示 stale card
+        this.staleApprovalRequestIds.add(id);
+      }
+    }
+    // V16.5-B: 清除 resolving 状态并刷新 UI
+    this.resolvingApprovalRequestId = null;
+    this.refreshPermissionPanel();
   }
 
   private resolveUserInputRequest(requestId: string, response: UserInputResponse): void {
@@ -1996,11 +2119,13 @@ export class LLMBridgeView extends ItemView {
 
   // V2.3s: 清空待决策权限请求（新会话/停止时调用）
   private clearPendingPermissions(): void {
-    if (this.pendingPermissions.size === 0) return;
+    // V16.5-B: 即使 pendingPermissions 为空，stale/resolving 状态也需清除
     // V2.17-A Completion: 通过 PermissionBoundary.cancelAllPending 唤醒所有等待的 provider
     // （provider 收到 cancel 后回传 deny/cancel 给底层 runtime）。
     this.getSession().permission.cancelAllPending();
     this.pendingPermissions.clear();
+    this.staleApprovalRequestIds.clear();
+    this.resolvingApprovalRequestId = null;
     this.refreshPermissionPanel();
   }
 
@@ -6361,10 +6486,12 @@ export class LLMBridgeView extends ItemView {
     });
 
     // 4. approval pending 面板（从 turnView.approvals 驱动，替代旧 WorkflowEvent 路径）
+    // V16.5-B: PermissionBoundary.pending 是主状态源；此处仅同步 UI 显示缓存。
+    let approvalCacheChanged = false;
     for (const ap of turnView.approvals) {
       if (ap.pending) {
         if (!this.pendingPermissions.has(ap.requestId)) {
-          // 构造 PermissionEvent 兼容现有面板（pending=true）
+          // V16.5-B: 只补充 UI 显示字段（boundary.pending 是 truth）
           this.pendingPermissions.set(ap.requestId, {
             type: "permission",
             timestamp: new Date().toISOString(),
@@ -6381,14 +6508,19 @@ export class LLMBridgeView extends ItemView {
             parentToolUseId: ap.parentToolUseId,
             subagentRisk: ap.subagentRisk,
           } as PermissionEvent);
-          this.refreshPermissionPanel();
+          approvalCacheChanged = true;
         }
       } else {
-        if (this.pendingPermissions.has(ap.requestId)) {
+        // V16.5-B: resolved — 从缓存和 stale 集合清除
+        if (this.pendingPermissions.has(ap.requestId) || this.staleApprovalRequestIds.has(ap.requestId)) {
           this.pendingPermissions.delete(ap.requestId);
-          this.refreshPermissionPanel();
+          this.staleApprovalRequestIds.delete(ap.requestId);
+          approvalCacheChanged = true;
         }
       }
+    }
+    if (approvalCacheChanged) {
+      this.refreshPermissionPanel();
     }
 
     for (const req of (turnView.userInputRequests ?? [])) {

@@ -124,6 +124,36 @@ const MEDIUM_RISK_TOOL_NAMES: ReadonlySet<string> = new Set([
   "NotebookEdit",
 ]);
 
+/**
+ * V16.5-B: 工具名归一化。
+ *
+ * 将 provider/runtime 各类 shell 执行工具名归一为 SDK 标准名 "Bash"，
+ * 确保 assessToolRisk / approval UI 风险文案在 bash / Bash / command / shell /
+ * terminal / RunCommand / CommandExecution 等异名下一致。
+ *
+ * 不属于 command execution 的工具名原样返回（保留大小写敏感的 SDK 工具名）。
+ */
+const COMMAND_EXECUTION_ALIASES: ReadonlySet<string> = new Set([
+  "bash",
+  "command",
+  "shell",
+  "terminal",
+  "runcommand",
+  "commandexecution",
+  "execute",
+  "exec",
+]);
+
+export function normalizeToolName(toolName: string): string {
+  const trimmed = (toolName ?? "").trim();
+  if (!trimmed) return trimmed;
+  const lower = trimmed.toLowerCase();
+  if (COMMAND_EXECUTION_ALIASES.has(lower)) return "Bash";
+  // Codex app-server 风格 "CommandExecution" / "command_execution"
+  if (lower === "command_execution") return "Bash";
+  return trimmed;
+}
+
 const USER_INPUT_TOOL_NAMES: ReadonlySet<string> = new Set([
   "AskUserQuestion",
   "request_user_input",
@@ -158,11 +188,14 @@ const SENSITIVE_PATH_PATTERNS: ReadonlyArray<{ re: RegExp; flag: string }> = [
 export function assessToolRisk(toolName: string, input: Record<string, unknown>): ToolRiskAssessment {
   const highRiskFlags: string[] = [];
 
-  // 1. 工具名判定
-  if (HIGH_RISK_TOOL_NAMES.has(toolName)) {
-    if (toolName === "Bash") highRiskFlags.push("Shell 执行");
-    else if (toolName === "Delete") highRiskFlags.push("文件删除");
-    else highRiskFlags.push(`网络操作（${toolName}）`);
+  // V16.5-B: 归一化工具名（bash / Bash / command / shell / RunCommand / CommandExecution → "Bash"）
+  const normalized = normalizeToolName(toolName);
+
+  // 1. 工具名判定（基于归一化后的名字）
+  if (HIGH_RISK_TOOL_NAMES.has(normalized)) {
+    if (normalized === "Bash") highRiskFlags.push("Shell 执行");
+    else if (normalized === "Delete") highRiskFlags.push("文件删除");
+    else highRiskFlags.push(`网络操作（${normalized}）`);
   }
 
   // 2. 路径敏感性检测（file_path / notebook_path / path）
@@ -187,10 +220,15 @@ export function assessToolRisk(toolName: string, input: Record<string, unknown>)
   }
 
   // 4. 综合等级
+  // V16.5-B: command execution（归一为 Bash）即使无高危 flag 也至少为 medium，
+  // 不再显示"低风险：只读或无害操作"。
   let level: ToolRiskLevel;
   if (highRiskFlags.length > 0) {
     level = "high";
-  } else if (MEDIUM_RISK_TOOL_NAMES.has(toolName)) {
+  } else if (MEDIUM_RISK_TOOL_NAMES.has(normalized)) {
+    level = "medium";
+  } else if (normalized === "Bash") {
+    // V16.5-B: Shell 执行无高危 flag 时仍需用户确认（medium），不归为只读无害
     level = "medium";
   } else {
     level = "low";
@@ -199,7 +237,9 @@ export function assessToolRisk(toolName: string, input: Record<string, unknown>)
   const reason = level === "high"
     ? `高风险：${highRiskFlags.join("、")}`
     : level === "medium"
-      ? "中风险：文件编辑操作"
+      ? normalized === "Bash" && highRiskFlags.length === 0
+        ? "中风险：Shell 执行（需确认命令内容）"
+        : "中风险：文件编辑操作"
       : "低风险：只读或无害操作";
 
   return { level, reason, highRiskFlags };

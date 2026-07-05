@@ -4,7 +4,7 @@
 //
 // 需 Obsidian 以 --remote-debugging-port=9223 启动；未运行时整体 skip。
 //
-// 验证项（对应 V16.4-H 任务 D）:
+// 验证项（对应 V16.4-H 任务 D + V16.5-B stale 场景）:
 //  A. Approval card smoke
 //     A1. pending approval 时 composer 内出现 .llm-bridge-approval-card
 //     A2. composerBar 含 is-approval-active class
@@ -12,6 +12,11 @@
 //     A4. 4 个按钮文案正确
 //     A5. 点击 Yes, proceed 后 pending 消失
 //     A6. 点击 No, skip this once 后本次拒绝、pending 消失
+//     A7. (V16.5-B) 点击按钮后立即出现 is-resolving class（视觉反馈 < 100ms）
+//     A8. (V16.5-B) resolve 失败时出现 .llm-bridge-approval-card.is-stale
+//     A9. (V16.5-B) stale card 有 Dismiss stale request / Stop run 按钮
+//     A10. (V16.5-B) 点击 Dismiss stale request 后 stale card 消失
+//     A11. (V16.5-B) 右上角 Cancel × 按钮存在（映射 decline）
 //  B. AskUserQuestion smoke
 //     B1. user input pending 时出现 .llm-bridge-clarification-card
 //     B2. 不出现 .llm-bridge-approval-card
@@ -295,6 +300,125 @@ async function approvalCardSmoke(client) {
     return { cardGone: !card, pending: view.pendingPermissions.size };
   })()`);
   reinjected?.cardGone ? pass("A6 No, skip this once 后 pending 消失", `pending=${reinjected.pending}`) : fail("A6 No, skip this once 后 pending 消失", JSON.stringify(reinjected));
+
+  // ---------- V16.5-B: A7-A11 stale / resolving 场景 ----------
+  // A7: 点击按钮后立即出现 is-resolving class（视觉反馈）
+  // A11: 右上角 Cancel × 按钮存在
+  const v165Setup = await client.evaluate(`(async () => {
+    const app = window.app || globalThis.app;
+    const view = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)})[0]?.view;
+    if (!view) return { ok: false, error: "view missing" };
+    view.pendingPermissions.clear();
+    view.getSession().permission.cancelAllPending();
+    view.getSession().userInput.cancelAllPending();
+    view.pendingUserInputDrafts?.clear?.();
+    view.refreshUserInputPanel();
+    view.staleApprovalRequestIds.clear();
+    view.resolvingApprovalRequestId = null;
+    const req = {
+      requestId: "cdp-v165b-stale-1",
+      providerId: "claude-sdk",
+      toolName: "Write",
+      description: "stale test",
+      riskLevel: "medium",
+      riskReason: "File modification",
+      inputSummary: "stale_test.md",
+      mergeKey: "Write:medium:stale_test.md",
+    };
+    const decision = view.getSession().permission.requestApproval(req);
+    if (decision !== "pending") {
+      view.getSession().permission.pendingMap.set(req.requestId, req);
+    }
+    view.pendingPermissions.set(req.requestId, {
+      type: "permission", timestamp: new Date().toISOString(), toolName: "Write",
+      description: "stale test", granted: false, pending: true, requestId: req.requestId,
+      riskLevel: "medium", riskReason: "File modification", inputSummary: "stale_test.md",
+      mergeKey: "Write:medium:stale_test.md",
+    });
+    view.refreshPermissionPanel();
+    await new Promise((r) => setTimeout(r, 200));
+    // 检查 Cancel × 按钮存在
+    const cancelBtn = view.containerEl.querySelector(".llm-bridge-approval-card-cancel");
+    return { ok: true, hasCancelBtn: !!cancelBtn };
+  })()`);
+  v165Setup?.hasCancelBtn ? pass("A11 右上角 Cancel × 按钮存在") : fail("A11 右上角 Cancel × 按钮存在", JSON.stringify(v165Setup));
+
+  // A7: 模拟点击按钮后立即检查 is-resolving（直接设置 resolvingApprovalRequestId + refresh）
+  const a7Result = await client.evaluate(`(async () => {
+    const app = window.app || globalThis.app;
+    const view = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)})[0]?.view;
+    // 模拟 resolvePermissionRequests 开头：设置 resolving 状态并 refresh
+    view.resolvingApprovalRequestId = "cdp-v165b-stale-1";
+    view.refreshPermissionPanel();
+    // 立即检查 is-resolving class
+    const resolvingBtn = view.containerEl.querySelector(".llm-bridge-approval-btn.is-resolving");
+    const proceedBtns = Array.from(view.containerEl.querySelectorAll(".llm-bridge-approval-btn"));
+    const allResolving = proceedBtns.length > 0 && proceedBtns.every((b) => b.classList.contains("is-resolving"));
+    const hasApprovingText = proceedBtns.some((b) => (b.textContent || "").includes("Approving"));
+    // 清除（避免影响后续测试）
+    view.resolvingApprovalRequestId = null;
+    view.refreshPermissionPanel();
+    await new Promise((r) => setTimeout(r, 100));
+    return { hasResolvingClass: !!resolvingBtn, allResolving, hasApprovingText };
+  })()`);
+  const a7Ok = a7Result?.allResolving && a7Result?.hasApprovingText;
+  a7Ok ? pass("A7 点击按钮后 is-resolving 视觉反馈 + Approving… 文案", JSON.stringify(a7Result)) : fail("A7 点击按钮后 is-resolving 视觉反馈", JSON.stringify(a7Result));
+
+  // A8-A10: resolve 失败时 stale card + Dismiss
+  // 先从 boundary 删除 requestId（模拟 stale），再点击按钮 → resolveApprovalDetailed 返回 not_found
+  const staleResult = await client.evaluate(`(async () => {
+    const app = window.app || globalThis.app;
+    const view = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)})[0]?.view;
+    // 从 boundary.pendingMap 删除（模拟 provider 已解析或 cancel），但保留 view.pendingPermissions 缓存
+    view.getSession().permission.pendingMap.delete("cdp-v165b-stale-1");
+    view.refreshPermissionPanel();
+    await new Promise((r) => setTimeout(r, 200));
+    // 此时 boundary.pending 为空，应隐藏主 approval card（无 stale card 因为还没点按钮）
+    const cardBefore = view.containerEl.querySelector(".llm-bridge-approval-card:not(.is-stale)");
+    // 直接调用 resolvePermissionRequests 模拟点击（requestId 不在 boundary）
+    view.resolvePermissionRequests(["cdp-v165b-stale-1"], "allow_once");
+    await new Promise((r) => setTimeout(r, 300));
+    // 应出现 stale card
+    const staleCard = view.containerEl.querySelector(".llm-bridge-approval-card.is-stale");
+    const dismissBtn = Array.from(view.containerEl.querySelectorAll(".llm-bridge-approval-btn")).find((b) => (b.textContent || "").includes("Dismiss stale request"));
+    const stopBtn = Array.from(view.containerEl.querySelectorAll(".llm-bridge-approval-btn")).find((b) => (b.textContent || "").includes("Stop run"));
+    return {
+      hasStaleCard: !!staleCard,
+      hasDismissBtn: !!dismissBtn,
+      hasStopBtn: !!stopBtn,
+      cardBefore: !!cardBefore,
+    };
+  })()`);
+  const a8Ok = staleResult?.hasStaleCard;
+  a8Ok ? pass("A8 resolve 失败时出现 .is-stale card") : fail("A8 resolve 失败时出现 stale card", JSON.stringify(staleResult));
+  const a9Ok = staleResult?.hasDismissBtn && staleResult?.hasStopBtn;
+  a9Ok ? pass("A9 stale card 有 Dismiss stale request / Stop run 按钮") : fail("A9 stale card 按钮", JSON.stringify(staleResult));
+
+  // A10: 点击 Dismiss stale request 后 stale card 消失
+  const a10Result = await client.evaluate(`(async () => {
+    const app = window.app || globalThis.app;
+    const view = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)})[0]?.view;
+    const dismissBtn = Array.from(view.containerEl.querySelectorAll(".llm-bridge-approval-btn")).find((b) => (b.textContent || "").includes("Dismiss stale request"));
+    dismissBtn?.click();
+    await new Promise((r) => setTimeout(r, 300));
+    const staleCard = view.containerEl.querySelector(".llm-bridge-approval-card.is-stale");
+    const staleInSet = view.staleApprovalRequestIds.has("cdp-v165b-stale-1");
+    return { staleCardGone: !staleCard, staleInSet };
+  })()`);
+  a10Result?.staleCardGone && !a10Result?.staleInSet
+    ? pass("A10 点击 Dismiss stale request 后 stale card 消失")
+    : fail("A10 Dismiss stale request 后 stale card 消失", JSON.stringify(a10Result));
+
+  // 清理
+  await client.evaluate(`(async () => {
+    const app = window.app || globalThis.app;
+    const view = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)})[0]?.view;
+    view.pendingPermissions.clear();
+    view.getSession().permission.cancelAllPending();
+    view.staleApprovalRequestIds.clear();
+    view.resolvingApprovalRequestId = null;
+    view.refreshPermissionPanel();
+  })()`);
 }
 
 // ---------- B. AskUserQuestion smoke ----------

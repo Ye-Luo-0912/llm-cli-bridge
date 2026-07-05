@@ -2707,6 +2707,74 @@
   background: color-mix(in srgb, var(--text-error) 10%, transparent);
 }
 
+/* V16.5-B: resolving 状态（点击按钮后禁用 + 显示 Approving/Skipping/Declining） */
+.llm-bridge-approval-btn.is-resolving {
+  opacity: 0.6;
+  cursor: wait;
+  pointer-events: none;
+}
+.llm-bridge-approval-btn.is-resolving::after {
+  content: "";
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-left: 6px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: llm-bridge-approval-resolving-spin 0.8s linear infinite;
+  vertical-align: middle;
+}
+@keyframes llm-bridge-approval-resolving-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* V16.5-B: 右上角 Cancel × 按钮 */
+.llm-bridge-approval-card-cancel {
+  margin-left: auto;
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+}
+.llm-bridge-approval-card-cancel:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+.llm-bridge-approval-card-cancel svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* V16.5-B: stale card */
+.llm-bridge-approval-card.is-stale {
+  border-color: color-mix(in srgb, var(--text-warning, var(--text-error)) 40%, transparent);
+  background: color-mix(in srgb, var(--text-warning, var(--text-error)) 5%, var(--background-primary));
+}
+.llm-bridge-approval-card.is-stale .llm-bridge-approval-card-title {
+  color: var(--text-warning, var(--text-error));
+}
+.llm-bridge-approval-card-row-stale {
+  color: var(--text-muted);
+  font-size: var(--font-small);
+  padding: 6px 0;
+}
+.llm-bridge-approval-btn.is-dismiss-stale {
+  color: var(--text-normal);
+  border-color: var(--background-modifier-border);
+}
+.llm-bridge-approval-btn.is-stop-run {
+  color: var(--text-error);
+  border-color: color-mix(in srgb, var(--text-error) 40%, transparent);
+}
+.llm-bridge-approval-btn.is-stop-run:hover {
+  background: color-mix(in srgb, var(--text-error) 10%, transparent);
+}
+
 .llm-bridge-user-input-panel {
   display: grid;
   gap: 8px;
