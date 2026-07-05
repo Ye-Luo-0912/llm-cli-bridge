@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-05T07:17:12.243Z
+- **测试时间**: 2026-07-05T07:40:44.086Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 800.3 KB
+- **main.js 大小**: 808.4 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 59338
-- **commit sha**: 0eaf2eaefbd04d58b6d58c5e1e795ceeb06e7131
-- **commit 短 sha**: 0eaf2eaefbd0
+- **commit sha**: b3d02522e8a58e6bfcb21b5fba048dc92a61508f
+- **commit 短 sha**: b3d02522e8a5
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 965
+- ✅ **通过**: 976
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 990
+- **总计**: 1001
 
 ### 审计模式说明
 
@@ -916,19 +916,75 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | write/edit/bash 映射为 approval_request 不绕过 PermissionBoundary | writeApproval=true bashApproval=true editApproval=true readNotApproval=true |
+| ✅ | bridge_write/bridge_edit/bridge_bash 映射为 approval_request 不绕过 PermissionBoundary | writeApproval=true bashApproval=true editApproval=true readNotApproval=true |
 
 ### V17-B approval accept
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | accept 后才执行 Bridge-controlled tool | hasWriteTool=true hasPending=true acceptExecuted=true |
+| ✅ | accept 后真实写入文件 | hasWriteTool=true hasPending=true acceptExecuted=true fileWritten=true |
 
 ### V17-B approval decline
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回 tool error/result | hasPending=true declined=true detailsDeclined=true |
+| ✅ | 返回 tool error/result 不执行 | hasPending=true declined=true detailsDeclined=true |
+
+### V17-B1 package.json
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | pi SDK optionalDependencies + installer metadata + smoke script | optionalDep=true installerMeta=true smokeScript=true |
+
+### V17-B1 bridge_* tools
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 替代内置 write/edit/bash 避免同名冲突 | bridge_write=true bridge_edit=true bridge_bash=true noBuiltin=true |
+
+### V17-B1 isWriteToolCall
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 识别 bridge_* 为写操作 | bridge_write=true bridge_edit=true bridge_bash=true readNotWrite=true |
+
+### V17-B1 toolCallId
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783237245749-0 update=pi-sdk-read-1783237245749-0 end=pi-sdk-read-1783237245749-0 |
+
+### V17-B1 mapPiSdkEvent
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | tool_start 与 tool_result callId 一致 | startCallId=tc-456 endCallId=tc-456 |
+
+### V17-B1 streaming
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | text_delta 立即映射为 message partial | events=1 partial=true text=chunk1 |
+| ✅ | prompt throw 映射为 error event（不挂住） | events=1 kind=error msg=prompt boom |
+
+### V17-B1 authProbe
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 未安装时返回可行动提示 | hasAuth=false hasModel=false hint=Pi SDK 未安装。请运行：npm install --ignore-scripts @earendil-works/pi-coding-agent |
+
+### V17-B1 bridge_bash
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | portable 禁用 + developer 不直接执行 | portableDisabled=true devNotExecuted=true |
+
+### V17-B1 bridge_edit
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 真实字符串替换 + oldText 不存在返回失败 | editOk=true contentReplaced=true notFoundHandled=true |
 
 ### V17-B portable
 
@@ -1935,7 +1991,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-05T07-17-40-991Z-pe6tip |
+| ✅ | 返回非空 id | id=s-2026-07-05T07-41-13-311Z-y4lpqz |
 
 ### V2.5 Session 版本
 
@@ -1954,7 +2010,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-05T07-17-41-055Z-f5top0 second=s-2026-07-05T07-17-41-000Z-1yd40h |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-05T07-41-13-388Z-hesyr0 second=s-2026-07-05T07-41-13-322Z-xrbin8 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1981,7 +2037,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-05T07-17-41-071Z-t4d577 id2=s-2026-07-05T07-17-41-071Z-xcyy9f |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-05T07-41-13-411Z-u7c10a id2=s-2026-07-05T07-41-13-411Z-pfeyl3 |
 
 ### V2.5 Session 上限
 
@@ -2079,7 +2135,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-05T07:17:41.128Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-05T07:41:13.484Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2167,7 +2223,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-05T07:17:41.178Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-05T07:41:13.556Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2281,7 +2337,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-05T07:17:41.246Z after=2026-07-05T07:17:41.302Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-05T07:41:13.647Z after=2026-07-05T07:41:13.713Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -2652,13 +2708,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-05T07:17:41.909Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-05T07:41:14.410Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-05T07:17:41.916Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-05T07:41:14.420Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -2969,7 +3025,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-KzRgaJ\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-MaLV6v\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-qd9eNi\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-BGS4ve\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -2981,7 +3037,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-iAo6ss\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-QzzjBp\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-cE20kF\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-NlTGg2\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -2993,7 +3049,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-BubiGv\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-cC7KaM\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-dc73t9\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-nssoMQ\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -3313,7 +3369,7 @@
 |------|--------|------|
 | ✅ | unit/process 报告含 commit sha + 运行命令字段 | unitExists=true processExists=true unitSha=true processSha=true unitCmd=true processCmd=true |
 | ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
-| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=8ce85e11c323 |
+| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=0eaf2eaefbd0 |
 | ✅ | 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑） | scriptExists=true auditFailExit=true testedCodeShaCheck=true codexSmokeCheck=true docsOnlyLogic=true |
 
 ## 失败项详情
