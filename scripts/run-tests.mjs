@@ -4124,6 +4124,139 @@ if (runMode !== "all" && runMode !== "unit") {
       try { rmSync(v165eTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
     }
 
+    // ===== Task K: Vault Skill 自动拆分与索引 =====
+    const taskKTmpRoot = mkdtempSync(join(tmpdir(), "taskk-ws-"));
+    try {
+      const fact300 = (prefix, idx) => (prefix + " fact " + idx + " " + ".".repeat(300)).slice(0, 300);
+
+      // Test K-a: 大 skill compact 后低于阈值时不拆分
+      {
+        // 初始化 workspace（含初版 vault-context）
+        await agentRuntimeWsMod.ensureAgentRuntimeWorkspace(taskKTmpRoot, { createVaultSkillIfMissing: true });
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        const sourceAbs = pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-context/SKILL.md");
+        // 写入 50 条 ~300 chars 的 stableFacts（总 > 12000），compact 后 20×300 < 12000
+        const bigContent = agentRuntimeWsMod.buildVaultSkillMarkdown({
+          stableFacts: Array.from({ length: 50 }, (_, i) => fact300("directory structure 顶层目录 layout", i)),
+          observations: [],
+          userCorrections: [],
+        });
+        await fsMod.promises.writeFile(sourceAbs, bigContent, "utf8");
+        const beforeLen = bigContent.length;
+
+        const result = await agentRuntimeWsMod.compactOrSplitVaultSkill(taskKTmpRoot);
+        const isCompacted = result.action === "compacted";
+        const afterUnderMax = result.vaultContextContent.length <= agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS;
+        const noSplit = !result.splitResult;
+        // 不应创建 split skill 源文件
+        const structureDirExists = fsMod.existsSync(pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-structure"));
+        const noManifest = !fsMod.existsSync(pathMod.join(taskKTmpRoot, agentRuntimeWsMod.VAULT_SKILLS_MANIFEST_REL));
+
+        addTest("V16.5-K compact: 大 skill compact 后低于阈值时不拆分",
+          isCompacted && afterUnderMax && noSplit && !structureDirExists && noManifest ? "pass" : "fail",
+          `action=${result.action} beforeLen=${beforeLen} afterLen=${result.vaultContextContent.length} max=${agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS} noSplit=${noSplit} noManifest=${noManifest}`);
+      }
+
+      // Test K-b: compact 后仍超限时拆分
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        const sourceAbs = pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-context/SKILL.md");
+        // 三段各 25 条 ~300 chars，compact 后仍 20×3×300 > 12000 → 拆分
+        const bigContent = agentRuntimeWsMod.buildVaultSkillMarkdown({
+          stableFacts: Array.from({ length: 25 }, (_, i) => fact300("directory structure 顶层目录 layout", i)),
+          observations: Array.from({ length: 25 }, (_, i) => fact300("file operation 文件操作 output naming", i)),
+          userCorrections: Array.from({ length: 25 }, (_, i) => fact300("user preference 偏好 correction 用户", i)),
+        });
+        await fsMod.promises.writeFile(sourceAbs, bigContent, "utf8");
+
+        const result = await agentRuntimeWsMod.compactOrSplitVaultSkill(taskKTmpRoot);
+        const isSplit = result.action === "split";
+        const hasSplitResult = !!result.splitResult;
+        const splitSlugs = (result.splitResult?.splitSkills ?? []).map((s) => s.slug);
+        const hasExpectedSplits = ["vault-structure", "file-operations", "user-preferences"].every((s) => splitSlugs.includes(s));
+        // 验证 split skill 源文件已创建
+        const structureSkillExists = fsMod.existsSync(pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-structure/SKILL.md"));
+        // vault-index 已创建
+        const indexExists = fsMod.existsSync(pathMod.join(taskKTmpRoot, agentRuntimeWsMod.VAULT_INDEX_SOURCE_REL));
+        // manifest 已创建且包含 entries
+        const manifest = await agentRuntimeWsMod.loadVaultSkillsManifest(taskKTmpRoot);
+        const manifestHasEntries = manifest.entries.length >= 2; // vault-context + vault-index 至少
+        const manifestHasSplits = manifest.entries.some((e) => e.slug === "vault-structure");
+
+        addTest("V16.5-K split: compact 后仍超限时按职责拆分",
+          isSplit && hasSplitResult && hasExpectedSplits && structureSkillExists && indexExists && manifestHasEntries && manifestHasSplits ? "pass" : "fail",
+          `action=${result.action} splitSlugs=${JSON.stringify(splitSlugs)} structureExists=${structureSkillExists} indexExists=${indexExists} manifestEntries=${manifest.entries.length} manifestHasSplits=${manifestHasSplits}`);
+      }
+
+      // Test K-c: 拆分后 vault-index 引用正确
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        const indexAbs = pathMod.join(taskKTmpRoot, agentRuntimeWsMod.VAULT_INDEX_SOURCE_REL);
+        const indexContent = await fsMod.promises.readFile(indexAbs, "utf8");
+        const manifest = await agentRuntimeWsMod.loadVaultSkillsManifest(taskKTmpRoot);
+        // vault-index 应引用所有 manifest 中的 split skill slugs
+        const splitSlugsInManifest = manifest.entries
+          .filter((e) => e.slug !== "vault-context" && e.slug !== "vault-index")
+          .map((e) => e.slug);
+        const allReferenced = splitSlugsInManifest.every((slug) => indexContent.includes("`" + slug + "`"));
+        const hasHeader = indexContent.includes("# vault-index");
+        const hasRouting = indexContent.includes("索引和路由");
+
+        addTest("V16.5-K vault-index: 拆分后索引引用正确",
+          hasHeader && hasRouting && allReferenced && splitSlugsInManifest.length >= 3 ? "pass" : "fail",
+          `header=${hasHeader} routing=${hasRouting} allReferenced=${allReferenced} splitSlugs=${JSON.stringify(splitSlugsInManifest)}`);
+      }
+
+      // Test K-d: 拆分不会把 sessions/work/runtime facts 写进 skill
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        const manifest = await agentRuntimeWsMod.loadVaultSkillsManifest(taskKTmpRoot);
+        const splitEntries = manifest.entries.filter((e) => e.slug !== "vault-context" && e.slug !== "vault-index");
+        let leaked = false;
+        const leakedIn = [];
+        for (const entry of splitEntries) {
+          const content = await fsMod.promises.readFile(pathMod.join(taskKTmpRoot, entry.sourcePath), "utf8");
+          if (/sessions\/|work\/|RUNTIME_FACTS/i.test(content)) {
+            leaked = true;
+            leakedIn.push(entry.slug);
+          }
+        }
+        // 同时验证 vault-context 也不含这些临时目录引用
+        const vcContent = await fsMod.promises.readFile(pathMod.join(taskKTmpRoot, agentRuntimeWsMod.VAULT_SKILL_SOURCE_REL), "utf8");
+        const vcLeaked = /sessions\/|work\/|RUNTIME_FACTS/i.test(vcContent);
+
+        addTest("V16.5-K 去噪: 拆分不写入 sessions/work/runtime facts",
+          !leaked && !vcLeaked ? "pass" : "fail",
+          `leaked=${leaked} leakedIn=${JSON.stringify(leakedIn)} vcLeaked=${vcLeaked}`);
+      }
+
+      // Test K-e: 单次临时任务不会生成新 skill（shouldCreateSplitSkill 拒绝碎片化）
+      {
+        const shortContent = "short";
+        const r1 = agentRuntimeWsMod.shouldCreateSplitSkill(shortContent, "stable");
+        const rejectedShort = !r1.ok;
+        const tempContent = "这是一个临时任务的详细描述内容，长度足够但是一次性临时任务，不应该成为长期 skill。".repeat(3);
+        const r2 = agentRuntimeWsMod.shouldCreateSplitSkill(tempContent, "临时任务");
+        const rejectedTemp = !r2.ok;
+        const cmdLog = "$ ls -la\ndrwxr-xr-x  2 user user 4096\nexit 0";
+        const r3 = agentRuntimeWsMod.shouldCreateSplitSkill(cmdLog, "stable");
+        const rejectedCmd = !r3.ok;
+        const stableContent = "Vault root: /test/vault\nTop-level directories: src, docs, tests\nDirectory structure follows standard layout pattern for maintainability and agent navigation across the vault.";
+        const r4 = agentRuntimeWsMod.shouldCreateSplitSkill(stableContent, "stable-vault-structure");
+        const acceptedStable = r4.ok;
+
+        addTest("V16.5-K 碎片化: 单次临时任务不生成新 skill",
+          rejectedShort && rejectedTemp && rejectedCmd && acceptedStable ? "pass" : "fail",
+          `rejectedShort=${rejectedShort} rejectedTemp=${rejectedTemp} rejectedCmd=${rejectedCmd} acceptedStable=${acceptedStable}`);
+      }
+    } finally {
+      try { rmSync(taskKTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+
     // 清理临时 bundles
     for (const f of [
       tempCodexProviderBundle, tempPromptPkgBundle, tempAssistantViewBundle,
