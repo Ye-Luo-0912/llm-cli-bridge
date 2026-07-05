@@ -3543,17 +3543,18 @@ if (runMode !== "all" && runMode !== "unit") {
     }
 
     // Test C-b: contract 允许 Obsidian CLI，但要求确认可用性，不禁止使用
+    // V16.5-D: 默认 obsidianCliAvailable="unknown"，文案为 "availability unknown; you may probe if useful."
     {
       const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES);
-      // Obsidian CLI 被声明为可用
-      const allowsCli = capText.includes("Obsidian CLI") && capText.includes("可以使用");
+      // Obsidian CLI 被提及（事实陈述，不是禁止）
+      const mentionsCli = capText.includes("Obsidian CLI");
       // 不被禁止
-      const notBanned = !capText.includes("禁止使用 Obsidian CLI") && !capText.includes("不要使用 Obsidian CLI");
-      // 要求确认可用性（不臆造）
-      const requiresConfirm = (capText.includes("不要臆造") && capText.includes("探测")) || capText.includes("确认");
+      const notBanned = !capText.includes("禁止使用 Obsidian CLI") && !capText.includes("Obsidian CLI: unavailable; use other tools");
+      // unknown 状态允许 LLM probe（不臆造可用）
+      const allowsProbe = capText.includes("you may probe if useful");
       addTest("V16.5-C contract: 允许 Obsidian CLI 但要求确认可用性",
-        allowsCli && notBanned && requiresConfirm ? "pass" : "fail",
-        `allowsCli=${allowsCli} notBanned=${notBanned} requiresConfirm=${requiresConfirm}`);
+        mentionsCli && notBanned && allowsProbe ? "pass" : "fail",
+        `mentionsCli=${mentionsCli} notBanned=${notBanned} allowsProbe=${allowsProbe}`);
     }
 
     // Test C-c: "用户确认后继续执行，不反复正文确认"的契约存在
@@ -3709,6 +3710,158 @@ if (runMode !== "all" && runMode !== "unit") {
       addTest("V16.5-C buildBridgeSystemAppend 瘦身: contract 三段 + 简短 attachment/output",
         hasCap && hasAuto && hasSafety && hasAttachment && hasOutput && noOldNative && noOldSteering ? "pass" : "fail",
         `cap=${hasCap} auto=${hasAuto} safety=${hasSafety} attachment=${hasAttachment} output=${hasOutput} noOldNative=${noOldNative} noOldSteering=${noOldSteering}`);
+    }
+
+    // ===== V16.5-D: Runtime Capability Facts / Prompt Contract Grounding =====
+    // Test D-a: buildCapabilityManifest 根据 known-available 输出 "Obsidian CLI: available."
+    {
+      const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, {
+        ...bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES,
+        obsidianCliAvailable: "known-available",
+      });
+      const hasAvailable = capText.includes("- Obsidian CLI: available.");
+      const notUnknown = !capText.includes("availability unknown");
+      const notUnavailable = !capText.includes("unavailable; use other tools");
+      addTest("V16.5-D manifest known-available: 输出 'Obsidian CLI: available.'",
+        hasAvailable && notUnknown && notUnavailable ? "pass" : "fail",
+        `hasAvailable=${hasAvailable} notUnknown=${notUnknown} notUnavailable=${notUnavailable}`);
+    }
+
+    // Test D-b: buildCapabilityManifest 根据 unknown 输出 "availability unknown; you may probe if useful."
+    {
+      const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, {
+        ...bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES,
+        obsidianCliAvailable: "unknown",
+      });
+      const hasUnknown = capText.includes("- Obsidian CLI: availability unknown; you may probe if useful.");
+      const notAvailable = !capText.includes("- Obsidian CLI: available.");
+      addTest("V16.5-D manifest unknown: 输出 'availability unknown; you may probe if useful.'",
+        hasUnknown && notAvailable ? "pass" : "fail",
+        `hasUnknown=${hasUnknown} notAvailable=${notAvailable}`);
+    }
+
+    // Test D-c: buildCapabilityManifest 根据 known-unavailable 输出 "unavailable; use other tools."
+    {
+      const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, {
+        ...bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES,
+        obsidianCliAvailable: "known-unavailable",
+      });
+      const hasUnavailable = capText.includes("- Obsidian CLI: unavailable; use other tools.");
+      const notAvailable = !capText.includes("- Obsidian CLI: available.");
+      const notUnknown = !capText.includes("availability unknown");
+      addTest("V16.5-D manifest known-unavailable: 输出 'unavailable; use other tools.'",
+        hasUnavailable && notAvailable && notUnknown ? "pass" : "fail",
+        `hasUnavailable=${hasUnavailable} notAvailable=${notAvailable} notUnknown=${notUnknown}`);
+    }
+
+    // Test D-d: buildObsidianCliLine 单元函数覆盖三态
+    {
+      const a = bridgeContractMod.buildObsidianCliLine("known-available");
+      const u = bridgeContractMod.buildObsidianCliLine("unknown");
+      const un = bridgeContractMod.buildObsidianCliLine("known-unavailable");
+      const ok = a === "- Obsidian CLI: available."
+        && u === "- Obsidian CLI: availability unknown; you may probe if useful."
+        && un === "- Obsidian CLI: unavailable; use other tools.";
+      addTest("V16.5-D buildObsidianCliLine: 三态文案派生正确",
+        ok ? "pass" : "fail",
+        `a='${a}' u='${u}' un='${un}'`);
+    }
+
+    // Test D-e: buildBridgePromptPackage 接收 capabilities 参数，传递到 bridgeSystemAppend
+    {
+      const pkg = promptPkgMod.buildBridgePromptPackage("用户请求", v165cSnapshot, baseBridgeSettings, {
+        providerNativeFileTools: true,
+        bridgeRuntimeFileTools: true,
+        shellAvailable: true,
+        obsidianCliAvailable: "known-unavailable",
+        askUserQuestionAvailable: true,
+        evidence: {
+          provider: "claude-sdk",
+          runtimeFileToolAdapter: "available",
+          shellApprovalSupported: true,
+          obsidianCliProbe: "probed-failed",
+        },
+      });
+      const append = pkg.bridgeSystemAppend;
+      // known-unavailable 文案应出现在 bridgeSystemAppend
+      const hasUnavailable = append.includes("- Obsidian CLI: unavailable; use other tools.");
+      // 不应出现 unknown 文案
+      const notUnknown = !append.includes("availability unknown");
+      addTest("V16.5-D buildBridgePromptPackage: capabilities 参数传递到 bridgeSystemAppend",
+        hasUnavailable && notUnknown ? "pass" : "fail",
+        `hasUnavailable=${hasUnavailable} notUnknown=${notUnknown}`);
+    }
+
+    // Test D-f: view.ts 主路径会向 buildBridgePromptPackage 传入 capabilities
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      // 验证 view.ts 调用 buildRuntimeCapabilities 并传入 buildBridgePromptPackage
+      const hasBuilder = viewSrc.includes("buildRuntimeCapabilities(session.providerId, settings)");
+      const hasPass = viewSrc.includes("buildBridgePromptPackage(userInput, snapshot, settings, runtimeCapabilities)");
+      // 验证 view.ts 导入了 ProviderCapabilityInfo 类型
+      const hasImport = viewSrc.includes("from \"./runtime/core/bridgePromptContract\"");
+      addTest("V16.5-D view.ts 主路径注入真实 capabilities",
+        hasBuilder && hasPass && hasImport ? "pass" : "fail",
+        `hasBuilder=${hasBuilder} hasPass=${hasPass} hasImport=${hasImport}`);
+    }
+
+    // Test D-g: DEFAULT_PROVIDER_CAPABILITIES obsidianCliAvailable 默认为 "unknown"（不臆造可用）
+    {
+      const cap = bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES;
+      const isUnknown = cap.obsidianCliAvailable === "unknown";
+      const hasEvidence = cap.evidence && cap.evidence.obsidianCliProbe === "not-probed";
+      addTest("V16.5-D DEFAULT_PROVIDER_CAPABILITIES: obsidianCliAvailable 默认 unknown",
+        isUnknown && hasEvidence ? "pass" : "fail",
+        `isUnknown=${isUnknown} hasEvidence=${hasEvidence}`);
+    }
+
+    // Test D-h: buildRuntimeCapabilities 派生 providerNativeFileTools 依据 providerId
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      // 验证 buildRuntimeCapabilities 根据 providerId 派生 providerNativeFileTools
+      const hasProviderCheck = viewSrc.includes('providerId === "claude-sdk"')
+        && viewSrc.includes('providerId === "codex-app-server"')
+        && viewSrc.includes('providerId === "claude-cli"');
+      // evidence.provider 应反映 providerId
+      const hasEvidenceProvider = viewSrc.includes("provider: providerId");
+      addTest("V16.5-D buildRuntimeCapabilities: 根据 providerId 派生 providerNativeFileTools",
+        hasProviderCheck && hasEvidenceProvider ? "pass" : "fail",
+        `hasProviderCheck=${hasProviderCheck} hasEvidenceProvider=${hasEvidenceProvider}`);
+    }
+
+    // Test D-i: Autonomy Contract 保持不变（V16.5-D 不回退 V16.5-C）
+    {
+      const autoText = bridgeContractMod.buildAutonomyContract();
+      const hasDirectAction = autoText.includes("用户意图明确时直接行动");
+      const hasNoRepeat = autoText.includes("不要在正文中反复确认");
+      const hasToolPriority = autoText.includes("可执行任务优先使用工具");
+      const hasAskUserOnly = autoText.includes("只有 target/scope/operation 不明确时才使用 AskUserQuestion");
+      addTest("V16.5-D Autonomy Contract 保持不变",
+        hasDirectAction && hasNoRepeat && hasToolPriority && hasAskUserOnly ? "pass" : "fail",
+        `direct=${hasDirectAction} noRepeat=${hasNoRepeat} tool=${hasToolPriority} askUser=${hasAskUserOnly}`);
+    }
+
+    // Test D-j: ProviderCapabilityInfo evidence 字段存在且可被填充
+    {
+      const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, {
+        providerNativeFileTools: true,
+        bridgeRuntimeFileTools: true,
+        shellAvailable: true,
+        obsidianCliAvailable: "known-available",
+        askUserQuestionAvailable: true,
+        evidence: {
+          provider: "codex-app-server",
+          runtimeFileToolAdapter: "available",
+          shellApprovalSupported: true,
+          obsidianCliProbe: "probed-ok",
+        },
+      });
+      // manifest 应正常渲染（evidence 不直接出现在文案中，但不应报错）
+      const hasManifest = capText.includes("========== Capability Manifest ==========");
+      const hasAvailable = capText.includes("- Obsidian CLI: available.");
+      addTest("V16.5-D ProviderCapabilityInfo evidence 字段可填充",
+        hasManifest && hasAvailable ? "pass" : "fail",
+        `hasManifest=${hasManifest} hasAvailable=${hasAvailable}`);
     }
 
     // 清理临时 bundles

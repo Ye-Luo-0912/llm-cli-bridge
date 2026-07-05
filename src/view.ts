@@ -23,6 +23,7 @@ import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse,
 import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
+import { DEFAULT_PROVIDER_CAPABILITIES, type ProviderCapabilityInfo, type ObsidianCliAvailability } from "./runtime/core/bridgePromptContract";
 import { AssistantTurnViewBuilder } from "./runtime/core/assistantTurnView";
 import { mapNormalizedToWorkflowEvent } from "./runtime/providers/workflowEventMapper";
 import { getRuntimeModelCatalog, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
@@ -1814,6 +1815,42 @@ export class LLMBridgeView extends ItemView {
     if (kind === "running") {
       statusEl.addClass("llm-bridge-run-glow");
     }
+  }
+
+  /**
+   * V16.5-D: 从当前 session/provider/settings 派生真实 runtime capabilities。
+   *
+   * 主路径在 buildBridgePromptPackage 调用前构造一次，注入 prompt 作为 facts。
+   * 不臆造可用性；Obsidian CLI 默认 "unknown"（未探测），由 LLM 按需 probe。
+   */
+  private buildRuntimeCapabilities(providerId: string, settings: LLMBridgeSettings): ProviderCapabilityInfo {
+    // provider-native file tools: claude-sdk / codex-app-server / claude-cli 都提供
+    // Read/Write/Edit/Glob/Grep；mock 保守返回 true（测试可控）。
+    const providerNativeFileTools = providerId === "claude-sdk"
+      || providerId === "codex-app-server"
+      || providerId === "claude-cli"
+      || providerId === "mock";
+    // bridge runtime file tools: 由 createRuntimeFileToolAdapter 提供（read-only adapter）
+    const bridgeRuntimeFileTools = true;
+    // shell: PermissionBoundary 支持 command execution approval（host approval 拦截）
+    const shellAvailable = true;
+    // Obsidian CLI: 不做启动期 probe（避免阻塞 run）；默认 unknown，LLM 按需 probe
+    const obsidianCliAvailable: ObsidianCliAvailability = "unknown";
+    // AskUserQuestion: UserInputBoundary 始终可用
+    const askUserQuestionAvailable = true;
+    return {
+      providerNativeFileTools,
+      bridgeRuntimeFileTools,
+      shellAvailable,
+      obsidianCliAvailable,
+      askUserQuestionAvailable,
+      evidence: {
+        provider: providerId,
+        runtimeFileToolAdapter: bridgeRuntimeFileTools ? "available" : "unavailable",
+        shellApprovalSupported: shellAvailable,
+        obsidianCliProbe: "not-probed",
+      },
+    };
   }
 
   /** V16.4-F: 按工具类型生成语义化 card title（V16.5-C: 复用 normalizeToolName 归一 command execution） */
@@ -6265,7 +6302,9 @@ export class LLMBridgeView extends ItemView {
     // 旧 buildPromptPackage 字符串（避免 prompt split 绕过）。
     // bridge 系统附加内容只进入 systemPrompt / provider instructions 层，
     // 不混入 SDK streaming text block。
-    const promptPackage = buildBridgePromptPackage(userInput, snapshot, settings);
+    // V16.5-D: 注入真实 runtime capabilities（从 session.providerId 派生），不再只用默认值。
+    const runtimeCapabilities = this.buildRuntimeCapabilities(session.providerId, settings);
+    const promptPackage = buildBridgePromptPackage(userInput, snapshot, settings, runtimeCapabilities);
     const sdkStreamingInput = await this.buildSdkStreamingInput(promptPackage.userPrompt, promptFileRefsForRun);
 
     // 旧 buildPromptPackage 仅作为 legacy CLI preview/log fallback（不进入 SDK streaming）

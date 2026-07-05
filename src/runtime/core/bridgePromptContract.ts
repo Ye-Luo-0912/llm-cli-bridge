@@ -1,17 +1,20 @@
-// LLM CLI Bridge — Minimal Prompt Contract (V16.5-C)
+// LLM CLI Bridge — Minimal Prompt Contract (V16.5-C, V16.5-D grounded)
 //
 // 集中维护 prompt 的三类核心 section：
 // 1. buildCapabilityManifest  — 声明当前 runtime 可用能力与边界
 // 2. buildAutonomyContract    — 鼓励 LLM 自主行动，减少反复正文确认
 // 3. buildSafetyBoundaryContract — write/delete/command 由 host approval 承担
 //
+// V16.5-D: Capability Manifest 不再只依赖 DEFAULT_PROVIDER_CAPABILITIES。
+// ProviderCapabilityInfo 改为带 evidence 的 facts 结构，obsidianCliAvailable 改为
+// 三态（known-available / unknown / known-unavailable）。调用方（view.ts）注入真实
+// runtime/provider/preflight 能力，本模块只渲染事实，不臆造。
+//
 // 设计原则：
 // - 最小化：每个 section 只描述必要约束，不堆砌细碎规则。
 // - provider-neutral：不绑定 SDK/CLI/Codex 的私有字段名。
-// - 单一真相源：runtime/core/promptPackage.ts 与 src/promptPackage.ts 都复用本模块，
-//   避免两套规则漂移。
-// - 不禁止工具：Obsidian CLI / shell / provider-native file tools 都允许使用，
-//   只要求在能力不明时通过命令探测或 AskUserQuestion 确认。
+// - 单一真相源：runtime/core/promptPackage.ts 与 src/promptPackage.ts 都复用本模块。
+// - 事实驱动：capability 文案根据真实 facts 派生，不写"未知但可用"的矛盾文案。
 
 import type { LLMBridgeSettings } from "../../types";
 import type { StateSnapshot } from "../../promptPackage";
@@ -19,10 +22,21 @@ import type { StateSnapshot } from "../../promptPackage";
 // ---------- Provider 能力信息 ----------
 
 /**
- * 当前 runtime 可用的 provider 能力。
+ * Obsidian CLI 可用性三态。
  *
- * 由调用方（view.ts / BridgeSession）根据 backendMode + provider 实际探测结果填充。
- * 默认值保守（true 表示"可用，但不强制"）。
+ * - "known-available":   已探测可用（如 `obsidian --version` 成功）
+ * - "unknown":           未探测（默认；调用方可按需探测）
+ * - "known-unavailable": 已探测不可用（命令缺失/失败）
+ */
+export type ObsidianCliAvailability = "known-available" | "unknown" | "known-unavailable";
+
+/**
+ * 当前 runtime 可用的 provider 能力（带 evidence 的 facts）。
+ *
+ * 由调用方（view.ts / BridgeSession）根据 backendMode + provider + preflight 实际结果填充。
+ * evidence 用于 prompt 审计与 LLM 决策依据；不会展示给最终用户（仅在 prompt 中以事实形式出现）。
+ *
+ * V16.5-D: obsidianCliAvailable 从 boolean 改为三态；其余能力保留 boolean + 可选 evidence string。
  */
 export interface ProviderCapabilityInfo {
   /** provider-native file tools 可用（Read/Write/Edit/Glob/Grep 等） */
@@ -31,28 +45,54 @@ export interface ProviderCapabilityInfo {
   readonly bridgeRuntimeFileTools: boolean;
   /** shell / PowerShell / Bash 执行可用（需 host approval） */
   readonly shellAvailable: boolean;
-  /** Obsidian CLI 可用（不可臆造；调用方应在能力不明时通过命令探测） */
-  readonly obsidianCliAvailable: boolean;
+  /** Obsidian CLI 可用性三态（known-available / unknown / known-unavailable） */
+  readonly obsidianCliAvailable: ObsidianCliAvailability;
   /** AskUserQuestion 可用于真实歧义 */
   readonly askUserQuestionAvailable: boolean;
+  /** 能力来源证据（provider id / runtimeFileToolAdapter / shell approval / obsidian CLI probe 结果） */
+  readonly evidence?: ProviderCapabilityEvidence;
 }
 
+export interface ProviderCapabilityEvidence {
+  /** 当前 provider 标识（claude-sdk / codex-app-server / claude-cli / mock） */
+  readonly provider?: string;
+  /** runtimeFileToolAdapter 状态（available / unavailable） */
+  readonly runtimeFileToolAdapter?: "available" | "unavailable";
+  /** shell approval 是否支持（host approval 能拦截 command execution） */
+  readonly shellApprovalSupported?: boolean;
+  /** Obsidian CLI 探测结果（not-probed / probed-ok / probed-failed） */
+  readonly obsidianCliProbe?: "not-probed" | "probed-ok" | "probed-failed";
+}
+
+/**
+ * 默认能力（仅作为 fallback，不应作为主路径）。
+ *
+ * V16.5-D: 主路径（view.ts → buildBridgePromptPackage）必须传入真实 capabilities。
+ * 此默认值保留给 legacy 路径与单元测试，obsidianCliAvailable 默认 "unknown"
+ * （不臆造可用）。
+ */
 export const DEFAULT_PROVIDER_CAPABILITIES: ProviderCapabilityInfo = {
   providerNativeFileTools: true,
   bridgeRuntimeFileTools: true,
   shellAvailable: true,
-  obsidianCliAvailable: true,
+  obsidianCliAvailable: "unknown",
   askUserQuestionAvailable: true,
+  evidence: {
+    provider: "unknown",
+    runtimeFileToolAdapter: "available",
+    shellApprovalSupported: true,
+    obsidianCliProbe: "not-probed",
+  },
 };
 
 // ---------- Section 1: Capability Manifest ----------
 
 /**
- * 声明当前 runtime 可用能力与边界。
+ * 声明当前 runtime 可用能力与边界（V16.5-D: 事实驱动，文案根据三态派生）。
  *
  * - provider-native file tools / bridge runtime file tools 可用时应优先用于文件操作。
  * - Shell / PowerShell / Bash 可用于高效任务，但需要 host approval。
- * - Obsidian CLI 可以使用，但不要臆造；使用前应确认或通过命令探测可用性。
+ * - Obsidian CLI 文案根据 known-available / unknown / known-unavailable 派生。
  * - AskUserQuestion 可用于真实歧义。
  * - Host approval 是 write/delete/command 的最终边界。
  */
@@ -74,14 +114,38 @@ export function buildCapabilityManifest(
   if (capabilities.shellAvailable) {
     lines.push("- Shell / PowerShell / Bash：可用于高效任务，但 write/delete/command 类操作需要 host approval。");
   }
-  if (capabilities.obsidianCliAvailable) {
-    lines.push("- Obsidian CLI：可以使用，但不要臆造可用性；使用前应通过命令探测（如 `--version`）或 AskUserQuestion 确认。");
+  // V16.5-D: Obsidian CLI 文案根据三态派生（不臆造可用性）
+  const obsidianLine = buildObsidianCliLine(capabilities.obsidianCliAvailable);
+  if (obsidianLine) {
+    lines.push(obsidianLine);
   }
   if (capabilities.askUserQuestionAvailable) {
     lines.push("- AskUserQuestion：可用于真实歧义（target/scope/operation 不明确时）。");
   }
   lines.push("- Host approval 是 write/delete/command 的最终安全边界；权限系统会拦截未授权操作。");
   return lines.join("\n");
+}
+
+/**
+ * V16.5-D: 根据 Obsidian CLI 可用性三态派生 prompt 文案。
+ *
+ * - known-available:   "Obsidian CLI: available."
+ * - unknown:           "Obsidian CLI: availability unknown; you may probe if useful."
+ * - known-unavailable:  "Obsidian CLI: unavailable; use other tools."
+ *
+ * 不新增行为规则，只写事实。
+ */
+export function buildObsidianCliLine(availability: ObsidianCliAvailability): string {
+  switch (availability) {
+    case "known-available":
+      return "- Obsidian CLI: available.";
+    case "unknown":
+      return "- Obsidian CLI: availability unknown; you may probe if useful.";
+    case "known-unavailable":
+      return "- Obsidian CLI: unavailable; use other tools.";
+    default:
+      return "";
+  }
 }
 
 // ---------- Section 2: Autonomy Contract ----------

@@ -231,13 +231,17 @@ export function buildAttachmentEntries(snapshot: StateSnapshot): AttachmentEntry
  *
  * view 层在发送时构造一次，所有 provider 从同一包派生自己的 instructions/prompt/input。
  * auditHash 用于跨 provider 一致性审计。
+ *
+ * V16.5-D: 增加可选 capabilities 参数。主路径（view.ts）必须传入从 runtime/provider
+ * /preflight 派生的真实 capabilities；未传入时降级为 DEFAULT_PROVIDER_CAPABILITIES（fallback）。
  */
 export function buildBridgePromptPackage(
   userInput: string,
   snapshot: StateSnapshot,
   settings: LLMBridgeSettings,
+  capabilities?: ProviderCapabilityInfo,
 ): BridgePromptPackage {
-  const bridgeSystemAppend = buildBridgeSystemAppend(settings, snapshot);
+  const bridgeSystemAppend = buildBridgeSystemAppend(settings, snapshot, capabilities);
   const userPrompt = buildUserPrompt(userInput, snapshot, settings);
   const attachmentEntries = buildAttachmentEntries(snapshot);
   // auditHash 基于 bridgeSystemAppend + userPrompt + attachmentEntries（跨 provider 一致）
