@@ -238,6 +238,101 @@ export default class LLMBridgePlugin extends Plugin {
         await this.openLastGeneratedNote();
       },
     });
+
+    // V16.5-E: Agent Runtime Workspace 命令（最小入口）
+    this.addCommand({
+      id: "init-agent-runtime-workspace",
+      name: "Initialize Agent Runtime Workspace",
+      callback: async () => {
+        const adapter = this.app.vault.adapter as DataAdapter;
+        const vaultPath = adapter.getBasePath();
+        const { ensureAgentRuntimeWorkspace } = await import("./src/agentRuntimeWorkspace");
+        const result = await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
+        const msg = result.vaultSkillInitialized
+          ? `Agent Runtime initialized; VAULT_SKILL 初版已生成。`
+          : `Agent Runtime ready (已存在文件跳过)。`;
+        new Notice(msg);
+      },
+    });
+
+    this.addCommand({
+      id: "view-vault-skill",
+      name: "View Vault Skill source",
+      callback: async () => {
+        const adapter = this.app.vault.adapter as DataAdapter;
+        const vaultPath = adapter.getBasePath();
+        const { VAULT_SKILL_SOURCE_REL, ensureAgentRuntimeWorkspace } = await import("./src/agentRuntimeWorkspace");
+        await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
+        const file = this.app.vault.getAbstractFileByPath(VAULT_SKILL_SOURCE_REL);
+        if (file instanceof TFile) {
+          await this.app.workspace.openLinkText(file.path, "", false);
+        } else {
+          new Notice("VAULT_SKILL source not found");
+        }
+      },
+    });
+
+    this.addCommand({
+      id: "rebuild-vault-skill",
+      name: "Rebuild Vault Skill (overwrite with caution)",
+      callback: async () => {
+        const adapter = this.app.vault.adapter as DataAdapter;
+        const vaultPath = adapter.getBasePath();
+        const { VAULT_SKILL_SOURCE_REL, generateInitialVaultSkill, readVaultSkillSource } = await import("./src/agentRuntimeWorkspace");
+        const existing = await readVaultSkillSource(vaultPath);
+        if (existing) {
+          // 尊重人工修改：提示用户确认
+          new Notice("VAULT_SKILL 已存在；为避免覆盖人工修改，请手动删除源文件后再 rebuild。");
+          return;
+        }
+        const initial = await generateInitialVaultSkill(vaultPath);
+        const fsMod = await import("fs");
+        const fsPromises = fsMod.promises;
+        const pathMod = await import("path");
+        await fsPromises.mkdir(pathMod.join(vaultPath, "LLM-AgentRuntime/skills/vault-context"), { recursive: true });
+        await fsPromises.writeFile(pathMod.join(vaultPath, VAULT_SKILL_SOURCE_REL), initial, "utf8");
+        new Notice("VAULT_SKILL 初版已重建。");
+      },
+    });
+
+    this.addCommand({
+      id: "materialize-vault-skill",
+      name: "Materialize Vault Skill to .claude/skills",
+      callback: async () => {
+        const adapter = this.app.vault.adapter as DataAdapter;
+        const vaultPath = adapter.getBasePath();
+        const { ensureAgentRuntimeWorkspace, materializeVaultSkill } = await import("./src/agentRuntimeWorkspace");
+        await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
+        const result = await materializeVaultSkill(vaultPath);
+        if (result.ok) {
+          new Notice(`Vault Skill materialized: ${result.status}`);
+        } else {
+          new Notice(`Materialize failed: ${result.status} — ${result.reason ?? "unknown"}`);
+        }
+      },
+    });
+
+    this.addCommand({
+      id: "clean-agent-runtime-work",
+      name: "Clean Agent Runtime work/ directory",
+      callback: async () => {
+        const adapter = this.app.vault.adapter as DataAdapter;
+        const vaultPath = adapter.getBasePath();
+        const { AGENT_RUNTIME_WORK_DIR_REL } = await import("./src/agentRuntimeWorkspace");
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        const workDir = pathMod.join(vaultPath, AGENT_RUNTIME_WORK_DIR_REL);
+        try {
+          const entries = await fsMod.promises.readdir(workDir);
+          for (const entry of entries) {
+            await fsMod.promises.rm(pathMod.join(workDir, entry), { recursive: true, force: true });
+          }
+          new Notice(`Cleaned ${entries.length} entries from work/`);
+        } catch {
+          new Notice("work/ directory not found or empty");
+        }
+      },
+    });
   }
 
   private async openLastGeneratedNote(): Promise<void> {

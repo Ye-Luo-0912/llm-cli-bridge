@@ -123,6 +123,11 @@ export function buildCapabilityManifest(
     lines.push("- AskUserQuestion：可用于真实歧义（target/scope/operation 不明确时）。");
   }
   lines.push("- Host approval 是 write/delete/command 的最终安全边界；权限系统会拦截未授权操作。");
+  // V16.5-E: Agent Runtime Workspace 事实（简短路径，不堆规则）
+  lines.push("- Agent workspace: LLM-AgentRuntime/（sessions/ work/ runtime/ skills/；agent 维护，用户默认不需要编辑）。");
+  lines.push("- Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md（agent 长期认知缓存）。");
+  lines.push("- Runtime Skill target: .claude/skills/vault-context/SKILL.md（物化后 provider 按需识别）。");
+  lines.push("- Runtime facts: LLM-AgentRuntime/runtime/RUNTIME_FACTS.json（机器事实，不进 prompt）。");
   return lines.join("\n");
 }
 

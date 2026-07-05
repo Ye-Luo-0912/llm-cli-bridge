@@ -1091,6 +1091,8 @@ if (runMode !== "all" && runMode !== "unit") {
     const tempSdkPermissionBundle = join(PROJECT_ROOT, ".test-sdk-permission-temp.mjs");
     // V16.5-C: bridgePromptContract bundle 供 capability/autonomy/safety contract 测试
     const tempBridgeContractBundle = join(PROJECT_ROOT, ".test-bridge-contract-temp.mjs");
+    // V16.5-E: agentRuntimeWorkspace bundle 供 workspace/skill/facts 测试
+    const tempAgentRuntimeWorkspaceBundle = join(PROJECT_ROOT, ".test-agent-runtime-workspace-temp.mjs");
 
     const bundleOpts = (entry) => ({
       entryPoints: [join(PROJECT_ROOT, "src", entry)],
@@ -1111,6 +1113,8 @@ if (runMode !== "all" && runMode !== "unit") {
     await esbuild.build({ ...bundleOpts("sdkPermission.ts"), outfile: tempSdkPermissionBundle });
     // V16.5-C: bridgePromptContract bundle
     await esbuild.build({ ...bundleOpts("runtime/core/bridgePromptContract.ts"), outfile: tempBridgeContractBundle });
+    // V16.5-E: agentRuntimeWorkspace bundle
+    await esbuild.build({ ...bundleOpts("agentRuntimeWorkspace.ts"), outfile: tempAgentRuntimeWorkspaceBundle });
 
     const codexProviderMod = await import(pathToFileURL(tempCodexProviderBundle).href);
     const promptPkgMod = await import(pathToFileURL(tempPromptPkgBundle).href);
@@ -1125,6 +1129,8 @@ if (runMode !== "all" && runMode !== "unit") {
     const { normalizeToolName, assessToolRisk } = sdkPermissionMod;
     // V16.5-C: bridgePromptContract 模块（buildCapabilityManifest / buildAutonomyContract / buildSafetyBoundaryContract）
     const bridgeContractMod = await import(pathToFileURL(tempBridgeContractBundle).href);
+    // V16.5-E: agentRuntimeWorkspace 模块
+    const agentRuntimeWsMod = await import(pathToFileURL(tempAgentRuntimeWorkspaceBundle).href);
 
     // ---------- 最小 settings + snapshot ----------
     const baseBridgeSettings = {
@@ -3864,12 +3870,267 @@ if (runMode !== "all" && runMode !== "unit") {
         `hasManifest=${hasManifest} hasAvailable=${hasAvailable}`);
     }
 
+    // ===== V16.5-E: Agent Runtime Workspace + Vault Skill =====
+    // 使用真实临时目录测试文件系统操作
+    const v165eTmpRoot = mkdtempSync(join(tmpdir(), "v165e-ws-"));
+    try {
+      // Test E-0a: V16.5-D blocker 回归 — session 声明在 buildRuntimeCapabilities 之前
+      {
+        const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+        const sessionLine = viewSrc.indexOf("const session = this.getSession();");
+        const capLine = viewSrc.indexOf("this.buildRuntimeCapabilities(session.providerId");
+        const orderOk = sessionLine > 0 && capLine > 0 && sessionLine < capLine;
+        addTest("V16.5-E blocker: session 声明在 buildRuntimeCapabilities 之前",
+          orderOk ? "pass" : "fail",
+          `sessionLine=${sessionLine} capLine=${capLine} orderOk=${orderOk}`);
+      }
+
+      // Test E-0b: buildBridgePromptPackage 主路径接收 runtimeCapabilities（非默认）
+      {
+        const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+        const hasRuntimeCapabilities = viewSrc.includes("const runtimeCapabilities = this.buildRuntimeCapabilities(session.providerId, settings)");
+        const hasPassedToBuilder = viewSrc.includes("buildBridgePromptPackage(userInput, snapshot, settings, runtimeCapabilities)");
+        addTest("V16.5-E blocker: buildBridgePromptPackage 主路径接收 runtimeCapabilities",
+          hasRuntimeCapabilities && hasPassedToBuilder ? "pass" : "fail",
+          `hasRuntimeCapabilities=${hasRuntimeCapabilities} hasPassedToBuilder=${hasPassedToBuilder}`);
+      }
+
+      // Test E-a: 首次初始化创建 LLM-AgentRuntime/ 结构
+      {
+        const result = await agentRuntimeWsMod.ensureAgentRuntimeWorkspace(v165eTmpRoot, {
+          createVaultSkillIfMissing: true,
+          vaultSkillInitParams: {
+            providerId: "claude-sdk",
+            cwd: v165eTmpRoot,
+            platform: "test",
+            shellAvailable: true,
+            shellKind: "powershell",
+            runtimeFileToolAdapter: "available",
+            providerNativeFileTools: true,
+          },
+        });
+        const expectedCreated = [
+          "LLM-AgentRuntime",
+          "LLM-AgentRuntime/runtime",
+          "LLM-AgentRuntime/skills",
+          "LLM-AgentRuntime/skills/vault-context",
+          "LLM-AgentRuntime/sessions",
+          "LLM-AgentRuntime/work",
+          "LLM-AgentRuntime/README.md",
+          "LLM-AgentRuntime/runtime/RUNTIME_FACTS.json",
+          "LLM-AgentRuntime/skills/vault-context/SKILL.md",
+        ];
+        const allCreated = expectedCreated.every((p) => result.created.includes(p));
+        addTest("V16.5-E workspace: 首次初始化创建完整结构",
+          allCreated && result.vaultSkillInitialized ? "pass" : "fail",
+          `allCreated=${allCreated} vaultSkillInitialized=${result.vaultSkillInitialized} created=${JSON.stringify(result.created)}`);
+      }
+
+      // Test E-b: 二次初始化不覆盖（已存在文件 skipped）
+      {
+        const result = await agentRuntimeWsMod.ensureAgentRuntimeWorkspace(v165eTmpRoot, {
+          createVaultSkillIfMissing: true,
+        });
+        const vaultSkillSkipped = result.skipped.includes("LLM-AgentRuntime/skills/vault-context/SKILL.md");
+        const readmeSkipped = result.skipped.includes("LLM-AgentRuntime/README.md");
+        addTest("V16.5-E workspace: 二次初始化不覆盖已存在文件",
+          vaultSkillSkipped && readmeSkipped && !result.vaultSkillInitialized ? "pass" : "fail",
+          `vaultSkillSkipped=${vaultSkillSkipped} readmeSkipped=${readmeSkipped} initialized=${result.vaultSkillInitialized}`);
+      }
+
+      // Test E-c: RUNTIME_FACTS.json 默认 obsidianCliAvailable="unknown"
+      {
+        const facts = await agentRuntimeWsMod.loadRuntimeFacts(v165eTmpRoot);
+        const isUnknown = facts?.obsidianCliAvailable === "unknown";
+        const probeNotProbed = facts?.obsidianCliProbe === "not-probed";
+        const hasSchema = facts?.schemaVersion === 1;
+        addTest("V16.5-E RUNTIME_FACTS: 默认 obsidianCliAvailable=unknown",
+          isUnknown && probeNotProbed && hasSchema ? "pass" : "fail",
+          `isUnknown=${isUnknown} probeNotProbed=${probeNotProbed} hasSchema=${hasSchema}`);
+      }
+
+      // Test E-d: VAULT_SKILL 初版包含 Vault Overview / Directory Map / Agent Workspace
+      {
+        const skill = await agentRuntimeWsMod.readVaultSkillSource(v165eTmpRoot);
+        const hasHeader = skill?.includes("# VAULT_SKILL") ?? false;
+        const hasVaultRoot = skill?.includes("Vault root:") ?? false;
+        const hasAgentWorkspace = skill?.includes("Agent workspace: LLM-AgentRuntime/") ?? false;
+        const hasSourcePath = skill?.includes("Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md") ?? false;
+        const hasRuntimeTarget = skill?.includes("Runtime Skill target: .claude/skills/vault-context/SKILL.md") ?? false;
+        const hasStableFactsSection = skill?.includes("## Stable Vault Facts") ?? false;
+        addTest("V16.5-E VAULT_SKILL 初版: 包含 Overview/Directory/Agent Workspace facts",
+          hasHeader && hasVaultRoot && hasAgentWorkspace && hasSourcePath && hasRuntimeTarget && hasStableFactsSection ? "pass" : "fail",
+          `header=${hasHeader} vaultRoot=${hasVaultRoot} agentWs=${hasAgentWorkspace} source=${hasSourcePath} target=${hasRuntimeTarget} stableFacts=${hasStableFactsSection}`);
+      }
+
+      // Test E-e: 已存在 VAULT_SKILL 不被模板覆盖
+      {
+        // 修改 source skill 模拟人工编辑
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        const sourceAbs = pathMod.join(v165eTmpRoot, "LLM-AgentRuntime/skills/vault-context/SKILL.md");
+        const original = await fsMod.promises.readFile(sourceAbs, "utf8");
+        const userEdit = original + "\n\n## User Correction\n- 用户手动添加的纠正内容\n";
+        await fsMod.promises.writeFile(sourceAbs, userEdit, "utf8");
+
+        // 重新初始化（不应覆盖）
+        const result = await agentRuntimeWsMod.ensureAgentRuntimeWorkspace(v165eTmpRoot, { createVaultSkillIfMissing: true });
+        const skipped = result.skipped.includes("LLM-AgentRuntime/skills/vault-context/SKILL.md");
+        const afterReinit = await fsMod.promises.readFile(sourceAbs, "utf8");
+        const userEditPreserved = afterReinit.includes("用户手动添加的纠正内容");
+
+        // 恢复 original 以便后续测试
+        await fsMod.promises.writeFile(sourceAbs, original, "utf8");
+
+        addTest("V16.5-E VAULT_SKILL: 已存在文件不被模板覆盖",
+          skipped && userEditPreserved ? "pass" : "fail",
+          `skipped=${skipped} userEditPreserved=${userEditPreserved}`);
+      }
+
+      // Test E-f: skill 物化 — source → .claude/skills/vault-context/SKILL.md
+      {
+        const result = await agentRuntimeWsMod.materializeVaultSkill(v165eTmpRoot);
+        const isOk = result.ok && (result.status === "created" || result.status === "updated");
+        const hasPaths = result.sourcePath === "LLM-AgentRuntime/skills/vault-context/SKILL.md"
+          && result.materializedPath === ".claude/skills/vault-context/SKILL.md";
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        const materializedAbs = pathMod.join(v165eTmpRoot, ".claude/skills/vault-context/SKILL.md");
+        const materializedContent = await fsMod.promises.readFile(materializedAbs, "utf8");
+        const hasMarker = materializedContent.includes("<!-- generated-by:llm-cli-bridge -->");
+        addTest("V16.5-E materialize: source → .claude/skills/vault-context/SKILL.md",
+          isOk && hasPaths && hasMarker ? "pass" : "fail",
+          `isOk=${isOk} hasPaths=${hasPaths} hasMarker=${hasMarker} status=${result.status}`);
+      }
+
+      // Test E-g: 二次物化 status=skipped（内容一致）
+      {
+        const result = await agentRuntimeWsMod.materializeVaultSkill(v165eTmpRoot);
+        const isSkipped = result.ok && result.status === "skipped";
+        addTest("V16.5-E materialize: 内容一致时 skipped",
+          isSkipped ? "pass" : "fail",
+          `status=${result.status}`);
+      }
+
+      // Test E-h: runtime skill 被人工修改后物化返回 conflict
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        const materializedAbs = pathMod.join(v165eTmpRoot, ".claude/skills/vault-context/SKILL.md");
+        const originalMat = await fsMod.promises.readFile(materializedAbs, "utf8");
+        // 移除 plugin-generated marker 模拟人工修改
+        const humanModified = originalMat.replace("<!-- generated-by:llm-cli-bridge -->\n", "") + "\n<!-- human edit -->\n";
+        await fsMod.promises.writeFile(materializedAbs, humanModified, "utf8");
+
+        const result = await agentRuntimeWsMod.materializeVaultSkill(v165eTmpRoot);
+        const isConflict = !result.ok && result.status === "conflict";
+
+        // 恢复 original 以便后续测试
+        await fsMod.promises.writeFile(materializedAbs, originalMat, "utf8");
+
+        addTest("V16.5-E materialize: 人工修改后 conflict 不强制覆盖",
+          isConflict ? "pass" : "fail",
+          `isConflict=${isConflict} status=${result.status} reason=${result.reason ?? ""}`);
+      }
+
+      // Test E-i: shouldWriteVaultSkill 只允许合法 reason
+      {
+        const legalReasons = ["initial", "user-requested", "user-long-term-preference", "stable-vault-structure", "correction-of-error", "post-cleanup-task"];
+        const allLegal = legalReasons.every((r) => agentRuntimeWsMod.shouldWriteVaultSkill(r) === true);
+        addTest("V16.5-E shouldWriteVaultSkill: 合法 reason 允许写入",
+          allLegal ? "pass" : "fail",
+          `allLegal=${allLegal}`);
+      }
+
+      // Test E-j: isVaultSkillWritableContent 拒绝命令日志
+      {
+        const cmdLog = "$ ls -la\nexit 0";
+        const result = agentRuntimeWsMod.isVaultSkillWritableContent(cmdLog);
+        const rejected = !result.ok;
+        const stableFact = "Vault root: /test/vault";
+        const stableResult = agentRuntimeWsMod.isVaultSkillWritableContent(stableFact);
+        const accepted = stableResult.ok;
+        addTest("V16.5-E isVaultSkillWritableContent: 拒绝命令日志，接受稳定事实",
+          rejected && accepted ? "pass" : "fail",
+          `rejected=${rejected} accepted=${accepted}`);
+      }
+
+      // Test E-k: mergeVaultSkillContent 不 append-only（compact）
+      {
+        const existing = agentRuntimeWsMod.buildVaultSkillMarkdown({
+          stableFacts: ["fact1", "fact2"],
+          observations: [],
+          userCorrections: [],
+        });
+        // 添加大量重复内容触发 compact
+        const manyAdditions = Array.from({ length: 50 }, (_, i) => `观察 ${i}: `.repeat(20) + `内容 ${i}`);
+        const result = agentRuntimeWsMod.mergeVaultSkillContent(existing, {
+          additions: manyAdditions,
+        });
+        const withinMax = result.length <= agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS;
+        addTest("V16.5-E mergeVaultSkillContent: 超限时 compact，不 append-only 膨胀",
+          withinMax ? "pass" : "fail",
+          `length=${result.length} max=${agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS} compacted=${result.compacted}`);
+      }
+
+      // Test E-l: prompt 包含 Agent workspace / Vault Skill source / runtime skill target 事实
+      {
+        const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES);
+        const hasAgentWs = capText.includes("Agent workspace: LLM-AgentRuntime/");
+        const hasSource = capText.includes("Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md");
+        const hasTarget = capText.includes("Runtime Skill target: .claude/skills/vault-context/SKILL.md");
+        const hasFacts = capText.includes("Runtime facts: LLM-AgentRuntime/runtime/RUNTIME_FACTS.json");
+        addTest("V16.5-E prompt: 包含 Agent workspace / Vault Skill source / target 事实",
+          hasAgentWs && hasSource && hasTarget && hasFacts ? "pass" : "fail",
+          `agentWs=${hasAgentWs} source=${hasSource} target=${hasTarget} facts=${hasFacts}`);
+      }
+
+      // Test E-m: prompt 不包含完整 VAULT_SKILL 内容（只注入路径事实）
+      {
+        const pkg = promptPkgMod.buildBridgePromptPackage("用户请求", v165cSnapshot, baseBridgeSettings, bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES);
+        const append = pkg.bridgeSystemAppend;
+        // 应包含路径，不包含 VAULT_SKILL markdown 内容（如 Stable Vault Facts section header）
+        const hasPath = append.includes("Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md");
+        const notFullContent = !append.includes("## Stable Vault Facts");
+        addTest("V16.5-E prompt: 不注入完整 VAULT_SKILL，只注入路径事实",
+          hasPath && notFullContent ? "pass" : "fail",
+          `hasPath=${hasPath} notFullContent=${notFullContent}`);
+      }
+
+      // Test E-n: command palette 命令已注册
+      {
+        const mainSrc = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf8");
+        const hasInit = mainSrc.includes('id: "init-agent-runtime-workspace"');
+        const hasView = mainSrc.includes('id: "view-vault-skill"');
+        const hasRebuild = mainSrc.includes('id: "rebuild-vault-skill"');
+        const hasMaterialize = mainSrc.includes('id: "materialize-vault-skill"');
+        const hasCleanWork = mainSrc.includes('id: "clean-agent-runtime-work"');
+        addTest("V16.5-E command palette: 注册 5 个 Agent Runtime 命令",
+          hasInit && hasView && hasRebuild && hasMaterialize && hasCleanWork ? "pass" : "fail",
+          `init=${hasInit} view=${hasView} rebuild=${hasRebuild} materialize=${hasMaterialize} cleanWork=${hasCleanWork}`);
+      }
+
+      // Test E-o: V16.5-B/C/D 不回退 — Autonomy Contract 保持
+      {
+        const autoText = bridgeContractMod.buildAutonomyContract();
+        const hasDirectAction = autoText.includes("用户意图明确时直接行动");
+        const hasNoRepeat = autoText.includes("不要在正文中反复确认");
+        addTest("V16.5-E 兼容: Autonomy Contract 不回退",
+          hasDirectAction && hasNoRepeat ? "pass" : "fail",
+          `direct=${hasDirectAction} noRepeat=${hasNoRepeat}`);
+      }
+    } finally {
+      // 清理临时目录
+      try { rmSync(v165eTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+
     // 清理临时 bundles
     for (const f of [
       tempCodexProviderBundle, tempPromptPkgBundle, tempAssistantViewBundle,
       tempPermBoundaryBundle, tempWorkflowMapperBundle,
       tempSdkPermissionBundle,
       tempBridgeContractBundle,
+      tempAgentRuntimeWorkspaceBundle,
       join(PROJECT_ROOT, ".test-codex-plan-temp.mjs"),
       join(PROJECT_ROOT, ".test-jsonrpc-temp.mjs"),
       join(PROJECT_ROOT, ".test-codex-mapper-temp.mjs"),

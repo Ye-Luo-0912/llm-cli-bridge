@@ -6302,6 +6302,8 @@ export class LLMBridgeView extends ItemView {
     // 旧 buildPromptPackage 字符串（避免 prompt split 绕过）。
     // bridge 系统附加内容只进入 systemPrompt / provider instructions 层，
     // 不混入 SDK streaming text block。
+    // V16.5-E Task 0: session 必须在 buildRuntimeCapabilities 之前声明（修复 TDZ blocker）。
+    const session = this.getSession();
     // V16.5-D: 注入真实 runtime capabilities（从 session.providerId 派生），不再只用默认值。
     const runtimeCapabilities = this.buildRuntimeCapabilities(session.providerId, settings);
     const promptPackage = buildBridgePromptPackage(userInput, snapshot, settings, runtimeCapabilities);
@@ -6313,7 +6315,6 @@ export class LLMBridgeView extends ItemView {
     // V2.17-A Completion: 通过 BridgeSession 选择 provider 并构造 EffectiveRunPlan。
     // UI 不再直接接触 SdkBackend/ClaudeCliBackend/MockAgentBackend；plan 由
     // provider.buildPlan 从 RunInput 派生（单一真相源）。
-    const session = this.getSession();
     const imageBlockCount = sdkStreamingInput?.content.filter((b) => b.type === "image").length ?? 0;
     const attachmentPlan: AttachmentPlan = {
       messageScopedRefs: messageRefsForRun.length,
