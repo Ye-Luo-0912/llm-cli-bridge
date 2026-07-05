@@ -42,6 +42,12 @@ export type BackendMode = "auto" | "cli" | "sdk" | "mock-success" | "mock-failur
  */
 export type BackendProfile = "developer" | "portable";
 
+// V17-C: Pi SDK 工具暴露模式
+// - pi-native: 使用 Pi 默认 read/write/edit/bash（朋友版默认，Pi native trust 确认后启用）
+// - bridge-controlled: bridge_write/bridge_edit/bridge_bash 走 Bridge approval（开发者默认）
+// - read-only: 只启用 read（保守模式）
+export type PiToolMode = "pi-native" | "bridge-controlled" | "read-only";
+
 // V2.3: 权限策略（low=宽松 / medium=默认 / high=严格）
 export type PermissionPolicy = "low" | "medium" | "high";
 
@@ -175,6 +181,10 @@ export interface LLMBridgeSettings {
   piArgs: string;
   // V17-A: 后端配置档（朋友版 portable 优先 Pi；开发者 developer 全可选）
   backendProfile: BackendProfile;
+  // V17-C: Pi SDK 工具暴露模式（pi-native / bridge-controlled / read-only）
+  piToolMode: PiToolMode;
+  // V17-C: Pi native tools 首次确认状态（portable + pi-native 启动前需确认一次）
+  piNativeTrustConfirmed: boolean;
   customCommand: string;
   customArgs: string;
   includeActiveNote: boolean;
@@ -216,6 +226,10 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   piCommand: "pi",
   piArgs: "--mode rpc",
   backendProfile: "developer",
+  // V17-C: portable profile 朋友版默认 pi-native；developer 用户可手动切换为 bridge-controlled
+  piToolMode: "pi-native",
+  // V17-C: Pi native tools 首次确认状态（默认未确认）
+  piNativeTrustConfirmed: false,
   customCommand: "",
   customArgs: "",
   includeActiveNote: true,

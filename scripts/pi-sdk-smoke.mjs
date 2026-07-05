@@ -1,15 +1,14 @@
-// LLM CLI Bridge — Pi SDK Real Smoke (V17-B1 任务 G)
+// LLM CLI Bridge — Pi SDK Real Smoke (V17-C 任务 F)
 //
-// 真实 @earendil-works/pi-coding-agent 环境下验证：
-// - createAgentSession
-// - prompt
-// - text_delta
-// - read-only tool
-// - abort
+// 两组 smoke：
+// - read-only smoke：tools=["read"]，验证 createAgentSession + prompt + text_delta + agent_end
+// - pi-native smoke：不传 tools（用 Pi 默认），验证 native tool execution
 //
 // 没环境时明确 skip：
 // - piSdkSmokeStatus=skip
-// - reason=package not installed / no auth
+// - reason=package not installed / no auth / no model
+//
+// friend-ready gate：pi-native smoke pass 才能标 friend-ready
 //
 // 运行：npm run smoke:pi-sdk
 
@@ -20,7 +19,7 @@ import { join, resolve } from "node:path";
 const require = createRequire(import.meta.url);
 const PROJECT_ROOT = resolve(new URL("..", import.meta.url).pathname.replace(/^\//, "").replace(/^[A-Za-z]:/, (m) => m.toUpperCase() || "C")).replace(/^[a-z]:/, (m) => m.toUpperCase());
 
-console.log("=== Pi SDK Real Smoke ===");
+console.log("=== Pi SDK Real Smoke (V17-C) ===");
 console.log(`PROJECT_ROOT: ${PROJECT_ROOT}`);
 console.log("");
 
@@ -51,129 +50,157 @@ if (!sdk || typeof sdk.createAgentSession !== "function") {
   process.exit(0);
 }
 
-// 3. 检查认证
+// 3. V17-C 任务 C：检查认证（用 getAvailable 或 list）
 let authStorage = null;
+let modelRegistry = null;
 let hasAuth = false;
+let hasModel = false;
 try {
   if (sdk.AuthStorage?.create) {
     authStorage = sdk.AuthStorage.create();
-    if (typeof authStorage.hasConfiguredAuth === "function") {
-      hasAuth = authStorage.hasConfiguredAuth();
-    }
   }
-} catch (e) {
-  console.log(`Auth probe failed: ${e?.message || String(e)}`);
-}
-
-if (!hasAuth) {
-  console.log("");
-  console.log("=== SKIP: Pi SDK auth not configured ===");
-  console.log("piSdkSmokeStatus=skip");
-  console.log("reason=no auth (please run `pi login` or configure ~/.pi/agent API key)");
-  process.exit(0);
-}
-
-// 4. 检查模型
-let modelRegistry = null;
-let hasModel = false;
-try {
   if (sdk.ModelRegistry?.create && authStorage) {
     modelRegistry = sdk.ModelRegistry.create(authStorage);
-    if (typeof modelRegistry.list === "function") {
-      const models = modelRegistry.list();
-      hasModel = models.length > 0;
-      console.log(`Available models: ${models.length}`);
+  }
+  // V17-C 任务 C：优先用 getAvailable()
+  if (modelRegistry && typeof modelRegistry.getAvailable === "function") {
+    const available = modelRegistry.getAvailable();
+    hasModel = available.length > 0;
+    hasAuth = hasModel; // getAvailable 返回已配置 auth 的模型
+    console.log(`getAvailable() returned ${available.length} models`);
+  } else if (modelRegistry && typeof modelRegistry.list === "function") {
+    const all = modelRegistry.list();
+    hasModel = all.length > 0;
+    if (hasModel && authStorage && typeof authStorage.hasConfiguredAuth === "function") {
+      const first = all[0];
+      try {
+        hasAuth = authStorage.hasConfiguredAuth({ provider: first.provider, id: first.id });
+      } catch {
+        hasAuth = false;
+      }
     }
+    console.log(`list() returned ${all.length} models`);
   }
 } catch (e) {
-  console.log(`Model probe failed: ${e?.message || String(e)}`);
+  console.log(`Auth/model probe failed: ${e?.message || String(e)}`);
 }
 
-if (!hasModel) {
+if (!hasAuth || !hasModel) {
   console.log("");
-  console.log("=== SKIP: Pi SDK model not selected ===");
+  console.log("=== SKIP: Pi SDK auth/model not configured ===");
   console.log("piSdkSmokeStatus=skip");
-  console.log("reason=no model (please select model in plugin settings)");
+  console.log(`reason=${!hasAuth && !hasModel ? "no auth and no model" : (!hasAuth ? "no auth" : "no model")}`);
+  console.log("hint=请在 ~/.pi/agent 配置 API Key 或运行 pi login，并在插件设置中选择 model");
   process.exit(0);
 }
 
-// 5. 真实 smoke：createAgentSession + prompt + subscribe + abort
-console.log("");
-console.log("=== Running real smoke ===");
+// 共享：跑一组 smoke
+async function runSmokeGroup({ name, sessionOpts, expectToolEvents }) {
+  console.log("");
+  console.log(`=== Running smoke: ${name} ===`);
+  let session = null;
+  let unsubscribe = null;
+  const textChunks = [];
+  const toolEvents = [];
+  let agentEnded = false;
+  const errors = [];
+  try {
+    const sessionManager = sdk.SessionManager?.inMemory ? sdk.SessionManager.inMemory() : undefined;
+    const settingsManager = sdk.SettingsManager?.inMemory ? sdk.SettingsManager.inMemory({ compaction: { enabled: false } }) : undefined;
+    const result = await sdk.createAgentSession({
+      cwd: PROJECT_ROOT,
+      thinkingLevel: "minimal",
+      sessionManager,
+      authStorage,
+      modelRegistry,
+      settingsManager,
+      ...sessionOpts,
+    });
+    session = result.session;
+    console.log(`Session created: ${session.sessionId}`);
 
-let session = null;
-let unsubscribe = null;
-let textChunks = [];
-let toolEvents = [];
-let agentEnded = false;
-let errors = [];
+    unsubscribe = session.subscribe((event) => {
+      if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
+        textChunks.push(event.assistantMessageEvent.delta);
+      } else if (event.type === "tool_execution_start" || event.type === "tool_execution_end") {
+        toolEvents.push({ type: event.type, toolName: event.toolName });
+      } else if (event.type === "agent_end") {
+        agentEnded = true;
+      } else if (event.type === "error") {
+        errors.push(event.error || event.finalError || "unknown error");
+      }
+    });
 
-try {
-  const sessionManager = sdk.SessionManager?.inMemory ? sdk.SessionManager.inMemory() : undefined;
-  const settingsManager = sdk.SettingsManager?.inMemory ? sdk.SettingsManager.inMemory({ compaction: { enabled: false } }) : undefined;
+    const promptText = expectToolEvents
+      ? "使用 read 工具读取 package.json 文件名，然后简要说明"
+      : "请用一句话介绍你自己";
+    console.log(`Sending prompt: ${promptText}`);
+    await session.prompt(promptText);
+    console.log("Prompt completed.");
 
-  const result = await sdk.createAgentSession({
-    cwd: PROJECT_ROOT,
-    tools: ["read"],
-    thinkingLevel: "minimal",
-    sessionManager,
-    authStorage,
-    modelRegistry,
-    settingsManager,
-  });
-  session = result.session;
-  console.log(`Session created: ${session.sessionId}`);
-
-  unsubscribe = session.subscribe((event) => {
-    if (event.type === "message_update" && event.assistantMessageEvent?.type === "text_delta") {
-      textChunks.push(event.assistantMessageEvent.delta);
-    } else if (event.type === "tool_execution_start" || event.type === "tool_execution_end") {
-      toolEvents.push({ type: event.type, toolName: event.toolName });
-    } else if (event.type === "agent_end") {
-      agentEnded = true;
-    } else if (event.type === "error") {
-      errors.push(event.error || event.finalError || "unknown error");
+    if (session.isStreaming) {
+      console.log("Aborting streaming session...");
+      await session.abort();
     }
-  });
-
-  // 发送简单 prompt（read-only 任务）
-  console.log("Sending prompt...");
-  await session.prompt("列出当前目录的 package.json 文件名（使用 read 工具读取）");
-  console.log("Prompt completed.");
-
-  // 主动 abort（测试 abort 路径，不影响已完成 run）
-  if (session.isStreaming) {
-    console.log("Aborting streaming session...");
-    await session.abort();
+  } catch (e) {
+    console.log(`Smoke ${name} failed: ${e?.stack || e?.message || String(e)}`);
+    return { name, passed: false, textChunks, toolEvents, agentEnded, errors, error: String(e) };
+  } finally {
+    try { if (unsubscribe) unsubscribe(); } catch { /* ignore */ }
+    try { if (session) session.dispose(); } catch { /* ignore */ }
   }
-} catch (e) {
-  console.log(`Smoke failed: ${e?.stack || e?.message || String(e)}`);
-  process.exit(1);
-} finally {
-  try { if (unsubscribe) unsubscribe(); } catch { /* ignore */ }
-  try { if (session) session.dispose(); } catch { /* ignore */ }
+
+  const passed = textChunks.length > 0 && agentEnded && errors.length === 0;
+  return { name, passed, textChunks, toolEvents, agentEnded, errors };
 }
 
-// 6. 报告结果
+// 4. 跑两组 smoke
+const results = [];
+
+// 4a. read-only smoke
+results.push(await runSmokeGroup({
+  name: "read-only",
+  sessionOpts: { tools: ["read"] },
+  expectToolEvents: true,
+}));
+
+// 4b. pi-native smoke（不传 tools，用 Pi 默认配置）
+results.push(await runSmokeGroup({
+  name: "pi-native",
+  sessionOpts: {},
+  expectToolEvents: false,
+}));
+
+// 5. 报告结果
 console.log("");
 console.log("=== Smoke Results ===");
-console.log(`text_chunks: ${textChunks.length}`);
-console.log(`text_preview: ${textChunks.join("").slice(0, 200)}`);
-console.log(`tool_events: ${toolEvents.length}`);
-console.log(`agent_ended: ${agentEnded}`);
-console.log(`errors: ${errors.length}`);
-if (errors.length > 0) {
-  console.log(`error_details: ${errors.join("; ")}`);
+for (const r of results) {
+  console.log(`[${r.name}] passed=${r.passed} text_chunks=${r.textChunks.length} tool_events=${r.toolEvents.length} agent_ended=${r.agentEnded} errors=${r.errors.length}${r.error ? " error=" + r.error : ""}`);
+  if (r.textChunks.length > 0) {
+    console.log(`  text_preview: ${r.textChunks.join("").slice(0, 120)}`);
+  }
+  if (r.errors.length > 0) {
+    console.log(`  error_details: ${r.errors.join("; ")}`);
+  }
 }
 
-const smokePassed = textChunks.length > 0 && agentEnded && errors.length === 0;
+const allPassed = results.every((r) => r.passed);
+const readOnlyPassed = results[0]?.passed === true;
+const piNativePassed = results[1]?.passed === true;
+
 console.log("");
-if (smokePassed) {
-  console.log("=== PASS: Pi SDK real smoke ===");
+if (allPassed) {
+  console.log("=== PASS: Pi SDK real smoke (both groups) ===");
   console.log("piSdkSmokeStatus=pass");
+  console.log("piReadOnlySmokeStatus=" + (readOnlyPassed ? "pass" : "fail"));
+  console.log("piNativeSmokeStatus=" + (piNativePassed ? "pass" : "fail"));
+  console.log("friendReady=" + (piNativePassed ? "true" : "false"));
   process.exit(0);
 } else {
-  console.log("=== FAIL: Pi SDK real smoke ===");
-  console.log(`piSdkSmokeStatus=fail (text=${textChunks.length}, agentEnded=${agentEnded}, errors=${errors.length})`);
+  console.log("=== FAIL: Pi SDK real smoke (one or more groups failed) ===");
+  console.log("piSdkSmokeStatus=fail");
+  console.log("piReadOnlySmokeStatus=" + (readOnlyPassed ? "pass" : "fail"));
+  console.log("piNativeSmokeStatus=" + (piNativePassed ? "pass" : "fail"));
+  console.log("friendReady=false");
   process.exit(1);
 }

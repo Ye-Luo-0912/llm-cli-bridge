@@ -2,7 +2,7 @@
 
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type LLMBridgePlugin from "../main";
-import { AgentType, BackendMode, BackendProfile, ClaudePermissionMode, PermissionPolicy } from "./types";
+import { AgentType, BackendMode, BackendProfile, ClaudePermissionMode, PermissionPolicy, PiToolMode } from "./types";
 
 export class LLMBridgeSettingTab extends PluginSettingTab {
   plugin: LLMBridgePlugin;
@@ -322,6 +322,47 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
+
+    new Setting(containerEl)
+      .setName("Pi SDK 工具模式")
+      .setDesc("V17-C: pi-native=使用 Pi 默认 read/write/edit/bash（朋友版默认，首次需确认 trust）；bridge-controlled=bridge_* 走 Bridge approval；read-only=只启用 read。")
+      .addDropdown((d) => {
+        d.addOption("pi-native", "pi-native（Pi 默认工具，朋友版）");
+        d.addOption("bridge-controlled", "bridge-controlled（Bridge 审批）");
+        d.addOption("read-only", "read-only（仅 read）");
+        d.setValue(s.piToolMode);
+        d.onChange(async (v) => {
+          s.piToolMode = v as PiToolMode;
+          await this.plugin.saveSettings();
+          this.plugin.refreshBridgeView();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Pi Native Trust 确认")
+      .setDesc(
+        s.piNativeTrustConfirmed
+          ? "已确认：Pi Native Tools 可读写当前 Vault。"
+          : "未确认：pi-native 模式将被阻止启动。点击确认前请先备份 Vault。"
+      )
+      .addButton((b) => {
+        b.setButtonText(s.piNativeTrustConfirmed ? "重新确认" : "确认 Pi Native Trust");
+        b.onClick(async () => {
+          s.piNativeTrustConfirmed = true;
+          await this.plugin.saveSettings();
+          this.plugin.refreshBridgeView();
+          this.display();
+        });
+      })
+      .addButton((b) => {
+        b.setButtonText("撤销确认");
+        b.onClick(async () => {
+          s.piNativeTrustConfirmed = false;
+          await this.plugin.saveSettings();
+          this.plugin.refreshBridgeView();
+          this.display();
+        });
+      });
 
     new Setting(containerEl)
       .setName("Dev Test Mode")

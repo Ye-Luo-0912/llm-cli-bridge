@@ -28,7 +28,7 @@
 // - error → error/failed
 // - raw provider event 仅在 developerMode 下保留
 
-import type { LLMBridgeSettings } from "../../../types";
+import type { LLMBridgeSettings, PiToolMode } from "../../../types";
 import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
 import type {
   EffectiveRunPlan,
@@ -84,13 +84,14 @@ export interface PiSdkModule {
 }
 
 export interface AuthStorageLike {
-  hasConfiguredAuth?(): boolean;
+  hasConfiguredAuth?(model?: { provider?: string; id?: string }): boolean;
   setRuntimeApiKey?(provider: string, key: string): void;
   getRuntimeApiKey?(provider: string): string | undefined;
 }
 
 export interface ModelRegistryLike {
-  hasConfiguredAuth?(): boolean;
+  /** V17-C 任务 C：返回当前已配置 auth 的可用模型列表（替代旧 list()） */
+  getAvailable?(): ReadonlyArray<{ id: string; provider: string }>;
   find?(provider: string, modelId: string): { id: string; provider: string } | undefined;
   list?(): ReadonlyArray<{ id: string; provider: string }>;
 }
@@ -191,7 +192,13 @@ export function tryLoadPiSdk(force = false): PiSdkProbeResult {
 }
 
 /**
- * V17-B1 任务 F：探测 Pi SDK 模型/认证可用性。
+ * V17-B1 任务 F / V17-C 任务 C：探测 Pi SDK 模型/认证可用性。
+ *
+ * V17-C 修复要点：
+ * - 不再调用 authStorage.hasConfiguredAuth()（无参）或 modelRegistry.list() 全量列表
+ * - 优先使用 modelRegistry.getAvailable() 判断是否有可用模型
+ * - 回退到 modelRegistry.find(provider, modelId) + hasConfiguredAuth(model)
+ * - hasAuth 通过 getAvailable 是否非空间接判断（已配置 auth 才会出现在 available 列表）
  *
  * 返回 auth/model 状态用于 UI 提示。无 auth 时返回可行动提示。
  */
@@ -212,9 +219,31 @@ export function probePiSdkAuth(probe: PiSdkProbeResult): PiSdkAuthProbeResult {
   const sdk = probe.module;
   try {
     const authStorage = sdk.AuthStorage?.create ? sdk.AuthStorage.create() : null;
-    const hasAuth = !!(authStorage && typeof authStorage.hasConfiguredAuth === "function" && authStorage.hasConfiguredAuth());
     const modelRegistry = sdk.ModelRegistry?.create && authStorage ? sdk.ModelRegistry.create(authStorage) : null;
-    const hasModel = !!(modelRegistry && typeof modelRegistry.list === "function" && modelRegistry.list().length > 0);
+
+    // V17-C 任务 C：优先用 getAvailable() 判断 auth+model 同时可用
+    let hasAuth = false;
+    let hasModel = false;
+    if (modelRegistry && typeof modelRegistry.getAvailable === "function") {
+      const available = modelRegistry.getAvailable();
+      hasModel = available.length > 0;
+      // getAvailable 返回已配置 auth 的模型 — 非空即表示 auth 可用
+      hasAuth = hasModel;
+    } else if (modelRegistry && typeof modelRegistry.list === "function") {
+      // 回退：list() 仅用于探测 model 总数（不判断 auth）
+      const all = modelRegistry.list();
+      hasModel = all.length > 0;
+      // 若 list 非空但需要 auth 判断，尝试 find + hasConfiguredAuth(model)
+      if (hasModel && authStorage && typeof authStorage.hasConfiguredAuth === "function") {
+        const first = all[0];
+        try {
+          hasAuth = authStorage.hasConfiguredAuth({ provider: first.provider, id: first.id });
+        } catch {
+          hasAuth = false;
+        }
+      }
+    }
+
     let hint = "";
     if (!hasAuth && !hasModel) {
       hint = "Pi SDK 未配置认证和模型。请在 ~/.pi/agent 配置 API Key 或运行 pi login，并在插件设置中选择 model。";
@@ -545,8 +574,12 @@ export interface BridgeToolExecutor {
   bash(command: string): Promise<{ ok: boolean; message: string }>;
 }
 
-/** 默认 executor：使用 Node fs/promises */
-export function createDefaultBridgeToolExecutor(cwd: string, allowBash: boolean): BridgeToolExecutor {
+/** 默认 executor：使用 Node fs/promises + V17-C 任务 E 路径边界 */
+export function createDefaultBridgeToolExecutor(
+  cwd: string,
+  allowBash: boolean,
+  options: { readonly allowAbsolute?: boolean } = {},
+): BridgeToolExecutor {
   return {
     async write(path, content) {
       try {
@@ -554,7 +587,11 @@ export function createDefaultBridgeToolExecutor(cwd: string, allowBash: boolean)
         if (!fs?.promises) {
           return { ok: false, message: "node:fs not available in this environment" };
         }
-        const fullPath = resolvePath(cwd, path);
+        // V17-C 任务 E：使用 resolveBoundedPath 限制在 cwd 内
+        const fullPath = resolveBoundedPath(cwd, path, { allowAbsolute: options.allowAbsolute });
+        if (fullPath === null) {
+          return { ok: false, message: `path blocked (out of vault or absolute): ${path}` };
+        }
         const pathMod = requireNode<{ sep: string }>("node:path");
         const sep = pathMod?.sep ?? "/";
         const dir = fullPath.substring(0, fullPath.lastIndexOf(sep));
@@ -571,7 +608,10 @@ export function createDefaultBridgeToolExecutor(cwd: string, allowBash: boolean)
         if (!fs?.promises) {
           return { ok: false, message: "node:fs not available in this environment" };
         }
-        const fullPath = resolvePath(cwd, path);
+        const fullPath = resolveBoundedPath(cwd, path, { allowAbsolute: options.allowAbsolute });
+        if (fullPath === null) {
+          return { ok: false, message: `path blocked (out of vault or absolute): ${path}` };
+        }
         const original = await fs.promises.readFile(fullPath, "utf8");
         if (!original.includes(oldText)) {
           return { ok: false, message: `oldText not found in ${path}` };
@@ -594,9 +634,108 @@ export function createDefaultBridgeToolExecutor(cwd: string, allowBash: boolean)
   };
 }
 
-function resolvePath(cwd: string, path: string): string {
+/**
+ * V17-C 任务 E：Bridge-controlled 路径边界。
+ *
+ * 把 path normalize/resolve 后限制在 cwd（Vault 根目录）内：
+ * - 相对路径 → 拼到 cwd 后 normalize
+ * - 绝对路径 → 默认拒绝（除非 allowAbsolute=true，仅 developerMode 显式开启）
+ * - 路径 escape（.. 越界） → 直接拒绝（返回 null）
+ *
+ * V17-C 修复：纯 JS 实现，不依赖 node:path（避免 esbuild bundle/test 环境下 requireNode 返回 null）
+ *
+ * 返回 null 表示拒绝；调用方应转为 high risk approval 或 tool error。
+ */
+export function resolveBoundedPath(
+  cwd: string,
+  path: string,
+  options: { readonly allowAbsolute?: boolean } = {},
+): string | null {
   if (!path) return cwd;
-  // 简单解析：绝对路径直接用，相对路径拼到 cwd
+
+  // 统一用 / 作为分隔符处理（Windows/Unix 兼容）
+  const normalizeSep = (p: string): string => p.replace(/\\/g, "/");
+  const cwdNorm = normalizeSep(cwd);
+  const pathNorm = normalizeSep(path);
+
+  // 绝对路径检测（Unix / 或 Windows drive:/ ）
+  const isAbs = pathNorm.startsWith("/") || /^[A-Za-z]:\//.test(pathNorm);
+  if (isAbs) {
+    if (!options.allowAbsolute) return null;
+    // allowAbsolute 时仍需检查 normalize 后是否在 cwd 内
+    const normalized = normalizeSegments(pathNorm);
+    const rel = relativePath(cwdNorm, normalized);
+    if (rel === null || rel.startsWith("../") || rel === "..") return null;
+    return normalized.replace(/\//g, pathSep());
+  }
+
+  // 相对路径：拼到 cwd 后 normalize + 检查越界
+  const joined = (cwdNorm.endsWith("/") ? cwdNorm : cwdNorm + "/") + pathNorm;
+  const normalized = normalizeSegments(joined);
+  const rel = relativePath(cwdNorm, normalized);
+  if (rel === null || rel.startsWith("../") || rel === "..") return null;
+  return normalized.replace(/\//g, pathSep());
+}
+
+/** 当前平台的路径分隔符 */
+function pathSep(): string {
+  if (typeof process !== "undefined" && typeof process.platform === "string" && process.platform === "win32") return "\\";
+  return "/";
+}
+
+/** 纯 JS 路径 segment normalize：处理 . 和 .. 段 */
+function normalizeSegments(p: string): string {
+  const isAbs = p.startsWith("/") || /^[A-Za-z]:\//.test(p);
+  const driveMatch = p.match(/^([A-Za-z]:)(\/.*)?$/);
+  const drive = driveMatch ? driveMatch[1] : "";
+  const body = driveMatch ? (driveMatch[2] || "") : (isAbs ? p : p);
+  const segments = body.split("/").filter((s) => s.length > 0);
+  const out: string[] = [];
+  for (const seg of segments) {
+    if (seg === ".") continue;
+    if (seg === "..") {
+      if (out.length > 0 && out[out.length - 1] !== "..") {
+        out.pop();
+      }
+      continue;
+    }
+    out.push(seg);
+  }
+  const normalizedBody = out.join("/");
+  if (drive) {
+    return drive + "/" + normalizedBody;
+  }
+  if (isAbs) {
+    return "/" + normalizedBody;
+  }
+  return normalizedBody;
+}
+
+/** 计算 to 相对于 from 的路径（to 必须在 from 内，否则返回 null 或 ../ 路径） */
+function relativePath(from: string, to: string): string | null {
+  const fromSegs = from.split("/").filter((s) => s.length > 0);
+  const toSegs = to.split("/").filter((s) => s.length > 0);
+
+  // 找共同前缀
+  let commonLen = 0;
+  while (commonLen < fromSegs.length && commonLen < toSegs.length && fromSegs[commonLen] === toSegs[commonLen]) {
+    commonLen++;
+  }
+
+  const upCount = fromSegs.length - commonLen;
+  const downSegs = toSegs.slice(commonLen);
+
+  const parts: string[] = [];
+  for (let i = 0; i < upCount; i++) parts.push("..");
+  for (const seg of downSegs) parts.push(seg);
+
+  return parts.length === 0 ? "" : parts.join("/");
+}
+
+function resolvePath(cwd: string, path: string): string {
+  // V17-C 任务 E：旧 resolvePath 仅供 pi-native 模式使用（Pi 内置工具自行处理路径）
+  // bridge-controlled 模式应使用 resolveBoundedPath
+  if (!path) return cwd;
   const pathMod = requireNode<{ sep: string }>("node:path");
   const sep = pathMod?.sep ?? "/";
   if (path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path)) return path;
@@ -708,6 +847,25 @@ export function buildBridgeControlledWriteTools(
   ];
 }
 
+// ---------- toolMode 解析（任务 A） ----------
+
+/**
+ * V17-C 任务 A：解析 Pi SDK toolMode。
+ *
+ * - settings.piToolMode 已设置 → 直接返回
+ * - 未设置（旧 settings 迁移） → 按 backendProfile 推断：
+ *   portable → pi-native（朋友版默认）
+ *   developer → bridge-controlled（开发者默认）
+ */
+export function resolveToolMode(settings: LLMBridgeSettings): PiToolMode {
+  const mode = (settings as { piToolMode?: string }).piToolMode;
+  if (mode === "pi-native" || mode === "bridge-controlled" || mode === "read-only") {
+    return mode;
+  }
+  // 迁移默认：portable → pi-native；developer → bridge-controlled
+  return settings.backendProfile === "portable" ? "pi-native" : "bridge-controlled";
+}
+
 // ---------- PiSdkProvider ----------
 
 /**
@@ -757,6 +915,9 @@ export class PiSdkProvider implements RuntimeProvider {
   async *run(ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     const developerMode = !!settings.developerMode;
 
+    // V17-C 任务 A：解析 toolMode（未设置时按 profile 推断默认值）
+    const toolMode = resolveToolMode(settings);
+
     // 未安装 / import 失败：直接发 failed，不崩溃（任务 A）
     if (!this.probe.available) {
       yield {
@@ -771,7 +932,21 @@ export class PiSdkProvider implements RuntimeProvider {
       return;
     }
 
-    // V17-B1 任务 F：认证/模型探测
+    // V17-C 任务 D：pi-native 首次运行 trust warning（portable + pi-native + 未确认 → 拒绝启动）
+    if (toolMode === "pi-native" && !settings.piNativeTrustConfirmed) {
+      yield {
+        providerId: this.providerId,
+        timestamp: new Date().toISOString(),
+        payload: {
+          kind: "failed",
+          message: "Pi Native Tools 未确认。首次启用 pi-native 前请确认：Pi Native Tools 将以本机用户权限读写当前 Vault。建议先备份。请在插件设置中确认后重试。",
+          recoverable: true,
+        },
+      };
+      return;
+    }
+
+    // V17-B1 任务 F / V17-C 任务 C：认证/模型探测
     const authProbe = probePiSdkAuth(this.probe);
     if (!authProbe.hasAuth || !authProbe.hasModel) {
       yield {
@@ -790,20 +965,36 @@ export class PiSdkProvider implements RuntimeProvider {
     // 组装 prompt（任务 G：session.prompt 传入 composePromptForBackend(ctx, "sdk")）
     const prompt = composePromptForBackend(ctx, "sdk");
 
-    // V17-B1 任务 B+C：构建 Bridge-controlled write tools（真实 executor）
-    const allowBash = settings.backendProfile === "developer";
-    const executor = createDefaultBridgeToolExecutor(ctx.plan.cwd, allowBash);
-    const bridgeTools = buildBridgeControlledWriteTools(ctx.permission, this.providerId, executor);
-    // 用 defineTool 包装（如果 SDK 暴露 defineTool）；否则直接传 raw 定义
-    let customTools: unknown[] = [];
-    try {
-      if (typeof sdk.defineTool === "function") {
-        customTools = bridgeTools.map((t) => (sdk.defineTool as (d: ToolDefinition) => unknown)(t));
-      } else {
+    // V17-C 任务 B：按 toolMode 构建 session 参数
+    // - pi-native: 不传 tools 和 customTools（使用 Pi 默认 read/write/edit/bash）
+    // - bridge-controlled: tools=["read"] + customTools=bridge_*（不启用 Pi 内置 write/edit/bash）
+    // - read-only: 只 tools=["read"]
+    let sessionTools: string[] | undefined;
+    let customTools: unknown[] | undefined;
+    if (toolMode === "read-only") {
+      sessionTools = ["read"];
+      customTools = undefined;
+    } else if (toolMode === "bridge-controlled") {
+      // V17-B1 任务 B+C：构建 Bridge-controlled write tools（真实 executor）
+      const allowBash = settings.backendProfile === "developer";
+      const allowAbsolute = developerMode; // V17-C 任务 E：仅 developerMode 允许绝对路径
+      const executor = createDefaultBridgeToolExecutor(ctx.plan.cwd, allowBash, { allowAbsolute });
+      const bridgeTools = buildBridgeControlledWriteTools(ctx.permission, this.providerId, executor);
+      // 用 defineTool 包装（如果 SDK 暴露 defineTool）；否则直接传 raw 定义
+      try {
+        if (typeof sdk.defineTool === "function") {
+          customTools = bridgeTools.map((t) => (sdk.defineTool as (d: ToolDefinition) => unknown)(t));
+        } else {
+          customTools = bridgeTools.slice();
+        }
+      } catch {
         customTools = bridgeTools.slice();
       }
-    } catch {
-      customTools = bridgeTools.slice();
+      sessionTools = ["read"];
+    } else {
+      // pi-native：不传 tools（用 Pi 默认 read/write/edit/bash），不传 customTools
+      sessionTools = undefined;
+      customTools = undefined;
     }
 
     // 创建会话（最小参数 — 实际 SDK 需要更多配置，这里做 best-effort）
@@ -822,18 +1013,23 @@ export class PiSdkProvider implements RuntimeProvider {
         ? sdk.SettingsManager.inMemory({ compaction: { enabled: false } })
         : undefined;
 
-      const result = await sdk.createAgentSession({
+      const sessionOpts: Record<string, unknown> = {
         cwd: ctx.plan.cwd,
-        // V17-B1 任务 B：只启用 read；bridge_* 通过 customTools 加入 active
-        // 不 excludeTools（避免误过滤 customTools）；内置 write/edit/bash 因不在 tools 列表中已禁用
-        tools: ["read"],
-        customTools,
         thinkingLevel: "medium",
         sessionManager,
         authStorage,
         modelRegistry,
         settingsManager,
-      } as Record<string, unknown>);
+      };
+      // V17-C 任务 B：仅在 toolMode 明确指定时传入 tools/customTools
+      // pi-native 不传 tools（用 Pi 默认配置）
+      if (sessionTools !== undefined) {
+        sessionOpts.tools = sessionTools;
+      }
+      if (customTools !== undefined && customTools.length > 0) {
+        sessionOpts.customTools = customTools;
+      }
+      const result = await sdk.createAgentSession(sessionOpts);
       session = result.session;
     } catch (e) {
       yield {

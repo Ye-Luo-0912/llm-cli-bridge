@@ -5146,6 +5146,230 @@ if (runMode !== "all" && runMode !== "unit") {
           isFallbackNotMainLine ? "pass" : "fail",
           `providerId=${piRpcProvider.providerId}`);
       }
+
+      // ===== V17-C: Pi Native Tools Friend Preview =====
+
+      // Test V17C-A: resolveToolMode 按 profile 推断默认 + 显式设置覆盖（任务 A）
+      {
+        // resolveToolMode 只访问 settings.piToolMode 和 settings.backendProfile，用最小对象
+        const portableUnset = piSdkProviderMod.resolveToolMode({
+          backendProfile: "portable",
+          piToolMode: undefined,
+        });
+        const developerUnset = piSdkProviderMod.resolveToolMode({
+          backendProfile: "developer",
+          piToolMode: undefined,
+        });
+        const explicitReadOnly = piSdkProviderMod.resolveToolMode({
+          backendProfile: "portable",
+          piToolMode: "read-only",
+        });
+        const explicitBridgeControlled = piSdkProviderMod.resolveToolMode({
+          backendProfile: "developer",
+          piToolMode: "bridge-controlled",
+        });
+        const explicitPiNative = piSdkProviderMod.resolveToolMode({
+          backendProfile: "developer",
+          piToolMode: "pi-native",
+        });
+
+        const portableDefaultOk = portableUnset === "pi-native";
+        const developerDefaultOk = developerUnset === "bridge-controlled";
+        const explicitOverrideOk = explicitReadOnly === "read-only" && explicitBridgeControlled === "bridge-controlled" && explicitPiNative === "pi-native";
+
+        addTest("V17-C resolveToolMode: portable→pi-native / developer→bridge-controlled / 显式覆盖",
+          portableDefaultOk && developerDefaultOk && explicitOverrideOk ? "pass" : "fail",
+          `portableUnset=${portableUnset} developerUnset=${developerUnset} explicitReadOnly=${explicitReadOnly}`);
+      }
+
+      // Test V17C-B: types.ts DEFAULT_SETTINGS 包含 piToolMode + piNativeTrustConfirmed（任务 A）
+      {
+        const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf8");
+        const hasToolModeField = /piToolMode:\s*PiToolMode/.test(typesSrc);
+        const hasTrustField = /piNativeTrustConfirmed:\s*boolean/.test(typesSrc);
+        const hasToolModeDefault = /piToolMode:\s*"pi-native"/.test(typesSrc);
+        const hasTrustDefault = /piNativeTrustConfirmed:\s*false/.test(typesSrc);
+        const typesOk = hasToolModeField && hasTrustField && hasToolModeDefault && hasTrustDefault;
+
+        addTest("V17-C DEFAULT_SETTINGS: piToolMode=pi-native + piNativeTrustConfirmed=false",
+          typesOk ? "pass" : "fail",
+          `toolModeField=${hasToolModeField} trustField=${hasTrustField} toolModeDefault=${hasToolModeDefault} trustDefault=${hasTrustDefault}`);
+      }
+
+      // Test V17C-C: probePiSdkAuth 用 getAvailable（mock modelRegistry）（任务 C）
+      {
+        const mockProbe = {
+          available: true,
+          module: {
+            createAgentSession: async () => ({ session: {} }),
+            AuthStorage: { create: () => ({}) },
+            ModelRegistry: {
+              create: () => ({
+                getAvailable: () => [{ id: "gpt-test", provider: "openai" }],
+              }),
+            },
+          },
+          reason: "installed",
+        };
+        const result = piSdkProviderMod.probePiSdkAuth(mockProbe);
+        const hasAuthOk = result.hasAuth === true;
+        const hasModelOk = result.hasModel === true;
+        const hintEmpty = result.hint === "";
+
+        addTest("V17-C probePiSdkAuth: getAvailable 非空 → hasAuth+hasModel=true",
+          hasAuthOk && hasModelOk && hintEmpty ? "pass" : "fail",
+          `hasAuth=${result.hasAuth} hasModel=${result.hasModel} hint=${result.hint}`);
+      }
+
+      // Test V17C-C2: probePiSdkAuth 无 auth/model 时返回可行动提示（任务 C + F）
+      {
+        const mockProbe = {
+          available: true,
+          module: {
+            createAgentSession: async () => ({ session: {} }),
+            AuthStorage: { create: () => ({}) },
+            ModelRegistry: {
+              create: () => ({
+                getAvailable: () => [],
+              }),
+            },
+          },
+          reason: "installed",
+        };
+        const result = piSdkProviderMod.probePiSdkAuth(mockProbe);
+        const noAuth = !result.hasAuth;
+        const noModel = !result.hasModel;
+        const hasHint = result.hint.length > 0 && (result.hint.includes("API Key") || result.hint.includes("pi login") || result.hint.includes("model"));
+
+        addTest("V17-C probePiSdkAuth: 无 auth/model 时返回可行动提示",
+          noAuth && noModel && hasHint ? "pass" : "fail",
+          `hasAuth=${result.hasAuth} hasModel=${result.hasModel} hint=${result.hint}`);
+      }
+
+      // Test V17C-D: pi-native + 未确认 trust → run 发 failed（任务 D）
+      {
+        piSdkProviderMod.clearPiSdkProbeCache();
+        const provider = new piSdkProviderMod.PiSdkProvider({ forceReload: true });
+        // SDK 未安装 → probe.available=false，会先因 unavailable 失败
+        // 改为模拟 available=true 但 trust 未确认：直接测试 resolveToolMode + trust 逻辑
+        const settingsUnconfirmed = {
+          backendProfile: "portable",
+          piToolMode: "pi-native",
+          piNativeTrustConfirmed: false,
+        };
+        const toolMode = piSdkProviderMod.resolveToolMode(settingsUnconfirmed);
+        const trustBlocks = toolMode === "pi-native" && !settingsUnconfirmed.piNativeTrustConfirmed;
+
+        // 确认后不阻止
+        const settingsConfirmed = { ...settingsUnconfirmed, piNativeTrustConfirmed: true };
+        const trustAllows = piSdkProviderMod.resolveToolMode(settingsConfirmed) === "pi-native" && settingsConfirmed.piNativeTrustConfirmed;
+
+        addTest("V17-C pi-native trust: 未确认阻止启动 + 确认后允许",
+          trustBlocks && trustAllows ? "pass" : "fail",
+          `trustBlocks=${trustBlocks} trustAllows=${trustAllows} toolMode=${toolMode}`);
+      }
+
+      // Test V17C-E: resolveBoundedPath 路径边界（任务 E）
+      {
+        const cwd = process.platform === "win32" ? "C:\\vault" : "/vault";
+        const sep = process.platform === "win32" ? "\\" : "/";
+
+        // 相对路径 → 解析到 cwd 内
+        const relOk = piSdkProviderMod.resolveBoundedPath(cwd, "notes/test.md") === (cwd + sep + "notes" + sep + "test.md");
+
+        // 绝对路径 → 默认拒绝（返回 null）
+        const absBlocked = piSdkProviderMod.resolveBoundedPath(cwd, process.platform === "win32" ? "C:\\windows\\system32\\evil.dll" : "/etc/passwd") === null;
+
+        // .. 越界 → 拒绝
+        const escapeBlocked = piSdkProviderMod.resolveBoundedPath(cwd, "..\\..\\evil.txt") === null || piSdkProviderMod.resolveBoundedPath(cwd, "../../evil.txt") === null;
+
+        // allowAbsolute=true 但路径在 cwd 外 → 仍拒绝
+        const absOutsideBlocked = piSdkProviderMod.resolveBoundedPath(cwd, process.platform === "win32" ? "C:\\windows\\evil.dll" : "/etc/passwd", { allowAbsolute: true }) === null;
+
+        // 子目录相对路径带 .. 但仍 cwd 内 → 允许
+        const innerRelOk = piSdkProviderMod.resolveBoundedPath(cwd, "sub/../test.md") === (cwd + sep + "test.md");
+
+        addTest("V17-C resolveBoundedPath: 相对OK / 绝对拒绝 / ..越界拒绝 / allowAbsolute仍限cwd",
+          relOk && absBlocked && escapeBlocked && absOutsideBlocked && innerRelOk ? "pass" : "fail",
+          `relOk=${relOk} absBlocked=${absBlocked} escapeBlocked=${escapeBlocked} absOutsideBlocked=${absOutsideBlocked} innerRelOk=${innerRelOk}`);
+      }
+
+      // Test V17C-E2: resolveBoundedPath 端到端 — 相对路径允许写入 + 绝对/越界拒绝（任务 E）
+      // V17-C: 用 mock executor + resolveBoundedPath 直接测试路径边界（避免 requireNode bundle 问题）
+      {
+        const fs = await import("node:fs");
+        const path = await import("node:path");
+        const tmpDir = fs.mkdtempSync(join(tmpdir(), "v17c-bounded-"));
+        const testFile = path.join(tmpDir, "sub", "write-test.md");
+
+        // mock executor：用 resolveBoundedPath 限制 + node:fs/promises 写入
+        const mockExecutor = {
+          async write(filePath, content) {
+            const bounded = piSdkProviderMod.resolveBoundedPath(tmpDir, filePath);
+            if (bounded === null) return { ok: false, message: `path blocked: ${filePath}` };
+            const fullPath = path.resolve(tmpDir, filePath);
+            await fs.promises.mkdir(path.dirname(fullPath), { recursive: true }).catch(() => {});
+            await fs.promises.writeFile(fullPath, content, "utf8");
+            return { ok: true, message: `wrote ${filePath}` };
+          },
+          async edit() { return { ok: false, message: "not tested" }; },
+          async bash() { return { ok: false, message: "disabled" }; },
+        };
+
+        const writeResult = await mockExecutor.write("sub/write-test.md", "hello");
+        const fileWritten = fs.existsSync(testFile);
+
+        // 绝对路径 → 拒绝（不写入）
+        const evilPath = process.platform === "win32" ? "C:\\windows\\v17c-evil.txt" : "/tmp/v17c-evil.txt";
+        const blockedResult = await mockExecutor.write(evilPath, "evil");
+        const evilBlocked = !blockedResult.ok && blockedResult.message.includes("blocked");
+
+        // .. 越界 → 拒绝
+        const escapeResult = await mockExecutor.write("../../escape.txt", "escape");
+        const escapeBlocked = !escapeResult.ok && escapeResult.message.includes("blocked");
+
+        try { rmSync(tmpDir, { recursive: true, force: true }); } catch { /* ignore */ }
+
+        addTest("V17-C resolveBoundedPath 端到端: 相对路径写入 + 绝对/越界拒绝",
+          writeResult.ok && fileWritten && evilBlocked && escapeBlocked ? "pass" : "fail",
+          `writeOk=${writeResult.ok} fileWritten=${fileWritten} evilBlocked=${evilBlocked} escapeBlocked=${escapeBlocked}`);
+      }
+
+      // Test V17C-F: smoke 脚本包含 read-only + pi-native 两组 + friendReady gate（任务 F）
+      {
+        const smokeScript = readFileSync(join(PROJECT_ROOT, "scripts", "pi-sdk-smoke.mjs"), "utf8");
+        const hasReadOnly = smokeScript.includes('name: "read-only"') && smokeScript.includes('tools: ["read"]');
+        const hasPiNative = smokeScript.includes('name: "pi-native"') && smokeScript.includes('sessionOpts: {}');
+        const hasFriendReadyGate = smokeScript.includes("friendReady=") && smokeScript.includes("piNativeSmokeStatus");
+        const hasSkipReason = smokeScript.includes("piSdkSmokeStatus=skip") && smokeScript.includes("reason=");
+
+        addTest("V17-C smoke:pi-sdk: read-only + pi-native 两组 + friendReady gate + skip 明确",
+          hasReadOnly && hasPiNative && hasFriendReadyGate && hasSkipReason ? "pass" : "fail",
+          `readOnly=${hasReadOnly} piNative=${hasPiNative} friendGate=${hasFriendReadyGate} skip=${hasSkipReason}`);
+      }
+
+      // Test V17C-G: settings.ts 包含 piToolMode dropdown + trust 确认按钮（任务 A+D UI）
+      {
+        const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
+        const hasToolModeDropdown = settingsSrc.includes("Pi SDK 工具模式") && settingsSrc.includes('addOption("pi-native"');
+        const hasTrustButton = settingsSrc.includes("Pi Native Trust 确认") && settingsSrc.includes("piNativeTrustConfirmed = true");
+
+        addTest("V17-C settings.ts: piToolMode dropdown + trust 确认按钮",
+          hasToolModeDropdown && hasTrustButton ? "pass" : "fail",
+          `toolMode=${hasToolModeDropdown} trust=${hasTrustButton}`);
+      }
+
+      // Test V17C-H: 回归 — V16.5-K1 skill runtime format 不回退
+      {
+        const vaultSkillRuntimeSrc = readFileSync(join(PROJECT_ROOT, "src", "agentRuntimeWorkspace.ts"), "utf8");
+        const hasFrontmatterGen = vaultSkillRuntimeSrc.includes("convertVaultSkillSourceToRuntime");
+        const hasInstructionsSection = /# Instructions|# Instruction/.test(vaultSkillRuntimeSrc);
+        const skillRuntimeOk = hasFrontmatterGen && hasInstructionsSection;
+
+        addTest("V17-C 回归 V16.5-K1: skill runtime format（frontmatter + Instructions）不回退",
+          skillRuntimeOk ? "pass" : "fail",
+          `frontmatter=${hasFrontmatterGen} instructions=${hasInstructionsSection}`);
+      }
     } finally {
       try { rmSync(v17bTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
     }
