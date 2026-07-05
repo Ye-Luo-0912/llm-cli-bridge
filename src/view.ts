@@ -3388,11 +3388,14 @@ export class LLMBridgeView extends ItemView {
     let probeAvailable = true;
     let hint = "";
     try {
-      const { tryLoadPiSdk, probePiSdkAuth } = await import("./runtime/providers/pi-sdk/piSdkProvider");
-      const probe = tryLoadPiSdk(true);
+      const { tryLoadPiSdkAsync, probePiSdkAuth } = await import("./runtime/providers/pi-sdk/piSdkProvider");
+      // V17-C1 任务 D：SDK 是 ESM-only，必须用 async 路径加载
+      const probe = await tryLoadPiSdkAsync(true);
       if (!probe.available) {
         probeAvailable = false;
-        hint = "Pi SDK 未安装。请在 Vault 根目录运行：npm install --ignore-scripts @earendil-works/pi-coding-agent";
+        hint = probe.reason === "not-installed"
+          ? "Pi SDK 未安装。请在 Vault 根目录运行：npm install --ignore-scripts @earendil-works/pi-coding-agent"
+          : `Pi SDK 加载失败：${probe.error || probe.reason}`;
       } else {
         const authProbe = probePiSdkAuth(probe);
         if (!authProbe.hasAuth || !authProbe.hasModel) {

@@ -352,14 +352,17 @@ export default class LLMBridgePlugin extends Plugin {
       id: "enable-friend-preview",
       name: "Enable Friend Preview / Portable Mode",
       callback: async () => {
-        // 应用 friend preset：portable + pi-native + trust 未确认（首次需 onboarding）
+        // 应用 friend preset：portable + auto(pi-sdk) + pi-native + trust 未确认（首次需 onboarding）
+        // V17-C1 修复：必须显式设 backendMode=auto，否则若用户先前在 developer 切到 cli/sdk，
+        // preset 不会真正切到 Pi 路径（portable profile 的 auto 链路才优先 Pi SDK）
         this.settings.backendProfile = "portable";
+        this.settings.backendMode = "auto";
         this.settings.piToolMode = "pi-native";
         this.settings.piNativeTrustConfirmed = false;
         await this.saveSettings();
         // 触发 view 刷新以展示 trust onboarding 卡片
         this.refreshBridgeView?.();
-        new Notice("Friend Preview 已启用：portable + pi-native。首次运行前需确认 Pi Native Trust。");
+        new Notice("Friend Preview 已启用：portable + auto + pi-native。首次运行前需确认 Pi Native Trust。");
       },
     });
 
@@ -370,6 +373,7 @@ export default class LLMBridgePlugin extends Plugin {
       callback: async () => {
         this.settings.backendProfile = "developer";
         this.settings.piToolMode = "bridge-controlled";
+        // backendMode 不强制改：auto 在 developer profile 下走 codex→sdk→cli，保持用户原选择
         await this.saveSettings();
         this.refreshBridgeView?.();
         new Notice("已切回 Developer profile（bridge-controlled）。");
