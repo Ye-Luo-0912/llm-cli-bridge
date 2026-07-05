@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-05T08:28:58.634Z
+- **测试时间**: 2026-07-05T14:17:13.659Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 823.8 KB
+- **main.js 大小**: 825.5 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 59338
-- **commit sha**: c705abc5060eb94061e92cc83ea5218068d24917
-- **commit 短 sha**: c705abc5060e
+- **commit sha**: db51b547f808b8204fc3f1b887358291e23dc54e
+- **commit 短 sha**: db51b547f808
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 993
+- ✅ **通过**: 1000
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 1018
+- **总计**: 1025
 
 ### 审计模式说明
 
@@ -953,7 +953,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783240140144-0 update=pi-sdk-read-1783240140144-0 end=pi-sdk-read-1783240140144-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783261035224-0 update=pi-sdk-read-1783261035224-0 end=pi-sdk-read-1783261035224-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -1084,6 +1084,48 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | split vault-context 保持 index-only | compactOrSplit=true indexOnly=true |
+
+### V17-C2 enable/disable Friend Preview
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | backendMode=auto + preset 完整 | enableAuto=true disableAuto=true presetOk=true |
+
+### V17-C2 enable Friend Preview
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 不保留旧 cli/sdk/mock backendMode | noCli=true noSdk=true noMock=true setsAuto=true |
+
+### V17-C2 smoke
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | V17-C2 smoke:pi-sdk gate: skip→friendReady=false / piNative pass→friendReady=true | skipLogic=true passLogic=true |
+
+### V17-C2 main.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Check Pi SDK Dependency 命令 + tryLoadPiSdk + 安装引导 | cmd=true load=true hint=true auth=true |
+
+### V17-C2 朋友版最小验证
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | SDK 不可用提示 + trust onboarding 卡片 | hintCard=true trustCard=true confirm=true install=true |
+
+### V17-C2 朋友版
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 运行日志/session 不污染 Vault 根目录（LLM-AgentRuntime/pi-sessions / inMemory） | piRpcSessionDir=true piSdkInMemory=true |
+
+### V17-C2 回归 V16.5-K1
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | skill runtime format + materialize all targets 不回退 | convert=true materialize=true instructions=true |
 
 ### MockAgentBackend
 
@@ -2083,7 +2125,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-05T08-29-27-506Z-vininw |
+| ✅ | 返回非空 id | id=s-2026-07-05T14-17-42-471Z-43l5ut |
 
 ### V2.5 Session 版本
 
@@ -2102,7 +2144,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-05T08-29-27-578Z-9lqk2g second=s-2026-07-05T08-29-27-517Z-9tcejb |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-05T14-17-42-539Z-bhklke second=s-2026-07-05T14-17-42-479Z-s3scq1 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2129,7 +2171,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-05T08-29-27-598Z-ufwoez id2=s-2026-07-05T08-29-27-598Z-yahb85 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-05T14-17-42-557Z-v6fsgw id2=s-2026-07-05T14-17-42-557Z-1uccx8 |
 
 ### V2.5 Session 上限
 
@@ -2227,7 +2269,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-05T08:29:27.660Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-05T14:17:42.615Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2315,7 +2357,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-05T08:29:27.729Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-05T14:17:42.672Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2429,7 +2471,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-05T08:29:27.806Z after=2026-07-05T08:29:27.869Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-05T14:17:42.736Z after=2026-07-05T14:17:42.800Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -2800,13 +2842,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-05T08:29:28.543Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-05T14:17:43.387Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-05T08:29:28.552Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-05T14:17:43.395Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3117,7 +3159,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-EHcnOl\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-MBbnSS\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-U3Oe83\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-k9wro1\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3129,7 +3171,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-u3f7EO\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-Y2IjWP\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-3JICSZ\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-N5AHnq\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3141,7 +3183,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-kxPIZB\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-JxVBzG\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-Ud9qEj\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-FiLCWl\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -3461,7 +3503,7 @@
 |------|--------|------|
 | ✅ | unit/process 报告含 commit sha + 运行命令字段 | unitExists=true processExists=true unitSha=true processSha=true unitCmd=true processCmd=true |
 | ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
-| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=fe61318fc15b |
+| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=c705abc5060e |
 | ✅ | 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑） | scriptExists=true auditFailExit=true testedCodeShaCheck=true codexSmokeCheck=true docsOnlyLogic=true |
 
 ## 失败项详情
