@@ -1828,6 +1828,7 @@ export class LLMBridgeView extends ItemView {
     // Read/Write/Edit/Glob/Grep；mock 保守返回 true（测试可控）。
     // V17-A: pi-rpc 是 portable backend spike，不提供 native write/edit/bash 直通
     // （写操作必须回到 Bridge approval card），providerNativeFileTools=false。
+    // V17-B: pi-sdk 同样不提供 native write 直通 — 写操作走 Bridge-controlled custom tools。
     const providerNativeFileTools = providerId === "claude-sdk"
       || providerId === "codex-app-server"
       || providerId === "claude-cli"

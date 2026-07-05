@@ -35,11 +35,15 @@ import { ClaudeCliProvider } from "../providers/claude-cli/claudeCliProvider";
 import { MockProvider } from "../providers/mock/mockProvider";
 import { CodexAppServerProvider } from "../providers/codex-app-server/codexAppServerProvider";
 import { PiRpcProvider } from "../providers/pi-rpc/piRpcProvider";
+import { PiSdkProvider } from "../providers/pi-sdk/piSdkProvider";
 
 /**
  * 选择 RuntimeProvider（按 settings.backendMode + provider 可用性）。
  *
  * V17-A: backendProfile=portable 时 auto 优先 Pi（portable backend spike）。
+ * V17-B: portable 主线切到 pi-sdk；pi-rpc 降级为可选 fallback。
+ *        portable 下 pi-sdk unavailable 时不静默 fallback 到 Claude Code
+ *        （返回 pi-sdk provider，run 时发 failed 提示用户切换 profile 或安装依赖）。
  *
  * @param settings 插件设置
  * @param cwd Vault 根目录
@@ -72,16 +76,31 @@ export function selectProvider(
     // Pi 显式选择但不可用：返回 Pi（run 时发 failed 提示），不静默 fallback
     return { provider: pi, label: "Pi RPC (unavailable)" };
   }
-
-  // auto: portable profile 优先 Pi，其次 codex→sdk→cli 链
-  if (settings.backendProfile === "portable") {
-    const pi = new PiRpcProvider(settings.piCommand, { cwd });
-    if (pi.isAvailable(cwd)) {
-      return { provider: pi, label: "Pi RPC (portable)" };
+  if (mode === "pi-sdk") {
+    const piSdk = new PiSdkProvider();
+    if (piSdk.isAvailable(cwd)) {
+      return { provider: piSdk, label: "Pi SDK" };
     }
+    // 显式选 pi-sdk 但不可用：返回 pi-sdk（run 时发 failed），不静默 fallback
+    return { provider: piSdk, label: "Pi SDK (unavailable)" };
   }
 
-  // auto: codex-app-server 优先（primary target），其次 SDK，最后 CLI
+  // auto: portable profile 主线 pi-sdk → pi-rpc fallback；不静默 fallback 到 Claude Code
+  if (settings.backendProfile === "portable") {
+    const piSdk = new PiSdkProvider();
+    if (piSdk.isAvailable(cwd)) {
+      return { provider: piSdk, label: "Pi SDK (portable)" };
+    }
+    // pi-sdk unavailable：尝试 pi-rpc 作为实验 fallback（可选，仍 portable backend）
+    const piRpc = new PiRpcProvider(settings.piCommand, { cwd });
+    if (piRpc.isAvailable(cwd)) {
+      return { provider: piRpc, label: "Pi RPC (portable fallback)" };
+    }
+    // 两者都不可用：返回 pi-sdk（run 时发 failed 提示用户安装依赖或切 developer profile）
+    return { provider: piSdk, label: "Pi SDK (portable unavailable)" };
+  }
+
+  // developer profile: codex→sdk→cli 链（不强推 Pi）
   const codex = new CodexAppServerProvider();
   if (codex.isAvailable(cwd)) {
     return { provider: codex, label: "Codex app-server" };

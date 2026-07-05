@@ -27,8 +27,10 @@ export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "auto" |
  * - mock-failure: 开发/测试用，使用 MockAgentBackend(failure)
  *
  * V2.16-B 迁移：旧的 "sdk-experimental" 自动迁移为 "sdk"
+ *
+ * V17-B: 增加 "pi-sdk"（@earendil-works/pi-coding-agent SDK 嵌入模式，portable 主线）
  */
-export type BackendMode = "auto" | "cli" | "sdk" | "mock-success" | "mock-failure" | "pi-rpc";
+export type BackendMode = "auto" | "cli" | "sdk" | "mock-success" | "mock-failure" | "pi-rpc" | "pi-sdk";
 
 /**
  * V17-A: 后端配置档（朋友版 portable vs 开发者 developer）。

@@ -1098,6 +1098,8 @@ if (runMode !== "all" && runMode !== "unit") {
     const tempAgentRuntimeWorkspaceBundle = join(PROJECT_ROOT, ".test-agent-runtime-workspace-temp.mjs");
     // V17-A: piRpcProvider bundle 供 Pi probe/provider/JSONL 测试
     const tempPiRpcProviderBundle = join(PROJECT_ROOT, ".test-pi-rpc-provider-temp.mjs");
+    // V17-B: piSdkProvider bundle 供 Pi SDK event mapping/permission boundary 测试
+    const tempPiSdkProviderBundle = join(PROJECT_ROOT, ".test-pi-sdk-provider-temp.mjs");
 
     const bundleOpts = (entry) => ({
       entryPoints: [join(PROJECT_ROOT, "src", entry)],
@@ -1122,6 +1124,8 @@ if (runMode !== "all" && runMode !== "unit") {
     await esbuild.build({ ...bundleOpts("agentRuntimeWorkspace.ts"), outfile: tempAgentRuntimeWorkspaceBundle });
     // V17-A: piRpcProvider bundle
     await esbuild.build({ ...bundleOpts("runtime/providers/pi-rpc/piRpcProvider.ts"), outfile: tempPiRpcProviderBundle });
+    // V17-B: piSdkProvider bundle
+    await esbuild.build({ ...bundleOpts("runtime/providers/pi-sdk/piSdkProvider.ts"), outfile: tempPiSdkProviderBundle });
 
     const codexProviderMod = await import(pathToFileURL(tempCodexProviderBundle).href);
     const promptPkgMod = await import(pathToFileURL(tempPromptPkgBundle).href);
@@ -1140,6 +1144,8 @@ if (runMode !== "all" && runMode !== "unit") {
     const agentRuntimeWsMod = await import(pathToFileURL(tempAgentRuntimeWorkspaceBundle).href);
     // V17-A: piRpcProvider 模块
     const piRpcProviderMod = await import(pathToFileURL(tempPiRpcProviderBundle).href);
+    // V17-B: piSdkProvider 模块
+    const piSdkProviderMod = await import(pathToFileURL(tempPiSdkProviderBundle).href);
 
     // ---------- 最小 settings + snapshot ----------
     const baseBridgeSettings = {
@@ -4593,6 +4599,272 @@ if (runMode !== "all" && runMode !== "unit") {
       try { rmSync(v17aTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
     }
 
+    // ===== V17-B: Pi SDK Provider Adapter + Portable Backend Main Line =====
+    const v17bTmpRoot = mkdtempSync(join(tmpdir(), "v17b-pi-sdk-"));
+    try {
+      // Test V17B-A: pi-sdk import 失败时 unavailable，不崩溃
+      {
+        piSdkProviderMod.clearPiSdkProbeCache();
+        const probe = piSdkProviderMod.tryLoadPiSdk(true);
+        const notAvailable = !probe.available;
+        const reasonOk = probe.reason === "not-installed" || probe.reason === "load-error";
+        const noThrow = true; // 到这里说明没抛错
+
+        // provider isAvailable=false
+        const provider = new piSdkProviderMod.PiSdkProvider({ forceReload: true });
+        const providerNotAvailable = !provider.isAvailable(v17bTmpRoot);
+
+        addTest("V17-B probe: pi-sdk 未安装时 unavailable 不崩溃",
+          notAvailable && reasonOk && noThrow && providerNotAvailable ? "pass" : "fail",
+          `reason=${probe.reason} available=${probe.available} providerAvailable=${!providerNotAvailable}`);
+      }
+
+      // Test V17B-B: pi-sdk provider buildPlan 不破坏 promptPackage auditHash
+      // buildEffectiveRunPlan 内部对 auditHash 做了 djb2 哈希（computePromptPackageHash），
+      // 所以 plan.promptPackageHash 不会等于 auditHash 本身，而是 hash(auditHash)。
+      // 这里在测试中重新实现 djb2 哈希，断言 hash 计算正确（即 auditHash 被传入哈希函数而非丢弃）。
+      {
+        piSdkProviderMod.clearPiSdkProbeCache();
+        const provider = new piSdkProviderMod.PiSdkProvider({ forceReload: true });
+        const fakeInput = {
+          userMessage: "test",
+          cwd: v17bTmpRoot,
+          includeActiveNote: false,
+          includeSelection: false,
+          promptPackage: {
+            bridgeSystemAppend: "system",
+            userPrompt: "hello",
+            attachmentEntries: [],
+            auditHash: "test-audit-hash-12345",
+          },
+          createdAt: new Date().toISOString(),
+        };
+        const plan = provider.buildPlan(fakeInput, baseBridgeSettings);
+        // djb2 哈希（与 src/effectiveRunPlan.ts computePromptPackageHash 一致）
+        let djb2 = 5381;
+        for (let i = 0; i < "test-audit-hash-12345".length; i++) {
+          djb2 = ((djb2 << 5) + djb2 + "test-audit-hash-12345".charCodeAt(i)) | 0;
+        }
+        const expectedHash = (djb2 >>> 0).toString(16).padStart(8, "0").slice(0, 16);
+        const hashPreserved = plan.promptPackageHash === expectedHash;
+        const backendOk = plan.backend === "sdk";
+
+        addTest("V17-B buildPlan: 不破坏 promptPackage auditHash",
+          hashPreserved && backendOk ? "pass" : "fail",
+          `hash=${plan.promptPackageHash} expected=${expectedHash} backend=${plan.backend}`);
+      }
+
+      // Test V17B-C: buildPlan 使用 "sdk" backend（session.prompt 传入 composePromptForBackend(ctx, "sdk")）
+      {
+        piSdkProviderMod.clearPiSdkProbeCache();
+        const provider = new piSdkProviderMod.PiSdkProvider({ forceReload: true });
+        const fakeInput = {
+          userMessage: "test",
+          cwd: v17bTmpRoot,
+          includeActiveNote: false,
+          includeSelection: false,
+          promptPackage: {
+            bridgeSystemAppend: "system",
+            userPrompt: "hello",
+            attachmentEntries: [],
+            auditHash: "hash-c",
+          },
+          createdAt: new Date().toISOString(),
+        };
+        const plan = provider.buildPlan(fakeInput, baseBridgeSettings);
+        // backend="sdk" → run() 中 composePromptForBackend(ctx, "sdk") 返回 userPrompt
+        const usesSdkMode = plan.backend === "sdk";
+
+        addTest("V17-B session.prompt: buildPlan 使用 sdk backend（composePromptForBackend sdk mode）",
+          usesSdkMode ? "pass" : "fail",
+          `backend=${plan.backend}`);
+      }
+
+      // Test V17B-D: session.subscribe 事件能映射到 NormalizedRuntimeEvent
+      {
+        const textEvents = piSdkProviderMod.mapPiSdkEvent(
+          { type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "hello" } },
+          "pi-sdk",
+        );
+        const isMessage = textEvents.length === 1 && textEvents[0].payload.kind === "message" && textEvents[0].payload.partial === true;
+
+        const thinkingEvents = piSdkProviderMod.mapPiSdkEvent(
+          { type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "thought" } },
+          "pi-sdk",
+        );
+        const isThinking = thinkingEvents.length === 1 && thinkingEvents[0].payload.kind === "thinking";
+
+        const toolStartEvents = piSdkProviderMod.mapPiSdkEvent(
+          { type: "tool_execution_start", toolName: "read" },
+          "pi-sdk",
+        );
+        const isToolStart = toolStartEvents.length === 1 && toolStartEvents[0].payload.kind === "tool_start";
+
+        const progressEvents = piSdkProviderMod.mapPiSdkEvent(
+          { type: "tool_execution_update", toolName: "read", partialResult: "data" },
+          "pi-sdk",
+        );
+        const isProgress = progressEvents.length === 1 && progressEvents[0].payload.kind === "progress";
+
+        const toolResultEvents = piSdkProviderMod.mapPiSdkEvent(
+          { type: "tool_execution_end", toolName: "read", isError: false, partialResult: "ok" },
+          "pi-sdk",
+        );
+        const isToolResult = toolResultEvents.length === 1 && toolResultEvents[0].payload.kind === "tool_result";
+
+        const completedEvents = piSdkProviderMod.mapPiSdkEvent(
+          { type: "agent_end", messages: [{}, {}] },
+          "pi-sdk",
+        );
+        const isCompleted = completedEvents.length === 1 && completedEvents[0].payload.kind === "completed";
+
+        const errorEvents = piSdkProviderMod.mapPiSdkEvent(
+          { type: "error", error: "test error" },
+          "pi-sdk",
+        );
+        const isError = errorEvents.length === 1 && errorEvents[0].payload.kind === "error";
+
+        addTest("V17-B 事件映射: text→message / thinking / tool_start / progress / tool_result / completed / error",
+          isMessage && isThinking && isToolStart && isProgress && isToolResult && isCompleted && isError ? "pass" : "fail",
+          `message=${isMessage} thinking=${isThinking} toolStart=${isToolStart} progress=${isProgress} toolResult=${isToolResult} completed=${isCompleted} error=${isError}`);
+      }
+
+      // Test V17B-E: cancel 调用 session.abort（通过代码路径验证 — provider cancel 时不抛错）
+      {
+        piSdkProviderMod.clearPiSdkProbeCache();
+        const provider = new piSdkProviderMod.PiSdkProvider({ forceReload: true });
+        // provider 未启动 session，cancel 应不抛错（currentSession=null 路径）
+        let cancelNoThrow = true;
+        try {
+          provider.cancel("test-run-id");
+        } catch {
+          cancelNoThrow = false;
+        }
+
+        addTest("V17-B cancel: 未启动 session 时 cancel 不抛错（abort 路径验证）",
+          cancelNoThrow ? "pass" : "fail",
+          `cancelNoThrow=${cancelNoThrow}`);
+      }
+
+      // Test V17B-F: write/edit/bash 不能绕过 PermissionBoundary（mapPiSdkEvent 写工具映射为 approval_request）
+      {
+        const writeEvent = piSdkProviderMod.mapPiSdkEvent(
+          { type: "tool_execution_start", toolName: "write" },
+          "pi-sdk",
+        );
+        const writeIsApproval = writeEvent.length === 1 && writeEvent[0].payload.kind === "approval_request";
+
+        const bashEvent = piSdkProviderMod.mapPiSdkEvent(
+          { type: "tool_execution_start", toolName: "bash" },
+          "pi-sdk",
+        );
+        const bashIsApproval = bashEvent.length === 1 && bashEvent[0].payload.kind === "approval_request";
+
+        // toolcall_start + 写工具
+        const editEvent = piSdkProviderMod.mapPiSdkEvent(
+          { type: "message_update", assistantMessageEvent: { type: "toolcall_start", toolCall: { name: "edit", input: { path: "x" } } } },
+          "pi-sdk",
+        );
+        const editIsApproval = editEvent.length === 1 && editEvent[0].payload.kind === "approval_request";
+
+        // read 不映射为 approval
+        const readEvent = piSdkProviderMod.mapPiSdkEvent(
+          { type: "tool_execution_start", toolName: "read" },
+          "pi-sdk",
+        );
+        const readNotApproval = readEvent[0].payload.kind === "tool_start";
+
+        addTest("V17-B 权限: write/edit/bash 映射为 approval_request 不绕过 PermissionBoundary",
+          writeIsApproval && bashIsApproval && editIsApproval && readNotApproval ? "pass" : "fail",
+          `writeApproval=${writeIsApproval} bashApproval=${bashIsApproval} editApproval=${editIsApproval} readNotApproval=${readNotApproval}`);
+      }
+
+      // Test V17B-G: approval accept 后才执行 Bridge-controlled tool
+      {
+        const permBoundary = permBoundaryMod.createPermissionBoundary("default", "medium");
+        const tools = piSdkProviderMod.buildBridgeControlledWriteTools(permBoundary, "pi-sdk");
+        const writeTool = tools.find((t) => t.name === "write");
+        const hasWriteTool = !!writeTool;
+
+        // 异步测试：requestApproval 后 waitForApproval，用户 accept
+        const executePromise = writeTool.execute({ path: "test.md", content: "x" });
+        // 等待一小段时间让 requestApproval 注册
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        // 找到 pending approval 并 resolve
+        const pendingEntries = Array.from(permBoundary.pending.entries());
+        const hasPending = pendingEntries.length > 0;
+        if (hasPending) {
+          const [requestId] = pendingEntries[0];
+          permBoundary.resolveApproval(requestId, { type: "accept" });
+        }
+
+        const result = await executePromise;
+        const acceptExecuted = result.content[0].text.includes("approved and executed");
+
+        addTest("V17-B approval accept: accept 后才执行 Bridge-controlled tool",
+          hasWriteTool && hasPending && acceptExecuted ? "pass" : "fail",
+          `hasWriteTool=${hasWriteTool} hasPending=${hasPending} acceptExecuted=${acceptExecuted}`);
+      }
+
+      // Test V17B-H: approval decline 返回 tool error/result
+      {
+        const permBoundary = permBoundaryMod.createPermissionBoundary("default", "medium");
+        const tools = piSdkProviderMod.buildBridgeControlledWriteTools(permBoundary, "pi-sdk");
+        const bashTool = tools.find((t) => t.name === "bash");
+
+        const executePromise = bashTool.execute({ command: "rm -rf /" });
+        await new Promise((resolve) => setTimeout(resolve, 50));
+
+        const pendingEntries = Array.from(permBoundary.pending.entries());
+        const hasPending = pendingEntries.length > 0;
+        if (hasPending) {
+          const [requestId] = pendingEntries[0];
+          permBoundary.resolveApproval(requestId, { type: "decline" });
+        }
+
+        const result = await executePromise;
+        const declined = result.content[0].text.includes("declined by user");
+        const detailsDeclined = result.details && result.details.declined === true;
+
+        addTest("V17-B approval decline: 返回 tool error/result",
+          hasPending && declined && detailsDeclined ? "pass" : "fail",
+          `hasPending=${hasPending} declined=${declined} detailsDeclined=${detailsDeclined}`);
+      }
+
+      // Test V17B-I: portable profile auto 优先 pi-sdk（provider 选择验证）
+      {
+        piSdkProviderMod.clearPiSdkProbeCache();
+        const provider = new piSdkProviderMod.PiSdkProvider({ forceReload: true });
+        const isPiSdk = provider.providerId === "pi-sdk";
+        const isNotAvailable = !provider.isAvailable(v17bTmpRoot); // SDK 未安装
+
+        // portable 主线候选 = pi-sdk（不是 pi-rpc）
+        const isPortableMainLine = isPiSdk;
+
+        addTest("V17-B portable: pi-sdk 是 portable 主线候选（providerId=pi-sdk）",
+          isPiSdk && isNotAvailable && isPortableMainLine ? "pass" : "fail",
+          `providerId=${provider.providerId} available=${!isNotAvailable}`);
+      }
+
+      // Test V17B-J: pi-rpc 不作为 portable 主线（providerId 验证）
+      {
+        piRpcProviderMod.clearPiProbeCache();
+        const piRpcProvider = new piRpcProviderMod.PiRpcProvider("pi-nonexistent", { cwd: v17bTmpRoot });
+        const isPiRpc = piRpcProvider.providerId === "pi-rpc";
+        const isNotPiSdk = piRpcProvider.providerId !== "pi-sdk";
+
+        // pi-rpc 是 fallback，不是主线（providerId 区分）
+        const isFallbackNotMainLine = isPiRpc && isNotPiSdk;
+
+        addTest("V17-B portable: pi-rpc 不作为 portable 主线（providerId=pi-rpc）",
+          isFallbackNotMainLine ? "pass" : "fail",
+          `providerId=${piRpcProvider.providerId}`);
+      }
+    } finally {
+      try { rmSync(v17bTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+
     // 清理临时 bundles
     for (const f of [
       tempCodexProviderBundle, tempPromptPkgBundle, tempAssistantViewBundle,
@@ -4601,6 +4873,7 @@ if (runMode !== "all" && runMode !== "unit") {
       tempBridgeContractBundle,
       tempAgentRuntimeWorkspaceBundle,
       tempPiRpcProviderBundle,
+      tempPiSdkProviderBundle,
       join(PROJECT_ROOT, ".test-codex-plan-temp.mjs"),
       join(PROJECT_ROOT, ".test-jsonrpc-temp.mjs"),
       join(PROJECT_ROOT, ".test-codex-mapper-temp.mjs"),

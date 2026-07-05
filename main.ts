@@ -301,17 +301,26 @@ export default class LLMBridgePlugin extends Plugin {
       callback: async () => {
         const adapter = this.app.vault.adapter as DataAdapter;
         const vaultPath = adapter.getBasePath();
-        const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllVaultSkills } = await import("./src/agentRuntimeWorkspace");
+        const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllVaultSkills, materializeAllVaultSkillsToAllTargets } = await import("./src/agentRuntimeWorkspace");
         await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
         // V17-A: 先 compact/split（保证 vault-context 不超限、split skills 已生成），再物化全部
         try { await compactOrSplitVaultSkill(vaultPath); } catch { /* compact 失败不阻塞物化 */ }
         const result = await materializeAllVaultSkills(vaultPath);
         const okCount = result.results.filter((r) => r.ok).length;
         const conflictCount = result.results.filter((r) => r.status === "conflict").length;
+        // V17-B 任务 E: portable profile 优先物化 .agents/skills 和 .pi/skills（Pi portable backend 主线）
+        // 同时也物化到所有 target（claude/generic-agent/pi），保证不同 backend 可用
+        let allTargetsOkCount = 0;
+        let allTargetsTotal = 0;
+        try {
+          const allTargetsResult = await materializeAllVaultSkillsToAllTargets(vaultPath);
+          allTargetsOkCount = allTargetsResult.results.filter((r) => r.ok).length;
+          allTargetsTotal = allTargetsResult.results.length;
+        } catch { /* all-targets 物化失败不阻塞主流程 */ }
         if (conflictCount > 0) {
-          new Notice(`Materialized ${okCount}/${result.results.length} (${conflictCount} conflict, not overwritten)`);
+          new Notice(`Materialized ${okCount}/${result.results.length} (claude) + ${allTargetsOkCount}/${allTargetsTotal} (all targets); ${conflictCount} conflict`);
         } else {
-          new Notice(`All Vault Skills materialized: ${okCount}/${result.results.length}`);
+          new Notice(`Materialized ${okCount}/${result.results.length} (claude) + ${allTargetsOkCount}/${allTargetsTotal} (all targets)`);
         }
       },
     });

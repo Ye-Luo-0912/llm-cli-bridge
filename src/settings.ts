@@ -271,11 +271,12 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Backend 模式")
-      .setDesc("auto=SDK-first + Claude Code CLI fallback（默认生产）；cli=始终使用 Claude Code CLI；sdk=始终使用 SDK（不可用时显示错误，不 fallback）；pi-rpc=Pi portable backend spike；mock-success / mock-failure=离线测试用。")
+      .setDesc("auto=SDK-first + Claude Code CLI fallback（默认生产）；cli=始终使用 Claude Code CLI；sdk=始终使用 SDK（不可用时显示错误，不 fallback）；pi-sdk=Pi SDK 嵌入（V17-B portable 主线）；pi-rpc=Pi RPC portable spike；mock-success / mock-failure=离线测试用。")
       .addDropdown((d) => {
         d.addOption("auto", "auto（SDK-first + CLI fallback）");
         d.addOption("cli", "cli（Claude Code CLI）");
         d.addOption("sdk", "sdk（Claude Agent SDK）");
+        d.addOption("pi-sdk", "pi-sdk（Pi SDK 嵌入，portable 主线）");
         d.addOption("pi-rpc", "pi-rpc（Pi portable backend spike）");
         d.addOption("mock-success", "mock-success（演示成功流程）");
         d.addOption("mock-failure", "mock-failure（演示失败流程）");

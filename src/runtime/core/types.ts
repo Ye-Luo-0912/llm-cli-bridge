@@ -39,9 +39,10 @@ export type { EffectiveRunPlan, AttachmentPlan } from "../../types";
  * - claude-sdk:       Claude Agent SDK（@anthropic-ai/claude-agent-sdk），作为 provider adapter 保留
  * - claude-cli:       Claude Code CLI（claude -p），作为 provider adapter 保留
  * - pi-rpc:           V17-A portable backend spike（pi --mode rpc），plan/read-only 阶段不绕过 PermissionBoundary
+ * - pi-sdk:           V17-B portable backend 主线（@earendil-works/pi-coding-agent SDK），写操作经 Bridge approval
  * - mock:             开发/测试用 mock provider
  */
-export type ProviderId = "codex-app-server" | "claude-sdk" | "claude-cli" | "pi-rpc" | "mock";
+export type ProviderId = "codex-app-server" | "claude-sdk" | "claude-cli" | "pi-rpc" | "pi-sdk" | "mock";
 
 // ---------- RunInput ----------
 
