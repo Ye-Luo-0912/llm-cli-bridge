@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-05T04:39:32.908Z
+- **测试时间**: 2026-07-05T05:17:54.977Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 728.1 KB
+- **main.js 大小**: 752.8 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 59338
-- **commit sha**: 2ec29d79eaab3c61fb992ed19548f4058935f536
-- **commit 短 sha**: 2ec29d79eaab
+- **commit sha**: d9a29effff8665529c74564873320779e0037126
+- **commit 短 sha**: d9a29effff86
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 920
+- ✅ **通过**: 937
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 945
+- **总计**: 962
 
 ### 审计模式说明
 
@@ -103,7 +103,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成运行前快照 | 文件数: 19 |
+| ✅ | 生成运行前快照 | 文件数: 20 |
 
 ### diff
 
@@ -591,7 +591,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 最小三类 section，不堆砌细则 | allPresent=true hasHeaders=true reasonableLen=true capLen=485 autoLen=195 safetyLen=326 |
+| ✅ | 最小三类 section，不堆砌细则 | allPresent=true hasHeaders=true reasonableLen=true capLen=820 autoLen=195 safetyLen=326 |
 
 ### V16.5-C contract
 
@@ -696,6 +696,83 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | V16.5-D ProviderCapabilityInfo evidence 字段可填充 | hasManifest=true hasAvailable=true |
+
+### V16.5-E blocker
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=291213 capLine=291358 orderOk=true |
+| ✅ | buildBridgePromptPackage 主路径接收 runtimeCapabilities | hasRuntimeCapabilities=true hasPassedToBuilder=true |
+
+### V16.5-E workspace
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 首次初始化创建完整结构 | allCreated=true vaultSkillInitialized=true created=["LLM-AgentRuntime","LLM-AgentRuntime/runtime","LLM-AgentRuntime/skills","LLM-AgentRuntime/skills/vault-context","LLM-AgentRuntime/sessions","LLM-AgentRuntime/work","LLM-AgentRuntime/README.md","LLM-AgentRuntime/runtime/RUNTIME_FACTS.json","LLM-AgentRuntime/skills/vault-context/SKILL.md"] |
+| ✅ | 二次初始化不覆盖已存在文件 | vaultSkillSkipped=true readmeSkipped=true initialized=false |
+
+### V16.5-E RUNTIME_FACTS
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 默认 obsidianCliAvailable=unknown | isUnknown=true probeNotProbed=true hasSchema=true |
+
+### V16.5-E VAULT_SKILL 初版
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 包含 Overview/Directory/Agent Workspace facts | header=true vaultRoot=true agentWs=true source=true target=true stableFacts=true |
+
+### V16.5-E VAULT_SKILL
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 已存在文件不被模板覆盖 | skipped=true userEditPreserved=true |
+
+### V16.5-E materialize
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | source → .claude/skills/vault-context/SKILL.md | isOk=true hasPaths=true hasMarker=true status=created |
+| ✅ | 内容一致时 skipped | status=skipped |
+| ✅ | 人工修改后 conflict 不强制覆盖 | isConflict=true status=conflict reason=materialized SKILL.md is not plugin-generated; will not overwrite |
+
+### V16.5-E shouldWriteVaultSkill
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 合法 reason 允许写入 | allLegal=true |
+
+### V16.5-E isVaultSkillWritableContent
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 拒绝命令日志，接受稳定事实 | rejected=true accepted=true |
+
+### V16.5-E mergeVaultSkillContent
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 超限时 compact，不 append-only 膨胀 | length=7641 max=12000 compacted=false |
+
+### V16.5-E prompt
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 包含 Agent workspace / Vault Skill source / target 事实 | agentWs=true source=true target=true facts=true |
+| ✅ | 不注入完整 VAULT_SKILL，只注入路径事实 | hasPath=true notFullContent=true |
+
+### V16.5-E command palette
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 注册 5 个 Agent Runtime 命令 | init=true view=true rebuild=true materialize=true cleanWork=true |
+
+### V16.5-E 兼容
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Autonomy Contract 不回退 | direct=true noRepeat=true |
 
 ### MockAgentBackend
 
@@ -1695,7 +1772,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-05T04-40-01-634Z-qgm4g1 |
+| ✅ | 返回非空 id | id=s-2026-07-05T05-18-23-666Z-bktjff |
 
 ### V2.5 Session 版本
 
@@ -1714,7 +1791,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-05T04-40-01-705Z-izrs27 second=s-2026-07-05T04-40-01-647Z-9hth0x |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-05T05-18-23-738Z-92lpt3 second=s-2026-07-05T05-18-23-676Z-lg6qe6 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1741,7 +1818,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-05T04-40-01-727Z-qmac3z id2=s-2026-07-05T04-40-01-727Z-oi9fk1 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-05T05-18-23-758Z-oe7ptq id2=s-2026-07-05T05-18-23-758Z-i0gobc |
 
 ### V2.5 Session 上限
 
@@ -1839,7 +1916,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-05T04:40:01.796Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-05T05:18:23.827Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1927,7 +2004,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-05T04:40:01.865Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-05T05:18:23.887Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2041,7 +2118,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-05T04:40:01.958Z after=2026-07-05T04:40:02.013Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-05T05:18:23.964Z after=2026-07-05T05:18:24.034Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -2412,13 +2489,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-05T04:40:02.722Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-05T05:18:24.710Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-05T04:40:02.732Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-05T05:18:24.720Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -2729,7 +2806,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-prdOQU\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-WWY3F2\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-0mI54o\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-pFb1KL\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -2741,7 +2818,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-U55ot7\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-CRJbr2\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-dLq89f\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-80ZNjz\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -2753,7 +2830,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-GkIWTg\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-5aJZsP\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-8i1KrB\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-j9swa6\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -3073,7 +3150,7 @@
 |------|--------|------|
 | ✅ | unit/process 报告含 commit sha + 运行命令字段 | unitExists=true processExists=true unitSha=true processSha=true unitCmd=true processCmd=true |
 | ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
-| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=bcca9f6c9e04 |
+| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=2ec29d79eaab |
 | ✅ | 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑） | scriptExists=true auditFailExit=true testedCodeShaCheck=true codexSmokeCheck=true docsOnlyLogic=true |
 
 ## 失败项详情
