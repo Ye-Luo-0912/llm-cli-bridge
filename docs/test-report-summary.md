@@ -8,16 +8,16 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-04T17:42:00.335Z
-- **reportCommitSha**: 86bec650298fccb1c869c3dab9e0fdc96a7258b6
-- **reportCommitSha 短**: 86bec650298f
-- **reportParentSha**: a67b4ce82f8b82c7180f9cfc53a8b03e908023fe
-- **reportParentSha 短**: a67b4ce82f8b
-- **testedCodeCommitSha**: 86bec650298fccb1c869c3dab9e0fdc96a7258b6
-- **testedCodeCommitSha 短**: 86bec650298f
+- **生成时间**: 2026-07-05T02:44:40.571Z
+- **reportCommitSha**: f3c2a8c541cc4663f2dec375c21a9fa3f165daff
+- **reportCommitSha 短**: f3c2a8c541cc
+- **reportParentSha**: 49c05fe4824f5a85c632eb12807cd454a0a478eb
+- **reportParentSha 短**: 49c05fe4824f
+- **testedCodeCommitSha**: f3c2a8c541cc4663f2dec375c21a9fa3f165daff
+- **testedCodeCommitSha 短**: f3c2a8c541cc
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: 86bec650298fccb1c869c3dab9e0fdc96a7258b6
-- **processReportCommitSha**: 86bec650298fccb1c869c3dab9e0fdc96a7258b6
+- **unitReportCommitSha**: f3c2a8c541cc4663f2dec375c21a9fa3f165daff
+- **processReportCommitSha**: f3c2a8c541cc4663f2dec375c21a9fa3f165daff
 - **codexSmokeStatus**: skip
 - **codexHandshakeStatus**: skip
 - **codexTurnStatus**: skip
@@ -25,24 +25,24 @@
 - **codexSchemaSource**: fixture
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-04T17:41:09.961Z
-- **process 测试时间**: 2026-07-04T17:41:46.685Z
+- **unit 测试时间**: 2026-07-05T02:43:45.937Z
+- **process 测试时间**: 2026-07-05T02:44:24.271Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=86bec650298f。
-- **当前 commit 改动文件**：docs/test-report-cdp-v164h-smoke.md, docs/visual-smoke/v164h-approval-card.png, docs/visual-smoke/v164h-ask-user-question.png, scripts/cdp-v164h-smoke.mjs
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=f3c2a8c541cc。
+- **当前 commit 改动文件**：docs/test-report-cdp-v164h-smoke.md, docs/visual-smoke/v164h-approval-card.png, docs/visual-smoke/v164h-ask-user-question.png, scripts/cdp-v164h-smoke.mjs, scripts/run-tests.mjs, src/runtime/core/permissionBoundary.ts, src/runtime/core/runPhaseModel.ts, src/runtime/core/types.ts, src/sdkPermission.ts, src/view.ts, styles.css
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 886 | 0 | 25 | 0 | 911 | 86bec650298f | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | 86bec650298f | ✅ 通过 |
+| unit | 900 | 0 | 25 | 0 | 925 | f3c2a8c541cc | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | f3c2a8c541cc | ✅ 通过 |
 | codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **983** | **0** | **81** | **0** | **1064** | 86bec650298f | ✅ **主线通过** |
+| **合计** | **997** | **0** | **81** | **0** | **1078** | f3c2a8c541cc | ✅ **主线通过** |
 
 **双轨均 0 失败 → P2 Codex app-server Runtime 主线闭环测试通过。**
 

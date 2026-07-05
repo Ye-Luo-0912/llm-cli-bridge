@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-04T17:41:09.961Z
+- **测试时间**: 2026-07-05T02:43:45.937Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 719.1 KB
+- **main.js 大小**: 726.7 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 63959
-- **commit sha**: 86bec650298fccb1c869c3dab9e0fdc96a7258b6
-- **commit 短 sha**: 86bec650298f
+- **HTTP 端口**: 53214
+- **commit sha**: f3c2a8c541cc4663f2dec375c21a9fa3f165daff
+- **commit 短 sha**: f3c2a8c541cc
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 886
+- ✅ **通过**: 900
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 911
+- **总计**: 925
 
 ### 审计模式说明
 
@@ -527,6 +527,65 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | is-approval-active 隐藏 composerBar | approvalActive=true userInputActive=true |
+
+### V16.5-B normalizeToolName
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | bash/Bash/command/shell/terminal/RunCommand/CommandExecution → Bash | 14 cases |
+
+### V16.5-B assessToolRisk
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | bash/Bash/command/RunCommand 一致 + 不返回 low | bash=high/高风险：Shell 执行 Bash=high/高风险：Shell 执行 command=high RunCommand=high |
+| ✅ | command execution 不显示低风险只读文案 | reason="高风险：Shell 执行" level=high |
+| ✅ | Bash/bash/CommandExecution 高危场景文案一致 | Bash=high bash=high codex=high |
+
+### V16.5-B resolveApprovalDetailed
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 不存在的 requestId 返回 not_found | ok=false reason=not_found |
+| ✅ | 二次 resolve 返回 not_found | first.ok=true second.ok=false second.reason=not_found |
+
+### V16.5-B waitForApproval
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | cancelAllPending 后立即返回 cancel | type=cancel elapsed=0ms |
+| ✅ | 不存在的 requestId 立即返回 cancel | type=cancel elapsed=0ms |
+
+### V16.5-B view.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | boundary.pending 主源 + stale/resolving + Cancel × + resolveApprovalDetailed | boundary=true stale=true cancel=true staleCard=true resolving=true detailed=true |
+
+### V16.5-B CSS
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | is-resolving/is-stale/cancel/dismiss-stale/stop-run | resolving=true cancel=true stale=true dismiss=true stop=true |
+
+### V16.5-B handleNormalizedEvent
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 只同步缓存 + stale 清理（无 shadow truth） | cacheOnly=true cacheChanged=true staleCleanup=true |
+
+### V16.5-B clearPendingPermissions
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 清空 staleApprovalRequestIds + resolvingApprovalRequestId | stale=true resolving=true |
+
+### V16.5-B runPhaseModel
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | thoughtKey 去重（messageId/contentBlockIndex/text hash） | thoughtKey=true usesThoughtKey=true noIncludesInPostLoop=true |
+| ✅ | thoughtKey 含 messageId/contentBlockIndex/text 指纹 | stableKey=true |
 
 ### MockAgentBackend
 
@@ -1526,7 +1585,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-04T17-41-38-888Z-deg53m |
+| ✅ | 返回非空 id | id=s-2026-07-05T02-44-14-847Z-otzr1p |
 
 ### V2.5 Session 版本
 
@@ -1545,7 +1604,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-04T17-41-38-967Z-r6q3km second=s-2026-07-04T17-41-38-901Z-bmkdaw |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-05T02-44-14-929Z-n6p7pu second=s-2026-07-05T02-44-14-861Z-aje0e2 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -1572,7 +1631,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-04T17-41-38-997Z-axb7c8 id2=s-2026-07-04T17-41-38-997Z-2fkkqd |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-05T02-44-14-965Z-a2l4j8 id2=s-2026-07-05T02-44-14-965Z-xfivxj |
 
 ### V2.5 Session 上限
 
@@ -1670,7 +1729,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-04T17:41:39.076Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-05T02:44:15.053Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -1758,7 +1817,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-04T17:41:39.148Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-05T02:44:15.131Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -1872,7 +1931,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-04T17:41:39.243Z after=2026-07-04T17:41:39.310Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-05T02:44:15.233Z after=2026-07-05T02:44:15.301Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -2243,13 +2302,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-04T17:41:40.122Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-05T02:44:16.178Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-04T17:41:40.132Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-05T02:44:16.192Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -2560,7 +2619,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-k05qTX\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-mIYb7Q\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-AQ4mql\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-FaJcVG\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -2572,7 +2631,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-Z6Pc31\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-JzaFbI\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-RPGXi6\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-IY3x3O\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -2584,7 +2643,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-5t5Bsy\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-qogs79\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-K0IYNV\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-PLwhgp\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
