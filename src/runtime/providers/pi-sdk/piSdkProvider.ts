@@ -1,32 +1,32 @@
-// LLM CLI Bridge — PiSdkProvider (V17-B Pi SDK Provider Adapter)
+// LLM CLI Bridge — PiSdkProvider (V17-B1 Pi SDK Runtime Correctness)
 //
 // 使用 @earendil-works/pi-coding-agent 的 SDK 嵌入模式（createAgentSession / AgentSession），
 // 而不是 pi --mode rpc 子进程。作为 portable profile 的 portable backend 主线。
 //
-// 定位：
-// - Pi SDK 是朋友版 portable backend 主线候选。
-// - pi-rpc 保留为实验 fallback；portable 主线切到 pi-sdk。
-// - 未安装或 import 失败时 isAvailable=false，run() 直接发 failed 事件，不崩溃。
+// V17-B1 修复要点：
+// - 工具暴露：tools=["read"] + customTools=[bridge_write/bridge_edit/bridge_bash]
+//   不启用 Pi 内置 write/edit/bash，避免同名冲突；bridge_* 真实进入 active tools
+// - accept 后接 Bridge-controlled executor：fs/promises 写文件、字符串替换、bash 禁用
+// - streaming 并发：subscribe + 异步 prompt + for await iterate，不阻塞
+// - toolCallId 在 start/update/end 复用同一 id（来自 Pi SDK event 或回退生成）
+// - 模型/认证：probe modelRegistry.hasConfiguredAuth，无 auth 时发可行动提示
 //
 // 权限边界（任务 C）：
-// - 不使用 Pi 默认 write/edit/bash 直通。
-// - 通过 SDK 自定义 tools 拦截：tools=["read"] + excludeTools=["edit","write","bash"] +
-//   customTools=[bridgeWriteTool, bridgeEditTool, bridgeBashTool]。
-// - 自定义工具的 execute 内部调用 ctx.permission.requestApproval + waitForApproval：
-//   - accept → 调用 Bridge-controlled executor（暂为占位，后续接 runtimeFileToolAdapter）
-//   - decline → 返回 tool error/result 给 Pi
-// - read 走 Pi 内置 Read（read-only adapter）。
+// - bridge_* 工具 execute 内部调用 PermissionBoundary.requestApproval + waitForApproval
+// - accept → 调用 Bridge-controlled executor（真实写入）
+// - decline → 返回 tool error/result 给 Pi
+// - read 走 Pi 内置 Read（read-only adapter）
 //
 // 事件映射（任务 D）：
 // - message_update + text_delta → message partial
 // - message_update + thinking_delta → thinking
-// - tool_execution_start → tool_start
+// - tool_execution_start → tool_start（携带 toolCallId）
 // - tool_execution_update → progress
-// - tool_execution_end → tool_result
+// - tool_execution_end → tool_result（复用同一 toolCallId）
 // - agent_start → session_started
 // - agent_end → completed
 // - error → error/failed
-// - raw provider event 仅在 developerMode 下保留（通过 rawProviderEvent 字段）
+// - raw provider event 仅在 developerMode 下保留
 
 import type { LLMBridgeSettings } from "../../../types";
 import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
@@ -43,10 +43,14 @@ import type {
 import { composePromptForBackend } from "../agentBackendAdapter";
 
 // 运行时动态 require（避免顶层 import 导致 renderer 加载失败 / 包未安装时崩溃）
+// V17-B1: 优先用 globalThis.require（Obsidian renderer 环境），回退到直接 require
+// esbuild bundle 时保留 require 调用（format=esm + platform=node 仍可用 createRequire）
 function requireNode<T>(name: string): T | null {
   try {
     const g = globalThis as unknown as { require?: (n: string) => T };
     if (g.require) return g.require(name);
+  } catch { /* fallthrough */ }
+  try {
     return (require as (n: string) => T)(name);
   } catch {
     return null;
@@ -58,7 +62,7 @@ function requireNode<T>(name: string): T | null {
 /**
  * Pi SDK 模块接口（仅声明我们用到的 API surface）。
  *
- * 实际包 @earendil-works/pi-coding-agent 未在 devDependencies 中（朋友版可选依赖）。
+ * 实际包 @earendil-works/pi-coding-agent 在 optionalDependencies 中（朋友版可选依赖）。
  * import 失败时 provider unavailable，不崩溃。
  */
 export interface PiSdkModule {
@@ -69,10 +73,26 @@ export interface PiSdkModule {
   }>;
   defineTool?(definition: ToolDefinition): unknown;
   SessionManager?: { inMemory(): unknown; create(cwd: string): unknown };
-  AuthStorage?: { create(): unknown };
-  ModelRegistry?: { create(authStorage: unknown): unknown };
+  AuthStorage?: {
+    create(): AuthStorageLike;
+  };
+  ModelRegistry?: {
+    create(authStorage: unknown): ModelRegistryLike;
+  };
   DefaultResourceLoader?: new (options: Record<string, unknown>) => { reload(): Promise<void> };
   SettingsManager?: { inMemory(overrides?: Record<string, unknown>): unknown };
+}
+
+export interface AuthStorageLike {
+  hasConfiguredAuth?(): boolean;
+  setRuntimeApiKey?(provider: string, key: string): void;
+  getRuntimeApiKey?(provider: string): string | undefined;
+}
+
+export interface ModelRegistryLike {
+  hasConfiguredAuth?(): boolean;
+  find?(provider: string, modelId: string): { id: string; provider: string } | undefined;
+  list?(): ReadonlyArray<{ id: string; provider: string }>;
 }
 
 export interface AgentSessionLike {
@@ -82,6 +102,7 @@ export interface AgentSessionLike {
   abort(): Promise<void>;
   dispose(): void;
   readonly isStreaming: boolean;
+  getActiveToolNames?(): ReadonlyArray<string>;
 }
 
 /** Pi SDK 事件（判别联合 — 仅声明我们识别的字段） */
@@ -90,9 +111,11 @@ export interface PiSdkEvent {
   readonly assistantMessageEvent?: {
     readonly type: string; // text_delta | thinking_delta | toolcall_start | ...
     readonly delta?: string;
-    readonly toolCall?: { readonly name: string; readonly input?: unknown };
+    readonly toolCall?: { readonly name: string; readonly input?: unknown; readonly id?: string };
   };
   readonly toolName?: string;
+  readonly toolCallId?: string;
+  readonly args?: unknown;
   readonly partialResult?: unknown;
   readonly isError?: boolean;
   readonly messages?: ReadonlyArray<unknown>;
@@ -167,35 +190,134 @@ export function tryLoadPiSdk(force = false): PiSdkProbeResult {
   return result;
 }
 
+/**
+ * V17-B1 任务 F：探测 Pi SDK 模型/认证可用性。
+ *
+ * 返回 auth/model 状态用于 UI 提示。无 auth 时返回可行动提示。
+ */
+export interface PiSdkAuthProbeResult {
+  readonly hasAuth: boolean;
+  readonly hasModel: boolean;
+  readonly hint: string;
+}
+
+export function probePiSdkAuth(probe: PiSdkProbeResult): PiSdkAuthProbeResult {
+  if (!probe.available || !probe.module) {
+    return {
+      hasAuth: false,
+      hasModel: false,
+      hint: "Pi SDK 未安装。请运行：npm install --ignore-scripts @earendil-works/pi-coding-agent",
+    };
+  }
+  const sdk = probe.module;
+  try {
+    const authStorage = sdk.AuthStorage?.create ? sdk.AuthStorage.create() : null;
+    const hasAuth = !!(authStorage && typeof authStorage.hasConfiguredAuth === "function" && authStorage.hasConfiguredAuth());
+    const modelRegistry = sdk.ModelRegistry?.create && authStorage ? sdk.ModelRegistry.create(authStorage) : null;
+    const hasModel = !!(modelRegistry && typeof modelRegistry.list === "function" && modelRegistry.list().length > 0);
+    let hint = "";
+    if (!hasAuth && !hasModel) {
+      hint = "Pi SDK 未配置认证和模型。请在 ~/.pi/agent 配置 API Key 或运行 pi login，并在插件设置中选择 model。";
+    } else if (!hasAuth) {
+      hint = "Pi SDK 未配置认证。请在 ~/.pi/agent 配置 API Key 或运行 pi login。";
+    } else if (!hasModel) {
+      hint = "Pi SDK 未选择模型。请在插件设置中选择 model。";
+    }
+    return { hasAuth, hasModel, hint };
+  } catch {
+    return {
+      hasAuth: false,
+      hasModel: false,
+      hint: "Pi SDK 认证探测失败。请检查 ~/.pi/agent 配置或运行 pi login。",
+    };
+  }
+}
+
 // ---------- 写工具判定（任务 C 权限边界） ----------
 
-const WRITE_TOOL_NAMES = new Set([
-  "write", "edit", "multiedit", "bash", "shell", "command", "terminal",
-  "delete", "remove", "rm", "mkdir", "mv", "rename", "notebookedit",
-]);
+/**
+ * V17-B1 任务 B：Bridge-controlled 工具名集合。
+ * 这些工具替代 Pi 内置 write/edit/bash，避免同名冲突。
+ */
+export const BRIDGE_TOOL_NAMES = ["bridge_write", "bridge_edit", "bridge_bash"] as const;
+export type BridgeToolName = typeof BRIDGE_TOOL_NAMES[number];
 
 /** 判断 Pi SDK 工具调用是否为写/命令操作（需 approval）。导出用于测试。 */
 export function isWriteToolCall(toolName: string): boolean {
   const lower = toolName.toLowerCase();
+  // V17-B1: bridge_* 工具是写操作；内置 write/edit/bash 也算（防御性）
+  if (lower === "bridge_write" || lower === "bridge_edit" || lower === "bridge_bash") return true;
+  const WRITE_TOOL_NAMES = new Set([
+    "write", "edit", "multiedit", "bash", "shell", "command", "terminal",
+    "delete", "remove", "rm", "mkdir", "mv", "rename", "notebookedit",
+  ]);
   if (WRITE_TOOL_NAMES.has(lower)) return true;
   return /write|edit|bash|shell|command|terminal|delete|remove|rename/i.test(lower);
 }
 
-// ---------- 事件映射（任务 D） ----------
+// ---------- toolCallId 管理（任务 E） ----------
+
+/**
+ * V17-B1 任务 E：toolCallId 注册表。
+ *
+ * Pi SDK event 中 toolCallId 可能出现在 toolcall_start（assistantMessageEvent.toolCall.id）
+ * 或 tool_execution_start（event.toolCallId）。我们在 start 时记录 id，
+ * update/end 时优先使用 event 自带 id，缺失时回退到最近注册的 id（按 toolName 关联）。
+ *
+ * 同一 toolCallId 在 start/update/end 之间复用，不再各自生成不同 id。
+ */
+export class ToolCallIdRegistry {
+  private readonly byToolName = new Map<string, string>();
+  private counter = 0;
+
+  /** 注册或获取 toolCallId。优先使用 event 自带 id。 */
+  resolveId(event: PiSdkEvent): string {
+    const toolName = event.toolName || event.assistantMessageEvent?.toolCall?.name || "unknown";
+    // 1. event.assistantMessageEvent.toolCall.id（toolcall_start）
+    const tcId = event.assistantMessageEvent?.toolCall?.id;
+    if (tcId) {
+      this.byToolName.set(toolName, tcId);
+      return tcId;
+    }
+    // 2. event.toolCallId（tool_execution_*）
+    if (event.toolCallId) {
+      this.byToolName.set(toolName, event.toolCallId);
+      return event.toolCallId;
+    }
+    // 3. 回退：按 toolName 查找已注册 id
+    const existing = this.byToolName.get(toolName);
+    if (existing) return existing;
+    // 4. 全部缺失：生成新 id（仅 start 时）
+    const fallback = `pi-sdk-${toolName}-${Date.now()}-${this.counter++}`;
+    this.byToolName.set(toolName, fallback);
+    return fallback;
+  }
+
+  /** 清理（run 结束时调用） */
+  clear(): void {
+    this.byToolName.clear();
+  }
+}
+
+// ---------- 事件映射（任务 D + E） ----------
 
 /**
  * 把 Pi SDK event 映射为 NormalizedRuntimeEvent[]。
  *
  * 纯函数（不依赖 provider 实例），导出供单元测试。
  * rawProviderEvent 由调用方根据 developerMode 决定是否填充。
+ *
+ * V17-B1 任务 E：toolCallId 在 start/update/end 之间复用（通过 registry）。
  */
 export function mapPiSdkEvent(
   event: PiSdkEvent,
   providerId: ProviderId,
+  idRegistry?: ToolCallIdRegistry,
 ): NormalizedRuntimeEvent[] {
   const ts = new Date().toISOString();
   const events: NormalizedRuntimeEvent[] = [];
   const type = event.type;
+  const registry = idRegistry ?? new ToolCallIdRegistry();
 
   // message_update — 流式文本/思考/工具调用开始
   if (type === "message_update" && event.assistantMessageEvent) {
@@ -219,8 +341,9 @@ export function mapPiSdkEvent(
     if (ame.type === "toolcall_start" && ame.toolCall) {
       const toolName = ame.toolCall.name || "unknown";
       const toolInput = ame.toolCall.input ? JSON.stringify(ame.toolCall.input) : "";
-      const callId = `pi-sdk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      // 写工具 → approval_request（任务 C：不直通）
+      const callId = registry.resolveId(event);
+      // V17-B1: bridge_* 工具是写操作 → approval_request
+      // 内置 write/edit/bash 防御性也算（不应出现，因 tools=["read"]）
       if (isWriteToolCall(toolName)) {
         events.push({
           providerId,
@@ -256,7 +379,8 @@ export function mapPiSdkEvent(
   // tool_execution_start
   if (type === "tool_execution_start") {
     const toolName = event.toolName || "unknown";
-    const callId = `pi-sdk-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const callId = registry.resolveId(event);
+    const toolInput = event.args ? JSON.stringify(event.args).slice(0, 200) : "";
     if (isWriteToolCall(toolName)) {
       events.push({
         providerId,
@@ -268,37 +392,41 @@ export function mapPiSdkEvent(
           description: `Pi SDK 请求执行 ${toolName}`,
           riskLevel: "medium",
           riskReason: "Pi portable backend — 写操作需 Bridge approval",
+          inputSummary: toolInput,
         },
       });
     } else {
       events.push({
         providerId,
         timestamp: ts,
-        payload: { kind: "tool_start", toolName, toolInput: "", callId },
+        payload: { kind: "tool_start", toolName, toolInput, callId },
       });
     }
     return events;
   }
 
-  // tool_execution_update → progress
+  // tool_execution_update → progress（复用同一 callId，通过 detail 携带）
   if (type === "tool_execution_update") {
+    const callId = registry.resolveId(event);
     events.push({
       providerId,
       timestamp: ts,
       payload: {
         kind: "progress",
         label: event.toolName ? `tool_update:${event.toolName}` : "tool_update",
-        detail: event.partialResult ? JSON.stringify(event.partialResult).slice(0, 200) : undefined,
+        detail: event.partialResult
+          ? `${JSON.stringify(event.partialResult).slice(0, 180)} [callId:${callId}]`
+          : `[callId:${callId}]`,
         category: "tool",
       },
     });
     return events;
   }
 
-  // tool_execution_end → tool_result
+  // tool_execution_end → tool_result（复用同一 callId）
   if (type === "tool_execution_end") {
     const toolName = event.toolName || "unknown";
-    const callId = `pi-sdk-end-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const callId = registry.resolveId(event);
     const isError = event.isError === true;
     const output = event.partialResult ? JSON.stringify(event.partialResult).slice(0, 500) : (isError ? "tool error" : "ok");
     events.push({
@@ -399,14 +527,89 @@ export function mapPiSdkEvent(
   return events;
 }
 
-// ---------- Bridge-controlled write tools（任务 C） ----------
+// ---------- Bridge-controlled executor（任务 C：真实写入） ----------
 
 /**
- * 创建 Bridge-controlled 自定义工具定义。
+ * V17-B1 任务 C：Bridge-controlled 工具执行器。
  *
- * 这些工具替代 Pi 内置的 write/edit/bash：
+ * accept 后调用真实 executor：
+ * - bridge_write → fs/promises.writeFile
+ * - bridge_edit → 读取 → 字符串替换 → 写回
+ * - bridge_bash → portable 默认禁用（需 developer profile + 显式开启）
+ *
+ * decline 后不执行任何操作，返回 tool error。
+ */
+export interface BridgeToolExecutor {
+  write(path: string, content: string): Promise<{ ok: boolean; message: string }>;
+  edit(path: string, oldText: string, newText: string): Promise<{ ok: boolean; message: string }>;
+  bash(command: string): Promise<{ ok: boolean; message: string }>;
+}
+
+/** 默认 executor：使用 Node fs/promises */
+export function createDefaultBridgeToolExecutor(cwd: string, allowBash: boolean): BridgeToolExecutor {
+  return {
+    async write(path, content) {
+      try {
+        const fs = requireNode<{ promises: { writeFile(path: string, data: string, enc?: string): Promise<void>; mkdir(path: string, opts?: { recursive: boolean }): Promise<void> } }>("node:fs");
+        if (!fs?.promises) {
+          return { ok: false, message: "node:fs not available in this environment" };
+        }
+        const fullPath = resolvePath(cwd, path);
+        const pathMod = requireNode<{ sep: string }>("node:path");
+        const sep = pathMod?.sep ?? "/";
+        const dir = fullPath.substring(0, fullPath.lastIndexOf(sep));
+        if (dir) await fs.promises.mkdir(dir, { recursive: true }).catch(() => { /* ignore */ });
+        await fs.promises.writeFile(fullPath, content, "utf8");
+        return { ok: true, message: `wrote ${path}` };
+      } catch (e) {
+        return { ok: false, message: `write failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+    async edit(path, oldText, newText) {
+      try {
+        const fs = requireNode<{ promises: { readFile(path: string, enc: string): Promise<string>; writeFile(path: string, data: string, enc?: string): Promise<void> } }>("node:fs");
+        if (!fs?.promises) {
+          return { ok: false, message: "node:fs not available in this environment" };
+        }
+        const fullPath = resolvePath(cwd, path);
+        const original = await fs.promises.readFile(fullPath, "utf8");
+        if (!original.includes(oldText)) {
+          return { ok: false, message: `oldText not found in ${path}` };
+        }
+        const updated = original.replace(oldText, newText);
+        await fs.promises.writeFile(fullPath, updated, "utf8");
+        return { ok: true, message: `edited ${path}` };
+      } catch (e) {
+        return { ok: false, message: `edit failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    },
+    async bash(_command) {
+      if (!allowBash) {
+        return { ok: false, message: "bash is disabled in portable profile (requires developer profile + explicit enable)" };
+      }
+      // V17-B1: portable 默认禁用 bash；developer profile 下也建议走 Bridge command approval
+      // 真实 bash 执行由 view.ts 的 command execution approval path 处理，此处仅返回禁用提示
+      return { ok: false, message: "bash execution not supported via Pi SDK bridge tool — use Bridge command approval path" };
+    },
+  };
+}
+
+function resolvePath(cwd: string, path: string): string {
+  if (!path) return cwd;
+  // 简单解析：绝对路径直接用，相对路径拼到 cwd
+  const pathMod = requireNode<{ sep: string }>("node:path");
+  const sep = pathMod?.sep ?? "/";
+  if (path.startsWith("/") || /^[A-Za-z]:[\\/]/.test(path)) return path;
+  if (cwd.endsWith(sep)) return cwd + path;
+  return cwd + sep + path;
+}
+
+/**
+ * V17-B1 任务 B+C：创建 Bridge-controlled 自定义工具定义。
+ *
+ * 工具名：bridge_write / bridge_edit / bridge_bash（避免与 Pi 内置同名冲突）
  * - execute 内部调用 PermissionBoundary.requestApproval + waitForApproval
- * - accept → 返回 success（暂为占位执行；后续接 runtimeFileToolAdapter）
+ * - accept → 调用 BridgeToolExecutor 真实执行
  * - decline → 返回 tool error 给 Pi
  *
  * 返回的是 Pi SDK defineTool 兼容的定义（不带 SDK 依赖，纯数据结构）。
@@ -414,11 +617,13 @@ export function mapPiSdkEvent(
 export function buildBridgeControlledWriteTools(
   permission: PermissionBoundary,
   providerId: ProviderId,
+  executor: BridgeToolExecutor,
 ): ReadonlyArray<ToolDefinition> {
   const makeTool = (
-    name: string,
+    name: BridgeToolName,
     description: string,
     parameters: unknown,
+    run: (args: Record<string, unknown>) => Promise<{ ok: boolean; message: string }>,
   ): ToolDefinition => ({
     name,
     description,
@@ -437,25 +642,26 @@ export function buildBridgeControlledWriteTools(
       };
       const decision = permission.requestApproval(req);
       if (decision === "auto-allow") {
+        const result = await run(args);
         return {
-          content: [{ type: "text", text: `[Bridge] ${name} auto-allowed by session policy` }],
-          details: { args, decision: "auto-allow" },
+          content: [{ type: "text", text: `[Bridge] ${name} auto-allowed: ${result.message}` }],
+          details: { args, decision: "auto-allow", ok: result.ok },
         };
       }
       if (decision === "auto-deny") {
         return {
           content: [{ type: "text", text: `[Bridge] ${name} auto-denied by session policy` }],
-          details: { args, decision: "auto-deny" },
+          details: { args, decision: "auto-deny", declined: true },
         };
       }
       // pending → 等待用户决策
       const { response } = await permission.waitForApproval(requestId);
       if (response.type === "accept" || response.type === "acceptForSession") {
-        // accept 后才调用 Bridge-controlled executor
-        // 暂为占位（后续接 runtimeFileToolAdapter / host executor）
+        // V17-B1 任务 C：accept 后调用真实 Bridge-controlled executor
+        const result = await run(args);
         return {
-          content: [{ type: "text", text: `[Bridge] ${name} approved and executed (placeholder)` }],
-          details: { args, decision: response.type },
+          content: [{ type: "text", text: `[Bridge] ${name} approved: ${result.message}` }],
+          details: { args, decision: response.type, ok: result.ok },
         };
       }
       // decline → 返回 tool error/result 给 Pi
@@ -466,34 +672,46 @@ export function buildBridgeControlledWriteTools(
     },
   });
 
-  // 最小 schema（TypeBox 风格占位 — 实际由 Pi SDK defineTool 解析）
-  const pathSchema = { type: "object", properties: { path: { type: "string" } }, required: ["path"] };
+  // TypeBox 风格 schema（Pi SDK defineTool 解析）
+  const writeSchema = {
+    type: "object",
+    properties: {
+      path: { type: "string", description: "目标文件路径（相对 cwd 或绝对路径）" },
+      content: { type: "string", description: "要写入的内容" },
+    },
+    required: ["path", "content"],
+  };
   const editSchema = {
     type: "object",
     properties: {
-      path: { type: "string" },
-      oldText: { type: "string" },
-      newText: { type: "string" },
+      path: { type: "string", description: "目标文件路径" },
+      oldText: { type: "string", description: "要替换的原文" },
+      newText: { type: "string", description: "替换后的新文" },
     },
     required: ["path", "oldText", "newText"],
   };
   const bashSchema = {
     type: "object",
-    properties: { command: { type: "string" } },
+    properties: {
+      command: { type: "string", description: "要执行的 shell 命令（portable 默认禁用）" },
+    },
     required: ["command"],
   };
 
   return [
-    makeTool("write", "Bridge-controlled Write tool (requires approval)", pathSchema),
-    makeTool("edit", "Bridge-controlled Edit tool (requires approval)", editSchema),
-    makeTool("bash", "Bridge-controlled Bash tool (requires approval)", bashSchema),
+    makeTool("bridge_write", "Bridge-controlled Write tool (requires approval, writes file via Bridge executor)", writeSchema,
+      async (args) => executor.write(String(args.path ?? ""), String(args.content ?? ""))),
+    makeTool("bridge_edit", "Bridge-controlled Edit tool (requires approval, replaces oldText with newText)", editSchema,
+      async (args) => executor.edit(String(args.path ?? ""), String(args.oldText ?? ""), String(args.newText ?? ""))),
+    makeTool("bridge_bash", "Bridge-controlled Bash tool (requires approval, disabled in portable profile by default)", bashSchema,
+      async (args) => executor.bash(String(args.command ?? ""))),
   ];
 }
 
 // ---------- PiSdkProvider ----------
 
 /**
- * V17-B 任务 A：Pi SDK Provider。
+ * V17-B1：Pi SDK Provider。
  *
  * 使用 @earendil-works/pi-coding-agent 的 SDK 嵌入模式。
  * 未安装/import 失败时 isAvailable=false，run() 发 failed 事件不崩溃。
@@ -515,6 +733,11 @@ export class PiSdkProvider implements RuntimeProvider {
   /** 暴露探测结果（测试/UI 用） */
   getProbeResult(): PiSdkProbeResult {
     return this.probe;
+  }
+
+  /** V17-B1 任务 F：暴露认证探测结果（UI 用） */
+  getAuthProbe(): PiSdkAuthProbeResult {
+    return probePiSdkAuth(this.probe);
   }
 
   buildPlan(input: RunInput, settings: LLMBridgeSettings): EffectiveRunPlan {
@@ -541,7 +764,22 @@ export class PiSdkProvider implements RuntimeProvider {
         timestamp: new Date().toISOString(),
         payload: {
           kind: "failed",
-          message: `Pi SDK 不可用：${this.probe.reason}${this.probe.error ? " — " + this.probe.error : ""}`,
+          message: `Pi SDK 不可用：${this.probe.reason}${this.probe.error ? " — " + this.probe.error : ""}。请运行：npm install --ignore-scripts @earendil-works/pi-coding-agent`,
+          recoverable: true,
+        },
+      };
+      return;
+    }
+
+    // V17-B1 任务 F：认证/模型探测
+    const authProbe = probePiSdkAuth(this.probe);
+    if (!authProbe.hasAuth || !authProbe.hasModel) {
+      yield {
+        providerId: this.providerId,
+        timestamp: new Date().toISOString(),
+        payload: {
+          kind: "failed",
+          message: `Pi SDK 认证/模型未配置：${authProbe.hint}`,
           recoverable: true,
         },
       };
@@ -552,8 +790,10 @@ export class PiSdkProvider implements RuntimeProvider {
     // 组装 prompt（任务 G：session.prompt 传入 composePromptForBackend(ctx, "sdk")）
     const prompt = composePromptForBackend(ctx, "sdk");
 
-    // 任务 C：构建 Bridge-controlled write tools（写操作需 approval）
-    const bridgeTools = buildBridgeControlledWriteTools(ctx.permission, this.providerId);
+    // V17-B1 任务 B+C：构建 Bridge-controlled write tools（真实 executor）
+    const allowBash = settings.backendProfile === "developer";
+    const executor = createDefaultBridgeToolExecutor(ctx.plan.cwd, allowBash);
+    const bridgeTools = buildBridgeControlledWriteTools(ctx.permission, this.providerId, executor);
     // 用 defineTool 包装（如果 SDK 暴露 defineTool）；否则直接传 raw 定义
     let customTools: unknown[] = [];
     try {
@@ -584,9 +824,9 @@ export class PiSdkProvider implements RuntimeProvider {
 
       const result = await sdk.createAgentSession({
         cwd: ctx.plan.cwd,
-        // 任务 C：禁用内置 write/edit/bash，只保留 read；写操作走 customTools
+        // V17-B1 任务 B：只启用 read；bridge_* 通过 customTools 加入 active
+        // 不 excludeTools（避免误过滤 customTools）；内置 write/edit/bash 因不在 tools 列表中已禁用
         tools: ["read"],
-        excludeTools: ["edit", "write", "bash"],
         customTools,
         thinkingLevel: "medium",
         sessionManager,
@@ -616,13 +856,19 @@ export class PiSdkProvider implements RuntimeProvider {
       payload: { kind: "session_started", text: `Pi SDK session started (${session.sessionId})` },
     };
 
-    // 订阅事件（任务 D：映射为 NormalizedRuntimeEvent）
+    // V17-B1 任务 E：toolCallId 注册表（同一工具调用 start/update/end 复用 id）
+    const idRegistry = new ToolCallIdRegistry();
+
+    // V17-B1 任务 D：并发 streaming 结构
+    // subscribe 注册 → 异步启动 prompt → for await iterate yield events
+    // prompt 抛错时 yield error + push null 结束；agent_end 后正常 completed
     const stream = createAsyncEventStream<NormalizedRuntimeEvent>();
     let agentEnded = false;
     let lastError: string | null = null;
+    let promptThrown = false;
 
     const unsubscribe = session.subscribe((event: PiSdkEvent) => {
-      const mapped = mapPiSdkEvent(event, this.providerId);
+      const mapped = mapPiSdkEvent(event, this.providerId, idRegistry);
       for (const evt of mapped) {
         // raw provider event 仅在 developerMode 下保留
         if (developerMode) {
@@ -639,27 +885,35 @@ export class PiSdkProvider implements RuntimeProvider {
       }
     });
 
-    // 发送 prompt
-    try {
-      await session.prompt(prompt);
-    } catch (e) {
-      stream.push({
-        providerId: this.providerId,
-        timestamp: new Date().toISOString(),
-        payload: {
-          kind: "error",
-          message: `session.prompt 失败：${e instanceof Error ? e.message : String(e)}`,
-          recoverable: true,
-        },
-      });
-    }
+    // 异步启动 prompt（不阻塞事件消费）
+    const promptPromise = (async () => {
+      try {
+        await session.prompt(prompt);
+      } catch (e) {
+        promptThrown = true;
+        stream.push({
+          providerId: this.providerId,
+          timestamp: new Date().toISOString(),
+          payload: {
+            kind: "error",
+            message: `session.prompt 失败：${e instanceof Error ? e.message : String(e)}`,
+            recoverable: true,
+          },
+        });
+        // prompt 抛错后必须 push null 结束 generator，不挂住
+        stream.push(null);
+      }
+    })();
 
     // 消费事件流（哨兵 null 时结束）
     for await (const evt of stream.iterate()) {
       yield evt;
     }
 
+    // 确保 promptPromise 完成（异常已通过 stream 处理）
+    try { await promptPromise; } catch { /* ignore, already handled */ }
     try { unsubscribe(); } catch { /* ignore */ }
+    idRegistry.clear();
 
     // 终态
     if (lastError) {
@@ -668,8 +922,8 @@ export class PiSdkProvider implements RuntimeProvider {
         timestamp: new Date().toISOString(),
         payload: { kind: "failed", message: lastError, recoverable: true },
       };
-    } else if (!agentEnded) {
-      // 没收到 agent_end：发 completed 兜底
+    } else if (!agentEnded && !promptThrown) {
+      // 没收到 agent_end 且 prompt 未抛错：发 completed 兜底
       yield {
         providerId: this.providerId,
         timestamp: new Date().toISOString(),
@@ -702,6 +956,8 @@ export class PiSdkProvider implements RuntimeProvider {
 /**
  * 简单的异步事件队列：把 EventEmitter 回调包装为 async iterable。
  * push(null) 作为哨兵表示结束。
+ *
+ * V17-B1 任务 D：支持并发 push（subscribe 回调 + prompt 异步）。
  */
 function createAsyncEventStream<T>(): {
   push: (item: T | null) => void;
@@ -709,33 +965,36 @@ function createAsyncEventStream<T>(): {
 } {
   const buffer: (T | null)[] = [];
   let waiter: (() => void) | null = null;
+  let ended = false;
 
-  return {
-    push(item) {
-      buffer.push(item);
-      if (waiter) {
-        const w = waiter;
-        waiter = null;
-        w();
-      }
-    },
-    iterate() {
-      const self = this;
-      return {
-        async *[Symbol.asyncIterator]() {
-          while (true) {
-            if (buffer.length > 0) {
-              const item = buffer.shift();
-              if (item === null) return;
-              yield item;
-            } else {
-              await new Promise<void>((resolve) => { waiter = resolve; });
-              // 唤醒后重新检查 buffer（push 可能已加入新事件）
-              void self;
-            }
-          }
-        },
-      };
-    },
+  const push = (item: T | null): void => {
+    if (ended) return;
+    buffer.push(item);
+    if (item === null) ended = true;
+    if (waiter) {
+      const w = waiter;
+      waiter = null;
+      w();
+    }
   };
+
+  const iterate = (): AsyncIterable<T> => {
+    const iterable: AsyncIterable<T> = {
+      [Symbol.asyncIterator]: async function* () {
+        while (true) {
+          if (buffer.length > 0) {
+            const item = buffer.shift();
+            if (item === null) return;
+            yield item;
+          } else {
+            if (ended) return;
+            await new Promise<void>((resolve) => { waiter = resolve; });
+          }
+        }
+      },
+    };
+    return iterable;
+  };
+
+  return { push, iterate };
 }

@@ -13,6 +13,7 @@
     "test:integration": "node scripts/run-tests.mjs --integration",
     "test:codex-app-server": "node scripts/codex-app-server-smoke.mjs",
     "smoke:codex-app-server": "node scripts/codex-app-server-smoke.mjs",
+    "smoke:pi-sdk": "node scripts/pi-sdk-smoke.mjs",
     "test:summary": "node scripts/generate-test-summary.mjs",
     "codex:schema": "node scripts/generate-codex-schema.mjs",
     "release": "node scripts/build-release.mjs"
@@ -33,5 +34,16 @@
     "obsidian": "^1.4.16",
     "tslib": "^2.6.2",
     "typescript": "^5.4.5"
+  },
+  "optionalDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.0.27"
+  },
+  "llmCliBridge": {
+    "portableBackend": {
+      "providerId": "pi-sdk",
+      "packageName": "@earendil-works/pi-coding-agent",
+      "installHint": "npm install --ignore-scripts @earendil-works/pi-coding-agent",
+      "minVersion": "0.0.27"
+    }
   }
 }
