@@ -547,8 +547,8 @@ function createAsyncEventStream(): {
           while (true) {
             if (buffer.length > 0) {
               const item = buffer.shift();
-              if (item === null) return;
-              yield item;
+              if (item === null || item === undefined) return;
+              yield item as NormalizedRuntimeEvent;
             } else {
               await new Promise<void>((resolve) => { waiter = resolve; });
             }

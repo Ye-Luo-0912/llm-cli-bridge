@@ -30,6 +30,7 @@ const DOCS_DIR = join(PROJECT_ROOT, "docs");
 const UNIT_REPORT = join(DOCS_DIR, "test-report-unit.md");
 const PROCESS_REPORT = join(DOCS_DIR, "test-report-process.md");
 const CODEX_SMOKE_REPORT = join(DOCS_DIR, "test-report-codex-smoke.md");
+const USER_PACKAGE_REPORT = join(DOCS_DIR, "test-report-user-package.md"); // V17-E1 任务 D
 const SUMMARY_REPORT = join(DOCS_DIR, "test-report-summary.md");
 
 // ============================================================
@@ -126,8 +127,66 @@ function parseCodexSmokeReport(path) {
   const userReadyMatch = text.match(/- \*\*codexUserReady\*\*: (true|false)/);
   result.codexUserReady = userReadyMatch ? userReadyMatch[1] : null;
 
+  // V17-E1 任务 E：解析 readiness matrix 12 字段
+  const matrixFields = [
+    "codexCliAvailable",
+    "codexAuthAvailable",
+    "appServerSpawnStatus",
+    "initializeStatus",
+    "threadStartStatus",
+    "turnStartStatus",
+    "turnCompletedStatus",
+    "approvalRequestStatus",
+    "fileChangeRequestStatus",
+    "stopCancelStatus",
+    "noVaultRootPollution",
+  ];
+  for (const field of matrixFields) {
+    const m = text.match(new RegExp(`- \\*\\*${field}\\*\\*: (\\S+)`));
+    result[field] = m ? m[1] : null;
+  }
+
   if (result.smokeStatus === null) {
     result.error = "smokeStatus 字段解析失败";
+  }
+  return result;
+}
+
+// ============================================================
+// V17-E1 任务 D：解析 user-package smoke 报告
+// ============================================================
+
+function parseUserPackageReport(path) {
+  if (!existsSync(path)) {
+    return { label: "user-package", error: `报告文件不存在: ${path}` };
+  }
+  const text = readFileSync(path, "utf8");
+  const result = { label: "user-package", raw: text };
+
+  const statusMatch = text.match(/- \*\*userPackageStatus\*\*: (pass|fail)/);
+  result.userPackageStatus = statusMatch ? statusMatch[1] : null;
+
+  const containsSdkMatch = text.match(/- \*\*containsPiSdk\*\*: (true|false)/);
+  result.containsPiSdk = containsSdkMatch ? containsSdkMatch[1] : null;
+
+  const canRequireMatch = text.match(/- \*\*canRequirePiSdk\*\*: (true|false)/);
+  result.canRequirePiSdk = canRequireMatch ? canRequireMatch[1] : null;
+
+  // V17-E1 任务 C：canLoadMainJs + noRootPackageJson
+  const canLoadMatch = text.match(/- \*\*canLoadMainJs\*\*: (true|false)/);
+  result.canLoadMainJs = canLoadMatch ? canLoadMatch[1] : null;
+
+  const noPkgMatch = text.match(/- \*\*noRootPackageJson\*\*: (true|false)/);
+  result.noRootPackageJson = noPkgMatch ? noPkgMatch[1] : null;
+
+  const needsNpmMatch = text.match(/- \*\*userNeedsNpmInstall\*\*: (true|false)/);
+  result.userNeedsNpmInstall = needsNpmMatch ? needsNpmMatch[1] : null;
+
+  const sizeMatch = text.match(/- \*\*totalSizeMB\*\*: ([\d.]+)/);
+  result.totalSizeMB = sizeMatch ? sizeMatch[1] : null;
+
+  if (result.userPackageStatus === null) {
+    result.error = "userPackageStatus 字段解析失败";
   }
   return result;
 }
@@ -183,14 +242,16 @@ function main() {
     auditFailures.push(`无法获取当前 HEAD commit sha: ${e?.message || e}`);
   }
 
-  // 2. 解析 unit / process / codex-smoke 报告
+  // 2. 解析 unit / process / codex-smoke / user-package 报告
   const unit = parseReport(UNIT_REPORT, "unit");
   const processReport = parseReport(PROCESS_REPORT, "process");
   const codexSmoke = parseCodexSmokeReport(CODEX_SMOKE_REPORT);
+  const userPackage = parseUserPackageReport(USER_PACKAGE_REPORT); // V17-E1 任务 D
 
   if (unit.error) auditFailures.push(`unit 报告: ${unit.error}`);
   if (processReport.error) auditFailures.push(`process 报告: ${processReport.error}`);
   if (codexSmoke.error) auditFailures.push(`codex-smoke 报告: ${codexSmoke.error}`);
+  if (userPackage.error) auditFailures.push(`user-package 报告: ${userPackage.error}`);
 
   // 3. 判定 docs-only commit → 计算 testedCodeCommitSha
   const commitClass = classifyCurrentCommit(reportCommitSha);
@@ -271,6 +332,26 @@ function main() {
     `- **codexSchemaSource**: ${codexSmoke.schemaSource || "(解析失败)"}`,
     // V17-E 任务 E：新增 codexUserReady 字段（smoke=pass 才 true；skip/fail/handshake-only 均 false）
     `- **codexUserReady**: ${codexSmoke.codexUserReady || "(解析失败)"}`,
+    // V17-E1 任务 E：readiness matrix 12 字段
+    `- **codexCliAvailable**: ${codexSmoke.codexCliAvailable || "(解析失败)"}`,
+    `- **codexAuthAvailable**: ${codexSmoke.codexAuthAvailable || "(解析失败)"}`,
+    `- **appServerSpawnStatus**: ${codexSmoke.appServerSpawnStatus || "(解析失败)"}`,
+    `- **initializeStatus**: ${codexSmoke.initializeStatus || "(解析失败)"}`,
+    `- **threadStartStatus**: ${codexSmoke.threadStartStatus || "(解析失败)"}`,
+    `- **turnStartStatus**: ${codexSmoke.turnStartStatus || "(解析失败)"}`,
+    `- **turnCompletedStatus**: ${codexSmoke.turnCompletedStatus || "(解析失败)"}`,
+    `- **approvalRequestStatus**: ${codexSmoke.approvalRequestStatus || "(解析失败)"}`,
+    `- **fileChangeRequestStatus**: ${codexSmoke.fileChangeRequestStatus || "(解析失败)"}`,
+    `- **stopCancelStatus**: ${codexSmoke.stopCancelStatus || "(解析失败)"}`,
+    `- **noVaultRootPollution**: ${codexSmoke.noVaultRootPollution || "(解析失败)"}`,
+    // V17-E1 任务 D：user-package smoke 字段
+    `- **userPackageStatus**: ${userPackage.userPackageStatus || "(解析失败)"}`,
+    `- **containsPiSdk**: ${userPackage.containsPiSdk || "(解析失败)"}`,
+    `- **canRequirePiSdk**: ${userPackage.canRequirePiSdk || "(解析失败)"}`,
+    `- **canLoadMainJs**: ${userPackage.canLoadMainJs || "(解析失败)"}`,
+    `- **noRootPackageJson**: ${userPackage.noRootPackageJson || "(解析失败)"}`,
+    `- **userNeedsNpmInstall**: ${userPackage.userNeedsNpmInstall || "(解析失败)"}`,
+    `- **userPackageSizeMB**: ${userPackage.totalSizeMB || "(解析失败)"}`,
     `- **unit 运行命令**: ${unit.runCommand || "(解析失败)"}`,
     `- **process 运行命令**: ${processReport.runCommand || "(解析失败)"}`,
     `- **unit 测试时间**: ${unit.timestamp || "(解析失败)"}`,

@@ -10,6 +10,7 @@ import { AgentRunHandle, SdkImageContentBlock, SdkStreamingInput } from "./agent
 import { exportState } from "./state";
 import { diffSnapshots, extractRelPath, FileSnapshot, snapshotVaultMarkdownFiles } from "./fileDiff";
 import { AgentType, AttachmentPlan, BackendMode, ChatMessage, EffectiveRunPlan, RunResult, RunStatus, SessionMode } from "./types";
+import type { LLMBridgeSettings } from "./types";
 import type { PendingActionEntry } from "./httpServer";
 import { runPreflight, PreflightResult } from "./agentProfile";
 import { mapPreflightToStatus, buildErrorSummary } from "./preflightStatus";
@@ -3300,9 +3301,9 @@ export class LLMBridgeView extends ItemView {
   private renderPiNativeTrustOnboarding(parent: HTMLElement): void {
     // 仅在 portable + pi-native + 未确认时展示
     const isPortablePiNative =
-      this.settings.backendProfile === "portable" &&
-      this.settings.piToolMode === "pi-native";
-    if (!isPortablePiNative || this.settings.piNativeTrustConfirmed) {
+      this.plugin.settings.backendProfile === "portable" &&
+      this.plugin.settings.piToolMode === "pi-native";
+    if (!isPortablePiNative || this.plugin.settings.piNativeTrustConfirmed) {
       if (this.piNativeTrustEl) {
         this.piNativeTrustEl.remove();
         this.piNativeTrustEl = null;
@@ -3347,8 +3348,8 @@ export class LLMBridgeView extends ItemView {
       text: "我已了解风险并备份，确认启用",
     });
     confirmBtn.onclick = async () => {
-      this.settings.piNativeTrustConfirmed = true;
-      await this.saveSettings();
+      this.plugin.settings.piNativeTrustConfirmed = true;
+      await this.plugin.saveSettings();
       card.remove();
       this.piNativeTrustEl = null;
       this.refreshPermissionPanel?.();
@@ -3358,8 +3359,8 @@ export class LLMBridgeView extends ItemView {
       text: "切换到 bridge-controlled（更安全）",
     });
     switchModeBtn.onclick = async () => {
-      this.settings.piToolMode = "bridge-controlled";
-      await this.saveSettings();
+      this.plugin.settings.piToolMode = "bridge-controlled";
+      await this.plugin.saveSettings();
       card.remove();
       this.piNativeTrustEl = null;
       this.refreshPermissionPanel?.();
@@ -3372,7 +3373,7 @@ export class LLMBridgeView extends ItemView {
 
   private renderPiSdkUnavailableHint(parent: HTMLElement): void {
     // 仅在 portable profile 下展示（developer profile 用户可自行处理）
-    if (this.settings.backendProfile !== "portable") {
+    if (this.plugin.settings.backendProfile !== "portable") {
       if (this.piSdkHintEl) {
         this.piSdkHintEl.remove();
         this.piSdkHintEl = null;

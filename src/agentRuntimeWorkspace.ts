@@ -311,9 +311,9 @@ interface VaultSkillSections {
  * `## User Corrections` 作为 section header。
  */
 export function parseVaultSkillSections(content: string): VaultSkillSections {
-  const sections: VaultSkillSections = { stableFacts: [], observations: [], userCorrections: [] };
+  const sections: { stableFacts: string[]; observations: string[]; userCorrections: string[] } = { stableFacts: [], observations: [], userCorrections: [] };
   const lines = content.split("\n");
-  let current: keyof VaultSkillSections | null = null;
+  let current: keyof typeof sections | null = null;
   let buffer: string[] = [];
   const flush = () => {
     if (current && buffer.length > 0) {

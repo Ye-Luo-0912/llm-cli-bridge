@@ -274,14 +274,14 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Backend 模式")
-      .setDesc("V17-E 任务 B：auto 策略 = developer profile: codex→claude-sdk→claude-cli（Codex-first）；portable profile: pi-sdk→pi-rpc。codex=强制 Codex app-server（不可用时不 fallback）；cli=Claude Code CLI；sdk=Claude Agent SDK；pi-sdk=Pi SDK 嵌入（portable 主线）；pi-rpc=Pi RPC spike；mock-success/mock-failure=离线测试。")
+      .setDesc("V17-E1 任务 B：auto 策略 = codex→claude-sdk→claude-cli（Codex-first，不论 portable/developer）。codex=强制 Codex app-server（不可用时不 fallback）；cli=Claude Code CLI；sdk=Claude Agent SDK；pi-sdk=Pi SDK 嵌入（optional/advanced）；pi-rpc=Pi RPC（optional/advanced）；mock-success/mock-failure=离线测试。")
       .addDropdown((d) => {
-        d.addOption("auto", "auto（profile 决定：dev=Codex-first / portable=Pi-first）");
+        d.addOption("auto", "auto（Codex-first：codex→sdk→cli）");
         d.addOption("codex", "codex（强制 Codex app-server）");
         d.addOption("cli", "cli（Claude Code CLI）");
         d.addOption("sdk", "sdk（Claude Agent SDK）");
-        d.addOption("pi-sdk", "pi-sdk（Pi SDK 嵌入，portable 主线）");
-        d.addOption("pi-rpc", "pi-rpc（Pi portable backend spike）");
+        d.addOption("pi-sdk", "pi-sdk（Pi SDK 嵌入，optional/advanced）");
+        d.addOption("pi-rpc", "pi-rpc（Pi RPC，optional/advanced）");
         d.addOption("mock-success", "mock-success（演示成功流程）");
         d.addOption("mock-failure", "mock-failure（演示失败流程）");
         d.setValue(s.backendMode);
@@ -295,10 +295,10 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Backend 配置档")
-      .setDesc("V17-A: developer=Claude/Codex/Pi/mock 全可选（默认）；portable=朋友版，auto 优先 Pi，UI 精简不暴露实验选项。")
+      .setDesc("V17-E1 任务 B：developer/portable 的 auto 均走 Codex-first 链；portable 仅 UI 精简不暴露实验选项。Pi 为 optional/advanced，需显式选 pi-sdk/pi-rpc。")
       .addDropdown((d) => {
         d.addOption("developer", "developer（全后端可选）");
-        d.addOption("portable", "portable（朋友版，优先 Pi）");
+        d.addOption("portable", "portable（朋友版，UI 精简）");
         d.setValue(s.backendProfile);
         d.onChange(async (v) => {
           s.backendProfile = v as BackendProfile;
@@ -308,8 +308,13 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       });
 
     // V17-E 任务 D：Codex setup/status card（普通用户 onboarding）
-    // 显示 codex 安装/登录/app-server 可用/ready 状态 + 最短修复提示
-    containerEl.createEl("h3", { text: "Codex Setup / Status (V17-E)" });
+    // V17-E1 任务 F：降级为 heuristic status — 不等同于 real smoke ready
+    // 显示 codex 安装/登录/app-server 可用/heuristic-ready 状态 + 最短修复提示
+    containerEl.createEl("h3", { text: "Codex Setup / Status (V17-E — Heuristic)" });
+    containerEl.createEl("p", {
+      cls: "llm-bridge-setting-hint",
+      text: "V17-E1 任务 F：本栏为 heuristic（本地探测），不等同于 real smoke ready。Ready 仅表示本地探测通过；真实可用性以 codex smoke 报告为准（codexUserReady）。",
+    });
 
     new Setting(containerEl)
       .setName("Codex 命令")
@@ -324,11 +329,12 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       });
 
     {
-      // 探测 codex 状态：未安装 / 未登录 / app-server 不可用 / ready
+      // V17-E1 任务 F：heuristic 探测 codex 状态（非 real smoke）
+      // 状态：未安装 / 已安装未登录(heuristic) / 已登录但 app-server 不可用 / heuristic-ready
       const codexCmd = s.codexCommand || "codex";
       let codexInstalled = false;
       let codexVersion = "";
-      let codexAuthOk = false;
+      let codexAuthHeuristic = false; // V17-E1 任务 F：auth.json/config.toml 存在 ≠ auth 可用
       let appServerOk = false;
       const cwd = this.app.vault.adapter.getResourcePath?.("") || ".";
       try {
@@ -342,14 +348,15 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         codexVersion = (out || "").trim().split(/\r?\n/)[0] || "unknown";
       } catch { /* not installed */ }
 
-      // 探测 auth：~/.codex/auth.json 或 ~/.codex/config 存在
+      // V17-E1 任务 F：heuristic 探测 auth — auth.json/config.toml 存在仅表示"可能已登录"
+      // 不等同于 auth 可用（token 可能过期/无效）；real auth 验证只能由 codex smoke 完成
       try {
         const home = process.env.HOME || process.env.USERPROFILE || "";
         if (home) {
           const codexAuthPath = join(home, ".codex", "auth.json");
           const codexConfigPath = join(home, ".codex", "config.toml");
           if (existsSync(codexAuthPath) || existsSync(codexConfigPath)) {
-            codexAuthOk = true;
+            codexAuthHeuristic = true;
           }
         }
       } catch { /* ignore */ }
@@ -370,20 +377,21 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       if (!codexInstalled) {
         statusText = "未安装";
         fixHint = "安装 Codex CLI：npm install -g @openai/codex 或参考官方文档；安装后重启 Obsidian。";
-      } else if (!codexAuthOk) {
-        statusText = `已安装（${codexVersion}）但未登录`;
+      } else if (!codexAuthHeuristic) {
+        statusText = `已安装（${codexVersion}）但未登录（heuristic：未发现 auth 文件）`;
         fixHint = "在终端运行 codex login 完成登录，然后重启 Obsidian。";
       } else if (!appServerOk) {
         statusText = `已安装已登录（${codexVersion}）但 app-server 不可用`;
         fixHint = "Codex 版本过旧或损坏；请升级：npm install -g @openai/codex@latest。";
       } else {
-        statusText = `ready（${codexVersion}）`;
-        fixHint = "Codex 已就绪；可在 Backend 模式选择 codex 或 auto（developer profile）使用。";
+        // V17-E1 任务 F：heuristic-ready ≠ real ready
+        statusText = `heuristic-ready（${codexVersion}）`;
+        fixHint = "本地探测通过（heuristic）。真实可用性以 codex smoke 报告为准（codexUserReady）。";
       }
 
       new Setting(containerEl)
-        .setName("Codex 状态")
-        .setDesc(`V17-E 任务 D：${statusText}${fixHint ? " — " + fixHint : ""}`)
+        .setName("Codex 状态（Heuristic）")
+        .setDesc(`V17-E1 任务 F：${statusText}${fixHint ? " — " + fixHint : ""}`)
         .addButton((b) => {
           b.setButtonText("重新检测");
           b.onClick(() => this.display());

@@ -450,6 +450,10 @@ async function runSmoke(codexVersion) {
 
 function writeReport(report) {
   if (!existsSync(DOCS_DIR)) mkdirSync(DOCS_DIR, { recursive: true });
+  // V17-E1 任务 E：派生 readiness matrix（12 字段）写入报告
+  const matrix = deriveReadinessMatrix(report);
+  // V17-E1 任务 E：codexUserReady gate — smoke=pass 且关键 matrix 字段 pass/true 才 true
+  const codexUserReady = deriveCodexUserReady(report, matrix);
   const lines = [
     "# Codex real app-server smoke 报告",
     "",
@@ -461,8 +465,8 @@ function writeReport(report) {
     `- **handshakeStatus**: ${report.handshakeStatus}`,
     `- **turnStatus**: ${report.turnStatus}`,
     `- **smokeStatus**: ${report.smokeStatus}`,
-    // V17-E 任务 E：codexUserReady 字段写入报告（smoke=pass 才 true；skip/fail/handshake-only 均 false）
-    `- **codexUserReady**: ${report.smokeStatus === "pass" ? "true" : "false"}`,
+    // V17-E1 任务 E：codexUserReady 字段写入报告（smoke=pass 且关键 matrix 字段 pass/true 才 true）
+    `- **codexUserReady**: ${codexUserReady ? "true" : "false"}`,
   ];
   if (report.schemaManifestSummary) {
     const s = report.schemaManifestSummary;
@@ -482,12 +486,29 @@ function writeReport(report) {
     lines.push(`- **skip 原因**: ${report.skipReason}`);
   }
   lines.push("");
+  // V17-E1 任务 E：readiness matrix 12 字段写入报告
+  lines.push("## Readiness Matrix (V17-E1 任务 E — 12 字段)");
+  lines.push("");
+  lines.push(`- **codexCliAvailable**: ${matrix.codexCliAvailable}`);
+  lines.push(`- **codexVersion**: ${matrix.codexVersion}`);
+  lines.push(`- **codexAuthAvailable**: ${matrix.codexAuthAvailable}`);
+  lines.push(`- **appServerSpawnStatus**: ${matrix.appServerSpawnStatus}`);
+  lines.push(`- **initializeStatus**: ${matrix.initializeStatus}`);
+  lines.push(`- **threadStartStatus**: ${matrix.threadStartStatus}`);
+  lines.push(`- **turnStartStatus**: ${matrix.turnStartStatus}`);
+  lines.push(`- **turnCompletedStatus**: ${matrix.turnCompletedStatus}`);
+  lines.push(`- **approvalRequestStatus**: ${matrix.approvalRequestStatus}`);
+  lines.push(`- **fileChangeRequestStatus**: ${matrix.fileChangeRequestStatus}`);
+  lines.push(`- **stopCancelStatus**: ${matrix.stopCancelStatus}`);
+  lines.push(`- **noVaultRootPollution**: ${matrix.noVaultRootPollution}`);
+  lines.push("");
   // 分层说明
   lines.push("## 分层状态说明");
   lines.push("");
   lines.push("- **handshakeStatus** = `pass`：codex --version / generate-ts / app-server spawn / initialize / initialized / thread/start 全部通过。");
   lines.push("- **turnStatus** = `pass`：turn/start + turn/completed 通过；`skip-auth`：turn 因 auth/login 不可用而跳过（handshake 仍可 pass）；`fail`：turn 硬失败；`skip-handshake-failed`：handshake fail 时 turn 不执行。");
   lines.push("- **smokeStatus**：`skip`=无 codex CLI；`pass`=handshake+turn 全 pass；`handshake-only`=handshake pass 但 turn 非 pass（如 auth 不可用）；`fail`=handshake fail。");
+  lines.push("- **codexUserReady**：`true` 仅当 smokeStatus=pass 且关键 matrix 字段（appServerSpawn/initialize/threadStart/turnStart/turnCompleted/stopCancel/noVaultRootPollution）均 pass/true。`not-triggered` 的 approval/fileChange 不阻塞 ready（agent 可能不需要审批）。");
   if (report.codexAvailable && report.schemaSource === "generated") {
     lines.push("");
     lines.push("## Generated schema manifest 摘要（task 4）");
@@ -509,11 +530,36 @@ function writeReport(report) {
     }
   }
   lines.push("");
-  lines.push(`**最终结果**: handshake=${report.handshakeStatus} turn=${report.turnStatus} smoke=${report.smokeStatus}`);
+  lines.push(`**最终结果**: handshake=${report.handshakeStatus} turn=${report.turnStatus} smoke=${report.smokeStatus} codexUserReady=${codexUserReady ? "true" : "false"}`);
   lines.push("");
   lines.push("*报告由 `scripts/codex-app-server-smoke.mjs` 自动生成*");
   writeFileSync(REPORT_PATH, lines.join("\n") + "\n", "utf8");
   console.log(`报告已写入: ${REPORT_PATH}`);
+}
+
+// V17-E1 任务 E：codexUserReady 派生 — smoke=pass 且关键 matrix 字段 pass/true 才 true
+// approvalRequestStatus / fileChangeRequestStatus 为 "not-triggered" 时不阻塞 ready
+// （agent 可能不需要审批；不算完整 file/approval readiness pass，但不阻塞整体 ready）
+function deriveCodexUserReady(report, matrix) {
+  if (report.smokeStatus !== "pass") return false;
+  // 关键 matrix 字段必须 pass/true
+  const keyFields = [
+    matrix.appServerSpawnStatus,
+    matrix.initializeStatus,
+    matrix.threadStartStatus,
+    matrix.turnStartStatus,
+    matrix.turnCompletedStatus,
+    matrix.stopCancelStatus,
+    matrix.noVaultRootPollution,
+  ];
+  const allKeyPass = keyFields.every((v) => v === "pass" || v === "true");
+  if (!allKeyPass) return false;
+  // approval/fileChange：not-triggered 不阻塞（agent 没要求审批是合法状态）
+  // 但 fail 则阻塞
+  if (matrix.approvalRequestStatus === "fail" || matrix.fileChangeRequestStatus === "fail") return false;
+  // codexAuthAvailable 必须为 true（不能是 unknown）
+  if (matrix.codexAuthAvailable !== "true") return false;
+  return true;
 }
 
 // V17-E 任务 C：从 report 派生 readiness matrix（12 个字段）
@@ -638,9 +684,10 @@ function main() {
 }
 
 // V17-E 任务 C：打印 readiness matrix（12 字段）
+// V17-E1 任务 E：codexUserReady 改用 deriveCodexUserReady（smoke=pass + 关键 matrix 字段 pass/true）
 function printReadinessMatrix(report) {
   const m = deriveReadinessMatrix(report);
-  console.log("\n=== Readiness Matrix (V17-E 任务 C) ===");
+  console.log("\n=== Readiness Matrix (V17-E 任务 C + V17-E1 任务 E) ===");
   console.log(`codexCliAvailable=${m.codexCliAvailable}`);
   console.log(`codexVersion=${m.codexVersion}`);
   console.log(`codexAuthAvailable=${m.codexAuthAvailable}`);
@@ -653,8 +700,8 @@ function printReadinessMatrix(report) {
   console.log(`fileChangeRequestStatus=${m.fileChangeRequestStatus}`);
   console.log(`stopCancelStatus=${m.stopCancelStatus}`);
   console.log(`noVaultRootPollution=${m.noVaultRootPollution}`);
-  // V17-E 任务 E：codexUserReady 派生（smoke=pass 才 ready）
-  const codexUserReady = report.smokeStatus === "pass";
+  // V17-E1 任务 E：codexUserReady gate — smoke=pass + 关键 matrix 字段 pass/true
+  const codexUserReady = deriveCodexUserReady(report, m);
   console.log(`codexUserReady=${codexUserReady}`);
 }
 

@@ -41,13 +41,13 @@ export type BackendMode = "auto" | "codex" | "cli" | "sdk" | "mock-success" | "m
  * V17-A: 后端配置档（朋友版 portable vs 开发者 developer）。
  *
  * - developer: Claude/Codex/Pi/mock 都可选，auto 默认 codex→sdk→cli 链
- * - portable:  Pi 作为可选实验 backend（pi-sdk → pi-rpc fallback）；Claude/Codex 可选但非默认
+ * - portable:  与 developer 相同的 auto 链（Codex-first）；Pi 仅显式 pi-sdk/pi-rpc 才进入
  *
  * 朋友版 UI 只显示后端状态/模型/权限模式/Agent Runtime，不暴露实验选项。
  *
- * V17-E 任务 F：portable 不再默认 Pi-first；Pi 降级为 optional/advanced backend。
- * 普通用户（无论 developer 还是 portable）的默认主线是 Codex-first；
- * Pi 仅在显式选择 pi-sdk/pi-rpc 或 portable profile + 用户主动启用时才接入。
+ * V17-E1 任务 B：portable auto 不再 Pi-first。普通用户（无论 developer 还是 portable）
+ * 的默认主线是 Codex-first；Pi 降级为 optional/advanced backend，仅显式选择才进入。
+ * V17-E 任务 F：friendReady 字段废弃，改名为 piAdvancedReady。
  */
 export type BackendProfile = "developer" | "portable";
 

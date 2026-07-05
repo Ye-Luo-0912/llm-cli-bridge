@@ -14,10 +14,12 @@
     "test:codex-app-server": "node scripts/codex-app-server-smoke.mjs",
     "smoke:codex-app-server": "node scripts/codex-app-server-smoke.mjs",
     "smoke:pi-sdk": "node scripts/pi-sdk-smoke.mjs",
+    "smoke:user-package": "node scripts/user-package-smoke.mjs",
     "test:summary": "node scripts/generate-test-summary.mjs",
     "codex:schema": "node scripts/generate-codex-schema.mjs",
     "release": "node scripts/build-release.mjs",
-    "build:user-package": "node scripts/build-user-package.mjs"
+    "build:user-package": "node scripts/build-user-package.mjs",
+    "build:user-package:smoke": "node scripts/build-user-package.mjs && node scripts/user-package-smoke.mjs"
   },
   "keywords": [
     "obsidian",

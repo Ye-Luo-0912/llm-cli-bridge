@@ -40,12 +40,12 @@ const REQUIRED_FILES = [
 console.log(`[user-package] 版本: ${version}`);
 console.log(`[user-package] 项目根: ${PROJECT_ROOT}`);
 
-// 1. 先执行 esbuild build（跳过 tsc，因为项目原有类型错误与 V17-D 无关）
-console.log("\n[user-package] 步骤 1: 执行 esbuild build...");
+// 1. 先执行 npm run build（含 tsc 类型检查 + esbuild；V17-E1 任务 G：不允许跳过 tsc）
+console.log("\n[user-package] 步骤 1: 执行 npm run build（含 tsc）...");
 try {
-  execSync("node esbuild.config.mjs production", { cwd: PROJECT_ROOT, stdio: "inherit" });
+  execSync("npm run build", { cwd: PROJECT_ROOT, stdio: "inherit" });
 } catch (e) {
-  console.error("[user-package] esbuild build 失败，终止");
+  console.error("[user-package] npm run build 失败，终止");
   process.exit(1);
 }
 
@@ -154,20 +154,32 @@ for (const [pkgName, srcPath] of vendorPaths) {
 }
 console.log(`  ✓ vendor 完成：${copiedCount} 包复制，${skippedCount} 跳过`);
 
-// 5. 写一个 package.json 标记 user-package 元数据（让 Node 能解析 ESM）
-console.log("\n[user-package] 步骤 5: 写 package.json 元数据...");
-const userPkgJson = {
+// 5. 写元数据文件（V17-E1 任务 C：不写 package.json，避免 type=module 影响 main.js CJS 加载）
+//    main.js 是 esbuild format=cjs；若根目录有 package.json 含 "type":"module"，
+//    Node 会把 main.js 当 ESM 解析，导致 require() 失败。
+//    改为写 llm-cli-bridge-user-package.json 作为纯元数据，不影响模块解析。
+console.log("\n[user-package] 步骤 5: 写元数据文件（不写 package.json，避免 type=module 风险）...");
+const userPkgMeta = {
   name: "obsidian-llm-cli-bridge-user-package",
   version: version,
   description: "User distribution package (zero-install) for obsidian-llm-cli-bridge",
   private: true,
-  type: "module",
+  // 注意：不写 "type": "module"。main.js 是 CJS（esbuild format=cjs）。
+  // 元数据文件名为 llm-cli-bridge-user-package.json，不干扰 Node 模块解析。
 };
 fs.writeFileSync(
-  path.join(OUT_DIR, "package.json"),
-  JSON.stringify(userPkgJson, null, 2) + "\n",
+  path.join(OUT_DIR, "llm-cli-bridge-user-package.json"),
+  JSON.stringify(userPkgMeta, null, 2) + "\n",
   "utf8"
 );
+console.log("  ✓ llm-cli-bridge-user-package.json 已写入（元数据，不影响 CJS 加载）");
+
+// 确保根目录没有 package.json（防止旧构建残留）
+const rootPkgJsonPath = path.join(OUT_DIR, "package.json");
+if (fs.existsSync(rootPkgJsonPath)) {
+  fs.rmSync(rootPkgJsonPath, { force: true });
+  console.log("  ✓ 清理残留的 package.json");
+}
 
 // 6. 敏感信息扫描
 console.log("\n[user-package] 步骤 6: 敏感信息扫描...");

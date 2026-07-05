@@ -130,6 +130,8 @@ export interface ModelRegistryLike {
   getAvailable?(): ReadonlyArray<{ id: string; provider: string }>;
   find?(provider: string, modelId: string): { id: string; provider: string } | undefined;
   list?(): ReadonlyArray<{ id: string; provider: string }>;
+  /** V17-D 任务 F：注册自定义 provider（baseUrl override 等） */
+  registerProvider?(provider: string, config: { baseUrl: string }): void;
 }
 
 export interface AgentSessionLike {
@@ -1385,8 +1387,8 @@ function createAsyncEventStream<T>(): {
         while (true) {
           if (buffer.length > 0) {
             const item = buffer.shift();
-            if (item === null) return;
-            yield item;
+            if (item === null || item === undefined) return;
+            yield item as T;
           } else {
             if (ended) return;
             await new Promise<void>((resolve) => { waiter = resolve; });

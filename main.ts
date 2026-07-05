@@ -259,8 +259,7 @@ export default class LLMBridgePlugin extends Plugin {
       id: "init-agent-runtime-workspace",
       name: "Initialize Agent Runtime Workspace",
       callback: async () => {
-        const adapter = this.app.vault.adapter as DataAdapter;
-        const vaultPath = adapter.getBasePath();
+        const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
         const { ensureAgentRuntimeWorkspace } = await import("./src/agentRuntimeWorkspace");
         const result = await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
         const msg = result.vaultSkillInitialized
@@ -274,8 +273,7 @@ export default class LLMBridgePlugin extends Plugin {
       id: "view-vault-skill",
       name: "View Vault Skill source",
       callback: async () => {
-        const adapter = this.app.vault.adapter as DataAdapter;
-        const vaultPath = adapter.getBasePath();
+        const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
         const { VAULT_SKILL_SOURCE_REL, ensureAgentRuntimeWorkspace } = await import("./src/agentRuntimeWorkspace");
         await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
         const file = this.app.vault.getAbstractFileByPath(VAULT_SKILL_SOURCE_REL);
@@ -291,8 +289,7 @@ export default class LLMBridgePlugin extends Plugin {
       id: "rebuild-vault-skill",
       name: "Rebuild Vault Skill (overwrite with caution)",
       callback: async () => {
-        const adapter = this.app.vault.adapter as DataAdapter;
-        const vaultPath = adapter.getBasePath();
+        const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
         const { VAULT_SKILL_SOURCE_REL, generateInitialVaultSkill, readVaultSkillSource } = await import("./src/agentRuntimeWorkspace");
         const existing = await readVaultSkillSource(vaultPath);
         if (existing) {
@@ -314,8 +311,7 @@ export default class LLMBridgePlugin extends Plugin {
       id: "materialize-vault-skill",
       name: "Materialize All Vault Skills to .claude/skills",
       callback: async () => {
-        const adapter = this.app.vault.adapter as DataAdapter;
-        const vaultPath = adapter.getBasePath();
+        const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
         const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllVaultSkills, materializeAllVaultSkillsToAllTargets } = await import("./src/agentRuntimeWorkspace");
         await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
         // V17-A: 先 compact/split（保证 vault-context 不超限、split skills 已生成），再物化全部
@@ -344,8 +340,7 @@ export default class LLMBridgePlugin extends Plugin {
       id: "clean-agent-runtime-work",
       name: "Clean Agent Runtime work/ directory",
       callback: async () => {
-        const adapter = this.app.vault.adapter as DataAdapter;
-        const vaultPath = adapter.getBasePath();
+        const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
         const { AGENT_RUNTIME_WORK_DIR_REL } = await import("./src/agentRuntimeWorkspace");
         const fsMod = await import("fs");
         const pathMod = await import("path");

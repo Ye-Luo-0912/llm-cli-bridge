@@ -8,17 +8,18 @@
 //
 // UI 不直接接触 provider 实例，只通过 BridgeSession 交互。
 //
-// provider 选择策略（V17-E 任务 B：codex-first；V17-E 任务 F：Pi 降级为 optional/advanced backend）：
-// - auto + portable:  pi-sdk → pi-rpc fallback（不静默 fallback 到 Codex/Claude Code）
-//                      ※ V17-E 任务 F：portable 的 Pi-first 仅作为可选实验路径，不阻塞 Codex-first audit
-// - auto + developer: codex-app-server → claude-sdk → claude-cli（Codex-first，普通用户默认主线）
+// provider 选择策略（V17-E 任务 B：codex-first；V17-E 任务 F：Pi 降级为 optional/advanced backend；
+//                    V17-E1 任务 B：portable auto 也改为 Codex-first，Pi 仅显式选择）：
+// - auto（不论 portable 还是 developer）：codex-app-server → claude-sdk → claude-cli（Codex-first，普通用户默认主线）
 // - codex:            强制 Codex app-server（不可用时不静默 fallback）
 // - cli:              claude-cli
 // - sdk:              claude-sdk（strict，不可用时报错不 fallback）
-// - pi-sdk / pi-rpc:  对应 Pi provider（optional/advanced backend；不可用时不静默 fallback）
+// - pi-sdk / pi-rpc:  对应 Pi provider（optional/advanced backend；仅显式选择才进入 Pi；不可用时不静默 fallback）
 // - mock-success / mock-failure: mock
 //
-// V17-E 任务 F：Pi SDK 保留为 optional/advanced backend；friendReady 字段废弃，改名为 piAdvancedReady。
+// V17-E1 任务 B：portable profile 不再默认 Pi-first。Pi 降级为 optional/advanced backend，
+// 普通用户（无论 developer 还是 portable）的 auto 默认主线是 Codex-first。
+// V17-E 任务 F：friendReady 字段废弃，改名为 piAdvancedReady。
 // Pi provider ESM dynamic import 修复作为独立修复项，不阻塞 Codex-first audit。
 
 import type { LLMBridgeSettings } from "../../types";
@@ -42,14 +43,15 @@ import { PiSdkProvider } from "../providers/pi-sdk/piSdkProvider";
 /**
  * 选择 RuntimeProvider（按 settings.backendMode + provider 可用性）。
  *
- * V17-A: backendProfile=portable 时 auto 优先 Pi（portable backend spike）。
- * V17-B: portable 主线切到 pi-sdk；pi-rpc 降级为可选 fallback。
- *        portable 下 pi-sdk unavailable 时不静默 fallback 到 Claude Code
- *        （返回 pi-sdk provider，run 时发 failed 提示用户切换 profile 或安装依赖）。
+ * V17-E1 任务 B：portable auto 不再 Pi-first。auto（不论 portable 还是 developer）
+ * 统一走 codex-app-server → claude-sdk → claude-cli 链（Codex-first）。
+ * Pi 仅在显式选择 pi-sdk / pi-rpc 时才进入（optional/advanced backend）。
+ *
+ * V17-E 任务 F：Pi 降级为 optional/advanced backend；friendReady 改名为 piAdvancedReady。
+ * V17-E 任务 A：selectProvider 传 settings.codexCommand 给 CodexAppServerProvider。
  *
  * @param settings 插件设置
  * @param cwd Vault 根目录
- * @param strictSdk 显式选 sdk 时 strict=true（不可用报错不 fallback）
  * @returns provider 与显示 label
  */
 export function selectProvider(
@@ -95,23 +97,8 @@ export function selectProvider(
     return { provider: piSdk, label: "Pi SDK (unavailable)" };
   }
 
-  // auto: portable profile 主线 pi-sdk → pi-rpc fallback；不静默 fallback 到 Claude Code
-  if (settings.backendProfile === "portable") {
-    const piSdk = new PiSdkProvider();
-    if (piSdk.isAvailable(cwd)) {
-      return { provider: piSdk, label: "Pi SDK (portable)" };
-    }
-    // pi-sdk unavailable：尝试 pi-rpc 作为实验 fallback（可选，仍 portable backend）
-    const piRpc = new PiRpcProvider(settings.piCommand, { cwd });
-    if (piRpc.isAvailable(cwd)) {
-      return { provider: piRpc, label: "Pi RPC (portable fallback)" };
-    }
-    // 两者都不可用：返回 pi-sdk（run 时发 failed 提示用户安装依赖或切 developer profile）
-    return { provider: piSdk, label: "Pi SDK (portable unavailable)" };
-  }
-
-  // developer profile: codex→sdk→cli 链（不强推 Pi）
-  // V17-E 任务 A：selectProvider 传 settings.codexCommand 给 CodexAppServerProvider
+  // V17-E1 任务 B：auto（不论 portable 还是 developer）统一走 Codex-first 链
+  // Pi 不再作为 portable auto 的默认；仅显式 pi-sdk / pi-rpc 才进入 Pi。
   const codex = new CodexAppServerProvider(false, settings.codexCommand || "codex");
   if (codex.isAvailable(cwd)) {
     return { provider: codex, label: "Codex app-server" };

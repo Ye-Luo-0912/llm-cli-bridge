@@ -5117,18 +5117,19 @@ if (runMode !== "all" && runMode !== "unit") {
           `editOk=${editOk} contentReplaced=${contentReplaced} notFoundHandled=${notFoundHandled}`);
       }
 
-      // Test V17B-I: portable profile auto 优先 pi-sdk（provider 选择验证）
+      // Test V17B-I: pi-sdk provider 仍存在（V17-E1 任务 B：不再作为 portable auto 主线，但 provider 实例化正常）
       {
         piSdkProviderMod.clearPiSdkProbeCache();
         const provider = new piSdkProviderMod.PiSdkProvider({ forceReload: true });
         const isPiSdk = provider.providerId === "pi-sdk";
         const isNotAvailable = !provider.isAvailable(v17bTmpRoot); // SDK 未安装
 
-        // portable 主线候选 = pi-sdk（不是 pi-rpc）
-        const isPortableMainLine = isPiSdk;
+        // V17-E1 任务 B：pi-sdk 不再是 portable auto 主线候选（auto 改为 Codex-first）
+        // 但 provider 仍可实例化（显式 pi-sdk 模式时使用）
+        const isExplicitOnlyProvider = isPiSdk;
 
-        addTest("V17-B portable: pi-sdk 是 portable 主线候选（providerId=pi-sdk）",
-          isPiSdk && isNotAvailable && isPortableMainLine ? "pass" : "fail",
+        addTest("V17-B pi-sdk: provider 仍可实例化（V17-E1: 不再 portable auto 主线，仅显式 pi-sdk 模式）",
+          isPiSdk && isNotAvailable && isExplicitOnlyProvider ? "pass" : "fail",
           `providerId=${provider.providerId} available=${!isNotAvailable}`);
       }
 
@@ -5993,17 +5994,22 @@ if (runMode !== "all" && runMode !== "unit") {
         // selectProvider 处理 mode === "codex"
         const handlesCodexMode = /mode\s*===\s*"codex"/.test(bridgeSrc);
         const codexModeNotFallback = /Codex app-server \(unavailable\)/.test(bridgeSrc);
-        // developer profile auto: codex→claude-sdk→claude-cli（Codex-first）
-        const autoDevCodexFirst = /auto \+ developer:\s*codex-app-server/.test(bridgeSrc) && /codex→claude-sdk→claude-cli/.test(bridgeSrc) ||
-                                  /codex-app-server → claude-sdk → claude-cli/.test(bridgeSrc);
+        // V17-E1 任务 B：auto（不论 portable/developer）统一走 codex→sdk→cli
+        const autoUnifiedCodexFirst = /V17-E1 任务 B.*portable auto 不再 Pi-first/.test(bridgeSrc) &&
+                                      /auto（不论 portable/.test(bridgeSrc) &&
+                                      /codex-app-server → claude-sdk → claude-cli/.test(bridgeSrc);
+        // V17-E1 任务 B：portable profile 的 pi-sdk→pi-rpc fallback 已删除
+        const portableNoPiFirst = !/portable profile 主线 pi-sdk/.test(bridgeSrc) &&
+                                  !/settings\.backendProfile === "portable"/.test(bridgeSrc);
         // settings UI 有 codex 下拉选项
         const hasCodexOption = settingsSrc.includes('addOption("codex"');
-        // auto 选项文案修正（不再写 "SDK-first + CLI fallback"）
-        const autoDescFixed = settingsSrc.includes("profile 决定") && !settingsSrc.includes("auto=SDK-first");
+        // V17-E1 任务 B：auto 选项文案改为 Codex-first（不再写 profile 决定）
+        const autoDescFixed = settingsSrc.includes("auto（Codex-first：codex→sdk→cli）") &&
+                              !settingsSrc.includes("profile 决定");
 
-        addTest("V17-E B: BackendMode 含 codex + selectProvider 处理 + 不静默 fallback + auto 策略 Codex-first + settings UI 下拉",
-          hasCodexMode && handlesCodexMode && codexModeNotFallback && autoDevCodexFirst && hasCodexOption && autoDescFixed ? "pass" : "fail",
-          `hasCodexMode=${hasCodexMode} handlesCodexMode=${handlesCodexMode} notFallback=${codexModeNotFallback} autoDevCodexFirst=${autoDevCodexFirst} hasCodexOption=${hasCodexOption} autoDescFixed=${autoDescFixed}`);
+        addTest("V17-E B+E1-B: BackendMode 含 codex + selectProvider 处理 + 不静默 fallback + auto 统一 Codex-first + portable 不再 Pi-first + settings UI 下拉",
+          hasCodexMode && handlesCodexMode && codexModeNotFallback && autoUnifiedCodexFirst && portableNoPiFirst && hasCodexOption && autoDescFixed ? "pass" : "fail",
+          `hasCodexMode=${hasCodexMode} handlesCodexMode=${handlesCodexMode} notFallback=${codexModeNotFallback} autoUnifiedCodexFirst=${autoUnifiedCodexFirst} portableNoPiFirst=${portableNoPiFirst} hasCodexOption=${hasCodexOption} autoDescFixed=${autoDescFixed}`);
       }
 
       // ===== V17-E 任务 C：真实 Codex app-server smoke readiness matrix =====
@@ -6022,7 +6028,8 @@ if (runMode !== "all" && runMode !== "unit") {
         const hasPrintFunction = smokeSrc.includes("function printReadinessMatrix");
         const hasCodexUserReady = smokeSrc.includes("codexUserReady");
         // skip 时 codexUserReady=false（不伪装 ready）
-        const skipNotReady = /smokeStatus\s*===\s*"skip"/.test(smokeSrc) || /codexUserReady\s*=\s*report\.smokeStatus\s*===\s*"pass"/.test(smokeSrc);
+        // V17-E1 任务 E：codexUserReady 改用 deriveCodexUserReady(report, matrix) gate（smoke=pass + 关键 matrix 字段 pass/true）
+        const skipNotReady = /smokeStatus\s*===\s*"skip"/.test(smokeSrc) || /codexUserReady\s*=\s*report\.smokeStatus\s*===\s*"pass"/.test(smokeSrc) || /deriveCodexUserReady\(report,\s*matrix\)/.test(smokeSrc);
         // approval/fileChange/stopCancel flag 收集
         const collectsApproval = smokeSrc.includes("approvalRequestTriggered");
         const collectsFileChange = smokeSrc.includes("fileChangeRequestTriggered");
@@ -6040,9 +6047,11 @@ if (runMode !== "all" && runMode !== "unit") {
       // 验证 settings.ts 含 Codex setup/status card + 四种状态提示 + 最短修复提示
       {
         const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
-        const hasCodexSection = settingsSrc.includes("Codex Setup / Status (V17-E)");
+        // V17-E1 任务 F：标题改为 "Codex Setup / Status (V17-E — Heuristic)"
+        const hasCodexSection = /Codex Setup \/ Status \(V17-E[^)]*\)/.test(settingsSrc);
         const hasCodexCommand = settingsSrc.includes('setName("Codex 命令")') && settingsSrc.includes("s.codexCommand");
-        const hasCodexStatus = settingsSrc.includes('setName("Codex 状态")');
+        // V17-E1 任务 F：设置名改为 "Codex 状态（Heuristic）"
+        const hasCodexStatus = /setName\("Codex 状态[^)]*\)/.test(settingsSrc);
         // 四种状态文案
         const hasNotInstalled = settingsSrc.includes("未安装");
         const hasNotLoggedIn = settingsSrc.includes("但未登录");
@@ -6078,7 +6087,8 @@ if (runMode !== "all" && runMode !== "unit") {
         const summarySrc = readFileSync(join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs"), "utf8");
 
         // smoke 脚本写入 codexUserReady 到报告
-        const smokeWritesReady = /- \*\*codexUserReady\*\*: \$\{report\.smokeStatus === "pass"/.test(smokeSrc);
+        // V17-E1 任务 E：改用 deriveCodexUserReady(report, matrix) gate，输出 ${codexUserReady ? "true" : "false"}
+        const smokeWritesReady = /- \*\*codexUserReady\*\*: \$\{(report\.smokeStatus === "pass"|codexUserReady \? "true" : "false")/.test(smokeSrc);
         // summary 脚本解析 codexUserReady
         const summaryParsesReady = summarySrc.includes("codexUserReady") && /true\|false/.test(summarySrc) && summarySrc.includes("userReadyMatch");
         // summary 输出 codexUserReady 字段
@@ -6110,7 +6120,8 @@ if (runMode !== "all" && runMode !== "unit") {
         // F1: Pi SDK 标记为 optional/advanced backend
         const typesMarksOptional = typesSrc.includes("V17-E 任务 F") && /optional\/advanced backend/.test(typesSrc) && /pi-sdk.*pi-rpc.*降级/.test(typesSrc.replace(/\s+/g, " "));
         const settingsMarksOptional = settingsSrc.includes("Pi Backend (Optional / Advanced — V17-E 任务 F)") && settingsSrc.includes("Pi SDK Auth (Runtime Override — Optional/Advanced)");
-        const bridgeSessionMarksOptional = bridgeSessionSrc.includes("V17-E 任务 F") && /optional\/advanced backend/.test(bridgeSessionSrc) && /portable.*Pi-first.*可选实验路径/.test(bridgeSessionSrc.replace(/\s+/g, " "));
+        // V17-E1 任务 B：portable auto 不再 Pi-first；注释改为 "portable profile 不再默认 Pi-first"
+        const bridgeSessionMarksOptional = bridgeSessionSrc.includes("V17-E 任务 F") && /optional\/advanced backend/.test(bridgeSessionSrc) && /portable.*Pi-first/.test(bridgeSessionSrc.replace(/\s+/g, " "));
 
         // F2: friendReady 废弃，改名 piAdvancedReady
         const smokeNoFriendReady = !piSdkSmokeSrc.includes("friendReady=");
@@ -6128,6 +6139,119 @@ if (runMode !== "all" && runMode !== "unit") {
         addTest("V17-E F: Pi SDK 降级 optional/advanced backend + friendReady→piAdvancedReady + ESM dynamic import 独立修复项",
           f1Ok && f2Ok && f3Ok ? "pass" : "fail",
           `f1=${f1Ok} (types=${typesMarksOptional} settings=${settingsMarksOptional} bridge=${bridgeSessionMarksOptional}) f2=${f2Ok} (noFriendReady=${smokeNoFriendReady} hasPiAdvancedReady=${smokeHasPiAdvancedReady} docsRename=${smokeDocumentsRename}) f3=${f3Ok} (providerDocs=${providerDocumentsEsmFix} esmIndependent=${providerMarksEsmFixIndependent})`);
+      }
+
+      // ===== V17-E1 任务 C+D：user-package smoke + package.json type=module 风险修复 =====
+      {
+        const buildScript = readFileSync(join(PROJECT_ROOT, "scripts", "build-user-package.mjs"), "utf8");
+        const smokeScript = readFileSync(join(PROJECT_ROOT, "scripts", "user-package-smoke.mjs"), "utf8");
+        const pkgJson = readFileSync(join(PROJECT_ROOT, "package.json"), "utf8");
+
+        // 任务 C：不写 package.json（含 type=module）到 user-package 根目录
+        // V17-E1 任务 C：检查脚本不直接 writeFileSync 到路径参数恰好为 "package.json" 的文件
+        // （注意：writeFileSync(path.join(OUT_DIR, "llm-cli-bridge-user-package.json") 不应匹配，
+        //  因为 "llm-cli-bridge-user-package.json" 不是独立的 "package.json" 参数）
+        const buildNoTypeModule = !/writeFileSync\(\s*path\.join\([^)]*,\s*["']package\.json["']/.test(buildScript);
+        const buildWritesMetadata = buildScript.includes("llm-cli-bridge-user-package.json");
+        const buildCleansResidual = buildScript.includes('rmSync(rootPkgJsonPath') || buildScript.includes("清理残留的 package.json");
+        // 任务 C：build 步骤 1 用 npm run build（含 tsc），不跳过
+        const buildRunsNpmBuild = buildScript.includes("npm run build");
+
+        // 任务 D：smoke:user-package 脚本存在
+        const hasSmokeScript = pkgJson.includes('"smoke:user-package"');
+        const hasBuildSmokeScript = pkgJson.includes('"build:user-package:smoke"');
+
+        // 任务 C+D：smoke 脚本检查 canLoadMainJs + noRootPackageJson
+        const smokeChecksCanLoadMainJs = smokeScript.includes("canLoadMainJs");
+        const smokeChecksNoRootPkgJson = smokeScript.includes("noRootPackageJson");
+        const smokeWritesReport = smokeScript.includes("test-report-user-package.md");
+        const smokeOutputsStatus = smokeScript.includes("userPackageStatus=") &&
+                                    smokeScript.includes("containsPiSdk=") &&
+                                    smokeScript.includes("canRequirePiSdk=") &&
+                                    smokeScript.includes("userNeedsNpmInstall=");
+
+        const cOk = buildNoTypeModule && buildWritesMetadata && buildCleansResidual && buildRunsNpmBuild;
+        const dOk = hasSmokeScript && hasBuildSmokeScript && smokeWritesReport && smokeOutputsStatus;
+        const smokeOk = smokeChecksCanLoadMainJs && smokeChecksNoRootPkgJson;
+
+        addTest("V17-E1 C+D: user-package 不写 type=module + smoke:user-package 脚本 + 报告产物 + canLoadMainJs/noRootPackageJson 检查",
+          cOk && dOk && smokeOk ? "pass" : "fail",
+          `c=${cOk} (noTypeModule=${buildNoTypeModule} writesMeta=${buildWritesMetadata} cleansResidual=${buildCleansResidual} runsNpmBuild=${buildRunsNpmBuild}) d=${dOk} (hasSmoke=${hasSmokeScript} hasBuildSmoke=${hasBuildSmokeScript} writesReport=${smokeWritesReport} outputsStatus=${smokeOutputsStatus}) smoke=${smokeOk} (canLoadMainJs=${smokeChecksCanLoadMainJs} noRootPkgJson=${smokeChecksNoRootPkgJson})`);
+      }
+
+      // ===== V17-E1 任务 E：readiness matrix 写入报告 + codexUserReady gate =====
+      {
+        const smokeScript = readFileSync(join(PROJECT_ROOT, "scripts", "codex-app-server-smoke.mjs"), "utf8");
+        const summaryScript = readFileSync(join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs"), "utf8");
+
+        // 任务 E：writeReport 写入 12 字段 matrix 到报告
+        const writeReportHasMatrix = smokeScript.includes("## Readiness Matrix (V17-E1 任务 E — 12 字段)") &&
+                                       smokeScript.includes("matrix.codexCliAvailable") &&
+                                       smokeScript.includes("matrix.noVaultRootPollution");
+        // 任务 E：deriveCodexUserReady gate — smoke=pass + 关键字段 pass/true
+        const hasDeriveUserReady = smokeScript.includes("function deriveCodexUserReady");
+        const gateChecksKeyFields = smokeScript.includes("matrix.appServerSpawnStatus") &&
+                                     smokeScript.includes("matrix.turnCompletedStatus") &&
+                                     smokeScript.includes("matrix.stopCancelStatus");
+        const gateChecksAuth = smokeScript.includes("matrix.codexAuthAvailable !== \"true\"");
+        // 任务 E：summary 解析 12 字段
+        const summaryParsesMatrix = summaryScript.includes("codexCliAvailable") &&
+                                     summaryScript.includes("appServerSpawnStatus") &&
+                                     summaryScript.includes("noVaultRootPollution");
+        const summaryOutputsMatrix = summaryScript.includes("- **codexCliAvailable**") &&
+                                      summaryScript.includes("- **noVaultRootPollution**");
+
+        const eOk = writeReportHasMatrix && hasDeriveUserReady && gateChecksKeyFields && gateChecksAuth;
+        const summaryOk = summaryParsesMatrix && summaryOutputsMatrix;
+
+        addTest("V17-E1 E: readiness matrix 写入 codex smoke report + codexUserReady gate 加 matrix 校验 + summary 解析/输出",
+          eOk && summaryOk ? "pass" : "fail",
+          `e=${eOk} (writeReportHasMatrix=${writeReportHasMatrix} hasDeriveUserReady=${hasDeriveUserReady} gateChecksKeyFields=${gateChecksKeyFields} gateChecksAuth=${gateChecksAuth}) summary=${summaryOk} (parses=${summaryParsesMatrix} outputs=${summaryOutputsMatrix})`);
+      }
+
+      // ===== V17-E1 任务 F：Codex setup card 降级为 heuristic status =====
+      {
+        const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
+
+        // 任务 F：标题含 Heuristic
+        const titleHasHeuristic = settingsSrc.includes("Codex Setup / Status (V17-E — Heuristic)");
+        // 任务 F：hint 段说明不等同 real smoke ready
+        const hasHintAboutHeuristic = settingsSrc.includes("本栏为 heuristic") &&
+                                       settingsSrc.includes("不等同于 real smoke ready") &&
+                                       settingsSrc.includes("codexUserReady");
+        // 任务 F：变量名改为 codexAuthHeuristic
+        const usesHeuristicVar = settingsSrc.includes("codexAuthHeuristic") && !settingsSrc.includes("codexAuthOk");
+        // 任务 F：ready → heuristic-ready
+        const usesHeuristicReady = settingsSrc.includes("heuristic-ready") && !settingsSrc.includes('statusText = `ready');
+        // 任务 F：设置名含 Heuristic
+        const settingNameHasHeuristic = settingsSrc.includes("Codex 状态（Heuristic）");
+
+        const fOk = titleHasHeuristic && hasHintAboutHeuristic && usesHeuristicVar && usesHeuristicReady && settingNameHasHeuristic;
+
+        addTest("V17-E1 F: Codex setup card 降级为 heuristic status（标题/hint/变量名/状态文案/设置名）",
+          fOk ? "pass" : "fail",
+          `title=${titleHasHeuristic} hint=${hasHintAboutHeuristic} var=${usesHeuristicVar} ready=${usesHeuristicReady} settingName=${settingNameHasHeuristic}`);
+      }
+
+      // ===== V17-E1 任务 D：summary 解析 user-package 报告 =====
+      {
+        const summaryScript = readFileSync(join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs"), "utf8");
+
+        // 任务 D：parseUserPackageReport 函数存在
+        const hasParseFunc = summaryScript.includes("function parseUserPackageReport");
+        // 任务 D：summary 输出 user-package 字段
+        const outputsFields = summaryScript.includes("- **userPackageStatus**") &&
+                               summaryScript.includes("- **containsPiSdk**") &&
+                               summaryScript.includes("- **canRequirePiSdk**") &&
+                               summaryScript.includes("- **canLoadMainJs**") &&
+                               summaryScript.includes("- **noRootPackageJson**") &&
+                               summaryScript.includes("- **userNeedsNpmInstall**");
+
+        const dOk = hasParseFunc && outputsFields;
+
+        addTest("V17-E1 D: summary 解析 user-package 报告 + 输出 6 字段",
+          dOk ? "pass" : "fail",
+          `hasParseFunc=${hasParseFunc} outputsFields=${outputsFields}`);
       }
     } finally {
       try { rmSync(v17bTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
