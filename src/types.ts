@@ -28,7 +28,17 @@ export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "auto" |
  *
  * V2.16-B 迁移：旧的 "sdk-experimental" 自动迁移为 "sdk"
  */
-export type BackendMode = "auto" | "cli" | "sdk" | "mock-success" | "mock-failure";
+export type BackendMode = "auto" | "cli" | "sdk" | "mock-success" | "mock-failure" | "pi-rpc";
+
+/**
+ * V17-A: 后端配置档（朋友版 portable vs 开发者 developer）。
+ *
+ * - developer: Claude/Codex/Pi/mock 都可选，auto 默认 codex→sdk→cli 链
+ * - portable:  优先 Pi（portable backend spike）；Claude/Codex 可选但非默认
+ *
+ * 朋友版 UI 只显示后端状态/模型/权限模式/Agent Runtime，不暴露实验选项。
+ */
+export type BackendProfile = "developer" | "portable";
 
 // V2.3: 权限策略（low=宽松 / medium=默认 / high=严格）
 export type PermissionPolicy = "low" | "medium" | "high";
@@ -158,6 +168,11 @@ export interface LLMBridgeSettings {
   claudeArgs: string;
   codexCommand: string;
   codexArgs: string;
+  // V17-A: Pi portable backend spike（pi --mode rpc）
+  piCommand: string;
+  piArgs: string;
+  // V17-A: 后端配置档（朋友版 portable 优先 Pi；开发者 developer 全可选）
+  backendProfile: BackendProfile;
   customCommand: string;
   customArgs: string;
   includeActiveNote: boolean;
@@ -195,6 +210,10 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   claudeArgs: "-p",
   codexCommand: "codex",
   codexArgs: "exec -",
+  // V17-A: Pi portable backend spike 默认命令（pi 未安装时 unavailable，不崩溃）
+  piCommand: "pi",
+  piArgs: "--mode rpc",
+  backendProfile: "developer",
   customCommand: "",
   customArgs: "",
   includeActiveNote: true,

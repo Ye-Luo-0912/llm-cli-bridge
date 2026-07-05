@@ -2,7 +2,7 @@
 
 import { App, PluginSettingTab, Setting } from "obsidian";
 import type LLMBridgePlugin from "../main";
-import { AgentType, BackendMode, ClaudePermissionMode, PermissionPolicy } from "./types";
+import { AgentType, BackendMode, BackendProfile, ClaudePermissionMode, PermissionPolicy } from "./types";
 
 export class LLMBridgeSettingTab extends PluginSettingTab {
   plugin: LLMBridgePlugin;
@@ -271,21 +271,56 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Backend 模式")
-      .setDesc("auto=SDK-first + Claude Code CLI fallback（默认生产）；cli=始终使用 Claude Code CLI；sdk=始终使用 SDK（不可用时显示错误，不 fallback）；mock-success / mock-failure=离线测试用。")
+      .setDesc("auto=SDK-first + Claude Code CLI fallback（默认生产）；cli=始终使用 Claude Code CLI；sdk=始终使用 SDK（不可用时显示错误，不 fallback）；pi-rpc=Pi portable backend spike；mock-success / mock-failure=离线测试用。")
       .addDropdown((d) => {
         d.addOption("auto", "auto（SDK-first + CLI fallback）");
         d.addOption("cli", "cli（Claude Code CLI）");
         d.addOption("sdk", "sdk（Claude Agent SDK）");
+        d.addOption("pi-rpc", "pi-rpc（Pi portable backend spike）");
         d.addOption("mock-success", "mock-success（演示成功流程）");
         d.addOption("mock-failure", "mock-failure（演示失败流程）");
         d.setValue(s.backendMode);
         d.onChange(async (v) => {
           s.backendMode = v as BackendMode;
           await this.plugin.saveSettings();
-          // V2.10 (B-019): 通知 view 刷新状态栏，Backend 值立即更新（替代原只 saveSettings 不刷新的问题）
+          // V2.10 (B-019): 通知 view 刷新状态栏，Backend 值立即更新（替代原 saveSettings 不刷新的问题）
           this.plugin.refreshBridgeView();
         });
       });
+
+    new Setting(containerEl)
+      .setName("Backend 配置档")
+      .setDesc("V17-A: developer=Claude/Codex/Pi/mock 全可选（默认）；portable=朋友版，auto 优先 Pi，UI 精简不暴露实验选项。")
+      .addDropdown((d) => {
+        d.addOption("developer", "developer（全后端可选）");
+        d.addOption("portable", "portable（朋友版，优先 Pi）");
+        d.setValue(s.backendProfile);
+        d.onChange(async (v) => {
+          s.backendProfile = v as BackendProfile;
+          await this.plugin.saveSettings();
+          this.plugin.refreshBridgeView();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Pi 命令")
+      .setDesc("V17-A: Pi portable backend spike 命令（默认 pi；未安装时 unavailable，不崩溃）。")
+      .addText((t) =>
+        t.setValue(s.piCommand).onChange(async (v) => {
+          s.piCommand = v.trim() || "pi";
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    new Setting(containerEl)
+      .setName("Pi 参数")
+      .setDesc("V17-A: pi 启动参数（默认 --mode rpc）。")
+      .addText((t) =>
+        t.setValue(s.piArgs).onChange(async (v) => {
+          s.piArgs = v.trim() || "--mode rpc";
+          await this.plugin.saveSettings();
+        }),
+      );
 
     new Setting(containerEl)
       .setName("Dev Test Mode")

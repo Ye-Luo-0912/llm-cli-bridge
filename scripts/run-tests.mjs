@@ -296,6 +296,9 @@ try {
       claudeArgs: "-p",
       codexCommand: "codex",
       codexArgs: "exec -",
+      piCommand: "pi",
+      piArgs: "--mode rpc",
+      backendProfile: "developer",
       customCommand: "",
       customArgs: "",
       includeActiveNote,
@@ -1093,6 +1096,8 @@ if (runMode !== "all" && runMode !== "unit") {
     const tempBridgeContractBundle = join(PROJECT_ROOT, ".test-bridge-contract-temp.mjs");
     // V16.5-E: agentRuntimeWorkspace bundle 供 workspace/skill/facts 测试
     const tempAgentRuntimeWorkspaceBundle = join(PROJECT_ROOT, ".test-agent-runtime-workspace-temp.mjs");
+    // V17-A: piRpcProvider bundle 供 Pi probe/provider/JSONL 测试
+    const tempPiRpcProviderBundle = join(PROJECT_ROOT, ".test-pi-rpc-provider-temp.mjs");
 
     const bundleOpts = (entry) => ({
       entryPoints: [join(PROJECT_ROOT, "src", entry)],
@@ -1115,6 +1120,8 @@ if (runMode !== "all" && runMode !== "unit") {
     await esbuild.build({ ...bundleOpts("runtime/core/bridgePromptContract.ts"), outfile: tempBridgeContractBundle });
     // V16.5-E: agentRuntimeWorkspace bundle
     await esbuild.build({ ...bundleOpts("agentRuntimeWorkspace.ts"), outfile: tempAgentRuntimeWorkspaceBundle });
+    // V17-A: piRpcProvider bundle
+    await esbuild.build({ ...bundleOpts("runtime/providers/pi-rpc/piRpcProvider.ts"), outfile: tempPiRpcProviderBundle });
 
     const codexProviderMod = await import(pathToFileURL(tempCodexProviderBundle).href);
     const promptPkgMod = await import(pathToFileURL(tempPromptPkgBundle).href);
@@ -1131,6 +1138,8 @@ if (runMode !== "all" && runMode !== "unit") {
     const bridgeContractMod = await import(pathToFileURL(tempBridgeContractBundle).href);
     // V16.5-E: agentRuntimeWorkspace 模块
     const agentRuntimeWsMod = await import(pathToFileURL(tempAgentRuntimeWorkspaceBundle).href);
+    // V17-A: piRpcProvider 模块
+    const piRpcProviderMod = await import(pathToFileURL(tempPiRpcProviderBundle).href);
 
     // ---------- 最小 settings + snapshot ----------
     const baseBridgeSettings = {
@@ -1139,6 +1148,9 @@ if (runMode !== "all" && runMode !== "unit") {
       claudeArgs: "-p",
       codexCommand: "codex",
       codexArgs: "exec -",
+      piCommand: "pi",
+      piArgs: "--mode rpc",
+      backendProfile: "developer",
       customCommand: "",
       customArgs: "",
       includeActiveNote: true,
@@ -4393,6 +4405,194 @@ if (runMode !== "all" && runMode !== "unit") {
       try { rmSync(taskKTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
     }
 
+    // ===== V17-A: Pi Portable Backend Spike + Provider Skill Targets =====
+    const v17aTmpRoot = mkdtempSync(join(tmpdir(), "v17a-pi-"));
+    try {
+      // Test V17A-A: Pi probe 不存在的命令返回 not-found，不崩溃
+      {
+        piRpcProviderMod.clearPiProbeCache();
+        const result = piRpcProviderMod.probePi("pi-nonexistent-command-xyz", { force: true });
+        const isNotFound = result.reason === "not-found" || result.reason === "probe-error";
+        const notAvailable = !result.available;
+        const noThrow = true; // 到这里说明没抛错
+
+        addTest("V17-A probe: 不存在的命令返回 not-found 不崩溃",
+          isNotFound && notAvailable && noThrow ? "pass" : "fail",
+          `reason=${result.reason} available=${result.available} error=${result.error ?? "(none)"}`);
+      }
+
+      // Test V17A-B: PiRpcProvider 对不存在的命令 isAvailable=false
+      {
+        piRpcProviderMod.clearPiProbeCache();
+        const provider = new piRpcProviderMod.PiRpcProvider("pi-nonexistent-command-xyz", { cwd: v17aTmpRoot });
+        const notAvailable = !provider.isAvailable(v17aTmpRoot);
+        const probe = provider.getProbeResult();
+        const probeReason = probe.reason === "not-found" || probe.reason === "probe-error";
+
+        addTest("V17-A provider: 不存在的命令 isAvailable=false",
+          notAvailable && probeReason ? "pass" : "fail",
+          `isAvailable=${!notAvailable} probeReason=${probe.reason}`);
+      }
+
+      // Test V17A-C: parsePiJsonlLine 写工具映射为 approval_request（不绕过 PermissionBoundary）
+      {
+        const writeEvent = piRpcProviderMod.parsePiJsonlLine(
+          JSON.stringify({ type: "tool_use", name: "Write", input: { path: "test.md", content: "x" }, id: "call-1" }),
+          "pi-rpc",
+        );
+        const isApproval = writeEvent.length > 0 && writeEvent[0].payload.kind === "approval_request";
+        const hasRiskLevel = isApproval && writeEvent[0].payload.riskLevel === "medium";
+
+        const bashEvent = piRpcProviderMod.parsePiJsonlLine(
+          JSON.stringify({ type: "tool_use", name: "Bash", input: { command: "rm -rf /" }, id: "call-2" }),
+          "pi-rpc",
+        );
+        const bashIsApproval = bashEvent.length > 0 && bashEvent[0].payload.kind === "approval_request";
+
+        addTest("V17-A 权限: 写/命令工具映射为 approval_request 不直通",
+          isApproval && hasRiskLevel && bashIsApproval ? "pass" : "fail",
+          `writeApproval=${isApproval} writeRisk=${hasRiskLevel} bashApproval=${bashIsApproval}`);
+      }
+
+      // Test V17A-D: parsePiJsonlLine 读工具映射为 tool_start（不需 approval）
+      {
+        const readEvent = piRpcProviderMod.parsePiJsonlLine(
+          JSON.stringify({ type: "tool_use", name: "Read", input: { path: "test.md" }, id: "call-3" }),
+          "pi-rpc",
+        );
+        const isToolStart = readEvent.length > 0 && readEvent[0].payload.kind === "tool_start";
+        const notApproval = readEvent.length === 0 || readEvent[0].payload.kind !== "approval_request";
+
+        // 消息类型
+        const msgEvent = piRpcProviderMod.parsePiJsonlLine(
+          JSON.stringify({ type: "message", text: "hello", role: "assistant" }),
+          "pi-rpc",
+        );
+        const isMessage = msgEvent.length > 0 && msgEvent[0].payload.kind === "message";
+
+        // 非 JSON 行作为 stdout_delta
+        const nonJson = piRpcProviderMod.parsePiJsonlLine("plain text line", "pi-rpc");
+        const isStdout = nonJson.length > 0 && nonJson[0].payload.kind === "stdout_delta";
+
+        addTest("V17-A 解析: 读工具→tool_start / 消息→message / 非JSON→stdout_delta",
+          isToolStart && notApproval && isMessage && isStdout ? "pass" : "fail",
+          `readToolStart=${isToolStart} notApproval=${notApproval} message=${isMessage} stdout=${isStdout}`);
+      }
+
+      // Test V17A-E: isWriteToolCall 判定写/命令工具
+      {
+        const writeOk = piRpcProviderMod.isWriteToolCall("Write");
+        const editOk = piRpcProviderMod.isWriteToolCall("Edit");
+        const bashOk = piRpcProviderMod.isWriteToolCall("Bash");
+        const readNotWrite = !piRpcProviderMod.isWriteToolCall("Read");
+        const globNotWrite = !piRpcProviderMod.isWriteToolCall("Glob");
+
+        addTest("V17-A isWriteToolCall: 写/命令工具判定",
+          writeOk && editOk && bashOk && readNotWrite && globNotWrite ? "pass" : "fail",
+          `write=${writeOk} edit=${editOk} bash=${bashOk} read=${readNotWrite} glob=${globNotWrite}`);
+      }
+
+      // Test V17A-F: providerTargetPathForSlug 路径正确
+      {
+        const claudePath = agentRuntimeWsMod.providerTargetPathForSlug("claude", "vault-context");
+        const genericPath = agentRuntimeWsMod.providerTargetPathForSlug("generic-agent", "vault-structure");
+        const piPath = agentRuntimeWsMod.providerTargetPathForSlug("pi", "vault-index");
+
+        const claudeOk = claudePath === ".claude/skills/vault-context/SKILL.md";
+        const genericOk = genericPath === ".agents/skills/vault-structure/SKILL.md";
+        const piOk = piPath === ".pi/skills/vault-index/SKILL.md";
+
+        addTest("V17-A providerTarget: .claude/.agents/.pi 路径正确",
+          claudeOk && genericOk && piOk ? "pass" : "fail",
+          `claude=${claudePath} generic=${genericPath} pi=${piPath}`);
+      }
+
+      // Test V17A-G: materializeToProviderTarget 物化到 .agents/skills 和 .pi/skills
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        // 初始化 workspace（含 vault-context source）
+        await agentRuntimeWsMod.ensureAgentRuntimeWorkspace(v17aTmpRoot, { createVaultSkillIfMissing: true });
+
+        // 物化 vault-context 到 generic-agent 和 pi target
+        const genericResult = await agentRuntimeWsMod.materializeToProviderTarget(v17aTmpRoot, "vault-context", "generic-agent");
+        const piResult = await agentRuntimeWsMod.materializeToProviderTarget(v17aTmpRoot, "vault-context", "pi");
+
+        const genericOk = genericResult.ok;
+        const piOk = piResult.ok;
+        const genericPath = pathMod.join(v17aTmpRoot, ".agents/skills/vault-context/SKILL.md");
+        const piPath = pathMod.join(v17aTmpRoot, ".pi/skills/vault-context/SKILL.md");
+        const genericExists = fsMod.existsSync(genericPath);
+        const piExists = fsMod.existsSync(piPath);
+
+        // 验证物化文件含 frontmatter + # Instructions
+        const genericContent = await fsMod.promises.readFile(genericPath, "utf8");
+        const piContent = await fsMod.promises.readFile(piPath, "utf8");
+        const genericFormat = /^---\nname: vault-context\n/.test(genericContent) && genericContent.includes("# Instructions");
+        const piFormat = /^---\nname: vault-context\n/.test(piContent) && piContent.includes("# Instructions");
+
+        addTest("V17-A materialize: 物化到 .agents/skills 和 .pi/skills 含 frontmatter",
+          genericOk && piOk && genericExists && piExists && genericFormat && piFormat ? "pass" : "fail",
+          `genericOk=${genericOk} piOk=${piOk} genericExists=${genericExists} piExists=${piExists} genericFormat=${genericFormat} piFormat=${piFormat}`);
+      }
+
+      // Test V17A-H: materializeAllVaultSkillsToAllTargets 物化所有 skill 到所有 target
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        // 触发 split（写入大内容）
+        const bigContent = agentRuntimeWsMod.buildVaultSkillMarkdown({
+          stableFacts: Array.from({ length: 25 }, (_, i) => ("directory structure 顶层目录 layout fact " + i + " " + ".".repeat(300)).slice(0, 300)),
+          observations: Array.from({ length: 25 }, (_, i) => ("file operation 文件操作 output naming fact " + i + " " + ".".repeat(300)).slice(0, 300)),
+          userCorrections: Array.from({ length: 25 }, (_, i) => ("user preference 偏好 correction 用户 fact " + i + " " + ".".repeat(300)).slice(0, 300)),
+        });
+        await fsMod.promises.writeFile(pathMod.join(v17aTmpRoot, agentRuntimeWsMod.VAULT_SKILL_SOURCE_REL), bigContent, "utf8");
+        await agentRuntimeWsMod.compactOrSplitVaultSkill(v17aTmpRoot);
+
+        // 物化所有 skills 到所有 targets
+        const result = await agentRuntimeWsMod.materializeAllVaultSkillsToAllTargets(v17aTmpRoot);
+        const manifest = result.manifest;
+
+        // 验证 manifest entries 含 providerTargets
+        const entriesWithTargets = manifest.entries.filter((e) => e.providerTargets).length;
+        const allHaveTargets = entriesWithTargets === manifest.entries.length;
+
+        // 验证每个 target 都有物化文件（至少 vault-context）
+        let allTargetsMaterialized = true;
+        for (const target of ["claude", "generic-agent", "pi"]) {
+          const dir = target === "claude" ? ".claude/skills" : target === "generic-agent" ? ".agents/skills" : ".pi/skills";
+          const vcPath = pathMod.join(v17aTmpRoot, dir, "vault-context", "SKILL.md");
+          if (!fsMod.existsSync(vcPath)) {
+            allTargetsMaterialized = false;
+            break;
+          }
+        }
+
+        // 结果数 = (vault-context + split skills) × 3 targets
+        const expectedResults = manifest.entries.length * 3;
+        const resultCountOk = result.results.length === expectedResults;
+
+        addTest("V17-A materializeAll: 所有 skill 物化到所有 target + manifest providerTargets",
+          allHaveTargets && allTargetsMaterialized && resultCountOk ? "pass" : "fail",
+          `entriesWithTargets=${entriesWithTargets}/${manifest.entries.length} allTargetsMaterialized=${allTargetsMaterialized} resultCount=${result.results.length}/${expectedResults}`);
+      }
+
+      // Test V17A-I: settings 含 backendProfile/piCommand 字段（朋友版 portable 可切换）
+      {
+        const profileFieldExists = "backendProfile" in baseBridgeSettings;
+        const piCommandExists = "piCommand" in baseBridgeSettings;
+        const piArgsExists = "piArgs" in baseBridgeSettings;
+        const profileValue = baseBridgeSettings.backendProfile;
+        const profileValid = profileValue === "developer" || profileValue === "portable";
+
+        addTest("V17-A settings: backendProfile/piCommand 字段存在且合法",
+          profileFieldExists && piCommandExists && piArgsExists && profileValid ? "pass" : "fail",
+          `backendProfile=${profileFieldExists}(${profileValue}) piCommand=${piCommandExists} piArgs=${piArgsExists} valid=${profileValid}`);
+      }
+    } finally {
+      try { rmSync(v17aTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
+    }
+
     // 清理临时 bundles
     for (const f of [
       tempCodexProviderBundle, tempPromptPkgBundle, tempAssistantViewBundle,
@@ -4400,6 +4600,7 @@ if (runMode !== "all" && runMode !== "unit") {
       tempSdkPermissionBundle,
       tempBridgeContractBundle,
       tempAgentRuntimeWorkspaceBundle,
+      tempPiRpcProviderBundle,
       join(PROJECT_ROOT, ".test-codex-plan-temp.mjs"),
       join(PROJECT_ROOT, ".test-jsonrpc-temp.mjs"),
       join(PROJECT_ROOT, ".test-codex-mapper-temp.mjs"),
@@ -4952,6 +5153,9 @@ if (!runUnit) {
       claudeArgs: "-p",
       codexCommand: "codex",
       codexArgs: "exec -",
+      piCommand: "pi",
+      piArgs: "--mode rpc",
+      backendProfile: "developer",
       customCommand: "",
       customArgs: "",
       includeActiveNote: false,
@@ -12812,6 +13016,9 @@ if (!runV213EUnit) {
       claudeArgs: "-p",
       codexCommand: "codex",
       codexArgs: "exec -",
+      piCommand: "pi",
+      piArgs: "--mode rpc",
+      backendProfile: "developer",
       customCommand: "",
       customArgs: "",
       includeActiveNote: false,
@@ -15624,6 +15831,9 @@ if (!runClaudeSmoke) {
       claudeArgs: "-p",
       codexCommand: "codex",
       codexArgs: "exec -",
+      piCommand: "pi",
+      piArgs: "--mode rpc",
+      backendProfile: "developer",
       customCommand: "",
       customArgs: "",
       includeActiveNote: false,
@@ -15789,6 +15999,9 @@ if (!runNoteSummarizeSmoke) {
       claudeArgs: "-p",
       codexCommand: "codex",
       codexArgs: "exec -",
+      piCommand: "pi",
+      piArgs: "--mode rpc",
+      backendProfile: "developer",
       customCommand: "",
       customArgs: "",
       includeActiveNote: true,  // V0.8: 启用 activeFile 注入

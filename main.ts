@@ -301,8 +301,10 @@ export default class LLMBridgePlugin extends Plugin {
       callback: async () => {
         const adapter = this.app.vault.adapter as DataAdapter;
         const vaultPath = adapter.getBasePath();
-        const { ensureAgentRuntimeWorkspace, materializeAllVaultSkills } = await import("./src/agentRuntimeWorkspace");
+        const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllVaultSkills } = await import("./src/agentRuntimeWorkspace");
         await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
+        // V17-A: 先 compact/split（保证 vault-context 不超限、split skills 已生成），再物化全部
+        try { await compactOrSplitVaultSkill(vaultPath); } catch { /* compact 失败不阻塞物化 */ }
         const result = await materializeAllVaultSkills(vaultPath);
         const okCount = result.results.filter((r) => r.ok).length;
         const conflictCount = result.results.filter((r) => r.status === "conflict").length;

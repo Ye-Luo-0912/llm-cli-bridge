@@ -42,6 +42,7 @@ export const VAULT_SKILLS_MANIFEST_REL = "LLM-AgentRuntime/skills/manifest.json"
 export const VAULT_INDEX_SOURCE_REL = "LLM-AgentRuntime/skills/vault-index/SKILL.md";
 export const AGENT_RUNTIME_SESSIONS_DIR_REL = "LLM-AgentRuntime/sessions";
 export const AGENT_RUNTIME_WORK_DIR_REL = "LLM-AgentRuntime/work";
+export const AGENT_RUNTIME_PI_SESSIONS_DIR_REL = "LLM-AgentRuntime/pi-sessions";
 
 export const RUNTIME_FACTS_SCHEMA_VERSION = 1;
 export const VAULT_SKILL_MAX_CHARS = 12000;
@@ -512,6 +513,7 @@ export async function ensureAgentRuntimeWorkspace(
     VAULT_SKILL_SOURCE_DIR_REL,
     AGENT_RUNTIME_SESSIONS_DIR_REL,
     AGENT_RUNTIME_WORK_DIR_REL,
+    AGENT_RUNTIME_PI_SESSIONS_DIR_REL,
   ];
 
   for (const rel of dirsToCreate) {
@@ -608,6 +610,7 @@ export function buildAgentRuntimeReadme(): string {
     "- `skills/vault-context/update-log.md`: 可选短变更日志，不进 prompt。",
     "- `sessions/`: 会话摘要（agent 写入，不进 VAULT_SKILL）。",
     "- `work/`: 临时工作文件（agent 写入，不进 VAULT_SKILL）。",
+    "- `pi-sessions/`: V17-A Pi portable backend session 目录（pi --mode rpc，不污染 Vault 根）。",
     "",
     "## 说明",
     "",
@@ -884,6 +887,24 @@ export interface VaultSkillManifestEntry {
   readonly sourceHash: string;
   readonly charCount: number;
   readonly updatedAt: string;
+  /**
+   * V17-A 任务 C.4：多 provider target 路径映射。
+   * claude → .claude/skills/<slug>/SKILL.md
+   * generic-agent → .agents/skills/<slug>/SKILL.md
+   * pi → .pi/skills/<slug>/SKILL.md
+   */
+  readonly providerTargets?: Readonly<Record<ProviderSkillTarget, string>>;
+}
+
+export type ProviderSkillTarget = "claude" | "generic-agent" | "pi";
+
+export const PROVIDER_SKILL_TARGETS: ReadonlyArray<ProviderSkillTarget> = ["claude", "generic-agent", "pi"];
+
+export function providerTargetPathForSlug(target: ProviderSkillTarget, slug: string): string {
+  const dir = target === "claude" ? ".claude/skills"
+    : target === "generic-agent" ? ".agents/skills"
+    : ".pi/skills";
+  return path.posix.join(dir, slug, "SKILL.md");
 }
 
 export interface VaultSkillsManifest {
@@ -1185,6 +1206,12 @@ export async function compactOrSplitVaultSkill(vaultPath: string): Promise<Compa
 
   // 更新 manifest（sourceHash/charCount 与实际 source 文件一致）
   const nowIso = new Date().toISOString();
+  // V17-A 任务 C.4：每个 entry 记录 providerTargets 路径映射
+  const buildProviderTargets = (slug: string): Record<ProviderSkillTarget, string> => ({
+    claude: providerTargetPathForSlug("claude", slug),
+    "generic-agent": providerTargetPathForSlug("generic-agent", slug),
+    pi: providerTargetPathForSlug("pi", slug),
+  });
   const entries: VaultSkillManifestEntry[] = [
     {
       slug: VAULT_CONTEXT_SLUG,
@@ -1195,6 +1222,7 @@ export async function compactOrSplitVaultSkill(vaultPath: string): Promise<Compa
       sourceHash: sha256(vaultContextRemaining),
       charCount: vaultContextRemaining.length,
       updatedAt: nowIso,
+      providerTargets: buildProviderTargets(VAULT_CONTEXT_SLUG),
     },
     {
       slug: VAULT_INDEX_SLUG,
@@ -1205,6 +1233,7 @@ export async function compactOrSplitVaultSkill(vaultPath: string): Promise<Compa
       sourceHash: sha256(splitResult.vaultIndexContent),
       charCount: splitResult.vaultIndexContent.length,
       updatedAt: nowIso,
+      providerTargets: buildProviderTargets(VAULT_INDEX_SLUG),
     },
   ];
   for (const skill of splitResult.splitSkills) {
@@ -1217,6 +1246,7 @@ export async function compactOrSplitVaultSkill(vaultPath: string): Promise<Compa
       sourceHash: sha256(skill.content),
       charCount: skill.charCount,
       updatedAt: nowIso,
+      providerTargets: buildProviderTargets(skill.slug),
     });
   }
   const manifest: VaultSkillsManifest = {
@@ -1262,6 +1292,68 @@ export async function materializeAllVaultSkills(vaultPath: string): Promise<Mate
       materializedPath: entry.materializedPath,
     });
     results.push(result);
+  }
+
+  return {
+    ok: results.every((r) => r.ok || r.status === "skipped"),
+    results,
+    manifest,
+  };
+}
+
+/**
+ * V17-A 任务 C.4：物化单个 skill 到指定 provider target。
+ *
+ * 复用 materializeVaultSkill 的转换 + conflict 检测，仅改 materializedPath。
+ * - claude → .claude/skills/<slug>/SKILL.md
+ * - generic-agent → .agents/skills/<slug>/SKILL.md
+ * - pi → .pi/skills/<slug>/SKILL.md
+ */
+export async function materializeToProviderTarget(
+  vaultPath: string,
+  slug: string,
+  target: ProviderSkillTarget,
+  options: { readonly sourcePath?: string; readonly metaOverride?: Partial<VaultSkillRuntimeMeta> } = {},
+): Promise<VaultSkillMaterializeResult> {
+  return materializeVaultSkill(vaultPath, {
+    slug,
+    sourcePath: options.sourcePath ?? (slug === VAULT_CONTEXT_SLUG
+      ? VAULT_SKILL_SOURCE_REL
+      : `LLM-AgentRuntime/skills/${slug}/SKILL.md`),
+    materializedPath: providerTargetPathForSlug(target, slug),
+    metaOverride: options.metaOverride,
+  });
+}
+
+export interface MaterializeAllToAllTargetsResult {
+  readonly ok: boolean;
+  readonly results: ReadonlyArray<VaultSkillMaterializeResult & { readonly target: ProviderSkillTarget }>;
+  readonly manifest: VaultSkillsManifest;
+}
+
+/**
+ * V17-A 任务 C.4：物化所有 vault skills 到所有 provider targets。
+ *
+ * 遍历 manifest entries × PROVIDER_SKILL_TARGETS，逐一物化。
+ * 单个 conflict 不影响其他安全 skill（同 materializeAllVaultSkills 语义）。
+ */
+export async function materializeAllVaultSkillsToAllTargets(vaultPath: string): Promise<MaterializeAllToAllTargetsResult> {
+  const manifest = await loadVaultSkillsManifest(vaultPath);
+  const results: Array<VaultSkillMaterializeResult & { readonly target: ProviderSkillTarget }> = [];
+
+  // vault-context 总是物化（即使 manifest 为空）
+  for (const target of PROVIDER_SKILL_TARGETS) {
+    const result = await materializeToProviderTarget(vaultPath, VAULT_CONTEXT_SLUG, target);
+    results.push({ ...result, target });
+  }
+
+  // manifest 中的所有 split skills × 所有 targets
+  for (const entry of manifest.entries) {
+    if (entry.slug === VAULT_CONTEXT_SLUG) continue;
+    for (const target of PROVIDER_SKILL_TARGETS) {
+      const result = await materializeToProviderTarget(vaultPath, entry.slug, target, { sourcePath: entry.sourcePath });
+      results.push({ ...result, target });
+    }
   }
 
   return {

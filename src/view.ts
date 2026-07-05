@@ -1826,6 +1826,8 @@ export class LLMBridgeView extends ItemView {
   private buildRuntimeCapabilities(providerId: string, settings: LLMBridgeSettings): ProviderCapabilityInfo {
     // provider-native file tools: claude-sdk / codex-app-server / claude-cli 都提供
     // Read/Write/Edit/Glob/Grep；mock 保守返回 true（测试可控）。
+    // V17-A: pi-rpc 是 portable backend spike，不提供 native write/edit/bash 直通
+    // （写操作必须回到 Bridge approval card），providerNativeFileTools=false。
     const providerNativeFileTools = providerId === "claude-sdk"
       || providerId === "codex-app-server"
       || providerId === "claude-cli"

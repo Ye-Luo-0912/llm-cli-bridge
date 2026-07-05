@@ -34,9 +34,12 @@ import { ClaudeSdkProvider } from "../providers/claude-sdk/claudeSdkProvider";
 import { ClaudeCliProvider } from "../providers/claude-cli/claudeCliProvider";
 import { MockProvider } from "../providers/mock/mockProvider";
 import { CodexAppServerProvider } from "../providers/codex-app-server/codexAppServerProvider";
+import { PiRpcProvider } from "../providers/pi-rpc/piRpcProvider";
 
 /**
  * 选择 RuntimeProvider（按 settings.backendMode + provider 可用性）。
+ *
+ * V17-A: backendProfile=portable 时 auto 优先 Pi（portable backend spike）。
  *
  * @param settings 插件设置
  * @param cwd Vault 根目录
@@ -60,6 +63,22 @@ export function selectProvider(
   }
   if (mode === "sdk") {
     return { provider: new ClaudeSdkProvider(true), label: "SDK" };
+  }
+  if (mode === "pi-rpc") {
+    const pi = new PiRpcProvider(settings.piCommand, { cwd });
+    if (pi.isAvailable(cwd)) {
+      return { provider: pi, label: "Pi RPC" };
+    }
+    // Pi 显式选择但不可用：返回 Pi（run 时发 failed 提示），不静默 fallback
+    return { provider: pi, label: "Pi RPC (unavailable)" };
+  }
+
+  // auto: portable profile 优先 Pi，其次 codex→sdk→cli 链
+  if (settings.backendProfile === "portable") {
+    const pi = new PiRpcProvider(settings.piCommand, { cwd });
+    if (pi.isAvailable(cwd)) {
+      return { provider: pi, label: "Pi RPC (portable)" };
+    }
   }
 
   // auto: codex-app-server 优先（primary target），其次 SDK，最后 CLI
