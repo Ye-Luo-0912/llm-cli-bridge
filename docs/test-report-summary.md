@@ -8,16 +8,16 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-05T05:47:34.115Z
-- **reportCommitSha**: 29235f35cf503fcbf9a3d5384efd6eaf47797a30
-- **reportCommitSha 短**: 29235f35cf50
-- **reportParentSha**: cefb030dde728626317bc494f7d54316f86172e2
-- **reportParentSha 短**: cefb030dde72
-- **testedCodeCommitSha**: 29235f35cf503fcbf9a3d5384efd6eaf47797a30
-- **testedCodeCommitSha 短**: 29235f35cf50
+- **生成时间**: 2026-07-05T06:15:09.594Z
+- **reportCommitSha**: a0a1b8294b37c85ed3f0ac3e80800e60c6256d3a
+- **reportCommitSha 短**: a0a1b8294b37
+- **reportParentSha**: e59ad34148f424104dbd93e739aa04b050ffe01b
+- **reportParentSha 短**: e59ad34148f4
+- **testedCodeCommitSha**: a0a1b8294b37c85ed3f0ac3e80800e60c6256d3a
+- **testedCodeCommitSha 短**: a0a1b8294b37
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: 29235f35cf503fcbf9a3d5384efd6eaf47797a30
-- **processReportCommitSha**: 29235f35cf503fcbf9a3d5384efd6eaf47797a30
+- **unitReportCommitSha**: a0a1b8294b37c85ed3f0ac3e80800e60c6256d3a
+- **processReportCommitSha**: a0a1b8294b37c85ed3f0ac3e80800e60c6256d3a
 - **codexSmokeStatus**: skip
 - **codexHandshakeStatus**: skip
 - **codexTurnStatus**: skip
@@ -25,24 +25,24 @@
 - **codexSchemaSource**: fixture
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-05T05:46:40.202Z
-- **process 测试时间**: 2026-07-05T05:47:18.556Z
+- **unit 测试时间**: 2026-07-05T06:14:32.407Z
+- **process 测试时间**: 2026-07-05T06:14:33.534Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=29235f35cf50。
-- **当前 commit 改动文件**：scripts/run-tests.mjs, src/agentRuntimeWorkspace.ts
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=a0a1b8294b37。
+- **当前 commit 改动文件**：main.ts, scripts/run-tests.mjs, src/agentRuntimeWorkspace.ts
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 942 | 0 | 25 | 0 | 967 | 29235f35cf50 | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | 29235f35cf50 | ✅ 通过 |
+| unit | 946 | 0 | 25 | 0 | 971 | a0a1b8294b37 | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | a0a1b8294b37 | ✅ 通过 |
 | codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **1039** | **0** | **81** | **0** | **1120** | 29235f35cf50 | ✅ **主线通过** |
+| **合计** | **1043** | **0** | **81** | **0** | **1124** | a0a1b8294b37 | ✅ **主线通过** |
 
 **双轨均 0 失败 → P2 Codex app-server Runtime 主线闭环测试通过。**
 
