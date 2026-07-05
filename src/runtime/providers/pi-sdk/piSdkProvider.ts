@@ -27,6 +27,15 @@
 // - agent_end → completed
 // - error → error/failed
 // - raw provider event 仅在 developerMode 下保留
+//
+// V17-E 任务 F：Pi SDK 降级为 optional/advanced backend，不阻塞 Codex-first audit。
+// - friendReady 字段废弃，改名为 piAdvancedReady（见 scripts/pi-sdk-smoke.mjs）
+// - ESM dynamic import（dynamicImportNode / tryLoadPiSdkAsync）作为独立修复项：
+//     SDK 是纯 ESM，必须用 await import() 加载；require 无法加载。
+//     当前实现已在 tryLoadPiSdkAsync 中走 dynamicImportNode，多路径候选
+//     （plugin node_modules → vendor → bare specifier）。
+//     若 ESM 加载出现异常（如 import meta 解析失败 / 包导出映射不兼容），
+//     将作为独立修复项处理，不影响 Codex-first 主线 audit。
 
 import type { LLMBridgeSettings, PiToolMode } from "../../../types";
 import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
@@ -55,6 +64,33 @@ function requireNode<T>(name: string): T | null {
   } catch {
     return null;
   }
+}
+
+// V17-D 任务 B：动态 import helper（SDK 是纯 ESM，require 无法加载）
+// esbuild 不会 inline dynamic import()，运行时解析
+// V17-E 任务 F：ESM dynamic import 作为独立修复项 — 不阻塞 Codex-first audit
+async function dynamicImportNode<T>(specifier: string): Promise<T | null> {
+  try {
+    return await import(specifier) as T;
+  } catch {
+    return null;
+  }
+}
+
+// V17-D 任务 B：候选加载路径（按优先级）
+// 1. 插件目录 node_modules/@earendil-works/pi-coding-agent
+// 2. 插件目录 vendor/pi-sdk
+// 3. bare specifier "@earendil-works/pi-coding-agent"（项目 node_modules / Obsidian 全局解析）
+function getCandidateSdkPaths(): { kind: "node_modules" | "vendor" | "bare"; specifier: string }[] {
+  const paths: { kind: "node_modules" | "vendor" | "bare"; specifier: string }[] = [];
+  const g = globalThis as unknown as { __dirname?: string };
+  const pluginDir = g.__dirname;
+  if (pluginDir) {
+    paths.push({ kind: "node_modules", specifier: pluginDir + "/node_modules/@earendil-works/pi-coding-agent" });
+    paths.push({ kind: "vendor", specifier: pluginDir + "/vendor/pi-sdk" });
+  }
+  paths.push({ kind: "bare", specifier: "@earendil-works/pi-coding-agent" });
+  return paths;
 }
 
 // ---------- Pi SDK 加载 ----------
@@ -143,6 +179,8 @@ export interface PiSdkProbeResult {
   readonly module: PiSdkModule | null;
   readonly reason: "installed" | "not-installed" | "load-error";
   readonly error?: string;
+  /** V17-D 任务 B：加载源（哪个候选路径命中） */
+  readonly loadedFrom?: "node_modules" | "vendor" | "bare" | "cache";
 }
 
 const probeCache: { result: PiSdkProbeResult | null; ts: number } = { result: null, ts: 0 };
@@ -155,31 +193,106 @@ export function clearPiSdkProbeCache(): void {
 }
 
 /**
- * V17-B 任务 A：尝试加载 @earendil-works/pi-coding-agent SDK。
- *
- * - 包未安装时返回 available=false，reason=not-installed
- * - require 失败时返回 available=false，reason=load-error
- * - 不抛错
+ * 同步版：返回 cached probe（首次调用返回 unavailable，需先 await tryLoadPiSdkAsync 预加载）。
+ * 适用于无法 await 的场景（如 PiSdkProvider constructor）。
+ * force=true 时仍返回 cache（不重新加载，避免在同步上下文中阻塞）。
  */
 export function tryLoadPiSdk(force = false): PiSdkProbeResult {
+  void force; // 同步版不主动 reload，仅返回 cache
+  if (probeCache.result) return probeCache.result;
+  return {
+    available: false,
+    module: null,
+    reason: "not-installed",
+    error: "Pi SDK 尚未预加载；请先调用 tryLoadPiSdkAsync() 或检查插件目录是否含 node_modules/@earendil-works/pi-coding-agent 或 vendor/pi-sdk",
+  };
+}
+
+/**
+ * V17-D 任务 B：异步加载 Pi SDK，按优先级尝试多个候选路径。
+ *
+ * 加载顺序：
+ * 1. 插件目录 node_modules/@earendil-works/pi-coding-agent
+ * 2. 插件目录 vendor/pi-sdk
+ * 3. bare specifier "@earendil-works/pi-coding-agent"（require / dynamic import 回退）
+ *
+ * SDK 是纯 ESM（"type": "module"），require 无法加载，必须用 dynamic import()。
+ * 旧 requireNode 路径作为最后回退（兼容 CommonJS 环境的旧版 SDK）。
+ *
+ * - 包未安装时返回 available=false, reason=not-installed
+ * - import 失败时返回 available=false, reason=load-error
+ * - 不抛错
+ */
+export async function tryLoadPiSdkAsync(force = false): Promise<PiSdkProbeResult> {
   const now = Date.now();
   if (!force && probeCache.result && now - probeCache.ts < PROBE_CACHE_TTL_MS) {
-    return probeCache.result;
+    return { ...probeCache.result, loadedFrom: "cache" };
   }
 
+  const candidates = getCandidateSdkPaths();
+  const triedPaths: string[] = [];
+
+  for (const candidate of candidates) {
+    triedPaths.push(`${candidate.kind}:${candidate.specifier}`);
+    // 优先 dynamic import（SDK 是纯 ESM）
+    const mod = await dynamicImportNode<PiSdkModule>(candidate.specifier);
+    if (mod && typeof (mod as { createAgentSession?: unknown }).createAgentSession === "function") {
+      const result: PiSdkProbeResult = {
+        available: true,
+        module: mod,
+        reason: "installed",
+        loadedFrom: candidate.kind,
+      };
+      probeCache.result = result;
+      probeCache.ts = now;
+      return result;
+    }
+    // dynamic import 失败时回退 requireNode（仅对 bare specifier 有意义，CommonJS 环境兼容）
+    if (candidate.kind === "bare") {
+      const reqMod = requireNode<PiSdkModule>(candidate.specifier);
+      if (reqMod && typeof reqMod.createAgentSession === "function") {
+        const result: PiSdkProbeResult = {
+          available: true,
+          module: reqMod,
+          reason: "installed",
+          loadedFrom: "bare",
+        };
+        probeCache.result = result;
+        probeCache.ts = now;
+        return result;
+      }
+    }
+  }
+
+  // 所有路径均失败
+  const result: PiSdkProbeResult = {
+    available: false,
+    module: null,
+    reason: "not-installed",
+    error: `Pi SDK 未在以下路径找到：${triedPaths.join(" → ")}。当前发行包缺 Pi SDK，请使用 'Enable Friend Preview' 后重启，或重新下载完整 user-package。`,
+  };
+  probeCache.result = result;
+  probeCache.ts = now;
+  return result;
+}
+
+/**
+ * 旧版同步 require 回退（V17-B 保留兼容）。
+ * @deprecated V17-D 起改用 tryLoadPiSdkAsync。
+ */
+export function tryLoadPiSdkLegacy(): PiSdkProbeResult {
   const mod = requireNode<PiSdkModule>("@earendil-works/pi-coding-agent");
   if (mod && typeof mod.createAgentSession === "function") {
     const result: PiSdkProbeResult = {
       available: true,
       module: mod,
       reason: "installed",
+      loadedFrom: "bare",
     };
     probeCache.result = result;
-    probeCache.ts = now;
+    probeCache.ts = Date.now();
     return result;
   }
-
-  // require 返回 null 或 API surface 不全
   const result: PiSdkProbeResult = {
     available: false,
     module: null,
@@ -187,8 +300,17 @@ export function tryLoadPiSdk(force = false): PiSdkProbeResult {
     error: mod ? "createAgentSession export missing" : "package @earendil-works/pi-coding-agent not installed",
   };
   probeCache.result = result;
-  probeCache.ts = now;
+  probeCache.ts = Date.now();
   return result;
+}
+
+/**
+ * V17-D 任务 D：测试钩子 — 直接注入 probe（绕过真实 SDK 加载）。
+ * 仅在测试中使用，让 PiSdkProvider constructor 拿到 fake probe。
+ */
+export function __setProbeForTest(probe: PiSdkProbeResult | null): void {
+  probeCache.result = probe;
+  probeCache.ts = probe ? Date.now() : 0;
 }
 
 /**
@@ -200,6 +322,8 @@ export function tryLoadPiSdk(force = false): PiSdkProbeResult {
  * - 回退到 modelRegistry.find(provider, modelId) + hasConfiguredAuth(model)
  * - hasAuth 通过 getAvailable 是否非空间接判断（已配置 auth 才会出现在 available 列表）
  *
+ * V17-D 任务 F：支持 runtime auth override（不写 ~/.pi/agent，仅运行时注入）
+ *
  * 返回 auth/model 状态用于 UI 提示。无 auth 时返回可行动提示。
  */
 export interface PiSdkAuthProbeResult {
@@ -208,7 +332,42 @@ export interface PiSdkAuthProbeResult {
   readonly hint: string;
 }
 
-export function probePiSdkAuth(probe: PiSdkProbeResult): PiSdkAuthProbeResult {
+/** V17-D 任务 F：runtime auth override 配置（来自 plugin settings） */
+export interface PiSdkAuthOverride {
+  readonly apiKey?: string;
+  readonly provider?: string; // 默认 "anthropic"
+  readonly baseUrl?: string; // 自定义 base URL
+  readonly model?: string; // 显式指定 model id
+}
+
+/**
+ * V17-D 任务 F：创建带 runtime override 的 authStorage + modelRegistry。
+ * - apiKey 非空时调用 authStorage.setRuntimeApiKey（不写 ~/.pi/agent）
+ * - baseUrl 非空时调用 modelRegistry.registerProvider
+ * 返回的 authStorage/modelRegistry 可直接用于 probePiSdkAuth 与 createAgentSession。
+ */
+export function createAuthWithOverride(
+  sdk: PiSdkModule,
+  override?: PiSdkAuthOverride,
+): { authStorage: AuthStorageLike | null; modelRegistry: ModelRegistryLike | null } {
+  const authStorage = sdk.AuthStorage?.create ? sdk.AuthStorage.create() : null;
+  const modelRegistry = sdk.ModelRegistry?.create && authStorage ? sdk.ModelRegistry.create(authStorage) : null;
+  if (override?.apiKey && authStorage && typeof authStorage.setRuntimeApiKey === "function") {
+    const provider = override.provider || "anthropic";
+    try {
+      authStorage.setRuntimeApiKey(provider, override.apiKey);
+    } catch { /* ignore override failure, fallback to ~/.pi/agent */ }
+  }
+  if (override?.baseUrl && modelRegistry && typeof modelRegistry.registerProvider === "function") {
+    const provider = override.provider || "anthropic";
+    try {
+      modelRegistry.registerProvider(provider, { baseUrl: override.baseUrl });
+    } catch { /* ignore */ }
+  }
+  return { authStorage, modelRegistry };
+}
+
+export function probePiSdkAuth(probe: PiSdkProbeResult, override?: PiSdkAuthOverride): PiSdkAuthProbeResult {
   if (!probe.available || !probe.module) {
     return {
       hasAuth: false,
@@ -218,8 +377,7 @@ export function probePiSdkAuth(probe: PiSdkProbeResult): PiSdkAuthProbeResult {
   }
   const sdk = probe.module;
   try {
-    const authStorage = sdk.AuthStorage?.create ? sdk.AuthStorage.create() : null;
-    const modelRegistry = sdk.ModelRegistry?.create && authStorage ? sdk.ModelRegistry.create(authStorage) : null;
+    const { authStorage, modelRegistry } = createAuthWithOverride(sdk, override);
 
     // V17-C 任务 C：优先用 getAvailable() 判断 auth+model 同时可用
     let hasAuth = false;
@@ -246,18 +404,19 @@ export function probePiSdkAuth(probe: PiSdkProbeResult): PiSdkAuthProbeResult {
 
     let hint = "";
     if (!hasAuth && !hasModel) {
-      hint = "Pi SDK 未配置认证和模型。请在 ~/.pi/agent 配置 API Key 或运行 pi login，并在插件设置中选择 model。";
+      // V17-D 任务 F：提示用户可在插件设置中配置（不强制 ~/.pi/agent 或命令行）
+      hint = "Pi SDK 未配置认证和模型。请在插件设置「Pi SDK Auth」中配置 Provider / API Key / Model，或运行 pi login。";
     } else if (!hasAuth) {
-      hint = "Pi SDK 未配置认证。请在 ~/.pi/agent 配置 API Key 或运行 pi login。";
+      hint = "Pi SDK 未配置认证。请在插件设置「Pi SDK Auth」中配置 Provider / API Key，或运行 pi login。";
     } else if (!hasModel) {
-      hint = "Pi SDK 未选择模型。请在插件设置中选择 model。";
+      hint = "Pi SDK 未选择模型。请在插件设置「Pi SDK Auth」中选择 Model。";
     }
     return { hasAuth, hasModel, hint };
   } catch {
     return {
       hasAuth: false,
       hasModel: false,
-      hint: "Pi SDK 认证探测失败。请检查 ~/.pi/agent 配置或运行 pi login。",
+      hint: "Pi SDK 认证探测失败。请检查插件设置「Pi SDK Auth」或运行 pi login。",
     };
   }
 }
@@ -877,11 +1036,30 @@ export function resolveToolMode(settings: LLMBridgeSettings): PiToolMode {
 export class PiSdkProvider implements RuntimeProvider {
   readonly providerId = "pi-sdk" as const;
   readonly displayName = "Pi SDK";
-  private readonly probe: PiSdkProbeResult;
+  private probe: PiSdkProbeResult;
   private currentSession: AgentSessionLike | null = null;
 
   constructor(options: { readonly forceReload?: boolean } = {}) {
+    // V17-D 任务 B：constructor 同步读 cache（首次未加载时返回 unavailable）
+    // 真实加载由 PiSdkProvider.preload() 异步完成
     this.probe = tryLoadPiSdk(options.forceReload === true);
+  }
+
+  /**
+   * V17-D 任务 B：异步预加载 Pi SDK。
+   * 在 main.ts onload 或 view 初始化时调用，保证后续 constructor 拿到 cached probe。
+   */
+  static async preload(force = false): Promise<PiSdkProbeResult> {
+    return await tryLoadPiSdkAsync(force);
+  }
+
+  /** V17-D 任务 B：在 run() 开始时若 probe 未加载，尝试重新加载一次（自愈） */
+  private async ensureProbeLoaded(): Promise<PiSdkProbeResult> {
+    if (this.probe.available) return this.probe;
+    // probe 未加载，尝试异步加载一次
+    const fresh = await tryLoadPiSdkAsync(true);
+    this.probe = fresh;
+    return fresh;
   }
 
   isAvailable(_cwd: string): boolean {
@@ -918,6 +1096,11 @@ export class PiSdkProvider implements RuntimeProvider {
     // V17-C 任务 A：解析 toolMode（未设置时按 profile 推断默认值）
     const toolMode = resolveToolMode(settings);
 
+    // V17-D 任务 B：run() 开始时确保 probe 已加载（自愈机制）
+    if (!this.probe.available) {
+      this.probe = await this.ensureProbeLoaded();
+    }
+
     // 未安装 / import 失败：直接发 failed，不崩溃（任务 A）
     if (!this.probe.available) {
       yield {
@@ -925,7 +1108,7 @@ export class PiSdkProvider implements RuntimeProvider {
         timestamp: new Date().toISOString(),
         payload: {
           kind: "failed",
-          message: `Pi SDK 不可用：${this.probe.reason}${this.probe.error ? " — " + this.probe.error : ""}。请运行：npm install --ignore-scripts @earendil-works/pi-coding-agent`,
+          message: `Pi SDK 不可用：${this.probe.reason}${this.probe.error ? " — " + this.probe.error : ""}。当前发行包缺 Pi SDK，请使用 'Enable Friend Preview' 后重启，或检查插件目录是否含 node_modules/@earendil-works/pi-coding-agent 或 vendor/pi-sdk。`,
           recoverable: true,
         },
       };
@@ -946,8 +1129,16 @@ export class PiSdkProvider implements RuntimeProvider {
       return;
     }
 
-    // V17-B1 任务 F / V17-C 任务 C：认证/模型探测
-    const authProbe = probePiSdkAuth(this.probe);
+    // V17-D 任务 F：从 plugin settings 构建 runtime auth override（不写 ~/.pi/agent）
+    const authOverride: PiSdkAuthOverride = {
+      apiKey: settings.piApiKey || undefined,
+      provider: settings.piAuthProvider || undefined,
+      baseUrl: settings.piApiBaseUrl || undefined,
+      model: settings.piApiModel || undefined,
+    };
+
+    // V17-B1 任务 F / V17-C 任务 C：认证/模型探测（应用 runtime override）
+    const authProbe = probePiSdkAuth(this.probe, authOverride);
     if (!authProbe.hasAuth || !authProbe.hasModel) {
       yield {
         providerId: this.providerId,
@@ -1009,12 +1200,8 @@ export class PiSdkProvider implements RuntimeProvider {
       const sessionManager = sdk.SessionManager?.inMemory
         ? sdk.SessionManager.inMemory()
         : undefined;
-      const authStorage = sdk.AuthStorage?.create
-        ? sdk.AuthStorage.create()
-        : undefined;
-      const modelRegistry = sdk.ModelRegistry?.create && authStorage
-        ? sdk.ModelRegistry.create(authStorage)
-        : undefined;
+      // V17-D 任务 F：复用 createAuthWithOverride 确保 session 拿到 runtime override
+      const { authStorage, modelRegistry } = createAuthWithOverride(sdk, authOverride);
       const settingsManager = sdk.SettingsManager?.inMemory
         ? sdk.SettingsManager.inMemory({ compaction: { enabled: false } })
         : undefined;
@@ -1037,6 +1224,15 @@ export class PiSdkProvider implements RuntimeProvider {
       }
       if (customTools !== undefined && customTools.length > 0) {
         sessionOpts.customTools = customTools;
+      }
+      // V17-D 任务 F：显式指定 model（覆盖 SDK 默认选择）
+      if (authOverride.model) {
+        const modelId = authOverride.model;
+        const provider = authOverride.provider || "anthropic";
+        if (modelRegistry && typeof modelRegistry.find === "function") {
+          const found = modelRegistry.find(provider, modelId);
+          if (found) sessionOpts.model = found;
+        }
       }
       const result = await sdk.createAgentSession(sessionOpts);
       session = result.session;

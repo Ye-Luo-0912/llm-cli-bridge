@@ -8,16 +8,18 @@
 //
 // UI 不直接接触 provider 实例，只通过 BridgeSession 交互。
 //
-// provider 选择策略（与原 view.ts getBackend 一致，但产出 RuntimeProvider 而非 AgentBackend）：
-// - auto:            codex-app-server 可用→codex-app-server；否则 claude-sdk 可用→claude-sdk；
-//                    否则 claude-cli
-// - cli:             claude-cli
-// - sdk:             claude-sdk（strict，不可用时报错不 fallback）
+// provider 选择策略（V17-E 任务 B：codex-first；V17-E 任务 F：Pi 降级为 optional/advanced backend）：
+// - auto + portable:  pi-sdk → pi-rpc fallback（不静默 fallback 到 Codex/Claude Code）
+//                      ※ V17-E 任务 F：portable 的 Pi-first 仅作为可选实验路径，不阻塞 Codex-first audit
+// - auto + developer: codex-app-server → claude-sdk → claude-cli（Codex-first，普通用户默认主线）
+// - codex:            强制 Codex app-server（不可用时不静默 fallback）
+// - cli:              claude-cli
+// - sdk:              claude-sdk（strict，不可用时报错不 fallback）
+// - pi-sdk / pi-rpc:  对应 Pi provider（optional/advanced backend；不可用时不静默 fallback）
 // - mock-success / mock-failure: mock
 //
-// 注：当前 BackendMode 没有 codex 选项；auto 模式下若 codex 命令存在则优先用 codex-app-server，
-// 否则按原 SDK-first + CLI fallback 顺序。这实现了"Codex app-server 成为 primary provider 目标"。
-// 后续可扩展 BackendMode 增加 "codex" 显式选项（本轮不做，避免破坏现有设置迁移）。
+// V17-E 任务 F：Pi SDK 保留为 optional/advanced backend；friendReady 字段废弃，改名为 piAdvancedReady。
+// Pi provider ESM dynamic import 修复作为独立修复项，不阻塞 Codex-first audit。
 
 import type { LLMBridgeSettings } from "../../types";
 import type {
@@ -62,6 +64,14 @@ export function selectProvider(
   if (mode === "mock-failure") {
     return { provider: new MockProvider("failure"), label: "Mock" };
   }
+  // V17-E 任务 B：显式 codex BackendMode — 强制使用 Codex app-server（不可用时不静默 fallback）
+  if (mode === "codex") {
+    const codex = new CodexAppServerProvider(false, settings.codexCommand || "codex");
+    if (codex.isAvailable(cwd)) {
+      return { provider: codex, label: "Codex app-server" };
+    }
+    return { provider: codex, label: "Codex app-server (unavailable)" };
+  }
   if (mode === "cli") {
     return { provider: new ClaudeCliProvider(), label: "Claude Code" };
   }
@@ -101,7 +111,8 @@ export function selectProvider(
   }
 
   // developer profile: codex→sdk→cli 链（不强推 Pi）
-  const codex = new CodexAppServerProvider();
+  // V17-E 任务 A：selectProvider 传 settings.codexCommand 给 CodexAppServerProvider
+  const codex = new CodexAppServerProvider(false, settings.codexCommand || "codex");
   if (codex.isAvailable(cwd)) {
     return { provider: codex, label: "Codex app-server" };
   }

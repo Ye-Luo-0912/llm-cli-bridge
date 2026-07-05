@@ -16,7 +16,8 @@
     "smoke:pi-sdk": "node scripts/pi-sdk-smoke.mjs",
     "test:summary": "node scripts/generate-test-summary.mjs",
     "codex:schema": "node scripts/generate-codex-schema.mjs",
-    "release": "node scripts/build-release.mjs"
+    "release": "node scripts/build-release.mjs",
+    "build:user-package": "node scripts/build-user-package.mjs"
   },
   "keywords": [
     "obsidian",
@@ -43,7 +44,7 @@
       "providerId": "pi-sdk",
       "packageName": "@earendil-works/pi-coding-agent",
       "installHint": "npm install --ignore-scripts @earendil-works/pi-coding-agent",
-      "minVersion": "0.0.27"
+      "minVersion": "0.80.3"
     }
   }
 }

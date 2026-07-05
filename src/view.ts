@@ -3388,11 +3388,11 @@ export class LLMBridgeView extends ItemView {
     let probeAvailable = true;
     let hint = "";
     try {
-      const { tryLoadPiSdk, probePiSdkAuth } = await import("./runtime/providers/pi-sdk/piSdkProvider");
-      const probe = tryLoadPiSdk(true);
+      const { tryLoadPiSdkAsync, probePiSdkAuth } = await import("./runtime/providers/pi-sdk/piSdkProvider");
+      const probe = await tryLoadPiSdkAsync(true);
       if (!probe.available) {
         probeAvailable = false;
-        hint = "Pi SDK 未安装。请在 Vault 根目录运行：npm install --ignore-scripts @earendil-works/pi-coding-agent";
+        hint = "Pi SDK 未安装。当前发行包可能缺 Pi SDK，请重新下载完整 user-package；或在 Vault 根目录运行：npm install --ignore-scripts @earendil-works/pi-coding-agent";
       } else {
         const authProbe = probePiSdkAuth(probe);
         if (!authProbe.hasAuth || !authProbe.hasModel) {

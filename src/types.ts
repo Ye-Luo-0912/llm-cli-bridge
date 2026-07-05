@@ -29,16 +29,25 @@ export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "auto" |
  * V2.16-B 迁移：旧的 "sdk-experimental" 自动迁移为 "sdk"
  *
  * V17-B: 增加 "pi-sdk"（@earendil-works/pi-coding-agent SDK 嵌入模式，portable 主线）
+ *
+ * V17-E 任务 F：pi-sdk / pi-rpc 降级为 optional/advanced backend — 不再是普通用户默认主线。
+ * 普通用户默认走 Codex-first（developer profile）路径；Pi 仅作为 portable profile 的可选实验路径，
+ * 不阻塞 Codex-first audit。friendReady 字段已废弃，改名为 piAdvancedReady（见 pi-sdk-smoke.mjs）。
  */
-export type BackendMode = "auto" | "cli" | "sdk" | "mock-success" | "mock-failure" | "pi-rpc" | "pi-sdk";
+// V17-E 任务 B：增加显式 "codex" BackendMode（Codex app-server）
+export type BackendMode = "auto" | "codex" | "cli" | "sdk" | "mock-success" | "mock-failure" | "pi-rpc" | "pi-sdk";
 
 /**
  * V17-A: 后端配置档（朋友版 portable vs 开发者 developer）。
  *
  * - developer: Claude/Codex/Pi/mock 都可选，auto 默认 codex→sdk→cli 链
- * - portable:  优先 Pi（portable backend spike）；Claude/Codex 可选但非默认
+ * - portable:  Pi 作为可选实验 backend（pi-sdk → pi-rpc fallback）；Claude/Codex 可选但非默认
  *
  * 朋友版 UI 只显示后端状态/模型/权限模式/Agent Runtime，不暴露实验选项。
+ *
+ * V17-E 任务 F：portable 不再默认 Pi-first；Pi 降级为 optional/advanced backend。
+ * 普通用户（无论 developer 还是 portable）的默认主线是 Codex-first；
+ * Pi 仅在显式选择 pi-sdk/pi-rpc 或 portable profile + 用户主动启用时才接入。
  */
 export type BackendProfile = "developer" | "portable";
 
@@ -185,6 +194,12 @@ export interface LLMBridgeSettings {
   piToolMode: PiToolMode;
   // V17-C: Pi native tools 首次确认状态（portable + pi-native 启动前需确认一次）
   piNativeTrustConfirmed: boolean;
+  // V17-D 任务 F: Pi SDK runtime auth override（不写 ~/.pi/agent，仅运行时注入）
+  // 优先级：settings.piApiKey > ~/.pi/agent/auth.json > ~/.claude/settings.json env
+  piAuthProvider: string; // 默认 "anthropic"
+  piApiModel: string; // 显式指定 model id（覆盖 SDK 默认选择）
+  piApiKey: string; // runtime API key（不持久化到磁盘全局配置）
+  piApiBaseUrl: string; // 自定义 base URL（可选，如 https://us.pinai-cn.com）
   customCommand: string;
   customArgs: string;
   includeActiveNote: boolean;
@@ -230,6 +245,11 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   piToolMode: "pi-native",
   // V17-C: Pi native tools 首次确认状态（默认未确认）
   piNativeTrustConfirmed: false,
+  // V17-D 任务 F: Pi SDK runtime auth override 默认值（空 = 未配置，fallback 到 ~/.pi/agent）
+  piAuthProvider: "anthropic",
+  piApiModel: "",
+  piApiKey: "",
+  piApiBaseUrl: "",
   customCommand: "",
   customArgs: "",
   includeActiveNote: true,

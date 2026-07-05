@@ -1,7 +1,10 @@
 // LLM CLI Bridge — 设置页
 
-import { App, PluginSettingTab, Setting } from "obsidian";
+import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type LLMBridgePlugin from "../main";
+import { execFileSync } from "child_process";
+import { existsSync } from "fs";
+import { join } from "path";
 import { AgentType, BackendMode, BackendProfile, ClaudePermissionMode, PermissionPolicy, PiToolMode } from "./types";
 
 export class LLMBridgeSettingTab extends PluginSettingTab {
@@ -271,9 +274,10 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Backend 模式")
-      .setDesc("auto=SDK-first + Claude Code CLI fallback（默认生产）；cli=始终使用 Claude Code CLI；sdk=始终使用 SDK（不可用时显示错误，不 fallback）；pi-sdk=Pi SDK 嵌入（V17-B portable 主线）；pi-rpc=Pi RPC portable spike；mock-success / mock-failure=离线测试用。")
+      .setDesc("V17-E 任务 B：auto 策略 = developer profile: codex→claude-sdk→claude-cli（Codex-first）；portable profile: pi-sdk→pi-rpc。codex=强制 Codex app-server（不可用时不 fallback）；cli=Claude Code CLI；sdk=Claude Agent SDK；pi-sdk=Pi SDK 嵌入（portable 主线）；pi-rpc=Pi RPC spike；mock-success/mock-failure=离线测试。")
       .addDropdown((d) => {
-        d.addOption("auto", "auto（SDK-first + CLI fallback）");
+        d.addOption("auto", "auto（profile 决定：dev=Codex-first / portable=Pi-first）");
+        d.addOption("codex", "codex（强制 Codex app-server）");
         d.addOption("cli", "cli（Claude Code CLI）");
         d.addOption("sdk", "sdk（Claude Agent SDK）");
         d.addOption("pi-sdk", "pi-sdk（Pi SDK 嵌入，portable 主线）");
@@ -302,6 +306,96 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           this.plugin.refreshBridgeView();
         });
       });
+
+    // V17-E 任务 D：Codex setup/status card（普通用户 onboarding）
+    // 显示 codex 安装/登录/app-server 可用/ready 状态 + 最短修复提示
+    containerEl.createEl("h3", { text: "Codex Setup / Status (V17-E)" });
+
+    new Setting(containerEl)
+      .setName("Codex 命令")
+      .setDesc("V17-E 任务 A：codex 可执行文件名或绝对路径（默认 codex）。普通用户无需修改；仅当 codex 不在 PATH 时填写绝对路径。")
+      .addText((t) => {
+        t.setValue(s.codexCommand);
+        t.onChange(async (v) => {
+          s.codexCommand = v.trim() || "codex";
+          await this.plugin.saveSettings();
+          this.display();
+        });
+      });
+
+    {
+      // 探测 codex 状态：未安装 / 未登录 / app-server 不可用 / ready
+      const codexCmd = s.codexCommand || "codex";
+      let codexInstalled = false;
+      let codexVersion = "";
+      let codexAuthOk = false;
+      let appServerOk = false;
+      const cwd = this.app.vault.adapter.getResourcePath?.("") || ".";
+      try {
+        const out = execFileSync(codexCmd, ["--version"], {
+          cwd: typeof cwd === "string" ? cwd : ".",
+          stdio: ["ignore", "pipe", "ignore"],
+          timeout: 3000,
+          encoding: "utf8",
+        });
+        codexInstalled = true;
+        codexVersion = (out || "").trim().split(/\r?\n/)[0] || "unknown";
+      } catch { /* not installed */ }
+
+      // 探测 auth：~/.codex/auth.json 或 ~/.codex/config 存在
+      try {
+        const home = process.env.HOME || process.env.USERPROFILE || "";
+        if (home) {
+          const codexAuthPath = join(home, ".codex", "auth.json");
+          const codexConfigPath = join(home, ".codex", "config.toml");
+          if (existsSync(codexAuthPath) || existsSync(codexConfigPath)) {
+            codexAuthOk = true;
+          }
+        }
+      } catch { /* ignore */ }
+
+      // app-server 可用性：spawn codex app-server --help（不实际启动）
+      if (codexInstalled) {
+        try {
+          execFileSync(codexCmd, ["app-server", "--help"], {
+            stdio: ["ignore", "ignore", "ignore"],
+            timeout: 5000,
+          });
+          appServerOk = true;
+        } catch { /* app-server not available */ }
+      }
+
+      let statusText = "";
+      let fixHint = "";
+      if (!codexInstalled) {
+        statusText = "未安装";
+        fixHint = "安装 Codex CLI：npm install -g @openai/codex 或参考官方文档；安装后重启 Obsidian。";
+      } else if (!codexAuthOk) {
+        statusText = `已安装（${codexVersion}）但未登录`;
+        fixHint = "在终端运行 codex login 完成登录，然后重启 Obsidian。";
+      } else if (!appServerOk) {
+        statusText = `已安装已登录（${codexVersion}）但 app-server 不可用`;
+        fixHint = "Codex 版本过旧或损坏；请升级：npm install -g @openai/codex@latest。";
+      } else {
+        statusText = `ready（${codexVersion}）`;
+        fixHint = "Codex 已就绪；可在 Backend 模式选择 codex 或 auto（developer profile）使用。";
+      }
+
+      new Setting(containerEl)
+        .setName("Codex 状态")
+        .setDesc(`V17-E 任务 D：${statusText}${fixHint ? " — " + fixHint : ""}`)
+        .addButton((b) => {
+          b.setButtonText("重新检测");
+          b.onClick(() => this.display());
+        });
+    }
+
+    // V17-E 任务 F：Pi SDK 降级为 optional/advanced backend — 普通用户无需配置
+    containerEl.createEl("h3", { text: "Pi Backend (Optional / Advanced — V17-E 任务 F)" });
+    containerEl.createEl("p", {
+      cls: "llm-bridge-setting-hint",
+      text: "Pi SDK/RPC 是可选 advanced backend，仅 portable profile 或显式选择 pi-sdk/pi-rpc 时启用。普通用户无需配置，默认走 Codex-first 路径。friendReady 字段已废弃，改名为 piAdvancedReady。",
+    });
 
     new Setting(containerEl)
       .setName("Pi 命令")
@@ -361,6 +455,94 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
           this.plugin.refreshBridgeView();
           this.display();
+        });
+      });
+
+    // V17-D 任务 F：Pi SDK Auth 设置 section（runtime override，不写 ~/.pi/agent）
+    // V17-E 任务 F：Pi SDK 为 optional/advanced backend，普通用户无需配置此 section
+    containerEl.createEl("h3", { text: "Pi SDK Auth (Runtime Override — Optional/Advanced)" });
+
+    new Setting(containerEl)
+      .setName("Provider")
+      .setDesc("V17-D 任务 F：API Key 所属 provider（默认 anthropic；可选 openai 等）。仅运行时注入，不写 ~/.pi/agent。")
+      .addText((t) => {
+        t.setValue(s.piAuthProvider);
+        t.onChange(async (v) => {
+          s.piAuthProvider = v.trim() || "anthropic";
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Model")
+      .setDesc("显式指定 model id（如 claude-haiku-4-5）。留空则用 SDK 默认选择。")
+      .addText((t) => {
+        t.setValue(s.piApiModel);
+        t.onChange(async (v) => {
+          s.piApiModel = v.trim();
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("API Key")
+      .setDesc("Pi SDK runtime API key。仅运行时注入 session.authStorage，不写磁盘全局配置。留空则 fallback 到 ~/.pi/agent 或 ~/.claude/settings.json env。")
+      .addText((t) => {
+        t.inputEl.type = "password";
+        t.setValue(s.piApiKey);
+        t.onChange(async (v) => {
+          s.piApiKey = v.trim();
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Base URL")
+      .setDesc("自定义 API base URL（可选，如 https://us.pinai-cn.com）。留空则用 provider 默认。")
+      .addText((t) => {
+        t.setValue(s.piApiBaseUrl);
+        t.onChange(async (v) => {
+          s.piApiBaseUrl = v.trim();
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Test connection")
+      .setDesc("V17-D 任务 F：探测当前 Pi SDK + auth override 是否可用。不发起真实请求，仅检查 auth/model 配置。")
+      .addButton((b) => {
+        b.setButtonText("Test connection");
+        b.onClick(async () => {
+          b.setButtonText("Testing...");
+          b.setDisabled(true);
+          try {
+            const { PiSdkProvider, tryLoadPiSdkAsync } = await import("./runtime/providers/pi-sdk/piSdkProvider");
+            await tryLoadPiSdkAsync(true);
+            const provider = new PiSdkProvider();
+            const probe = provider.getProbeResult();
+            if (!probe.available) {
+              new Notice("Pi SDK 不可用：" + (probe.error || probe.reason), 6000);
+            } else {
+              const override = {
+                apiKey: s.piApiKey || undefined,
+                provider: s.piAuthProvider || undefined,
+                baseUrl: s.piApiBaseUrl || undefined,
+                model: s.piApiModel || undefined,
+              };
+              const { probePiSdkAuth } = await import("./runtime/providers/pi-sdk/piSdkProvider");
+              const authProbe = probePiSdkAuth(probe, override);
+              if (authProbe.hasAuth && authProbe.hasModel) {
+                new Notice("Pi SDK 连接测试通过：auth + model 已配置。", 5000);
+              } else {
+                new Notice("Pi SDK 认证/模型未配置：" + authProbe.hint, 8000);
+              }
+            }
+          } catch (e) {
+            new Notice("Pi SDK Test connection 失败：" + (e instanceof Error ? e.message : String(e)), 6000);
+          } finally {
+            b.setButtonText("Test connection");
+            b.setDisabled(false);
+          }
         });
       });
 

@@ -77,6 +77,21 @@ export default class LLMBridgePlugin extends Plugin {
         console.error("[llm-cli-bridge] startHttpBridge 未捕获错误:", e);
       });
     }
+
+    // V17-D 任务 B：异步预加载 Pi SDK（不阻塞 onload）
+    // 加载完成后写入 probeCache，后续 PiSdkProvider constructor 同步读取 cache
+    void this.preloadPiSdk();
+  }
+
+  /** V17-D 任务 B：异步预加载 Pi SDK 到 probeCache */
+  private async preloadPiSdk(): Promise<void> {
+    try {
+      const { PiSdkProvider } = await import("./src/runtime/providers/pi-sdk/piSdkProvider");
+      await PiSdkProvider.preload();
+      console.log("[llm-cli-bridge] Pi SDK preload 完成");
+    } catch (e) {
+      console.warn("[llm-cli-bridge] Pi SDK preload 失败（不阻塞）：", e);
+    }
   }
 
   async onunload(): Promise<void> {
@@ -380,6 +395,7 @@ export default class LLMBridgePlugin extends Plugin {
     });
 
     // V17-C2 任务 C：Pi SDK 依赖检查命令（朋友版手动检测 + 安装引导）
+    // V17-D 任务 B：改用 tryLoadPiSdkAsync（多路径 + ESM 支持）
     this.addCommand({
       id: "check-pi-sdk-dependency",
       name: "Check Pi SDK Dependency (Friend Preview)",
@@ -387,18 +403,20 @@ export default class LLMBridgePlugin extends Plugin {
         let statusMsg = "";
         let noticeClass = "";
         try {
-          const { tryLoadPiSdk, probePiSdkAuth } = await import("./src/runtime/providers/pi-sdk/piSdkProvider");
-          const probe = tryLoadPiSdk(true);
+          const { tryLoadPiSdkAsync, probePiSdkAuth } = await import("./src/runtime/providers/pi-sdk/piSdkProvider");
+          const probe = await tryLoadPiSdkAsync(true);
           if (!probe.available) {
-            statusMsg = `Pi SDK 未安装。\n\n请在 Vault 根目录运行：\nnpm install --ignore-scripts @earendil-works/pi-coding-agent\n\n安装后重启 Obsidian。`;
+            const fromHint = probe.loadedFrom ? `（最后尝试：${probe.loadedFrom}）` : "";
+            statusMsg = `Pi SDK 未安装${fromHint}。\n\n可能原因：\n1) 当前发行包缺 Pi SDK，请重新下载完整 user-package\n2) 或在 Vault 根目录运行：\nnpm install --ignore-scripts @earendil-works/pi-coding-agent\n\n安装后重启 Obsidian。`;
             noticeClass = "llm-bridge-notice-warn";
           } else {
             const authProbe = probePiSdkAuth(probe);
+            const fromInfo = probe.loadedFrom ? `（加载源：${probe.loadedFrom}）` : "";
             if (!authProbe.hasAuth || !authProbe.hasModel) {
-              statusMsg = `Pi SDK 已安装，但认证/模型未配置：\n${authProbe.hint}`;
+              statusMsg = `Pi SDK 已安装${fromInfo}，但认证/模型未配置：\n${authProbe.hint}`;
               noticeClass = "llm-bridge-notice-warn";
             } else {
-              statusMsg = "Pi SDK 已安装且配置完成，Friend Preview 可用。";
+              statusMsg = `Pi SDK 已安装${fromInfo}且配置完成，Friend Preview 可用。`;
               noticeClass = "llm-bridge-notice-ok";
             }
           }

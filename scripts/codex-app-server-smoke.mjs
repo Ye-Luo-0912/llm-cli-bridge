@@ -218,6 +218,11 @@ async function runSmoke(codexVersion) {
   let schemaGeneratedAt = null;
   let schemaManifestSummary = null;
 
+  // V17-E 任务 C：readiness matrix 收集 flags
+  let approvalRequestTriggered = false;
+  let fileChangeRequestTriggered = false;
+  let procKillOk = false;
+
   function step(phase, name, ok, detail = "") {
     const icon = ok ? "✅" : "❌";
     console.log(`${icon} [${phase}] ${name}${detail ? ` — ${detail}` : ""}`);
@@ -355,11 +360,13 @@ async function runSmoke(codexVersion) {
       resolve(`failed: ${turnError}`);
     });
     client.on("item/commandExecution/requestApproval", (params, id) => {
+      approvalRequestTriggered = true;
       if (id !== undefined) {
         client.respondToServerRequest(id, { decision: "decline" });
       }
     });
     client.on("item/fileChange/requestApproval", (params, id) => {
+      fileChangeRequestTriggered = true;
       if (id !== undefined) {
         client.respondToServerRequest(id, { decision: "decline" });
       }
@@ -407,8 +414,17 @@ async function runSmoke(codexVersion) {
     }
   }
 
-  // cleanup
-  try { proc.kill("SIGKILL"); } catch {}
+  // cleanup + V17-E 任务 C：stopCancelStatus 检测（proc.kill 后 5s 内退出）
+  try {
+    proc.kill("SIGKILL");
+    // 等待进程退出（最多 5s）
+    const exitStart = Date.now();
+    while (Date.now() - exitStart < 5000) {
+      if (proc.exitCode !== null || proc.killed) { procKillOk = true; break; }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (!procKillOk && proc.exitCode !== null) procKillOk = true;
+  } catch {}
   try { rmSync(tmpSchemaDir, { recursive: true, force: true }); } catch {}
 
   // smokeStatus 派生
@@ -424,6 +440,7 @@ async function runSmoke(codexVersion) {
   return {
     codexVersion, schemaSource, schemaGeneratedAt, schemaManifestSummary,
     handshakeStatus, turnStatus, smokeStatus, steps,
+    approvalRequestTriggered, fileChangeRequestTriggered, procKillOk,
   };
 }
 
@@ -444,6 +461,8 @@ function writeReport(report) {
     `- **handshakeStatus**: ${report.handshakeStatus}`,
     `- **turnStatus**: ${report.turnStatus}`,
     `- **smokeStatus**: ${report.smokeStatus}`,
+    // V17-E 任务 E：codexUserReady 字段写入报告（smoke=pass 才 true；skip/fail/handshake-only 均 false）
+    `- **codexUserReady**: ${report.smokeStatus === "pass" ? "true" : "false"}`,
   ];
   if (report.schemaManifestSummary) {
     const s = report.schemaManifestSummary;
@@ -497,6 +516,70 @@ function writeReport(report) {
   console.log(`报告已写入: ${REPORT_PATH}`);
 }
 
+// V17-E 任务 C：从 report 派生 readiness matrix（12 个字段）
+function deriveReadinessMatrix(report) {
+  const findStep = (name) => report.steps?.find((s) => s.name === name);
+  const spawnStep = findStep("codex app-server stdio 启动");
+  const initStep = findStep("initialize / result");
+  const threadStartStep = findStep("thread/start");
+  const turnStartStep = findStep("turn/start request");
+
+  // codexAuthAvailable：turnStatus !== "skip-auth" 且 handshake pass → auth 可用
+  let codexAuthAvailable;
+  if (report.handshakeStatus === "pass" && report.turnStatus !== "skip-auth") {
+    codexAuthAvailable = true;
+  } else if (report.turnStatus === "skip-auth") {
+    codexAuthAvailable = false;
+  } else {
+    codexAuthAvailable = "unknown"; // handshake 未 pass 无法判断
+  }
+
+  // noVaultRootPollution：smoke 期间 PROJECT_ROOT 不应被写入意外文件
+  // 简单检测：检查 PROJECT_ROOT 下没有 codex 会话残留（.codex/ 之类）
+  let noVaultRootPollution = true;
+  try {
+    const codexStateDir = join(PROJECT_ROOT, ".codex");
+    if (existsSync(codexStateDir)) {
+      // .codex 存在不算污染（用户配置），但检查是否有 smoke 临时文件残留
+      const entries = readdirSync(codexStateDir).filter((f) => f.startsWith("smoke") || f.includes("smoke-"));
+      if (entries.length > 0) noVaultRootPollution = false;
+    }
+  } catch { /* ignore */ }
+
+  // approvalRequestStatus：approval 被触发并 decline 即 pass（无需用户干预）
+  // 若未触发（agent 没要求 approval），记 "not-triggered"（中性）
+  let approvalRequestStatus;
+  if (report.approvalRequestTriggered === true) approvalRequestStatus = "pass";
+  else if (report.approvalRequestTriggered === false) approvalRequestStatus = "not-triggered";
+  else approvalRequestStatus = "unknown";
+
+  let fileChangeRequestStatus;
+  if (report.fileChangeRequestTriggered === true) fileChangeRequestStatus = "pass";
+  else if (report.fileChangeRequestTriggered === false) fileChangeRequestStatus = "not-triggered";
+  else fileChangeRequestStatus = "unknown";
+
+  // stopCancelStatus：proc.kill 后 5s 内退出
+  let stopCancelStatus;
+  if (report.procKillOk === true) stopCancelStatus = "pass";
+  else if (report.procKillOk === false) stopCancelStatus = "fail";
+  else stopCancelStatus = "unknown";
+
+  return {
+    codexCliAvailable: report.codexAvailable === true ? "true" : "false",
+    codexVersion: report.codexVersion || "null",
+    codexAuthAvailable: typeof codexAuthAvailable === "boolean" ? (codexAuthAvailable ? "true" : "false") : codexAuthAvailable,
+    appServerSpawnStatus: spawnStep ? (spawnStep.ok ? "pass" : "fail") : "unknown",
+    initializeStatus: initStep ? (initStep.ok ? "pass" : "fail") : "unknown",
+    threadStartStatus: threadStartStep ? (threadStartStep.ok ? "pass" : "fail") : "unknown",
+    turnStartStatus: turnStartStep ? (turnStartStep.ok ? "pass" : "fail") : "unknown",
+    turnCompletedStatus: report.turnStatus === "pass" ? "pass" : "fail",
+    approvalRequestStatus,
+    fileChangeRequestStatus,
+    stopCancelStatus,
+    noVaultRootPollution: noVaultRootPollution ? "true" : "false",
+  };
+}
+
 function main() {
   console.log("=== Codex real app-server smoke gate (P2 分层) ===");
 
@@ -516,6 +599,7 @@ function main() {
       steps: [],
     };
     writeReport(report);
+    printReadinessMatrix(report);
     console.log(`\n=== 结果: skip（codex 不可用） ===`);
     process.exit(0); // skip 不算 fail
   }
@@ -527,6 +611,7 @@ function main() {
       ...result,
     };
     writeReport(report);
+    printReadinessMatrix(report);
     // 退出码：handshake fail 或 turn hard fail → 1；pass / handshake-only → 0
     const exitCode = (report.smokeStatus === "fail") ? 1 : 0;
     console.log(`\n=== 结果: handshake=${report.handshakeStatus} turn=${report.turnStatus} smoke=${report.smokeStatus} ===`);
@@ -546,9 +631,31 @@ function main() {
       skipReason: `uncaught: ${e?.message || e}`,
     };
     writeReport(report);
+    printReadinessMatrix(report);
     console.error(`\n❌ smoke run 未捕获异常: ${e?.message || e}`);
     process.exit(1);
   });
+}
+
+// V17-E 任务 C：打印 readiness matrix（12 字段）
+function printReadinessMatrix(report) {
+  const m = deriveReadinessMatrix(report);
+  console.log("\n=== Readiness Matrix (V17-E 任务 C) ===");
+  console.log(`codexCliAvailable=${m.codexCliAvailable}`);
+  console.log(`codexVersion=${m.codexVersion}`);
+  console.log(`codexAuthAvailable=${m.codexAuthAvailable}`);
+  console.log(`appServerSpawnStatus=${m.appServerSpawnStatus}`);
+  console.log(`initializeStatus=${m.initializeStatus}`);
+  console.log(`threadStartStatus=${m.threadStartStatus}`);
+  console.log(`turnStartStatus=${m.turnStartStatus}`);
+  console.log(`turnCompletedStatus=${m.turnCompletedStatus}`);
+  console.log(`approvalRequestStatus=${m.approvalRequestStatus}`);
+  console.log(`fileChangeRequestStatus=${m.fileChangeRequestStatus}`);
+  console.log(`stopCancelStatus=${m.stopCancelStatus}`);
+  console.log(`noVaultRootPollution=${m.noVaultRootPollution}`);
+  // V17-E 任务 E：codexUserReady 派生（smoke=pass 才 ready）
+  const codexUserReady = report.smokeStatus === "pass";
+  console.log(`codexUserReady=${codexUserReady}`);
 }
 
 main();

@@ -122,6 +122,10 @@ function parseCodexSmokeReport(path) {
   const genAtMatch = text.match(/- \*\*schemaGeneratedAt\*\*: (.+)/);
   result.schemaGeneratedAt = genAtMatch ? genAtMatch[1].trim() : null;
 
+  // V17-E 任务 E：codexUserReady 字段（smoke=pass 才 true）
+  const userReadyMatch = text.match(/- \*\*codexUserReady\*\*: (true|false)/);
+  result.codexUserReady = userReadyMatch ? userReadyMatch[1] : null;
+
   if (result.smokeStatus === null) {
     result.error = "smokeStatus 字段解析失败";
   }
@@ -265,6 +269,8 @@ function main() {
     `- **codexTurnStatus**: ${codexSmoke.turnStatus || "(解析失败)"}`,
     `- **codexVersion**: ${codexSmoke.codexVersion || "(解析失败)"}`,
     `- **codexSchemaSource**: ${codexSmoke.schemaSource || "(解析失败)"}`,
+    // V17-E 任务 E：新增 codexUserReady 字段（smoke=pass 才 true；skip/fail/handshake-only 均 false）
+    `- **codexUserReady**: ${codexSmoke.codexUserReady || "(解析失败)"}`,
     `- **unit 运行命令**: ${unit.runCommand || "(解析失败)"}`,
     `- **process 运行命令**: ${processReport.runCommand || "(解析失败)"}`,
     `- **unit 测试时间**: ${unit.timestamp || "(解析失败)"}`,
@@ -288,10 +294,21 @@ function main() {
     "",
   ];
 
-  if (totalFailed === 0 && auditFailures.length === 0) {
-    lines.push("**双轨均 0 失败 → P2 Codex app-server Runtime 主线闭环测试通过。**");
+  // V17-E 任务 E：修正 summary 结论 — codexSmokeStatus=skip 时不写"主线闭环测试通过"
+  // 拆分 fixture/unit pass 与 real smoke pass：
+  // - unit/process 0 失败 = fixture/unit 层 pass
+  // - codexSmokeStatus=pass = real smoke 层 pass
+  // - skip/fail/handshake-only = real smoke 层未验证
+  const codexSmokePassed = codexSmoke.smokeStatus === "pass";
+  const codexSmokeSkipped = codexSmoke.smokeStatus === "skip";
+  if (totalFailed === 0 && auditFailures.length === 0 && codexSmokePassed) {
+    lines.push("**双轨均 0 失败 + Codex real smoke pass → P2 Codex app-server Runtime 主线闭环测试通过（含 real smoke）。**");
+  } else if (totalFailed === 0 && auditFailures.length === 0 && codexSmokeSkipped) {
+    lines.push("**双轨均 0 失败（fixture/unit 层 pass），但 Codex real smoke skipped — Runtime 主线未完整验证（real smoke 层未验证）。codexUserReady=false。**");
+  } else if (totalFailed === 0 && auditFailures.length === 0 && !codexSmokePassed) {
+    lines.push(`**双轨均 0 失败（fixture/unit 层 pass），但 Codex real smoke 未 pass（${codexSmoke.smokeStatus}）— Runtime 主线未完整验证。codexUserReady=false。**`);
   } else {
-    lines.push(`**主线状态: ${totalFailed === 0 ? "通过" : "失败"}（审计失败: ${auditFailures.length}）**`);
+    lines.push(`**主线状态: ${totalFailed === 0 ? "通过" : "失败"}（审计失败: ${auditFailures.length}；codex smoke: ${codexSmoke.smokeStatus || "?"}）**`);
   }
   lines.push("");
 

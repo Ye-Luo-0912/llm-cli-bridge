@@ -8,43 +8,44 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-05T14:18:23.793Z
-- **reportCommitSha**: db51b547f808b8204fc3f1b887358291e23dc54e
-- **reportCommitSha 短**: db51b547f808
-- **reportParentSha**: 9a133206d68654e36c9e5b90c214dbe11062ad3a
-- **reportParentSha 短**: 9a133206d686
-- **testedCodeCommitSha**: db51b547f808b8204fc3f1b887358291e23dc54e
-- **testedCodeCommitSha 短**: db51b547f808
+- **生成时间**: 2026-07-05T17:54:14.086Z
+- **reportCommitSha**: cab217a56db819db426715d606a76fc69f9ee6f1
+- **reportCommitSha 短**: cab217a56db8
+- **reportParentSha**: 64c17c59e58d64eb193768d22f1a540ba3971782
+- **reportParentSha 短**: 64c17c59e58d
+- **testedCodeCommitSha**: cab217a56db819db426715d606a76fc69f9ee6f1
+- **testedCodeCommitSha 短**: cab217a56db8
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: db51b547f808b8204fc3f1b887358291e23dc54e
-- **processReportCommitSha**: db51b547f808b8204fc3f1b887358291e23dc54e
+- **unitReportCommitSha**: cab217a56db819db426715d606a76fc69f9ee6f1
+- **processReportCommitSha**: cab217a56db819db426715d606a76fc69f9ee6f1
 - **codexSmokeStatus**: skip
 - **codexHandshakeStatus**: skip
 - **codexTurnStatus**: skip
 - **codexVersion**: null
 - **codexSchemaSource**: fixture
+- **codexUserReady**: false
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-05T14:17:13.659Z
-- **process 测试时间**: 2026-07-05T14:18:14.300Z
+- **unit 测试时间**: 2026-07-06T09:52:00.000Z
+- **process 测试时间**: 2026-07-06T09:53:00.000Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=db51b547f808。
-- **当前 commit 改动文件**：main.ts, scripts/run-tests.mjs
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=cab217a56db8。
+- **当前 commit 改动文件**：docs/test-report-pi-sdk-smoke.md, docs/test-report.md, package-lock.json, package.json, scripts/pi-sdk-smoke.mjs
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 1000 | 0 | 25 | 0 | 1025 | db51b547f808 | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | db51b547f808 | ✅ 通过 |
+| unit | 1016 | 0 | 25 | 0 | 1041 | cab217a56db8 | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | cab217a56db8 | ✅ 通过 |
 | codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **1097** | **0** | **81** | **0** | **1178** | db51b547f808 | ✅ **主线通过** |
+| **合计** | **1113** | **0** | **81** | **0** | **1194** | cab217a56db8 | ✅ **主线通过** |
 
-**双轨均 0 失败 → P2 Codex app-server Runtime 主线闭环测试通过。**
+**双轨均 0 失败（fixture/unit 层 pass），但 Codex real smoke skipped — Runtime 主线未完整验证（real smoke 层未验证）。codexUserReady=false。**
 
 ## 审计模式说明（P2 integrity check）
 

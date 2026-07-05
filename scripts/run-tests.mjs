@@ -5335,17 +5335,18 @@ if (runMode !== "all" && runMode !== "unit") {
           `writeOk=${writeResult.ok} fileWritten=${fileWritten} evilBlocked=${evilBlocked} escapeBlocked=${escapeBlocked}`);
       }
 
-      // Test V17C-F: smoke 脚本包含 read-only + pi-native 两组 + friendReady gate（任务 F）
+      // Test V17C-F: smoke 脚本包含 read-only + pi-native 两组 + piAdvancedReady gate（任务 F）
+      // V17-E 任务 F：friendReady 字段废弃，改名为 piAdvancedReady
       {
         const smokeScript = readFileSync(join(PROJECT_ROOT, "scripts", "pi-sdk-smoke.mjs"), "utf8");
         const hasReadOnly = smokeScript.includes('name: "read-only"') && smokeScript.includes('tools: ["read"]');
         const hasPiNative = smokeScript.includes('name: "pi-native"') && smokeScript.includes('sessionOpts: {}');
-        const hasFriendReadyGate = smokeScript.includes("friendReady=") && smokeScript.includes("piNativeSmokeStatus");
+        const hasPiAdvancedReadyGate = smokeScript.includes("piAdvancedReady=") && smokeScript.includes("piNativeSmokeStatus");
         const hasSkipReason = smokeScript.includes("piSdkSmokeStatus=skip") && smokeScript.includes("reason=");
 
-        addTest("V17-C smoke:pi-sdk: read-only + pi-native 两组 + friendReady gate + skip 明确",
-          hasReadOnly && hasPiNative && hasFriendReadyGate && hasSkipReason ? "pass" : "fail",
-          `readOnly=${hasReadOnly} piNative=${hasPiNative} friendGate=${hasFriendReadyGate} skip=${hasSkipReason}`);
+        addTest("V17-C smoke:pi-sdk: read-only + pi-native 两组 + piAdvancedReady gate + skip 明确",
+          hasReadOnly && hasPiNative && hasPiAdvancedReadyGate && hasSkipReason ? "pass" : "fail",
+          `readOnly=${hasReadOnly} piNative=${hasPiNative} piAdvancedGate=${hasPiAdvancedReadyGate} skip=${hasSkipReason}`);
       }
 
       // Test V17C-G: settings.ts 包含 piToolMode dropdown + trust 确认按钮（任务 A+D UI）
@@ -5375,18 +5376,19 @@ if (runMode !== "all" && runMode !== "unit") {
 
       // Test V17C1-A: 真实 pi-sdk smoke 状态记录（任务 A）
       // 当前环境无真实 SDK → smoke skip；测试验证 smoke 脚本会输出正确状态字段
+      // V17-E 任务 F：friendReady 字段废弃，改名为 piAdvancedReady
       {
         const smokeScript = readFileSync(join(PROJECT_ROOT, "scripts", "pi-sdk-smoke.mjs"), "utf8");
         const hasPiSdkStatus = smokeScript.includes("piSdkSmokeStatus=");
         const hasReadOnlyStatus = smokeScript.includes("piReadOnlySmokeStatus=");
         const hasPiNativeStatus = smokeScript.includes("piNativeSmokeStatus=");
-        const hasFriendReady = smokeScript.includes("friendReady=");
+        const hasPiAdvancedReady = smokeScript.includes("piAdvancedReady=");
         const hasSkipReason = smokeScript.includes("piSdkSmokeStatus=skip") && smokeScript.includes("reason=");
-        const hasPassGate = smokeScript.includes("friendReady=") && smokeScript.includes("piNativeSmokeStatus=pass");
+        const hasPassGate = smokeScript.includes("piAdvancedReady=") && smokeScript.includes("piNativeSmokeStatus=pass");
 
-        addTest("V17-C1 smoke:pi-sdk 状态字段完整（piSdkSmokeStatus/piReadOnlySmokeStatus/piNativeSmokeStatus/friendReady/skip reason）",
-          hasPiSdkStatus && hasReadOnlyStatus && hasPiNativeStatus && hasFriendReady && hasSkipReason ? "pass" : "fail",
-          `piSdk=${hasPiSdkStatus} readOnly=${hasReadOnlyStatus} piNative=${hasPiNativeStatus} friendReady=${hasFriendReady} skip=${hasSkipReason} passGate=${hasPassGate}`);
+        addTest("V17-C1 smoke:pi-sdk 状态字段完整（piSdkSmokeStatus/piReadOnlySmokeStatus/piNativeSmokeStatus/piAdvancedReady/skip reason）",
+          hasPiSdkStatus && hasReadOnlyStatus && hasPiNativeStatus && hasPiAdvancedReady && hasSkipReason ? "pass" : "fail",
+          `piSdk=${hasPiSdkStatus} readOnly=${hasReadOnlyStatus} piNative=${hasPiNativeStatus} piAdvancedReady=${hasPiAdvancedReady} skip=${hasSkipReason} passGate=${hasPassGate}`);
       }
 
       // Test V17C1-B: main.ts 包含 Enable/Disable Friend Preview 命令（任务 B）
@@ -5500,26 +5502,36 @@ if (runMode !== "all" && runMode !== "unit") {
       }
 
       // Test V17C2-B: 真实 pi-sdk smoke 状态字段（任务 B gate）
+      // V17-D 任务 E：扩展为 basic/readOnly/native 三组 smoke + releaseReady gate
+      // V17-E 任务 F：friendReady 字段废弃，改名为 piAdvancedReady
       // 当前环境无真实 SDK → skip；测试验证 smoke 脚本 gate 逻辑正确
       {
         const smokeScript = readFileSync(join(PROJECT_ROOT, "scripts", "pi-sdk-smoke.mjs"), "utf8");
-        // friendReady=true 仅当 piNativeSmokeStatus=pass
-        const friendReadyGate = smokeScript.includes("piNativeSmokeStatus=") && smokeScript.includes("friendReady=" + (smokeScript.includes("(piNativePassed ? \"true\" : \"false\")") ? "" : ""));
-        // skip 时 friendReady=false
-        const skipLogic = smokeScript.includes("piSdkSmokeStatus=skip") && smokeScript.includes("friendReady=false");
-        // pass 时 friendReady=true（仅 piNative passed）
+        // 三组 smoke 状态字段
+        const hasBasicStatus = smokeScript.includes("piBasicSmokeStatus=");
+        const hasReadOnlyStatus = smokeScript.includes("piReadOnlySmokeStatus=");
+        const hasNativeStatus = smokeScript.includes("piNativeSmokeStatus=");
+        // skip 时所有状态=skip + piAdvancedReady=false + releaseReady=false
+        const skipLogic = smokeScript.includes("piSdkSmokeStatus=skip") && smokeScript.includes("piAdvancedReady=false");
+        const skipReleaseReady = smokeScript.includes("piSdkSmokeStatus=skip") && smokeScript.includes("releaseReady=false");
+        // pass 时 piAdvancedReady=true（仅 piNative passed）+ releaseReady=true
         const passLogic = smokeScript.includes("piNativePassed ? \"true\" : \"false\"");
+        // V17-D 任务 E：native smoke 必须验证至少一项 native 工具调用
+        const nativeToolVerification = smokeScript.includes("nativeToolVerified") && smokeScript.includes("nativeToolNames");
+        // V17-D 任务 E：native smoke 使用临时目录而非只问一句话
+        const usesTempDir = smokeScript.includes("mkdtempSync") && smokeScript.includes("smokeTmpDir");
 
-        addTest("V17-C2 smoke:pi-sdk gate: skip→friendReady=false / piNative pass→friendReady=true",
-          skipLogic && passLogic ? "pass" : "fail",
-          `skipLogic=${skipLogic} passLogic=${passLogic}`);
+        addTest("V17-C2 smoke:pi-sdk gate: basic/readOnly/native 三组 + skip→piAdvancedReady=false + native 工具验证 + 临时目录",
+          hasBasicStatus && hasReadOnlyStatus && hasNativeStatus && skipLogic && skipReleaseReady && passLogic && nativeToolVerification && usesTempDir ? "pass" : "fail",
+          `basic=${hasBasicStatus} readOnly=${hasReadOnlyStatus} native=${hasNativeStatus} skipLogic=${skipLogic} skipReleaseReady=${skipReleaseReady} passLogic=${passLogic} nativeToolVerification=${nativeToolVerification} usesTempDir=${usesTempDir}`);
       }
 
       // Test V17C2-C: Check Pi SDK Dependency 命令（任务 C installer/dependency check）
+      // V17-D 任务 B：API 改为 tryLoadPiSdkAsync（多路径 + ESM 支持），兼容旧字符串
       {
         const mainSrc = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf8");
         const hasCommand = mainSrc.includes('id: "check-pi-sdk-dependency"') && mainSrc.includes("Check Pi SDK Dependency (Friend Preview)");
-        const callsTryLoadPiSdk = mainSrc.includes("tryLoadPiSdk(true)");
+        const callsTryLoadPiSdk = mainSrc.includes("tryLoadPiSdkAsync(true)") || mainSrc.includes("tryLoadPiSdk(true)");
         const hasInstallHint = mainSrc.includes("npm install --ignore-scripts @earendil-works/pi-coding-agent");
         const callsProbePiSdkAuth = mainSrc.includes("probePiSdkAuth(probe)");
 
@@ -5566,6 +5578,556 @@ if (runMode !== "all" && runMode !== "unit") {
         addTest("V17-C2 回归 V16.5-K1: skill runtime format + materialize all targets 不回退",
           hasConvertVaultSkill && hasMaterializeAll && hasInstructionsSection ? "pass" : "fail",
           `convert=${hasConvertVaultSkill} materialize=${hasMaterializeAll} instructions=${hasInstructionsSection}`);
+      }
+
+      // ===== V17-D 任务 D：Fake Pi SDK 行为测试 =====
+      // 真实执行 PiSdkProvider.run()，断言 createAgentSession 收到的 options：
+      // - pi-native 不传 tools/customTools
+      // - read-only 传 tools=["read"]
+      // - bridge-controlled 传 excludeTools=["write","edit","bash"] + customTools
+      // - trust gate、prompt event、cancel/abort 走通
+      // 用 fake fixture 而非源码字符串 includes 测试
+      {
+        const fakeFixturePath = join(PROJECT_ROOT, "scripts", "fixtures", "fake-pi-coding-agent.mjs");
+        const fakeMod = await import(pathToFileURL(fakeFixturePath).href);
+
+        // 构造最小 RunContext 工厂
+        const makeCtx = (runId, cwd = v17bTmpRoot) => ({
+          plan: {
+            backend: "sdk", cwd, model: "fake-model", effort: "medium",
+            session: { continueSession: false }, settingSources: [], skills: [],
+            promptPackageHash: "h-v17d", attachmentPlan: { entries: [] },
+            createdAt: new Date().toISOString(),
+            instructionsSource: "instructions",
+          },
+          promptPackage: {
+            userPrompt: "hello v17d", bridgeSystemAppend: "system v17d",
+            attachmentEntries: [], auditHash: "h-v17d",
+          },
+          permission: {
+            mode: "default", policy: { rules: [] }, pending: new Map(),
+            sessionAllows: [], sessionDenies: [],
+            requestApproval: () => "auto-allow",
+            resolveApproval: () => true,
+            cancelAllPending: () => [],
+            waitForApproval: () => Promise.resolve({ response: { type: "accept" }, source: "mode" }),
+          },
+          runId,
+          bridgeSessionId: "v17d-bridge-1",
+        });
+
+        // 注入 fake probe 工厂
+        const injectFakeProbe = () => {
+          piSdkProviderMod.clearPiSdkProbeCache();
+          piSdkProviderMod.__setProbeForTest({
+            available: true,
+            module: fakeMod,
+            reason: "installed",
+            loadedFrom: "node_modules",
+          });
+        };
+
+        // ----- Test V17D-D-1: pi-native 不传 tools/excludeTools/customTools -----
+        {
+          fakeMod.resetFakeCapture();
+          injectFakeProbe();
+          const provider = new piSdkProviderMod.PiSdkProvider();
+          const ctx = makeCtx("v17d-pi-native");
+          const settings = {
+            developerMode: false,
+            backendProfile: "portable",
+            piToolMode: "pi-native",
+            piNativeTrustConfirmed: true,
+          };
+          const events = [];
+          for await (const ev of provider.run(ctx, settings)) {
+            events.push(ev);
+          }
+
+          const calls = fakeMod.getFakeCapture().createAgentSessionCalls;
+          const hasSession = calls.length === 1;
+          const sessionOpts = hasSession ? calls[0].sessionOpts : {};
+          const noTools = sessionOpts.tools === undefined;
+          const noExcludeTools = sessionOpts.excludeTools === undefined;
+          const noCustomTools = sessionOpts.customTools === undefined;
+          const hasSessionStarted = events.some((e) => e.payload?.kind === "session_started");
+          const hasMessage = events.some((e) => e.payload?.kind === "message" && e.payload?.text?.includes("fake response"));
+          const hasCompleted = events.some((e) => e.payload?.kind === "completed");
+
+          addTest("V17-D pi-native: createAgentSession 不传 tools/excludeTools/customTools + run 走通",
+            hasSession && noTools && noExcludeTools && noCustomTools && hasSessionStarted && hasMessage && hasCompleted ? "pass" : "fail",
+            `calls=${calls.length} noTools=${noTools} noExcludeTools=${noExcludeTools} noCustomTools=${noCustomTools} sessionStarted=${hasSessionStarted} message=${hasMessage} completed=${hasCompleted}`);
+        }
+
+        // ----- Test V17D-D-2: read-only 传 tools=["read"] -----
+        {
+          fakeMod.resetFakeCapture();
+          injectFakeProbe();
+          const provider = new piSdkProviderMod.PiSdkProvider();
+          const ctx = makeCtx("v17d-readonly");
+          const settings = {
+            developerMode: false,
+            backendProfile: "portable",
+            piToolMode: "read-only",
+            piNativeTrustConfirmed: false,
+          };
+          const events = [];
+          for await (const ev of provider.run(ctx, settings)) {
+            events.push(ev);
+          }
+
+          const calls = fakeMod.getFakeCapture().createAgentSessionCalls;
+          const sessionOpts = calls[0]?.sessionOpts || {};
+          const toolsIsRead = JSON.stringify(sessionOpts.tools) === JSON.stringify(["read"]);
+          const noExcludeTools = sessionOpts.excludeTools === undefined;
+          const noCustomTools = sessionOpts.customTools === undefined;
+
+          addTest("V17-D read-only: createAgentSession 传 tools=[\"read\"] 不传 excludeTools/customTools",
+            calls.length === 1 && toolsIsRead && noExcludeTools && noCustomTools ? "pass" : "fail",
+            `tools=${JSON.stringify(sessionOpts.tools)} excludeTools=${sessionOpts.excludeTools} customTools=${sessionOpts.customTools ? "array" : "undefined"}`);
+        }
+
+        // ----- Test V17D-D-3: bridge-controlled 传 excludeTools + customTools -----
+        {
+          fakeMod.resetFakeCapture();
+          injectFakeProbe();
+          const provider = new piSdkProviderMod.PiSdkProvider();
+          const ctx = makeCtx("v17d-bridge");
+          const settings = {
+            developerMode: true,
+            backendProfile: "developer",
+            piToolMode: "bridge-controlled",
+            piNativeTrustConfirmed: false,
+          };
+          const events = [];
+          for await (const ev of provider.run(ctx, settings)) {
+            events.push(ev);
+          }
+
+          const calls = fakeMod.getFakeCapture().createAgentSessionCalls;
+          const sessionOpts = calls[0]?.sessionOpts || {};
+          const excludeToolsOk = JSON.stringify(sessionOpts.excludeTools) === JSON.stringify(["write", "edit", "bash"]);
+          const customToolsArr = Array.isArray(sessionOpts.customTools) ? sessionOpts.customTools : [];
+          const customToolNames = customToolsArr.map((t) => t?.name || t?.definition?.name).filter(Boolean);
+          const hasBridgeWrite = customToolNames.includes("bridge_write");
+          const hasBridgeEdit = customToolNames.includes("bridge_edit");
+          const hasBridgeBash = customToolNames.includes("bridge_bash");
+          const hasCustomTools = customToolsArr.length >= 3;
+          const noToolsAllowlist = sessionOpts.tools === undefined;
+
+          addTest("V17-D bridge-controlled: excludeTools=[write,edit,bash] + customTools=[bridge_*] 不传 tools allowlist",
+            calls.length === 1 && excludeToolsOk && hasCustomTools && hasBridgeWrite && hasBridgeEdit && hasBridgeBash && noToolsAllowlist ? "pass" : "fail",
+            `excludeTools=${JSON.stringify(sessionOpts.excludeTools)} customToolNames=${JSON.stringify(customToolNames)} hasCustomTools=${hasCustomTools} noToolsAllowlist=${noToolsAllowlist}`);
+        }
+
+        // ----- Test V17D-D-4: trust gate — pi-native 未确认 → run 发 failed + 不调用 createAgentSession -----
+        {
+          fakeMod.resetFakeCapture();
+          injectFakeProbe();
+          const provider = new piSdkProviderMod.PiSdkProvider();
+          const ctx = makeCtx("v17d-trust-unconfirmed");
+          const settings = {
+            developerMode: false,
+            backendProfile: "portable",
+            piToolMode: "pi-native",
+            piNativeTrustConfirmed: false,
+          };
+          const events = [];
+          for await (const ev of provider.run(ctx, settings)) {
+            events.push(ev);
+          }
+
+          const failedEv = events.find((e) => e.payload?.kind === "failed");
+          const trustMsg = failedEv?.payload?.message?.includes("Pi Native Tools 未确认");
+          const noSessionCreated = fakeMod.getFakeCapture().createAgentSessionCalls.length === 0;
+          const noPromptCalled = fakeMod.getFakeCapture().promptCalls.length === 0;
+
+          addTest("V17-D trust gate: pi-native 未确认 → failed + 不调用 createAgentSession/prompt",
+            failedEv && trustMsg && noSessionCreated && noPromptCalled ? "pass" : "fail",
+            `failed=${!!failedEv} trustMsg=${!!trustMsg} noSessionCreated=${noSessionCreated} noPromptCalled=${noPromptCalled}`);
+        }
+
+        // ----- Test V17D-D-5: prompt event 走通（text_delta + agent_end）-----
+        {
+          fakeMod.resetFakeCapture();
+          injectFakeProbe();
+          const provider = new piSdkProviderMod.PiSdkProvider();
+          const ctx = makeCtx("v17d-prompt-event");
+          const settings = {
+            developerMode: false,
+            backendProfile: "portable",
+            piToolMode: "pi-native",
+            piNativeTrustConfirmed: true,
+          };
+          const events = [];
+          for await (const ev of provider.run(ctx, settings)) {
+            events.push(ev);
+          }
+
+          const promptCalls = fakeMod.getFakeCapture().promptCalls;
+          const hasPromptCall = promptCalls.length === 1 && promptCalls[0].text === "hello v17d";
+          const hasMessage = events.some((e) => e.payload?.kind === "message" && e.payload?.text?.includes("fake response"));
+          const hasCompleted = events.some((e) => e.payload?.kind === "completed");
+
+          addTest("V17-D prompt event: session.prompt 收到 userPrompt + text_delta/agent_end 走通",
+            hasPromptCall && hasMessage && hasCompleted ? "pass" : "fail",
+            `promptCalls=${promptCalls.length} text=${promptCalls[0]?.text} hasMessage=${hasMessage} hasCompleted=${hasCompleted}`);
+        }
+
+        // ----- Test V17D-D-6: cancel/abort 走通 -----
+        {
+          fakeMod.resetFakeCapture();
+          fakeMod.setFakeSlowMode(true); // 让 prompt 在 text_delta 和 agent_end 之间留窗口
+          injectFakeProbe();
+          const provider = new piSdkProviderMod.PiSdkProvider();
+          const ctx = makeCtx("v17d-cancel");
+          const settings = {
+            developerMode: false,
+            backendProfile: "portable",
+            piToolMode: "pi-native",
+            piNativeTrustConfirmed: true,
+          };
+
+          const events = [];
+          const runPromise = (async () => {
+            for await (const ev of provider.run(ctx, settings)) {
+              events.push(ev);
+            }
+          })();
+
+          // 给时间让 createAgentSession 完成 + currentSession 被设置
+          await new Promise((r) => setTimeout(r, 15));
+          provider.cancel("v17d-cancel");
+          await runPromise;
+
+          const abortCalls = fakeMod.getFakeCapture().abortCalls;
+
+          addTest("V17-D cancel/abort: cancel(runId) 触发 session.abort()",
+            abortCalls >= 1 ? "pass" : "fail",
+            `abortCalls=${abortCalls} eventsCount=${events.length}`);
+        }
+
+        // ===== V17-D 任务 F：认证配置 runtime override 行为测试 =====
+        // 验证 settings.piApiKey/piAuthProvider/piApiBaseUrl 被注入到 fake authStorage
+        // 验证 settings.piApiModel 被传入 createAgentSession options
+        {
+          fakeMod.resetFakeCapture();
+          injectFakeProbe();
+          const provider = new piSdkProviderMod.PiSdkProvider();
+          const ctx = makeCtx("v17d-auth-override");
+          const settings = {
+            developerMode: false,
+            backendProfile: "portable",
+            piToolMode: "pi-native",
+            piNativeTrustConfirmed: true,
+            // V17-D 任务 F：runtime auth override 字段
+            piAuthProvider: "anthropic",
+            piApiModel: "claude-haiku-4-5",
+            piApiKey: "sk-test-key-v17d",
+            piApiBaseUrl: "https://us.pinai-cn.com",
+          };
+          const events = [];
+          for await (const ev of provider.run(ctx, settings)) {
+            events.push(ev);
+          }
+
+          const cap = fakeMod.getFakeCapture();
+          // setRuntimeApiKey 被调用且参数正确
+          const setKeyCalls = cap.setRuntimeApiKeyCalls;
+          const hasSetKey = setKeyCalls.length >= 1 && setKeyCalls.some((c) => c.provider === "anthropic" && c.key === "sk-test-key-v17d");
+          // registerProvider 被调用且 baseUrl 正确
+          const regCalls = cap.registerProviderCalls;
+          const hasRegister = regCalls.length >= 1 && regCalls.some((c) => c.provider === "anthropic" && c.opts?.baseUrl === "https://us.pinai-cn.com");
+          // model 被传入 createAgentSession
+          const sessionOpts = cap.createAgentSessionCalls[0]?.sessionOpts || {};
+          const hasModelOverride = sessionOpts.model && (sessionOpts.model.id === "fake-model" || typeof sessionOpts.model === "object");
+          // run 走通（不因 auth 失败）
+          const hasCompleted = events.some((e) => e.payload?.kind === "completed");
+
+          addTest("V17-D auth override: piApiKey/Provider/BaseUrl 注入 authStorage + model 传入 createAgentSession",
+            hasSetKey && hasRegister && hasModelOverride && hasCompleted ? "pass" : "fail",
+            `setKey=${hasSetKey}(${setKeyCalls.length}) register=${hasRegister}(${regCalls.length}) modelOverride=${hasModelOverride} completed=${hasCompleted}`);
+        }
+
+        // ----- Test V17D-F-2: 无 override 时 fallback 到 ~/.pi/agent 不调用 setRuntimeApiKey -----
+        {
+          fakeMod.resetFakeCapture();
+          injectFakeProbe();
+          const provider = new piSdkProviderMod.PiSdkProvider();
+          const ctx = makeCtx("v17d-no-override");
+          const settings = {
+            developerMode: false,
+            backendProfile: "portable",
+            piToolMode: "pi-native",
+            piNativeTrustConfirmed: true,
+            // 无 override
+            piAuthProvider: "anthropic",
+            piApiModel: "",
+            piApiKey: "",
+            piApiBaseUrl: "",
+          };
+          const events = [];
+          for await (const ev of provider.run(ctx, settings)) {
+            events.push(ev);
+          }
+
+          const cap = fakeMod.getFakeCapture();
+          const noSetKey = cap.setRuntimeApiKeyCalls.length === 0;
+          const noRegister = cap.registerProviderCalls.length === 0;
+          const noModelOverride = cap.createAgentSessionCalls[0]?.sessionOpts?.model === undefined;
+          const hasCompleted = events.some((e) => e.payload?.kind === "completed");
+
+          addTest("V17-D auth override: 空 override 时不调用 setRuntimeApiKey/registerProvider",
+            noSetKey && noRegister && noModelOverride && hasCompleted ? "pass" : "fail",
+            `noSetKey=${noSetKey} noRegister=${noRegister} noModelOverride=${noModelOverride} completed=${hasCompleted}`);
+        }
+      }
+
+      // ===== V17-D 任务 F：settings.ts Pi SDK Auth section 静态检查 =====
+      // V17-E 任务 F：section 标题改为 "Pi SDK Auth (Runtime Override — Optional/Advanced)"，
+      //              匹配放宽为 includes("Pi SDK Auth")
+      {
+        const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
+        const hasAuthSection = settingsSrc.includes("Pi SDK Auth");
+        const hasProvider = settingsSrc.includes('setName("Provider")') && settingsSrc.includes("piAuthProvider");
+        const hasModel = settingsSrc.includes('setName("Model")') && settingsSrc.includes("piApiModel");
+        const hasApiKey = settingsSrc.includes('setName("API Key")') && settingsSrc.includes("piApiKey") && settingsSrc.includes('type = "password"');
+        const hasBaseUrl = settingsSrc.includes('setName("Base URL")') && settingsSrc.includes("piApiBaseUrl");
+        const hasTestConn = settingsSrc.includes("Test connection") && settingsSrc.includes("probePiSdkAuth(probe, override)");
+        // 不写 ~/.pi/agent 的运行时 override（hint 提到 UI 配置）
+        const hintToUI = settingsSrc.includes("Pi SDK Auth") && readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "pi-sdk", "piSdkProvider.ts"), "utf8").includes("插件设置「Pi SDK Auth」");
+
+        addTest("V17-D settings.ts: Pi SDK Auth section (Provider/Model/API Key/Base URL/Test connection) + hint 指向 UI",
+          hasAuthSection && hasProvider && hasModel && hasApiKey && hasBaseUrl && hasTestConn && hintToUI ? "pass" : "fail",
+          `section=${hasAuthSection} provider=${hasProvider} model=${hasModel} apiKey=${hasApiKey} baseUrl=${hasBaseUrl} testConn=${hasTestConn} hintToUI=${hintToUI}`);
+      }
+
+      // ===== V17-D 任务 G：回归汇总 =====
+      // 验证：
+      // - V16.5-K1 skill runtime format 不回退（convertVaultSkillSourceToRuntime + materializeAllVaultSkills + # Instructions）
+      // - split 后 vault-context 保持 index-only（≤12000）
+      // - Claude/Codex provider 关键文件存在且导出未变（V17-D 改动不应触及）
+      // - PiSdkProvider 导出 V17-C/D 所需全部 API
+      // - types.ts 含 V17-D 任务 F 新增字段
+      {
+        const workspaceSrc = readFileSync(join(PROJECT_ROOT, "src", "agentRuntimeWorkspace.ts"), "utf8");
+        const k1Convert = workspaceSrc.includes("convertVaultSkillSourceToRuntime");
+        const k1Materialize = /materializeAllVaultSkills|materializeVaultSkill/.test(workspaceSrc);
+        const k1Instructions = /# Instructions|# Instruction/.test(workspaceSrc);
+        const k1IndexOnly = /index-only|index only|≤ 12000|<= 12000|charCount.*12000|12000.*charCount/.test(workspaceSrc);
+
+        const piSdkSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "pi-sdk", "piSdkProvider.ts"), "utf8");
+        const hasTryLoadAsync = piSdkSrc.includes("tryLoadPiSdkAsync");
+        const hasPreload = piSdkSrc.includes("static async preload");
+        const hasSetProbeForTest = piSdkSrc.includes("__setProbeForTest");
+        const hasAuthOverride = piSdkSrc.includes("PiSdkAuthOverride") && piSdkSrc.includes("createAuthWithOverride");
+        const hasProbeOverride = /probePiSdkAuth\(.*override/.test(piSdkSrc);
+
+        const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf8");
+        const hasNewSettings = typesSrc.includes("piAuthProvider") && typesSrc.includes("piApiModel") && typesSrc.includes("piApiKey") && typesSrc.includes("piApiBaseUrl");
+        const hasDefaults = /piAuthProvider:\s*"anthropic"/.test(typesSrc) && /piApiKey:\s*""/.test(typesSrc);
+
+        // Claude/Codex provider 关键文件存在（不应被 V17-D 改动触及）
+        const claudeSdkPath = join(PROJECT_ROOT, "src", "runtime", "providers", "claude-sdk", "claudeSdkProvider.ts");
+        const claudeCliPath = join(PROJECT_ROOT, "src", "runtime", "providers", "claude-cli", "claudeCliProvider.ts");
+        const codexPath = join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerProvider.ts");
+        const claudeSdkExists = existsSync(claudeSdkPath);
+        const claudeCliExists = existsSync(claudeCliPath);
+        const codexExists = existsSync(codexPath);
+
+        addTest("V17-D 回归 G: V16.5-K1 skill format + split vault-context index-only + Claude/Codex provider 不受影响 + PiSdkProvider 导出完整 + types 新字段",
+          k1Convert && k1Materialize && k1Instructions && k1IndexOnly &&
+          hasTryLoadAsync && hasPreload && hasSetProbeForTest && hasAuthOverride && hasProbeOverride &&
+          hasNewSettings && hasDefaults &&
+          claudeSdkExists && claudeCliExists && codexExists
+            ? "pass" : "fail",
+          `k1Convert=${k1Convert} k1Materialize=${k1Materialize} k1Instructions=${k1Instructions} k1IndexOnly=${k1IndexOnly} tryAsync=${hasTryLoadAsync} preload=${hasPreload} setProbe=${hasSetProbeForTest} authOverride=${hasAuthOverride} probeOverride=${hasProbeOverride} newSettings=${hasNewSettings} defaults=${hasDefaults} claudeSdk=${claudeSdkExists} claudeCli=${claudeCliExists} codex=${codexExists}`);
+      }
+
+      // ===== V17-E 任务 A：Codex provider selection 一致性 =====
+      // 验证：
+      // - isAvailable 不再硬编码 "codex"（改用 this.codexCommand）
+      // - run/resume 用 this.codexCommand（不再各读 settings.codexCommand）
+      // - selectProvider 传 settings.codexCommand 给 CodexAppServerProvider
+      // - createProcess spawn 时 env 含 enhanced PATH
+      {
+        const providerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerProvider.ts"), "utf8");
+        const bridgeSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "bridgeSession.ts"), "utf8");
+
+        // isAvailable 用 this.codexCommand（不硬编码 "codex"）
+        const isAvailableUsesMember = /execFileSync\(this\.codexCommand/.test(providerSrc);
+        const noHardcodedInIsAvailable = !/execFileSync\("codex"/.test(providerSrc);
+
+        // constructor 接收 codexCommand 参数
+        const ctorAcceptsCommand = /constructor\([^)]*codexCommand\s*:\s*string/.test(providerSrc);
+
+        // run/resume 用 this.codexCommand（不再读 settings.codexCommand || "codex"）
+        const runUsesMember = /command:\s*this\.codexCommand/.test(providerSrc);
+        const noSettingsCodexInRun = !/settings\.codexCommand\s*\|\|\s*"codex"/.test(providerSrc);
+
+        // selectProvider 传 settings.codexCommand 给 CodexAppServerProvider
+        const selectPassesCommand = /new CodexAppServerProvider\([^,]+,\s*settings\.codexCommand\s*\|\|\s*"codex"\)/.test(bridgeSrc);
+
+        // spawn 时 env 含 enhanced PATH
+        const hasBuildSpawnEnv = /buildSpawnEnv\(cwd\)/.test(providerSrc);
+        const usesEnhancedPath = /buildEnhancedPath/.test(providerSrc);
+        const importEnhancedPath = /from\s+"\.\.\/\.\.\/\.\.\/claudeCliBackend"/.test(providerSrc);
+        const envPassedToCreateProcess = /env:\s*this\.buildSpawnEnv\(/.test(providerSrc);
+
+        addTest("V17-E A: CodexAppServerProvider isAvailable/run/resume command 一致 + selectProvider 传 codexCommand + spawn enhanced PATH",
+          isAvailableUsesMember && noHardcodedInIsAvailable && ctorAcceptsCommand &&
+          runUsesMember && noSettingsCodexInRun && selectPassesCommand &&
+          hasBuildSpawnEnv && usesEnhancedPath && importEnhancedPath && envPassedToCreateProcess
+            ? "pass" : "fail",
+          `isAvailableMember=${isAvailableUsesMember} noHardcoded=${noHardcodedInIsAvailable} ctor=${ctorAcceptsCommand} runMember=${runUsesMember} noSettingsInRun=${noSettingsCodexInRun} selectPasses=${selectPassesCommand} buildSpawnEnv=${hasBuildSpawnEnv} enhancedPath=${usesEnhancedPath} importOk=${importEnhancedPath} envPassed=${envPassedToCreateProcess}`);
+      }
+
+      // ===== V17-E 任务 B：显式 codex BackendMode + auto 策略修正 =====
+      {
+        const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf8");
+        const bridgeSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "bridgeSession.ts"), "utf8");
+        const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
+
+        // BackendMode 联合含 "codex"
+        const hasCodexMode = /BackendMode\s*=\s*[^;]*"codex"/.test(typesSrc);
+        // selectProvider 处理 mode === "codex"
+        const handlesCodexMode = /mode\s*===\s*"codex"/.test(bridgeSrc);
+        const codexModeNotFallback = /Codex app-server \(unavailable\)/.test(bridgeSrc);
+        // developer profile auto: codex→claude-sdk→claude-cli（Codex-first）
+        const autoDevCodexFirst = /auto \+ developer:\s*codex-app-server/.test(bridgeSrc) && /codex→claude-sdk→claude-cli/.test(bridgeSrc) ||
+                                  /codex-app-server → claude-sdk → claude-cli/.test(bridgeSrc);
+        // settings UI 有 codex 下拉选项
+        const hasCodexOption = settingsSrc.includes('addOption("codex"');
+        // auto 选项文案修正（不再写 "SDK-first + CLI fallback"）
+        const autoDescFixed = settingsSrc.includes("profile 决定") && !settingsSrc.includes("auto=SDK-first");
+
+        addTest("V17-E B: BackendMode 含 codex + selectProvider 处理 + 不静默 fallback + auto 策略 Codex-first + settings UI 下拉",
+          hasCodexMode && handlesCodexMode && codexModeNotFallback && autoDevCodexFirst && hasCodexOption && autoDescFixed ? "pass" : "fail",
+          `hasCodexMode=${hasCodexMode} handlesCodexMode=${handlesCodexMode} notFallback=${codexModeNotFallback} autoDevCodexFirst=${autoDevCodexFirst} hasCodexOption=${hasCodexOption} autoDescFixed=${autoDescFixed}`);
+      }
+
+      // ===== V17-E 任务 C：真实 Codex app-server smoke readiness matrix =====
+      // 验证 codex-app-server-smoke.mjs 输出 12 字段 readiness matrix + codexUserReady
+      // 真实 codex 环境运行需 manual；此处验证脚本结构正确
+      {
+        const smokeSrc = readFileSync(join(PROJECT_ROOT, "scripts", "codex-app-server-smoke.mjs"), "utf8");
+        const requiredFields = [
+          "codexCliAvailable", "codexVersion", "codexAuthAvailable",
+          "appServerSpawnStatus", "initializeStatus", "threadStartStatus",
+          "turnStartStatus", "turnCompletedStatus", "approvalRequestStatus",
+          "fileChangeRequestStatus", "stopCancelStatus", "noVaultRootPollution",
+        ];
+        const hasAllFields = requiredFields.every((f) => smokeSrc.includes(f));
+        const hasDeriveFunction = smokeSrc.includes("function deriveReadinessMatrix");
+        const hasPrintFunction = smokeSrc.includes("function printReadinessMatrix");
+        const hasCodexUserReady = smokeSrc.includes("codexUserReady");
+        // skip 时 codexUserReady=false（不伪装 ready）
+        const skipNotReady = /smokeStatus\s*===\s*"skip"/.test(smokeSrc) || /codexUserReady\s*=\s*report\.smokeStatus\s*===\s*"pass"/.test(smokeSrc);
+        // approval/fileChange/stopCancel flag 收集
+        const collectsApproval = smokeSrc.includes("approvalRequestTriggered");
+        const collectsFileChange = smokeSrc.includes("fileChangeRequestTriggered");
+        const collectsProcKill = smokeSrc.includes("procKillOk");
+        // noVaultRootPollution 检测
+        const checksPollution = smokeSrc.includes("noVaultRootPollution") && smokeSrc.includes(".codex");
+
+        addTest("V17-E C: codex-app-server-smoke 输出 12 字段 readiness matrix + codexUserReady + skip 不算 ready + flag 收集",
+          hasAllFields && hasDeriveFunction && hasPrintFunction && hasCodexUserReady && skipNotReady &&
+          collectsApproval && collectsFileChange && collectsProcKill && checksPollution ? "pass" : "fail",
+          `allFields=${hasAllFields} derive=${hasDeriveFunction} print=${hasPrintFunction} codexUserReady=${hasCodexUserReady} skipNotReady=${skipNotReady} approval=${collectsApproval} fileChange=${collectsFileChange} procKill=${collectsProcKill} pollution=${checksPollution}`);
+      }
+
+      // ===== V17-E 任务 D：Codex onboarding card =====
+      // 验证 settings.ts 含 Codex setup/status card + 四种状态提示 + 最短修复提示
+      {
+        const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
+        const hasCodexSection = settingsSrc.includes("Codex Setup / Status (V17-E)");
+        const hasCodexCommand = settingsSrc.includes('setName("Codex 命令")') && settingsSrc.includes("s.codexCommand");
+        const hasCodexStatus = settingsSrc.includes('setName("Codex 状态")');
+        // 四种状态文案
+        const hasNotInstalled = settingsSrc.includes("未安装");
+        const hasNotLoggedIn = settingsSrc.includes("但未登录");
+        const hasAppServerUnavailable = settingsSrc.includes("app-server 不可用");
+        const hasReady = settingsSrc.includes("ready");
+        // 最短修复提示
+        const hasInstallHint = settingsSrc.includes("npm install -g @openai/codex");
+        const hasLoginHint = settingsSrc.includes("codex login");
+        const hasUpgradeHint = settingsSrc.includes("@openai/codex@latest");
+        // 探测逻辑
+        const probesVersion = settingsSrc.includes('execFileSync(codexCmd, ["--version"]');
+        const probesAuth = settingsSrc.includes(".codex") && (settingsSrc.includes("auth.json") || settingsSrc.includes("config.toml"));
+        const probesAppServer = settingsSrc.includes('app-server", "--help"');
+        const hasRedetectButton = settingsSrc.includes("重新检测");
+
+        addTest("V17-E D: settings.ts Codex setup/status card（四种状态 + 修复提示 + 探测逻辑 + 重新检测）",
+          hasCodexSection && hasCodexCommand && hasCodexStatus &&
+          hasNotInstalled && hasNotLoggedIn && hasAppServerUnavailable && hasReady &&
+          hasInstallHint && hasLoginHint && hasUpgradeHint &&
+          probesVersion && probesAuth && probesAppServer && hasRedetectButton ? "pass" : "fail",
+          `section=${hasCodexSection} cmd=${hasCodexCommand} status=${hasCodexStatus} notInstalled=${hasNotInstalled} notLoggedIn=${hasNotLoggedIn} appServerUnavail=${hasAppServerUnavailable} ready=${hasReady} installHint=${hasInstallHint} loginHint=${hasLoginHint} upgradeHint=${hasUpgradeHint} probesVersion=${probesVersion} probesAuth=${probesAuth} probesAppServer=${probesAppServer} redetect=${hasRedetectButton}`);
+      }
+
+      // ===== V17-E 任务 E：测试报告修正 =====
+      // 验证：
+      // - codex-app-server-smoke.mjs 写入 codexUserReady 字段到报告
+      // - generate-test-summary.mjs 解析 codexUserReady
+      // - generate-test-summary.mjs 输出 codexUserReady 到 summary
+      // - codexSmokeStatus=skip 时不写"主线闭环测试通过"
+      // - 拆分 fixture/unit pass 与 real smoke pass
+      {
+        const smokeSrc = readFileSync(join(PROJECT_ROOT, "scripts", "codex-app-server-smoke.mjs"), "utf8");
+        const summarySrc = readFileSync(join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs"), "utf8");
+
+        // smoke 脚本写入 codexUserReady 到报告
+        const smokeWritesReady = /- \*\*codexUserReady\*\*: \$\{report\.smokeStatus === "pass"/.test(smokeSrc);
+        // summary 脚本解析 codexUserReady
+        const summaryParsesReady = summarySrc.includes("codexUserReady") && /true\|false/.test(summarySrc) && summarySrc.includes("userReadyMatch");
+        // summary 输出 codexUserReady 字段
+        const summaryOutputsReady = /- \*\*codexUserReady\*\*: \$\{codexSmoke\.codexUserReady/.test(summarySrc);
+        // skip 时不写"主线闭环测试通过"
+        const skipNotPass = /codexSmokeSkipped/.test(summarySrc) && /real smoke skipped/.test(summarySrc);
+        // 拆分 fixture/unit pass 与 real smoke pass
+        const splitsLayers = /fixture\/unit 层 pass/.test(summarySrc) && /real smoke 层/.test(summarySrc);
+        // codexSmokePassed 才写"闭环测试通过（含 real smoke）"
+        const passRequiresSmoke = /codexSmokePassed/.test(summarySrc) && /real smoke pass/.test(summarySrc) && !/totalFailed === 0 && auditFailures\.length === 0 && !codexSmokePassed\)\s*{[^}]*主线闭环测试通过/.test(summarySrc);
+
+        addTest("V17-E E: codex-app-server-smoke 写入 codexUserReady + generate-test-summary 解析/输出 + skip 不写主线闭环通过 + 拆分 fixture/real smoke 层",
+          smokeWritesReady && summaryParsesReady && summaryOutputsReady && skipNotPass && splitsLayers && passRequiresSmoke ? "pass" : "fail",
+          `smokeWrites=${smokeWritesReady} summaryParses=${summaryParsesReady} summaryOutputs=${summaryOutputsReady} skipNotPass=${skipNotPass} splitsLayers=${splitsLayers} passRequiresSmoke=${passRequiresSmoke}`);
+      }
+
+      // ===== V17-E 任务 F：Pi 线降级说明 =====
+      // 验证：
+      // - F1: Pi SDK 标记为 optional/advanced backend（types.ts 注释 + settings.ts UI 文案 + bridgeSession.ts 注释）
+      // - F2: friendReady 字段废弃，改名为 piAdvancedReady（pi-sdk-smoke.mjs 不再输出 friendReady=）
+      // - F3: Pi provider ESM dynamic import 作为独立修复项（piSdkProvider.ts 注释说明）
+      {
+        const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf8");
+        const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
+        const bridgeSessionSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "bridgeSession.ts"), "utf8");
+        const piSdkProviderSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "pi-sdk", "piSdkProvider.ts"), "utf8");
+        const piSdkSmokeSrc = readFileSync(join(PROJECT_ROOT, "scripts", "pi-sdk-smoke.mjs"), "utf8");
+
+        // F1: Pi SDK 标记为 optional/advanced backend
+        const typesMarksOptional = typesSrc.includes("V17-E 任务 F") && /optional\/advanced backend/.test(typesSrc) && /pi-sdk.*pi-rpc.*降级/.test(typesSrc.replace(/\s+/g, " "));
+        const settingsMarksOptional = settingsSrc.includes("Pi Backend (Optional / Advanced — V17-E 任务 F)") && settingsSrc.includes("Pi SDK Auth (Runtime Override — Optional/Advanced)");
+        const bridgeSessionMarksOptional = bridgeSessionSrc.includes("V17-E 任务 F") && /optional\/advanced backend/.test(bridgeSessionSrc) && /portable.*Pi-first.*可选实验路径/.test(bridgeSessionSrc.replace(/\s+/g, " "));
+
+        // F2: friendReady 废弃，改名 piAdvancedReady
+        const smokeNoFriendReady = !piSdkSmokeSrc.includes("friendReady=");
+        const smokeHasPiAdvancedReady = piSdkSmokeSrc.includes("piAdvancedReady=") && piSdkSmokeSrc.includes("piAdvancedReady=false") && piSdkSmokeSrc.includes("piAdvancedReady=\" + (piNativePassed ? \"true\" : \"false\")");
+        const smokeDocumentsRename = piSdkSmokeSrc.includes("friendReady 字段废弃，改名为 piAdvancedReady");
+
+        // F3: ESM dynamic import 独立修复项说明
+        const providerDocumentsEsmFix = piSdkProviderSrc.includes("V17-E 任务 F") && /ESM dynamic import.*独立修复项/.test(piSdkProviderSrc) && /不阻塞 Codex-first audit/.test(piSdkProviderSrc);
+        const providerMarksEsmFixIndependent = piSdkProviderSrc.includes("dynamicImportNode") && /V17-E 任务 F：ESM dynamic import 作为独立修复项/.test(piSdkProviderSrc);
+
+        const f1Ok = typesMarksOptional && settingsMarksOptional && bridgeSessionMarksOptional;
+        const f2Ok = smokeNoFriendReady && smokeHasPiAdvancedReady && smokeDocumentsRename;
+        const f3Ok = providerDocumentsEsmFix && providerMarksEsmFixIndependent;
+
+        addTest("V17-E F: Pi SDK 降级 optional/advanced backend + friendReady→piAdvancedReady + ESM dynamic import 独立修复项",
+          f1Ok && f2Ok && f3Ok ? "pass" : "fail",
+          `f1=${f1Ok} (types=${typesMarksOptional} settings=${settingsMarksOptional} bridge=${bridgeSessionMarksOptional}) f2=${f2Ok} (noFriendReady=${smokeNoFriendReady} hasPiAdvancedReady=${smokeHasPiAdvancedReady} docsRename=${smokeDocumentsRename}) f3=${f3Ok} (providerDocs=${providerDocumentsEsmFix} esmIndependent=${providerMarksEsmFixIndependent})`);
       }
     } finally {
       try { rmSync(v17bTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }

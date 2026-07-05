@@ -1,6 +1,6 @@
 # Codex real app-server smoke 报告
 
-- **测试时间**: 2026-07-04T16:45:52.779Z
+- **测试时间**: 2026-07-05T17:52:32.330Z
 - **codex 可用**: 否
 - **codexVersion**: null
 - **schemaSource**: fixture
@@ -8,6 +8,7 @@
 - **handshakeStatus**: skip
 - **turnStatus**: skip
 - **smokeStatus**: skip
+- **codexUserReady**: false
 - **generatedFiles**: (generate-ts 未运行)
 - **schemaHash**: null
 - **protocolCapabilities**: null

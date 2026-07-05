@@ -65,11 +65,16 @@ import type {
   CodexTurnStartedParams,
 } from "./schema";
 import { execFileSync } from "child_process";
+import { buildEnhancedPath } from "../../../claudeCliBackend";
 
 /**
  * CodexAppServerProvider：通过 codex app-server JSON-RPC 接入 Bridge Core。
  *
  * 主目标 provider（V2.17-A Completion）。
+ *
+ * V17-E 任务 A：command 来源统一为 settings.codexCommand（constructor 注入），
+ * isAvailable/run/resume/spawn 共用同一 command；spawn 使用 enhanced PATH
+ * 避免普通用户因 PATH 不完整被误判不可用。
  */
 export class CodexAppServerProvider implements RuntimeProvider {
   readonly providerId = "codex-app-server" as const;
@@ -84,26 +89,45 @@ export class CodexAppServerProvider implements RuntimeProvider {
   private currentClient: JsonRpcClient | null = null;
   /** 当前 runId（cancel 配对） */
   private currentRunId: string | null = null;
+  /** V17-E 任务 A：codex 命令来源（来自 settings.codexCommand，默认 "codex"） */
+  private readonly codexCommand: string;
 
-  constructor(_developerMode: boolean = false) {
+  constructor(_developerMode: boolean = false, codexCommand: string = "codex") {
     // developerMode 由 run() 内部根据 settings 注入；构造时无需缓存
     this.approvalMapper = new CodexAppServerApprovalMapper(this.providerId);
     this.userInputMapper = new CodexAppServerUserInputMapper(this.providerId);
     this.sessionMapper = new CodexAppServerSessionMapper();
+    this.codexCommand = codexCommand || "codex";
   }
 
   isAvailable(cwd: string): boolean {
-    // 探测 codex 命令是否存在：spawn `codex --version`
+    // V17-E 任务 A：探测 command 来源与 run/spawn 一致（this.codexCommand）
     try {
-      execFileSync("codex", ["--version"], {
+      execFileSync(this.codexCommand, ["--version"], {
         cwd,
         stdio: ["ignore", "ignore", "ignore"],
         timeout: 3000,
+        env: this.buildSpawnEnv(cwd),
       });
       return true;
     } catch {
       return false;
     }
+  }
+
+  /**
+   * V17-E 任务 A：构建 spawn env（含 enhanced PATH）。
+   * 复用 claudeCliBackend 的 buildEnhancedPath，避免普通用户因 PATH 不完整被误判不可用。
+   */
+  private buildSpawnEnv(cwd: string): NodeJS.ProcessEnv {
+    const env: NodeJS.ProcessEnv = { ...process.env };
+    try {
+      const extraPath = buildEnhancedPath(cwd);
+      if (extraPath) {
+        env.PATH = extraPath + (process.platform === "win32" ? ";" : ":") + (env.PATH || "");
+      }
+    } catch { /* fallthrough: enhanced PATH 不可用时退回 process.env */ }
+    return env;
   }
 
   buildPlan(input: RunInput, settings: LLMBridgeSettings): EffectiveRunPlan {
@@ -118,12 +142,12 @@ export class CodexAppServerProvider implements RuntimeProvider {
     // 派生 codex 运行参数
     const options = buildCodexAppServerRunOptions(ctx.plan, ctx.promptPackage);
 
-    // 启动 codex app-server 进程
-    const codexCommand = settings.codexCommand || "codex";
+    // V17-E 任务 A：启动 codex app-server 进程（command 来源 = this.codexCommand，env 含 enhanced PATH）
     const process = this.createProcess({
-      command: codexCommand,
+      command: this.codexCommand,
       args: ["app-server"],
       cwd: ctx.plan.cwd,
+      env: this.buildSpawnEnv(ctx.plan.cwd),
     });
     this.currentProcess = process;
 
@@ -276,11 +300,12 @@ export class CodexAppServerProvider implements RuntimeProvider {
     const eventMapper = new CodexAppServerEventMapper(this.providerId, developerMode);
     const options = buildCodexAppServerRunOptions(ctx.plan, ctx.promptPackage);
 
-    const codexCommand = settings.codexCommand || "codex";
+    const codexCommand = this.codexCommand;
     const process = this.createProcess({
       command: codexCommand,
       args: ["app-server"],
       cwd: ctx.plan.cwd,
+      env: this.buildSpawnEnv(ctx.plan.cwd),
     });
     this.currentProcess = process;
 
