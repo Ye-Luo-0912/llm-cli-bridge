@@ -621,6 +621,97 @@ export function buildAgentRuntimeReadme(): string {
 // ---------- Skill source → runtime materialization ----------
 
 /**
+ * V16.5-K1 任务 A：source → runtime skill 转换。
+ *
+ * source skill（LLM-AgentRuntime/skills/<slug>/SKILL.md）是 agent 维护的纯 markdown；
+ * runtime skill（.claude/skills/<slug>/SKILL.md）必须包含 YAML frontmatter + # Instructions
+ * 才能被 Claude / SDK 按需识别。
+ *
+ * runtime 格式（与 agentSkills.ts serializeAgentSkillToMarkdown 一致）：
+ *   ---
+ *   name: <slug>
+ *   description: <description>
+ *   ---
+ *   <!-- generated-by: llm-cli-bridge -->
+ *   <!-- source-slug: <slug> -->
+ *   <!-- source-hash: <hash> -->
+ *
+ *   # Instructions
+ *
+ *   <source content>
+ *
+ * 不把 source 直接复制到 runtime；runtime 始终通过本函数派生。
+ */
+export interface VaultSkillRuntimeMeta {
+  readonly slug: string;
+  readonly name: string;
+  readonly description: string;
+}
+
+const VAULT_SKILL_RUNTIME_META: Readonly<Record<string, VaultSkillRuntimeMeta>> = {
+  [VAULT_CONTEXT_SLUG]: { slug: VAULT_CONTEXT_SLUG, name: "vault-context", description: "Agent-maintained long-term vault context cache." },
+  [VAULT_INDEX_SLUG]: { slug: VAULT_INDEX_SLUG, name: "vault-index", description: "Vault Skill index and routing." },
+  "vault-structure": { slug: "vault-structure", name: "Vault Structure", description: "Vault directory layout and structure facts." },
+  "file-operations": { slug: "file-operations", name: "File Operations", description: "File operation preferences and naming rules." },
+  "user-preferences": { slug: "user-preferences", name: "User Preferences", description: "User long-term preferences and corrections." },
+  "project-context": { slug: "project-context", name: "Project Context", description: "Project conventions and AGENTS.md context." },
+};
+
+export function getVaultSkillRuntimeMeta(slug: string): VaultSkillRuntimeMeta {
+  return VAULT_SKILL_RUNTIME_META[slug] ?? { slug, name: slug, description: `Split skill: ${slug}` };
+}
+
+export function convertVaultSkillSourceToRuntime(
+  sourceContent: string,
+  slug: string,
+  metaOverride?: Partial<VaultSkillRuntimeMeta>,
+): string {
+  const meta = { ...getVaultSkillRuntimeMeta(slug), ...metaOverride };
+  const sourceHash = sha256(sourceContent);
+  // 去除 source 可能已有的 H1（# VAULT_SKILL / # vault-index 等），避免与 # Instructions 重复
+  const stripped = sourceContent.replace(/^#\s+[^\n]*\n+/m, "").trim();
+  return [
+    "---",
+    `name: ${quoteYamlValue(meta.name)}`,
+    `description: ${quoteYamlValue(meta.description)}`,
+    "---",
+    "",
+    `<!-- generated-by: llm-cli-bridge -->`,
+    `<!-- source-slug: ${slug} -->`,
+    `<!-- source-hash: ${sourceHash} -->`,
+    "",
+    "# Instructions",
+    "",
+    stripped,
+    "",
+  ].join("\n");
+}
+
+function quoteYamlValue(value: string): string {
+  // 简单 YAML quoting：含特殊字符时用双引号
+  const needsQuote = /[:#\[\]{}&!*|>'"%@`,\n]/.test(value) || value.trim() !== value || value.length === 0;
+  if (!needsQuote) return value;
+  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+/**
+ * V16.5-K1 任务 A：从 runtime SKILL.md 内容中解析 source-hash。
+ * 用于 conflict 检测：比较 runtime 记录的 source-hash 与当前 source 的 hash。
+ */
+export function parseRuntimeSkillSourceHash(runtimeContent: string): string | null {
+  const m = runtimeContent.match(/<!-- source-hash: ([a-f0-9]{64}) -->/);
+  return m ? m[1] : null;
+}
+
+/**
+ * V16.5-K1 任务 A：判断 runtime SKILL.md 是否由 plugin 生成。
+ */
+export function isRuntimeSkillPluginGenerated(runtimeContent: string): boolean {
+  return runtimeContent.includes("<!-- generated-by: llm-cli-bridge -->")
+    && runtimeContent.includes("# Instructions");
+}
+
+/**
  * V16.5-E 任务 E：读取 VAULT_SKILL source 并物化到 .claude/skills。
  *
  * 复用现有 agentSkills.ts 机制，不重写 Skills 系统。
@@ -640,9 +731,22 @@ export interface VaultSkillMaterializeResult {
   readonly reason?: string;
 }
 
-export async function materializeVaultSkill(vaultPath: string): Promise<VaultSkillMaterializeResult> {
-  const sourceAbs = path.join(vaultPath, VAULT_SKILL_SOURCE_REL);
-  const materializedAbs = path.join(vaultPath, ".claude/skills", VAULT_CONTEXT_SLUG, "SKILL.md");
+export async function materializeVaultSkill(
+  vaultPath: string,
+  options: {
+    readonly slug?: string;
+    readonly sourcePath?: string;
+    readonly materializedPath?: string;
+    readonly metaOverride?: Partial<VaultSkillRuntimeMeta>;
+  } = {},
+): Promise<VaultSkillMaterializeResult> {
+  const slug = options.slug ?? VAULT_CONTEXT_SLUG;
+  const sourceRel = options.sourcePath ?? (slug === VAULT_CONTEXT_SLUG
+    ? VAULT_SKILL_SOURCE_REL
+    : `LLM-AgentRuntime/skills/${slug}/SKILL.md`);
+  const materializedRel = options.materializedPath ?? path.posix.join(".claude/skills", slug, "SKILL.md");
+  const sourceAbs = path.join(vaultPath, sourceRel);
+  const materializedAbs = path.join(vaultPath, materializedRel);
 
   // 读取 source
   let sourceContent: string;
@@ -652,8 +756,8 @@ export async function materializeVaultSkill(vaultPath: string): Promise<VaultSki
     return {
       ok: false,
       status: "missing-source",
-      sourcePath: VAULT_SKILL_SOURCE_REL,
-      materializedPath: path.posix.join(".claude/skills", VAULT_CONTEXT_SLUG, "SKILL.md"),
+      sourcePath: sourceRel,
+      materializedPath: materializedRel,
       sourceHash: "",
       materializedHash: "",
       reason: "source SKILL.md not found; run ensureAgentRuntimeWorkspace first",
@@ -661,6 +765,9 @@ export async function materializeVaultSkill(vaultPath: string): Promise<VaultSki
   }
 
   const sourceHash = sha256(sourceContent);
+
+  // V16.5-K1：使用 convertVaultSkillSourceToRuntime 派生 runtime 内容（含 frontmatter + # Instructions）
+  const runtimeContent = convertVaultSkillSourceToRuntime(sourceContent, slug, options.metaOverride);
 
   // 读取 materialized
   let existingMaterialized: string | null = null;
@@ -670,62 +777,55 @@ export async function materializeVaultSkill(vaultPath: string): Promise<VaultSki
     existingMaterialized = null;
   }
 
-  // conflict 检测：materialized 存在但 hash 与 manifest 不匹配 → 人工修改过
-  // V16.5-E: 使用 manifest（.llm-bridge/agent-skills.json）记录的 materializedHash 比对
-  // 为简化本阶段：如果 materialized 内容与 source 不一致且不是 plugin-generated marker，返回 conflict
+  // conflict 检测：通过 runtime 中记录的 source-hash 比对当前 source hash
   if (existingMaterialized !== null) {
-    // materialized 文件带 plugin-generated marker，比较时剥离 marker
-    const markerPrefix = "<!-- generated-by:llm-cli-bridge -->\n";
-    const strippedMaterialized = existingMaterialized.startsWith(markerPrefix)
-      ? existingMaterialized.slice(markerPrefix.length)
-      : existingMaterialized;
-    const strippedHash = sha256(strippedMaterialized);
-    if (strippedHash === sourceHash) {
-      // 已物化且内容一致（marker 不计入内容比对）
-      return {
-        ok: true,
-        status: "skipped",
-        sourcePath: VAULT_SKILL_SOURCE_REL,
-        materializedPath: path.posix.join(".claude/skills", VAULT_CONTEXT_SLUG, "SKILL.md"),
-        sourceHash,
-        materializedHash: sha256(existingMaterialized),
-      };
-    }
-    // 内容不一致：检查是否是 plugin-generated
-    const isPluginGenerated = existingMaterialized.includes("<!-- generated-by:llm-cli-bridge -->");
+    const existingSourceHash = parseRuntimeSkillSourceHash(existingMaterialized);
+    const isPluginGenerated = isRuntimeSkillPluginGenerated(existingMaterialized);
+
     if (!isPluginGenerated) {
       return {
         ok: false,
         status: "conflict",
-        sourcePath: VAULT_SKILL_SOURCE_REL,
-        materializedPath: path.posix.join(".claude/skills", VAULT_CONTEXT_SLUG, "SKILL.md"),
+        sourcePath: sourceRel,
+        materializedPath: materializedRel,
         sourceHash,
         materializedHash: sha256(existingMaterialized),
         reason: "materialized SKILL.md is not plugin-generated; will not overwrite",
       };
     }
-    // plugin-generated 但 stripped 内容与 source 不一致 → 正常更新
+
+    if (existingSourceHash === sourceHash) {
+      // runtime 由 plugin 生成且记录的 source-hash 与当前 source 一致 → 已是最新
+      return {
+        ok: true,
+        status: "skipped",
+        sourcePath: sourceRel,
+        materializedPath: materializedRel,
+        sourceHash,
+        materializedHash: sha256(existingMaterialized),
+      };
+    }
+    // plugin-generated 但 source-hash 不一致 → 正常更新
   }
 
-  // 写入 materialized（加 plugin-generated marker）
-  const contentWithMarker = `<!-- generated-by:llm-cli-bridge -->\n${sourceContent}`;
+  // 写入 materialized（runtime 格式，含 frontmatter + # Instructions）
   try {
     await fs.promises.mkdir(path.dirname(materializedAbs), { recursive: true });
-    await fs.promises.writeFile(materializedAbs, contentWithMarker, "utf8");
+    await fs.promises.writeFile(materializedAbs, runtimeContent, "utf8");
     return {
       ok: true,
       status: existingMaterialized === null ? "created" : "updated",
-      sourcePath: VAULT_SKILL_SOURCE_REL,
-      materializedPath: path.posix.join(".claude/skills", VAULT_CONTEXT_SLUG, "SKILL.md"),
+      sourcePath: sourceRel,
+      materializedPath: materializedRel,
       sourceHash,
-      materializedHash: sha256(contentWithMarker),
+      materializedHash: sha256(runtimeContent),
     };
   } catch (e) {
     return {
       ok: false,
       status: "error",
-      sourcePath: VAULT_SKILL_SOURCE_REL,
-      materializedPath: path.posix.join(".claude/skills", VAULT_CONTEXT_SLUG, "SKILL.md"),
+      sourcePath: sourceRel,
+      materializedPath: materializedRel,
       sourceHash,
       materializedHash: "",
       reason: e instanceof Error ? e.message : String(e),
@@ -907,6 +1007,11 @@ export interface VaultSkillSplitResult {
   readonly ok: boolean;
   readonly splitSkills: ReadonlyArray<{ readonly slug: string; readonly content: string; readonly charCount: number }>;
   readonly vaultIndexContent: string;
+  /**
+   * V16.5-K1 任务 B：split 后 vault-context 改为 index-only（指向 vault-index），不再保留 compacted 全文。
+   * 这样拆出的 facts 只存在于 split skill 中，不会与 vault-context 重复。
+   */
+  readonly vaultContextRemainingContent: string;
   readonly reason?: string;
 }
 
@@ -956,10 +1061,42 @@ export function splitVaultSkillByResponsibility(vaultContextContent: string): Va
   }
   indexLines.push("", `---`, "", `_Last Updated: ${new Date().toISOString()}_`, "");
 
+  // V16.5-K1 任务 B：split 后 vault-context 改为 index-only，指向 vault-index，不保留 compacted 全文。
+  // 拆出的 facts 只存在于 split skill 中，不会与 vault-context 重复。
+  const vaultContextRemainingLines: string[] = [
+    "# VAULT_SKILL",
+    "",
+    `> Agent-maintained long-term vault context cache. Generated by llm-cli-bridge.`,
+    `> Source-of-truth: ${VAULT_SKILL_SOURCE_REL}`,
+    `> Materialized to: .claude/skills/${VAULT_CONTEXT_SLUG}/SKILL.md`,
+    "",
+    "> **Split notice**: 本 vault-context 已按职责拆分为多个子 skill。",
+    "> 长期事实已分散到 vault-structure / file-operations / user-preferences / project-context。",
+    "> 完整索引见 `vault-index` skill（LLM-AgentRuntime/skills/vault-index/SKILL.md）。",
+    "",
+    "## Stable Vault Facts",
+    "",
+    "- (vault-context 已拆分；稳定事实已迁移到子 skill)",
+    "",
+    "## Agent Observations",
+    "",
+    "- (vault-context 已拆分；观察已迁移到子 skill)",
+    "",
+    "## User Corrections",
+    "",
+    "- (用户可在此区纠错；agent 不自动覆盖)",
+    "",
+    `---`,
+    "",
+    `_Last Updated: ${new Date().toISOString()}_`,
+    "",
+  ];
+
   return {
     ok: true,
     splitSkills,
     vaultIndexContent: indexLines.join("\n"),
+    vaultContextRemainingContent: vaultContextRemainingLines.join("\n"),
   };
 }
 
@@ -1036,25 +1173,27 @@ export async function compactOrSplitVaultSkill(vaultPath: string): Promise<Compa
     await fs.promises.writeFile(skillSourcePath, skill.content, "utf8");
   }
 
-  // 更新 vault-context 为剩余内容（compact 版本）
-  await fs.promises.writeFile(path.join(vaultPath, VAULT_SKILL_SOURCE_REL), compacted, "utf8");
+  // V16.5-K1 任务 B：vault-context 改为 index-only（指向 vault-index），不再保留 compacted 全文。
+  // 拆出的 facts 只存在于 split skill 中，不会与 vault-context 重复。
+  const vaultContextRemaining = splitResult.vaultContextRemainingContent;
+  await fs.promises.writeFile(path.join(vaultPath, VAULT_SKILL_SOURCE_REL), vaultContextRemaining, "utf8");
 
   // 写入 vault-index
   const indexPath = path.join(vaultPath, VAULT_INDEX_SOURCE_REL);
   await fs.promises.mkdir(path.dirname(indexPath), { recursive: true });
   await fs.promises.writeFile(indexPath, splitResult.vaultIndexContent, "utf8");
 
-  // 更新 manifest
+  // 更新 manifest（sourceHash/charCount 与实际 source 文件一致）
   const nowIso = new Date().toISOString();
   const entries: VaultSkillManifestEntry[] = [
     {
       slug: VAULT_CONTEXT_SLUG,
       name: "vault-context",
-      description: "Main vault context (remaining facts after split).",
+      description: "Main vault context (index-only after split).",
       sourcePath: VAULT_SKILL_SOURCE_REL,
       materializedPath: `.claude/skills/${VAULT_CONTEXT_SLUG}/SKILL.md`,
-      sourceHash: sha256(compacted),
-      charCount: compacted.length,
+      sourceHash: sha256(vaultContextRemaining),
+      charCount: vaultContextRemaining.length,
       updatedAt: nowIso,
     },
     {
@@ -1089,7 +1228,7 @@ export async function compactOrSplitVaultSkill(vaultPath: string): Promise<Compa
 
   return {
     action: "split",
-    vaultContextContent: compacted,
+    vaultContextContent: vaultContextRemaining,
     splitResult,
   };
 }
@@ -1114,75 +1253,15 @@ export async function materializeAllVaultSkills(vaultPath: string): Promise<Mate
   const vaultContextResult = await materializeVaultSkill(vaultPath);
   results.push(vaultContextResult);
 
-  // 物化 manifest 中的所有 split skills
+  // 物化 manifest 中的所有 split skills（复用 materializeVaultSkill 的转换 + conflict 检测）
   for (const entry of manifest.entries) {
     if (entry.slug === VAULT_CONTEXT_SLUG) continue; // 已物化
-    const sourceAbs = path.join(vaultPath, entry.sourcePath);
-    const materializedAbs = path.join(vaultPath, entry.materializedPath);
-    try {
-      const sourceContent = await fs.promises.readFile(sourceAbs, "utf8");
-      const sourceHash = sha256(sourceContent);
-
-      let existingMaterialized: string | null = null;
-      try {
-        existingMaterialized = await fs.promises.readFile(materializedAbs, "utf8");
-      } catch {
-        existingMaterialized = null;
-      }
-
-      if (existingMaterialized !== null) {
-        const markerPrefix = "<!-- generated-by:llm-cli-bridge -->\n";
-        const stripped = existingMaterialized.startsWith(markerPrefix)
-          ? existingMaterialized.slice(markerPrefix.length)
-          : existingMaterialized;
-        if (sha256(stripped) === sourceHash) {
-          results.push({
-            ok: true,
-            status: "skipped",
-            sourcePath: entry.sourcePath,
-            materializedPath: entry.materializedPath,
-            sourceHash,
-            materializedHash: sha256(existingMaterialized),
-          });
-          continue;
-        }
-        const isPluginGenerated = existingMaterialized.includes("<!-- generated-by:llm-cli-bridge -->");
-        if (!isPluginGenerated) {
-          results.push({
-            ok: false,
-            status: "conflict",
-            sourcePath: entry.sourcePath,
-            materializedPath: entry.materializedPath,
-            sourceHash,
-            materializedHash: sha256(existingMaterialized),
-            reason: "materialized SKILL.md is not plugin-generated; will not overwrite",
-          });
-          continue;
-        }
-      }
-
-      const contentWithMarker = `<!-- generated-by:llm-cli-bridge -->\n${sourceContent}`;
-      await fs.promises.mkdir(path.dirname(materializedAbs), { recursive: true });
-      await fs.promises.writeFile(materializedAbs, contentWithMarker, "utf8");
-      results.push({
-        ok: true,
-        status: existingMaterialized === null ? "created" : "updated",
-        sourcePath: entry.sourcePath,
-        materializedPath: entry.materializedPath,
-        sourceHash,
-        materializedHash: sha256(contentWithMarker),
-      });
-    } catch (e) {
-      results.push({
-        ok: false,
-        status: "error",
-        sourcePath: entry.sourcePath,
-        materializedPath: entry.materializedPath,
-        sourceHash: "",
-        materializedHash: "",
-        reason: e instanceof Error ? e.message : String(e),
-      });
-    }
+    const result = await materializeVaultSkill(vaultPath, {
+      slug: entry.slug,
+      sourcePath: entry.sourcePath,
+      materializedPath: entry.materializedPath,
+    });
+    results.push(result);
   }
 
   return {

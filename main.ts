@@ -297,17 +297,19 @@ export default class LLMBridgePlugin extends Plugin {
 
     this.addCommand({
       id: "materialize-vault-skill",
-      name: "Materialize Vault Skill to .claude/skills",
+      name: "Materialize All Vault Skills to .claude/skills",
       callback: async () => {
         const adapter = this.app.vault.adapter as DataAdapter;
         const vaultPath = adapter.getBasePath();
-        const { ensureAgentRuntimeWorkspace, materializeVaultSkill } = await import("./src/agentRuntimeWorkspace");
+        const { ensureAgentRuntimeWorkspace, materializeAllVaultSkills } = await import("./src/agentRuntimeWorkspace");
         await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
-        const result = await materializeVaultSkill(vaultPath);
-        if (result.ok) {
-          new Notice(`Vault Skill materialized: ${result.status}`);
+        const result = await materializeAllVaultSkills(vaultPath);
+        const okCount = result.results.filter((r) => r.ok).length;
+        const conflictCount = result.results.filter((r) => r.status === "conflict").length;
+        if (conflictCount > 0) {
+          new Notice(`Materialized ${okCount}/${result.results.length} (${conflictCount} conflict, not overwritten)`);
         } else {
-          new Notice(`Materialize failed: ${result.status} — ${result.reason ?? "unknown"}`);
+          new Notice(`All Vault Skills materialized: ${okCount}/${result.results.length}`);
         }
       },
     });

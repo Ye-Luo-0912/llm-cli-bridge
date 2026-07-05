@@ -3997,10 +3997,13 @@ if (runMode !== "all" && runMode !== "unit") {
         const pathMod = await import("path");
         const materializedAbs = pathMod.join(v165eTmpRoot, ".claude/skills/vault-context/SKILL.md");
         const materializedContent = await fsMod.promises.readFile(materializedAbs, "utf8");
-        const hasMarker = materializedContent.includes("<!-- generated-by:llm-cli-bridge -->");
+        // V16.5-K1: runtime 格式含 frontmatter + # Instructions + plugin-generated marker
+        const hasMarker = materializedContent.includes("<!-- generated-by: llm-cli-bridge -->");
+        const hasFrontmatter = /^---\nname: vault-context\n/.test(materializedContent);
+        const hasInstructions = materializedContent.includes("# Instructions");
         addTest("V16.5-E materialize: source → .claude/skills/vault-context/SKILL.md",
-          isOk && hasPaths && hasMarker ? "pass" : "fail",
-          `isOk=${isOk} hasPaths=${hasPaths} hasMarker=${hasMarker} status=${result.status}`);
+          isOk && hasPaths && hasMarker && hasFrontmatter && hasInstructions ? "pass" : "fail",
+          `isOk=${isOk} hasPaths=${hasPaths} hasMarker=${hasMarker} hasFrontmatter=${hasFrontmatter} hasInstructions=${hasInstructions} status=${result.status}`);
       }
 
       // Test E-g: 二次物化 status=skipped（内容一致）
@@ -4018,8 +4021,10 @@ if (runMode !== "all" && runMode !== "unit") {
         const pathMod = await import("path");
         const materializedAbs = pathMod.join(v165eTmpRoot, ".claude/skills/vault-context/SKILL.md");
         const originalMat = await fsMod.promises.readFile(materializedAbs, "utf8");
-        // 移除 plugin-generated marker 模拟人工修改
-        const humanModified = originalMat.replace("<!-- generated-by:llm-cli-bridge -->\n", "") + "\n<!-- human edit -->\n";
+        // V16.5-K1: 移除 plugin-generated marker + # Instructions 模拟人工修改（不再是 plugin-generated）
+        const humanModified = originalMat
+          .replace("<!-- generated-by: llm-cli-bridge -->", "<!-- human edit -->")
+          .replace("# Instructions", "# Human Edited");
         await fsMod.promises.writeFile(materializedAbs, humanModified, "utf8");
 
         const result = await agentRuntimeWsMod.materializeVaultSkill(v165eTmpRoot);
@@ -4252,6 +4257,137 @@ if (runMode !== "all" && runMode !== "unit") {
         addTest("V16.5-K 碎片化: 单次临时任务不生成新 skill",
           rejectedShort && rejectedTemp && rejectedCmd && acceptedStable ? "pass" : "fail",
           `rejectedShort=${rejectedShort} rejectedTemp=${rejectedTemp} rejectedCmd=${rejectedCmd} acceptedStable=${acceptedStable}`);
+      }
+
+      // ===== V16.5-K1: Runtime SKILL.md 格式 + split 后 vault-context index-only =====
+
+      // Test K1-A: 物化后的 .claude/skills/<slug>/SKILL.md 含 frontmatter + # Instructions
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        // 物化 vault-context
+        const vcResult = await agentRuntimeWsMod.materializeVaultSkill(taskKTmpRoot);
+        const vcRuntimeAbs = pathMod.join(taskKTmpRoot, ".claude/skills/vault-context/SKILL.md");
+        const vcRuntime = await fsMod.promises.readFile(vcRuntimeAbs, "utf8");
+        const vcHasFrontmatter = /^---\nname: vault-context\ndescription: [^\n]+\n---\n/.test(vcRuntime);
+        const vcHasInstructions = vcRuntime.includes("# Instructions");
+        const vcHasMarker = vcRuntime.includes("<!-- generated-by: llm-cli-bridge -->");
+        const vcHasSourceHash = /<!-- source-hash: [a-f0-9]{64} -->/.test(vcRuntime);
+
+        // 物化 vault-index（使用 materializeAllVaultSkills）
+        const allResult = await agentRuntimeWsMod.materializeAllVaultSkills(taskKTmpRoot);
+        const indexRuntimeAbs = pathMod.join(taskKTmpRoot, ".claude/skills/vault-index/SKILL.md");
+        const indexRuntime = await fsMod.promises.readFile(indexRuntimeAbs, "utf8");
+        const indexHasFrontmatter = /^---\nname: vault-index\ndescription: [^\n]+\n---\n/.test(indexRuntime);
+        const indexHasInstructions = indexRuntime.includes("# Instructions");
+
+        // 物化所有 split skills 并验证格式
+        const manifest = await agentRuntimeWsMod.loadVaultSkillsManifest(taskKTmpRoot);
+        const splitSlugs = manifest.entries.filter((e) => e.slug !== "vault-context" && e.slug !== "vault-index").map((e) => e.slug);
+        const splitRuntimeOk = [];
+        for (const slug of splitSlugs) {
+          const runtimeAbs = pathMod.join(taskKTmpRoot, ".claude/skills", slug, "SKILL.md");
+          const runtime = await fsMod.promises.readFile(runtimeAbs, "utf8");
+          const hasFrontmatter = /^---\nname: [^\n]+\ndescription: [^\n]+\n---\n/.test(runtime);
+          const hasInstructions = runtime.includes("# Instructions");
+          splitRuntimeOk.push({ slug, hasFrontmatter, hasInstructions });
+        }
+        const allSplitRuntimeOk = splitRuntimeOk.every((s) => s.hasFrontmatter && s.hasInstructions);
+
+        addTest("V16.5-K1 runtime format: 物化后含 frontmatter + # Instructions",
+          vcResult.ok && vcHasFrontmatter && vcHasInstructions && vcHasMarker && vcHasSourceHash
+            && indexHasFrontmatter && indexHasInstructions && allSplitRuntimeOk ? "pass" : "fail",
+          `vcOk=${vcResult.ok} vcFrontmatter=${vcHasFrontmatter} vcInstructions=${vcHasInstructions} vcMarker=${vcHasMarker} vcSourceHash=${vcHasSourceHash} indexFrontmatter=${indexHasFrontmatter} indexInstructions=${indexHasInstructions} splitRuntime=${JSON.stringify(splitRuntimeOk)}`);
+      }
+
+      // Test K1-B: split 后 vault-context 为 index-only（不超限，不含已拆入 split skill 的大段 facts）
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        const vcSourceAbs = pathMod.join(taskKTmpRoot, agentRuntimeWsMod.VAULT_SKILL_SOURCE_REL);
+        const vcContent = await fsMod.promises.readFile(vcSourceAbs, "utf8");
+        const vcUnderMax = vcContent.length <= agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS;
+        const vcHasSplitNotice = vcContent.includes("Split notice") || vcContent.includes("已按职责拆分");
+        const vcHasIndexPointer = vcContent.includes("vault-index");
+        // 不应包含已拆入 split skill 的大段 facts（如 directory structure fact 0）
+        const vcNotRetainSplitFacts = !vcContent.includes("directory structure 顶层目录 layout fact 0")
+          && !vcContent.includes("file operation 文件操作 output naming fact 0")
+          && !vcContent.includes("user preference 偏好 correction 用户 fact 0");
+        // manifest 中 vault-context charCount 与实际文件长度一致
+        const manifest = await agentRuntimeWsMod.loadVaultSkillsManifest(taskKTmpRoot);
+        const vcEntry = manifest.entries.find((e) => e.slug === "vault-context");
+        const charCountMatch = vcEntry?.charCount === vcContent.length;
+
+        addTest("V16.5-K1 index-only: split 后 vault-context 不含已拆入 facts",
+          vcUnderMax && vcHasSplitNotice && vcHasIndexPointer && vcNotRetainSplitFacts && charCountMatch ? "pass" : "fail",
+          `vcLen=${vcContent.length} underMax=${vcUnderMax} splitNotice=${vcHasSplitNotice} indexPointer=${vcHasIndexPointer} notRetain=${vcNotRetainSplitFacts} charCountMatch=${charCountMatch} manifestCharCount=${vcEntry?.charCount}`);
+      }
+
+      // Test K1-C: materializeAllVaultSkills 物化全部 + 单个 conflict 不影响其他 skill
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        // 先确保所有 skill 已物化
+        await agentRuntimeWsMod.materializeAllVaultSkills(taskKTmpRoot);
+        // 人工修改 vault-structure runtime（移除 plugin-generated marker 模拟人工编辑）
+        const structureRuntimeAbs = pathMod.join(taskKTmpRoot, ".claude/skills/vault-structure/SKILL.md");
+        const originalStructure = await fsMod.promises.readFile(structureRuntimeAbs, "utf8");
+        const humanModified = originalStructure.replace("<!-- generated-by: llm-cli-bridge -->", "<!-- human edit -->").replace("# Instructions", "# Human Edited");
+        await fsMod.promises.writeFile(structureRuntimeAbs, humanModified, "utf8");
+
+        const result = await agentRuntimeWsMod.materializeAllVaultSkills(taskKTmpRoot);
+        // vault-structure 应为 conflict
+        const structureResult = result.results.find((r) => r.materializedPath.includes("vault-structure"));
+        const isConflict = structureResult?.status === "conflict" && !structureResult.ok;
+        // 其他 skill 应正常（created/updated/skipped）
+        const otherResults = result.results.filter((r) => !r.materializedPath.includes("vault-structure"));
+        const othersOk = otherResults.every((r) => r.ok || r.status === "skipped");
+        const othersCount = otherResults.length;
+
+        // 恢复 original
+        await fsMod.promises.writeFile(structureRuntimeAbs, originalStructure, "utf8");
+
+        addTest("V16.5-K1 materializeAll: 单个 conflict 不影响其他 skill",
+          isConflict && othersOk && othersCount >= 4 ? "pass" : "fail",
+          `isConflict=${isConflict} othersOk=${othersOk} othersCount=${othersCount} structureStatus=${structureResult?.status}`);
+      }
+
+      // Test K1-D: manifest entries 与源文件集合一致 + sourceHash/charCount 与实际一致
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        const manifest = await agentRuntimeWsMod.loadVaultSkillsManifest(taskKTmpRoot);
+        let allConsistent = true;
+        const mismatches = [];
+        for (const entry of manifest.entries) {
+          const sourceAbs = pathMod.join(taskKTmpRoot, entry.sourcePath);
+          let sourceContent;
+          try {
+            sourceContent = await fsMod.promises.readFile(sourceAbs, "utf8");
+          } catch {
+            allConsistent = false;
+            mismatches.push({ slug: entry.slug, reason: "source file missing" });
+            continue;
+          }
+          const { createHash } = await import("crypto");
+          const actualHash = createHash("sha256").update(sourceContent, "utf8").digest("hex");
+          const hashMatch = actualHash === entry.sourceHash;
+          const charCountMatch = sourceContent.length === entry.charCount;
+          if (!hashMatch || !charCountMatch) {
+            allConsistent = false;
+            mismatches.push({ slug: entry.slug, hashMatch, charCountMatch, actualLen: sourceContent.length, manifestLen: entry.charCount });
+          }
+        }
+        // vault-index 应引用所有 split skill slugs（不含 vault-context 和 vault-index 自身）
+        const indexContent = await fsMod.promises.readFile(pathMod.join(taskKTmpRoot, agentRuntimeWsMod.VAULT_INDEX_SOURCE_REL), "utf8");
+        const splitSlugsForIndex = manifest.entries
+          .filter((e) => e.slug !== "vault-context" && e.slug !== "vault-index")
+          .map((e) => e.slug);
+        const indexReferencesAll = splitSlugsForIndex.every((slug) => indexContent.includes("`" + slug + "`"));
+
+        addTest("V16.5-K1 manifest 一致性: entries 与源文件一致",
+          allConsistent && indexReferencesAll ? "pass" : "fail",
+          `allConsistent=${allConsistent} indexReferencesAll=${indexReferencesAll} mismatches=${JSON.stringify(mismatches)}`);
       }
     } finally {
       try { rmSync(taskKTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
