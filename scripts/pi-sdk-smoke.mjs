@@ -12,29 +12,27 @@
 //
 // 运行：npm run smoke:pi-sdk
 
-import { createRequire } from "node:module";
-import { existsSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const require = createRequire(import.meta.url);
-const PROJECT_ROOT = resolve(new URL("..", import.meta.url).pathname.replace(/^\//, "").replace(/^[A-Za-z]:/, (m) => m.toUpperCase() || "C")).replace(/^[a-z]:/, (m) => m.toUpperCase());
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 console.log("=== Pi SDK Real Smoke (V17-C) ===");
 console.log(`PROJECT_ROOT: ${PROJECT_ROOT}`);
 console.log("");
 
 // 1. 检查 package.json optionalDependencies
-const pkgJson = JSON.parse(
-  await import("node:fs").then(({ readFileSync }) => readFileSync(join(PROJECT_ROOT, "package.json"), "utf8")),
-);
+const pkgJson = JSON.parse(readFileSync(join(PROJECT_ROOT, "package.json"), "utf8"));
 const hasOptionalDep = pkgJson.optionalDependencies?.["@earendil-works/pi-coding-agent"];
 console.log(`package.json optionalDependencies: ${hasOptionalDep || "(missing)"}`);
 
-// 2. 尝试动态 import SDK
+// 2. 尝试动态 import SDK（SDK 是纯 ESM，必须用 await import，不能用 require）
 let sdk = null;
 let importError = null;
 try {
-  sdk = require("@earendil-works/pi-coding-agent");
+  sdk = await import("@earendil-works/pi-coding-agent");
   console.log(`SDK loaded: ${typeof sdk.createAgentSession === "function" ? "ok" : "API surface missing"}`);
 } catch (e) {
   importError = e;
@@ -50,11 +48,20 @@ if (!sdk || typeof sdk.createAgentSession !== "function") {
   process.exit(0);
 }
 
-// 3. V17-C 任务 C：检查认证（用 getAvailable 或 list）
+// 3. V17-D：检查认证（标准 Pi auth 优先，fallback 到 env var / Claude Code settings）
+//    支持环境变量覆盖：
+//      PI_SMOKE_PROVIDER (default "anthropic")
+//      PI_SMOKE_API_KEY   (e.g. sk-...)
+//      PI_SMOKE_BASE_URL  (e.g. https://us.pinai-cn.com)
+//      PI_SMOKE_MODEL     (e.g. claude-haiku-4-5)
+//    Fallback：~/.claude/settings.json 的 env.ANTHROPIC_AUTH_TOKEN + env.ANTHROPIC_BASE_URL
 let authStorage = null;
 let modelRegistry = null;
 let hasAuth = false;
 let hasModel = false;
+let explicitModel = null; // 显式指定 model（覆盖 SDK 默认选择）
+const smokeProvider = process.env.PI_SMOKE_PROVIDER || "anthropic";
+
 try {
   if (sdk.AuthStorage?.create) {
     authStorage = sdk.AuthStorage.create();
@@ -62,24 +69,61 @@ try {
   if (sdk.ModelRegistry?.create && authStorage) {
     modelRegistry = sdk.ModelRegistry.create(authStorage);
   }
-  // V17-C 任务 C：优先用 getAvailable()
+
+  // 3a. 标准 Pi auth（~/.pi/agent/auth.json）
   if (modelRegistry && typeof modelRegistry.getAvailable === "function") {
     const available = modelRegistry.getAvailable();
     hasModel = available.length > 0;
-    hasAuth = hasModel; // getAvailable 返回已配置 auth 的模型
-    console.log(`getAvailable() returned ${available.length} models`);
-  } else if (modelRegistry && typeof modelRegistry.list === "function") {
-    const all = modelRegistry.list();
-    hasModel = all.length > 0;
-    if (hasModel && authStorage && typeof authStorage.hasConfiguredAuth === "function") {
-      const first = all[0];
+    hasAuth = hasModel;
+    console.log(`Pi auth getAvailable() returned ${available.length} models`);
+  }
+
+  // 3b. Fallback 1：环境变量 PI_SMOKE_API_KEY / PI_SMOKE_BASE_URL
+  if (!hasAuth) {
+    const envKey = process.env.PI_SMOKE_API_KEY;
+    const envBaseUrl = process.env.PI_SMOKE_BASE_URL;
+    const envModel = process.env.PI_SMOKE_MODEL;
+    if (envKey && authStorage) {
+      console.log(`Using PI_SMOKE_API_KEY (provider=${smokeProvider}, baseUrl=${envBaseUrl || "(default)"}, model=${envModel || "(auto)"})`);
+      authStorage.setRuntimeApiKey(smokeProvider, envKey);
+      if (envBaseUrl && modelRegistry && typeof modelRegistry.registerProvider === "function") {
+        modelRegistry.registerProvider(smokeProvider, { baseUrl: envBaseUrl });
+      }
+      if (envModel && modelRegistry && typeof modelRegistry.find === "function") {
+        explicitModel = modelRegistry.find(smokeProvider, envModel);
+      }
+      const available = modelRegistry?.getAvailable?.() ?? [];
+      hasModel = available.length > 0;
+      hasAuth = hasModel;
+      console.log(`env var auth getAvailable() returned ${available.length} models`);
+    }
+  }
+
+  // 3c. Fallback 2：~/.claude/settings.json 的 env 字段（Claude Code 兼容）
+  if (!hasAuth) {
+    const claudeSettingsPath = join(homedir(), ".claude", "settings.json");
+    if (existsSync(claudeSettingsPath)) {
       try {
-        hasAuth = authStorage.hasConfiguredAuth({ provider: first.provider, id: first.id });
-      } catch {
-        hasAuth = false;
+        const claudeSettings = JSON.parse(readFileSync(claudeSettingsPath, "utf8"));
+        const env = claudeSettings.env || {};
+        // Anthropic provider: ANTHROPIC_AUTH_TOKEN (Claude Code 命名) → setRuntimeApiKey("anthropic", ...)
+        const authToken = env.ANTHROPIC_AUTH_TOKEN || env.ANTHROPIC_API_KEY;
+        const baseUrl = env.ANTHROPIC_BASE_URL;
+        if (authToken && authStorage && smokeProvider === "anthropic") {
+          console.log(`Using ~/.claude/settings.json env (ANTHROPIC_AUTH_TOKEN present, baseUrl=${baseUrl || "(default)"})`);
+          authStorage.setRuntimeApiKey("anthropic", authToken);
+          if (baseUrl && modelRegistry && typeof modelRegistry.registerProvider === "function") {
+            modelRegistry.registerProvider("anthropic", { baseUrl });
+          }
+          const available = modelRegistry?.getAvailable?.() ?? [];
+          hasModel = available.length > 0;
+          hasAuth = hasModel;
+          console.log(`Claude settings auth getAvailable() returned ${available.length} models`);
+        }
+      } catch (e) {
+        console.log(`~/.claude/settings.json parse failed: ${e?.message || String(e)}`);
       }
     }
-    console.log(`list() returned ${all.length} models`);
   }
 } catch (e) {
   console.log(`Auth/model probe failed: ${e?.message || String(e)}`);
@@ -90,7 +134,10 @@ if (!hasAuth || !hasModel) {
   console.log("=== SKIP: Pi SDK auth/model not configured ===");
   console.log("piSdkSmokeStatus=skip");
   console.log(`reason=${!hasAuth && !hasModel ? "no auth and no model" : (!hasAuth ? "no auth" : "no model")}`);
-  console.log("hint=请在 ~/.pi/agent 配置 API Key 或运行 pi login，并在插件设置中选择 model");
+  console.log("hint=配置方式任选其一：");
+  console.log("  1) ~/.pi/agent/auth.json 配置 API Key");
+  console.log("  2) 环境变量 PI_SMOKE_API_KEY / PI_SMOKE_BASE_URL / PI_SMOKE_MODEL");
+  console.log("  3) ~/.claude/settings.json 的 env.ANTHROPIC_AUTH_TOKEN + env.ANTHROPIC_BASE_URL");
   process.exit(0);
 }
 
@@ -114,6 +161,7 @@ async function runSmokeGroup({ name, sessionOpts, expectToolEvents }) {
       authStorage,
       modelRegistry,
       settingsManager,
+      ...(explicitModel ? { model: explicitModel } : {}),
       ...sessionOpts,
     });
     session = result.session;
