@@ -36,19 +36,23 @@ import { createUserInputBoundary, UserInputBoundaryImpl } from "./userInputBound
 import { ClaudeSdkProvider } from "../providers/claude-sdk/claudeSdkProvider";
 import { ClaudeCliProvider } from "../providers/claude-cli/claudeCliProvider";
 import { MockProvider } from "../providers/mock/mockProvider";
-import { CodexAppServerProvider } from "../providers/codex-app-server/codexAppServerProvider";
+import { CodexExternalAppServerProvider } from "../providers/codex-app-server/codexAppServerProvider";
+import { CodexSdkProvider } from "../providers/codex-sdk/codexSdkProvider";
 import { PiRpcProvider } from "../providers/pi-rpc/piRpcProvider";
 import { PiSdkProvider } from "../providers/pi-sdk/piSdkProvider";
 
 /**
  * 选择 RuntimeProvider（按 settings.backendMode + provider 可用性）。
  *
- * V17-E1 任务 B：portable auto 不再 Pi-first。auto（不论 portable 还是 developer）
- * 统一走 codex-app-server → claude-sdk → claude-cli 链（Codex-first）。
- * Pi 仅在显式选择 pi-sdk / pi-rpc 时才进入（optional/advanced backend）。
+ * V17-F0 任务 C：SDK-first 方向。
+ * - auto（不论 portable 还是 developer）：codex-sdk → claude-sdk → pi-sdk → claude-cli
+ *   不再依赖 external codex executable 作为普通用户主线。
+ * - codex-sdk: 显式 Codex SDK（本轮占位，未完整实现时 unavailable）
+ * - codex-app-server-external: 显式 external app-server（高级/开发者 fallback）
+ * - cli / sdk / pi-sdk / pi-rpc: 各自显式 provider
  *
+ * V17-E1 任务 B：portable auto 不再 Pi-first。
  * V17-E 任务 F：Pi 降级为 optional/advanced backend；friendReady 改名为 piAdvancedReady。
- * V17-E 任务 A：selectProvider 传 settings.codexCommand 给 CodexAppServerProvider。
  *
  * @param settings 插件设置
  * @param cwd Vault 根目录
@@ -66,13 +70,21 @@ export function selectProvider(
   if (mode === "mock-failure") {
     return { provider: new MockProvider("failure"), label: "Mock" };
   }
-  // V17-E 任务 B：显式 codex BackendMode — 强制使用 Codex app-server（不可用时不静默 fallback）
-  if (mode === "codex") {
-    const codex = new CodexAppServerProvider(false, settings.codexCommand || "codex");
-    if (codex.isAvailable(cwd)) {
-      return { provider: codex, label: "Codex app-server" };
+  // V17-F0 任务 C：codex-sdk 为主线占位（本轮未完整实现，readiness 以 smoke 报告为准）
+  if (mode === "codex-sdk") {
+    const codexSdk = new CodexSdkProvider();
+    if (codexSdk.isAvailable(cwd)) {
+      return { provider: codexSdk, label: "Codex SDK" };
     }
-    return { provider: codex, label: "Codex app-server (unavailable)" };
+    return { provider: codexSdk, label: "Codex SDK (unavailable — mainline placeholder)" };
+  }
+  // V17-F0 任务 C：codex-app-server-external 为高级/开发者 fallback（不作为普通用户主线）
+  if (mode === "codex-app-server-external") {
+    const codex = new CodexExternalAppServerProvider(false, settings.codexCommand || "codex");
+    if (codex.isAvailable(cwd)) {
+      return { provider: codex, label: "Codex app-server (external)" };
+    }
+    return { provider: codex, label: "Codex app-server (external, unavailable)" };
   }
   if (mode === "cli") {
     return { provider: new ClaudeCliProvider(), label: "Claude Code" };
@@ -97,15 +109,19 @@ export function selectProvider(
     return { provider: piSdk, label: "Pi SDK (unavailable)" };
   }
 
-  // V17-E1 任务 B：auto（不论 portable 还是 developer）统一走 Codex-first 链
-  // Pi 不再作为 portable auto 的默认；仅显式 pi-sdk / pi-rpc 才进入 Pi。
-  const codex = new CodexAppServerProvider(false, settings.codexCommand || "codex");
-  if (codex.isAvailable(cwd)) {
-    return { provider: codex, label: "Codex app-server" };
+  // V17-F0 任务 C：auto = SDK-first 链，不再依赖 external codex executable
+  // codex-sdk → claude-sdk → pi-sdk → claude-cli（具体 fallback 另行决策）
+  const codexSdk = new CodexSdkProvider();
+  if (codexSdk.isAvailable(cwd)) {
+    return { provider: codexSdk, label: "Codex SDK" };
   }
   const sdk = new ClaudeSdkProvider(false);
   if (sdk.isAvailable(cwd)) {
-    return { provider: sdk, label: "SDK" };
+    return { provider: sdk, label: "Claude SDK" };
+  }
+  const piSdk = new PiSdkProvider();
+  if (piSdk.isAvailable(cwd)) {
+    return { provider: piSdk, label: "Pi SDK" };
   }
   return { provider: new ClaudeCliProvider(), label: "Claude Code fallback" };
 }

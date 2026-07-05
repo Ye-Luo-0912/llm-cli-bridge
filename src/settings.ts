@@ -274,10 +274,11 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Backend 模式")
-      .setDesc("V17-E1 任务 B：auto 策略 = codex→claude-sdk→claude-cli（Codex-first，不论 portable/developer）。codex=强制 Codex app-server（不可用时不 fallback）；cli=Claude Code CLI；sdk=Claude Agent SDK；pi-sdk=Pi SDK 嵌入（optional/advanced）；pi-rpc=Pi RPC（optional/advanced）；mock-success/mock-failure=离线测试。")
+      .setDesc("V17-F0 任务 C：auto = SDK-first 链（codex-sdk→claude-sdk→pi-sdk→claude-cli）。codex-sdk=Codex Agent SDK（主线占位）；codex-app-server-external=外部 codex app-server（高级/开发者 fallback）；cli=Claude Code CLI；sdk=Claude Agent SDK；pi-sdk/pi-rpc=Pi（optional/advanced）；mock=离线测试。")
       .addDropdown((d) => {
-        d.addOption("auto", "auto（Codex-first：codex→sdk→cli）");
-        d.addOption("codex", "codex（强制 Codex app-server）");
+        d.addOption("auto", "auto（SDK-first：codex-sdk→claude-sdk→pi-sdk→cli）");
+        d.addOption("codex-sdk", "codex-sdk（Codex Agent SDK 主线占位）");
+        d.addOption("codex-app-server-external", "codex-app-server-external（高级 fallback）");
         d.addOption("cli", "cli（Claude Code CLI）");
         d.addOption("sdk", "sdk（Claude Agent SDK）");
         d.addOption("pi-sdk", "pi-sdk（Pi SDK 嵌入，optional/advanced）");
@@ -295,7 +296,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Backend 配置档")
-      .setDesc("V17-E1 任务 B：developer/portable 的 auto 均走 Codex-first 链；portable 仅 UI 精简不暴露实验选项。Pi 为 optional/advanced，需显式选 pi-sdk/pi-rpc。")
+      .setDesc("V17-F0 任务 C：developer/portable 的 auto 均走 SDK-first 链；portable 仅 UI 精简不暴露实验选项。Pi 为 optional/advanced。")
       .addDropdown((d) => {
         d.addOption("developer", "developer（全后端可选）");
         d.addOption("portable", "portable（朋友版，UI 精简）");
@@ -307,102 +308,18 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    // V17-E 任务 D：Codex setup/status card（普通用户 onboarding）
-    // V17-E1 任务 F：降级为 heuristic status — 不等同于 real smoke ready
-    // 显示 codex 安装/登录/app-server 可用/heuristic-ready 状态 + 最短修复提示
-    containerEl.createEl("h3", { text: "Codex Setup / Status (V17-E — Heuristic)" });
+    // V17-F0 任务 D：Codex Desktop App 不是集成目标 — 普通用户主线不出现 Codex CLI 安装引导
+    containerEl.createEl("h3", { text: "Codex Mainline Status (V17-F0 — SDK-first)" });
     containerEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
-      text: "V17-E1 任务 F：本栏为 heuristic（本地探测），不等同于 real smoke ready。Ready 仅表示本地探测通过；真实可用性以 codex smoke 报告为准（codexUserReady）。",
+      text: "V17-F0 任务 D：Codex 线以 SDK-first 为主（与 Claude/Pi 一致）。Desktop App / codex CLI 不是集成目标，不作为普通用户默认主线。codex-sdk 为本轮占位，readiness 以 smoke 报告为准（codexSdkAvailable / codexSdkAuthAvailable）。Desktop App is not an integration target.",
     });
-
-    new Setting(containerEl)
-      .setName("Codex 命令")
-      .setDesc("V17-E 任务 A：codex 可执行文件名或绝对路径（默认 codex）。普通用户无需修改；仅当 codex 不在 PATH 时填写绝对路径。")
-      .addText((t) => {
-        t.setValue(s.codexCommand);
-        t.onChange(async (v) => {
-          s.codexCommand = v.trim() || "codex";
-          await this.plugin.saveSettings();
-          this.display();
-        });
-      });
-
-    {
-      // V17-E1 任务 F：heuristic 探测 codex 状态（非 real smoke）
-      // 状态：未安装 / 已安装未登录(heuristic) / 已登录但 app-server 不可用 / heuristic-ready
-      const codexCmd = s.codexCommand || "codex";
-      let codexInstalled = false;
-      let codexVersion = "";
-      let codexAuthHeuristic = false; // V17-E1 任务 F：auth.json/config.toml 存在 ≠ auth 可用
-      let appServerOk = false;
-      const cwd = this.app.vault.adapter.getResourcePath?.("") || ".";
-      try {
-        const out = execFileSync(codexCmd, ["--version"], {
-          cwd: typeof cwd === "string" ? cwd : ".",
-          stdio: ["ignore", "pipe", "ignore"],
-          timeout: 3000,
-          encoding: "utf8",
-        });
-        codexInstalled = true;
-        codexVersion = (out || "").trim().split(/\r?\n/)[0] || "unknown";
-      } catch { /* not installed */ }
-
-      // V17-E1 任务 F：heuristic 探测 auth — auth.json/config.toml 存在仅表示"可能已登录"
-      // 不等同于 auth 可用（token 可能过期/无效）；real auth 验证只能由 codex smoke 完成
-      try {
-        const home = process.env.HOME || process.env.USERPROFILE || "";
-        if (home) {
-          const codexAuthPath = join(home, ".codex", "auth.json");
-          const codexConfigPath = join(home, ".codex", "config.toml");
-          if (existsSync(codexAuthPath) || existsSync(codexConfigPath)) {
-            codexAuthHeuristic = true;
-          }
-        }
-      } catch { /* ignore */ }
-
-      // app-server 可用性：spawn codex app-server --help（不实际启动）
-      if (codexInstalled) {
-        try {
-          execFileSync(codexCmd, ["app-server", "--help"], {
-            stdio: ["ignore", "ignore", "ignore"],
-            timeout: 5000,
-          });
-          appServerOk = true;
-        } catch { /* app-server not available */ }
-      }
-
-      let statusText = "";
-      let fixHint = "";
-      if (!codexInstalled) {
-        statusText = "未安装";
-        fixHint = "安装 Codex CLI：npm install -g @openai/codex 或参考官方文档；安装后重启 Obsidian。";
-      } else if (!codexAuthHeuristic) {
-        statusText = `已安装（${codexVersion}）但未登录（heuristic：未发现 auth 文件）`;
-        fixHint = "在终端运行 codex login 完成登录，然后重启 Obsidian。";
-      } else if (!appServerOk) {
-        statusText = `已安装已登录（${codexVersion}）但 app-server 不可用`;
-        fixHint = "Codex 版本过旧或损坏；请升级：npm install -g @openai/codex@latest。";
-      } else {
-        // V17-E1 任务 F：heuristic-ready ≠ real ready
-        statusText = `heuristic-ready（${codexVersion}）`;
-        fixHint = "本地探测通过（heuristic）。真实可用性以 codex smoke 报告为准（codexUserReady）。";
-      }
-
-      new Setting(containerEl)
-        .setName("Codex 状态（Heuristic）")
-        .setDesc(`V17-E1 任务 F：${statusText}${fixHint ? " — " + fixHint : ""}`)
-        .addButton((b) => {
-          b.setButtonText("重新检测");
-          b.onClick(() => this.display());
-        });
-    }
 
     // V17-E 任务 F：Pi SDK 降级为 optional/advanced backend — 普通用户无需配置
     containerEl.createEl("h3", { text: "Pi Backend (Optional / Advanced — V17-E 任务 F)" });
     containerEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
-      text: "Pi SDK/RPC 是可选 advanced backend，仅 portable profile 或显式选择 pi-sdk/pi-rpc 时启用。普通用户无需配置，默认走 Codex-first 路径。friendReady 字段已废弃，改名为 piAdvancedReady。",
+      text: "Pi SDK/RPC 是可选 advanced backend，仅 portable profile 或显式选择 pi-sdk/pi-rpc 时启用。普通用户无需配置，默认走 SDK-first 路径。friendReady 字段已废弃，改名为 piAdvancedReady。",
     });
 
     new Setting(containerEl)
@@ -553,6 +470,81 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           }
         });
       });
+
+    // V17-F0 任务 F：External App-Server Fallback（高级/开发者）
+    // 保留 codex app-server external provider，但只在显式选择 codex-app-server-external 时启用
+    // 不作为普通用户默认路线，不引导用户安装 Codex Desktop App
+    containerEl.createEl("h3", { text: "External Codex App-Server Fallback (Advanced / Developer — V17-F0 任务 F)" });
+    containerEl.createEl("p", {
+      cls: "llm-bridge-setting-hint",
+      text: "V17-F0 任务 F：外部 codex app-server 是高级/开发者 fallback，不是普通用户主线。需要本机已安装 codex CLI 并完成 codex login。Desktop App is not an integration target；仅当用户明确选择 codex-app-server-external 模式时启用。Ready 仅表示本地探测通过（heuristic），真实可用性以 codex smoke 报告为准（codexExternalExecutableAvailable / externalAppServerSpawnStatus）。",
+    });
+
+    new Setting(containerEl)
+      .setName("Codex External Command (Advanced)")
+      .setDesc("V17-F0 任务 F：外部 codex 可执行文件名或绝对路径（默认 codex）。仅用于 codex-app-server-external 模式；普通用户无需配置。")
+      .addText((t) => {
+        t.setValue(s.codexCommand);
+        t.onChange(async (v) => {
+          s.codexCommand = v.trim() || "codex";
+          await this.plugin.saveSettings();
+          this.display();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Codex External Args (Advanced)")
+      .setDesc("V17-F0 任务 F：外部 codex app-server 启动参数（默认 app-server）。仅用于 codex-app-server-external 模式。")
+      .addText((t) => {
+        t.setValue(s.codexArgs);
+        t.onChange(async (v) => {
+          s.codexArgs = v.trim() || "app-server";
+          await this.plugin.saveSettings();
+        });
+      });
+
+    {
+      // V17-F0 任务 F：external heuristic 探测（非 real smoke；不引导安装）
+      const codexCmd = s.codexCommand || "codex";
+      let codexInstalled = false;
+      let codexVersion = "";
+      let appServerOk = false;
+      const cwd = this.app.vault.adapter.getResourcePath?.("") || ".";
+      try {
+        const out = execFileSync(codexCmd, ["--version"], {
+          cwd: typeof cwd === "string" ? cwd : ".",
+          stdio: ["ignore", "pipe", "ignore"],
+          timeout: 3000,
+          encoding: "utf8",
+        });
+        codexInstalled = true;
+        codexVersion = (out || "").trim().split(/\r?\n/)[0] || "unknown";
+      } catch { /* not installed */ }
+
+      if (codexInstalled) {
+        try {
+          execFileSync(codexCmd, ["app-server", "--help"], {
+            stdio: ["ignore", "ignore", "ignore"],
+            timeout: 5000,
+          });
+          appServerOk = true;
+        } catch { /* app-server not available */ }
+      }
+
+      const extStatus = !codexInstalled
+        ? "未安装（external fallback 不可用）"
+        : !appServerOk
+          ? `已安装（${codexVersion}）但 app-server 不可用`
+          : `heuristic-ready（${codexVersion}）`;
+
+      new Setting(containerEl)
+        .setName("Codex External Status (Heuristic)")
+        .setDesc(`V17-F0 任务 F：${extStatus} — 仅用于 codex-app-server-external 模式；真实可用性以 smoke 报告为准。`)
+        .addButton((b) => {
+          b.setButtonText("重新检测");
+          b.onClick(() => this.display());
+        });
+    }
 
     new Setting(containerEl)
       .setName("Dev Test Mode")

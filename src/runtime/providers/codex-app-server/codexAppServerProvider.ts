@@ -70,15 +70,19 @@ import { buildEnhancedPath } from "../../../claudeCliBackend";
 /**
  * CodexAppServerProvider：通过 codex app-server JSON-RPC 接入 Bridge Core。
  *
- * 主目标 provider（V2.17-A Completion）。
+ * V17-F0 任务 B：定性为 external app-server provider（高级/开发者 fallback）。
+ * 已重命名为 CodexExternalAppServerProvider，向后兼容别名 CodexAppServerProvider 保留。
  *
  * V17-E 任务 A：command 来源统一为 settings.codexCommand（constructor 注入），
  * isAvailable/run/resume/spawn 共用同一 command；spawn 使用 enhanced PATH
  * 避免普通用户因 PATH 不完整被误判不可用。
+ *
+ * 注意：本 provider 是 external executable fallback，不是 Codex 线主线。
+ * 主线为 CodexSdkProvider（嵌入式 SDK），本轮为占位。
  */
-export class CodexAppServerProvider implements RuntimeProvider {
+export class CodexExternalAppServerProvider implements RuntimeProvider {
   readonly providerId = "codex-app-server" as const;
-  readonly displayName = "Codex app-server";
+  readonly displayName = "Codex app-server (external)";
 
   private readonly approvalMapper: CodexAppServerApprovalMapper;
   private readonly userInputMapper: CodexAppServerUserInputMapper;
@@ -719,3 +723,10 @@ export class CodexAppServerProvider implements RuntimeProvider {
     );
   }
 }
+
+/**
+ * V17-F0 任务 B：向后兼容别名 — 旧名 CodexAppServerProvider 仍可使用。
+ *
+ * 新代码应使用 CodexExternalAppServerProvider 以明确语义。
+ */
+export const CodexAppServerProvider = CodexExternalAppServerProvider;

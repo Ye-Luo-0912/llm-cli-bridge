@@ -5966,8 +5966,8 @@ if (runMode !== "all" && runMode !== "unit") {
         const runUsesMember = /command:\s*this\.codexCommand/.test(providerSrc);
         const noSettingsCodexInRun = !/settings\.codexCommand\s*\|\|\s*"codex"/.test(providerSrc);
 
-        // selectProvider 传 settings.codexCommand 给 CodexAppServerProvider
-        const selectPassesCommand = /new CodexAppServerProvider\([^,]+,\s*settings\.codexCommand\s*\|\|\s*"codex"\)/.test(bridgeSrc);
+        // V17-F0 任务 B：selectProvider 传 settings.codexCommand 给 CodexExternalAppServerProvider（旧名 CodexAppServerProvider 作别名）
+        const selectPassesCommand = /new CodexExternalAppServerProvider\([^,]+,\s*settings\.codexCommand\s*\|\|\s*"codex"\)/.test(bridgeSrc);
 
         // spawn 时 env 含 enhanced PATH
         const hasBuildSpawnEnv = /buildSpawnEnv\(cwd\)/.test(providerSrc);
@@ -5983,53 +5983,77 @@ if (runMode !== "all" && runMode !== "unit") {
           `isAvailableMember=${isAvailableUsesMember} noHardcoded=${noHardcodedInIsAvailable} ctor=${ctorAcceptsCommand} runMember=${runUsesMember} noSettingsInRun=${noSettingsCodexInRun} selectPasses=${selectPassesCommand} buildSpawnEnv=${hasBuildSpawnEnv} enhancedPath=${usesEnhancedPath} importOk=${importEnhancedPath} envPassed=${envPassedToCreateProcess}`);
       }
 
-      // ===== V17-E 任务 B：显式 codex BackendMode + auto 策略修正 =====
+      // ===== V17-F0 任务 B+C：Codex SDK-first Direction Correction =====
+      // 验证 BackendMode 拆分（codex-sdk + codex-app-server-external）+ selectProvider SDK-first 链 +
+      //       CodexExternalAppServerProvider 重命名 + CodexSdkProvider 占位 + settings UI 下拉 +
+      //       旧 "codex" 迁移到 codex-app-server-external
       {
         const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf8");
         const bridgeSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "bridgeSession.ts"), "utf8");
         const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
+        const mainSrc = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf8");
 
-        // BackendMode 联合含 "codex"
-        const hasCodexMode = /BackendMode\s*=\s*[^;]*"codex"/.test(typesSrc);
-        // selectProvider 处理 mode === "codex"
-        const handlesCodexMode = /mode\s*===\s*"codex"/.test(bridgeSrc);
-        const codexModeNotFallback = /Codex app-server \(unavailable\)/.test(bridgeSrc);
-        // V17-E1 任务 B：auto（不论 portable/developer）统一走 codex→sdk→cli
-        const autoUnifiedCodexFirst = /V17-E1 任务 B.*portable auto 不再 Pi-first/.test(bridgeSrc) &&
-                                      /auto（不论 portable/.test(bridgeSrc) &&
-                                      /codex-app-server → claude-sdk → claude-cli/.test(bridgeSrc);
-        // V17-E1 任务 B：portable profile 的 pi-sdk→pi-rpc fallback 已删除
-        const portableNoPiFirst = !/portable profile 主线 pi-sdk/.test(bridgeSrc) &&
-                                  !/settings\.backendProfile === "portable"/.test(bridgeSrc);
-        // settings UI 有 codex 下拉选项
-        const hasCodexOption = settingsSrc.includes('addOption("codex"');
-        // V17-E1 任务 B：auto 选项文案改为 Codex-first（不再写 profile 决定）
-        const autoDescFixed = settingsSrc.includes("auto（Codex-first：codex→sdk→cli）") &&
-                              !settingsSrc.includes("profile 决定");
+        // BackendMode 含 codex-sdk 和 codex-app-server-external
+        const hasCodexSdkMode = /BackendMode\s*=\s*[^;]*"codex-sdk"/.test(typesSrc);
+        const hasCodexExternalMode = /BackendMode\s*=\s*[^;]*"codex-app-server-external"/.test(typesSrc);
+        // selectProvider 处理 codex-sdk 和 codex-app-server-external
+        const handlesCodexSdkMode = /mode\s*===\s*"codex-sdk"/.test(bridgeSrc);
+        const handlesCodexExternalMode = /mode\s*===\s*"codex-app-server-external"/.test(bridgeSrc);
+        // V17-F0 任务 C：auto = SDK-first 链 codex-sdk→claude-sdk→pi-sdk→claude-cli
+        const autoIsSdkFirst = /codex-sdk → claude-sdk → pi-sdk → claude-cli/.test(bridgeSrc) ||
+                               /CodexExternalAppServerProvider/.test(bridgeSrc) && /CodexSdkProvider/.test(bridgeSrc);
+        // V17-F0 任务 B：CodexExternalAppServerProvider 类已重命名（旧名作别名保留）
+        const hasExternalProviderClass = /class\s+CodexExternalAppServerProvider\b/.test(
+          readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerProvider.ts"), "utf8")
+        );
+        const hasBackwardAlias = /export const CodexAppServerProvider\s*=\s*CodexExternalAppServerProvider/.test(
+          readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerProvider.ts"), "utf8")
+        );
+        // V17-F0 任务 B：CodexSdkProvider 占位文件存在
+        const hasCodexSdkProviderFile = existsSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-sdk", "codexSdkProvider.ts"));
+        // settings UI 下拉含 codex-sdk 和 codex-app-server-external
+        const hasCodexSdkOption = settingsSrc.includes('addOption("codex-sdk"');
+        const hasCodexExternalOption = settingsSrc.includes('addOption("codex-app-server-external"');
+        // auto 选项文案改为 SDK-first（不再 Codex-first）
+        const autoDescSdkFirst = settingsSrc.includes("SDK-first") && !settingsSrc.includes("Codex-first");
+        // V17-F0 任务 C：main.ts 迁移旧 "codex" → "codex-app-server-external"
+        const migratesLegacyCodex = /backendMode"?\s*===\s*"codex"[\s\S]*?backendMode\s*=\s*"codex-app-server-external"/.test(mainSrc);
 
-        addTest("V17-E B+E1-B: BackendMode 含 codex + selectProvider 处理 + 不静默 fallback + auto 统一 Codex-first + portable 不再 Pi-first + settings UI 下拉",
-          hasCodexMode && handlesCodexMode && codexModeNotFallback && autoUnifiedCodexFirst && portableNoPiFirst && hasCodexOption && autoDescFixed ? "pass" : "fail",
-          `hasCodexMode=${hasCodexMode} handlesCodexMode=${handlesCodexMode} notFallback=${codexModeNotFallback} autoUnifiedCodexFirst=${autoUnifiedCodexFirst} portableNoPiFirst=${portableNoPiFirst} hasCodexOption=${hasCodexOption} autoDescFixed=${autoDescFixed}`);
+        addTest("V17-F0 B+C: BackendMode 拆分 codex-sdk/codex-app-server-external + selectProvider SDK-first 链 + Provider 重命名 + CodexSdkProvider 占位 + settings UI 下拉 + 旧 codex 迁移",
+          hasCodexSdkMode && hasCodexExternalMode && handlesCodexSdkMode && handlesCodexExternalMode &&
+          autoIsSdkFirst && hasExternalProviderClass && hasBackwardAlias && hasCodexSdkProviderFile &&
+          hasCodexSdkOption && hasCodexExternalOption && autoDescSdkFirst && migratesLegacyCodex ? "pass" : "fail",
+          `codexSdkMode=${hasCodexSdkMode} codexExtMode=${hasCodexExternalMode} handlesSdk=${handlesCodexSdkMode} handlesExt=${handlesCodexExternalMode} autoSdkFirst=${autoIsSdkFirst} extProviderClass=${hasExternalProviderClass} alias=${hasBackwardAlias} sdkProviderFile=${hasCodexSdkProviderFile} codexSdkOption=${hasCodexSdkOption} codexExtOption=${hasCodexExternalOption} autoDescSdkFirst=${autoDescSdkFirst} migratesLegacyCodex=${migratesLegacyCodex}`);
       }
 
-      // ===== V17-E 任务 C：真实 Codex app-server smoke readiness matrix =====
-      // 验证 codex-app-server-smoke.mjs 输出 12 字段 readiness matrix + codexUserReady
+      // ===== V17-F0 任务 E：真实 Codex app-server smoke readiness matrix（17 字段） =====
+      // 验证 codex-app-server-smoke.mjs 输出 17 字段 readiness matrix（5 新 SDK 主线 + 2 external + 12 旧）+
+      //       codexUserReady 改为 SDK 主线 gate（codexSdkAvailable + codexSdkAuthAvailable 必须 true）
       // 真实 codex 环境运行需 manual；此处验证脚本结构正确
       {
         const smokeSrc = readFileSync(join(PROJECT_ROOT, "scripts", "codex-app-server-smoke.mjs"), "utf8");
-        const requiredFields = [
+        // V17-F0 新增 5 字段：SDK 主线（不得依赖 external codex executable）
+        const newSdkFields = [
+          "codexSdkAvailable", "codexEmbeddedRuntimeAvailable", "codexSdkAuthAvailable",
+          "codexExternalExecutableAvailable", "externalAppServerSpawnStatus",
+        ];
+        // V17-E1 旧 12 字段（保留兼容，非主 gate）
+        const legacyFields = [
           "codexCliAvailable", "codexVersion", "codexAuthAvailable",
           "appServerSpawnStatus", "initializeStatus", "threadStartStatus",
           "turnStartStatus", "turnCompletedStatus", "approvalRequestStatus",
           "fileChangeRequestStatus", "stopCancelStatus", "noVaultRootPollution",
         ];
-        const hasAllFields = requiredFields.every((f) => smokeSrc.includes(f));
+        const hasAllNewFields = newSdkFields.every((f) => smokeSrc.includes(f));
+        const hasAllLegacyFields = legacyFields.every((f) => smokeSrc.includes(f));
         const hasDeriveFunction = smokeSrc.includes("function deriveReadinessMatrix");
         const hasPrintFunction = smokeSrc.includes("function printReadinessMatrix");
         const hasCodexUserReady = smokeSrc.includes("codexUserReady");
+        // V17-F0 任务 E：codexUserReady 改为 SDK 主线 gate — codexSdkAvailable + codexSdkAuthAvailable 必须 true
+        const userReadyIsSdkGate = /matrix\.codexSdkAvailable\s*!==\s*"true"/.test(smokeSrc) &&
+                                    /matrix\.codexSdkAuthAvailable\s*!==\s*"true"/.test(smokeSrc);
         // skip 时 codexUserReady=false（不伪装 ready）
-        // V17-E1 任务 E：codexUserReady 改用 deriveCodexUserReady(report, matrix) gate（smoke=pass + 关键 matrix 字段 pass/true）
-        const skipNotReady = /smokeStatus\s*===\s*"skip"/.test(smokeSrc) || /codexUserReady\s*=\s*report\.smokeStatus\s*===\s*"pass"/.test(smokeSrc) || /deriveCodexUserReady\(report,\s*matrix\)/.test(smokeSrc);
+        const skipNotReady = /smokeStatus\s*===\s*"skip"/.test(smokeSrc) || /deriveCodexUserReady\(report,\s*matrix\)/.test(smokeSrc);
         // approval/fileChange/stopCancel flag 收集
         const collectsApproval = smokeSrc.includes("approvalRequestTriggered");
         const collectsFileChange = smokeSrc.includes("fileChangeRequestTriggered");
@@ -6037,42 +6061,33 @@ if (runMode !== "all" && runMode !== "unit") {
         // noVaultRootPollution 检测
         const checksPollution = smokeSrc.includes("noVaultRootPollution") && smokeSrc.includes(".codex");
 
-        addTest("V17-E C: codex-app-server-smoke 输出 12 字段 readiness matrix + codexUserReady + skip 不算 ready + flag 收集",
-          hasAllFields && hasDeriveFunction && hasPrintFunction && hasCodexUserReady && skipNotReady &&
+        addTest("V17-F0 E: codex-app-server-smoke 输出 17 字段 readiness matrix（5 SDK 主线 + 2 external + 12 旧）+ codexUserReady SDK 主线 gate + flag 收集",
+          hasAllNewFields && hasAllLegacyFields && hasDeriveFunction && hasPrintFunction && hasCodexUserReady &&
+          userReadyIsSdkGate && skipNotReady &&
           collectsApproval && collectsFileChange && collectsProcKill && checksPollution ? "pass" : "fail",
-          `allFields=${hasAllFields} derive=${hasDeriveFunction} print=${hasPrintFunction} codexUserReady=${hasCodexUserReady} skipNotReady=${skipNotReady} approval=${collectsApproval} fileChange=${collectsFileChange} procKill=${collectsProcKill} pollution=${checksPollution}`);
+          `newFields=${hasAllNewFields} legacyFields=${hasAllLegacyFields} derive=${hasDeriveFunction} print=${hasPrintFunction} codexUserReady=${hasCodexUserReady} sdkGate=${userReadyIsSdkGate} skipNotReady=${skipNotReady} approval=${collectsApproval} fileChange=${collectsFileChange} procKill=${collectsProcKill} pollution=${checksPollution}`);
       }
 
-      // ===== V17-E 任务 D：Codex onboarding card =====
-      // 验证 settings.ts 含 Codex setup/status card + 四种状态提示 + 最短修复提示
+      // ===== V17-F0 任务 D：Codex Mainline Status（SDK-first） =====
+      // 验证 settings.ts 普通用户主线不再出现 Codex CLI 安装引导/heuristic 探测，
+      //       改为 Codex Mainline Status 区块 + SDK-first 文案 + Desktop App is not an integration target
       {
         const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
-        // V17-E1 任务 F：标题改为 "Codex Setup / Status (V17-E — Heuristic)"
-        const hasCodexSection = /Codex Setup \/ Status \(V17-E[^)]*\)/.test(settingsSrc);
-        const hasCodexCommand = settingsSrc.includes('setName("Codex 命令")') && settingsSrc.includes("s.codexCommand");
-        // V17-E1 任务 F：设置名改为 "Codex 状态（Heuristic）"
-        const hasCodexStatus = /setName\("Codex 状态[^)]*\)/.test(settingsSrc);
-        // 四种状态文案
-        const hasNotInstalled = settingsSrc.includes("未安装");
-        const hasNotLoggedIn = settingsSrc.includes("但未登录");
-        const hasAppServerUnavailable = settingsSrc.includes("app-server 不可用");
-        const hasReady = settingsSrc.includes("ready");
-        // 最短修复提示
-        const hasInstallHint = settingsSrc.includes("npm install -g @openai/codex");
-        const hasLoginHint = settingsSrc.includes("codex login");
-        const hasUpgradeHint = settingsSrc.includes("@openai/codex@latest");
-        // 探测逻辑
-        const probesVersion = settingsSrc.includes('execFileSync(codexCmd, ["--version"]');
-        const probesAuth = settingsSrc.includes(".codex") && (settingsSrc.includes("auth.json") || settingsSrc.includes("config.toml"));
-        const probesAppServer = settingsSrc.includes('app-server", "--help"');
-        const hasRedetectButton = settingsSrc.includes("重新检测");
+        // V17-F0 任务 D：新增 Codex Mainline Status 区块
+        const hasCodexMainlineSection = /Codex Mainline Status \(V17-F0 — SDK-first\)/.test(settingsSrc);
+        const statesDesktopNotTarget = settingsSrc.includes("Desktop App is not an integration target");
+        // V17-F0 任务 D：Codex Mainline Status 区块（到下一个 h3 "Pi Backend" 为止）不含 install/login 引导
+        // External fallback Advanced 区块允许出现 codex login 提示（任务 F 保留）
+        const mainlineBlockMatch = /Codex Mainline Status \(V17-F0 — SDK-first\)([\s\S]*?)(?=Pi Backend)/.exec(settingsSrc);
+        const mainlineBlock = mainlineBlockMatch ? mainlineBlockMatch[1] : "";
+        const noMainlineInstallHint = !mainlineBlock.includes("npm install -g @openai/codex");
+        const noMainlineLoginHint = !mainlineBlock.includes("codex login");
+        // V17-F0 任务 F：external app-server fallback 在 Advanced/External 区域
+        const hasExternalFallbackSection = /External Codex App-Server Fallback \(Advanced \/ Developer — V17-F0 任务 F\)/.test(settingsSrc);
 
-        addTest("V17-E D: settings.ts Codex setup/status card（四种状态 + 修复提示 + 探测逻辑 + 重新检测）",
-          hasCodexSection && hasCodexCommand && hasCodexStatus &&
-          hasNotInstalled && hasNotLoggedIn && hasAppServerUnavailable && hasReady &&
-          hasInstallHint && hasLoginHint && hasUpgradeHint &&
-          probesVersion && probesAuth && probesAppServer && hasRedetectButton ? "pass" : "fail",
-          `section=${hasCodexSection} cmd=${hasCodexCommand} status=${hasCodexStatus} notInstalled=${hasNotInstalled} notLoggedIn=${hasNotLoggedIn} appServerUnavail=${hasAppServerUnavailable} ready=${hasReady} installHint=${hasInstallHint} loginHint=${hasLoginHint} upgradeHint=${hasUpgradeHint} probesVersion=${probesVersion} probesAuth=${probesAuth} probesAppServer=${probesAppServer} redetect=${hasRedetectButton}`);
+        addTest("V17-F0 D: settings.ts Codex Mainline Status 区块 + Desktop App 非集成目标 + 普通用户主线无 install/login 引导 + External fallback 在 Advanced",
+          hasCodexMainlineSection && statesDesktopNotTarget && noMainlineInstallHint && noMainlineLoginHint && hasExternalFallbackSection ? "pass" : "fail",
+          `mainlineSection=${hasCodexMainlineSection} desktopNotTarget=${statesDesktopNotTarget} noInstallHint=${noMainlineInstallHint} noLoginHint=${noMainlineLoginHint} extFallbackSection=${hasExternalFallbackSection}`);
       }
 
       // ===== V17-E 任务 E：测试报告修正 =====
@@ -6179,22 +6194,23 @@ if (runMode !== "all" && runMode !== "unit") {
           `c=${cOk} (noTypeModule=${buildNoTypeModule} writesMeta=${buildWritesMetadata} cleansResidual=${buildCleansResidual} runsNpmBuild=${buildRunsNpmBuild}) d=${dOk} (hasSmoke=${hasSmokeScript} hasBuildSmoke=${hasBuildSmokeScript} writesReport=${smokeWritesReport} outputsStatus=${smokeOutputsStatus}) smoke=${smokeOk} (canLoadMainJs=${smokeChecksCanLoadMainJs} noRootPkgJson=${smokeChecksNoRootPkgJson})`);
       }
 
-      // ===== V17-E1 任务 E：readiness matrix 写入报告 + codexUserReady gate =====
+      // ===== V17-F0 任务 E：readiness matrix 写入报告（17 字段）+ codexUserReady SDK 主线 gate =====
       {
         const smokeScript = readFileSync(join(PROJECT_ROOT, "scripts", "codex-app-server-smoke.mjs"), "utf8");
         const summaryScript = readFileSync(join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs"), "utf8");
 
-        // 任务 E：writeReport 写入 12 字段 matrix 到报告
-        const writeReportHasMatrix = smokeScript.includes("## Readiness Matrix (V17-E1 任务 E — 12 字段)") &&
-                                       smokeScript.includes("matrix.codexCliAvailable") &&
+        // 任务 E：writeReport 写入 17 字段 matrix 到报告（V17-F0 改为 17 字段）
+        const writeReportHasMatrix = smokeScript.includes("## Readiness Matrix (V17-F0 任务 E — 17 字段)") &&
+                                       smokeScript.includes("matrix.codexSdkAvailable") &&
+                                       smokeScript.includes("matrix.codexExternalExecutableAvailable") &&
                                        smokeScript.includes("matrix.noVaultRootPollution");
-        // 任务 E：deriveCodexUserReady gate — smoke=pass + 关键字段 pass/true
+        // 任务 E：deriveCodexUserReady gate — V17-F0 SDK 主线 gate（codexSdkAvailable + codexSdkAuthAvailable）
         const hasDeriveUserReady = smokeScript.includes("function deriveCodexUserReady");
         const gateChecksKeyFields = smokeScript.includes("matrix.appServerSpawnStatus") &&
                                      smokeScript.includes("matrix.turnCompletedStatus") &&
                                      smokeScript.includes("matrix.stopCancelStatus");
-        const gateChecksAuth = smokeScript.includes("matrix.codexAuthAvailable !== \"true\"");
-        // 任务 E：summary 解析 12 字段
+        const gateChecksAuth = smokeScript.includes("matrix.codexSdkAuthAvailable !== \"true\"");
+        // 任务 E：summary 解析字段（旧 12 字段仍保留兼容）
         const summaryParsesMatrix = summaryScript.includes("codexCliAvailable") &&
                                      summaryScript.includes("appServerSpawnStatus") &&
                                      summaryScript.includes("noVaultRootPollution");
@@ -6204,33 +6220,39 @@ if (runMode !== "all" && runMode !== "unit") {
         const eOk = writeReportHasMatrix && hasDeriveUserReady && gateChecksKeyFields && gateChecksAuth;
         const summaryOk = summaryParsesMatrix && summaryOutputsMatrix;
 
-        addTest("V17-E1 E: readiness matrix 写入 codex smoke report + codexUserReady gate 加 matrix 校验 + summary 解析/输出",
+        addTest("V17-F0 E: readiness matrix 写入 codex smoke report（17 字段）+ codexUserReady SDK 主线 gate + summary 解析/输出",
           eOk && summaryOk ? "pass" : "fail",
           `e=${eOk} (writeReportHasMatrix=${writeReportHasMatrix} hasDeriveUserReady=${hasDeriveUserReady} gateChecksKeyFields=${gateChecksKeyFields} gateChecksAuth=${gateChecksAuth}) summary=${summaryOk} (parses=${summaryParsesMatrix} outputs=${summaryOutputsMatrix})`);
       }
 
-      // ===== V17-E1 任务 F：Codex setup card 降级为 heuristic status =====
+      // ===== V17-F0 任务 F：External Codex App-Server Fallback（Advanced/Developer）heuristic 探测 =====
+      // 验证 settings.ts 含 External fallback 区块 + Codex External Command/Status + heuristic 探测 + 重新检测
+      // 普通用户主线不再出现 Codex setup card；external fallback 仅在 Advanced 区域
       {
         const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
 
-        // 任务 F：标题含 Heuristic
-        const titleHasHeuristic = settingsSrc.includes("Codex Setup / Status (V17-E — Heuristic)");
-        // 任务 F：hint 段说明不等同 real smoke ready
-        const hasHintAboutHeuristic = settingsSrc.includes("本栏为 heuristic") &&
-                                       settingsSrc.includes("不等同于 real smoke ready") &&
-                                       settingsSrc.includes("codexUserReady");
-        // 任务 F：变量名改为 codexAuthHeuristic
-        const usesHeuristicVar = settingsSrc.includes("codexAuthHeuristic") && !settingsSrc.includes("codexAuthOk");
-        // 任务 F：ready → heuristic-ready
-        const usesHeuristicReady = settingsSrc.includes("heuristic-ready") && !settingsSrc.includes('statusText = `ready');
-        // 任务 F：设置名含 Heuristic
-        const settingNameHasHeuristic = settingsSrc.includes("Codex 状态（Heuristic）");
+        // 任务 F：标题为 External Codex App-Server Fallback
+        const hasExtTitle = settingsSrc.includes("External Codex App-Server Fallback (Advanced / Developer — V17-F0 任务 F)");
+        // 任务 F：hint 说明不是普通用户主线
+        const hasHintNotMainline = settingsSrc.includes("不是普通用户主线") && settingsSrc.includes("codex login");
+        // 任务 F：Codex External Command 设置
+        const hasExtCommandSetting = settingsSrc.includes('setName("Codex External Command (Advanced)")');
+        // 任务 F：Codex External Status (Heuristic) 设置
+        const hasExtStatusSetting = settingsSrc.includes('setName("Codex External Status (Heuristic)")');
+        // 任务 F：heuristic-ready 状态文案
+        const hasHeuristicReady = settingsSrc.includes("heuristic-ready");
+        // 任务 F：探测逻辑 — execFileSync(codexCmd, ["--version"]) + app-server --help
+        const probesVersion = settingsSrc.includes('execFileSync(codexCmd, ["--version"]');
+        const probesAppServer = settingsSrc.includes('app-server", "--help"');
+        // 任务 F：重新检测按钮
+        const hasRedetectButton = settingsSrc.includes("重新检测");
 
-        const fOk = titleHasHeuristic && hasHintAboutHeuristic && usesHeuristicVar && usesHeuristicReady && settingNameHasHeuristic;
+        const fOk = hasExtTitle && hasHintNotMainline && hasExtCommandSetting && hasExtStatusSetting &&
+                   hasHeuristicReady && probesVersion && probesAppServer && hasRedetectButton;
 
-        addTest("V17-E1 F: Codex setup card 降级为 heuristic status（标题/hint/变量名/状态文案/设置名）",
+        addTest("V17-F0 F: settings.ts External Codex App-Server Fallback 区块（标题 + hint + Command/Status 设置 + heuristic-ready + 探测逻辑 + 重新检测）",
           fOk ? "pass" : "fail",
-          `title=${titleHasHeuristic} hint=${hasHintAboutHeuristic} var=${usesHeuristicVar} ready=${usesHeuristicReady} settingName=${settingNameHasHeuristic}`);
+          `extTitle=${hasExtTitle} hintNotMainline=${hasHintNotMainline} extCmd=${hasExtCommandSetting} extStatus=${hasExtStatusSetting} heuristicReady=${hasHeuristicReady} probesVersion=${probesVersion} probesAppServer=${probesAppServer} redetect=${hasRedetectButton}`);
       }
 
       // ===== V17-E1 任务 D：summary 解析 user-package 报告 =====

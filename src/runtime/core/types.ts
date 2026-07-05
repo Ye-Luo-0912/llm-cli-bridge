@@ -41,8 +41,17 @@ export type { EffectiveRunPlan, AttachmentPlan } from "../../types";
  * - pi-rpc:           V17-A portable backend spike（pi --mode rpc），plan/read-only 阶段不绕过 PermissionBoundary
  * - pi-sdk:           V17-B portable backend 主线（@earendil-works/pi-coding-agent SDK），写操作经 Bridge approval
  * - mock:             开发/测试用 mock provider
+ *
+ * V17-F0 任务 B：codex-sdk 作为主线占位；codex-app-server 为 external fallback（保留兼容）。
  */
-export type ProviderId = "codex-app-server" | "claude-sdk" | "claude-cli" | "pi-rpc" | "pi-sdk" | "mock";
+export type ProviderId =
+  | "codex-sdk"
+  | "codex-app-server"
+  | "claude-sdk"
+  | "claude-cli"
+  | "pi-rpc"
+  | "pi-sdk"
+  | "mock";
 
 // ---------- RunInput ----------
 

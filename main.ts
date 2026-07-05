@@ -487,6 +487,11 @@ export default class LLMBridgePlugin extends Plugin {
       this.settings.backendMode = "sdk";
       await this.saveData(this.settings);
     }
+    // V17-F0 任务 C：迁移旧的 "codex" → "codex-app-server-external"（保留用户选择，不强制改 auto）
+    if ((this.settings as { backendMode?: string }).backendMode === "codex") {
+      this.settings.backendMode = "codex-app-server-external";
+      await this.saveData(this.settings);
+    }
   }
 
   async saveSettings(): Promise<void> {

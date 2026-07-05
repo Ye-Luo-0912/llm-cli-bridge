@@ -487,7 +487,23 @@ function writeReport(report) {
   }
   lines.push("");
   // V17-E1 任务 E：readiness matrix 12 字段写入报告
-  lines.push("## Readiness Matrix (V17-E1 任务 E — 12 字段)");
+  // V17-F0 任务 E：新增 5 字段（codexSdkAvailable / codexEmbeddedRuntimeAvailable /
+  // codexSdkAuthAvailable / codexExternalExecutableAvailable / externalAppServerSpawnStatus）
+  // 旧 codexCliAvailable / appServerSpawnStatus 不得作为 Codex user-ready 主 gate
+  lines.push("## Readiness Matrix (V17-F0 任务 E — 17 字段)");
+  lines.push("");
+  lines.push("### V17-F0 新增 SDK 主线字段");
+  lines.push("");
+  lines.push(`- **codexSdkAvailable**: ${matrix.codexSdkAvailable}`);
+  lines.push(`- **codexEmbeddedRuntimeAvailable**: ${matrix.codexEmbeddedRuntimeAvailable}`);
+  lines.push(`- **codexSdkAuthAvailable**: ${matrix.codexSdkAuthAvailable}`);
+  lines.push("");
+  lines.push("### V17-F0 External fallback 字段（不得作为 user-ready 主 gate）");
+  lines.push("");
+  lines.push(`- **codexExternalExecutableAvailable**: ${matrix.codexExternalExecutableAvailable}`);
+  lines.push(`- **externalAppServerSpawnStatus**: ${matrix.externalAppServerSpawnStatus}`);
+  lines.push("");
+  lines.push("### V17-E1 旧字段（保留兼容，非主 gate）");
   lines.push("");
   lines.push(`- **codexCliAvailable**: ${matrix.codexCliAvailable}`);
   lines.push(`- **codexVersion**: ${matrix.codexVersion}`);
@@ -537,12 +553,16 @@ function writeReport(report) {
   console.log(`报告已写入: ${REPORT_PATH}`);
 }
 
-// V17-E1 任务 E：codexUserReady 派生 — smoke=pass 且关键 matrix 字段 pass/true 才 true
-// approvalRequestStatus / fileChangeRequestStatus 为 "not-triggered" 时不阻塞 ready
-// （agent 可能不需要审批；不算完整 file/approval readiness pass，但不阻塞整体 ready）
+// V17-F0 任务 E：codexUserReady 派生 — 只有 SDK 主线或明确 bundled runtime 主线通过时才 true
+// 旧 external app-server pass 不再让 codexUserReady=true
+// SDK 主线（codexSdkAvailable + codexSdkAuthAvailable）为本轮占位，默认 false
 function deriveCodexUserReady(report, matrix) {
+  // V17-F0 任务 E：SDK 主线 gate — 必须 codexSdkAvailable=true 且 codexSdkAuthAvailable=true
+  // 本轮 CodexSdkProvider 为占位（isAvailable 返回 false），所以 codexUserReady 保持 false
+  if (matrix.codexSdkAvailable !== "true") return false;
+  if (matrix.codexSdkAuthAvailable !== "true") return false;
+  // SDK 主线通过后，仍需 smoke 关键字段 pass
   if (report.smokeStatus !== "pass") return false;
-  // 关键 matrix 字段必须 pass/true
   const keyFields = [
     matrix.appServerSpawnStatus,
     matrix.initializeStatus,
@@ -554,11 +574,7 @@ function deriveCodexUserReady(report, matrix) {
   ];
   const allKeyPass = keyFields.every((v) => v === "pass" || v === "true");
   if (!allKeyPass) return false;
-  // approval/fileChange：not-triggered 不阻塞（agent 没要求审批是合法状态）
-  // 但 fail 则阻塞
   if (matrix.approvalRequestStatus === "fail" || matrix.fileChangeRequestStatus === "fail") return false;
-  // codexAuthAvailable 必须为 true（不能是 unknown）
-  if (matrix.codexAuthAvailable !== "true") return false;
   return true;
 }
 
@@ -610,7 +626,24 @@ function deriveReadinessMatrix(report) {
   else if (report.procKillOk === false) stopCancelStatus = "fail";
   else stopCancelStatus = "unknown";
 
+  // V17-F0 任务 E：external fallback 字段（等价于旧 codexCliAvailable / appServerSpawnStatus，
+  // 但明确标注为 external fallback — 不得作为 Codex user-ready 主 gate）
+  const codexExternalExecutableAvailable = report.codexAvailable === true ? "true" : "false";
+  const externalAppServerSpawnStatus = spawnStep ? (spawnStep.ok ? "pass" : "fail") : "unknown";
+
   return {
+    // ===== V17-F0 新增：SDK 主线字段（5 个，本轮占位） =====
+    // codexSdkAvailable：Codex Agent SDK 是否可用。本轮 CodexSdkProvider 为占位
+    //   （isAvailable 返回 false），故恒为 "false"。后续 SDK 接入后改为真实探测。
+    codexSdkAvailable: "false",
+    // codexEmbeddedRuntimeAvailable：Codex embedded runtime 是否随包可用。本轮未实现。
+    codexEmbeddedRuntimeAvailable: "false",
+    // codexSdkAuthAvailable：Codex SDK auth 是否可用。本轮未实现 auth 探测。
+    codexSdkAuthAvailable: "false",
+    // ===== V17-F0 External fallback 字段（不得作为 user-ready 主 gate） =====
+    codexExternalExecutableAvailable,
+    externalAppServerSpawnStatus,
+    // ===== V17-E1 旧字段（保留兼容，非主 gate） =====
     codexCliAvailable: report.codexAvailable === true ? "true" : "false",
     codexVersion: report.codexVersion || "null",
     codexAuthAvailable: typeof codexAuthAvailable === "boolean" ? (codexAuthAvailable ? "true" : "false") : codexAuthAvailable,

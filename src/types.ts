@@ -19,34 +19,49 @@ export type RunStatus = "idle" | "running" | "completed" | "failed" | "stopped";
 export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "auto" | "dontAsk" | "bypassPermissions";
 
 /**
- * Backend 选择（V2.16-B: SDK primary runtime）
- * - auto: SDK-first + Claude Code CLI fallback（默认生产行为）
- * - cli: 始终使用 ClaudeCliBackend（显式选择，不走 SDK）
- * - sdk: 始终使用 SdkBackend（显式选择，SDK 不可用时显示明确错误，不静默 fallback）
- * - mock-success: 开发/测试用，使用 MockAgentBackend(success)
- * - mock-failure: 开发/测试用，使用 MockAgentBackend(failure)
+ * Backend 选择（V17-F0: Codex SDK-first Direction Correction）
  *
- * V2.16-B 迁移：旧的 "sdk-experimental" 自动迁移为 "sdk"
+ * 主线策略：SDK-first（与 Claude/Pi 一致使用 SDK/runtime provider）。
+ * Codex Desktop App / codex CLI 不是集成目标，不作为普通用户默认主线。
  *
- * V17-B: 增加 "pi-sdk"（@earendil-works/pi-coding-agent SDK 嵌入模式，portable 主线）
+ * - auto: SDK-first 链 codex-sdk → claude-sdk → pi-sdk → claude-cli（具体 fallback 另行决策）
+ * - codex-sdk: Codex Agent SDK（主线占位，本轮未完整实现，readiness 以 smoke 报告为准）
+ * - codex-app-server-external: 外部 codex app-server（高级/开发者 fallback，需 codex CLI 可执行）
+ * - cli: Claude Code CLI
+ * - sdk: Claude Agent SDK（strict，不可用时报错不 fallback）
+ * - pi-sdk / pi-rpc: Pi provider（optional/advanced）
+ * - mock-success / mock-failure: 离线测试
  *
- * V17-E 任务 F：pi-sdk / pi-rpc 降级为 optional/advanced backend — 不再是普通用户默认主线。
- * 普通用户默认走 Codex-first（developer profile）路径；Pi 仅作为 portable profile 的可选实验路径，
- * 不阻塞 Codex-first audit。friendReady 字段已废弃，改名为 piAdvancedReady（见 pi-sdk-smoke.mjs）。
+ * V17-F0 任务 C：拆分原 "codex" → "codex-sdk" + "codex-app-server-external"。
+ * auto 不再依赖 external codex executable。
+ *
+ * V17-E 任务 F：pi-sdk / pi-rpc 降级为 optional/advanced backend。
+ * V17-E1 任务 B：portable auto 不再 Pi-first。
  */
-// V17-E 任务 B：增加显式 "codex" BackendMode（Codex app-server）
-export type BackendMode = "auto" | "codex" | "cli" | "sdk" | "mock-success" | "mock-failure" | "pi-rpc" | "pi-sdk";
+export type BackendMode =
+  | "auto"
+  | "codex-sdk"
+  | "codex-app-server-external"
+  | "cli"
+  | "sdk"
+  | "mock-success"
+  | "mock-failure"
+  | "pi-rpc"
+  | "pi-sdk";
+
+/** V17-F0 任务 C：旧值迁移用（"codex" → "codex-app-server-external"） */
+export type LegacyBackendMode = "codex";
 
 /**
  * V17-A: 后端配置档（朋友版 portable vs 开发者 developer）。
  *
- * - developer: Claude/Codex/Pi/mock 都可选，auto 默认 codex→sdk→cli 链
- * - portable:  与 developer 相同的 auto 链（Codex-first）；Pi 仅显式 pi-sdk/pi-rpc 才进入
+ * - developer: 全后端可选，auto 默认 SDK-first 链
+ * - portable:  与 developer 相同的 auto 链；UI 精简不暴露实验选项
  *
  * 朋友版 UI 只显示后端状态/模型/权限模式/Agent Runtime，不暴露实验选项。
  *
- * V17-E1 任务 B：portable auto 不再 Pi-first。普通用户（无论 developer 还是 portable）
- * 的默认主线是 Codex-first；Pi 降级为 optional/advanced backend，仅显式选择才进入。
+ * V17-F0 任务 C：auto 不再依赖 external codex executable。
+ * V17-E1 任务 B：portable auto 不再 Pi-first。
  * V17-E 任务 F：friendReady 字段废弃，改名为 piAdvancedReady。
  */
 export type BackendProfile = "developer" | "portable";
@@ -131,6 +146,9 @@ export interface ClaudeEffectiveRunPlan extends BaseEffectiveRunPlan {
  * codex-app-server 不读 systemPrompt/tools preset 字段（这些是 Claude 专用），
  * 由 CodexAppServerEffectiveRunPlan.buildRunOptions 派生 codex instructions/config/rules。
  * bridgeSystemAppend 走 instructions 层（见 codexAppServerEffectiveRunPlan.ts）。
+ *
+ * V17-F0 任务 B：CodexAppServerProvider 重命名为 CodexExternalAppServerProvider（向后兼容别名保留）。
+ *           此 plan 类型保留 codex-app-server backend 标识（external fallback）。
  */
 export interface CodexAppServerEffectiveRunPlan extends BaseEffectiveRunPlan {
   backend: "codex-app-server";
@@ -138,8 +156,19 @@ export interface CodexAppServerEffectiveRunPlan extends BaseEffectiveRunPlan {
   instructionsSource: "instructions" | "config" | "rules" | "provider-preamble";
 }
 
+/**
+ * V17-F0 任务 B：Codex SDK 主线 plan 占位。
+ *
+ * 后续完整实现时，由 CodexSdkProvider.buildPlan 构造此 plan。
+ */
+export interface CodexSdkEffectiveRunPlan extends BaseEffectiveRunPlan {
+  backend: "codex-sdk";
+  /** SDK 嵌入式 runtime 的配置来源（占位，实际实现时替换） */
+  sdkConfigSource: "placeholder" | "configured";
+}
+
 /** EffectiveRunPlan 联合类型（按 backend 收窄） */
-export type EffectiveRunPlan = ClaudeEffectiveRunPlan | CodexAppServerEffectiveRunPlan;
+export type EffectiveRunPlan = ClaudeEffectiveRunPlan | CodexAppServerEffectiveRunPlan | CodexSdkEffectiveRunPlan;
 
 // 单条聊天消息
 export interface ChatMessage {
