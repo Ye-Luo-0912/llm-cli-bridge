@@ -3,7 +3,7 @@
 > 本报告由 `scripts/user-package-smoke.mjs` 自动生成。
 > 验证 dist/user-package 零安装发行包的完整性与 CJS 加载安全性。
 
-- **测试时间**: 2026-07-05T18:25:39.411Z
+- **测试时间**: 2026-07-05T18:28:15.154Z
 - **userPackageStatus**: pass
 - **containsPiSdk**: true
 - **canRequirePiSdk**: true

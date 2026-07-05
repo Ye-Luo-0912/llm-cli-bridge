@@ -8,42 +8,60 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-05T17:54:14.086Z
-- **reportCommitSha**: cab217a56db819db426715d606a76fc69f9ee6f1
-- **reportCommitSha 短**: cab217a56db8
-- **reportParentSha**: 64c17c59e58d64eb193768d22f1a540ba3971782
-- **reportParentSha 短**: 64c17c59e58d
-- **testedCodeCommitSha**: cab217a56db819db426715d606a76fc69f9ee6f1
-- **testedCodeCommitSha 短**: cab217a56db8
+- **生成时间**: 2026-07-05T18:31:02.324Z
+- **reportCommitSha**: fb5f3be2cdd479745c599d8b65aebf881abea167
+- **reportCommitSha 短**: fb5f3be2cdd4
+- **reportParentSha**: 8675cb9fee67322fc912cdd3d4137efecf8229da
+- **reportParentSha 短**: 8675cb9fee67
+- **testedCodeCommitSha**: fb5f3be2cdd479745c599d8b65aebf881abea167
+- **testedCodeCommitSha 短**: fb5f3be2cdd4
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: cab217a56db819db426715d606a76fc69f9ee6f1
-- **processReportCommitSha**: cab217a56db819db426715d606a76fc69f9ee6f1
+- **unitReportCommitSha**: fb5f3be2cdd479745c599d8b65aebf881abea167
+- **processReportCommitSha**: fb5f3be2cdd479745c599d8b65aebf881abea167
 - **codexSmokeStatus**: skip
 - **codexHandshakeStatus**: skip
 - **codexTurnStatus**: skip
 - **codexVersion**: null
 - **codexSchemaSource**: fixture
 - **codexUserReady**: false
+- **codexCliAvailable**: false
+- **codexAuthAvailable**: unknown
+- **appServerSpawnStatus**: unknown
+- **initializeStatus**: unknown
+- **threadStartStatus**: unknown
+- **turnStartStatus**: unknown
+- **turnCompletedStatus**: fail
+- **approvalRequestStatus**: unknown
+- **fileChangeRequestStatus**: unknown
+- **stopCancelStatus**: unknown
+- **noVaultRootPollution**: true
+- **userPackageStatus**: pass
+- **containsPiSdk**: true
+- **canRequirePiSdk**: true
+- **canLoadMainJs**: true
+- **noRootPackageJson**: true
+- **userNeedsNpmInstall**: false
+- **userPackageSizeMB**: 97.8
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-06T09:52:00.000Z
-- **process 测试时间**: 2026-07-06T09:53:00.000Z
+- **unit 测试时间**: 2026-07-05T18:30:09.460Z
+- **process 测试时间**: 2026-07-05T18:30:45.965Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=cab217a56db8。
-- **当前 commit 改动文件**：docs/test-report-pi-sdk-smoke.md, docs/test-report.md, package-lock.json, package.json, scripts/pi-sdk-smoke.mjs
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=fb5f3be2cdd4。
+- **当前 commit 改动文件**：scripts/run-tests.mjs
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 1016 | 0 | 25 | 0 | 1041 | cab217a56db8 | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | cab217a56db8 | ✅ 通过 |
+| unit | 1020 | 0 | 25 | 0 | 1045 | fb5f3be2cdd4 | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | fb5f3be2cdd4 | ✅ 通过 |
 | codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **1113** | **0** | **81** | **0** | **1194** | cab217a56db8 | ✅ **主线通过** |
+| **合计** | **1117** | **0** | **81** | **0** | **1198** | fb5f3be2cdd4 | ✅ **主线通过** |
 
 **双轨均 0 失败（fixture/unit 层 pass），但 Codex real smoke skipped — Runtime 主线未完整验证（real smoke 层未验证）。codexUserReady=false。**
 

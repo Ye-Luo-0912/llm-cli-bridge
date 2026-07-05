@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-06T09:52:00.000Z
+- **测试时间**: 2026-07-05T18:30:09.460Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 825.5 KB
+- **main.js 大小**: 840.6 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 59338
-- **commit sha**: cab217a56db819db426715d606a76fc69f9ee6f1
-- **commit 短 sha**: cab217a56db8
+- **commit sha**: fb5f3be2cdd479745c599d8b65aebf881abea167
+- **commit 短 sha**: fb5f3be2cdd4
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 1016
+- ✅ **通过**: 1020
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 1041
+- **总计**: 1045
 
 ### 审计模式说明
 
@@ -701,7 +701,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=296584 capLine=296729 orderOk=true |
+| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=296743 capLine=296888 orderOk=true |
 | ✅ | buildBridgePromptPackage 主路径接收 runtimeCapabilities | hasRuntimeCapabilities=true hasPassedToBuilder=true |
 
 ### V16.5-E workspace
@@ -953,7 +953,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783261035224-0 update=pi-sdk-read-1783261035224-0 end=pi-sdk-read-1783261035224-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783276210955-0 update=pi-sdk-read-1783276210955-0 end=pi-sdk-read-1783276210955-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -986,11 +986,16 @@
 |------|--------|------|
 | ✅ | 真实字符串替换 + oldText 不存在返回失败 | editOk=true contentReplaced=true notFoundHandled=true |
 
+### V17-B pi-sdk
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | provider 仍可实例化（V17-E1: 不再 portable auto 主线，仅显式 pi-sdk 模式） | providerId=pi-sdk available=false |
+
 ### V17-B portable
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pi-sdk 是 portable 主线候选（providerId=pi-sdk） | providerId=pi-sdk available=false |
 | ✅ | pi-rpc 不作为 portable 主线（providerId=pi-rpc） | providerId=pi-rpc |
 
 ### V17-C resolveToolMode
@@ -1010,7 +1015,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | getAvailable 非空 → hasAuth+hasModel=true | hasAuth=true hasModel=true hint= |
-| ✅ | 无 auth/model 时返回可行动提示 | hasAuth=false hasModel=false hint=Pi SDK 未配置认证和模型。请在 ~/.pi/agent 配置 API Key 或运行 pi login，并在插件设置中选择 model。 |
+| ✅ | 无 auth/model 时返回可行动提示 | hasAuth=false hasModel=false hint=Pi SDK 未配置认证和模型。请在插件设置「Pi SDK Auth」中配置 Provider / API Key / Model，或运行 pi login。 |
 
 ### V17-C pi-native trust
 
@@ -1034,7 +1039,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | V17-C smoke:pi-sdk: read-only + pi-native 两组 + friendReady gate + skip 明确 | readOnly=true piNative=true friendGate=true skip=true |
+| ✅ | V17-C smoke:pi-sdk: read-only + pi-native 两组 + piAdvancedReady gate + skip 明确 | readOnly=true piNative=true piAdvancedGate=true skip=true |
 
 ### V17-C settings.ts
 
@@ -1052,7 +1057,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | V17-C1 smoke:pi-sdk 状态字段完整（piSdkSmokeStatus/piReadOnlySmokeStatus/piNativeSmokeStatus/friendReady/skip reason） | piSdk=true readOnly=true piNative=true friendReady=true skip=true passGate=false |
+| ✅ | V17-C1 smoke:pi-sdk 状态字段完整（piSdkSmokeStatus/piReadOnlySmokeStatus/piNativeSmokeStatus/piAdvancedReady/skip reason） | piSdk=true readOnly=true piNative=true piAdvancedReady=true skip=true passGate=false |
 
 ### V17-C1 main.ts
 
@@ -1101,7 +1106,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | V17-C2 smoke:pi-sdk gate: skip→friendReady=false / piNative pass→friendReady=true | skipLogic=true passLogic=true |
+| ✅ | V17-C2 smoke:pi-sdk gate: basic/readOnly/native 三组 + skip→piAdvancedReady=false + native 工具验证 + 临时目录 | basic=true readOnly=true native=true skipLogic=true skipReleaseReady=true passLogic=true nativeToolVerification=true usesTempDir=true |
 
 ### V17-C2 main.ts
 
@@ -1126,6 +1131,121 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | skill runtime format + materialize all targets 不回退 | convert=true materialize=true instructions=true |
+
+### V17-D pi-native
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | createAgentSession 不传 tools/excludeTools/customTools + run 走通 | calls=1 noTools=true noExcludeTools=true noCustomTools=true sessionStarted=true message=true completed=true |
+
+### V17-D read-only
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | createAgentSession 传 tools=["read"] 不传 excludeTools/customTools | tools=["read"] excludeTools=undefined customTools=undefined |
+
+### V17-D bridge-controlled
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | excludeTools=[write,edit,bash] + customTools=[bridge_*] 不传 tools allowlist | excludeTools=["write","edit","bash"] customToolNames=["bridge_write","bridge_edit","bridge_bash"] hasCustomTools=true noToolsAllowlist=true |
+
+### V17-D trust gate
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | pi-native 未确认 → failed + 不调用 createAgentSession/prompt | failed=true trustMsg=true noSessionCreated=true noPromptCalled=true |
+
+### V17-D prompt event
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | session.prompt 收到 userPrompt + text_delta/agent_end 走通 | promptCalls=1 text=hello v17d hasMessage=true hasCompleted=true |
+
+### V17-D cancel/abort
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | cancel(runId) 触发 session.abort() | abortCalls=1 eventsCount=3 |
+
+### V17-D auth override
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | piApiKey/Provider/BaseUrl 注入 authStorage + model 传入 createAgentSession | setKey=true(2) register=true(2) modelOverride=true completed=true |
+| ✅ | 空 override 时不调用 setRuntimeApiKey/registerProvider | noSetKey=true noRegister=true noModelOverride=true completed=true |
+
+### V17-D settings.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Pi SDK Auth section (Provider/Model/API Key/Base URL/Test connection) + hint 指向 UI | section=true provider=true model=true apiKey=true baseUrl=true testConn=true hintToUI=true |
+
+### V17-D 回归 G
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | V16.5-K1 skill format + split vault-context index-only + Claude/Codex provider 不受影响 + PiSdkProvider 导出完整 + types 新字段 | k1Convert=true k1Materialize=true k1Instructions=true k1IndexOnly=true tryAsync=true preload=true setProbe=true authOverride=true probeOverride=true newSettings=true defaults=true claudeSdk=true claudeCli=true codex=true |
+
+### V17-E A
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | CodexAppServerProvider isAvailable/run/resume command 一致 + selectProvider 传 codexCommand + spawn enhanced PATH | isAvailableMember=true noHardcoded=true ctor=true runMember=true noSettingsInRun=true selectPasses=true buildSpawnEnv=true enhancedPath=true importOk=true envPassed=true |
+
+### V17-E B+E1-B
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | BackendMode 含 codex + selectProvider 处理 + 不静默 fallback + auto 统一 Codex-first + portable 不再 Pi-first + settings UI 下拉 | hasCodexMode=true handlesCodexMode=true notFallback=true autoUnifiedCodexFirst=true portableNoPiFirst=true hasCodexOption=true autoDescFixed=true |
+
+### V17-E C
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | codex-app-server-smoke 输出 12 字段 readiness matrix + codexUserReady + skip 不算 ready + flag 收集 | allFields=true derive=true print=true codexUserReady=true skipNotReady=true approval=true fileChange=true procKill=true pollution=true |
+
+### V17-E D
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | settings.ts Codex setup/status card（四种状态 + 修复提示 + 探测逻辑 + 重新检测） | section=true cmd=true status=true notInstalled=true notLoggedIn=true appServerUnavail=true ready=true installHint=true loginHint=true upgradeHint=true probesVersion=true probesAuth=true probesAppServer=true redetect=true |
+
+### V17-E E
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | codex-app-server-smoke 写入 codexUserReady + generate-test-summary 解析/输出 + skip 不写主线闭环通过 + 拆分 fixture/real smoke 层 | smokeWrites=true summaryParses=true summaryOutputs=true skipNotPass=true splitsLayers=true passRequiresSmoke=true |
+
+### V17-E F
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Pi SDK 降级 optional/advanced backend + friendReady→piAdvancedReady + ESM dynamic import 独立修复项 | f1=true (types=true settings=true bridge=true) f2=true (noFriendReady=true hasPiAdvancedReady=true docsRename=true) f3=true (providerDocs=true esmIndependent=true) |
+
+### V17-E1 C+D
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | user-package 不写 type=module + smoke:user-package 脚本 + 报告产物 + canLoadMainJs/noRootPackageJson 检查 | c=true (noTypeModule=true writesMeta=true cleansResidual=true runsNpmBuild=true) d=true (hasSmoke=true hasBuildSmoke=true writesReport=true outputsStatus=true) smoke=true (canLoadMainJs=true noRootPkgJson=true) |
+
+### V17-E1 E
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | readiness matrix 写入 codex smoke report + codexUserReady gate 加 matrix 校验 + summary 解析/输出 | e=true (writeReportHasMatrix=true hasDeriveUserReady=true gateChecksKeyFields=true gateChecksAuth=true) summary=true (parses=true outputs=true) |
+
+### V17-E1 F
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Codex setup card 降级为 heuristic status（标题/hint/变量名/状态文案/设置名） | title=true hint=true var=true ready=true settingName=true |
+
+### V17-E1 D
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | summary 解析 user-package 报告 + 输出 6 字段 | hasParseFunc=true outputsFields=true |
 
 ### MockAgentBackend
 
@@ -2125,7 +2245,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-05T14-17-42-471Z-43l5ut |
+| ✅ | 返回非空 id | id=s-2026-07-05T18-30-38-313Z-0bg539 |
 
 ### V2.5 Session 版本
 
@@ -2144,7 +2264,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-05T14-17-42-539Z-bhklke second=s-2026-07-05T14-17-42-479Z-s3scq1 |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-05T18-30-38-384Z-8e84ui second=s-2026-07-05T18-30-38-324Z-kvdypp |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2171,7 +2291,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-05T14-17-42-557Z-v6fsgw id2=s-2026-07-05T14-17-42-557Z-1uccx8 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-05T18-30-38-402Z-lw2w9z id2=s-2026-07-05T18-30-38-402Z-v2qpi1 |
 
 ### V2.5 Session 上限
 
@@ -2269,7 +2389,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-05T14:17:42.615Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-05T18:30:38.465Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2357,7 +2477,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-05T14:17:42.672Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-05T18:30:38.525Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2471,7 +2591,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-05T14:17:42.736Z after=2026-07-05T14:17:42.800Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-05T18:30:38.598Z after=2026-07-05T18:30:38.665Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -2842,13 +2962,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-05T14:17:43.387Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-05T18:30:39.309Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-05T14:17:43.395Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-05T18:30:39.317Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3159,7 +3279,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-U3Oe83\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-k9wro1\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-9Fwn5G\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-RRMyLp\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3171,7 +3291,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-3JICSZ\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-N5AHnq\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-rePV5z\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-0Z6jT2\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3183,7 +3303,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-Ud9qEj\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-FiLCWl\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-zqbXwp\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-pxYSWM\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -3503,7 +3623,7 @@
 |------|--------|------|
 | ✅ | unit/process 报告含 commit sha + 运行命令字段 | unitExists=true processExists=true unitSha=true processSha=true unitCmd=true processCmd=true |
 | ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
-| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=c705abc5060e |
+| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=8675cb9fee67 |
 | ✅ | 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑） | scriptExists=true auditFailExit=true testedCodeShaCheck=true codexSmokeCheck=true docsOnlyLogic=true |
 
 ## 失败项详情
