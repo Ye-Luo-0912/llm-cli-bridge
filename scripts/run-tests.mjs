@@ -19511,11 +19511,16 @@ function generateReport() {
 const docsDir = join(PROJECT_ROOT, "docs");
 if (!existsSync(docsDir)) mkdirSync(docsDir, { recursive: true });
 // V2.17-A Completion: 支持 TEST_REPORT_PATH env 覆盖输出路径（用于生成 unit/process 分离报告）
+// V17-E1 任务 A：--unit/--process 默认写到 test-report-unit.md / test-report-process.md
+// （与 generate-test-summary.mjs 读取路径一致），避免 report sha 不匹配审计失败
+const defaultReportName = runMode === "unit" ? "test-report-unit.md"
+  : runMode === "process" ? "test-report-process.md"
+  : "test-report.md";
 const reportPath = process.env.TEST_REPORT_PATH
   ? (process.env.TEST_REPORT_PATH.startsWith("/")
     ? process.env.TEST_REPORT_PATH
     : join(PROJECT_ROOT, process.env.TEST_REPORT_PATH))
-  : join(docsDir, "test-report.md");
+  : join(docsDir, defaultReportName);
 
 // V2.17-A Completion 审计模式：先生成初版报告，然后等待 200ms 让迟到的 uncaughtException/unhandledRejection
 // 落地（process 测试的子进程 EPIPE 等异步错误可能晚到），再重生成报告确保审计完整。
