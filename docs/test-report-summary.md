@@ -8,16 +8,16 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-05T03:57:00.222Z
-- **reportCommitSha**: bcca9f6c9e0418fcf682fd73bfeef8de07868c8a
-- **reportCommitSha 短**: bcca9f6c9e04
-- **reportParentSha**: 787bc3c8a06fe94b2549e8a36aca8ad74035e0b0
-- **reportParentSha 短**: 787bc3c8a06f
-- **testedCodeCommitSha**: bcca9f6c9e0418fcf682fd73bfeef8de07868c8a
-- **testedCodeCommitSha 短**: bcca9f6c9e04
+- **生成时间**: 2026-07-05T04:40:35.769Z
+- **reportCommitSha**: 2ec29d79eaab3c61fb992ed19548f4058935f536
+- **reportCommitSha 短**: 2ec29d79eaab
+- **reportParentSha**: e4dd49a571ab22fe8dbbffdf757b4f1203116c40
+- **reportParentSha 短**: e4dd49a571ab
+- **testedCodeCommitSha**: 2ec29d79eaab3c61fb992ed19548f4058935f536
+- **testedCodeCommitSha 短**: 2ec29d79eaab
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: bcca9f6c9e0418fcf682fd73bfeef8de07868c8a
-- **processReportCommitSha**: bcca9f6c9e0418fcf682fd73bfeef8de07868c8a
+- **unitReportCommitSha**: 2ec29d79eaab3c61fb992ed19548f4058935f536
+- **processReportCommitSha**: 2ec29d79eaab3c61fb992ed19548f4058935f536
 - **codexSmokeStatus**: skip
 - **codexHandshakeStatus**: skip
 - **codexTurnStatus**: skip
@@ -25,24 +25,24 @@
 - **codexSchemaSource**: fixture
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-05T03:56:24.700Z
-- **process 测试时间**: 2026-07-05T03:56:26.104Z
+- **unit 测试时间**: 2026-07-05T04:39:32.908Z
+- **process 测试时间**: 2026-07-05T04:40:26.596Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=bcca9f6c9e04。
-- **当前 commit 改动文件**：scripts/run-tests.mjs, src/promptPackage.ts, src/runtime/core/bridgePromptContract.ts, src/runtime/core/permissionBoundary.ts, src/runtime/core/promptPackage.ts, src/view.ts
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=2ec29d79eaab。
+- **当前 commit 改动文件**：scripts/run-tests.mjs, src/runtime/core/bridgePromptContract.ts, src/runtime/core/promptPackage.ts, src/view.ts
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 910 | 0 | 25 | 0 | 935 | bcca9f6c9e04 | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | bcca9f6c9e04 | ✅ 通过 |
+| unit | 920 | 0 | 25 | 0 | 945 | 2ec29d79eaab | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | 2ec29d79eaab | ✅ 通过 |
 | codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **1007** | **0** | **81** | **0** | **1088** | bcca9f6c9e04 | ✅ **主线通过** |
+| **合计** | **1017** | **0** | **81** | **0** | **1098** | 2ec29d79eaab | ✅ **主线通过** |
 
 **双轨均 0 失败 → P2 Codex app-server Runtime 主线闭环测试通过。**
 
