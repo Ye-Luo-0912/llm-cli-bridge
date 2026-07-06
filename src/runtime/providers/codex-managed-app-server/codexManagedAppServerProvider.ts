@@ -1,4 +1,4 @@
-// LLM CLI Bridge — V17-F1 任务 C：CodexManagedAppServerProvider
+// LLM CLI Bridge — V17-F1 任务 C + V17-F1.1 任务 B：CodexManagedAppServerProvider
 //
 // Managed Codex App-Server Runtime provider（主线）。
 //
@@ -6,12 +6,8 @@
 // 使用我们管理的 pinned runtime binary（manifest + sha256 + executable）。
 //
 // 复用 CodexExternalAppServerProvider 的 JSON-RPC client / mapper / approval / session 逻辑。
-// 仅覆盖：
-//   - providerId: "codex-managed-app-server"
-//   - displayName: "Codex managed app-server"
-//   - isAvailable: 用 resolver 结果（不调用 codex --version）
-//   - getAppServerArgs: 返回 manifest.appServerArgs
-//   - constructor: 接受 resolver 结果（runtimePath 作为 command）
+// V17-F1.1 任务 B：通过 super() 参数注入 providerId/displayName/appServerArgs，
+// 确保父类 constructor 创建的 mappers 捕获正确的 providerId="codex-managed-app-server"。
 
 import type { ProviderId } from "../../core/types";
 import { CodexExternalAppServerProvider } from "../codex-app-server/codexAppServerProvider";
@@ -21,6 +17,8 @@ import type { ManagedRuntimeResolverResult } from "./codexManagedRuntimeResolver
  * CodexManagedAppServerProvider：使用我们管理的 pinned runtime binary。
  *
  * V17-F1 任务 C：主线 provider。
+ * V17-F1.1 任务 B：providerId 通过 super() 参数注入，不再通过 field override。
+ *
  * - 不读取 settings.codexCommand
  * - 不调用用户 PATH
  * - 不执行 `codex --version`
@@ -33,26 +31,24 @@ import type { ManagedRuntimeResolverResult } from "./codexManagedRuntimeResolver
  * 但 run() 会因 fixture runtime 不支持 JSON-RPC 而失败（fixture-only，不标 user-ready）。
  */
 export class CodexManagedAppServerProvider extends CodexExternalAppServerProvider {
-  // V17-F1 任务 C：覆盖父类 providerId
-  readonly providerId: ProviderId = "codex-managed-app-server";
-  readonly displayName = "Codex managed app-server";
-
   private readonly resolverResult: ManagedRuntimeResolverResult;
-  private readonly managedAppServerArgs: string[];
 
   constructor(
     resolverResult: ManagedRuntimeResolverResult,
     appServerArgs: string[] = ["app-server"],
   ) {
-    // 父类 constructor 接受 codexCommand；这里传入 runtimePath（或 unavailable 占位）
+    // V17-F1.1 任务 B：通过 super() 参数注入 providerId/displayName/appServerArgs
+    // 父类 constructor 用这些参数创建 mappers，确保 approvalMapper 捕获正确的 providerId
     super(
-      false,
+      false, // developerMode 由 run() 内部根据 settings 注入
       resolverResult.available && resolverResult.runtimePath
         ? resolverResult.runtimePath
         : "codex-managed-runtime-unavailable",
+      "codex-managed-app-server" as ProviderId, // providerId
+      "Codex managed app-server", // displayName
+      appServerArgs.length > 0 ? appServerArgs : ["app-server"], // appServerArgs
     );
     this.resolverResult = resolverResult;
-    this.managedAppServerArgs = appServerArgs.length > 0 ? appServerArgs : ["app-server"];
   }
 
   /**
@@ -60,13 +56,6 @@ export class CodexManagedAppServerProvider extends CodexExternalAppServerProvide
    */
   isAvailable(_cwd: string): boolean {
     return this.resolverResult.available;
-  }
-
-  /**
-   * V17-F1 任务 C：返回 manifest.appServerArgs（默认 ["app-server"]）。
-   */
-  protected getAppServerArgs(): string[] {
-    return this.managedAppServerArgs;
   }
 
   /**

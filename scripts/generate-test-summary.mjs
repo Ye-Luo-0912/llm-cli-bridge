@@ -128,9 +128,14 @@ function parseCodexSmokeReport(path) {
   result.codexUserReady = userReadyMatch ? userReadyMatch[1] : null;
 
   // V17-E1 任务 E：解析 readiness matrix 12 字段
-  // V17-F1 任务 G：新增 5 个 managed runtime 字段 + SDK 字段（共 22 字段）
+  // V17-F1 任务 G：新增 5 个 managed runtime 字段 + SDK 字段
+  // V17-F1.1 任务 E：新增 3 个分层字段（resolverSmokeStatus / runtimeSmokeStatus / managedAppServerProtocolStatus）
   const matrixFields = [
-    // V17-F1 Managed runtime 主线字段（主 gate）
+    // V17-F1.1 任务 E：分层字段（主 gate）
+    "codexManagedResolverSmokeStatus",
+    "codexManagedRuntimeSmokeStatus",
+    "codexManagedAppServerProtocolStatus",
+    // V17-F1 Managed runtime 主线字段
     "codexManagedRuntimeAvailable",
     "codexManagedRuntimeVersion",
     "codexManagedRuntimeSha256Valid",
@@ -199,6 +204,22 @@ function parseUserPackageReport(path) {
 
   const sizeMatch = text.match(/- \*\*totalSizeMB\*\*: ([\d.]+)/);
   result.totalSizeMB = sizeMatch ? sizeMatch[1] : null;
+
+  // V17-F1.1 任务 D：解析 managed runtime 字段
+  const containsManagedMatch = text.match(/- \*\*containsCodexManagedRuntime\*\*: (true|false)/);
+  result.containsCodexManagedRuntime = containsManagedMatch ? containsManagedMatch[1] : null;
+
+  const shaValidMatch = text.match(/- \*\*codexRuntimeSha256Valid\*\*: (true|false)/);
+  result.codexRuntimeSha256Valid = shaValidMatch ? shaValidMatch[1] : null;
+
+  const execMatch = text.match(/- \*\*codexRuntimeExecutable\*\*: (true|false)/);
+  result.codexRuntimeExecutable = execMatch ? execMatch[1] : null;
+
+  const pinnedVerMatch = text.match(/- \*\*codexRuntimePinnedVersion\*\*: (\S+)/);
+  result.codexRuntimePinnedVersion = pinnedVerMatch ? pinnedVerMatch[1] : null;
+
+  const fixtureMatch = text.match(/- \*\*codexRuntimeFixture\*\*: (true|false)/);
+  result.codexRuntimeFixture = fixtureMatch ? fixtureMatch[1] : null;
 
   if (result.userPackageStatus === null) {
     result.error = "userPackageStatus 字段解析失败";
@@ -347,7 +368,12 @@ function main() {
     `- **codexSchemaSource**: ${codexSmoke.schemaSource || "(解析失败)"}`,
     // V17-E 任务 E：新增 codexUserReady 字段（smoke=pass 才 true；skip/fail/handshake-only 均 false）
     // V17-F1 任务 G：codexUserReady 主 gate 改为 managed runtime gate
+    // V17-F1.1 任务 E：使用分层字段 gate
     `- **codexUserReady**: ${codexSmoke.codexUserReady || "(解析失败)"}`,
+    // V17-F1.1 任务 E：分层字段（3 个，主 gate）
+    `- **codexManagedResolverSmokeStatus**: ${codexSmoke.codexManagedResolverSmokeStatus || "(解析失败)"}`,
+    `- **codexManagedRuntimeSmokeStatus**: ${codexSmoke.codexManagedRuntimeSmokeStatus || "(解析失败)"}`,
+    `- **codexManagedAppServerProtocolStatus**: ${codexSmoke.codexManagedAppServerProtocolStatus || "(解析失败)"}`,
     // V17-F1 任务 G：Managed runtime 主线字段（主 gate，5 个）
     `- **codexManagedRuntimeAvailable**: ${codexSmoke.codexManagedRuntimeAvailable || "(解析失败)"}`,
     `- **codexManagedRuntimeVersion**: ${codexSmoke.codexManagedRuntimeVersion || "(解析失败)"}`,
@@ -380,6 +406,12 @@ function main() {
     `- **canLoadMainJs**: ${userPackage.canLoadMainJs || "(解析失败)"}`,
     `- **noRootPackageJson**: ${userPackage.noRootPackageJson || "(解析失败)"}`,
     `- **userNeedsNpmInstall**: ${userPackage.userNeedsNpmInstall || "(解析失败)"}`,
+    // V17-F1.1 任务 D：user-package managed runtime 字段
+    `- **containsCodexManagedRuntime**: ${userPackage.containsCodexManagedRuntime || "(解析失败)"}`,
+    `- **codexRuntimeSha256Valid**: ${userPackage.codexRuntimeSha256Valid || "(解析失败)"}`,
+    `- **codexRuntimeExecutable**: ${userPackage.codexRuntimeExecutable || "(解析失败)"}`,
+    `- **codexRuntimePinnedVersion**: ${userPackage.codexRuntimePinnedVersion || "(解析失败)"}`,
+    `- **codexRuntimeFixture**: ${userPackage.codexRuntimeFixture || "(解析失败)"}`,
     `- **userPackageSizeMB**: ${userPackage.totalSizeMB || "(解析失败)"}`,
     `- **unit 运行命令**: ${unit.runCommand || "(解析失败)"}`,
     `- **process 运行命令**: ${processReport.runCommand || "(解析失败)"}`,

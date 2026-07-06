@@ -60,11 +60,13 @@ import { PiSdkProvider } from "../providers/pi-sdk/piSdkProvider";
  *
  * @param settings 插件设置
  * @param cwd Vault 根目录
+ * @param pluginDir V17-F1.1 任务 C：插件目录（含 main.js + codex-managed-runtime/）；不传时 fallback 到 globalThis.__dirname
  * @returns provider 与显示 label
  */
 export function selectProvider(
   settings: LLMBridgeSettings,
   cwd: string,
+  pluginDir?: string,
 ): { provider: RuntimeProvider; label: string } {
   const mode = settings.backendMode;
 
@@ -76,7 +78,7 @@ export function selectProvider(
   }
   // V17-F1 任务 D：codex-managed-app-server 为主线（使用我们管理的 pinned runtime binary）
   if (mode === "codex-managed-app-server") {
-    const managed = createManagedProvider();
+    const managed = createManagedProvider(pluginDir);
     if (managed.resolver.available) {
       return { provider: managed.provider, label: managed.fixture ? "Codex managed (fixture)" : "Codex managed" };
     }
@@ -123,7 +125,7 @@ export function selectProvider(
 
   // V17-F1 任务 D：auto = Managed runtime first 链
   // codex-managed-app-server → codex-sdk → claude-sdk → pi-sdk → claude-cli
-  const managed = createManagedProvider();
+  const managed = createManagedProvider(pluginDir);
   if (managed.resolver.available) {
     return { provider: managed.provider, label: managed.fixture ? "Codex managed (fixture)" : "Codex managed" };
   }
@@ -143,20 +145,22 @@ export function selectProvider(
 }
 
 /**
- * V17-F1 任务 D：创建 CodexManagedAppServerProvider。
+ * V17-F1 任务 D + V17-F1.1 任务 C：创建 CodexManagedAppServerProvider。
  *
- * 从 pluginDir（globalThis.__dirname）解析 manifest，调用 resolver，
- * 构造 CodexManagedAppServerProvider。
+ * V17-F1.1 任务 C：pluginDir 注入路径优先级：
+ *   1. 显式传入的 pluginDir 参数（main.ts onload 时从 this.manifest.dir 获取）
+ *   2. globalThis.__dirname（esbuild CJS 打包后注入）
+ *   3. 空字符串（resolver 会返回 manifest-not-found）
  */
-function createManagedProvider(): {
+function createManagedProvider(pluginDir?: string): {
   provider: CodexManagedAppServerProvider;
   resolver: import("../providers/codex-managed-app-server/codexManagedRuntimeResolver").ManagedRuntimeResolverResult;
   fixture: boolean;
 } {
-  // 复用 PiSdkProvider 的 pluginDir 获取方式（Obsidian 加载时 __dirname 为插件目录）
+  // V17-F1.1 任务 C：优先用显式 pluginDir，fallback 到 globalThis.__dirname
   const g = globalThis as { __dirname?: string };
-  const pluginDir = g.__dirname || "";
-  const manifestPath = resolveManifestPath(pluginDir);
+  const resolvedPluginDir = pluginDir || g.__dirname || "";
+  const manifestPath = resolveManifestPath(resolvedPluginDir);
   const resolver = resolveManagedRuntime(manifestPath);
   const provider = new CodexManagedAppServerProvider(resolver, resolver.appServerArgs);
   return { provider, resolver, fixture: resolver.fixture };
@@ -318,12 +322,15 @@ export class BridgeSessionImpl implements BridgeSession {
 
 /**
  * 创建 BridgeSession（按 settings 选择 provider）。
+ *
+ * V17-F1.1 任务 C：pluginDir 由调用方（view.ts → main.ts onload）注入。
  */
 export function createBridgeSession(
   sessionId: string,
   settings: LLMBridgeSettings,
   cwd: string,
+  pluginDir?: string,
 ): BridgeSessionImpl {
-  const { provider, label } = selectProvider(settings, cwd);
+  const { provider, label } = selectProvider(settings, cwd, pluginDir);
   return new BridgeSessionImpl(sessionId, provider, label, settings);
 }

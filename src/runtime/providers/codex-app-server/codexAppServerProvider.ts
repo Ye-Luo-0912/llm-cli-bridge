@@ -82,9 +82,10 @@ import { buildEnhancedPath } from "../../../claudeCliBackend";
  * 主线为 CodexSdkProvider（嵌入式 SDK），本轮为占位。
  */
 export class CodexExternalAppServerProvider implements RuntimeProvider {
-  // V17-F1 任务 C：类型改为 ProviderId/string，允许子类 CodexManagedAppServerProvider 覆盖
-  readonly providerId: ProviderId = "codex-app-server";
-  readonly displayName: string = "Codex app-server (external)";
+  // V17-F1.1 任务 B：providerId/displayName 改为 constructor 参数赋值（非 field initializer）
+  // 这样子类通过 super() 传入正确的 providerId，mappers 在父类 constructor 中捕获正确值
+  readonly providerId: ProviderId;
+  readonly displayName: string;
 
   private readonly approvalMapper: CodexAppServerApprovalMapper;
   private readonly userInputMapper: CodexAppServerUserInputMapper;
@@ -97,11 +98,22 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
   private currentRunId: string | null = null;
   /** V17-E 任务 A：codex 命令来源（来自 settings.codexCommand，默认 "codex"） */
   private readonly codexCommand: string;
+  /** V17-F1.1 任务 B：app-server 启动参数（由 constructor 接收，子类不再需要 override） */
+  private readonly appServerArgs: string[];
 
-  constructor(_developerMode: boolean = false, codexCommand: string = "codex") {
-    // developerMode 由 run() 内部根据 settings 注入；构造时无需缓存
-    this.approvalMapper = new CodexAppServerApprovalMapper(this.providerId);
-    this.userInputMapper = new CodexAppServerUserInputMapper(this.providerId);
+  constructor(
+    _developerMode: boolean = false,
+    codexCommand: string = "codex",
+    providerId: ProviderId = "codex-app-server",
+    displayName: string = "Codex app-server (external)",
+    appServerArgs: string[] = ["app-server"],
+  ) {
+    // V17-F1.1 任务 B：用参数赋值 readonly 字段，确保 mappers 捕获正确 providerId
+    this.providerId = providerId;
+    this.displayName = displayName;
+    this.appServerArgs = appServerArgs.length > 0 ? appServerArgs : ["app-server"];
+    this.approvalMapper = new CodexAppServerApprovalMapper(providerId);
+    this.userInputMapper = new CodexAppServerUserInputMapper(providerId);
     this.sessionMapper = new CodexAppServerSessionMapper();
     this.codexCommand = codexCommand || "codex";
   }
@@ -122,13 +134,20 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
   }
 
   /**
-   * V17-F1 任务 C：返回 app-server 启动参数。
-   *
-   * CodexExternalAppServerProvider 固定使用 ["app-server"]。
-   * CodexManagedAppServerProvider 覆盖此方法返回 manifest.appServerArgs。
+   * V17-F1.1 任务 B：返回 app-server 启动参数（从 constructor 接收，子类不再需要 override）。
    */
   protected getAppServerArgs(): string[] {
-    return ["app-server"];
+    return this.appServerArgs;
+  }
+
+  /**
+   * V17-F1.1 任务 B：暴露 approvalMapper 实际使用的 providerId（测试验证用）。
+   *
+   * 验证 managed provider 的 approval request providerId 是 "codex-managed-app-server"
+   * 而非父类默认的 "codex-app-server"。
+   */
+  getApprovalProviderId(): ProviderId {
+    return this.approvalMapper.getProviderId();
   }
 
   /**

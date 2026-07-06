@@ -35,8 +35,13 @@ export default class LLMBridgePlugin extends Plugin {
   settings: LLMBridgeSettings = DEFAULT_SETTINGS;
   private outboxWatcher: OutboxWatcher | null = null;
   private httpBridge: HttpBridge | null = null;
+  /** V17-F1.1 任务 C：插件目录（main.js + codex-managed-runtime/ 所在路径），onload 时从 manifest.dir 获取 */
+  pluginDir: string = "";
 
   async onload(): Promise<void> {
+    // V17-F1.1 任务 C：注入 pluginDir（Obsidian manifest.dir 为插件目录）
+    this.pluginDir = this.manifest.dir || "";
+
     // V1.0.1: 诊断文件含 vaultPath / bridgePath / timestamp（actual port / bridgeWritten 在 HTTP 启动后补充）
     const vaultPath0 = this.getVaultPath();
     const bridgePath0 = path.join(vaultPath0, BRIDGE_FILE_REL);

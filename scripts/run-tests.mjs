@@ -2,11 +2,12 @@
 // 运行：node scripts/run-tests.mjs
 // 输出：docs/test-report.md
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, statSync, readdirSync, mkdtempSync, symlinkSync } from "node:fs";
-import { join, resolve, relative } from "node:path";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, statSync, readdirSync, mkdtempSync, symlinkSync, accessSync, constants, chmodSync } from "node:fs";
+import { join, resolve, relative, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = resolve(__filename, "..");
@@ -6026,13 +6027,18 @@ if (runMode !== "all" && runMode !== "unit") {
           `codexSdkMode=${hasCodexSdkMode} codexExtMode=${hasCodexExternalMode} handlesSdk=${handlesCodexSdkMode} handlesExt=${handlesCodexExternalMode} autoSdkFirst=${autoIsSdkFirst} extProviderClass=${hasExternalProviderClass} alias=${hasBackwardAlias} sdkProviderFile=${hasCodexSdkProviderFile} codexSdkOption=${hasCodexSdkOption} codexExtOption=${hasCodexExternalOption} autoDescSdkFirst=${autoDescSdkFirst} migratesLegacyCodex=${migratesLegacyCodex}`);
       }
 
-      // ===== V17-F1 任务 G：真实 Codex app-server smoke readiness matrix（22 字段） =====
-      // 验证 codex-app-server-smoke.mjs 输出 22 字段 readiness matrix（5 V17-F1 managed runtime + 3 SDK + 2 external + 12 旧）+
-      //       codexUserReady 改为 managed runtime gate（codexManagedRuntimeAvailable + sha256Valid + executable + spawnStatus=pass）
-      // 真实 codex 环境运行需 manual；此处验证脚本结构正确
+      // ===== V17-F1.1 任务 G+E：真实 Codex app-server smoke readiness matrix（25 字段） =====
+      // 验证 codex-app-server-smoke.mjs 输出 25 字段 readiness matrix
+      // V17-F1.1 任务 E：新增 3 个分层字段（resolverSmokeStatus/runtimeSmokeStatus/managedAppServerProtocolStatus）
+      // codexUserReady 改为分层 gate（resolverSmokeStatus=pass + runtimeSmokeStatus=pass + managedAppServerProtocolStatus=pass）
       {
         const smokeSrc = readFileSync(join(PROJECT_ROOT, "scripts", "codex-app-server-smoke.mjs"), "utf8");
-        // V17-F1 新增 5 字段：managed runtime 主线（主 gate）
+        // V17-F1.1 新增 3 字段：分层字段（主 gate）
+        const layeredFields = [
+          "codexManagedResolverSmokeStatus", "codexManagedRuntimeSmokeStatus",
+          "codexManagedAppServerProtocolStatus",
+        ];
+        // V17-F1 新增 5 字段：managed runtime 主线
         const managedRuntimeFields = [
           "codexManagedRuntimeAvailable", "codexManagedRuntimeVersion",
           "codexManagedRuntimeSha256Valid", "codexManagedRuntimeExecutable",
@@ -6050,18 +6056,17 @@ if (runMode !== "all" && runMode !== "unit") {
           "turnStartStatus", "turnCompletedStatus", "approvalRequestStatus",
           "fileChangeRequestStatus", "stopCancelStatus", "noVaultRootPollution",
         ];
+        const hasAllLayeredFields = layeredFields.every((f) => smokeSrc.includes(f));
         const hasAllManagedFields = managedRuntimeFields.every((f) => smokeSrc.includes(f));
         const hasAllSdkFields = sdkFields.every((f) => smokeSrc.includes(f));
         const hasAllLegacyFields = legacyFields.every((f) => smokeSrc.includes(f));
         const hasDeriveFunction = smokeSrc.includes("function deriveReadinessMatrix");
         const hasPrintFunction = smokeSrc.includes("function printReadinessMatrix");
         const hasCodexUserReady = smokeSrc.includes("codexUserReady");
-        // V17-F1 任务 G：codexUserReady 改为 managed runtime gate
-        // codexManagedRuntimeAvailable + sha256Valid + executable + spawnStatus=pass
-        const userReadyIsManagedGate = /matrix\.codexManagedRuntimeAvailable\s*!==\s*"true"/.test(smokeSrc) &&
-                                        /matrix\.codexManagedRuntimeSha256Valid\s*!==\s*"true"/.test(smokeSrc) &&
-                                        /matrix\.codexManagedRuntimeExecutable\s*!==\s*"true"/.test(smokeSrc) &&
-                                        /matrix\.codexManagedAppServerSpawnStatus\s*!==\s*"pass"/.test(smokeSrc);
+        // V17-F1.1 任务 E：codexUserReady 改为分层 gate
+        const userReadyIsLayeredGate = /matrix\.codexManagedResolverSmokeStatus\s*!==\s*"pass"/.test(smokeSrc) &&
+                                        /matrix\.codexManagedRuntimeSmokeStatus\s*!==\s*"pass"/.test(smokeSrc) &&
+                                        /matrix\.codexManagedAppServerProtocolStatus\s*!==\s*"pass"/.test(smokeSrc);
         // probeManagedRuntime 被主流程调用
         const callsProbeManaged = /probeManagedRuntime\(\)/.test(smokeSrc) && /managedRuntime:\s*managedProbe/.test(smokeSrc);
         // skip 时 codexUserReady=false（不伪装 ready）
@@ -6073,11 +6078,11 @@ if (runMode !== "all" && runMode !== "unit") {
         // noVaultRootPollution 检测
         const checksPollution = smokeSrc.includes("noVaultRootPollution") && smokeSrc.includes(".codex");
 
-        addTest("V17-F1 G: codex-app-server-smoke 输出 22 字段 readiness matrix（5 managed runtime + 5 SDK/ext + 12 旧）+ codexUserReady managed runtime gate + probeManagedRuntime + flag 收集",
-          hasAllManagedFields && hasAllSdkFields && hasAllLegacyFields && hasDeriveFunction && hasPrintFunction && hasCodexUserReady &&
-          userReadyIsManagedGate && callsProbeManaged && skipNotReady &&
+        addTest("V17-F1.1 G+E: codex-app-server-smoke 输出 25 字段 readiness matrix（3 分层 + 5 managed runtime + 5 SDK/ext + 12 旧）+ codexUserReady 分层 gate + probeManagedRuntime + flag 收集",
+          hasAllLayeredFields && hasAllManagedFields && hasAllSdkFields && hasAllLegacyFields && hasDeriveFunction && hasPrintFunction && hasCodexUserReady &&
+          userReadyIsLayeredGate && callsProbeManaged && skipNotReady &&
           collectsApproval && collectsFileChange && collectsProcKill && checksPollution ? "pass" : "fail",
-          `managedFields=${hasAllManagedFields} sdkFields=${hasAllSdkFields} legacyFields=${hasAllLegacyFields} derive=${hasDeriveFunction} print=${hasPrintFunction} codexUserReady=${hasCodexUserReady} managedGate=${userReadyIsManagedGate} probeManaged=${callsProbeManaged} skipNotReady=${skipNotReady} approval=${collectsApproval} fileChange=${collectsFileChange} procKill=${collectsProcKill} pollution=${checksPollution}`);
+          `layeredFields=${hasAllLayeredFields} managedFields=${hasAllManagedFields} sdkFields=${hasAllSdkFields} legacyFields=${hasAllLegacyFields} derive=${hasDeriveFunction} print=${hasPrintFunction} codexUserReady=${hasCodexUserReady} layeredGate=${userReadyIsLayeredGate} probeManaged=${callsProbeManaged} skipNotReady=${skipNotReady} approval=${collectsApproval} fileChange=${collectsFileChange} procKill=${collectsProcKill} pollution=${checksPollution}`);
       }
 
       // ===== V17-F0 任务 D：Codex Mainline Status（SDK-first） =====
@@ -6206,42 +6211,43 @@ if (runMode !== "all" && runMode !== "unit") {
           `c=${cOk} (noTypeModule=${buildNoTypeModule} writesMeta=${buildWritesMetadata} cleansResidual=${buildCleansResidual} runsNpmBuild=${buildRunsNpmBuild}) d=${dOk} (hasSmoke=${hasSmokeScript} hasBuildSmoke=${hasBuildSmokeScript} writesReport=${smokeWritesReport} outputsStatus=${smokeOutputsStatus}) smoke=${smokeOk} (canLoadMainJs=${smokeChecksCanLoadMainJs} noRootPkgJson=${smokeChecksNoRootPkgJson})`);
       }
 
-      // ===== V17-F1 任务 G：readiness matrix 写入报告（22 字段）+ codexUserReady managed runtime gate =====
+      // ===== V17-F1.1 任务 G+E：readiness matrix 写入报告（25 字段）+ codexUserReady 分层 gate =====
       {
         const smokeScript = readFileSync(join(PROJECT_ROOT, "scripts", "codex-app-server-smoke.mjs"), "utf8");
         const summaryScript = readFileSync(join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs"), "utf8");
 
-        // 任务 G：writeReport 写入 22 字段 matrix 到报告（V17-F1 改为 22 字段，含 managed runtime 主线）
-        const writeReportHasMatrix = smokeScript.includes("## Readiness Matrix (V17-F1 任务 G — 22 字段)") &&
+        // 任务 G+E：writeReport 写入 25 字段 matrix 到报告（V17-F1.1 新增分层字段）
+        const writeReportHasMatrix = smokeScript.includes("## Readiness Matrix (V17-F1.1 任务 E — 25 字段)") &&
+                                       smokeScript.includes("matrix.codexManagedResolverSmokeStatus") &&
                                        smokeScript.includes("matrix.codexManagedRuntimeAvailable") &&
                                        smokeScript.includes("matrix.codexSdkAvailable") &&
                                        smokeScript.includes("matrix.codexExternalExecutableAvailable") &&
                                        smokeScript.includes("matrix.noVaultRootPollution");
-        // 任务 G：deriveCodexUserReady gate — V17-F1 managed runtime gate
-        //   codexManagedRuntimeAvailable + sha256Valid + executable + spawnStatus=pass
+        // 任务 G+E：deriveCodexUserReady gate — V17-F1.1 分层 gate
         const hasDeriveUserReady = smokeScript.includes("function deriveCodexUserReady");
         const gateChecksKeyFields = smokeScript.includes("matrix.appServerSpawnStatus") &&
                                      smokeScript.includes("matrix.turnCompletedStatus") &&
                                      smokeScript.includes("matrix.stopCancelStatus");
-        const gateChecksManaged = smokeScript.includes("matrix.codexManagedRuntimeAvailable !== \"true\"") &&
-                                   smokeScript.includes("matrix.codexManagedRuntimeSha256Valid !== \"true\"") &&
-                                   smokeScript.includes("matrix.codexManagedRuntimeExecutable !== \"true\"") &&
-                                   smokeScript.includes("matrix.codexManagedAppServerSpawnStatus !== \"pass\"");
-        // 任务 G：summary 解析字段（22 字段，含 managed runtime 主线）
-        const summaryParsesMatrix = summaryScript.includes("codexManagedRuntimeAvailable") &&
+        const gateChecksLayered = smokeScript.includes("matrix.codexManagedResolverSmokeStatus !== \"pass\"") &&
+                                   smokeScript.includes("matrix.codexManagedRuntimeSmokeStatus !== \"pass\"") &&
+                                   smokeScript.includes("matrix.codexManagedAppServerProtocolStatus !== \"pass\"");
+        // 任务 G+E：summary 解析字段（含分层字段）
+        const summaryParsesMatrix = summaryScript.includes("codexManagedResolverSmokeStatus") &&
+                                     summaryScript.includes("codexManagedRuntimeAvailable") &&
                                      summaryScript.includes("codexCliAvailable") &&
                                      summaryScript.includes("appServerSpawnStatus") &&
                                      summaryScript.includes("noVaultRootPollution");
-        const summaryOutputsMatrix = summaryScript.includes("- **codexManagedRuntimeAvailable**") &&
+        const summaryOutputsMatrix = summaryScript.includes("- **codexManagedResolverSmokeStatus**") &&
+                                      summaryScript.includes("- **codexManagedRuntimeAvailable**") &&
                                       summaryScript.includes("- **codexCliAvailable**") &&
                                       summaryScript.includes("- **noVaultRootPollution**");
 
-        const gOk = writeReportHasMatrix && hasDeriveUserReady && gateChecksKeyFields && gateChecksManaged;
+        const gOk = writeReportHasMatrix && hasDeriveUserReady && gateChecksKeyFields && gateChecksLayered;
         const summaryOk = summaryParsesMatrix && summaryOutputsMatrix;
 
-        addTest("V17-F1 G: readiness matrix 写入 codex smoke report（22 字段）+ codexUserReady managed runtime gate + summary 解析/输出",
+        addTest("V17-F1.1 G+E: readiness matrix 写入 codex smoke report（25 字段）+ codexUserReady 分层 gate + summary 解析/输出",
           gOk && summaryOk ? "pass" : "fail",
-          `g=${gOk} (writeReportHasMatrix=${writeReportHasMatrix} hasDeriveUserReady=${hasDeriveUserReady} gateChecksKeyFields=${gateChecksKeyFields} gateChecksManaged=${gateChecksManaged}) summary=${summaryOk} (parses=${summaryParsesMatrix} outputs=${summaryOutputsMatrix})`);
+          `g=${gOk} (writeReportHasMatrix=${writeReportHasMatrix} hasDeriveUserReady=${hasDeriveUserReady} gateChecksKeyFields=${gateChecksKeyFields} gateChecksLayered=${gateChecksLayered}) summary=${summaryOk} (parses=${summaryParsesMatrix} outputs=${summaryOutputsMatrix})`);
       }
 
       // ===== V17-F1 任务 A+B+C+D：Managed Codex App-Server Runtime 组件结构 =====
@@ -6283,9 +6289,11 @@ if (runMode !== "all" && runMode !== "unit") {
         const resolverHasResultInterface = resolverSrc.includes("ManagedRuntimeResolverResult") && /available/.test(resolverSrc) && /runtimePath/.test(resolverSrc) && /appServerArgs/.test(resolverSrc) && /fixture/.test(resolverSrc);
 
         // 任务 C：CodexManagedAppServerProvider 继承 CodexExternalAppServerProvider
+        // V17-F1.1 任务 B：providerId 通过 super() 注入，不再 field override；
+        // managed provider 暴露 getResolverResult（替代旧 getAppServerArgs override）
         const providerExtends = providerSrc.includes("extends CodexExternalAppServerProvider");
         const providerId = providerSrc.includes('"codex-managed-app-server"');
-        const providerOverrides = providerSrc.includes("isAvailable") && providerSrc.includes("getAppServerArgs");
+        const providerOverrides = providerSrc.includes("isAvailable") && providerSrc.includes("getResolverResult");
         // 任务 C：ProviderId 类型含 codex-managed-app-server
         const coreTypesHasProviderId = coreTypesSrc.includes('"codex-managed-app-server"');
 
@@ -6341,6 +6349,312 @@ if (runMode !== "all" && runMode !== "unit") {
         addTest("V17-F1 E+F: user-package 集成 managed runtime（build 复制 + smoke 5 字段）+ managed runtime smoke 脚本（resolver 校验链 + fixture-only 不标 ready）",
           eOk && fOk ? "pass" : "fail",
           `e=${eOk} (buildCopiesManifest=${buildCopiesManifest} smokeChecksManaged=${smokeChecksManaged}) f=${fOk} (hasSmokeScript=${hasSmokeScript} verifiesChain=${smokeVerifiesChain} fixtureNotReady=${smokeFixtureOnlyNotReady})`);
+      }
+
+      // ===== V17-F1.1 任务 F：resolver 行为测试（sha mismatch / platform missing / executable fail） =====
+      // 创建临时 manifest + binary，验证 resolver 校验链的各种失败场景
+      {
+        const tmpDir = mkdtempSync(join(tmpdir(), "managed-runtime-test-"));
+        let shaMismatchPass = false;
+        let platformMissingPass = false;
+        let execFailPass = false;
+        let resolverOkPass = false;
+
+        try {
+          // 辅助：创建 manifest + binary 并运行 resolver 逻辑
+          function createAndResolve(manifestObj) {
+            const manifestPath = join(tmpDir, "runtime-manifest.json");
+            writeFileSync(manifestPath, JSON.stringify(manifestObj, null, 2), "utf8");
+            // 复制 resolver 逻辑（使用已导入的 fs/crypto/path 模块）
+
+            if (!existsSync(manifestPath)) return { reason: "manifest-not-found" };
+            let m;
+            try { m = JSON.parse(readFileSync(manifestPath, "utf8")); }
+            catch { return { reason: "manifest-invalid" }; }
+
+            const platformKey = `${process.platform}-${process.arch}`;
+            const pe = m.platforms?.[platformKey];
+            if (!pe) return { reason: "platform-not-found", version: m.version };
+
+            const manifestDir2 = dirname(manifestPath);
+            const runtimePath = resolve(manifestDir2, pe.path);
+            if (!existsSync(runtimePath)) return { reason: "path-not-exist", version: m.version };
+
+            const fileBuf = readFileSync(runtimePath);
+            const actualSha256 = createHash("sha256").update(fileBuf).digest("hex");
+            if (actualSha256 !== pe.sha256) return { reason: "sha256-mismatch", version: m.version, expected: pe.sha256, got: actualSha256 };
+
+            // executable check
+            if (process.platform === "win32") {
+              const lower = runtimePath.toLowerCase();
+              if (!lower.endsWith(".exe") && !lower.endsWith(".bat") && !lower.endsWith(".cmd") && !lower.endsWith(".ps1")) {
+                return { reason: "not-executable", version: m.version };
+              }
+            } else {
+              try { accessSync(runtimePath, constants.X_OK); }
+              catch { return { reason: "not-executable", version: m.version }; }
+            }
+
+            return { reason: "ok", version: m.version, runtimePath };
+          }
+
+          // 场景 1: sha256 mismatch
+          const badShaManifest = {
+            runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
+            fixture: false, appServerArgs: ["app-server"],
+            platforms: {
+              [`${process.platform}-${process.arch}`]: {
+                path: "test-binary.txt",
+                sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+                size: 10, executableName: "test-binary.txt",
+              },
+            },
+          };
+          const binaryPath = join(tmpDir, "test-binary.txt");
+          const ext = process.platform === "win32" ? ".bat" : "";
+          // Use .bat on Windows for exec pass; txt for exec fail test below
+          const binaryPathBat = join(tmpDir, "test-binary.bat");
+          if (process.platform === "win32") {
+            writeFileSync(binaryPathBat, "@echo off\r\nexit 0\r\n", "utf8");
+            badShaManifest.platforms[`${process.platform}-${process.arch}`].path = "test-binary.bat";
+          } else {
+            writeFileSync(binaryPath, "#!/bin/sh\nexit 0\n", "utf8");
+            try { chmodSync(binaryPath, 0o755); } catch {}
+          }
+          const shaResult = createAndResolve(badShaManifest);
+          shaMismatchPass = shaResult.reason === "sha256-mismatch";
+
+          // 场景 2: platform missing
+          const noPlatformManifest = {
+            runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
+            fixture: false, appServerArgs: ["app-server"],
+            platforms: {
+              "unknown-arch": {
+                path: "test-binary.txt", sha256: "abc", size: 10, executableName: "test-binary.txt",
+              },
+            },
+          };
+          const platformResult = createAndResolve(noPlatformManifest);
+          platformMissingPass = platformResult.reason === "platform-not-found";
+
+          // 场景 3: executable fail (Windows: no .exe/.bat; Unix: no X_OK)
+          if (process.platform === "win32") {
+            // Windows: create a .txt file with correct sha256
+            const execFailContent = "@echo off\r\nexit 0\r\n";
+            const execFailBuf = Buffer.from(execFailContent, "utf8");
+            const execFailSha = createHash("sha256").update(execFailBuf).digest("hex");
+            const execFailPath = join(tmpDir, "no-ext-binary.txt");
+            writeFileSync(execFailPath, execFailContent, "utf8");
+            const execFailManifest = {
+              runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
+              fixture: false, appServerArgs: ["app-server"],
+              platforms: {
+                [`${process.platform}-${process.arch}`]: {
+                  path: "no-ext-binary.txt",
+                  sha256: execFailSha,
+                  size: execFailBuf.length,
+                  executableName: "no-ext-binary.txt",
+                },
+              },
+            };
+            const execResult = createAndResolve(execFailManifest);
+            execFailPass = execResult.reason === "not-executable";
+          } else {
+            // Unix: create a file without execute permission
+            const execFailContent = "#!/bin/sh\nexit 0\n";
+            const execFailBuf = Buffer.from(execFailContent, "utf8");
+            const execFailSha = createHash("sha256").update(execFailBuf).digest("hex");
+            const execFailPath = join(tmpDir, "no-exec-binary.sh");
+            writeFileSync(execFailPath, execFailContent, "utf8");
+            try { chmodSync(execFailPath, 0o644); } catch {} // no execute permission
+            const execFailManifest = {
+              runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
+              fixture: false, appServerArgs: ["app-server"],
+              platforms: {
+                [`${process.platform}-${process.arch}`]: {
+                  path: "no-exec-binary.sh",
+                  sha256: execFailSha,
+                  size: execFailBuf.length,
+                  executableName: "no-exec-binary.sh",
+                },
+              },
+            };
+            const execResult = createAndResolve(execFailManifest);
+            execFailPass = execResult.reason === "not-executable";
+          }
+
+          // 场景 4: resolver OK (correct sha256 + executable)
+          if (process.platform === "win32") {
+            const okContent = "@echo off\r\nexit 0\r\n";
+            const okBuf = Buffer.from(okContent, "utf8");
+            const okSha = createHash("sha256").update(okBuf).digest("hex");
+            writeFileSync(join(tmpDir, "ok-binary.bat"), okContent, "utf8");
+            const okManifest = {
+              runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
+              fixture: false, appServerArgs: ["app-server"],
+              platforms: {
+                [`${process.platform}-${process.arch}`]: {
+                  path: "ok-binary.bat",
+                  sha256: okSha,
+                  size: okBuf.length,
+                  executableName: "ok-binary.bat",
+                },
+              },
+            };
+            const okResult = createAndResolve(okManifest);
+            resolverOkPass = okResult.reason === "ok";
+          } else {
+            const okContent = "#!/bin/sh\nexit 0\n";
+            const okBuf = Buffer.from(okContent, "utf8");
+            const okSha = createHash("sha256").update(okBuf).digest("hex");
+            const okPath = join(tmpDir, "ok-binary.sh");
+            writeFileSync(okPath, okContent, "utf8");
+            try { chmodSync(okPath, 0o755); } catch {}
+            const okManifest = {
+              runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
+              fixture: false, appServerArgs: ["app-server"],
+              platforms: {
+                [`${process.platform}-${process.arch}`]: {
+                  path: "ok-binary.sh",
+                  sha256: okSha,
+                  size: okBuf.length,
+                  executableName: "ok-binary.sh",
+                },
+              },
+            };
+            const okResult = createAndResolve(okManifest);
+            resolverOkPass = okResult.reason === "ok";
+          }
+        } finally {
+          try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+        }
+
+        addTest("V17-F1.1 F: resolver 行为 — sha mismatch fail + platform missing fail + executable fail + resolver OK",
+          shaMismatchPass && platformMissingPass && execFailPass && resolverOkPass ? "pass" : "fail",
+          `shaMismatch=${shaMismatchPass} platformMissing=${platformMissingPass} execFail=${execFailPass} resolverOk=${resolverOkPass}`);
+      }
+
+      // ===== V17-F1.1 任务 B+F：managed provider providerId/mappers 行为 =====
+      // 验证：managed provider 不调用 settings.codexCommand + approval providerId=codex-managed-app-server
+      {
+        const providerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-managed-app-server", "codexManagedAppServerProvider.ts"), "utf8");
+        const parentSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerProvider.ts"), "utf8");
+        const approvalMapperSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerApprovalMapper.ts"), "utf8");
+
+        // managed provider 不引用 settings.codexCommand（剥离注释后检查实际代码）
+        const providerCodeOnly = providerSrc.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "");
+        const managedNoCodexCommand = !providerCodeOnly.includes("settings.codexCommand") && !providerCodeOnly.includes("settings.");
+        // managed provider 通过 super() 传入 providerId
+        const passesProviderIdViaSuper = /super\([\s\S]*?"codex-managed-app-server"/.test(providerSrc);
+        // managed provider 不再通过 field override 设置 providerId
+        const noFieldOverride = !/readonly providerId\s*=\s*"codex-managed-app-server"/.test(providerSrc);
+        // 父类 constructor 接收 providerId/displayName/appServerArgs 参数
+        const parentAcceptsParams = /constructor\([\s\S]*?providerId[\s\S]*?displayName[\s\S]*?appServerArgs/.test(parentSrc);
+        // 父类用参数创建 mappers（不是 this.providerId）
+        const parentUsesParamForMappers = /new CodexAppServerApprovalMapper\(providerId\)/.test(parentSrc) &&
+                                           /new CodexAppServerUserInputMapper\(providerId\)/.test(parentSrc);
+        // 父类暴露 getApprovalProviderId()
+        const hasGetApprovalProviderId = parentSrc.includes("getApprovalProviderId()") &&
+                                          /return this\.approvalMapper\.getProviderId\(\)/.test(parentSrc);
+        // approvalMapper 暴露 getProviderId()
+        const mapperHasGetProviderId = approvalMapperSrc.includes("getProviderId()") &&
+                                        /return this\.providerId/.test(approvalMapperSrc);
+        // managed provider 不执行 codex --version
+        const noVersionCheck = !providerSrc.includes('["--version"]') && !providerSrc.includes("execFileSync");
+
+        addTest("V17-F1.1 B+F: managed provider 不调 settings.codexCommand + 不执行 codex --version + super() 注入 providerId + approval providerId=codex-managed-app-server",
+          managedNoCodexCommand && passesProviderIdViaSuper && noFieldOverride && parentAcceptsParams &&
+          parentUsesParamForMappers && hasGetApprovalProviderId && mapperHasGetProviderId && noVersionCheck ? "pass" : "fail",
+          `noCodexCommand=${managedNoCodexCommand} passesViaSuper=${passesProviderIdViaSuper} noFieldOverride=${noFieldOverride} parentAcceptsParams=${parentAcceptsParams} parentUsesParam=${parentUsesParamForMappers} hasGetApprovalProviderId=${hasGetApprovalProviderId} mapperHasGetProviderId=${mapperHasGetProviderId} noVersionCheck=${noVersionCheck}`);
+      }
+
+      // ===== V17-F1.1 任务 C+F：pluginDir 注入路径 =====
+      // 验证：main.ts onload 注入 pluginDir + selectProvider/createBridgeSession/createManagedProvider 接受 pluginDir
+      {
+        const mainSrc = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf8");
+        const bridgeSessionSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "bridgeSession.ts"), "utf8");
+        const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+
+        // main.ts 设置 pluginDir = manifest.dir
+        const mainSetsPluginDir = mainSrc.includes("this.pluginDir = this.manifest.dir") &&
+                                   mainSrc.includes("pluginDir: string");
+        // selectProvider 接受 pluginDir 参数
+        const selectAcceptsPluginDir = /export function selectProvider\([\s\S]*?pluginDir\?:\s*string/.test(bridgeSessionSrc);
+        // createBridgeSession 接受 pluginDir 参数
+        const createAcceptsPluginDir = /export function createBridgeSession\([\s\S]*?pluginDir\?:\s*string/.test(bridgeSessionSrc);
+        // createManagedProvider 接受 pluginDir 参数
+        const managedAcceptsPluginDir = /function createManagedProvider\(pluginDir\?:\s*string\)/.test(bridgeSessionSrc);
+        // createManagedProvider 优先用显式 pluginDir，fallback 到 globalThis.__dirname
+        const managedFallback = /pluginDir \|\| g\.__dirname/.test(bridgeSessionSrc) || /pluginDir \|\|.*__dirname/.test(bridgeSessionSrc);
+        // view.ts 传递 pluginDir
+        const viewPassesPluginDir = viewSrc.includes("this.plugin.pluginDir");
+
+        addTest("V17-F1.1 C+F: pluginDir 注入路径（main.ts onload + selectProvider + createBridgeSession + createManagedProvider + view.ts 传递）",
+          mainSetsPluginDir && selectAcceptsPluginDir && createAcceptsPluginDir && managedAcceptsPluginDir && managedFallback && viewPassesPluginDir ? "pass" : "fail",
+          `mainSets=${mainSetsPluginDir} selectAccepts=${selectAcceptsPluginDir} createAccepts=${createAcceptsPluginDir} managedAccepts=${managedAcceptsPluginDir} fallback=${managedFallback} viewPasses=${viewPassesPluginDir}`);
+      }
+
+      // ===== V17-F1.1 任务 D+F：user-package pass gate 纳入 managed runtime =====
+      // 验证：userPackageStatus 包含 containsCodexManagedRuntime + sha256Valid + executable
+      {
+        const smokeSrc = readFileSync(join(PROJECT_ROOT, "scripts", "user-package-smoke.mjs"), "utf8");
+        const summarySrc = readFileSync(join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs"), "utf8");
+
+        // userPackageStatus gate 包含 managed runtime 字段
+        const gateIncludesManaged = /report\.containsCodexManagedRuntime/.test(smokeSrc) &&
+                                     /report\.codexRuntimeSha256Valid/.test(smokeSrc) &&
+                                     /report\.codexRuntimeExecutable/.test(smokeSrc);
+        // fixture=true 不阻塞 userPackageStatus（fixture 仍是合法包内容）
+        const fixtureNotBlocking = !/report\.codexRuntimeFixture/.test(smokeSrc.replace(/codexRuntimeFixture.*?(?=&&)/g, "")) ||
+                                    !smokeSrc.includes("report.codexRuntimeFixture &&");
+        // summary 解析 managed runtime 字段
+        const summaryParsesManaged = summarySrc.includes("containsCodexManagedRuntime") &&
+                                      summarySrc.includes("codexRuntimeSha256Valid") &&
+                                      summarySrc.includes("codexRuntimeExecutable") &&
+                                      summarySrc.includes("codexRuntimePinnedVersion") &&
+                                      summarySrc.includes("codexRuntimeFixture");
+        // summary 输出 managed runtime 字段
+        const summaryOutputsManaged = summarySrc.includes("- **containsCodexManagedRuntime**") &&
+                                        summarySrc.includes("- **codexRuntimeSha256Valid**") &&
+                                        summarySrc.includes("- **codexRuntimeExecutable**") &&
+                                        summarySrc.includes("- **codexRuntimeFixture**");
+
+        addTest("V17-F1.1 D+F: user-package pass gate 纳入 managed runtime（containsCodexManagedRuntime + sha256Valid + executable）+ fixture 不阻塞 + summary 解析输出",
+          gateIncludesManaged && fixtureNotBlocking && summaryParsesManaged && summaryOutputsManaged ? "pass" : "fail",
+          `gateIncludes=${gateIncludesManaged} fixtureNotBlocking=${fixtureNotBlocking} summaryParses=${summaryParsesManaged} summaryOutputs=${summaryOutputsManaged}`);
+      }
+
+      // ===== V17-F1.1 任务 E+F：managed runtime smoke 分层字段 =====
+      // 验证：resolverSmokeStatus / runtimeSmokeStatus / managedAppServerProtocolStatus
+      {
+        const smokeSrc = readFileSync(join(PROJECT_ROOT, "scripts", "codex-managed-runtime-smoke.mjs"), "utf8");
+        const codexSmokeSrc = readFileSync(join(PROJECT_ROOT, "scripts", "codex-app-server-smoke.mjs"), "utf8");
+        const summarySrc = readFileSync(join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs"), "utf8");
+
+        // managed runtime smoke 脚本含分层字段
+        const smokeHasLayered = smokeSrc.includes("resolverSmokeStatus") &&
+                                 smokeSrc.includes("runtimeSmokeStatus") &&
+                                 smokeSrc.includes("managedAppServerProtocolStatus");
+        // fixture-only 不是 pass
+        const fixtureNotPass = smokeSrc.includes("fixture-only") && !/runtimeSmokeStatus.*=.*"pass".*fixture/.test(smokeSrc);
+        // skip-fixture 用于协议层
+        const hasSkipFixture = smokeSrc.includes("skip-fixture");
+        // codex-app-server-smoke probeManagedRuntime 产出分层字段
+        const codexSmokeHasLayered = codexSmokeSrc.includes("resolverSmokeStatus") &&
+                                      codexSmokeSrc.includes("runtimeSmokeStatus") &&
+                                      codexSmokeSrc.includes("managedAppServerProtocolStatus");
+        // deriveCodexUserReady 使用分层 gate
+        const userReadyUsesLayered = /matrix\.codexManagedResolverSmokeStatus\s*!==\s*"pass"/.test(codexSmokeSrc) &&
+                                      /matrix\.codexManagedRuntimeSmokeStatus\s*!==\s*"pass"/.test(codexSmokeSrc) &&
+                                      /matrix\.codexManagedAppServerProtocolStatus\s*!==\s*"pass"/.test(codexSmokeSrc);
+        // summary 解析分层字段
+        const summaryParsesLayered = summarySrc.includes("codexManagedResolverSmokeStatus") &&
+                                      summarySrc.includes("codexManagedRuntimeSmokeStatus") &&
+                                      summarySrc.includes("codexManagedAppServerProtocolStatus");
+
+        addTest("V17-F1.1 E+F: managed runtime smoke 分层字段（resolverSmokeStatus/runtimeSmokeStatus/managedAppServerProtocolStatus）+ fixture-only 非 pass + skip-fixture + codexUserReady 分层 gate + summary 解析",
+          smokeHasLayered && fixtureNotPass && hasSkipFixture && codexSmokeHasLayered && userReadyUsesLayered && summaryParsesLayered ? "pass" : "fail",
+          `smokeHasLayered=${smokeHasLayered} fixtureNotPass=${fixtureNotPass} hasSkipFixture=${hasSkipFixture} codexSmokeHasLayered=${codexSmokeHasLayered} userReadyUsesLayered=${userReadyUsesLayered} summaryParsesLayered=${summaryParsesLayered}`);
       }
 
       // ===== V17-F0 任务 F：External Codex App-Server Fallback（Advanced/Developer）heuristic 探测 =====

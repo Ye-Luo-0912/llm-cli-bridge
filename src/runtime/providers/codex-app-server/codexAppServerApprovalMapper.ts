@@ -57,6 +57,14 @@ export class CodexAppServerApprovalMapper {
   constructor(private readonly providerId: ProviderId) {}
 
   /**
+   * V17-F1.1 任务 B：暴露 providerId（测试验证用）。
+   * 验证 managed provider 的 mapper 捕获的是 "codex-managed-app-server" 而非 "codex-app-server"。
+   */
+  getProviderId(): ProviderId {
+    return this.providerId;
+  }
+
+  /**
    * 把 codex 的 approval server-request 映射为 provider-neutral ApprovalRequest。
    *
    * providerContext 携带 serverRequestId + method + threadId + turnId + itemId，

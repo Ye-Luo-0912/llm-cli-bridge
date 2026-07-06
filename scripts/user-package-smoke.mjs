@@ -272,9 +272,16 @@ report.totalSizeMB = Number((dirSize(USER_PKG_DIR) / 1024 / 1024).toFixed(1));
 console.log(`user-package 总大小: ${report.totalSizeMB} MB`);
 
 // ---------- 9. 最终状态 ----------
+// V17-F1.1 任务 D：userPackageStatus 必须纳入 managed runtime 字段
+// containsCodexManagedRuntime + codexRuntimeSha256Valid + codexRuntimeExecutable
+// codexRuntimeFixture=true 不阻塞 userPackageStatus（fixture 仍是合法的包内容）
+// 但阻止 codexUserReady（由 codex-app-server-smoke 的 codexUserReady gate 保证）
 report.userPackageStatus =
   report.containsPiSdk && report.canRequirePiSdk && !report.userNeedsNpmInstall
   && report.canLoadMainJs && report.noRootPackageJson
+  && report.containsCodexManagedRuntime
+  && report.codexRuntimeSha256Valid
+  && report.codexRuntimeExecutable
     ? "pass" : "fail";
 
 console.log("");

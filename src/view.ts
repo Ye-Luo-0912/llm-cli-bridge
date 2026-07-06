@@ -1495,6 +1495,8 @@ export class LLMBridgeView extends ItemView {
       `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       this.plugin.settings,
       vaultPath,
+      // V17-F1.1 任务 C：注入 pluginDir（main.ts onload 时从 manifest.dir 获取）
+      this.plugin.pluginDir,
     );
     // V2.17-A Completion: provider session persistence
     // 重建 BridgeSession 时把持久化的 providerThreadId/SessionId 回填到 provider sessionMapper，
