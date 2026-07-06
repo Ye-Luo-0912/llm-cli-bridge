@@ -4,7 +4,7 @@
 > 验证 dist/user-package 零安装发行包的完整性与 CJS 加载安全性。
 > V17-F1 任务 E：验证 Codex Managed Runtime manifest + binary 已集成。
 
-- **测试时间**: 2026-07-05T19:49:29.470Z
+- **测试时间**: 2026-07-06T01:36:30.224Z
 - **userPackageStatus**: pass
 - **containsPiSdk**: true
 - **canRequirePiSdk**: true

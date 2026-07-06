@@ -1,6 +1,6 @@
 # Codex real app-server smoke 报告
 
-- **测试时间**: 2026-07-05T19:45:58.319Z
+- **测试时间**: 2026-07-06T01:36:38.185Z
 - **codex 可用**: 否
 - **codexVersion**: null
 - **schemaSource**: fixture
@@ -14,9 +14,15 @@
 - **protocolCapabilities**: null
 - **skip 原因**: spawnSync codex ENOENT
 
-## Readiness Matrix (V17-F1 任务 G — 22 字段)
+## Readiness Matrix (V17-F1.1 任务 E — 25 字段)
 
-### V17-F1 新增 Managed runtime 主线字段（主 gate）
+### V17-F1.1 新增 Managed runtime 分层字段（主 gate）
+
+- **codexManagedResolverSmokeStatus**: pass
+- **codexManagedRuntimeSmokeStatus**: fixture-only
+- **codexManagedAppServerProtocolStatus**: skip-fixture
+
+### V17-F1 Managed runtime 主线字段
 
 - **codexManagedRuntimeAvailable**: true
 - **codexManagedRuntimeVersion**: 0.1.0-fixture
@@ -55,7 +61,7 @@
 - **handshakeStatus** = `pass`：codex --version / generate-ts / app-server spawn / initialize / initialized / thread/start 全部通过。
 - **turnStatus** = `pass`：turn/start + turn/completed 通过；`skip-auth`：turn 因 auth/login 不可用而跳过（handshake 仍可 pass）；`fail`：turn 硬失败；`skip-handshake-failed`：handshake fail 时 turn 不执行。
 - **smokeStatus**：`skip`=无 codex CLI；`pass`=handshake+turn 全 pass；`handshake-only`=handshake pass 但 turn 非 pass（如 auth 不可用）；`fail`=handshake fail。
-- **codexUserReady**：`true` 仅当 managed runtime gate 通过（codexManagedRuntimeAvailable=true + sha256Valid=true + executable=true + spawnStatus=pass）且 smoke=pass 且关键 matrix 字段（appServerSpawn/initialize/threadStart/turnStart/turnCompleted/stopCancel/noVaultRootPollution）均 pass/true。fixture-only（spawnStatus=fixture-only）不算 ready。`not-triggered` 的 approval/fileChange 不阻塞 ready。external app-server pass 不影响 codexUserReady。
+- **codexUserReady**：`true` 仅当分层 gate 通过（resolverSmokeStatus=pass + runtimeSmokeStatus=pass + managedAppServerProtocolStatus=pass）且 smoke=pass 且关键 matrix 字段（appServerSpawn/initialize/threadStart/turnStart/turnCompleted/stopCancel/noVaultRootPollution）均 pass/true。fixture-only（runtimeSmokeStatus=fixture-only）不算 ready。`not-triggered` 的 approval/fileChange 不阻塞 ready。external app-server pass 不影响 codexUserReady。
 
 **最终结果**: handshake=skip turn=skip smoke=skip codexUserReady=false
 

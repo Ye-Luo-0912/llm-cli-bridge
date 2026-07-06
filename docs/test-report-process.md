@@ -1,14 +1,14 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-05T19:49:42.659Z
+- **测试时间**: 2026-07-06T01:35:52.666Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 850.0 KB
+- **main.js 大小**: 850.8 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 59338
-- **commit sha**: 30baad659f558663f49f7938e7202aec630e08cf
-- **commit 短 sha**: 30baad659f55
+- **commit sha**: 834af8b115b8c3b92e43cdf81315cfe290c5ea2c
+- **commit 短 sha**: 834af8b115b8
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总

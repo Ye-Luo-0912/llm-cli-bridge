@@ -8,22 +8,25 @@
 >
 > 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-05T19:49:50.677Z
-- **reportCommitSha**: 30baad659f558663f49f7938e7202aec630e08cf
-- **reportCommitSha 短**: 30baad659f55
-- **reportParentSha**: 2feec37724fba98c524ba30d7aac8624f8f1ae5a
-- **reportParentSha 短**: 2feec37724fb
-- **testedCodeCommitSha**: 30baad659f558663f49f7938e7202aec630e08cf
-- **testedCodeCommitSha 短**: 30baad659f55
+- **生成时间**: 2026-07-06T01:36:46.387Z
+- **reportCommitSha**: 834af8b115b8c3b92e43cdf81315cfe290c5ea2c
+- **reportCommitSha 短**: 834af8b115b8
+- **reportParentSha**: a092184e30b3fe68d3ecb33d0dd86f9b2b8b921c
+- **reportParentSha 短**: a092184e30b3
+- **testedCodeCommitSha**: 834af8b115b8c3b92e43cdf81315cfe290c5ea2c
+- **testedCodeCommitSha 短**: 834af8b115b8
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: 30baad659f558663f49f7938e7202aec630e08cf
-- **processReportCommitSha**: 30baad659f558663f49f7938e7202aec630e08cf
+- **unitReportCommitSha**: 834af8b115b8c3b92e43cdf81315cfe290c5ea2c
+- **processReportCommitSha**: 834af8b115b8c3b92e43cdf81315cfe290c5ea2c
 - **codexSmokeStatus**: skip
 - **codexHandshakeStatus**: skip
 - **codexTurnStatus**: skip
 - **codexVersion**: null
 - **codexSchemaSource**: fixture
 - **codexUserReady**: false
+- **codexManagedResolverSmokeStatus**: pass
+- **codexManagedRuntimeSmokeStatus**: fixture-only
+- **codexManagedAppServerProtocolStatus**: skip-fixture
 - **codexManagedRuntimeAvailable**: true
 - **codexManagedRuntimeVersion**: 0.1.0-fixture
 - **codexManagedRuntimeSha256Valid**: true
@@ -51,27 +54,32 @@
 - **canLoadMainJs**: true
 - **noRootPackageJson**: true
 - **userNeedsNpmInstall**: false
+- **containsCodexManagedRuntime**: true
+- **codexRuntimeSha256Valid**: true
+- **codexRuntimeExecutable**: true
+- **codexRuntimePinnedVersion**: 0.1.0-fixture（V17-F1
+- **codexRuntimeFixture**: true
 - **userPackageSizeMB**: 97.8
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-05T19:48:33.945Z
-- **process 测试时间**: 2026-07-05T19:49:42.659Z
+- **unit 测试时间**: 2026-07-06T01:35:12.899Z
+- **process 测试时间**: 2026-07-06T01:35:52.666Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=30baad659f55。
-- **当前 commit 改动文件**：docs/test-report-unit.md, main.ts, scripts/codex-app-server-smoke.mjs, scripts/run-tests.mjs, src/effectiveRunPlan.ts, src/runtime/core/bridgeSession.ts, src/runtime/core/types.ts, src/runtime/providers/codex-app-server/codexAppServerProvider.ts, src/runtime/providers/codex-sdk/codexSdkProvider.ts, src/settings.ts, src/types.ts
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=834af8b115b8。
+- **当前 commit 改动文件**：main.ts, scripts/codex-app-server-smoke.mjs, scripts/codex-managed-runtime-smoke.mjs, scripts/generate-test-summary.mjs, scripts/run-tests.mjs, scripts/user-package-smoke.mjs, src/runtime/core/bridgeSession.ts, src/runtime/providers/codex-app-server/codexAppServerApprovalMapper.ts, src/runtime/providers/codex-app-server/codexAppServerProvider.ts, src/runtime/providers/codex-managed-app-server/codexManagedAppServerProvider.ts, src/view.ts
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 1022 | 0 | 25 | 0 | 1047 | 30baad659f55 | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | 30baad659f55 | ✅ 通过 |
+| unit | 1027 | 0 | 25 | 0 | 1052 | 834af8b115b8 | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | 834af8b115b8 | ✅ 通过 |
 | codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **1119** | **0** | **81** | **0** | **1200** | 30baad659f55 | ✅ **主线通过** |
+| **合计** | **1124** | **0** | **81** | **0** | **1205** | 834af8b115b8 | ✅ **主线通过** |
 
 **双轨均 0 失败（fixture/unit 层 pass），但 Codex real smoke skipped — Runtime 主线未完整验证（real smoke 层未验证）。codexUserReady=false。**
 

@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-05T19:48:33.945Z
+- **测试时间**: 2026-07-06T01:35:12.899Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 850.0 KB
+- **main.js 大小**: 850.8 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 59338
-- **commit sha**: 30baad659f558663f49f7938e7202aec630e08cf
-- **commit 短 sha**: 30baad659f55
+- **commit sha**: 834af8b115b8c3b92e43cdf81315cfe290c5ea2c
+- **commit 短 sha**: 834af8b115b8
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 1022
+- ✅ **通过**: 1027
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 1047
+- **总计**: 1052
 
 ### 审计模式说明
 
@@ -701,7 +701,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=296743 capLine=296888 orderOk=true |
+| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=296845 capLine=296990 orderOk=true |
 | ✅ | buildBridgePromptPackage 主路径接收 runtimeCapabilities | hasRuntimeCapabilities=true hasPassedToBuilder=true |
 
 ### V16.5-E workspace
@@ -953,7 +953,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783280915439-0 update=pi-sdk-read-1783280915439-0 end=pi-sdk-read-1783280915439-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783301714427-0 update=pi-sdk-read-1783301714427-0 end=pi-sdk-read-1783301714427-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -1199,12 +1199,12 @@
 |------|--------|------|
 | ✅ | BackendMode 拆分 codex-sdk/codex-app-server-external + selectProvider SDK-first 链 + Provider 重命名 + CodexSdkProvider 占位 + settings UI 下拉 + 旧 codex 迁移 | codexSdkMode=true codexExtMode=true handlesSdk=true handlesExt=true autoSdkFirst=true extProviderClass=true alias=true sdkProviderFile=true codexSdkOption=true codexExtOption=true autoDescSdkFirst=true migratesLegacyCodex=true |
 
-### V17-F1 G
+### V17-F1.1 G+E
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | codex-app-server-smoke 输出 22 字段 readiness matrix（5 managed runtime + 5 SDK/ext + 12 旧）+ codexUserReady managed runtime gate + probeManagedRuntime + flag 收集 | managedFields=true sdkFields=true legacyFields=true derive=true print=true codexUserReady=true managedGate=true probeManaged=true skipNotReady=true approval=true fileChange=true procKill=true pollution=true |
-| ✅ | readiness matrix 写入 codex smoke report（22 字段）+ codexUserReady managed runtime gate + summary 解析/输出 | g=true (writeReportHasMatrix=true hasDeriveUserReady=true gateChecksKeyFields=true gateChecksManaged=true) summary=true (parses=true outputs=true) |
+| ✅ | codex-app-server-smoke 输出 25 字段 readiness matrix（3 分层 + 5 managed runtime + 5 SDK/ext + 12 旧）+ codexUserReady 分层 gate + probeManagedRuntime + flag 收集 | layeredFields=true managedFields=true sdkFields=true legacyFields=true derive=true print=true codexUserReady=true layeredGate=true probeManaged=true skipNotReady=true approval=true fileChange=true procKill=true pollution=true |
+| ✅ | readiness matrix 写入 codex smoke report（25 字段）+ codexUserReady 分层 gate + summary 解析/输出 | g=true (writeReportHasMatrix=true hasDeriveUserReady=true gateChecksKeyFields=true gateChecksLayered=true) summary=true (parses=true outputs=true) |
 
 ### V17-F0 D
 
@@ -1241,6 +1241,36 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | user-package 集成 managed runtime（build 复制 + smoke 5 字段）+ managed runtime smoke 脚本（resolver 校验链 + fixture-only 不标 ready） | e=true (buildCopiesManifest=true smokeChecksManaged=true) f=true (hasSmokeScript=true verifiesChain=true fixtureNotReady=true) |
+
+### V17-F1.1 F
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | resolver 行为 — sha mismatch fail + platform missing fail + executable fail + resolver OK | shaMismatch=true platformMissing=true execFail=true resolverOk=true |
+
+### V17-F1.1 B+F
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | managed provider 不调 settings.codexCommand + 不执行 codex --version + super() 注入 providerId + approval providerId=codex-managed-app-server | noCodexCommand=true passesViaSuper=true noFieldOverride=true parentAcceptsParams=true parentUsesParam=true hasGetApprovalProviderId=true mapperHasGetProviderId=true noVersionCheck=true |
+
+### V17-F1.1 C+F
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | pluginDir 注入路径（main.ts onload + selectProvider + createBridgeSession + createManagedProvider + view.ts 传递） | mainSets=true selectAccepts=true createAccepts=true managedAccepts=true fallback=true viewPasses=true |
+
+### V17-F1.1 D+F
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | user-package pass gate 纳入 managed runtime（containsCodexManagedRuntime + sha256Valid + executable）+ fixture 不阻塞 + summary 解析输出 | gateIncludes=true fixtureNotBlocking=true summaryParses=true summaryOutputs=true |
+
+### V17-F1.1 E+F
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | managed runtime smoke 分层字段（resolverSmokeStatus/runtimeSmokeStatus/managedAppServerProtocolStatus）+ fixture-only 非 pass + skip-fixture + codexUserReady 分层 gate + summary 解析 | smokeHasLayered=true fixtureNotPass=true hasSkipFixture=true codexSmokeHasLayered=true userReadyUsesLayered=true summaryParsesLayered=true |
 
 ### V17-F0 F
 
@@ -2252,7 +2282,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-05T19-49-02-818Z-oy2oy9 |
+| ✅ | 返回非空 id | id=s-2026-07-06T01-35-42-754Z-x6mqdp |
 
 ### V2.5 Session 版本
 
@@ -2271,7 +2301,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-05T19-49-02-888Z-ue4pv1 second=s-2026-07-05T19-49-02-830Z-9ndmkk |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-06T01-35-42-870Z-btjj2y second=s-2026-07-06T01-35-42-786Z-5agshh |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2298,7 +2328,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-05T19-49-02-908Z-clr0d7 id2=s-2026-07-05T19-49-02-908Z-1gxula |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-06T01-35-43-001Z-4nntl2 id2=s-2026-07-06T01-35-43-001Z-sk1oti |
 
 ### V2.5 Session 上限
 
@@ -2396,7 +2426,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-05T19:49:02.970Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-06T01:35:43.142Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2484,7 +2514,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-05T19:49:03.030Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-06T01:35:43.330Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2598,7 +2628,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-05T19:49:03.105Z after=2026-07-05T19:49:03.168Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-06T01:35:43.489Z after=2026-07-06T01:35:43.558Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -2969,13 +2999,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-05T19:49:03.805Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-06T01:35:45.051Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-05T19:49:03.814Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-06T01:35:45.070Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3286,7 +3316,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-JjnTAd\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-qLlp6h\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-5gBI4w\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-U6ksxi\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3298,7 +3328,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-UTp8T3\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-kbiAKk\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-y8pF0j\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-669pkN\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3310,7 +3340,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-KtI1fo\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-06EEZw\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-Xx9KC0\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-IPfxwx\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -3630,7 +3660,7 @@
 |------|--------|------|
 | ✅ | unit/process 报告含 commit sha + 运行命令字段 | unitExists=true processExists=true unitSha=true processSha=true unitCmd=true processCmd=true |
 | ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
-| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=fb5f3be2cdd4 |
+| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=30baad659f55 |
 | ✅ | 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑） | scriptExists=true auditFailExit=true testedCodeShaCheck=true codexSmokeCheck=true docsOnlyLogic=true |
 
 ## 失败项详情
