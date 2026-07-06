@@ -6761,6 +6761,75 @@
   color: var(--text-muted);
 }
 
+.llm-bridge-composer-status-rail {
+  display: grid;
+  justify-items: center;
+  gap: 6px;
+  padding: 0 8px 1px;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.llm-bridge-composer-status-rail[hidden] {
+  display: none;
+}
+
+.llm-bridge-composer-status-line {
+  display: grid;
+  grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
+  align-items: center;
+  gap: 12px;
+  width: min(720px, 100%);
+}
+
+.llm-bridge-composer-status-rule {
+  height: 1px;
+  background: color-mix(in srgb, var(--text-muted) 17%, transparent);
+}
+
+.llm-bridge-composer-status-text {
+  color: var(--text-muted);
+  font-size: var(--font-smaller);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.llm-bridge-composer-status-rail.is-running .llm-bridge-composer-status-text {
+  color: color-mix(in srgb, var(--interactive-accent) 56%, var(--text-muted));
+  animation: llm-bridge-codex-working-shimmer 2.4s ease-in-out infinite;
+}
+
+.llm-bridge-composer-status-rail.is-blocked .llm-bridge-composer-status-text {
+  color: var(--text-warning);
+}
+
+.llm-bridge-composer-status-rail.is-failed .llm-bridge-composer-status-text {
+  color: var(--text-error);
+}
+
+.llm-bridge-composer-status-rail.is-compressed .llm-bridge-composer-status-text {
+  color: var(--text-muted);
+}
+
+.llm-bridge-composer-step-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 26px;
+  padding: 0 13px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 16%, var(--background-modifier-border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.06);
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  line-height: 1;
+}
+
+.llm-bridge-composer-step-pill[hidden] {
+  display: none;
+}
+
 .llm-bridge-composer-context .llm-bridge-context-tags {
   flex: 1 1 auto;
   min-width: 0;

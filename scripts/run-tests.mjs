@@ -18638,8 +18638,14 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("固定引用")
       && viewSrc.includes("本条消息附件")
       && viewSrc.includes("本会话授权")
+      && viewSrc.includes('composer.createDiv({ cls: "llm-bridge-composer-status-rail"')
+      && viewSrc.includes("refreshComposerStatusRail")
+      && viewSrc.includes("正在自动压缩上下文")
+      && viewSrc.includes("getComposerTurnStatus")
       && stylesSrc.includes("V17-G3: Codex-native composer")
       && stylesSrc.includes(".llm-bridge-composer-context")
+      && stylesSrc.includes(".llm-bridge-composer-status-rail")
+      && stylesSrc.includes(".llm-bridge-composer-step-pill")
       && stylesSrc.includes(".llm-bridge-command-menu-item-desc")
       && stylesSrc.includes(".llm-bridge-context-ref-icon");
     addTest("V17-G3 UI: composer/context/files surface 靠近 Codex native 风格",

@@ -20,7 +20,7 @@ import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, pre
 import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
 import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
-import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment } from "./runtime/core/types";
+import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment, AssistantTurnView, TurnTimelineNode } from "./runtime/core/types";
 import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
 import { buildCodexRunViewModel, formatCodexRunValue, type CodexRunApprovalGate, type CodexRunChangeGroup, type CodexRunDiagnosticsGroup, type CodexRunFeedItem, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
@@ -364,6 +364,9 @@ export class LLMBridgeView extends ItemView {
   private contextRingEl!: HTMLElement;
   private contextLabelEl!: HTMLElement;
   private contextDetailEl!: HTMLElement;
+  private composerStatusRailEl!: HTMLElement;
+  private composerStatusTextEl!: HTMLElement;
+  private composerStepPillEl!: HTMLElement;
   private lastContextMetrics: ContextMetrics | null = null;
   // V16.3: active note 三态 — "full"（路径+内容）/ "path-only"（仅路径，内容读取失败）/ "off"（未注入）
   private activeNoteAttachState: "full" | "path-only" | "off" = "off";
@@ -623,6 +626,13 @@ export class LLMBridgeView extends ItemView {
     this.permissionPanelEl.style.display = "none";
     this.userInputPanelEl = composer.createDiv({ cls: "llm-bridge-user-input-panel llm-bridge-user-input-dock" });
     this.userInputPanelEl.style.display = "none";
+
+    this.composerStatusRailEl = composer.createDiv({ cls: "llm-bridge-composer-status-rail", attr: { hidden: "" } });
+    const composerStatusLine = this.composerStatusRailEl.createDiv({ cls: "llm-bridge-composer-status-line" });
+    composerStatusLine.createEl("span", { cls: "llm-bridge-composer-status-rule", attr: { "aria-hidden": "true" } });
+    this.composerStatusTextEl = composerStatusLine.createEl("span", { cls: "llm-bridge-composer-status-text" });
+    composerStatusLine.createEl("span", { cls: "llm-bridge-composer-status-rule", attr: { "aria-hidden": "true" } });
+    this.composerStepPillEl = this.composerStatusRailEl.createEl("span", { cls: "llm-bridge-composer-step-pill" });
 
     const composerContextRow = composer.createDiv({ cls: "llm-bridge-composer-context" });
     const contextTagsRow = composerContextRow.createDiv({ cls: "llm-bridge-context-tags" });
@@ -1499,6 +1509,7 @@ export class LLMBridgeView extends ItemView {
     // V16.3 Round 3: note tag title/文案统一由 refreshAllChips 处理（合并单 chip 语义）
     // 这里只刷新 chip 文案以立即反映文件名变化（不等异步 refreshContextMetrics）
     this.refreshAllChips();
+    this.refreshComposerStatusRail();
     // P4-D: Selection tag — hide when no selection
     const selWrap = this.includeSelectionCheckEl.parentElement;
     if (selWrap) {
@@ -6201,10 +6212,12 @@ export class LLMBridgeView extends ItemView {
       // - compression 无信号时不传，不伪造
       this.lastContextMetrics = metrics;
       this.renderContextMetrics(metrics);
+      this.refreshComposerStatusRail();
       // V16.3: chip 三态刷新（依赖 activeNoteAttachState，在异步读取后设置）
       this.refreshAllChips();
     } catch {
       this.contextLabelEl.textContent = "Context estimate";
+      this.refreshComposerStatusRail();
     }
   }
 
@@ -6282,6 +6295,116 @@ export class LLMBridgeView extends ItemView {
       });
       compRow.setAttribute("title", `Source: ${comp.source}\nReason: ${comp.reason}`);
     }
+  }
+
+  private refreshComposerStatusRail(): void {
+    if (!this.composerStatusRailEl || !this.composerStatusTextEl || !this.composerStepPillEl) return;
+
+    const latestTurn = this.getLatestAssistantTurnView();
+    const turnStatus = latestTurn ? this.getComposerTurnStatus(latestTurn) : null;
+    const compressionText = this.getContextCompressionStatusText();
+    const shouldShow = !!turnStatus?.isActive || !!turnStatus?.isContextCompaction || !!compressionText;
+
+    if (!shouldShow) {
+      this.composerStatusRailEl.setAttribute("hidden", "");
+      this.composerStatusTextEl.textContent = "";
+      this.composerStepPillEl.textContent = "";
+      this.composerStatusRailEl.className = "llm-bridge-composer-status-rail";
+      return;
+    }
+
+    const kind = turnStatus?.kind ?? "compressed";
+    const label = turnStatus?.label ?? compressionText ?? "";
+    this.composerStatusRailEl.removeAttribute("hidden");
+    this.composerStatusRailEl.className = `llm-bridge-composer-status-rail is-${kind}`;
+    this.composerStatusTextEl.textContent = label;
+    this.composerStatusTextEl.setAttribute("title", label);
+
+    const stepText = turnStatus?.stepText || (compressionText ? "上下文已压缩" : "");
+    this.composerStepPillEl.textContent = stepText;
+    this.composerStepPillEl.toggleAttribute("hidden", !stepText);
+  }
+
+  private getLatestAssistantTurnView(): AssistantTurnView | null {
+    for (let i = this.messages.length - 1; i >= 0; i -= 1) {
+      const msg = this.messages[i];
+      if (msg.role === "assistant" && msg.assistantTurnView) return msg.assistantTurnView;
+    }
+    return null;
+  }
+
+  private flattenTurnTimeline(nodes: ReadonlyArray<TurnTimelineNode>): TurnTimelineNode[] {
+    const flattened: TurnTimelineNode[] = [];
+    const visit = (items: ReadonlyArray<TurnTimelineNode>) => {
+      for (const item of items) {
+        flattened.push(item);
+        if (item.children?.length) visit(item.children);
+      }
+    };
+    visit(nodes);
+    return flattened;
+  }
+
+  private getComposerTurnStatus(turn: AssistantTurnView): { label: string; stepText: string; kind: string; isActive: boolean; isContextCompaction: boolean } | null {
+    const nodes = this.flattenTurnTimeline(turn.turnTimeline)
+      .filter((node) => node.kind !== "status" && node.kind !== "agentMessage");
+    if (nodes.length === 0) return null;
+
+    const activeIndex = nodes.findIndex((node) => node.status === "running" || node.status === "blocked");
+    const currentIndex = activeIndex >= 0 ? activeIndex : nodes.length - 1;
+    const current = nodes[currentIndex];
+    const isActive = turn.status === "running" || current.status === "running" || current.status === "blocked";
+    const isContextCompaction = current.kind === "contextCompaction";
+    const label = this.getComposerStatusLabel(turn, current, isActive);
+    const stepText = isActive
+      ? `第 ${Math.max(1, currentIndex + 1)} / ${nodes.length} 步`
+      : isContextCompaction ? `已完成 ${nodes.length} 步` : "";
+    const kind = current.status === "blocked"
+      ? "blocked"
+      : turn.status === "failed" || current.status === "failed"
+        ? "failed"
+        : isContextCompaction
+          ? "compressed"
+          : isActive ? "running" : "completed";
+
+    return { label, stepText, kind, isActive, isContextCompaction };
+  }
+
+  private getComposerStatusLabel(turn: AssistantTurnView, node: TurnTimelineNode, active: boolean): string {
+    const donePrefix = active ? "正在" : "已";
+    switch (node.kind) {
+      case "contextCompaction":
+        return active ? "正在自动压缩上下文" : "上下文已自动压缩";
+      case "reasoning":
+      case "plan":
+        return active ? "正在思考" : "思考完成";
+      case "commandExecution":
+        return active ? "正在运行命令" : "已运行命令";
+      case "fileChange":
+        return active ? "正在编辑文件" : "已编辑文件";
+      case "approval":
+        return node.status === "blocked" || active ? "等待授权" : "授权已处理";
+      case "userInput":
+        return node.status === "blocked" || active ? "等待用户输入" : "用户输入已处理";
+      case "mcpToolCall":
+      case "dynamicToolCall":
+        return active ? "正在调用工具" : "工具调用完成";
+      case "webSearch":
+        return active ? "正在搜索" : "搜索完成";
+      case "imageView":
+        return active ? "正在查看图片" : "图片查看完成";
+      case "reviewMode":
+        return active ? "正在审查" : "审查完成";
+      default:
+        if (turn.status === "failed") return "运行失败";
+        return `${donePrefix}处理`;
+    }
+  }
+
+  private getContextCompressionStatusText(): string | null {
+    const comp = this.lastContextMetrics?.compression;
+    if (!comp) return null;
+    return `上下文已自动压缩 ${formatTokens(comp.beforeTokens)} → ${formatTokens(comp.afterTokens)}`;
   }
 
   // Agent Skills panel: runtime capabilities only; no composer insertion.
@@ -6736,6 +6859,7 @@ export class LLMBridgeView extends ItemView {
     this.messagesEl.empty();
     if (this.messages.length === 0) {
       this.renderEmptyState();
+      this.refreshComposerStatusRail();
       return;
     }
     const MAX_EXPANDED = 8;
@@ -6758,6 +6882,7 @@ export class LLMBridgeView extends ItemView {
         this.renderMessage(msg);
       }
     }
+    this.refreshComposerStatusRail();
   }
 
   // V2.5: 删除历史会话（确认后删除 + 刷新列表）
