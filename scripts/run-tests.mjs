@@ -6687,9 +6687,11 @@ if (runMode !== "all" && runMode !== "unit") {
         const bridgeSessionSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "bridgeSession.ts"), "utf8");
         const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
 
-        // main.ts 设置 pluginDir = manifest.dir
-        const mainSetsPluginDir = mainSrc.includes("this.pluginDir = this.manifest.dir") &&
-                                   mainSrc.includes("pluginDir: string");
+        // main.ts 从 manifest.dir 解析绝对 pluginDir；Obsidian 的 manifest.dir 是 vault-relative。
+        const mainSetsPluginDir = mainSrc.includes("pluginDir: string") &&
+                                   mainSrc.includes("const manifestDir = this.manifest.dir || \"\"") &&
+                                   mainSrc.includes("path.isAbsolute(manifestDir)") &&
+                                   mainSrc.includes("path.join(vaultPath0, manifestDir)");
         // selectProvider 接受 pluginDir 参数
         const selectAcceptsPluginDir = /export function selectProvider\([\s\S]*?pluginDir\?:\s*string/.test(bridgeSessionSrc);
         // createBridgeSession 接受 pluginDir 参数

@@ -45,11 +45,13 @@ export default class LLMBridgePlugin extends Plugin {
   pluginDir: string = "";
 
   async onload(): Promise<void> {
-    // V17-F1.1 任务 C：注入 pluginDir（Obsidian manifest.dir 为插件目录）
-    this.pluginDir = this.manifest.dir || "";
-
     // V1.0.1: 诊断文件含 vaultPath / bridgePath / timestamp（actual port / bridgeWritten 在 HTTP 启动后补充）
     const vaultPath0 = this.getVaultPath();
+    // V17-F6: Obsidian manifest.dir is relative to the vault (for example
+    // ".obsidian/plugins/llm-cli-bridge"). Managed runtime resolution needs an
+    // absolute plugin directory so the production package can find its manifest.
+    const manifestDir = this.manifest.dir || "";
+    this.pluginDir = path.isAbsolute(manifestDir) ? manifestDir : path.join(vaultPath0, manifestDir);
     const bridgePath0 = path.join(vaultPath0, BRIDGE_FILE_REL);
     try {
       await fs.promises.mkdir(path.dirname(bridgePath0), { recursive: true });

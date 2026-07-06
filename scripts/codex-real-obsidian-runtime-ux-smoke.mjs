@@ -47,7 +47,16 @@ const report = {
   diffCardObserved: false,
   installButtonMetadataComplete: false,
   installFailureRetryCopyObserved: false,
+  runtimeInstallResultStatus: "",
+  runtimeInstallSource: "",
+  runtimeInstallTarballSha256Valid: false,
+  runtimeInstallBinarySha256Valid: false,
+  runtimeInstallBinarySizeValid: false,
+  runtimeInstallExecutable: false,
   providerLabelAfterInstall: "",
+  uiSmokeRunStatus: "",
+  uiSmokeApprovalCount: 0,
+  uiSmokeFinalAnswer: "",
   normalModeRawSourceRefAbsentInDom: false,
   developerDebugViewAccessible: false,
   developerRawProviderEventAccessible: false,
@@ -432,16 +441,61 @@ const CDP_PROBE = `
   const providerReady = !afterStatus?.required
     && /codex managed/i.test(providerLabel)
     && !/install required|unavailable/i.test(providerLabel);
+
+  let uiSmokeRunStatus = "not-run";
+  let uiSmokeApprovalCount = 0;
+  let uiSmokeFinalAnswer = "";
+  if (providerReady && view) {
+    const smokePrompt = "V17F6_OBSIDIAN_UI_SMOKE. Do exactly these two actions in this vault: (1) run a harmless shell command that prints V17F6_OBSIDIAN_COMMAND_SMOKE, (2) create or update _llm_bridge_smoke/v17-f6-obsidian-smoke.md with exactly one line: V17F6_OBSIDIAN_FILE_SMOKE. For the file edit, do not use shell redirection, PowerShell file write, or Python; use apply_patch/file-change so the UI can show a diff. Then answer only: done.";
+    if (plugin.settings) {
+      plugin.settings.developerMode = true;
+      plugin.settings.claudePermissionMode = "default";
+      plugin.settings.includeActiveNote = false;
+      plugin.settings.includeSelection = false;
+      await plugin.saveSettings?.();
+    }
+    view.doNewSession?.();
+    await sleep(200);
+    view.setInput?.(smokePrompt);
+    if (view.inputEl) {
+      view.inputEl.value = smokePrompt;
+      view.inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+    const runPromise = view.runNow?.().catch((e) => ({ runError: String(e?.message || e) }));
+    const deadline = Date.now() + 180000;
+    while (Date.now() < deadline) {
+      await sleep(500);
+      const buttons = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-approval-card .is-proceed, .llm-bridge-turn-approval-card button[data-decision='allow_once']") ?? []);
+      for (const button of buttons) {
+        if (!button.disabled) {
+          uiSmokeApprovalCount += 1;
+          button.click();
+          await sleep(700);
+        }
+      }
+      if (!view.runHandle) break;
+    }
+    const runResult = runPromise
+      ? await Promise.race([runPromise, sleep(5000).then(() => "run-promise-timeout")])
+      : "runNow-missing";
+    await sleep(1200);
+    uiSmokeRunStatus = typeof runResult === "object" && runResult?.runError ? "run-error" : "completed";
+  }
+
   const turn = Array.isArray(view?.messages)
     ? [...view.messages].reverse().find((m) => m?.role === "assistant" && m?.assistantTurnView)?.assistantTurnView ?? null
     : null;
   const nodes = turn?.turnTimeline ?? [];
   const domText = view?.containerEl?.textContent ?? "";
+  uiSmokeFinalAnswer = String(turn?.finalAnswer ?? "").slice(0, 500);
   const commandTimelineObserved = nodes.some((n) => n.kind === "commandExecution")
+    || /V17F6_OBSIDIAN_COMMAND_SMOKE/.test(domText)
     || !!view?.containerEl?.querySelector?.(".llm-bridge-tl-tool");
   const fileEditTimelineObserved = nodes.some((n) => n.kind === "fileChange")
+    || /v17-f6-obsidian-smoke/.test(domText)
     || !!view?.containerEl?.querySelector?.(".llm-bridge-tl-file");
   const approvalCardObserved = nodes.some((n) => n.kind === "approval")
+    || uiSmokeApprovalCount > 0
     || !!view?.containerEl?.querySelector?.(".llm-bridge-turn-approval-card, .llm-bridge-approval-card");
   const diffCardObserved = nodes.some((n) => n.kind === "fileChange" && (n.diff || n.fileChanges?.some?.((c) => c.diff)))
     || /diff:/i.test(domText)
@@ -487,6 +541,9 @@ const CDP_PROBE = `
     providerStatus,
     providerLabel,
     providerReady,
+    uiSmokeRunStatus,
+    uiSmokeApprovalCount,
+    uiSmokeFinalAnswer,
     installRequiredSurfaced: runtimeMissingInstallRequiredObserved,
     commandTimelineObserved,
     fileEditTimelineObserved,
@@ -531,7 +588,16 @@ async function runCdpProbe() {
     report.approvalCardObserved = !!probe.approvalCardObserved;
     report.diffCardObserved = !!probe.diffCardObserved;
     report.installButtonMetadataComplete = !!probe.installButtonMetadataComplete;
+    report.runtimeInstallResultStatus = probe.installResult?.status || "";
+    report.runtimeInstallSource = probe.installResult?.installSource || "";
+    report.runtimeInstallTarballSha256Valid = probe.installResult?.tarballSha256Valid === true;
+    report.runtimeInstallBinarySha256Valid = probe.installResult?.binarySha256Valid === true;
+    report.runtimeInstallBinarySizeValid = probe.installResult?.binarySizeValid === true;
+    report.runtimeInstallExecutable = probe.installResult?.runtimeExecutable === true;
     report.providerLabelAfterInstall = probe.providerLabel || "";
+    report.uiSmokeRunStatus = probe.uiSmokeRunStatus || "";
+    report.uiSmokeApprovalCount = Number(probe.uiSmokeApprovalCount || 0);
+    report.uiSmokeFinalAnswer = probe.uiSmokeFinalAnswer || "";
     report.normalModeRawSourceRefAbsentInDom = !!probe.normalModeRawSourceRefAbsentInDom;
     report.developerDebugViewAccessible = !!probe.developerDebugViewAccessible;
     report.developerRawProviderEventAccessible = !!probe.developerRawProviderEventAccessible;
@@ -539,7 +605,13 @@ async function runCdpProbe() {
     addCheck("real Obsidian plugin and bridge view loaded", report.firstOpenDefaultPackageObserved, `${probe.backendMode || "backendMode unknown"}`);
     addCheck("runtime missing surfaces install required", report.runtimeMissingInstallRequiredObserved || report.installSuccessProviderReadyObserved, probe.statusText || "");
     addCheck("install button metadata title complete", report.installButtonMetadataComplete || report.installSuccessProviderReadyObserved, probe.installButtonTitle || "");
+    addCheck("runtime installer verified tarball/binary in Obsidian",
+      report.installSuccessProviderReadyObserved
+        && (report.runtimeInstallResultStatus === "installed" || report.runtimeInstallResultStatus === "already-installed" || report.runtimeInstallResultStatus === "")
+        && (report.runtimeInstallResultStatus === "" || (report.runtimeInstallTarballSha256Valid && report.runtimeInstallBinarySha256Valid && report.runtimeInstallBinarySizeValid && report.runtimeInstallExecutable)),
+      `status=${report.runtimeInstallResultStatus || "already-present"} source=${report.runtimeInstallSource || "n/a"}`);
     addCheck("install success surfaces provider ready", report.installSuccessProviderReadyObserved, report.providerLabelAfterInstall || probe.statusText || "");
+    addCheck("real Obsidian Codex UI smoke run completed", report.uiSmokeRunStatus === "completed", report.uiSmokeFinalAnswer);
     addCheck("real Obsidian command timeline observed", report.commandTimelineObserved, "");
     addCheck("real Obsidian file edit timeline observed", report.fileEditTimelineObserved, "");
     addCheck("real Obsidian approval card observed", report.approvalCardObserved, "");
@@ -594,8 +666,17 @@ function writeReport() {
     `- **runtimeMissingInstallRequiredObserved**: ${report.runtimeMissingInstallRequiredObserved}`,
     `- **installSuccessProviderReadyObserved**: ${report.installSuccessProviderReadyObserved}`,
     `- **installButtonMetadataComplete**: ${report.installButtonMetadataComplete}`,
+    `- **runtimeInstallResultStatus**: ${report.runtimeInstallResultStatus || "null"}`,
+    `- **runtimeInstallSource**: ${report.runtimeInstallSource || "null"}`,
+    `- **runtimeInstallTarballSha256Valid**: ${report.runtimeInstallTarballSha256Valid}`,
+    `- **runtimeInstallBinarySha256Valid**: ${report.runtimeInstallBinarySha256Valid}`,
+    `- **runtimeInstallBinarySizeValid**: ${report.runtimeInstallBinarySizeValid}`,
+    `- **runtimeInstallExecutable**: ${report.runtimeInstallExecutable}`,
     `- **providerLabelAfterInstall**: ${report.providerLabelAfterInstall || "null"}`,
     `- **installFailureRetryCopyObserved**: ${report.installFailureRetryCopyObserved}`,
+    `- **uiSmokeRunStatus**: ${report.uiSmokeRunStatus || "null"}`,
+    `- **uiSmokeApprovalCount**: ${report.uiSmokeApprovalCount}`,
+    `- **uiSmokeFinalAnswer**: ${escapeMd(report.uiSmokeFinalAnswer || "null")}`,
     `- **commandTimelineObserved**: ${report.commandTimelineObserved}`,
     `- **fileEditTimelineObserved**: ${report.fileEditTimelineObserved}`,
     `- **approvalCardObserved**: ${report.approvalCardObserved}`,
