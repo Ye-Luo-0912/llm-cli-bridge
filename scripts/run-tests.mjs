@@ -18511,6 +18511,8 @@ if (!runNoteSummarizeSmoke) {
   const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf-8");
   const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
   const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf-8");
+  const codexRunViewModelSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "codexRunViewModel.ts"), "utf-8");
+  const uxSmokeSrc = readFileSync(join(PROJECT_ROOT, "scripts", "codex-real-obsidian-runtime-ux-smoke.mjs"), "utf-8");
 
   // ---- Test 1: contextMetrics.ts 模块存在且导出核心函数 ----
   {
@@ -18732,6 +18734,38 @@ if (!runNoteSummarizeSmoke) {
       && !viewSrc.includes('text: snippet ? "bounded text" : "native ref"')
       && !viewSrc.includes("Yes, proceed");
     addTest("V17-G6 UI: Files 清单、请求弹窗和 composer 继续靠近 Codex 风格",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13h: V17-G7 normal run waterfall hides provider placeholders and warning diagnostics ----
+  {
+    const ok = codexRunViewModelSrc.includes("function thinkingSummary")
+      && !codexRunViewModelSrc.includes("Reasoning summary not provided by Codex.")
+      && viewSrc.includes("private filterCodexDiagnosticsForDisplay(")
+      && viewSrc.includes("if (developerMode) return diagnostics;")
+      && viewSrc.includes('diagnostic.severity === "error"')
+      && viewSrc.includes("const diagnosticsForDisplay = this.filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode);")
+      && viewSrc.includes("if (diagnosticsForDisplay.length > 0) this.renderCodexDiagnosticsDrawer")
+      && uxSmokeSrc.includes("assistant-output-carrier")
+      && uxSmokeSrc.includes("thinkingSummary.length > 0 || inlineOutputTexts.length > 0");
+    addTest("V17-G7 UI: 普通态隐藏 reasoning 占位和 warning diagnostics，assistant 输出承载瀑布流",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13i: V17-G7 composer/request surfaces stay Codex-compact ----
+  {
+    const ok = viewSrc.includes("private coerceMessageContentText(value: unknown): string")
+      && viewSrc.includes("llm-bridge-message-render-error-detail")
+      && viewSrc.includes('{ value: "default", icon: "shield-question"')
+      && viewSrc.includes("setIcon(optIcon, mode.icon)")
+      && viewSrc.includes('noteTag.textContent = fnameOrFallback')
+      && stylesSrc.includes("V17-G7: Codex-like run waterfall, composer, files and request polish")
+      && stylesSrc.includes(".llm-bridge-context-tag.is-empty")
+      && stylesSrc.includes(".llm-bridge-codex-current-activity-icon")
+      && stylesSrc.includes(".llm-bridge-codex-inline-shell-panel")
+      && stylesSrc.includes(".llm-bridge-approval-card-row-command")
+      && stylesSrc.includes(".llm-bridge-context-ref-chip");
+    addTest("V17-G7 UI: composer、活动笔记、权限弹窗和文件/request 表面收口",
       ok ? "pass" : "fail", "");
   }
 

@@ -7567,3 +7567,548 @@
 .llm-bridge-external-read-warning {
   border-radius: 10px;
 }
+
+/* ===== V17-G7: Codex-like run waterfall, composer, files and request polish ===== */
+.llm-bridge-messages {
+  padding-bottom: 20px;
+}
+
+.llm-bridge-msg-assistant {
+  padding-left: 12px;
+}
+
+.llm-bridge-msg-assistant::before {
+  left: 0;
+  top: 18px;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content {
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--background-secondary) 58%, var(--background-primary));
+}
+
+.llm-bridge-message-render-error-detail {
+  margin-top: 6px;
+  color: var(--text-muted);
+}
+
+.llm-bridge-message-render-error-detail summary {
+  cursor: pointer;
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-codex-run-view {
+  --llm-run-line: color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
+  margin: 6px 0 10px;
+  padding-left: 12px;
+  border-left-color: var(--llm-run-line);
+}
+
+.llm-bridge-timeline-wrap.llm-bridge-codex-run-view .llm-bridge-timeline-head {
+  min-height: 22px;
+  padding: 0 0 5px;
+}
+
+.llm-bridge-codex-run-toggle {
+  color: var(--text-faint);
+}
+
+.llm-bridge-codex-run-provider,
+.llm-bridge-codex-run-metric {
+  color: color-mix(in srgb, var(--text-muted) 72%, transparent);
+}
+
+.llm-bridge-codex-run-body {
+  gap: 5px;
+  padding-top: 0;
+}
+
+.llm-bridge-codex-current-activity {
+  min-height: 18px;
+  padding: 0;
+  color: var(--text-muted);
+}
+
+.llm-bridge-codex-current-activity-icon {
+  display: none;
+}
+
+.llm-bridge-codex-current-activity-text .llm-bridge-run-status-text {
+  margin-right: 0;
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-codex-feed,
+.llm-bridge-codex-feed-list {
+  gap: 6px;
+}
+
+.llm-bridge-codex-feed-batch {
+  gap: 4px;
+  padding: 0 0 2px 12px;
+  border-left: 1px solid color-mix(in srgb, var(--interactive-accent) 30%, var(--background-modifier-border));
+}
+
+.llm-bridge-codex-thinking-line {
+  margin: 0 0 2px;
+  gap: 8px;
+  color: var(--text-muted);
+}
+
+.llm-bridge-codex-thinking-label {
+  color: var(--text-normal);
+  font-weight: 650;
+}
+
+.llm-bridge-codex-thinking-summary {
+  color: var(--text-muted);
+}
+
+.llm-bridge-codex-feed-output {
+  margin-left: 0;
+  padding: 0 0 1px;
+  color: var(--text-normal);
+  font-size: var(--font-small);
+  line-height: 1.52;
+}
+
+.llm-bridge-codex-feed-output.is-batch-output {
+  margin-left: 0;
+}
+
+.llm-bridge-codex-event-block.llm-bridge-codex-feed-item,
+.llm-bridge-codex-change-row.llm-bridge-codex-event-block.llm-bridge-codex-feed-item {
+  margin: 4px 0 5px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 14%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--background-secondary) 64%, var(--background-primary));
+  box-shadow: none;
+}
+
+.llm-bridge-codex-event-block[open] {
+  background: color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary));
+}
+
+.llm-bridge-codex-event-summary {
+  min-height: 40px;
+  padding: 8px 11px;
+  grid-template-columns: 20px minmax(0, 1fr) auto;
+}
+
+.llm-bridge-codex-event-summary::before {
+  color: color-mix(in srgb, var(--text-muted) 72%, transparent);
+  font-size: 17px;
+}
+
+.llm-bridge-codex-event-title {
+  gap: 7px;
+}
+
+.llm-bridge-codex-feed-label,
+.llm-bridge-codex-step-label {
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+.llm-bridge-codex-event-hint,
+.llm-bridge-codex-feed-summary,
+.llm-bridge-codex-change-path {
+  color: var(--text-muted);
+}
+
+.llm-bridge-codex-feed-meta {
+  gap: 7px;
+}
+
+.llm-bridge-codex-step-status,
+.llm-bridge-codex-step-duration,
+.llm-bridge-codex-step-exit,
+.llm-bridge-codex-change-diff-summary {
+  color: color-mix(in srgb, var(--text-muted) 75%, transparent);
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-codex-event-body {
+  gap: 7px;
+  padding: 0 11px 11px 38px;
+}
+
+.llm-bridge-codex-inline-shell-panel,
+.llm-bridge-codex-detail-panel {
+  border: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--background-modifier-hover) 72%, var(--background-primary));
+  box-shadow: none;
+}
+
+.llm-bridge-codex-inline-shell-panel {
+  margin-top: 2px;
+  padding: 10px 12px 25px;
+}
+
+.llm-bridge-codex-detail-panel-title {
+  margin-bottom: 7px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.llm-bridge-codex-detail-pre,
+.llm-bridge-codex-shell-pre {
+  color: var(--text-normal);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.llm-bridge-codex-shell-footer {
+  right: 12px;
+  bottom: 7px;
+}
+
+.llm-bridge-codex-diff-preview summary,
+.llm-bridge-codex-detail summary {
+  min-height: 22px;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-codex-diff-pre {
+  max-height: 260px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-secondary) 84%, var(--background-primary));
+  color: var(--text-muted);
+}
+
+.llm-bridge-codex-change-approval {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--background-secondary) 82%, transparent);
+}
+
+.llm-bridge-codex-icon-btn {
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background-primary) 78%, transparent);
+}
+
+.llm-bridge-codex-diagnostics {
+  color: var(--text-muted);
+}
+
+.llm-bridge-codex-diagnostics-head {
+  opacity: 0.78;
+}
+
+.llm-bridge-composer {
+  padding: 5px 24px 12px;
+  border-top: 0;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--background-primary) 98%, transparent) 24%);
+}
+
+.llm-bridge-composer-bar {
+  grid-template-rows: minmax(18px, auto) minmax(72px, 1fr);
+  min-height: 114px;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 22%, var(--background-modifier-border));
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary));
+  box-shadow: 0 14px 42px rgba(0, 0, 0, 0.10);
+}
+
+.llm-bridge-composer-bar:focus-within {
+  border-color: color-mix(in srgb, var(--interactive-accent) 38%, var(--background-modifier-border));
+  box-shadow:
+    0 14px 42px rgba(0, 0, 0, 0.12),
+    inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 9%, transparent);
+}
+
+.llm-bridge-composer-context {
+  padding: 0 4px;
+  gap: 10px;
+}
+
+.llm-bridge-context-tags {
+  align-items: center;
+}
+
+.llm-bridge-context-tag-wrap {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.llm-bridge-context-tag-wrap[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-chip-check {
+  display: none;
+}
+
+.llm-bridge-context-tag {
+  min-height: 18px;
+  max-width: min(34ch, 38vw);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  line-height: 1.2;
+  text-decoration-thickness: 1px;
+  cursor: pointer;
+}
+
+.llm-bridge-context-tag.is-empty {
+  color: var(--text-muted);
+  opacity: 0.82;
+}
+
+.llm-bridge-context-tag.is-off {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.llm-bridge-context-tag.is-active {
+  color: var(--text-normal);
+}
+
+.llm-bridge-context-tag.is-path-only {
+  color: var(--text-warning);
+  text-decoration: underline dotted;
+}
+
+.llm-bridge-composer-context .llm-bridge-context-strip {
+  max-width: 40%;
+  gap: 5px;
+  color: var(--text-faint);
+}
+
+.llm-bridge-context-ring {
+  width: 10px;
+  height: 10px;
+}
+
+.llm-bridge-context-label {
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-input-row,
+.llm-bridge-input {
+  min-height: 72px;
+}
+
+.llm-bridge-input {
+  height: 78px;
+  padding: 8px 116px 37px 14px;
+  background: transparent;
+  font-size: var(--font-ui-small);
+}
+
+.llm-bridge-composer-tools-left,
+.llm-bridge-composer-tools-right {
+  bottom: 8px;
+}
+
+.llm-bridge-composer-tool-btn,
+.llm-bridge-command-menu-summary,
+.llm-bridge-permission-chip,
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline,
+.llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none;
+}
+
+.llm-bridge-composer-tool-btn {
+  width: 30px;
+  height: 30px;
+  color: var(--text-muted);
+}
+
+.llm-bridge-composer-tool-btn:hover:not(:disabled),
+.llm-bridge-command-menu[open] .llm-bridge-command-menu-summary {
+  background: color-mix(in srgb, var(--background-modifier-hover) 78%, transparent);
+  color: var(--text-normal);
+}
+
+.llm-bridge-permission-chip {
+  max-width: 170px;
+  min-height: 30px;
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline,
+.llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.llm-bridge-send-btn,
+.llm-bridge-stop-btn {
+  width: 36px;
+  height: 36px;
+  background: var(--text-normal);
+  color: var(--background-primary);
+}
+
+.llm-bridge-composer-file-refs {
+  gap: 8px;
+  padding: 1px 5px 7px;
+}
+
+.llm-bridge-composer-file-chip {
+  min-height: 44px;
+  max-width: min(380px, 100%);
+  border: 1px solid color-mix(in srgb, var(--text-muted) 14%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--background-secondary) 62%, var(--background-primary));
+}
+
+.llm-bridge-composer-file-chip:hover {
+  border-color: color-mix(in srgb, var(--interactive-accent) 32%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--background-secondary) 78%, var(--background-primary));
+}
+
+.llm-bridge-composer-file-thumb {
+  border-radius: 10px;
+}
+
+.llm-bridge-composer-file-remove,
+.llm-bridge-composer-file-pin {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-primary) 86%, transparent);
+}
+
+.llm-bridge-command-menu-body,
+.llm-bridge-perm-popover,
+.llm-bridge-model-effort-popover {
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary));
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.18);
+}
+
+.llm-bridge-command-menu-item,
+.llm-bridge-perm-option,
+.llm-bridge-model-option,
+.llm-bridge-effort-option {
+  border-radius: 11px;
+}
+
+.llm-bridge-perm-option-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.llm-bridge-approval-card,
+.llm-bridge-clarification-card,
+.llm-bridge-external-read-card {
+  border: 1px solid color-mix(in srgb, var(--text-muted) 18%, var(--background-modifier-border));
+  border-radius: 17px;
+  background: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary));
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.14);
+}
+
+.llm-bridge-approval-card {
+  padding: 13px;
+}
+
+.llm-bridge-approval-card-header,
+.llm-bridge-clarification-head,
+.llm-bridge-external-read-card-title {
+  gap: 10px;
+}
+
+.llm-bridge-approval-card-title,
+.llm-bridge-clarification-title,
+.llm-bridge-external-read-title {
+  color: var(--text-normal);
+  font-weight: 650;
+}
+
+.llm-bridge-approval-card-row-command,
+.llm-bridge-external-read-field-value {
+  max-height: 112px;
+  border: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--background-modifier-hover) 78%, var(--background-primary));
+  color: var(--text-normal);
+  line-height: 1.45;
+}
+
+.llm-bridge-approval-btn,
+.llm-bridge-clarification-btn,
+.llm-bridge-external-read-actions button {
+  min-height: 32px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 66%, transparent);
+}
+
+.llm-bridge-approval-btn.is-proceed,
+.llm-bridge-approval-btn.is-proceed-session,
+.llm-bridge-clarification-btn.is-primary,
+.llm-bridge-external-read-allow-file,
+.llm-bridge-external-read-allow-dir {
+  color: var(--text-success);
+}
+
+.llm-bridge-approval-btn.is-decline,
+.llm-bridge-approval-btn.is-decline-session,
+.llm-bridge-external-read-deny {
+  color: var(--text-error);
+}
+
+.llm-bridge-clarification-option,
+.llm-bridge-clarification-other-row,
+.llm-bridge-clarification-supplement-textarea {
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--background-secondary) 56%, var(--background-primary));
+}
+
+.llm-bridge-context-refs-page {
+  gap: 12px;
+}
+
+.llm-bridge-context-section {
+  border-radius: 16px;
+  border-color: color-mix(in srgb, var(--text-muted) 16%, var(--background-modifier-border));
+}
+
+.llm-bridge-context-section-head {
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  padding: 12px 13px;
+}
+
+.llm-bridge-context-ref-chip {
+  grid-template-columns: 30px minmax(0, 1fr) auto auto auto;
+  min-height: 48px;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--background-primary) 94%, var(--background-secondary));
+}
+
+.llm-bridge-context-ref-action,
+.llm-bridge-context-ref-remove {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 70%, transparent);
+}
+
+@media (max-width: 720px) {
+  .llm-bridge-composer {
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .llm-bridge-composer-context {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .llm-bridge-composer-context .llm-bridge-context-strip {
+    max-width: 100%;
+  }
+
+  .llm-bridge-input {
+    padding-right: 92px;
+  }
+}

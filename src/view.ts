@@ -1354,11 +1354,11 @@ export class LLMBridgeView extends ItemView {
     this.permissionPopoverEl.addEventListener("pointerdown", (event) => event.stopPropagation());
     this.permissionPopoverEl.addEventListener("click", (event) => event.stopPropagation());
     const modes: Array<{ value: string; icon: string; title: string; desc: string }> = [
-      { value: "plan", icon: "○", title: "Read only", desc: "只规划和读取，不修改文件" },
-      { value: "default", icon: "◇", title: "Ask before edits", desc: "编辑或高风险命令前先确认" },
-      { value: "acceptEdits", icon: "✓", title: "Auto-apply edits", desc: "自动接受文件编辑，命令仍按策略确认" },
-      { value: "auto", icon: "↯", title: "Low-risk auto", desc: "低风险自动允许，敏感操作仍拦截" },
-      { value: "bypassPermissions", icon: "!", title: "Full access", desc: "跳过权限确认，仅在可信任务中使用" },
+      { value: "plan", icon: "lock", title: "Read only", desc: "只规划和读取，不修改文件" },
+      { value: "default", icon: "shield-question", title: "Ask before edits", desc: "编辑或高风险命令前先确认" },
+      { value: "acceptEdits", icon: "file-check-2", title: "Auto-apply edits", desc: "自动接受文件编辑，命令仍按策略确认" },
+      { value: "auto", icon: "zap", title: "Low-risk auto", desc: "低风险自动允许，敏感操作仍拦截" },
+      { value: "bypassPermissions", icon: "shield-alert", title: "Full access", desc: "跳过权限确认，仅在可信任务中使用" },
     ];
     const current = this.plugin.settings.claudePermissionMode;
     for (const mode of modes) {
@@ -1366,7 +1366,8 @@ export class LLMBridgeView extends ItemView {
         cls: "llm-bridge-perm-option" + (current === mode.value ? " is-active" : ""),
         attr: { type: "button", "data-permission-mode": mode.value },
       });
-      opt.createEl("span", { cls: "llm-bridge-perm-option-icon", text: mode.icon });
+      const optIcon = opt.createEl("span", { cls: "llm-bridge-perm-option-icon" });
+      setIcon(optIcon, mode.icon);
       const text = opt.createDiv({ cls: "llm-bridge-perm-option-text" });
       text.createEl("div", { cls: "llm-bridge-perm-option-title", text: mode.title });
       text.createEl("div", { cls: "llm-bridge-perm-option-desc", text: mode.desc });
@@ -3773,7 +3774,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderMessageContent(content: HTMLElement, msg: ChatMessage): void {
-    const text = msg.content || (msg.role === "assistant" && msg.status === "running" ? "" : "");
+    const text = this.coerceMessageContentText(msg.content) || (msg.role === "assistant" && msg.status === "running" ? "" : "");
     content.empty();
     if (!text) {
       // P4-D: 不显示 "正在等待首次输出..."，spinner + currentActivity 已提供反馈
@@ -3840,11 +3841,24 @@ export class LLMBridgeView extends ItemView {
           : "This response could not be rendered inline. The answer text is still preserved.",
       });
       if (developerMode && error instanceof Error && error.message) {
-        block.createEl("pre", { cls: "llm-bridge-error-detail", text: error.message });
+        const details = block.createEl("details", { cls: "llm-bridge-message-render-error-detail" });
+        details.createEl("summary", { text: "Render error detail" });
+        details.createEl("pre", { cls: "llm-bridge-error-detail", text: error.message });
       }
       this.scrollToBottom(true);
     } catch {
       // 连错误块都渲染失败，静默忽略（避免无限抛出）
+    }
+  }
+
+  private coerceMessageContentText(value: unknown): string {
+    if (typeof value === "string") return value;
+    if (value === null || value === undefined) return "";
+    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
     }
   }
 
@@ -4191,10 +4205,11 @@ export class LLMBridgeView extends ItemView {
     sourceModel: AgentRunDisplayModel,
     developerMode: boolean,
   ): void {
+    const diagnosticsForDisplay = this.filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode);
     const hasBodyContent = run.approvalGates.length > 0
       || run.changeGroups.length > 0
       || run.stepGroups.length > 0
-      || run.diagnosticsGroups.length > 0
+      || diagnosticsForDisplay.length > 0
       || !!run.debugPanel
       || !!run.finalAnswer.trim();
     const wrap = parent.createDiv({
@@ -4224,7 +4239,7 @@ export class LLMBridgeView extends ItemView {
     this.renderCodexCurrentActivity(body, run);
     if (run.approvalGates.length > 0) this.renderCodexApprovalGates(body, run.approvalGates, developerMode);
     if (run.feedItems.length > 0) this.renderCodexFeed(body, run.feedItems, developerMode);
-    if (run.diagnosticsGroups.length > 0) this.renderCodexDiagnosticsDrawer(body, run.diagnosticsGroups, developerMode);
+    if (diagnosticsForDisplay.length > 0) this.renderCodexDiagnosticsDrawer(body, diagnosticsForDisplay, developerMode);
     if (developerMode && run.finalAnswer.trim().length > 0) {
       body.createDiv({ cls: "llm-bridge-codex-final-answer-marker", text: "Answer" });
     }
@@ -4246,6 +4261,14 @@ export class LLMBridgeView extends ItemView {
       head.removeClass("llm-bridge-timeline-head");
       head.addClass("llm-bridge-timeline-head-noclick");
     }
+  }
+
+  private filterCodexDiagnosticsForDisplay(
+    diagnostics: ReadonlyArray<CodexRunDiagnosticsGroup>,
+    developerMode: boolean,
+  ): ReadonlyArray<CodexRunDiagnosticsGroup> {
+    if (developerMode) return diagnostics;
+    return diagnostics.filter((diagnostic) => diagnostic.severity === "error");
   }
 
   private renderCodexMetric(parent: HTMLElement, icon: string, value: string, title: string): void {

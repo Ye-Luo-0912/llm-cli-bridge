@@ -22,6 +22,7 @@ const CDP_HOST = process.env.CDP_HOST || "127.0.0.1";
 const CDP_PORT = process.env.CDP_PORT || "9223";
 const CDP_BASE = process.env.CDP_BASE || `http://${CDP_HOST}:${CDP_PORT}`;
 const CDP_TIMEOUT_MS = Number(process.env.CDP_TIMEOUT_MS || 5000);
+const CDP_EVAL_TIMEOUT_MS = Number(process.env.CDP_EVAL_TIMEOUT_MS || 240000);
 const VIEW_TYPE = "llm-cli-bridge-view";
 
 const report = {
@@ -388,7 +389,22 @@ class CDP {
   send(method, params = {}) {
     const id = ++this.id;
     return new Promise((resolveSend, rejectSend) => {
-      this.pending.set(id, { resolve: resolveSend, reject: rejectSend });
+      const timer = setTimeout(() => {
+        this.pending.delete(id);
+        const error = new Error(`${method} timed out after ${CDP_EVAL_TIMEOUT_MS}ms`);
+        error.cdpReason = "cdp-eval-timeout";
+        rejectSend(error);
+      }, CDP_EVAL_TIMEOUT_MS);
+      this.pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer);
+          resolveSend(value);
+        },
+        reject: (error) => {
+          clearTimeout(timer);
+          rejectSend(error);
+        },
+      });
       this.ws.send(JSON.stringify({ id, method, params }));
     });
   }
@@ -590,8 +606,12 @@ const CDP_PROBE = `
     codexRunFeedItemCount = feedItems.length;
     codexRunNestedEventCount = nestedEvents.length;
     codexRunFeedSequence = [...thinkingLines.map(() => "thinking"), ...feedKinds].join(">");
-    codexRunThinkingCarrierObserved = thinkingSummary.length > 0;
-    codexRunThinkingCarrierStatus = thinkingSummary.includes("not provided by Codex") ? "not-provided" : thinkingSummary ? "summary-visible" : "empty";
+    codexRunThinkingCarrierObserved = thinkingSummary.length > 0 || inlineOutputTexts.length > 0;
+    codexRunThinkingCarrierStatus = thinkingSummary
+      ? "summary-visible"
+      : inlineOutputTexts.length > 0
+        ? "assistant-output-carrier"
+        : "empty";
     codexRunOutputLabelCompact = inlineOutputTexts.length > 0
       && !/Assistant output/i.test(normalText)
       && outputLabels.every((label) => label === "Output");
@@ -811,6 +831,16 @@ async function runCdpProbe() {
     report.realObsidianSmokeStatus = report.realObsidianRuntimeUxStatus;
   } catch (e) {
     const reason = e?.cdpReason || classifyPortError(e);
+    if (reason === "cdp-eval-timeout") {
+      report.cdpStatus = "connected-probe-timeout";
+      report.realObsidianRuntimeUxStatus = "partial";
+      report.realObsidianSmokeStatus = "partial";
+      report.skipReason = "cdp-eval-timeout";
+      report.skipDetail = e.message || String(e);
+      report.errors.push(`CDP probe timed out: ${report.skipDetail}`);
+      addCheck("real Obsidian CDP probe completed", false, report.skipDetail);
+      return;
+    }
     report.cdpStatus = reason === "no-obsidian-target" ? "skip-no-obsidian-target" : "skip-cdp-unavailable";
     setSkip(reason, e.message || String(e), report.cdpStatus);
   } finally {

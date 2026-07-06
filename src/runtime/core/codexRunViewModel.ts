@@ -265,7 +265,7 @@ function thinkingSummary(card: Extract<import("./agentRunDisplayModel").AgentRun
   const value = (card.text || card.detail || card.summary || "").trim();
   const title = card.title.trim();
   if (value && value !== title) return value;
-  return "Reasoning summary not provided by Codex.";
+  return "";
 }
 
 function buildChangeGroups(model: AgentRunDisplayModel, turnView: AssistantTurnView, cwd?: string): CodexRunChangeGroup[] {
