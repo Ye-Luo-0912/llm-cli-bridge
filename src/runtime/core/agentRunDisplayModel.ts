@@ -707,7 +707,10 @@ export function buildAgentRunDisplayModel(
     !!node.sourceRef?.itemId && node.kind !== "approval" && node.kind !== "userInput");
 
   if (hasProviderTimeline) {
-    timelineCards.push(...providerTimeline.map((node) => mapTurnTimelineNodeToCard(node, options.developerMode === true)));
+    const visibleProviderTimeline = options.developerMode === true
+      ? providerTimeline
+      : providerTimeline.filter((node) => node.kind !== "status");
+    timelineCards.push(...visibleProviderTimeline.map((node) => mapTurnTimelineNodeToCard(node, options.developerMode === true)));
   }
   const legacyTools = hasProviderTimeline ? [] : turnView.tools;
   const legacyApprovals = hasProviderTimeline ? [] : turnView.approvals;

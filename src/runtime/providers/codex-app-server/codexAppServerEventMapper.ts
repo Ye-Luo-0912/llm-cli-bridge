@@ -51,6 +51,7 @@ import type {
   CodexServerRequestResolvedParams,
   CodexThreadItem,
   CodexTurnCompletedParams,
+  CodexTurnDiffUpdatedParams,
   CodexTurnFailedParams,
   CodexTurnStartedParams,
 } from "./schema";
@@ -381,6 +382,29 @@ export class CodexAppServerEventMapper {
         label: "fileChange",
         detail: params.delta,
         category: "tool",
+      },
+    };
+  }
+
+  /**
+   * turn/diff/updated → status/diff observation.
+   *
+   * 该通知是 turn-level telemetry，不带 itemId；普通用户态不把它渲染为主 timeline，
+   * developer mode 可通过 provider-native status node / rawProviderEvents 审计 diff 更新。
+   */
+  mapTurnDiffUpdated(params: CodexTurnDiffUpdatedParams): NormalizedRuntimeEvent {
+    const ts = new Date().toISOString();
+    const diff = params.diff ?? params.patch ?? "";
+    return {
+      providerId: this.providerId,
+      timestamp: ts,
+      sourceRef: this.sourceRef("turn/diff/updated", params),
+      rawProviderEvent: this.developerMode ? { method: "turn/diff/updated", params } : undefined,
+      payload: {
+        kind: "progress",
+        label: "turnDiff",
+        detail: diff || params.summary || "diff updated",
+        category: "status",
       },
     };
   }

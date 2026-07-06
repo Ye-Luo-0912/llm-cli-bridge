@@ -62,6 +62,7 @@ import type {
   CodexThreadResumeResult,
   CodexThreadStartResult,
   CodexTurnCompletedParams,
+  CodexTurnDiffUpdatedParams,
   CodexTurnFailedParams,
   CodexTurnStartedParams,
 } from "./schema";
@@ -507,6 +508,9 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     }));
     unreg.push(client.onNotification("item/fileChange/outputDelta", (params) => {
       push(eventMapper.mapItemFileChangeOutputDelta(params as CodexFileChangeOutputDeltaParams));
+    }));
+    unreg.push(client.onNotification("turn/diff/updated", (params) => {
+      push(eventMapper.mapTurnDiffUpdated(params as CodexTurnDiffUpdatedParams));
     }));
 
     // 旧 fixture legacy alias delta（不作为主路径，保留兼容）

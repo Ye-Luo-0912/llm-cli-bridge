@@ -60,10 +60,20 @@ function methodEvidence(method) {
     "serverRequest/resolved",
   ]);
   const experimental = new Set(["item/plan/delta"]);
+  const telemetry = new Set([
+    "account/rateLimits/updated",
+    "thread/tokenUsage/updated",
+    "thread/status/changed",
+    "mcpServer/startupStatus/updated",
+    "remoteControl/status/changed",
+  ]);
+  const lifecycle = new Set(["thread/started"]);
   const weak = new Set(["item/text/delta", "item/thinking/delta", "item/argument/delta"]);
   if (real) return makeEvidence(method, "real-smoke-passed", true, true, true, "observed", "Verified against the managed Codex app-server real protocol smoke.");
   if (mapped.has(method)) return makeEvidence(method, "mapped", true, false, false, "not-real-smoked", "Preserves sourceRef and maps into TurnTimelineNode.");
   if (experimental.has(method)) return makeEvidence(method, "experimental", true, false, false, "not-real-smoked", "Supported behind Codex experimental protocol capability.");
+  if (telemetry.has(method)) return makeEvidence(method, "ignored", false, false, false, "observed-telemetry", "Observed real app-server telemetry/infra method; kept out of normal user timeline.");
+  if (lifecycle.has(method)) return makeEvidence(method, "mapped", false, false, false, "observed-lifecycle", "Observed lifecycle notification; useful for diagnostics but not a timeline item.");
   if (weak.has(method)) return makeEvidence(method, "weak-mapped", true, false, false, "not-real-smoked", "Compatibility/status mapping; not all native fields have rich UI.");
   return makeEvidence(method, "unsupported", false, false, false, "not-observed", "No Bridge mapping yet.");
 }
@@ -136,6 +146,7 @@ function realSmokeFieldValue(field) {
 }
 
 function realSmokeMethodPassed(method) {
+  if (method === "turn/diff/updated") return realSmokeFieldValue("timelineMethodsObserved").includes("turn/diff/updated");
   if (realSmokeCommandMethodSet.has(method)) return realSmokeFieldPass("commandExecutionRealSmokeStatus");
   if (realSmokeFileMethodSet.has(method)) return realSmokeFieldPass("fileChangeRealSmokeStatus");
   if (realSmokeApprovalMethodSet.has(method)) return realSmokeFieldPass("approvalRealSmokeStatus");
@@ -210,10 +221,17 @@ const methods = uniq([
   "initialized",
   "thread/start",
   "thread/resume",
+  "thread/started",
+  "thread/status/changed",
+  "thread/tokenUsage/updated",
   "turn/start",
   "turn/started",
+  "turn/diff/updated",
   "turn/completed",
   "turn/failed",
+  "account/rateLimits/updated",
+  "mcpServer/startupStatus/updated",
+  "remoteControl/status/changed",
   "item/started",
   "item/completed",
   ...(manifest.protocolCapabilities?.itemDeltas ?? []),
@@ -252,6 +270,11 @@ const lines = [
   "- **unknownMethodCount**: " + realSmokeFieldValue("unknownMethodCount"),
   "- **unknownItemTypeCount**: " + realSmokeFieldValue("unknownItemTypeCount"),
   "- **observedShapeNoteCount**: " + realSmokeFieldValue("observedShapeNoteCount"),
+  "- **observedUnknownMethodClassification**: " + realSmokeFieldValue("observedUnknownMethodClassification"),
+  "- **telemetryMethodsObserved**: " + realSmokeFieldValue("telemetryMethodsObserved"),
+  "- **timelineMethodsObserved**: " + realSmokeFieldValue("timelineMethodsObserved"),
+  "- **ignoredInfraMethodsObserved**: " + realSmokeFieldValue("ignoredInfraMethodsObserved"),
+  "- **userInputNotObservedReason**: " + realSmokeFieldValue("userInputNotObservedReason"),
   "- **realProtocolSmokePassed**: " + String(realSmokePassed()),
   "- **realSmokePassed**: " + (counts["real-smoke-passed"] ?? 0),
   "- **syntheticPassed**: " + (counts["synthetic-passed"] ?? 0),

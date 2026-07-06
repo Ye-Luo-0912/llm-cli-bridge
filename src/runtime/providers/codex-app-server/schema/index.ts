@@ -598,6 +598,20 @@ export interface CodexFileChangeOutputDeltaParams {
 }
 
 /**
+ * turn/diff/updated 通知参数（真实 app-server observation）。
+ *
+ * 这是 turn-level diff telemetry，不携带 itemId。Bridge 将其作为 developer
+ * timeline/status observation 处理，不打断普通用户 item timeline。
+ */
+export interface CodexTurnDiffUpdatedParams {
+  threadId: string;
+  turnId?: string;
+  diff?: string;
+  patch?: string;
+  summary?: string;
+}
+
+/**
  * item/text/delta 通知参数（⚠️ legacy alias only）。
  *
  * 仅作为 fixture legacy alias，不作为主路径。新 schema 使用 item/agentMessage/delta。

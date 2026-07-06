@@ -145,6 +145,16 @@ export class CodexItemTimelineReducer {
       return this.toNodes();
     }
 
+    if (!itemId && payload.kind === "progress" && payload.category === "status") {
+      const statusId = `${method ?? "status"}:${ref?.turnId ?? ref?.threadId ?? ref?.sequence ?? this.sequence++}`;
+      const record = this.ensureRecord(statusId, "status", event, titleForKind("status", payload.label));
+      record.node.status = "completed";
+      record.node.summary = payload.label;
+      record.node.detail = payload.detail;
+      record.node.endedAt = event.timestamp;
+      return this.toNodes();
+    }
+
     if (!itemId && payload.kind !== "approval_request" && payload.kind !== "user_input_request") {
       return this.toNodes();
     }

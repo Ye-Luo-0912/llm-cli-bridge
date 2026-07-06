@@ -66,6 +66,23 @@ const KNOWN_ITEM_TYPES = new Set([
   "file_change",
 ]);
 
+const OBSERVED_METHOD_CLASSIFICATION = {
+  "account/rateLimits/updated": "telemetry/status",
+  "thread/tokenUsage/updated": "telemetry/status",
+  "thread/status/changed": "telemetry/status",
+  "thread/started": "lifecycle",
+  "turn/diff/updated": "diff/timeline",
+  "mcpServer/startupStatus/updated": "infra",
+  "remoteControl/status/changed": "infra",
+};
+
+const CLASSIFICATION_FIELD = {
+  "telemetry/status": "telemetryMethodsObserved",
+  lifecycle: "lifecycleMethodsObserved",
+  "diff/timeline": "timelineMethodsObserved",
+  infra: "ignoredInfraMethodsObserved",
+};
+
 function gitSha() {
   return execFileSync("git", ["rev-parse", "HEAD"], { cwd: PROJECT_ROOT, encoding: "utf8" }).trim();
 }
@@ -375,6 +392,7 @@ async function runTurn({ client, mapper, Builder, providerId, model, name, promp
     onScenario("item/reasoning/textDelta", (params) => ingest(mapper.mapItemReasoningTextDelta(params)));
     onScenario("item/commandExecution/outputDelta", (params) => ingest(mapper.mapItemCommandExecutionOutputDelta(params)));
     onScenario("item/fileChange/outputDelta", (params) => ingest(mapper.mapItemFileChangeOutputDelta(params)));
+    onScenario("turn/diff/updated", (params) => ingest(mapper.mapTurnDiffUpdated(params)));
     onScenario("item/plan/delta", (params) => ingest(mapper.mapItemPlanDelta(params)));
     onScenario("item/completed", (params) => {
       const item = params.item;
@@ -478,6 +496,13 @@ function collectProtocolObservations(rawMessages) {
   const unknownMethodMap = new Map();
   const unknownItemTypes = [];
   const observedShapeNotes = [];
+  const observedMethodClassification = {};
+  const classifiedMethods = {
+    telemetryMethodsObserved: new Set(),
+    lifecycleMethodsObserved: new Set(),
+    timelineMethodsObserved: new Set(),
+    ignoredInfraMethodsObserved: new Set(),
+  };
   const seenShapeNotes = new Set();
 
   const addShapeNote = (note) => {
@@ -488,7 +513,11 @@ function collectProtocolObservations(rawMessages) {
 
   for (const msg of rawMessages) {
     if (!msg || typeof msg !== "object" || !msg.method) continue;
-    if (!KNOWN_PROTOCOL_METHODS.has(msg.method)) {
+    const classification = OBSERVED_METHOD_CLASSIFICATION[msg.method];
+    if (classification) {
+      observedMethodClassification[msg.method] = classification;
+      classifiedMethods[CLASSIFICATION_FIELD[classification]].add(msg.method);
+    } else if (!KNOWN_PROTOCOL_METHODS.has(msg.method)) {
       const existing = unknownMethodMap.get(msg.method);
       if (existing) {
         existing.count += 1;
@@ -515,7 +544,16 @@ function collectProtocolObservations(rawMessages) {
     }
   }
 
-  return { unknownMethods: [...unknownMethodMap.values()].sort((a, b) => a.method.localeCompare(b.method)), unknownItemTypes, observedShapeNotes };
+  return {
+    unknownMethods: [...unknownMethodMap.values()].sort((a, b) => a.method.localeCompare(b.method)),
+    unknownItemTypes,
+    observedShapeNotes,
+    observedMethodClassification,
+    telemetryMethodsObserved: [...classifiedMethods.telemetryMethodsObserved].sort(),
+    lifecycleMethodsObserved: [...classifiedMethods.lifecycleMethodsObserved].sort(),
+    timelineMethodsObserved: [...classifiedMethods.timelineMethodsObserved].sort(),
+    ignoredInfraMethodsObserved: [...classifiedMethods.ignoredInfraMethodsObserved].sort(),
+  };
 }
 
 async function main() {
@@ -650,7 +688,11 @@ async function main() {
     const fileView = fileScenario.view;
     const fileNode = findNode(fileView, "fileChange");
     const fileModel = buildAgentRunDisplayModel(fileView, { developerMode: true, isRunning: false });
+    const fileNormalModel = buildAgentRunDisplayModel(fileView, { developerMode: false, isRunning: false });
     const fileCard = findCard(fileModel, "file-change");
+    const diffStatusNode = fileView.turnTimeline.find((node) => node.sourceRef?.method === "turn/diff/updated");
+    const diffStatusDevCard = fileModel.timelineCards.find((card) => card.sourceRef?.method === "turn/diff/updated");
+    const diffStatusNormalVisible = fileNormalModel.timelineCards.some((card) => card.title === "turnDiff" || card.summary === "turnDiff");
     addCheck(report.checks, "fileChange item has changes[]",
       Array.isArray(fileNode?.fileChanges) && fileNode.fileChanges.length > 0,
       `changes=${fileNode?.fileChanges?.length ?? 0}`);
@@ -663,6 +705,12 @@ async function main() {
     addCheck(report.checks, "fileChange approvalStatus resolved",
       fileNode?.approvalStatus === "approved" || fileCard?.approvalStatus === "approved",
       `node=${fileNode?.approvalStatus} card=${fileCard?.approvalStatus}`);
+    addCheck(report.checks, "turn/diff/updated developer status node observed",
+      !!diffStatusNode && !!diffStatusDevCard,
+      `node=${!!diffStatusNode} devCard=${!!diffStatusDevCard}`);
+    addCheck(report.checks, "turn/diff/updated hidden from normal timeline",
+      !diffStatusNormalVisible,
+      `normalVisible=${diffStatusNormalVisible}`);
 
     const inputView = inputScenario.view;
     const inputNode = findNode(inputView, "userInput");
@@ -704,6 +752,9 @@ async function main() {
       "user input request surfaced",
       "user input timeline node resolved",
     ].every(checkPassed) ? "pass" : "not-observed";
+    report.userInputNotObservedReason = report.userInputRealSmokeStatus === "not-observed"
+      ? "The real managed app-server completed the userInput scenario without sending item/tool/requestUserInput; synthetic mapping remains covered but is not counted as real pass."
+      : "observed";
     report.realProtocolCapabilitySmokeStatus = report.commandExecutionRealSmokeStatus === "pass"
       && report.fileChangeRealSmokeStatus === "pass"
       && report.approvalRealSmokeStatus === "pass"
@@ -718,6 +769,11 @@ async function main() {
     report.unknownMethods = observations.unknownMethods;
     report.unknownItemTypes = observations.unknownItemTypes;
     report.observedShapeNotes = observations.observedShapeNotes;
+    report.observedMethodClassification = observations.observedMethodClassification;
+    report.telemetryMethodsObserved = observations.telemetryMethodsObserved;
+    report.lifecycleMethodsObserved = observations.lifecycleMethodsObserved;
+    report.timelineMethodsObserved = observations.timelineMethodsObserved;
+    report.ignoredInfraMethodsObserved = observations.ignoredInfraMethodsObserved;
   } catch (err) {
     report.error = err?.message || String(err);
     if (isAuthUnavailableError(err)) {
@@ -751,9 +807,15 @@ async function main() {
     "- **fileChangeRealSmokeStatus**: " + (report.fileChangeRealSmokeStatus ?? "not-run"),
     "- **approvalRealSmokeStatus**: " + (report.approvalRealSmokeStatus ?? "not-run"),
     "- **userInputRealSmokeStatus**: " + (report.userInputRealSmokeStatus ?? "not-run"),
+    "- **userInputNotObservedReason**: " + (report.userInputNotObservedReason ?? "not-run"),
     "- **unknownMethodCount**: " + (report.unknownMethods?.length ?? 0),
     "- **unknownItemTypeCount**: " + (report.unknownItemTypes?.length ?? 0),
     "- **observedShapeNoteCount**: " + (report.observedShapeNotes?.length ?? 0),
+    "- **observedUnknownMethodClassification**: " + compactJson(report.observedMethodClassification ?? {}),
+    "- **telemetryMethodsObserved**: " + ((report.telemetryMethodsObserved ?? []).join(", ") || "none"),
+    "- **lifecycleMethodsObserved**: " + ((report.lifecycleMethodsObserved ?? []).join(", ") || "none"),
+    "- **timelineMethodsObserved**: " + ((report.timelineMethodsObserved ?? []).join(", ") || "none"),
+    "- **ignoredInfraMethodsObserved**: " + ((report.ignoredInfraMethodsObserved ?? []).join(", ") || "none"),
     "- **cleanShutdown**: " + report.cleanShutdown,
     "- **error**: " + (report.error ?? "null"),
     "",
@@ -781,6 +843,11 @@ async function main() {
     "",
     "## Unknown / Shape Observations",
     "",
+    "- **observedUnknownMethodClassification**:",
+    ...Object.entries(report.observedMethodClassification ?? {}).sort(([a], [b]) => a.localeCompare(b)).map(([method, classification]) => `  - ${method}: ${classification}`),
+    "- **telemetryMethodsObserved**: " + ((report.telemetryMethodsObserved ?? []).join(", ") || "none"),
+    "- **timelineMethodsObserved**: " + ((report.timelineMethodsObserved ?? []).join(", ") || "none"),
+    "- **ignoredInfraMethodsObserved**: " + ((report.ignoredInfraMethodsObserved ?? []).join(", ") || "none"),
     "- **unknownMethods**: " + ((report.unknownMethods?.length ?? 0) === 0 ? "none" : ""),
     ...(report.unknownMethods ?? []).map((m) => `  - ${m.method} (${m.count})`),
     "- **unknownItemTypes**: " + ((report.unknownItemTypes?.length ?? 0) === 0 ? "none" : ""),
