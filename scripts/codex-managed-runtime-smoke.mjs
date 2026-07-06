@@ -33,6 +33,8 @@ const MANIFEST_PATH = process.env.CODEX_MANAGED_RUNTIME_MANIFEST
   ? resolve(PROJECT_ROOT, process.env.CODEX_MANAGED_RUNTIME_MANIFEST)
   : DEFAULT_MANIFEST_PATH;
 const SMOKE_VAULT_DIR = join(PROJECT_ROOT, ".tmp", "codex-managed-runtime-smoke-vault");
+const USER_CODEX_HOME = process.env.CODEX_HOME
+  || (process.env.USERPROFILE ? join(process.env.USERPROFILE, ".codex") : "~/.codex");
 
 console.log("=== Managed Codex Runtime Smoke (V17-F2) ===");
 console.log(`PROJECT_ROOT: ${PROJECT_ROOT}`);
@@ -48,6 +50,9 @@ const report = {
   manifestVersion: null,
   manifestProtocolVersion: null,
   manifestFixture: false,
+  supportedPlatforms: [],
+  testedPlatform: `${process.platform}-${process.arch}`,
+  crossPlatformReady: false,
   platformSelected: false,
   platformKey: `${process.platform}-${process.arch}`,
   runtimePath: null,
@@ -65,6 +70,10 @@ const report = {
   stopCancelStatus: "unknown",
   noVaultRootPollution: "unknown",
   selectedModel: null,
+  binaryDependency: "managed,pinned,bundled",
+  authConfigDependency: "user-level Codex/OpenAI credentials or env",
+  managedRuntimeReadsUserCodexHome: "true",
+  codexHome: USER_CODEX_HOME,
   reason: null,
   error: null,
   steps: [],
@@ -88,6 +97,8 @@ function loadManifest() {
   report.manifestVersion = manifest.version || null;
   report.manifestProtocolVersion = manifest.protocolVersion || null;
   report.manifestFixture = !!manifest.fixture;
+  report.supportedPlatforms = Object.keys(manifest.platforms || {});
+  report.crossPlatformReady = false;
   report.codexRuntimePinnedVersion = manifest.version || null;
   return manifest;
 }
@@ -230,6 +241,8 @@ async function runProtocolSmoke(runtimePath, appServerArgs) {
       clientInfo: { name: "llm-cli-bridge-managed-smoke", title: "LLM CLI Bridge Managed Smoke", version: "17-f2" },
       capabilities: { experimentalApi: false },
     }, 15000);
+    report.codexHome = init?.codexHome || USER_CODEX_HOME;
+    report.managedRuntimeReadsUserCodexHome = "true";
     report.initializeStatus = init ? "pass" : "fail";
     step("initialize", !!init, init?.userAgent || init?.version || "");
     client.notify("initialized", {});
@@ -341,6 +354,9 @@ function writeReport() {
     `- **manifestVersion**: ${report.manifestVersion || "null"}`,
     `- **manifestProtocolVersion**: ${report.manifestProtocolVersion || "null"}`,
     `- **manifestFixture**: ${report.manifestFixture}`,
+    `- **supportedPlatforms**: ${report.supportedPlatforms.length ? report.supportedPlatforms.join(",") : "none"}`,
+    `- **testedPlatform**: ${report.testedPlatform}`,
+    `- **crossPlatformReady**: ${report.crossPlatformReady ? "true" : "false"}`,
     `- **platformSelected**: ${report.platformSelected}`,
     `- **platformKey**: ${report.platformKey || "null"}`,
     `- **runtimePath**: ${report.runtimePath || "null"}`,
@@ -358,6 +374,10 @@ function writeReport() {
     `- **stopCancelStatus**: ${report.stopCancelStatus}`,
     `- **noVaultRootPollution**: ${report.noVaultRootPollution}`,
     `- **selectedModel**: ${report.selectedModel || "null"}`,
+    `- **binaryDependency**: ${report.binaryDependency}`,
+    `- **authConfigDependency**: ${report.authConfigDependency}`,
+    `- **managedRuntimeReadsUserCodexHome**: ${report.managedRuntimeReadsUserCodexHome}`,
+    `- **codexHome**: ${report.codexHome || "null"}`,
     `- **reason**: ${report.reason || "null"}`,
     `- **error**: ${report.error || "null"}`,
     "",
@@ -372,6 +392,8 @@ function writeReport() {
     "- `codexUserReady=true` 只允许 resolver/runtime/protocol 三层均 pass。",
     "- production manifest 下 `skip-fixture` 不允许通过。",
     "- external codex CLI/app-server 不参与本报告 gate。",
+    "- 当前 production manifest 仅声明本机已验证平台；`crossPlatformReady=false`，不得表述为 all-platform release-ready。",
+    "- Binary dependency 为 managed/pinned/bundled，不依赖用户安装 CLI/App；auth/config 仍依赖可用的 user-level Codex/OpenAI credentials 或环境变量。",
     "",
     "```bash",
     "npm run smoke:codex-managed-runtime",

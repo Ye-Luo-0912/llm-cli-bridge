@@ -6238,18 +6238,18 @@ if (runMode !== "all" && runMode !== "unit") {
         // 任务 G+E：summary 解析字段（含分层字段）
         const summaryParsesMatrix = summaryScript.includes("codexManagedResolverSmokeStatus") &&
                                      summaryScript.includes("codexManagedRuntimeAvailable") &&
-                                     summaryScript.includes("codexCliAvailable") &&
-                                     summaryScript.includes("appServerSpawnStatus") &&
+                                     summaryScript.includes("externalCodexCompatibilityStatus") &&
+                                     summaryScript.includes("managedRuntime.appServerSpawnStatus") &&
                                      summaryScript.includes("noVaultRootPollution");
         const summaryOutputsMatrix = summaryScript.includes("- **codexManagedResolverSmokeStatus**") &&
                                       summaryScript.includes("- **codexManagedRuntimeAvailable**") &&
-                                      summaryScript.includes("- **codexCliAvailable**") &&
+                                      summaryScript.includes("- **externalCodexCompatibilityStatus**") &&
                                       summaryScript.includes("- **noVaultRootPollution**");
 
         const gOk = writeReportHasMatrix && hasDeriveUserReady && gateChecksKeyFields && gateChecksLayered;
         const summaryOk = summaryParsesMatrix && summaryOutputsMatrix;
 
-        addTest("V17-F1.1 G+E: readiness matrix 写入 codex smoke report（25 字段）+ codexUserReady 分层 gate + summary 解析/输出",
+        addTest("V17-F1.1/F2.1 G+E: readiness matrix 写入 codex smoke report（25 字段）+ codexUserReady 分层 gate + summary 解析/输出 managed + external compatibility",
           gOk && summaryOk ? "pass" : "fail",
           `g=${gOk} (writeReportHasMatrix=${writeReportHasMatrix} hasDeriveUserReady=${hasDeriveUserReady} gateChecksKeyFields=${gateChecksKeyFields} gateChecksLayered=${gateChecksLayered}) summary=${summaryOk} (parses=${summaryParsesMatrix} outputs=${summaryOutputsMatrix})`);
       }
@@ -6612,7 +6612,9 @@ if (runMode !== "all" && runMode !== "unit") {
         // userPackageStatus gate 包含 managed runtime 字段
         const gateIncludesManaged = /report\.containsCodexManagedRuntime/.test(smokeSrc) &&
                                      /report\.codexRuntimeSha256Valid/.test(smokeSrc) &&
-                                     /report\.codexRuntimeExecutable/.test(smokeSrc);
+                                     /report\.codexRuntimeExecutable/.test(smokeSrc) &&
+                                     /report\.releasePackageContainsCodexRuntime/.test(smokeSrc) &&
+                                     /report\.runtimeBinarySha256Verified/.test(smokeSrc);
         // fixture=true 不阻塞 userPackageStatus（fixture 仍是合法包内容）
         const fixtureNotBlocking = !/report\.codexRuntimeFixture/.test(smokeSrc.replace(/codexRuntimeFixture.*?(?=&&)/g, "")) ||
                                     !smokeSrc.includes("report.codexRuntimeFixture &&");
@@ -6621,14 +6623,20 @@ if (runMode !== "all" && runMode !== "unit") {
                                       summarySrc.includes("codexRuntimeSha256Valid") &&
                                       summarySrc.includes("codexRuntimeExecutable") &&
                                       summarySrc.includes("codexRuntimePinnedVersion") &&
-                                      summarySrc.includes("codexRuntimeFixture");
+                                      summarySrc.includes("codexRuntimeFixture") &&
+                                      summarySrc.includes("releasePackageContainsCodexRuntime") &&
+                                      summarySrc.includes("releasePackageSizeMB") &&
+                                      summarySrc.includes("runtimeBinarySha256Verified");
         // summary 输出 managed runtime 字段
         const summaryOutputsManaged = summarySrc.includes("- **containsCodexManagedRuntime**") &&
                                         summarySrc.includes("- **codexRuntimeSha256Valid**") &&
                                         summarySrc.includes("- **codexRuntimeExecutable**") &&
-                                        summarySrc.includes("- **codexRuntimeFixture**");
+                                        summarySrc.includes("- **codexRuntimeFixture**") &&
+                                        summarySrc.includes("- **releasePackageContainsCodexRuntime**") &&
+                                        summarySrc.includes("- **releasePackageSizeMB**") &&
+                                        summarySrc.includes("- **runtimeBinarySha256Verified**");
 
-        addTest("V17-F1.1 D+F: user-package pass gate 纳入 managed runtime（containsCodexManagedRuntime + sha256Valid + executable）+ fixture 不阻塞 + summary 解析输出",
+        addTest("V17-F1.1/F2.1 D+F: user-package pass gate 纳入 managed runtime + release packaging gate + fixture 不阻塞 + summary 解析输出",
           gateIncludesManaged && fixtureNotBlocking && summaryParsesManaged && summaryOutputsManaged ? "pass" : "fail",
           `gateIncludes=${gateIncludesManaged} fixtureNotBlocking=${fixtureNotBlocking} summaryParses=${summaryParsesManaged} summaryOutputs=${summaryOutputsManaged}`);
       }
@@ -6644,6 +6652,12 @@ if (runMode !== "all" && runMode !== "unit") {
         const smokeHasLayered = smokeSrc.includes("resolverSmokeStatus") &&
                                  smokeSrc.includes("runtimeSmokeStatus") &&
                                  smokeSrc.includes("managedAppServerProtocolStatus");
+        const smokeHasBoundary = smokeSrc.includes("supportedPlatforms") &&
+                                  smokeSrc.includes("testedPlatform") &&
+                                  smokeSrc.includes("crossPlatformReady") &&
+                                  smokeSrc.includes("binaryDependency") &&
+                                  smokeSrc.includes("authConfigDependency") &&
+                                  smokeSrc.includes("managedRuntimeReadsUserCodexHome");
         // fixture-only 不是 pass
         const fixtureNotPass = smokeSrc.includes("fixture-only") && !/runtimeSmokeStatus.*=.*"pass".*fixture/.test(smokeSrc);
         // skip-fixture 用于协议层
@@ -6659,11 +6673,14 @@ if (runMode !== "all" && runMode !== "unit") {
         // summary 解析分层字段
         const summaryParsesLayered = summarySrc.includes("codexManagedResolverSmokeStatus") &&
                                       summarySrc.includes("codexManagedRuntimeSmokeStatus") &&
-                                      summarySrc.includes("codexManagedAppServerProtocolStatus");
+                                      summarySrc.includes("codexManagedAppServerProtocolStatus") &&
+                                      summarySrc.includes("supportedPlatforms") &&
+                                      summarySrc.includes("crossPlatformReady") &&
+                                      summarySrc.includes("authConfigDependency");
 
-        addTest("V17-F1.1 E+F: managed runtime smoke 分层字段（resolverSmokeStatus/runtimeSmokeStatus/managedAppServerProtocolStatus）+ fixture-only 非 pass + skip-fixture + codexUserReady 分层 gate + summary 解析",
-          smokeHasLayered && fixtureNotPass && hasSkipFixture && codexSmokeHasLayered && userReadyUsesLayered && summaryParsesLayered ? "pass" : "fail",
-          `smokeHasLayered=${smokeHasLayered} fixtureNotPass=${fixtureNotPass} hasSkipFixture=${hasSkipFixture} codexSmokeHasLayered=${codexSmokeHasLayered} userReadyUsesLayered=${userReadyUsesLayered} summaryParsesLayered=${summaryParsesLayered}`);
+        addTest("V17-F1.1/F2.1 E+F: managed runtime smoke 分层字段 + 平台/认证边界 + fixture-only 非 pass + skip-fixture + codexUserReady 分层 gate + summary 解析",
+          smokeHasLayered && smokeHasBoundary && fixtureNotPass && hasSkipFixture && codexSmokeHasLayered && userReadyUsesLayered && summaryParsesLayered ? "pass" : "fail",
+          `smokeHasLayered=${smokeHasLayered} smokeHasBoundary=${smokeHasBoundary} fixtureNotPass=${fixtureNotPass} hasSkipFixture=${hasSkipFixture} codexSmokeHasLayered=${codexSmokeHasLayered} userReadyUsesLayered=${userReadyUsesLayered} summaryParsesLayered=${summaryParsesLayered}`);
       }
 
       // ===== V17-F0 任务 F：External Codex App-Server Fallback（Advanced/Developer）heuristic 探测 =====

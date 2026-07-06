@@ -69,6 +69,9 @@ const report = {
   codexRuntimeExecutable: false,
   codexRuntimePinnedVersion: null,
   codexRuntimeFixture: false,
+  releasePackageContainsCodexRuntime: false,
+  releasePackageSizeMB: 0,
+  runtimeBinarySha256Verified: false,
   timestamp: new Date().toISOString(),
 };
 
@@ -266,10 +269,16 @@ console.log(`codexRuntimeSha256Valid=${report.codexRuntimeSha256Valid}`);
 console.log(`codexRuntimeExecutable=${report.codexRuntimeExecutable}`);
 console.log(`codexRuntimePinnedVersion=${report.codexRuntimePinnedVersion}`);
 console.log(`codexRuntimeFixture=${report.codexRuntimeFixture}`);
+report.releasePackageContainsCodexRuntime = report.containsCodexManagedRuntime && report.codexRuntimeExecutable;
+report.runtimeBinarySha256Verified = report.codexRuntimeSha256Valid;
+console.log(`releasePackageContainsCodexRuntime=${report.releasePackageContainsCodexRuntime}`);
+console.log(`runtimeBinarySha256Verified=${report.runtimeBinarySha256Verified}`);
 
 // ---------- 8. 统计 user-package 大小 ----------
 report.totalSizeMB = Number((dirSize(USER_PKG_DIR) / 1024 / 1024).toFixed(1));
+report.releasePackageSizeMB = report.totalSizeMB;
 console.log(`user-package 总大小: ${report.totalSizeMB} MB`);
+console.log(`releasePackageSizeMB=${report.releasePackageSizeMB}`);
 
 // ---------- 9. 最终状态 ----------
 // V17-F1.1 任务 D：userPackageStatus 必须纳入 managed runtime 字段
@@ -282,6 +291,8 @@ report.userPackageStatus =
   && report.containsCodexManagedRuntime
   && report.codexRuntimeSha256Valid
   && report.codexRuntimeExecutable
+  && report.releasePackageContainsCodexRuntime
+  && report.runtimeBinarySha256Verified
     ? "pass" : "fail";
 
 console.log("");
@@ -301,6 +312,9 @@ console.log(`codexRuntimeSha256Valid=${report.codexRuntimeSha256Valid}`);
 console.log(`codexRuntimeExecutable=${report.codexRuntimeExecutable}`);
 console.log(`codexRuntimePinnedVersion=${report.codexRuntimePinnedVersion}`);
 console.log(`codexRuntimeFixture=${report.codexRuntimeFixture}`);
+console.log(`releasePackageContainsCodexRuntime=${report.releasePackageContainsCodexRuntime}`);
+console.log(`releasePackageSizeMB=${report.releasePackageSizeMB}`);
+console.log(`runtimeBinarySha256Verified=${report.runtimeBinarySha256Verified}`);
 
 // ---------- 10. 写报告 ----------
 writeReport(report);
@@ -315,7 +329,7 @@ function writeReport(r) {
     "# LLM CLI Bridge 测试报告 — User Package Smoke (V17-D + V17-E1 + V17-F1)",
     "",
     "> 本报告由 `scripts/user-package-smoke.mjs` 自动生成。",
-    "> 验证 dist/user-package 零安装发行包的完整性与 CJS 加载安全性。",
+    "> 验证 dist/user-package 发行包的完整性、CJS 加载安全性与 managed runtime 打包边界。",
     "> V17-F1 任务 E：验证 Codex Managed Runtime manifest + binary 已集成。",
     "",
     `- **测试时间**: ${r.timestamp}`,
@@ -332,6 +346,9 @@ function writeReport(r) {
     `- **codexRuntimeExecutable**: ${r.codexRuntimeExecutable}（V17-F1 任务 E）`,
     `- **codexRuntimePinnedVersion**: ${r.codexRuntimePinnedVersion || "null"}`,
     `- **codexRuntimeFixture**: ${r.codexRuntimeFixture}（V17-F1 任务 E：fixture=true 不标 production ready）`,
+    `- **releasePackageContainsCodexRuntime**: ${r.releasePackageContainsCodexRuntime}`,
+    `- **releasePackageSizeMB**: ${r.releasePackageSizeMB}`,
+    `- **runtimeBinarySha256Verified**: ${r.runtimeBinarySha256Verified}`,
     "",
     "## 验证项说明",
     "",
@@ -345,6 +362,10 @@ function writeReport(r) {
     "- **codexRuntimeExecutable**: 当前平台 runtime binary 可执行权限校验通过",
     "- **codexRuntimePinnedVersion**: manifest 中记录的 runtime 版本",
     "- **codexRuntimeFixture**: manifest.fixture=true（fixture runtime，不标 production ready）",
+    "- **releasePackageContainsCodexRuntime**: dist/user-package 已包含 codex.exe 与 runtime-manifest.json，终端用户不需要执行 npm pack 来获得 runtime",
+    "- **releasePackageSizeMB**: dist/user-package 当前产物大小，用于 release 风险记录",
+    "- **runtimeBinarySha256Verified**: 当前平台 runtime binary sha256 已按 manifest 校验",
+    "- **auth/config boundary**: 发行包不依赖用户安装 Codex CLI/App；运行真实 Codex turn 仍需要可用的 user-level Codex/OpenAI credentials 或环境变量",
     "",
     "## V17-E1 任务 C：package.json type=module 风险修复",
     "",
