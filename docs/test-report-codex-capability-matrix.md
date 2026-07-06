@@ -1,15 +1,15 @@
 # Codex Capability Matrix
 
-- **generatedAt**: 2026-07-06T11:00:05.327Z
-- **testedCodeCommitSha**: e44badc3236dd17ffb51c01ba9e8fee6c8349ff4
+- **generatedAt**: 2026-07-06T11:11:36.371Z
+- **testedCodeCommitSha**: d3c966371f43d7e6ba8f4dd6204fd31d49cc527d
 - **schemaManifest**: `src/runtime/providers/codex-app-server/schema/manifest.json`
 - **schemaSource**: `src/runtime/providers/codex-app-server/schema/index.ts`
 - **schemaVersion**: 0.3.0-official-aligned
 - **schemaSourceMode**: fixture
 - **experimentalApiDefault**: false
-- **mapped**: 28
-- **weakMapped**: 11
-- **ignored**: 1
+- **mapped**: 30
+- **weakMapped**: 8
+- **ignored**: 2
 - **unsupported**: 0
 - **experimental**: 2
 
@@ -44,7 +44,7 @@ This report inventories Codex app-server methods, item types, and server-initiat
 
 | Surface | Status | Notes |
 | --- | --- | --- |
-| `userMessage` | weak-mapped | Compatibility/status mapping; not all native fields have rich UI. |
+| `userMessage` | ignored | Legacy/fixture-only surface; not a main protocol source. |
 | `agentMessage` | mapped | Preserves sourceRef and maps into TurnTimelineNode. |
 | `plan` | experimental | Supported behind Codex experimental protocol capability. |
 | `reasoning` | mapped | Preserves sourceRef and maps into TurnTimelineNode. |
@@ -52,8 +52,8 @@ This report inventories Codex app-server methods, item types, and server-initiat
 | `fileChange` | mapped | Preserves sourceRef and maps into TurnTimelineNode. |
 | `mcpToolCall` | mapped | Preserves sourceRef and maps into TurnTimelineNode. |
 | `dynamicToolCall` | mapped | Preserves sourceRef and maps into TurnTimelineNode. |
-| `webSearch` | weak-mapped | Compatibility/status mapping; not all native fields have rich UI. |
-| `imageView` | weak-mapped | Compatibility/status mapping; not all native fields have rich UI. |
+| `webSearch` | mapped | Preserves sourceRef and maps into TurnTimelineNode. |
+| `imageView` | mapped | Preserves sourceRef and maps into TurnTimelineNode. |
 | `enteredReviewMode` | mapped | Preserves sourceRef and maps into TurnTimelineNode. |
 | `exitedReviewMode` | mapped | Preserves sourceRef and maps into TurnTimelineNode. |
 | `contextCompaction` | mapped | Preserves sourceRef and maps into TurnTimelineNode. |
