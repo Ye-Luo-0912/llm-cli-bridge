@@ -360,6 +360,7 @@ export class LLMBridgeView extends ItemView {
   private composerFileRefsEl!: HTMLElement;
   private filesContextEl!: HTMLElement;
   private filePreviewLeaf: WorkspaceLeaf | null = null;
+  private lastActiveMarkdownFile: TFile | null = null;
   // V2.16-D: Context metrics UI 元素
   private contextRingEl!: HTMLElement;
   private contextLabelEl!: HTMLElement;
@@ -819,13 +820,15 @@ export class LLMBridgeView extends ItemView {
     void this.refreshContextMetrics();
 
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
+      this.rememberActiveFile(this.app.workspace.getActiveFile());
       this.updateContextDisplay();
       this.refreshStatusBar();
       void this.refreshContextMetrics();
     }));
     // V2.10 (B-001): 订阅 file-open 事件，确保同一 pane 内切换文件时 chip 立即更新
     // active-leaf-change 在某些场景（如快速切换同 pane 文件）可能延迟或不触发，file-open 更可靠
-    this.registerEvent(this.app.workspace.on("file-open", () => {
+    this.registerEvent(this.app.workspace.on("file-open", (file) => {
+      this.rememberActiveFile(file instanceof TFile ? file : null);
       this.updateContextDisplay();
       void this.refreshContextMetrics();
     }));
@@ -1480,7 +1483,25 @@ export class LLMBridgeView extends ItemView {
   // 解决 settings.ts onChange 只 saveSettings 不触发 view 刷新、状态栏 Backend 值不立即更新的问题
   public refreshOnSettingsChange(): void {
     this.syncControlsFromSettings();
+    this.syncDeveloperRunFlowPanel();
     this.refreshStatusBar();
+    this.refreshComposerStatusRail();
+  }
+
+  private syncDeveloperRunFlowPanel(): void {
+    const chatPanel = this.tabPanels?.chat;
+    if (!chatPanel) return;
+    if (!this.plugin.settings.developerMode) {
+      this.runFlowEl?.remove();
+      this.runFlowEl = null;
+      this.runFlowBody = null;
+      this.runFlowToggle = null;
+      return;
+    }
+    if (this.runFlowEl?.isConnected) return;
+    const anchor = this.messagesEl?.isConnected ? this.messagesEl : null;
+    this.renderRunFlowPanel(chatPanel);
+    if (anchor && this.runFlowEl) chatPanel.insertBefore(this.runFlowEl, anchor);
   }
 
   private refreshModeOptions(): void {
@@ -1498,7 +1519,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   private updateContextDisplay(): void {
-    const f = this.app.workspace.getActiveFile();
+    const f = this.getActiveFile();
     this.activeFileLabelEl.textContent = f ? path.basename(f.path) : "";
     const sel = this.getSelection();
     if (sel) {
@@ -3570,7 +3591,14 @@ export class LLMBridgeView extends ItemView {
   // ---------- Obsidian 状态 ----------
 
   private getActiveFile(): TFile | null {
-    return this.app.workspace.getActiveFile();
+    const current = this.app.workspace.getActiveFile();
+    if (current) return this.rememberActiveFile(current);
+    return this.lastActiveMarkdownFile;
+  }
+
+  private rememberActiveFile(file: TFile | null): TFile | null {
+    if (file) this.lastActiveMarkdownFile = file;
+    return file;
   }
 
   private getSelection(): string | null {
@@ -3744,11 +3772,14 @@ export class LLMBridgeView extends ItemView {
         cls: "llm-bridge-msg llm-bridge-msg-error",
         attr: { "data-msg-id": msg.id },
       });
+      const developerMode = !!this.plugin.settings.developerMode;
       block.createEl("div", {
         cls: "llm-bridge-msg-content",
-        text: `[消息渲染失败] ${msg.role} · ${msg.timestamp}`,
+        text: developerMode
+          ? `Message render fallback · ${msg.role} · ${msg.timestamp}`
+          : "This response could not be rendered inline. The answer text is still preserved.",
       });
-      if (error instanceof Error && error.message) {
+      if (developerMode && error instanceof Error && error.message) {
         block.createEl("pre", { cls: "llm-bridge-error-detail", text: error.message });
       }
       this.scrollToBottom(true);
@@ -4356,7 +4387,11 @@ export class LLMBridgeView extends ItemView {
     const changeActionText = item.change?.action === "create" ? "Created"
       : item.change?.action === "delete" ? "Deleted"
       : item.change ? "Modified" : "";
-    const label = item.change ? `${changeActionText} ${item.change.fileName}` : item.label;
+    const label = item.change
+      ? `${changeActionText} ${item.change.fileName}`
+      : item.kind === "command"
+        ? item.status === "running" ? "正在运行命令" : "已运行命令"
+        : item.label;
     title.createEl("span", { cls: "llm-bridge-codex-feed-label llm-bridge-codex-step-label", text: label, attr: { title: label } });
     if (item.change?.approvalStatus) {
       title.createEl("span", {
@@ -6171,7 +6206,7 @@ export class LLMBridgeView extends ItemView {
     try {
       const settings = this.plugin.settings;
       const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-      const activeFile = this.app.workspace.getActiveFile();
+      const activeFile = this.getActiveFile();
       const selection = this.getSelection();
       let activeNoteContent = "";
       let activeNoteReadOk = false;

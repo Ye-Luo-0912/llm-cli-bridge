@@ -18652,6 +18652,43 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13c: V17-G4 normal mode removes legacy global Run Flow after settings toggles ----
+  {
+    const ok = viewSrc.includes("private syncDeveloperRunFlowPanel(): void")
+      && viewSrc.includes("this.syncDeveloperRunFlowPanel();")
+      && viewSrc.includes("this.runFlowEl?.remove();")
+      && viewSrc.includes("this.runFlowEl = null;")
+      && viewSrc.includes("this.runFlowBody = null;")
+      && viewSrc.includes("this.runFlowToggle = null;")
+      && viewSrc.includes("this.renderRunFlowPanel(chatPanel);")
+      && viewSrc.includes("chatPanel.insertBefore(this.runFlowEl, anchor)")
+      && viewSrc.includes("this.refreshComposerStatusRail();");
+    addTest("V17-G4 UI: 普通模式移除 legacy Run Flow，composer 状态随设置刷新",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13d: V17-G4 message render fallback is non-raw in normal mode ----
+  {
+    const ok = viewSrc.includes("Message render fallback")
+      && viewSrc.includes("This response could not be rendered inline. The answer text is still preserved.")
+      && !viewSrc.includes("text: `[消息渲染失败]");
+    addTest("V17-G4 UI: 普通态消息渲染兜底不暴露内部异常横幅",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13e: V17-G4 active note survives Bridge/composer focus ----
+  {
+    const ok = viewSrc.includes("private lastActiveMarkdownFile: TFile | null = null;")
+      && viewSrc.includes("private rememberActiveFile(file: TFile | null): TFile | null")
+      && viewSrc.includes("return this.lastActiveMarkdownFile;")
+      && viewSrc.includes('this.app.workspace.on("file-open", (file) =>')
+      && viewSrc.includes("this.rememberActiveFile(file instanceof TFile ? file : null)")
+      && viewSrc.includes("const f = this.getActiveFile();")
+      && viewSrc.includes("const activeFile = this.getActiveFile();");
+    addTest("V17-G4 UI: 活动笔记在 Bridge/composer 聚焦后仍保留最近文件",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----
   {
     const ok = viewSrc.includes("const vaultRef = this.addVaultFileRef")
