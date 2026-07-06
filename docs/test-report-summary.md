@@ -9,16 +9,16 @@
 > 报告不互相覆盖：unit/process/managed-runtime/user-package 各自独立生成，summary 仅汇总主线结论。
 > external Codex CLI/app-server 是兼容路径；本 summary 不解析旧 codex-smoke 报告，也不把 external 状态作为主 gate。
 
-- **生成时间**: 2026-07-06T06:34:10.368Z
-- **reportCommitSha**: 0685e0c63cf5239c8f2c83eb4f969ad3fdfc6312
-- **reportCommitSha 短**: 0685e0c63cf5
-- **reportParentSha**: 5ed49745c46d3b505ac3938b97cf78a7d646ebde
-- **reportParentSha 短**: 5ed49745c46d
-- **testedCodeCommitSha**: 0685e0c63cf5239c8f2c83eb4f969ad3fdfc6312
-- **testedCodeCommitSha 短**: 0685e0c63cf5
-- **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: 0685e0c63cf5239c8f2c83eb4f969ad3fdfc6312
-- **processReportCommitSha**: 0685e0c63cf5239c8f2c83eb4f969ad3fdfc6312
+- **生成时间**: 2026-07-06T06:54:40.904Z
+- **reportCommitSha**: 998160728467413b37431d0f6e84a3fb9c1170e2
+- **reportCommitSha 短**: 998160728467
+- **reportParentSha**: e44badc3236dd17ffb51c01ba9e8fee6c8349ff4
+- **reportParentSha 短**: e44badc3236d
+- **testedCodeCommitSha**: e44badc3236dd17ffb51c01ba9e8fee6c8349ff4
+- **testedCodeCommitSha 短**: e44badc3236d
+- **commitKind**: docs-only（报告证明父 commit 代码）
+- **unitReportCommitSha**: e44badc3236dd17ffb51c01ba9e8fee6c8349ff4
+- **processReportCommitSha**: e44badc3236dd17ffb51c01ba9e8fee6c8349ff4
 - **externalCodexSmokeStatus**: not-evaluated
 - **externalCodexHandshakeStatus**: not-evaluated
 - **externalCodexCompatibilityStatus**: not-main-gate
@@ -75,24 +75,24 @@
 - **runtimeBinarySha256Verified**: false
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-06T06:31:34.391Z
-- **process 测试时间**: 2026-07-06T06:32:20.290Z
+- **unit 测试时间**: 2026-07-06T06:53:31.444Z
+- **process 测试时间**: 2026-07-06T06:54:03.625Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=0685e0c63cf5。
-- **当前 commit 改动文件**：main.ts, package.json, scripts/codex-managed-first-run-smoke.mjs, scripts/codex-runtime-install-download-smoke.mjs, scripts/generate-runtime-distribution-report.mjs, scripts/generate-test-summary.mjs, scripts/run-tests.mjs, src/runtime/core/bridgeSession.ts, src/runtime/providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge.ts, src/settings.ts, src/view.ts, styles.css
+- **本次判定**：docs-only（报告证明父 commit 代码）；testedCodeCommitSha=e44badc3236d。
+- **当前 commit 改动文件**：docs/test-report-codex-capability-matrix.md, docs/test-report-process.md, docs/test-report-summary.md, docs/test-report-unit.md
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 1029 | 0 | 25 | 0 | 1054 | 0685e0c63cf5 | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | 0685e0c63cf5 | ✅ 通过 |
+| unit | 1032 | 0 | 25 | 0 | 1057 | e44badc3236d | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | e44badc3236d | ✅ 通过 |
 | managed-runtime | - | - | - | - | - | 0.142.5 | ✅ 通过 |
-| **合计** | **1126** | **0** | **81** | **0** | **1207** | 0685e0c63cf5 | ✅ **主线通过** |
+| **合计** | **1129** | **0** | **81** | **0** | **1210** | e44badc3236d | ✅ **主线通过** |
 
 **双轨均 0 失败 + Managed Codex Runtime smoke pass → Managed Codex Runtime 主线通过。**
 
