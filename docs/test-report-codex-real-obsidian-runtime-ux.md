@@ -1,10 +1,10 @@
-# LLM CLI Bridge 测试报告 — Codex Real Obsidian Runtime UX Smoke (V17-F6 RC Hardening)
+# LLM CLI Bridge 测试报告 — Codex Real Obsidian Runtime UX Smoke (V17-G Native Run UI)
 
 > 本报告由 `scripts/codex-real-obsidian-runtime-ux-smoke.mjs` 自动生成。
 > 它只在真实 Obsidian 通过 CDP 暴露时记录真实 UI 观察；CDP 不可用时明确 skip，不把合成 smoke 伪装为真实 UI pass。
 
-- **测试时间**: 2026-07-06T14:00:55.983Z
-- **testedCodeCommitSha**: 3ac798b779c5e537a70ce394ba23d4289c9639a4
+- **测试时间**: 2026-07-06T16:35:49.490Z
+- **testedCodeCommitSha**: 31d6dd5dd1affd22e2b4afceac2a90e64b77a564
 - **realObsidianRuntimeUxStatus**: pass
 - **realObsidianSmokeStatus**: pass
 - **cdpStatus**: connected
@@ -26,27 +26,49 @@
 ## Runtime UX Observations
 
 - **firstOpenDefaultPackageObserved**: true
-- **runtimeMissingInstallRequiredObserved**: true
+- **runtimeMissingInstallRequiredObserved**: false
 - **installSuccessProviderReadyObserved**: true
 - **installButtonMetadataComplete**: true
-- **runtimeInstallResultStatus**: installed
-- **runtimeInstallSource**: download
-- **runtimeInstallTarballSha256Valid**: true
-- **runtimeInstallBinarySha256Valid**: true
-- **runtimeInstallBinarySizeValid**: true
-- **runtimeInstallExecutable**: true
+- **runtimeInstallResultStatus**: null
+- **runtimeInstallSource**: null
+- **runtimeInstallTarballSha256Valid**: false
+- **runtimeInstallBinarySha256Valid**: false
+- **runtimeInstallBinarySizeValid**: false
+- **runtimeInstallExecutable**: false
 - **providerLabelAfterInstall**: Codex managed
 - **installFailureRetryCopyObserved**: true
 - **uiSmokeRunStatus**: completed
-- **uiSmokeApprovalCount**: 1
-- **uiSmokeFinalAnswer**: 先执行你指定的命令烟雾测试，然后用 `apply_patch` 创建或更新目标 Markdown 文件为单行内容。开始修改 `[_llm_bridge_smoke/v17-f6-obsidian-smoke.md](D:/Users/Ye_Luo/APP/Test/Obsidian/LLM-Wiki/_llm_bridge_smoke/v17-f6-obsidian-smoke.md)`，只保留你要求的单行内容。done
+- **uiSmokeApprovalCount**: 2
+- **uiSmokeTargetFile**: _llm_bridge_smoke/v17-g-run-ui-1783355754952.md
+- **uiSmokeFileToken**: V17G_OBSIDIAN_FILE_SMOKE_1783355754952
+- **uiSmokeFinalAnswer**: 按你的要求先执行两步：先跑一次无副作用的命令输出指定标记，再用 `apply_patch` 在仓库内新增目标文件，只写这一行内容。现在新增 `_llm_bridge_smoke/v17-g-run-ui-1783355754952.md`，只写入指定单行内容。done
 - **commandTimelineObserved**: true
 - **fileEditTimelineObserved**: true
 - **approvalCardObserved**: true
 - **diffCardObserved**: true
+- **codexRunHeaderObserved**: true
+- **codexRunWaterfallFeedObserved**: true
+- **codexRunFeedBatchObserved**: true
+- **codexRunFeedBatchCount**: 3
+- **codexRunFeedItemCount**: 6
+- **codexRunNestedEventCount**: 2
+- **codexRunFeedSequence**: thinking>assistant>command>assistant>file>assistant
+- **codexRunThinkingCarrierObserved**: true
+- **codexRunThinkingCarrierStatus**: not-provided
+- **codexRunOutputLabelCompact**: true
+- **changesPanelVisible**: true
+- **stepRowCount**: 6
+- **approvalGateVisibleWhenPending**: true
 
 ## Timeline UX Evidence
 
+- **diagnosticsCollapsedByDefault**: true
+- **commandOutputCollapsedInNormalMode**: true
+- **codexRunCommandShellPanelAvailable**: true
+- **normalModeCommandSummaryPathRedacted**: true
+- **messageRenderFailureAbsent**: true
+- **developerRawEventAccessibleFromRunView**: true
+- **finalAnswerVisuallySeparated**: true
 - **normalUserVerboseOutputDefaultCollapsed**: true
 - **normalUserRawJsonSourceRefHidden**: true
 - **developerModeSourceRefVisible**: true
@@ -96,14 +118,29 @@
 | turn/diff/updated visible in developer evidence | pass |  |
 | real Obsidian plugin and bridge view loaded | pass | auto |
 | runtime missing surfaces install required | pass | Codex managed · ready |
-| install button metadata title complete | pass | Runtime version: 0.142.5 Download size: 308.2 MB Source: https://registry.npmjs.org/@openai/codex/-/codex-0.142.5-win32-x64.tgz SHA-256: 645f5a1a0347abb2b31fae4e594c198ad00e3a4b4a999dcfa3a66c0d0f8cd43b Install path: D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki\.obsidian\plugins\llm-cli-bridge\codex-managed-runtime\runtime\win32-x64\codex.exe Status: path-not-exist Error: runtime binary not found: D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki\.obsidian\plugins\llm-cli-bridge\codex-managed-runtime\runtime\win32-x64\codex.exe |
-| runtime installer verified tarball/binary in Obsidian | pass | status=installed source=download |
+| install button metadata title complete | pass | Runtime version: 0.142.5 Download size: 308.2 MB Source: https://registry.npmjs.org/@openai/codex/-/codex-0.142.5-win32-x64.tgz SHA-256: 645f5a1a0347abb2b31fae4e594c198ad00e3a4b4a999dcfa3a66c0d0f8cd43b Install path: D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki\.obsidian\plugins\llm-cli-bridge\codex-managed-runtime\runtime\win32-x64\codex.exe Status: installed |
+| runtime installer verified tarball/binary in Obsidian | pass | status=already-present source=n/a |
 | install success surfaces provider ready | pass | Codex managed |
-| real Obsidian Codex UI smoke run completed | pass | 先执行你指定的命令烟雾测试，然后用 `apply_patch` 创建或更新目标 Markdown 文件为单行内容。开始修改 `[_llm_bridge_smoke/v17-f6-obsidian-smoke.md](D:/Users/Ye_Luo/APP/Test/Obsidian/LLM-Wiki/_llm_bridge_smoke/v17-f6-obsidian-smoke.md)`，只保留你要求的单行内容。done |
+| real Obsidian Codex UI smoke run completed | pass | 按你的要求先执行两步：先跑一次无副作用的命令输出指定标记，再用 `apply_patch` 在仓库内新增目标文件，只写这一行内容。现在新增 `_llm_bridge_smoke/v17-g-run-ui-1783355754952.md`，只写入指定单行内容。done |
 | real Obsidian command timeline observed | pass |  |
 | real Obsidian file edit timeline observed | pass |  |
-| real Obsidian approval card observed | pass |  |
+| real Obsidian approval card observed or not requested by protocol | pass | observed |
 | real Obsidian diff card observed | pass |  |
+| real Obsidian Codex run header observed | pass |  |
+| real Obsidian Codex waterfall feed observed | pass | feed=thinking>assistant>command>assistant>file>assistant |
+| real Obsidian Codex feed batches observed | pass | batches=3 nestedEvents=2 |
+| real Obsidian Codex thinking carrier visible | pass | not-provided |
+| real Obsidian Codex output label compact | pass |  |
+| real Obsidian changes panel visible | pass |  |
+| real Obsidian step row count correct | pass | stepRowCount=6 |
+| real Obsidian approval gate visible when pending | pass | approvals=2 |
+| real Obsidian diagnostics collapsed by default | pass |  |
+| real Obsidian command output collapsed in normal mode | pass |  |
+| real Obsidian Codex-style command shell panel available | pass |  |
+| real Obsidian normal mode command summary path redacted | pass |  |
+| real Obsidian message render failure absent | pass |  |
+| real Obsidian developer mode raw event accessible from run view | pass |  |
+| real Obsidian final answer visually separated | pass |  |
 | real Obsidian normal mode raw sourceRef absent | pass |  |
 | real Obsidian developer debug view/sourceRef accessible | pass |  |
 | real Obsidian developer raw provider event accessible | pass |  |
