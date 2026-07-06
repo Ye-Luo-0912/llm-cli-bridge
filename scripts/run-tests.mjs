@@ -18769,6 +18769,22 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13j: V17-G8 Codex run/composer consolidation avoids duplicate output ----
+  {
+    const ok = viewSrc.includes("private shouldSuppressCodexStandaloneAnswer(")
+      && viewSrc.includes("private codexTurnHasFinalAnswerCarrier(")
+      && viewSrc.includes('content.addClass("llm-bridge-msg-content-suppressed")')
+      && viewSrc.includes("private getVisibleMarkdownFile(): TFile | null")
+      && viewSrc.includes('this.app.workspace.getLeavesOfType("markdown")')
+      && stylesSrc.includes("V17-G8: Codex desktop-style run stream")
+      && stylesSrc.includes(".llm-bridge-msg-content-suppressed")
+      && stylesSrc.includes(".llm-bridge-codex-event-block.llm-bridge-codex-feed-item")
+      && stylesSrc.includes(".llm-bridge-composer-bar")
+      && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-section");
+    addTest("V17-G8 UI: Codex 瀑布流去重、活动笔记兜底和输入/文件表面继续收口",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----
   {
     const ok = viewSrc.includes("const vaultRef = this.addVaultFileRef")

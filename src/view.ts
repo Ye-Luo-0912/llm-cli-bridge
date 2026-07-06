@@ -3654,12 +3654,24 @@ export class LLMBridgeView extends ItemView {
   private getActiveFile(): TFile | null {
     const current = this.app.workspace.getActiveFile();
     if (current) return this.rememberActiveFile(current);
+    const markdownLeafFile = this.getVisibleMarkdownFile();
+    if (markdownLeafFile) return this.rememberActiveFile(markdownLeafFile);
     return this.lastActiveMarkdownFile;
   }
 
   private rememberActiveFile(file: TFile | null): TFile | null {
     if (file) this.lastActiveMarkdownFile = file;
     return file;
+  }
+
+  private getVisibleMarkdownFile(): TFile | null {
+    const activeMarkdown = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (activeMarkdown?.file) return activeMarkdown.file;
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      const view = leaf.view;
+      if (view instanceof MarkdownView && view.file) return view.file;
+    }
+    return null;
   }
 
   private getSelection(): string | null {
@@ -3776,6 +3788,13 @@ export class LLMBridgeView extends ItemView {
   private renderMessageContent(content: HTMLElement, msg: ChatMessage): void {
     const text = this.coerceMessageContentText(msg.content) || (msg.role === "assistant" && msg.status === "running" ? "" : "");
     content.empty();
+    content.removeClass("llm-bridge-msg-content-suppressed");
+    content.removeAttribute("hidden");
+    if (this.shouldSuppressCodexStandaloneAnswer(msg, text)) {
+      content.addClass("llm-bridge-msg-content-suppressed");
+      content.setAttribute("hidden", "");
+      return;
+    }
     if (!text) {
       // P4-D: 不显示 "正在等待首次输出..."，spinner + currentActivity 已提供反馈
       return;
@@ -3860,6 +3879,20 @@ export class LLMBridgeView extends ItemView {
     } catch {
       return String(value);
     }
+  }
+
+  private shouldSuppressCodexStandaloneAnswer(msg: ChatMessage, text: string): boolean {
+    if (msg.role !== "assistant" || !text.trim() || this.plugin.settings.developerMode) return false;
+    const turnView = msg.assistantTurnView;
+    if (!turnView || !/codex/i.test(turnView.providerId)) return false;
+    return this.codexTurnHasFinalAnswerCarrier(turnView);
+  }
+
+  private codexTurnHasFinalAnswerCarrier(turnView: AssistantTurnView): boolean {
+    if (turnView.finalAnswer.trim().length > 0) return true;
+    return this.flattenTurnTimeline(turnView.turnTimeline).some((node) =>
+      node.kind === "agentMessage" && [node.text, node.summary, node.detail].some((value) => (value ?? "").trim().length > 0)
+    );
   }
 
   // stderr / log / 生成文件，默认折叠；失败或有新文件时显著
