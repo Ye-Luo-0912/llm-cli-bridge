@@ -8488,6 +8488,12 @@
   height: 29px;
 }
 
+.llm-bridge-attach-file-btn.llm-bridge-composer-tool-btn {
+  border-color: transparent;
+  border-style: solid;
+  background: transparent;
+}
+
 .llm-bridge-command-menu-summary.llm-bridge-composer-tool-btn {
   width: auto;
   min-width: 30px;
@@ -8512,11 +8518,53 @@
 }
 
 .llm-bridge-permission-chip {
-  max-width: 180px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 190px;
   min-height: 29px;
-  padding: 0 8px;
-  color: var(--interactive-accent);
-  font-weight: 520;
+  padding: 0 6px;
+  border-color: transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.llm-bridge-permission-chip:hover:not(:disabled),
+.llm-bridge-permission-chip[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--background-modifier-hover) 78%, transparent) !important;
+  color: var(--text-normal);
+}
+
+.llm-bridge-permission-chip.is-safe {
+  color: var(--text-muted);
+}
+
+.llm-bridge-permission-chip.is-caution {
+  color: color-mix(in srgb, var(--interactive-accent) 62%, var(--text-muted));
+}
+
+.llm-bridge-permission-chip.is-danger {
+  color: var(--text-warning);
+}
+
+.llm-bridge-permission-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.llm-bridge-permission-chip-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.llm-bridge-permission-chip-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .llm-bridge-model-effort-chip.llm-bridge-model-chip-inline,

@@ -1431,9 +1431,15 @@ export class LLMBridgeView extends ItemView {
       : mode === "acceptEdits" ? "Edit automatically"
       : mode === "plan" ? "Plan"
       : mode === "auto" ? "Auto"
-      : mode === "bypassPermissions" ? "Bypass"
+      : mode === "bypassPermissions" ? "Full access"
       : mode;
-    this.permissionModeChipEl.textContent = claudeLabel;
+    const iconName = mode === "bypassPermissions" || mode === "dontAsk" ? "shield-alert"
+      : mode === "plan" ? "shield-check"
+      : "shield-question";
+    this.permissionModeChipEl.empty();
+    setIcon(this.permissionModeChipEl.createEl("span", { cls: "llm-bridge-permission-chip-icon" }), iconName);
+    this.permissionModeChipEl.createEl("span", { cls: "llm-bridge-permission-chip-label", text: claudeLabel });
+    this.permissionModeChipEl.setAttribute("aria-label", claudeLabel);
     this.permissionModeChipEl.setAttribute("title", `权限模式：${info.label}\n${info.risk}\n点击切换`);
     this.permissionModeChipEl.classList.remove("is-safe", "is-caution", "is-danger");
     this.permissionModeChipEl.classList.add(`is-${info.level}`);

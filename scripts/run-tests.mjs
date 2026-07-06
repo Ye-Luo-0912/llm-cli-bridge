@@ -2356,12 +2356,12 @@ if (runMode !== "all" && runMode !== "unit") {
 
         // Test AI: 权限 popover
         const hasBypass = viewSrc.includes("bypassPermissions")
-          && viewSrc.includes("Bypass");
+          && viewSrc.includes("Full access");
         const hasParentMount = viewSrc.includes("parentElement");
         const hasPointerdownClose = viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-permission-chip")')
           && viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-perm-popover")');
         const permPopoverOk = hasBypass && hasParentMount && hasPointerdownClose;
-        addTest("V16.4-D: 权限 popover 含 5 模式（含 Bypass）+ 外部挂载 + pointerdown close",
+        addTest("V16.4-D: 权限 popover 含 5 模式（含 Full access）+ 外部挂载 + pointerdown close",
           permPopoverOk ? "pass" : "fail",
           permPopoverOk ? "" : `hasBypass=${hasBypass} hasParentMount=${hasParentMount} hasPointerdownClose=${hasPointerdownClose}`);
 
@@ -18777,6 +18777,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private getVisibleMarkdownFile(): TFile | null")
       && viewSrc.includes('this.app.workspace.getLeavesOfType("markdown")')
       && viewSrc.includes('text: "目标"')
+      && viewSrc.includes('cls: "llm-bridge-permission-chip-icon"')
+      && viewSrc.includes('cls: "llm-bridge-permission-chip-label"')
       && viewSrc.includes('text: kind === "note" ? "No active note" : "Selection"')
       && viewSrc.includes('"data-context-kind": kind')
       && viewSrc.includes('fname || "No active note"')
@@ -18797,6 +18799,9 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-approval-dock")
       && stylesSrc.includes(".llm-bridge-user-prompt-summary")
       && stylesSrc.includes(".llm-bridge-composer-step-pill::before")
+      && stylesSrc.includes(".llm-bridge-attach-file-btn.llm-bridge-composer-tool-btn")
+      && stylesSrc.includes(".llm-bridge-permission-chip-icon svg")
+      && stylesSrc.includes(".llm-bridge-permission-chip-label")
       && stylesSrc.includes(".llm-bridge-context-tag-note")
       && stylesSrc.includes(".llm-bridge-context-tag.is-active-file:focus-visible")
       && stylesSrc.includes(".llm-bridge-command-menu-label")
