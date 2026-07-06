@@ -4,7 +4,7 @@
 > 验证 dist/user-package 发行包的完整性、CJS 加载安全性与 managed runtime 分发边界。
 > V17-F3：默认 download-on-first-run 不打包大 binary；offline package 才 bundling 当前平台 runtime。
 
-- **测试时间**: 2026-07-06T12:55:38.277Z
+- **测试时间**: 2026-07-06T13:10:24.772Z
 - **userPackageStatus**: pass
 - **containsPiSdk**: true
 - **canRequirePiSdk**: true

@@ -1,7 +1,7 @@
 # Codex Real Protocol Capability
 
-- **generatedAt**: 2026-07-06T12:55:51.402Z
-- **testedCodeCommitSha**: 1c836bb1bd3860ff2a90a95c6b6be6166563e8c7
+- **generatedAt**: 2026-07-06T13:10:53.750Z
+- **testedCodeCommitSha**: d6d81eda6d79b88f328bdf191325fae9c7a800a4
 - **runtimeVersion**: 0.142.5
 - **testedPlatform**: win32-x64
 - **selectedModel**: gpt-5.5
@@ -30,29 +30,29 @@ Overall is partial because commandExecution, fileChange, and approval were obser
 | Scenario | Outcome | Nodes | Server requests | Error |
 | --- | --- | --- | --- | --- |
 | commandExecution | completed | 3 | item/commandExecution/requestApproval<br>serverRequest/resolved |  |
-| fileChange | completed | 11 | item/fileChange/requestApproval<br>serverRequest/resolved<br>item/commandExecution/requestApproval<br>serverRequest/resolved<br>item/fileChange/requestApproval<br>serverRequest/resolved<br>item/commandExecution/requestApproval<br>serverRequest/resolved |  |
+| fileChange | completed | 7 | item/fileChange/requestApproval<br>serverRequest/resolved |  |
 | userInput | completed | 3 | none |  |
 
 ## Checks
 
 | Check | Status | Detail |
 | --- | --- | --- |
-| command item/started has itemId | pass | call_YGR8Vrfh2sO6fcvzpAgNsxIQ |
+| command item/started has itemId | pass | call_WYnkSTbqUJWZ5p72OXdHsrsz |
 | command outputDelta by itemId enters node | pass | stdoutIncludesTarget=true stdoutChars=746 |
-| command completed writes exitCode/durationMs/stdout | pass | exit=0 duration=1281 |
+| command completed writes exitCode/durationMs/stdout | pass | exit=0 duration=1396 |
 | timeline does not rely on recent running tool | pass | cards=3 nodes=3 |
 | command approval request surfaced | pass | item/commandExecution/requestApproval,serverRequest/resolved |
 | command approval resolved same item | pass | approval=approved |
 | fileChange item has changes[] | pass | changes=1 |
-| fileChange path/action/diff enters FileChangeCard | pass | path=D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\.tmp\codex-real-protocol-smoke-vault\v17-f42-target.md action=create diffChars=6 |
-| fileChange approval request bound to itemId | pass | requestItem=call_uu0gmNcLAf1ivfUlRsP9EYDY nodeItem=call_uu0gmNcLAf1ivfUlRsP9EYDY |
+| fileChange path/action/diff enters FileChangeCard | pass | path=D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\.tmp\codex-real-protocol-smoke-vault\v17-f42-target.md action=modify diffChars=27 |
+| fileChange approval request bound to itemId | pass | requestItem=call_qDTQeQKIt4UyrTj4MpITUVpS nodeItem=call_qDTQeQKIt4UyrTj4MpITUVpS |
 | fileChange approvalStatus resolved | pass | node=approved card=approved |
 | turn/diff/updated developer status node observed | pass | node=true devCard=true |
 | turn/diff/updated hidden from normal timeline | pass | normalVisible=false |
 | user input request surfaced | fail |  |
 | user input timeline node resolved | fail | status=undefined |
 | normal user verbose output collapsed | pass | defaultExpanded=false sourceRef=false |
-| developer mode shows sourceRef/threadId/turnId/itemId/method | pass | {"threadId":"019f377f-d1ee-78d3-bb2d-ceb65e69db6a","turnId":"019f377f-d323-7bd2-9aa6-9e3f2ff4c6a8","itemId":"call_YGR8Vrfh2sO6fcvzpAgNsxIQ","serverRequestId":"codex-req-0","method":"item/commandExecution/requestApproval","sequence":1000} |
+| developer mode shows sourceRef/threadId/turnId/itemId/method | pass | {"threadId":"019f378d-96b9-7d92-997d-4602639647f9","turnId":"019f378d-9804-7980-b871-00df35927f81","itemId":"call_WYnkSTbqUJWZ5p72OXdHsrsz","serverRequestId":"codex-req-0","method":"item/commandExecution/requestApproval","sequence":1000} |
 | normal mode does not expose raw JSON sourceRef | pass | normalSourceRef=false |
 
 ## UI Contract

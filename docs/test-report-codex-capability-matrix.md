@@ -1,7 +1,7 @@
 # Codex Capability Matrix
 
-- **generatedAt**: 2026-07-06T12:56:59.890Z
-- **testedCodeCommitSha**: 1c836bb1bd3860ff2a90a95c6b6be6166563e8c7
+- **generatedAt**: 2026-07-06T13:12:08.307Z
+- **testedCodeCommitSha**: d6d81eda6d79b88f328bdf191325fae9c7a800a4
 - **schemaManifest**: `src/runtime/providers/codex-app-server/schema/manifest.json`
 - **schemaSource**: `src/runtime/providers/codex-app-server/schema/index.ts`
 - **schemaVersion**: 0.3.0-official-aligned
