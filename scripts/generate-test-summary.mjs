@@ -32,6 +32,7 @@ const UNIT_REPORT = join(DOCS_DIR, "test-report-unit.md");
 const PROCESS_REPORT = join(DOCS_DIR, "test-report-process.md");
 const CODEX_MANAGED_RUNTIME_REPORT = join(DOCS_DIR, "test-report-codex-managed-runtime.md");
 const USER_PACKAGE_REPORT = join(DOCS_DIR, "test-report-user-package.md"); // V17-E1 任务 D
+const CODEX_RUNTIME_INSTALL_REPORT = join(DOCS_DIR, "test-report-codex-runtime-install-default-package.md");
 const SUMMARY_REPORT = join(DOCS_DIR, "test-report-summary.md");
 
 // ============================================================
@@ -151,8 +152,17 @@ function parseUserPackageReport(path) {
   const downloadRequiredMatch = text.match(/- \*\*runtimeDownloadRequired\*\*: (true|false)/);
   result.runtimeDownloadRequired = downloadRequiredMatch ? downloadRequiredMatch[1] : null;
 
-  const canInstallMatch = text.match(/- \*\*runtimeCanInstallFromPinnedArtifact\*\*: (true|false)/);
-  result.runtimeCanInstallFromPinnedArtifact = canInstallMatch ? canInstallMatch[1] : null;
+  const metadataMatch = text.match(/- \*\*runtimePinnedArtifactMetadataComplete\*\*: (true|false)/);
+  result.runtimePinnedArtifactMetadataComplete = metadataMatch ? metadataMatch[1] : null;
+
+  const installerExecMatch = text.match(/- \*\*runtimeInstallerExecutable\*\*: (true|false)/);
+  result.runtimeInstallerExecutable = installerExecMatch ? installerExecMatch[1] : null;
+
+  const npmReqMatch = text.match(/- \*\*runtimeInstallRequiresSystemNpm\*\*: (true|false)/);
+  result.runtimeInstallRequiresSystemNpm = npmReqMatch ? npmReqMatch[1] : null;
+
+  const tarReqMatch = text.match(/- \*\*runtimeInstallRequiresSystemTar\*\*: (true|false)/);
+  result.runtimeInstallRequiresSystemTar = tarReqMatch ? tarReqMatch[1] : null;
 
   const releaseSizeMatch = text.match(/- \*\*releasePackageSizeMB\*\*: ([\d.]+)/);
   result.releasePackageSizeMB = releaseSizeMatch ? releaseSizeMatch[1] : null;
@@ -163,6 +173,33 @@ function parseUserPackageReport(path) {
   if (result.userPackageStatus === null) {
     result.error = "userPackageStatus 字段解析失败";
   }
+  return result;
+}
+
+function parseRuntimeInstallReport(path) {
+  if (!existsSync(path)) {
+    return { label: "codex-runtime-install-default-package", error: `报告文件不存在: ${path}` };
+  }
+  const text = readFileSync(path, "utf8");
+  const result = { label: "codex-runtime-install-default-package", raw: text };
+  const fields = [
+    "installerPresent",
+    "noRuntimeBefore",
+    "downloadOrLocalArtifactInstall",
+    "tarballSha256Valid",
+    "binarySha256Valid",
+    "binarySizeValid",
+    "runtimeExecutable",
+    "noPartialArtifactsAfterFail",
+    "runtimeInstallSmokeStatus",
+    "runtimeInstallRequiresSystemNpm",
+    "runtimeInstallRequiresSystemTar",
+  ];
+  for (const field of fields) {
+    const m = text.match(new RegExp(`- \\*\\*${field}\\*\\*: ([^\\r\\n]+)`));
+    result[field] = m ? m[1].trim() : null;
+  }
+  if (!result.runtimeInstallSmokeStatus) result.error = "runtimeInstallSmokeStatus 字段解析失败";
   return result;
 }
 
@@ -269,11 +306,13 @@ function main() {
   const processReport = parseReport(PROCESS_REPORT, "process");
   const managedRuntime = parseManagedRuntimeReport(CODEX_MANAGED_RUNTIME_REPORT);
   const userPackage = parseUserPackageReport(USER_PACKAGE_REPORT); // V17-E1 任务 D
+  const runtimeInstall = parseRuntimeInstallReport(CODEX_RUNTIME_INSTALL_REPORT);
 
   if (unit.error) auditFailures.push(`unit 报告: ${unit.error}`);
   if (processReport.error) auditFailures.push(`process 报告: ${processReport.error}`);
   if (managedRuntime.error) auditFailures.push(`managed-runtime 报告: ${managedRuntime.error}`);
   if (userPackage.error) auditFailures.push(`user-package 报告: ${userPackage.error}`);
+  if (runtimeInstall.error) auditFailures.push(`runtime-install 报告: ${runtimeInstall.error}`);
 
   // 3. 判定 docs-only commit → 计算 testedCodeCommitSha
   const commitClass = classifyCurrentCommit(reportCommitSha);
@@ -339,10 +378,20 @@ function main() {
   }
   if (!userPackage.error) {
     if (userPackage.releasePackageContainsCodexRuntime !== "true"
-      || userPackage.runtimeCanInstallFromPinnedArtifact !== "true"
+      || userPackage.runtimePinnedArtifactMetadataComplete !== "true"
+      || userPackage.runtimeInstallerExecutable !== "true"
       || !userPackage.releasePackageSizeMB) {
       auditFailures.push(
-        `release packaging gate 未通过: containsRuntime=${userPackage.releasePackageContainsCodexRuntime} mode=${userPackage.releasePackageMode} canInstall=${userPackage.runtimeCanInstallFromPinnedArtifact} sizeMB=${userPackage.releasePackageSizeMB}`,
+        `release packaging gate 未通过: containsRuntime=${userPackage.releasePackageContainsCodexRuntime} mode=${userPackage.releasePackageMode} metadata=${userPackage.runtimePinnedArtifactMetadataComplete} installerExecutable=${userPackage.runtimeInstallerExecutable} sizeMB=${userPackage.releasePackageSizeMB}`,
+      );
+    }
+  }
+  if (!runtimeInstall.error) {
+    if (runtimeInstall.runtimeInstallSmokeStatus !== "pass"
+      || runtimeInstall.runtimeInstallRequiresSystemNpm !== "false"
+      || runtimeInstall.runtimeInstallRequiresSystemTar !== "false") {
+      auditFailures.push(
+        `runtime installer smoke 未通过: status=${runtimeInstall.runtimeInstallSmokeStatus} npm=${runtimeInstall.runtimeInstallRequiresSystemNpm} tar=${runtimeInstall.runtimeInstallRequiresSystemTar}`,
       );
     }
   }
@@ -421,7 +470,11 @@ function main() {
     `- **releasePackageMode**: ${userPackage.releasePackageMode || "(解析失败)"}`,
     `- **containsRuntimeBinary**: ${userPackage.containsRuntimeBinary || "(解析失败)"}`,
     `- **runtimeDownloadRequired**: ${userPackage.runtimeDownloadRequired || "(解析失败)"}`,
-    `- **runtimeCanInstallFromPinnedArtifact**: ${userPackage.runtimeCanInstallFromPinnedArtifact || "(解析失败)"}`,
+    `- **runtimePinnedArtifactMetadataComplete**: ${userPackage.runtimePinnedArtifactMetadataComplete || "(解析失败)"}`,
+    `- **runtimeInstallerExecutable**: ${userPackage.runtimeInstallerExecutable || "(解析失败)"}`,
+    `- **runtimeInstallSmokeStatus**: ${runtimeInstall.runtimeInstallSmokeStatus || "(解析失败)"}`,
+    `- **runtimeInstallRequiresSystemNpm**: ${runtimeInstall.runtimeInstallRequiresSystemNpm || "(解析失败)"}`,
+    `- **runtimeInstallRequiresSystemTar**: ${runtimeInstall.runtimeInstallRequiresSystemTar || "(解析失败)"}`,
     `- **releasePackageContainsCodexRuntime**: ${userPackage.releasePackageContainsCodexRuntime || "(解析失败)"}`,
     `- **releasePackageSizeMB**: ${userPackage.releasePackageSizeMB || "(解析失败)"}`,
     `- **runtimeBinarySha256Verified**: ${userPackage.runtimeBinarySha256Verified || "(解析失败)"}`,

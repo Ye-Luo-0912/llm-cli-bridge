@@ -6349,7 +6349,8 @@ if (runMode !== "all" && runMode !== "unit") {
                                     userPkgSmoke.includes("releasePackageMode") &&
                                     userPkgSmoke.includes("containsRuntimeBinary") &&
                                     userPkgSmoke.includes("runtimeDownloadRequired") &&
-                                    userPkgSmoke.includes("runtimeCanInstallFromPinnedArtifact");
+                                    userPkgSmoke.includes("runtimePinnedArtifactMetadataComplete") &&
+                                    userPkgSmoke.includes("runtimeInstallerExecutable");
         // 任务 F：smoke:codex-managed-runtime 脚本存在
         const hasSmokeScript = pkgJson.includes('"smoke:codex-managed-runtime"');
         // 任务 F：smoke 脚本校验 manifest/sha256/executable + 输出 runtimeSmokeStatus
@@ -6380,6 +6381,8 @@ if (runMode !== "all" && runMode !== "unit") {
 
         const hasReportScript = pkgJson.includes('"report:runtime-distribution"') &&
                                 reportScript.includes("test-report-runtime-distribution.md");
+        const hasInstallerSmoke = pkgJson.includes('"smoke:codex-runtime-install-default-package"') &&
+                                  existsSync(join(PROJECT_ROOT, "scripts", "codex-runtime-install-default-package-smoke.mjs"));
         const hasDistributionModes = reportScript.includes("bundled-platform-runtime") &&
                                      reportScript.includes("download-on-first-run") &&
                                      reportScript.includes("external-fallback-dev");
@@ -6388,6 +6391,11 @@ if (runMode !== "all" && runMode !== "unit") {
                                   reportScript.includes("runtimeBinarySizeMB") &&
                                   reportScript.includes("runtimeDownloadRequired") &&
                                   reportScript.includes("runtimePinnedArtifactVerified") &&
+                                  reportScript.includes("runtimePinnedArtifactMetadataComplete") &&
+                                  reportScript.includes("runtimeInstallerExecutable") &&
+                                  reportScript.includes("runtimeInstallSmokeStatus") &&
+                                  reportScript.includes("runtimeInstallRequiresSystemNpm") &&
+                                  reportScript.includes("runtimeInstallRequiresSystemTar") &&
                                   reportScript.includes("crossPlatformPackageStrategy");
         const hasPlatformNames = reportScript.includes("llm-cli-bridge-win32-x64") &&
                                  reportScript.includes("llm-cli-bridge-win32-arm64") &&
@@ -6395,6 +6403,13 @@ if (runMode !== "all" && runMode !== "unit") {
                                  reportScript.includes("llm-cli-bridge-linux-x64");
         const bansFatPackage = reportScript.includes("no-all-platform-fat-package") &&
                                !reportScript.includes("all-platform fat package | include all binaries");
+        const installerSrc = readFileSync(join(PROJECT_ROOT, "scripts", "install-codex-managed-runtime.mjs"), "utf8");
+        const installerNpmFree = !/\bnpm\s+pack\b|execSync\([^)]*npm/.test(installerSrc) &&
+                                !/\btar\s+-xzf\b|execSync\([^)]*tar/.test(installerSrc) &&
+                                installerSrc.includes("httpsGet") &&
+                                installerSrc.includes("gunzipSync") &&
+                                installerSrc.includes("ensureManagedRuntimeInstalled") &&
+                                installerSrc.includes("partial-");
         const hasInstallerUxContract = reportScript.includes("runtime version") &&
                                        reportScript.includes("download size") &&
                                        reportScript.includes("source package") &&
@@ -6403,8 +6418,8 @@ if (runMode !== "all" && runMode !== "unit") {
                                        reportScript.includes("校验失败必须删除");
 
         addTest("V17-F3 A-E: runtime distribution report 覆盖三种模式、平台专用包、默认下载、离线包体积字段、installer UX contract",
-          reportScriptExists && hasReportScript && hasDistributionModes && hasRequiredFields && hasPlatformNames && bansFatPackage && hasInstallerUxContract ? "pass" : "fail",
-          `scriptExists=${reportScriptExists} reportScript=${hasReportScript} modes=${hasDistributionModes} fields=${hasRequiredFields} platformNames=${hasPlatformNames} noFat=${bansFatPackage} installerUx=${hasInstallerUxContract}`);
+          reportScriptExists && hasReportScript && hasInstallerSmoke && hasDistributionModes && hasRequiredFields && hasPlatformNames && bansFatPackage && installerNpmFree && hasInstallerUxContract ? "pass" : "fail",
+          `scriptExists=${reportScriptExists} reportScript=${hasReportScript} installerSmoke=${hasInstallerSmoke} modes=${hasDistributionModes} fields=${hasRequiredFields} platformNames=${hasPlatformNames} noFat=${bansFatPackage} installerNpmFree=${installerNpmFree} installerUx=${hasInstallerUxContract}`);
       }
 
       // ===== V17-F1.1 任务 F：resolver 行为测试（sha mismatch / platform missing / executable fail） =====
@@ -6659,7 +6674,8 @@ if (runMode !== "all" && runMode !== "unit") {
         // userPackageStatus gate 包含 managed runtime 分发字段
         const gateIncludesManaged = /report\.containsCodexManagedRuntime/.test(smokeSrc) &&
                                      /report\.releasePackageContainsCodexRuntime/.test(smokeSrc) &&
-                                     /report\.runtimeCanInstallFromPinnedArtifact/.test(smokeSrc) &&
+                                     /report\.runtimePinnedArtifactMetadataComplete/.test(smokeSrc) &&
+                                     /report\.runtimeInstallerExecutable/.test(smokeSrc) &&
                                      /report\.releasePackageMode\s*===\s*"download-on-first-run"/.test(smokeSrc) &&
                                      /report\.releasePackageMode\s*===\s*"bundled-platform-runtime"/.test(smokeSrc) &&
                                      /report\.runtimeBinarySha256Verified/.test(smokeSrc);
@@ -6675,7 +6691,11 @@ if (runMode !== "all" && runMode !== "unit") {
                                       summarySrc.includes("releasePackageMode") &&
                                       summarySrc.includes("containsRuntimeBinary") &&
                                       summarySrc.includes("runtimeDownloadRequired") &&
-                                      summarySrc.includes("runtimeCanInstallFromPinnedArtifact") &&
+                                      summarySrc.includes("runtimePinnedArtifactMetadataComplete") &&
+                                      summarySrc.includes("runtimeInstallerExecutable") &&
+                                      summarySrc.includes("runtimeInstallSmokeStatus") &&
+                                      summarySrc.includes("runtimeInstallRequiresSystemNpm") &&
+                                      summarySrc.includes("runtimeInstallRequiresSystemTar") &&
                                       summarySrc.includes("releasePackageContainsCodexRuntime") &&
                                       summarySrc.includes("releasePackageSizeMB") &&
                                       summarySrc.includes("runtimeBinarySha256Verified");
@@ -6687,7 +6707,11 @@ if (runMode !== "all" && runMode !== "unit") {
                                         summarySrc.includes("- **releasePackageMode**") &&
                                         summarySrc.includes("- **containsRuntimeBinary**") &&
                                         summarySrc.includes("- **runtimeDownloadRequired**") &&
-                                        summarySrc.includes("- **runtimeCanInstallFromPinnedArtifact**") &&
+                                        summarySrc.includes("- **runtimePinnedArtifactMetadataComplete**") &&
+                                        summarySrc.includes("- **runtimeInstallerExecutable**") &&
+                                        summarySrc.includes("- **runtimeInstallSmokeStatus**") &&
+                                        summarySrc.includes("- **runtimeInstallRequiresSystemNpm**") &&
+                                        summarySrc.includes("- **runtimeInstallRequiresSystemTar**") &&
                                         summarySrc.includes("- **releasePackageContainsCodexRuntime**") &&
                                         summarySrc.includes("- **releasePackageSizeMB**") &&
                                         summarySrc.includes("- **runtimeBinarySha256Verified**");

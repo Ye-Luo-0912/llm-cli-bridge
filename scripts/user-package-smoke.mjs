@@ -79,7 +79,10 @@ const report = {
   releasePackageMode: "unknown",
   containsRuntimeBinary: false,
   runtimeDownloadRequired: true,
-  runtimeCanInstallFromPinnedArtifact: false,
+  runtimePinnedArtifactMetadataComplete: false,
+  runtimeInstallerExecutable: false,
+  runtimeInstallRequiresSystemNpm: false,
+  runtimeInstallRequiresSystemTar: false,
   offlinePackageSizeMB: 0,
   runtimeInstallerPresent: false,
   runtimePinnedArtifactPackage: null,
@@ -241,6 +244,16 @@ console.log("--- V17-F3：Codex Managed Runtime 分发校验 ---");
 const managedManifestPath = join(USER_PKG_DIR, "codex-managed-runtime", "runtime-manifest.json");
 const managedInstallerPath = join(USER_PKG_DIR, "codex-managed-runtime", "install-codex-managed-runtime.mjs");
 report.runtimeInstallerPresent = existsSync(managedInstallerPath);
+if (report.runtimeInstallerPresent) {
+  try {
+    const installerSource = readFileSync(managedInstallerPath, "utf8");
+    report.runtimeInstallRequiresSystemNpm = /\bnpm\s+pack\b|execSync\([^)]*npm/.test(installerSource);
+    report.runtimeInstallRequiresSystemTar = /\btar\s+-xzf\b|execSync\([^)]*tar/.test(installerSource);
+    report.runtimeInstallerExecutable = !report.runtimeInstallRequiresSystemNpm && !report.runtimeInstallRequiresSystemTar;
+  } catch {
+    report.runtimeInstallerExecutable = false;
+  }
+}
 if (existsSync(managedManifestPath)) {
   report.containsCodexManagedRuntime = true;
   let managedManifest;
@@ -255,10 +268,10 @@ if (existsSync(managedManifestPath)) {
     const platformEntry = managedManifest.platforms?.[platformKey];
     if (platformEntry) {
       report.runtimePinnedArtifactPackage = platformEntry.artifact?.package || null;
-      report.runtimeCanInstallFromPinnedArtifact = !!(
-        report.runtimeInstallerPresent
-        && platformEntry.artifact?.package
+      report.runtimePinnedArtifactMetadataComplete = !!(
+        platformEntry.artifact?.package
         && platformEntry.artifact?.tarballSha256
+        && platformEntry.artifact?.tarball
         && platformEntry.artifact?.vendorPath
         && platformEntry.sha256
         && platformEntry.size
@@ -313,7 +326,10 @@ console.log(`releasePackageContainsCodexRuntime=${report.releasePackageContainsC
 console.log(`releasePackageMode=${report.releasePackageMode}`);
 console.log(`containsRuntimeBinary=${report.containsRuntimeBinary}`);
 console.log(`runtimeDownloadRequired=${report.runtimeDownloadRequired}`);
-console.log(`runtimeCanInstallFromPinnedArtifact=${report.runtimeCanInstallFromPinnedArtifact}`);
+console.log(`runtimePinnedArtifactMetadataComplete=${report.runtimePinnedArtifactMetadataComplete}`);
+console.log(`runtimeInstallerExecutable=${report.runtimeInstallerExecutable}`);
+console.log(`runtimeInstallRequiresSystemNpm=${report.runtimeInstallRequiresSystemNpm}`);
+console.log(`runtimeInstallRequiresSystemTar=${report.runtimeInstallRequiresSystemTar}`);
 console.log(`runtimeBinarySha256Verified=${report.runtimeBinarySha256Verified}`);
 
 // ---------- 8. 统计 user-package 大小 ----------
@@ -334,7 +350,8 @@ report.userPackageStatus =
   && report.canLoadMainJs && report.noRootPackageJson
   && report.containsCodexManagedRuntime
   && report.releasePackageContainsCodexRuntime
-  && report.runtimeCanInstallFromPinnedArtifact
+  && report.runtimePinnedArtifactMetadataComplete
+  && report.runtimeInstallerExecutable
   && (
     report.releasePackageMode === "download-on-first-run"
       ? !report.containsRuntimeBinary && report.runtimeDownloadRequired
@@ -367,7 +384,10 @@ console.log(`releasePackageContainsCodexRuntime=${report.releasePackageContainsC
 console.log(`releasePackageMode=${report.releasePackageMode}`);
 console.log(`containsRuntimeBinary=${report.containsRuntimeBinary}`);
 console.log(`runtimeDownloadRequired=${report.runtimeDownloadRequired}`);
-console.log(`runtimeCanInstallFromPinnedArtifact=${report.runtimeCanInstallFromPinnedArtifact}`);
+console.log(`runtimePinnedArtifactMetadataComplete=${report.runtimePinnedArtifactMetadataComplete}`);
+console.log(`runtimeInstallerExecutable=${report.runtimeInstallerExecutable}`);
+console.log(`runtimeInstallRequiresSystemNpm=${report.runtimeInstallRequiresSystemNpm}`);
+console.log(`runtimeInstallRequiresSystemTar=${report.runtimeInstallRequiresSystemTar}`);
 console.log(`releasePackageSizeMB=${report.releasePackageSizeMB}`);
 console.log(`runtimeBinarySha256Verified=${report.runtimeBinarySha256Verified}`);
 console.log(`offlinePackageSizeMB=${report.offlinePackageSizeMB}`);
@@ -405,7 +425,10 @@ function writeReport(r) {
     `- **releasePackageMode**: ${r.releasePackageMode}`,
     `- **containsRuntimeBinary**: ${r.containsRuntimeBinary}`,
     `- **runtimeDownloadRequired**: ${r.runtimeDownloadRequired}`,
-    `- **runtimeCanInstallFromPinnedArtifact**: ${r.runtimeCanInstallFromPinnedArtifact}`,
+    `- **runtimePinnedArtifactMetadataComplete**: ${r.runtimePinnedArtifactMetadataComplete}`,
+    `- **runtimeInstallerExecutable**: ${r.runtimeInstallerExecutable}`,
+    `- **runtimeInstallRequiresSystemNpm**: ${r.runtimeInstallRequiresSystemNpm}`,
+    `- **runtimeInstallRequiresSystemTar**: ${r.runtimeInstallRequiresSystemTar}`,
     `- **releasePackageContainsCodexRuntime**: ${r.releasePackageContainsCodexRuntime}`,
     `- **releasePackageSizeMB**: ${r.releasePackageSizeMB}`,
     `- **runtimeBinarySha256Verified**: ${r.runtimeBinarySha256Verified}`,
@@ -428,7 +451,10 @@ function writeReport(r) {
     "- **releasePackageMode**: download-on-first-run 为普通用户默认；bundled-platform-runtime 仅用于离线朋友版/平台专用包；external-fallback-dev 仅开发者兼容路径",
     "- **containsRuntimeBinary**: 当前包是否实际包含 runtime binary",
     "- **runtimeDownloadRequired**: 当前包是否需要首次运行安装 runtime",
-    "- **runtimeCanInstallFromPinnedArtifact**: manifest + installer + pinned artifact metadata 完整，首次运行可从固定 artifact 安装",
+    "- **runtimePinnedArtifactMetadataComplete**: manifest 中固定 artifact package/tarball/tarballSha256/vendorPath/size/sha256 完整",
+    "- **runtimeInstallerExecutable**: 包内 installer 不依赖系统 npm/tar，可由 Node/Electron 执行",
+    "- **runtimeInstallRequiresSystemNpm**: runtime installer 是否依赖系统 npm CLI",
+    "- **runtimeInstallRequiresSystemTar**: runtime installer 是否依赖系统 tar CLI",
     "- **releasePackageContainsCodexRuntime**: dist/user-package 已包含 runtime-manifest.json 与 installer/downloader；默认不包含 codex.exe",
     "- **releasePackageSizeMB**: dist/user-package 当前产物大小，用于 release 风险记录",
     "- **runtimeBinarySha256Verified**: offline package 中当前平台 runtime binary sha256 已按 manifest 校验；默认包为 false",
