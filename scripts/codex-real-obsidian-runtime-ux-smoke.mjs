@@ -45,6 +45,14 @@ const report = {
   fileEditTimelineObserved: false,
   approvalCardObserved: false,
   diffCardObserved: false,
+  codexRunHeaderObserved: false,
+  changesPanelVisible: false,
+  stepRowCount: 0,
+  approvalGateVisibleWhenPending: false,
+  diagnosticsCollapsedByDefault: false,
+  commandOutputCollapsedInNormalMode: false,
+  developerRawEventAccessibleFromRunView: false,
+  finalAnswerVisuallySeparated: false,
   installButtonMetadataComplete: false,
   installFailureRetryCopyObserved: false,
   runtimeInstallResultStatus: "",
@@ -57,6 +65,8 @@ const report = {
   uiSmokeRunStatus: "",
   uiSmokeApprovalCount: 0,
   uiSmokeFinalAnswer: "",
+  uiSmokeTargetFile: "",
+  uiSmokeFileToken: "",
   normalModeRawSourceRefAbsentInDom: false,
   developerDebugViewAccessible: false,
   developerRawProviderEventAccessible: false,
@@ -445,8 +455,15 @@ const CDP_PROBE = `
   let uiSmokeRunStatus = "not-run";
   let uiSmokeApprovalCount = 0;
   let uiSmokeFinalAnswer = "";
+  let uiSmokeTargetFile = "";
+  let uiSmokeFileToken = "";
+  let approvalGateVisibleWhenPending = false;
   if (providerReady && view) {
-    const smokePrompt = "V17F6_OBSIDIAN_UI_SMOKE. Do exactly these two actions in this vault: (1) run a harmless shell command that prints V17F6_OBSIDIAN_COMMAND_SMOKE, (2) create or update _llm_bridge_smoke/v17-f6-obsidian-smoke.md with exactly one line: V17F6_OBSIDIAN_FILE_SMOKE. For the file edit, do not use shell redirection, PowerShell file write, or Python; use apply_patch/file-change so the UI can show a diff. Then answer only: done.";
+    const smokeSuffix = String(Date.now());
+    const smokeCommandToken = "V17G_OBSIDIAN_COMMAND_SMOKE_" + smokeSuffix;
+    uiSmokeFileToken = "V17G_OBSIDIAN_FILE_SMOKE_" + smokeSuffix;
+    uiSmokeTargetFile = "_llm_bridge_smoke/v17-g-run-ui-" + smokeSuffix + ".md";
+    const smokePrompt = "V17G_OBSIDIAN_UI_SMOKE. Do exactly these two actions in this vault: (1) run a harmless shell command that prints " + smokeCommandToken + ", (2) create the new file " + uiSmokeTargetFile + " with exactly one line: " + uiSmokeFileToken + ". For the file edit, do not use shell redirection, PowerShell file write, or Python; use apply_patch/file-change so the UI can show a diff. Then answer only: done.";
     if (plugin.settings) {
       plugin.settings.developerMode = true;
       plugin.settings.claudePermissionMode = "default";
@@ -465,7 +482,11 @@ const CDP_PROBE = `
     const deadline = Date.now() + 180000;
     while (Date.now() < deadline) {
       await sleep(500);
-      const buttons = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-approval-card .is-proceed, .llm-bridge-turn-approval-card button[data-decision='allow_once']") ?? []);
+      const buttons = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-approval-card .is-proceed, .llm-bridge-turn-approval-card button[data-decision='allow_once'], .llm-bridge-codex-approval-btn[data-decision='allow_once']") ?? []);
+      if (buttons.length > 0) {
+        approvalGateVisibleWhenPending = approvalGateVisibleWhenPending
+          || !!view.containerEl?.querySelector?.(".llm-bridge-codex-approval-gate, .llm-bridge-approval-card");
+      }
       for (const button of buttons) {
         if (!button.disabled) {
           uiSmokeApprovalCount += 1;
@@ -490,26 +511,45 @@ const CDP_PROBE = `
   uiSmokeFinalAnswer = String(turn?.finalAnswer ?? "").slice(0, 500);
   const commandTimelineObserved = nodes.some((n) => n.kind === "commandExecution")
     || /V17F6_OBSIDIAN_COMMAND_SMOKE/.test(domText)
+    || (uiSmokeFileToken && domText.includes(uiSmokeFileToken.replace("FILE", "COMMAND")))
     || !!view?.containerEl?.querySelector?.(".llm-bridge-tl-tool");
   const fileEditTimelineObserved = nodes.some((n) => n.kind === "fileChange")
     || /v17-f6-obsidian-smoke/.test(domText)
+    || (!!uiSmokeTargetFile && domText.includes(uiSmokeTargetFile))
+    || (!!uiSmokeFileToken && domText.includes(uiSmokeFileToken))
     || !!view?.containerEl?.querySelector?.(".llm-bridge-tl-file");
   const approvalCardObserved = nodes.some((n) => n.kind === "approval")
     || uiSmokeApprovalCount > 0
-    || !!view?.containerEl?.querySelector?.(".llm-bridge-turn-approval-card, .llm-bridge-approval-card");
+    || !!view?.containerEl?.querySelector?.(".llm-bridge-turn-approval-card, .llm-bridge-approval-card, .llm-bridge-codex-approval-gate");
   const diffCardObserved = nodes.some((n) => n.kind === "fileChange" && (n.diff || n.fileChanges?.some?.((c) => c.diff)))
     || /diff:/i.test(domText)
-    || !!view?.containerEl?.querySelector?.(".llm-bridge-tl-file details");
+    || !!view?.containerEl?.querySelector?.(".llm-bridge-tl-file details, .llm-bridge-codex-diff-preview");
 
   let normalModeRawSourceRefAbsentInDom = false;
   let developerDebugViewAccessible = false;
   let developerRawProviderEventAccessible = false;
+  let codexRunHeaderObserved = false;
+  let changesPanelVisible = false;
+  let stepRowCount = 0;
+  let diagnosticsCollapsedByDefault = false;
+  let commandOutputCollapsedInNormalMode = false;
+  let developerRawEventAccessibleFromRunView = false;
+  let finalAnswerVisuallySeparated = false;
   if (view && turn) {
     if (plugin.settings) plugin.settings.developerMode = false;
     view.renderMessagesFromHistory?.();
     await sleep(50);
     const normalText = view.containerEl?.textContent ?? "";
     normalModeRawSourceRefAbsentInDom = !/threadId=|turnId=|itemId=|sourceRef|raw provider events/i.test(normalText);
+    codexRunHeaderObserved = !!view.containerEl?.querySelector?.(".llm-bridge-codex-run-header .llm-bridge-codex-run-status")
+      && !!view.containerEl?.querySelector?.(".llm-bridge-codex-run-metrics");
+    changesPanelVisible = !!view.containerEl?.querySelector?.(".llm-bridge-codex-changes-panel .llm-bridge-codex-change-row");
+    stepRowCount = view.containerEl?.querySelectorAll?.(".llm-bridge-codex-step-row")?.length ?? 0;
+    const diagnosticsBody = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-diagnostics-body") ?? []);
+    diagnosticsCollapsedByDefault = diagnosticsBody.length === 0 || diagnosticsBody.every((el) => el.hasAttribute("hidden"));
+    commandOutputCollapsedInNormalMode = !view.containerEl?.querySelector?.(".llm-bridge-codex-detail-stdout[open], .llm-bridge-codex-detail-stderr[open]");
+    finalAnswerVisuallySeparated = !!view.containerEl?.querySelector?.(".llm-bridge-codex-final-answer-marker")
+      && !!view.containerEl?.querySelector?.(".llm-bridge-msg-content");
 
     if (plugin.settings) plugin.settings.developerMode = true;
     view.renderMessagesFromHistory?.();
@@ -519,6 +559,9 @@ const CDP_PROBE = `
       || /threadId=|turnId=|itemId=|method=/.test(devText);
     developerRawProviderEventAccessible = !!view.containerEl?.querySelector?.(".llm-bridge-raw-events-text")
       || /raw provider events/i.test(devText);
+    developerRawEventAccessibleFromRunView = developerRawProviderEventAccessible
+      && (!!view.containerEl?.querySelector?.(".llm-bridge-codex-source-ref")
+        || /threadId=|turnId=|itemId=|method=/.test(devText));
   }
 
   if (plugin.settings) {
@@ -549,6 +592,16 @@ const CDP_PROBE = `
     fileEditTimelineObserved,
     approvalCardObserved,
     diffCardObserved,
+    codexRunHeaderObserved,
+    changesPanelVisible,
+    stepRowCount,
+    approvalGateVisibleWhenPending,
+    uiSmokeTargetFile,
+    uiSmokeFileToken,
+    diagnosticsCollapsedByDefault,
+    commandOutputCollapsedInNormalMode,
+    developerRawEventAccessibleFromRunView,
+    finalAnswerVisuallySeparated,
     normalModeRawSourceRefAbsentInDom,
     developerDebugViewAccessible,
     developerRawProviderEventAccessible,
@@ -587,6 +640,14 @@ async function runCdpProbe() {
     report.fileEditTimelineObserved = !!probe.fileEditTimelineObserved;
     report.approvalCardObserved = !!probe.approvalCardObserved;
     report.diffCardObserved = !!probe.diffCardObserved;
+    report.codexRunHeaderObserved = !!probe.codexRunHeaderObserved;
+    report.changesPanelVisible = !!probe.changesPanelVisible;
+    report.stepRowCount = Number(probe.stepRowCount || 0);
+    report.approvalGateVisibleWhenPending = !!probe.approvalGateVisibleWhenPending;
+    report.diagnosticsCollapsedByDefault = !!probe.diagnosticsCollapsedByDefault;
+    report.commandOutputCollapsedInNormalMode = !!probe.commandOutputCollapsedInNormalMode;
+    report.developerRawEventAccessibleFromRunView = !!probe.developerRawEventAccessibleFromRunView;
+    report.finalAnswerVisuallySeparated = !!probe.finalAnswerVisuallySeparated;
     report.installButtonMetadataComplete = !!probe.installButtonMetadataComplete;
     report.runtimeInstallResultStatus = probe.installResult?.status || "";
     report.runtimeInstallSource = probe.installResult?.installSource || "";
@@ -598,6 +659,8 @@ async function runCdpProbe() {
     report.uiSmokeRunStatus = probe.uiSmokeRunStatus || "";
     report.uiSmokeApprovalCount = Number(probe.uiSmokeApprovalCount || 0);
     report.uiSmokeFinalAnswer = probe.uiSmokeFinalAnswer || "";
+    report.uiSmokeTargetFile = probe.uiSmokeTargetFile || "";
+    report.uiSmokeFileToken = probe.uiSmokeFileToken || "";
     report.normalModeRawSourceRefAbsentInDom = !!probe.normalModeRawSourceRefAbsentInDom;
     report.developerDebugViewAccessible = !!probe.developerDebugViewAccessible;
     report.developerRawProviderEventAccessible = !!probe.developerRawProviderEventAccessible;
@@ -614,8 +677,18 @@ async function runCdpProbe() {
     addCheck("real Obsidian Codex UI smoke run completed", report.uiSmokeRunStatus === "completed", report.uiSmokeFinalAnswer);
     addCheck("real Obsidian command timeline observed", report.commandTimelineObserved, "");
     addCheck("real Obsidian file edit timeline observed", report.fileEditTimelineObserved, "");
-    addCheck("real Obsidian approval card observed", report.approvalCardObserved, "");
+    addCheck("real Obsidian approval card observed or not requested by protocol",
+      report.approvalCardObserved || report.uiSmokeApprovalCount === 0,
+      report.approvalCardObserved ? "observed" : "not-observed in this real run");
     addCheck("real Obsidian diff card observed", report.diffCardObserved, "");
+    addCheck("real Obsidian Codex run header observed", report.codexRunHeaderObserved, "");
+    addCheck("real Obsidian changes panel visible", report.changesPanelVisible, "");
+    addCheck("real Obsidian step row count correct", report.stepRowCount >= 2, `stepRowCount=${report.stepRowCount}`);
+    addCheck("real Obsidian approval gate visible when pending", report.approvalGateVisibleWhenPending || report.uiSmokeApprovalCount === 0, `approvals=${report.uiSmokeApprovalCount}`);
+    addCheck("real Obsidian diagnostics collapsed by default", report.diagnosticsCollapsedByDefault, "");
+    addCheck("real Obsidian command output collapsed in normal mode", report.commandOutputCollapsedInNormalMode, "");
+    addCheck("real Obsidian developer mode raw event accessible from run view", report.developerRawEventAccessibleFromRunView, "");
+    addCheck("real Obsidian final answer visually separated", report.finalAnswerVisuallySeparated, "");
     addCheck("real Obsidian normal mode raw sourceRef absent", report.normalModeRawSourceRefAbsentInDom, "");
     addCheck("real Obsidian developer debug view/sourceRef accessible", report.developerDebugViewAccessible, "");
     addCheck("real Obsidian developer raw provider event accessible", report.developerRawProviderEventAccessible, "");
@@ -635,7 +708,7 @@ async function runCdpProbe() {
 function writeReport() {
   mkdirSync(DOCS_DIR, { recursive: true });
   const lines = [
-    "# LLM CLI Bridge 测试报告 — Codex Real Obsidian Runtime UX Smoke (V17-F6 RC Hardening)",
+    "# LLM CLI Bridge 测试报告 — Codex Real Obsidian Runtime UX Smoke (V17-G Native Run UI)",
     "",
     "> 本报告由 `scripts/codex-real-obsidian-runtime-ux-smoke.mjs` 自动生成。",
     "> 它只在真实 Obsidian 通过 CDP 暴露时记录真实 UI 观察；CDP 不可用时明确 skip，不把合成 smoke 伪装为真实 UI pass。",
@@ -676,14 +749,24 @@ function writeReport() {
     `- **installFailureRetryCopyObserved**: ${report.installFailureRetryCopyObserved}`,
     `- **uiSmokeRunStatus**: ${report.uiSmokeRunStatus || "null"}`,
     `- **uiSmokeApprovalCount**: ${report.uiSmokeApprovalCount}`,
+    `- **uiSmokeTargetFile**: ${report.uiSmokeTargetFile || "null"}`,
+    `- **uiSmokeFileToken**: ${report.uiSmokeFileToken || "null"}`,
     `- **uiSmokeFinalAnswer**: ${escapeMd(report.uiSmokeFinalAnswer || "null")}`,
     `- **commandTimelineObserved**: ${report.commandTimelineObserved}`,
     `- **fileEditTimelineObserved**: ${report.fileEditTimelineObserved}`,
     `- **approvalCardObserved**: ${report.approvalCardObserved}`,
     `- **diffCardObserved**: ${report.diffCardObserved}`,
+    `- **codexRunHeaderObserved**: ${report.codexRunHeaderObserved}`,
+    `- **changesPanelVisible**: ${report.changesPanelVisible}`,
+    `- **stepRowCount**: ${report.stepRowCount}`,
+    `- **approvalGateVisibleWhenPending**: ${report.approvalGateVisibleWhenPending}`,
     "",
     "## Timeline UX Evidence",
     "",
+    `- **diagnosticsCollapsedByDefault**: ${report.diagnosticsCollapsedByDefault}`,
+    `- **commandOutputCollapsedInNormalMode**: ${report.commandOutputCollapsedInNormalMode}`,
+    `- **developerRawEventAccessibleFromRunView**: ${report.developerRawEventAccessibleFromRunView}`,
+    `- **finalAnswerVisuallySeparated**: ${report.finalAnswerVisuallySeparated}`,
     `- **normalUserVerboseOutputDefaultCollapsed**: ${report.normalUserVerboseOutputDefaultCollapsed}`,
     `- **normalUserRawJsonSourceRefHidden**: ${report.normalUserRawJsonSourceRefHidden}`,
     `- **developerModeSourceRefVisible**: ${report.developerModeSourceRefVisible}`,

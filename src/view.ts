@@ -22,6 +22,7 @@ import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment } from "./runtime/core/types";
 import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
+import { buildCodexRunViewModel, formatCodexRunValue, type CodexRunApprovalGate, type CodexRunChangeGroup, type CodexRunDiagnosticsGroup, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
 import { DEFAULT_PROVIDER_CAPABILITIES, type ProviderCapabilityInfo, type ObsidianCliAvailability } from "./runtime/core/bridgePromptContract";
@@ -2256,6 +2257,14 @@ export class LLMBridgeView extends ItemView {
     this.refreshPermissionPanel();
   }
 
+  private clearApprovalUiState(): void {
+    // V17-G: terminal UI cleanup only; do not cancel provider promises here.
+    this.pendingPermissions.clear();
+    this.staleApprovalRequestIds.clear();
+    this.resolvingApprovalRequestId = null;
+    this.refreshPermissionPanel();
+  }
+
   private clearPendingUserInputRequests(): void {
     this.getSession().userInput.cancelAllPending();
     this.pendingUserInputDrafts.clear();
@@ -3895,6 +3904,22 @@ export class LLMBridgeView extends ItemView {
       developerMode: options.developerMode,
       debug: options.debug,
     });
+    const providerLabel = options.debug?.effectiveRunPlan?.backend ?? turnView.providerId;
+    const modelLabel = options.debug?.effectiveRunPlan?.model ?? "";
+    const shouldUseCodexRunView = /codex/i.test(turnView.providerId)
+      || /codex/i.test(providerLabel)
+      || turnView.turnTimeline.length > 0;
+    if (shouldUseCodexRunView) {
+      const codexRun = buildCodexRunViewModel(model, turnView, {
+        status,
+        developerMode: options.developerMode,
+        providerLabel,
+        modelLabel,
+        cwd: options.debug?.effectiveRunPlan?.cwd ?? this.getVaultPath(),
+      });
+      this.renderCodexRunView(parent, codexRun, model);
+      return;
+    }
 
     const isRunning = status === "running";
     const isFailed = status === "failed";
@@ -4016,6 +4041,246 @@ export class LLMBridgeView extends ItemView {
       head.removeClass("llm-bridge-timeline-head");
       head.addClass("llm-bridge-timeline-head-noclick");
     }
+  }
+
+  private renderCodexRunView(
+    parent: HTMLElement,
+    run: CodexRunViewModel,
+    sourceModel: AgentRunDisplayModel,
+  ): void {
+    const developerMode = !!run.debugPanel;
+    const hasBodyContent = run.approvalGates.length > 0
+      || run.changeGroups.length > 0
+      || run.stepGroups.length > 0
+      || run.diagnosticsGroups.length > 0
+      || !!run.debugPanel
+      || !!run.finalAnswer.trim();
+    const wrap = parent.createDiv({
+      cls: `llm-bridge-timeline-wrap llm-bridge-turn-view llm-bridge-codex-run-view is-${run.runHeader.statusKind}${developerMode ? " is-developer" : ""}`,
+    });
+    wrap.setAttribute("data-final-answer-disposition", sourceModel.finalAnswerDisposition);
+    wrap.addClass(`is-disposition-${sourceModel.finalAnswerDisposition}`);
+
+    const head = wrap.createDiv({ cls: "llm-bridge-timeline-head llm-bridge-codex-run-header" });
+    const toggle = head.createEl("span", { cls: "llm-bridge-timeline-toggle llm-bridge-codex-run-toggle", text: hasBodyContent ? "▼ " : "" });
+    const summary = head.createDiv({ cls: "llm-bridge-codex-run-summary" });
+    const statusEl = summary.createEl("span", {
+      cls: `llm-bridge-codex-run-status llm-bridge-timeline-summary is-${run.runHeader.statusKind}`,
+      text: run.runHeader.status,
+    });
+    statusEl.setAttribute("data-run-status", run.runHeader.statusKind);
+    const providerText = [run.runHeader.provider, run.runHeader.model].filter(Boolean).join(" · ");
+    if (providerText) summary.createEl("span", { cls: "llm-bridge-codex-run-provider", text: providerText, attr: { title: providerText } });
+
+    const metrics = head.createDiv({ cls: "llm-bridge-codex-run-metrics" });
+    this.renderCodexMetric(metrics, "clock", run.runHeader.elapsed || "0s", "Elapsed time");
+    this.renderCodexMetric(metrics, "file-text", String(run.runHeader.fileChangeCount), "File changes");
+    this.renderCodexMetric(metrics, "terminal", String(run.runHeader.commandCount), "Commands");
+    this.renderCodexMetric(metrics, "shield", String(run.runHeader.approvalCount), "Approvals");
+
+    const body = wrap.createDiv({ cls: "llm-bridge-timeline-body llm-bridge-codex-run-body" });
+    this.renderCodexCurrentActivity(body, run);
+    if (run.approvalGates.length > 0) this.renderCodexApprovalGates(body, run.approvalGates, developerMode);
+    if (run.changeGroups.length > 0) this.renderCodexChangesPanel(body, run.changeGroups, developerMode);
+    if (run.stepGroups.length > 0) this.renderCodexStepsTimeline(body, run.stepGroups, developerMode);
+    if (run.diagnosticsGroups.length > 0) this.renderCodexDiagnosticsDrawer(body, run.diagnosticsGroups, developerMode);
+    if (run.finalAnswer.trim().length > 0) {
+      body.createDiv({ cls: "llm-bridge-codex-final-answer-marker", text: "Final answer" });
+    }
+    if (developerMode && run.debugPanel) this.renderAgentRunDebugView(body, run.debugPanel);
+
+    if (hasBodyContent) {
+      head.addEventListener("click", (event) => {
+        if ((event.target as HTMLElement | null)?.closest?.("button")) return;
+        const hidden = body.hasAttribute("hidden");
+        if (hidden) {
+          body.removeAttribute("hidden");
+          toggle.textContent = "▼ ";
+        } else {
+          body.setAttribute("hidden", "");
+          toggle.textContent = "▶ ";
+        }
+      });
+    } else {
+      head.removeClass("llm-bridge-timeline-head");
+      head.addClass("llm-bridge-timeline-head-noclick");
+    }
+  }
+
+  private renderCodexMetric(parent: HTMLElement, icon: string, value: string, title: string): void {
+    const chip = parent.createEl("span", { cls: "llm-bridge-codex-run-metric", attr: { title } });
+    const iconEl = chip.createEl("span", { cls: "llm-bridge-codex-run-metric-icon" });
+    setIcon(iconEl, icon);
+    chip.createEl("span", { cls: "llm-bridge-codex-run-metric-value", text: value });
+  }
+
+  private renderCodexCurrentActivity(parent: HTMLElement, run: CodexRunViewModel): void {
+    const activity = parent.createDiv({ cls: `llm-bridge-codex-current-activity is-${run.currentActivity.kind}` });
+    const icon = activity.createEl("span", { cls: "llm-bridge-codex-current-activity-icon" });
+    setIcon(icon, run.currentActivity.kind === "blocked" ? "shield-alert" : run.currentActivity.kind === "running" ? "loader" : "check-circle");
+    const text = activity.createEl("span", { cls: "llm-bridge-codex-current-activity-text" });
+    this.renderRunStatusText(text, run.currentActivity.label, run.currentActivity.kind === "blocked" ? "blocked" : run.currentActivity.kind === "running" ? "running" : "completed");
+  }
+
+  private renderCodexApprovalGates(parent: HTMLElement, gates: ReadonlyArray<CodexRunApprovalGate>, developerMode: boolean): void {
+    const section = parent.createDiv({ cls: "llm-bridge-codex-approval-gates" });
+    section.createDiv({ cls: "llm-bridge-codex-section-title", text: "Approval required" });
+    for (const gate of gates) {
+      const card = section.createDiv({ cls: `llm-bridge-codex-approval-gate is-risk-${gate.risk}` });
+      card.setAttribute("data-request-id", gate.requestId);
+      const head = card.createDiv({ cls: "llm-bridge-codex-approval-gate-head" });
+      const icon = head.createEl("span", { cls: "llm-bridge-codex-approval-gate-icon" });
+      setIcon(icon, gate.risk === "high" ? "shield-alert" : "shield");
+      head.createEl("span", { cls: "llm-bridge-codex-approval-gate-action", text: gate.action, attr: { title: gate.action } });
+      head.createEl("span", { cls: `llm-bridge-codex-approval-gate-risk is-${gate.risk}`, text: gate.risk });
+      if (gate.summary) card.createDiv({ cls: "llm-bridge-codex-approval-gate-summary", text: truncateText(gate.summary, 220), attr: { title: gate.summary } });
+      if (gate.riskReason) card.createDiv({ cls: "llm-bridge-codex-approval-gate-reason", text: gate.riskReason });
+      const actions = card.createDiv({ cls: "llm-bridge-codex-approval-gate-actions" });
+      const addButton = (label: string, choice: PermissionChoice, cls: string) => {
+        const button = actions.createEl("button", { cls: `llm-bridge-codex-approval-btn ${cls}`, text: label, attr: { type: "button", "data-decision": choice } });
+        button.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this.resolvePermissionRequests([gate.requestId], choice);
+        });
+      };
+      addButton("Allow once", "allow_once", "is-allow-once");
+      addButton("Allow session", "allow_session", "is-allow-session");
+      addButton("Deny", "deny_once", "is-deny");
+      this.renderCodexSourceRef(card, gate.sourceRef, developerMode);
+    }
+  }
+
+  private renderCodexChangesPanel(parent: HTMLElement, changes: ReadonlyArray<CodexRunChangeGroup>, developerMode: boolean): void {
+    const section = parent.createDiv({ cls: "llm-bridge-codex-changes-panel" });
+    const head = section.createDiv({ cls: "llm-bridge-codex-section-head" });
+    head.createDiv({ cls: "llm-bridge-codex-section-title", text: `Changes · ${changes.length}` });
+    const list = section.createDiv({ cls: "llm-bridge-codex-change-list" });
+    for (const change of changes) {
+      const row = list.createDiv({ cls: `llm-bridge-codex-change-row is-${change.action}` });
+      const icon = row.createEl("span", { cls: "llm-bridge-codex-change-icon" });
+      setIcon(icon, change.action === "create" ? "file-plus" : change.action === "delete" ? "file-minus" : "file-pen-line");
+      const main = row.createDiv({ cls: "llm-bridge-codex-change-main" });
+      const title = main.createDiv({ cls: "llm-bridge-codex-change-title" });
+      const actionText = change.action === "create" ? "Created" : change.action === "delete" ? "Deleted" : "Modified";
+      title.createEl("span", { cls: "llm-bridge-codex-change-action", text: actionText });
+      title.createEl("span", { cls: "llm-bridge-codex-change-name", text: change.fileName, attr: { title: change.relativePath } });
+      main.createDiv({ cls: "llm-bridge-codex-change-path", text: change.relativePath, attr: { title: change.fullPath } });
+      const meta = row.createDiv({ cls: "llm-bridge-codex-change-meta" });
+      meta.createEl("span", { cls: "llm-bridge-codex-change-diff-summary", text: change.diffSummary });
+      if (change.approvalStatus) meta.createEl("span", { cls: `llm-bridge-codex-change-approval is-${change.approvalStatus}`, text: change.approvalStatus });
+      if (change.durationMs) meta.createEl("span", { cls: "llm-bridge-codex-change-duration", text: this.formatDurationMs(change.durationMs) });
+      const actions = row.createDiv({ cls: "llm-bridge-codex-change-actions" });
+      const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "Copy path" } });
+      setIcon(copyBtn, "copy");
+      copyBtn.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(change.relativePath || change.fullPath);
+          new Notice("Path copied");
+        } catch {
+          new Notice("Copy failed");
+        }
+      });
+      const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "Open file" } });
+      setIcon(openBtn, "external-link");
+      openBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const target = path.isAbsolute(change.fullPath) ? change.fullPath : path.join(this.getVaultPath(), change.fullPath || change.relativePath);
+        void this.openPathWithSystemDefault(target);
+      });
+      if (change.diff) {
+        const details = row.createEl("details", { cls: "llm-bridge-codex-diff-preview" });
+        details.createEl("summary", { text: "Diff preview" });
+        details.createEl("pre", { cls: "llm-bridge-codex-diff-pre", text: change.diff });
+      }
+      this.renderCodexSourceRef(row, change.sourceRef, developerMode);
+    }
+  }
+
+  private renderCodexStepsTimeline(parent: HTMLElement, steps: ReadonlyArray<CodexRunStepGroup>, developerMode: boolean): void {
+    const section = parent.createDiv({ cls: "llm-bridge-codex-steps" });
+    const head = section.createDiv({ cls: "llm-bridge-codex-section-head" });
+    head.createDiv({ cls: "llm-bridge-codex-section-title", text: `Steps · ${steps.length}` });
+    const list = section.createDiv({ cls: "llm-bridge-codex-step-list" });
+    for (const step of steps) {
+      const row = list.createDiv({ cls: `llm-bridge-codex-step-row is-${step.kind} is-${step.status}` });
+      row.setAttribute("data-step-kind", step.kind);
+      if (step.sourceRef?.itemId) row.setAttribute("data-item-id", step.sourceRef.itemId);
+      const icon = row.createEl("span", { cls: "llm-bridge-codex-step-icon" });
+      setIcon(icon, step.icon);
+      const label = row.createDiv({ cls: "llm-bridge-codex-step-label", text: step.label, attr: { title: step.label } });
+      const status = row.createDiv({ cls: `llm-bridge-codex-step-status is-${step.status}`, text: step.status });
+      if (step.durationMs) row.createDiv({ cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(step.durationMs) });
+      if (step.exitCode !== undefined) row.createDiv({ cls: "llm-bridge-codex-step-exit", text: `exit ${step.exitCode}` });
+      this.renderCodexCollapsedText(row, "command", step.command);
+      if (step.cwd && developerMode) row.createDiv({ cls: "llm-bridge-codex-step-cwd", text: `cwd: ${step.cwd}`, attr: { title: step.cwd } });
+      this.renderCodexCollapsedText(row, "stdout", step.stdout);
+      this.renderCodexCollapsedText(row, "stderr", step.stderr);
+      if (developerMode) {
+        this.renderCodexCollapsedText(row, "args", step.args);
+        this.renderCodexCollapsedText(row, "structured result", formatCodexRunValue(step.structuredResult));
+        this.renderCodexCollapsedText(row, "content items", formatCodexRunValue(step.contentItems));
+        this.renderCodexSourceRef(row, step.sourceRef, developerMode);
+      }
+      label.toggleClass("is-running", step.status === "running");
+      status.toggleClass("is-hidden", false);
+    }
+  }
+
+  private renderCodexDiagnosticsDrawer(
+    parent: HTMLElement,
+    diagnostics: ReadonlyArray<CodexRunDiagnosticsGroup>,
+    developerMode: boolean,
+  ): void {
+    const total = diagnostics.reduce((sum, group) => sum + group.count, 0);
+    const section = parent.createDiv({ cls: "llm-bridge-codex-diagnostics" });
+    const head = section.createDiv({ cls: "llm-bridge-codex-diagnostics-head" });
+    const toggle = head.createEl("span", { cls: "llm-bridge-codex-diagnostics-toggle", text: "▶" });
+    const icon = head.createEl("span", { cls: "llm-bridge-codex-diagnostics-icon" });
+    setIcon(icon, "triangle-alert");
+    head.createEl("span", { cls: "llm-bridge-codex-diagnostics-summary", text: `Diagnostics · ${total} warning${total === 1 ? "" : "s"}` });
+    const body = section.createDiv({ cls: "llm-bridge-codex-diagnostics-body", attr: { hidden: "" } });
+    for (const diagnostic of diagnostics) {
+      const item = body.createDiv({ cls: `llm-bridge-codex-diagnostic-item is-${diagnostic.severity}` });
+      item.createDiv({ cls: "llm-bridge-codex-diagnostic-message", text: diagnostic.count > 1 ? `${diagnostic.message} (${diagnostic.count})` : diagnostic.message });
+      if (developerMode) {
+        this.renderCodexCollapsedText(item, "raw", formatCodexRunValue(diagnostic.raw ?? diagnostic));
+      }
+    }
+    head.addEventListener("click", () => {
+      const hidden = body.hasAttribute("hidden");
+      if (hidden) {
+        body.removeAttribute("hidden");
+        toggle.textContent = "▼";
+      } else {
+        body.setAttribute("hidden", "");
+        toggle.textContent = "▶";
+      }
+    });
+  }
+
+  private renderCodexCollapsedText(parent: HTMLElement, label: string, value?: string): void {
+    if (!value) return;
+    const details = parent.createEl("details", { cls: `llm-bridge-codex-detail llm-bridge-codex-detail-${label.replace(/\s+/g, "-")}` });
+    const lines = value.split(/\r?\n/).filter((line) => line.length > 0).length || 1;
+    const bytes = new TextEncoder().encode(value).length;
+    const sizeText = bytes >= 1024 ? `${Math.round(bytes / 102.4) / 10} KB` : `${bytes} B`;
+    details.createEl("summary", { text: `${label} · ${lines} line${lines === 1 ? "" : "s"} · ${sizeText}` });
+    details.createEl("pre", { cls: "llm-bridge-codex-detail-pre", text: value });
+  }
+
+  private renderCodexSourceRef(parent: HTMLElement, sourceRef?: import("./runtime/core/types").RuntimeSourceRef, developerMode = false): void {
+    if (!developerMode || !sourceRef) return;
+    const parts = [
+      sourceRef.threadId ? `threadId=${sourceRef.threadId}` : "",
+      sourceRef.turnId ? `turnId=${sourceRef.turnId}` : "",
+      sourceRef.itemId ? `itemId=${sourceRef.itemId}` : "",
+      sourceRef.parentItemId ? `parentItemId=${sourceRef.parentItemId}` : "",
+      sourceRef.serverRequestId !== undefined ? `serverRequestId=${sourceRef.serverRequestId}` : "",
+      sourceRef.method ? `method=${sourceRef.method}` : "",
+      sourceRef.sequence !== undefined ? `sequence=${sourceRef.sequence}` : "",
+    ].filter(Boolean).join(" · ");
+    if (parts) parent.createDiv({ cls: "llm-bridge-codex-source-ref", text: parts });
   }
 
   /**
@@ -6934,6 +7199,7 @@ export class LLMBridgeView extends ItemView {
     sdkEvents: ReadonlyArray<WorkflowEvent>,
   ): Promise<void> {
     this.runHandle = null;
+    this.clearApprovalUiState();
 
     const msg = this.messages.find((m) => m.id === assistantId);
     const newLog = (msg?.log || "") +

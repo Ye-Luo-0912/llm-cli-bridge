@@ -1089,6 +1089,7 @@ if (runMode !== "all" && runMode !== "unit") {
     const tempPermBoundaryBundle = join(PROJECT_ROOT, ".test-perm-boundary-temp.mjs");
     const tempWorkflowMapperBundle = join(PROJECT_ROOT, ".test-workflow-mapper-temp.mjs");
     const tempAgentRunDisplayModelBundle = join(PROJECT_ROOT, ".test-agent-run-display-model-temp.mjs");
+    const tempCodexRunViewModelBundle = join(PROJECT_ROOT, ".test-codex-run-view-model-temp.mjs");
     const tempRunPhaseModelBundle = join(PROJECT_ROOT, ".test-run-phase-model-temp.mjs");
     const tempProviderLifecycleBundle = join(PROJECT_ROOT, ".test-provider-lifecycle-temp.mjs");
     // V16.5-B: sdkPermission bundle 供 normalizeToolName / assessToolRisk 测试
@@ -1116,6 +1117,7 @@ if (runMode !== "all" && runMode !== "unit") {
     await esbuild.build({ ...bundleOpts("runtime/core/permissionBoundary.ts"), outfile: tempPermBoundaryBundle });
     await esbuild.build({ ...bundleOpts("runtime/providers/workflowEventMapper.ts"), outfile: tempWorkflowMapperBundle });
     await esbuild.build({ ...bundleOpts("runtime/core/agentRunDisplayModel.ts"), outfile: tempAgentRunDisplayModelBundle });
+    await esbuild.build({ ...bundleOpts("runtime/core/codexRunViewModel.ts"), outfile: tempCodexRunViewModelBundle });
     await esbuild.build({ ...bundleOpts("runtime/core/runPhaseModel.ts"), outfile: tempRunPhaseModelBundle });
     await esbuild.build({ ...bundleOpts("runtime/core/providerLifecycleEvent.ts"), outfile: tempProviderLifecycleBundle });
     await esbuild.build({ ...bundleOpts("sdkPermission.ts"), outfile: tempSdkPermissionBundle });
@@ -1134,6 +1136,7 @@ if (runMode !== "all" && runMode !== "unit") {
     const permBoundaryMod = await import(pathToFileURL(tempPermBoundaryBundle).href);
     const workflowMapperMod = await import(pathToFileURL(tempWorkflowMapperBundle).href);
     const agentRunDisplayModelMod = await import(pathToFileURL(tempAgentRunDisplayModelBundle).href);
+    const codexRunViewModelMod = await import(pathToFileURL(tempCodexRunViewModelBundle).href);
     const runPhaseModelMod = await import(pathToFileURL(tempRunPhaseModelBundle).href);
     const providerLifecycleMod = await import(pathToFileURL(tempProviderLifecycleBundle).href);
     // V16.5-B: sdkPermission 模块（normalizeToolName / assessToolRisk）
@@ -2371,6 +2374,69 @@ if (runMode !== "all" && runMode !== "unit") {
           setPermNotBlockedOk ? "pass" : "fail",
           setPermNotBlockedOk ? "" : `hasRunHandleBlock=${hasRunHandleBlock} bodyLen=${setPermBody.length}`);
       }
+    }
+
+    // ---------- 5b2. V17-G CodexRunViewModel: compact run UI model ----------
+    {
+      const { buildAgentRunDisplayModel } = agentRunDisplayModelMod;
+      const { buildCodexRunViewModel } = codexRunViewModelMod;
+      const { buildAssistantTurnViewFromEvents } = assistantViewMod;
+      const mkEvent = (payload, sequence = 1) => ({
+        providerId: "codex-app-server",
+        timestamp: "2026-07-02T00:00:00.000Z",
+        sourceRef: {
+          threadId: "thread-v17g",
+          turnId: "turn-v17g",
+          itemId: payload.callId || payload.requestId || `item-${sequence}`,
+          method: payload.kind,
+          sequence,
+        },
+        payload,
+      });
+      const events = [
+        mkEvent({ kind: "thinking", text: "Plan the edit" }, 1),
+        mkEvent({ kind: "tool_start", toolName: "Bash", toolInput: JSON.stringify({ command: "echo V17G", cwd: "D:/repo" }), callId: "cmd-v17g" }, 2),
+        mkEvent({ kind: "tool_result", callId: "cmd-v17g", toolName: "Bash", output: "V17G\n", isError: false }, 3),
+        mkEvent({ kind: "file_change", action: "modify", path: "D:/repo/notes/run.md", diff: "--- a/notes/run.md\n+++ b/notes/run.md\n@@\n-old\n+new" }, 4),
+        mkEvent({ kind: "approval_request", requestId: "ap-v17g", toolName: "Bash", description: "Run command", inputSummary: "echo V17G", riskLevel: "medium" }, 5),
+      ];
+      const view = buildAssistantTurnViewFromEvents("turn-v17g", "codex-app-server", events, "2026-07-02T00:00:00.000Z");
+      const model = buildAgentRunDisplayModel(view, { developerMode: false, isRunning: true });
+      const run = buildCodexRunViewModel(model, view, {
+        status: "running",
+        providerLabel: "codex-managed-app-server",
+        modelLabel: "gpt-codex",
+        cwd: "D:/repo",
+        developerMode: false,
+      });
+      const devModel = buildAgentRunDisplayModel(view, {
+        developerMode: true,
+        isRunning: true,
+        debug: { rawProviderEvents: [{ method: "item/commandExecution/outputDelta" }] },
+      });
+      const devRun = buildCodexRunViewModel(devModel, view, {
+        status: "running",
+        providerLabel: "codex-managed-app-server",
+        modelLabel: "gpt-codex",
+        cwd: "D:/repo",
+        developerMode: true,
+      });
+      const commandStep = run.stepGroups.find((step) => step.kind === "command");
+      const change = run.changeGroups[0];
+      const ok = run.runHeader.statusKind === "blocked"
+        && run.currentActivity.label === "Waiting approval"
+        && run.runHeader.commandCount === 1
+        && run.runHeader.fileChangeCount === 1
+        && run.runHeader.approvalCount >= 1
+        && run.approvalGates.length === 1
+        && commandStep?.stdout?.includes("V17G")
+        && change?.relativePath === "notes/run.md"
+        && change.diffSummary === "+1 -1"
+        && run.debugPanel === undefined
+        && devRun.debugPanel?.rawProviderEvents?.length === 1;
+      addTest("V17-G CodexRunViewModel: runHeader/currentActivity/changes/steps/approval/debugPanel 分层",
+        ok ? "pass" : "fail",
+        `status=${run.runHeader.statusKind} activity=${run.currentActivity.label} commands=${run.runHeader.commandCount} changes=${run.runHeader.fileChangeCount} approvals=${run.approvalGates.length} stepStdout=${!!commandStep?.stdout} relativePath=${change?.relativePath} debug=${!!run.debugPanel}/${!!devRun.debugPanel}`);
     }
 
     // ---------- 5c. P3-C: Developer mode / legacy 分层隔离 ----------
@@ -6864,6 +6930,10 @@ if (runMode !== "all" && runMode !== "unit") {
     for (const f of [
       tempCodexProviderBundle, tempPromptPkgBundle, tempAssistantViewBundle,
       tempPermBoundaryBundle, tempWorkflowMapperBundle,
+      tempAgentRunDisplayModelBundle,
+      tempCodexRunViewModelBundle,
+      tempRunPhaseModelBundle,
+      tempProviderLifecycleBundle,
       tempSdkPermissionBundle,
       tempBridgeContractBundle,
       tempAgentRuntimeWorkspaceBundle,
