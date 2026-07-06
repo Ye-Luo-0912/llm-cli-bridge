@@ -3,10 +3,10 @@
 > 本报告由 `scripts/generate-runtime-distribution-report.mjs` 自动生成。
 > 默认包采用 download-on-first-run，不复制 Codex runtime 大 binary；offline package 才 bundling 当前平台 binary。
 
-- **测试时间**: 2026-07-06T06:09:07.688Z
+- **测试时间**: 2026-07-06T06:34:04.805Z
 - **defaultPackageDir**: D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\dist\user-package
 - **defaultPackageMode**: download-on-first-run
-- **defaultPackageSizeMB**: 97.8
+- **defaultPackageSizeMB**: 97.9
 - **offlinePackageDir**: D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\dist\user-package-offline-win32-x64
 - **offlinePackageMode**: bundled-platform-runtime
 - **offlineWin32X64PackageSizeMB**: 406
@@ -18,6 +18,12 @@
 - **runtimePinnedArtifactMetadataComplete**: true
 - **runtimeInstallerExecutable**: true
 - **runtimeInstallSmokeStatus**: pass
+- **runtimeInstallSource**: download
+- **runtimeRemoteDownloadSmokeStatus**: pass
+- **runtimeFirstRunIntegrationStatus**: pass
+- **installRequiredSurfaced**: true
+- **resolverAfterInstallStatus**: pass
+- **providerAfterInstall**: codex-managed-app-server
 - **runtimeInstallRequiresSystemNpm**: false
 - **runtimeInstallRequiresSystemTar**: false
 - **defaultManifestExists**: true

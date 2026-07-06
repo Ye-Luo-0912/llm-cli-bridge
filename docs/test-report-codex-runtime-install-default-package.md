@@ -3,7 +3,7 @@
 > 本报告由 `scripts/codex-runtime-install-default-package-smoke.mjs` 自动生成。
 > 验证 dist/user-package 默认包不含 runtime binary 时，包内 installer 可不依赖系统 npm/tar 完成安装。
 
-- **测试时间**: 2026-07-06T06:09:13.386Z
+- **测试时间**: 2026-07-06T06:33:26.484Z
 - **installerPresent**: true
 - **noRuntimeBefore**: true
 - **downloadOrLocalArtifactInstall**: true

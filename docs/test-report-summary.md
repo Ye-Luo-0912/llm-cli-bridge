@@ -9,16 +9,16 @@
 > 报告不互相覆盖：unit/process/managed-runtime/user-package 各自独立生成，summary 仅汇总主线结论。
 > external Codex CLI/app-server 是兼容路径；本 summary 不解析旧 codex-smoke 报告，也不把 external 状态作为主 gate。
 
-- **生成时间**: 2026-07-06T06:09:20.456Z
-- **reportCommitSha**: ece36baee721d26f1588fa2d8eee865f99997f4f
-- **reportCommitSha 短**: ece36baee721
-- **reportParentSha**: 513e05006398d9fed35d28c2dc3d0390e99a64a1
-- **reportParentSha 短**: 513e05006398
-- **testedCodeCommitSha**: ece36baee721d26f1588fa2d8eee865f99997f4f
-- **testedCodeCommitSha 短**: ece36baee721
+- **生成时间**: 2026-07-06T06:34:10.368Z
+- **reportCommitSha**: 0685e0c63cf5239c8f2c83eb4f969ad3fdfc6312
+- **reportCommitSha 短**: 0685e0c63cf5
+- **reportParentSha**: 5ed49745c46d3b505ac3938b97cf78a7d646ebde
+- **reportParentSha 短**: 5ed49745c46d
+- **testedCodeCommitSha**: 0685e0c63cf5239c8f2c83eb4f969ad3fdfc6312
+- **testedCodeCommitSha 短**: 0685e0c63cf5
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: ece36baee721d26f1588fa2d8eee865f99997f4f
-- **processReportCommitSha**: ece36baee721d26f1588fa2d8eee865f99997f4f
+- **unitReportCommitSha**: 0685e0c63cf5239c8f2c83eb4f969ad3fdfc6312
+- **processReportCommitSha**: 0685e0c63cf5239c8f2c83eb4f969ad3fdfc6312
 - **externalCodexSmokeStatus**: not-evaluated
 - **externalCodexHandshakeStatus**: not-evaluated
 - **externalCodexCompatibilityStatus**: not-main-gate
@@ -55,38 +55,44 @@
 - **codexRuntimeExecutable**: false
 - **codexRuntimePinnedVersion**: 0.142.5
 - **codexRuntimeFixture**: false
-- **userPackageSizeMB**: 97.8
+- **userPackageSizeMB**: 97.9
 - **releasePackageMode**: download-on-first-run
 - **containsRuntimeBinary**: false
 - **runtimeDownloadRequired**: true
 - **runtimePinnedArtifactMetadataComplete**: true
 - **runtimeInstallerExecutable**: true
 - **runtimeInstallSmokeStatus**: pass
+- **runtimeInstallSource**: download
+- **runtimeRemoteDownloadSmokeStatus**: pass
+- **runtimeFirstRunIntegrationStatus**: pass
+- **installRequiredSurfaced**: true
+- **resolverAfterInstallStatus**: pass
+- **providerAfterInstall**: codex-managed-app-server
 - **runtimeInstallRequiresSystemNpm**: false
 - **runtimeInstallRequiresSystemTar**: false
 - **releasePackageContainsCodexRuntime**: true
-- **releasePackageSizeMB**: 97.8
+- **releasePackageSizeMB**: 97.9
 - **runtimeBinarySha256Verified**: false
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-06T06:07:04.432Z
-- **process 测试时间**: 2026-07-06T06:08:01.529Z
+- **unit 测试时间**: 2026-07-06T06:31:34.391Z
+- **process 测试时间**: 2026-07-06T06:32:20.290Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=ece36baee721。
-- **当前 commit 改动文件**：package.json, scripts/codex-runtime-install-default-package-smoke.mjs, scripts/generate-runtime-distribution-report.mjs, scripts/generate-test-summary.mjs, scripts/install-codex-managed-runtime.mjs, scripts/run-tests.mjs, scripts/user-package-smoke.mjs
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=0685e0c63cf5。
+- **当前 commit 改动文件**：main.ts, package.json, scripts/codex-managed-first-run-smoke.mjs, scripts/codex-runtime-install-download-smoke.mjs, scripts/generate-runtime-distribution-report.mjs, scripts/generate-test-summary.mjs, scripts/run-tests.mjs, src/runtime/core/bridgeSession.ts, src/runtime/providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge.ts, src/settings.ts, src/view.ts, styles.css
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 1028 | 0 | 25 | 0 | 1053 | ece36baee721 | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | ece36baee721 | ✅ 通过 |
+| unit | 1029 | 0 | 25 | 0 | 1054 | 0685e0c63cf5 | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | 0685e0c63cf5 | ✅ 通过 |
 | managed-runtime | - | - | - | - | - | 0.142.5 | ✅ 通过 |
-| **合计** | **1125** | **0** | **81** | **0** | **1206** | ece36baee721 | ✅ **主线通过** |
+| **合计** | **1126** | **0** | **81** | **0** | **1207** | 0685e0c63cf5 | ✅ **主线通过** |
 
 **双轨均 0 失败 + Managed Codex Runtime smoke pass → Managed Codex Runtime 主线通过。**
 
