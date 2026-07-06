@@ -719,7 +719,7 @@ export type CodexFileChangeDecision = "accept" | "decline";
 export type CodexServerRequestResult =
   | { decision: CodexCommandExecutionDecision; note?: string }
   | { decision: CodexFileChangeDecision; note?: string }
-  | { value: string; answers?: Record<string, string | readonly string[]>; supplement?: string }
+  | { value: string; answers?: Record<string, string | readonly string[] | { answers: readonly string[] }>; supplement?: string }
   | { cancelled: true };
 
 /**

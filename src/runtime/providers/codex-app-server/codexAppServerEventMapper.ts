@@ -56,6 +56,19 @@ import type {
 } from "./schema";
 import type { NormalizedRuntimeEvent, ProviderId } from "../../core/types";
 
+function mapPatchChangeKind(kind: unknown): "create" | "modify" | "delete" {
+  if (kind === "create" || kind === "add") return "create";
+  if (kind === "delete") return "delete";
+  if (kind === "modify" || kind === "update") return "modify";
+  if (kind && typeof kind === "object") {
+    const type = (kind as { type?: unknown }).type;
+    if (type === "add") return "create";
+    if (type === "delete") return "delete";
+    if (type === "update") return "modify";
+  }
+  return "modify";
+}
+
 /**
  * Codex app-server → NormalizedRuntimeEvent 映射器。
  *
@@ -537,7 +550,7 @@ export class CodexAppServerEventMapper {
             ...base,
             payload: {
               kind: "file_change",
-              action: change.kind,
+              action: mapPatchChangeKind(change.kind),
               path: change.path,
               diff: change.diff,
               approvalStatus: fcItem.status === "declined" ? "declined" : fcItem.status === "completed" ? "approved" : undefined,

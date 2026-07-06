@@ -28,11 +28,15 @@ export class CodexAppServerUserInputMapper {
   mapUserInputRequest(req: CodexUserInputServerRequest): UserInputRequest {
     const { serverRequestId, params } = req;
     const questions = this.parseQuestions(params);
+    const firstQuestion = questions?.[0];
+    const prompt = (typeof params.prompt === "string" && params.prompt.trim().length > 0)
+      ? params.prompt.trim()
+      : firstQuestion?.question ?? "Input requested";
     return {
       requestId: `codex-input-${serverRequestId}`,
       providerId: this.providerId,
       toolName: params.toolName || "AskUserQuestion",
-      prompt: (params.prompt || "").trim(),
+      prompt,
       inputType: params.inputType === "secret" ? "secret" : "text",
       questions,
       placeholder: params.placeholder,
@@ -48,7 +52,13 @@ export class CodexAppServerUserInputMapper {
 
   mapServerRequestResult(response: UserInputResponse): CodexServerRequestResult {
     if (response.type === "cancel") return { cancelled: true };
-    return { value: response.value, answers: response.answers, supplement: response.supplement };
+    const answers = response.answers
+      ? Object.fromEntries(Object.entries(response.answers).map(([key, value]) => [
+          key,
+          { answers: Array.isArray(value) ? [...value] : [value] },
+        ]))
+      : undefined;
+    return { value: response.value, answers, supplement: response.supplement };
   }
 
   private parseQuestions(params: CodexToolUserInputRequestParams): ReadonlyArray<UserInputQuestion> | undefined {
