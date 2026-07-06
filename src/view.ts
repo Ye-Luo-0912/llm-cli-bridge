@@ -774,7 +774,7 @@ export class LLMBridgeView extends ItemView {
     this.sendBtn.addEventListener("click", () => void this.run());
 
     // P4-D: 轻量 context tags（替代 Note/Selection 大按钮）
-    // Note tag: "Using {filename}" (clickable to toggle auto-attach)
+    // Note tag renders as plain text; color/strikethrough indicate attach state.
     this.includeNoteCheckEl = this.buildContextTag(contextTagsRow, "note", () => this.plugin.settings.includeActiveNote, async (on) => {
       this.plugin.settings.includeActiveNote = on;
       await this.plugin.saveSettings();
@@ -1028,8 +1028,8 @@ export class LLMBridgeView extends ItemView {
     check.checked = getCurrent();
     const tag = wrap.createEl("span", {
       cls: `llm-bridge-context-tag ${kind === "note" ? "is-active-file" : "is-selection-ref"}`,
-      text: kind === "note" ? "Using current note" : "Selection",
-      attr: { "aria-pressed": String(check.checked), role: "button", tabindex: "0" },
+      text: kind === "note" ? "No active note" : "Selection",
+      attr: { "aria-pressed": String(check.checked), "data-context-kind": kind, tabindex: "0" },
     });
     const toggle = async (e: Event) => {
       e.preventDefault();
@@ -1077,6 +1077,7 @@ export class LLMBridgeView extends ItemView {
       const noteWrap = this.includeNoteCheckEl.parentElement;
       const fname = this.activeFileLabelEl.dataset.value || "";
       if (noteWrap) noteWrap.toggleAttribute("hidden", false);
+      if (noteWrap) noteWrap.classList.toggle("is-empty", !fname);
       noteTag.classList.toggle("is-active", on);
       noteTag.classList.toggle("is-off", !on);
       noteTag.classList.toggle("is-empty", !fname);

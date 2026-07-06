@@ -18777,7 +18777,10 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private getVisibleMarkdownFile(): TFile | null")
       && viewSrc.includes('this.app.workspace.getLeavesOfType("markdown")')
       && viewSrc.includes('text: "目标"')
+      && viewSrc.includes('text: kind === "note" ? "No active note" : "Selection"')
+      && viewSrc.includes('"data-context-kind": kind')
       && viewSrc.includes('fname || "No active note"')
+      && viewSrc.includes('noteWrap.classList.toggle("is-empty", !fname)')
       && viewSrc.includes('cls: `llm-bridge-context-tag ${kind === "note" ? "is-active-file" : "is-selection-ref"}`')
       && viewSrc.includes("this.activeFileLabelEl.dataset.value = activeFileName")
       && viewSrc.includes('if (selWrap) selWrap.toggleAttribute("hidden", !selectionText);')
@@ -18794,6 +18797,8 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-approval-dock")
       && stylesSrc.includes(".llm-bridge-user-prompt-summary")
       && stylesSrc.includes(".llm-bridge-composer-step-pill::before")
+      && stylesSrc.includes(".llm-bridge-context-tag-note")
+      && stylesSrc.includes(".llm-bridge-context-tag.is-active-file:focus-visible")
       && stylesSrc.includes(".llm-bridge-command-menu-label")
       && stylesSrc.includes(".llm-bridge-composer-step-pill");
     addTest("V17-G8 UI: Codex 瀑布流去重、活动笔记兜底和输入/文件表面继续收口",
