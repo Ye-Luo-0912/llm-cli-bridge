@@ -3276,13 +3276,13 @@ if (runMode !== "all" && runMode !== "unit") {
         `runStatus=${hasRunStatus} glow=${hasGlowKeyframes} reducedMotion=${hasReducedMotion} disablesGlow=${reducedMotionDisablesGlow} spinnerHidden=${oldSpinnerHidden} declineBtn=${hasDeclineSessionBtn}`);
     }
 
-    // Test G-f: UI approval card 4 按钮（No, skip this once / No, don't ask again this session）
+    // Test G-f: UI approval card 4 按钮（Allow once / Allow session / Deny once / Deny session）
     {
       const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
-      const hasProceed = viewSrc.includes('"Yes, proceed"');
-      const hasProceedSession = viewSrc.includes('"Yes, don\'t ask again for this session"');
-      const hasDeclineOnce = viewSrc.includes('"No, skip this once"');
-      const hasDeclineSession = viewSrc.includes('"No, don\'t ask again this session"');
+      const hasProceed = viewSrc.includes('"Allow once"');
+      const hasProceedSession = viewSrc.includes('"Allow session"');
+      const hasDeclineOnce = viewSrc.includes('"Deny once"');
+      const hasDeclineSession = viewSrc.includes('"Deny session"');
       // deny_once → decline；deny_session → declineForSession
       const mapsDeclineOnce = viewSrc.includes('"deny_once"') && viewSrc.includes('{ type: "decline" }');
       const mapsDeclineSession = viewSrc.includes('"deny_session"') && viewSrc.includes('{ type: "declineForSession" }');
@@ -3514,8 +3514,8 @@ if (runMode !== "all" && runMode !== "unit") {
       const hasCancelBtn = viewSrc.includes("llm-bridge-approval-card-cancel")
         && viewSrc.includes("Cancel request");
       const hasStaleCard = viewSrc.includes("is-stale")
-        && viewSrc.includes("Dismiss stale request")
-        && viewSrc.includes("Stop run");
+        && viewSrc.includes('text: "Dismiss"')
+        && viewSrc.includes('text: "Stop"');
       const hasResolvingBtn = viewSrc.includes("is-resolving")
         && viewSrc.includes("Approving…")
         && viewSrc.includes("Skipping…")
@@ -16564,7 +16564,7 @@ if (!runV214BUnit) {
         && viewSrc.includes("拖拽、粘贴路径")
         && viewSrc.includes("this.attachmentFileInputEl?.click()")
         && viewSrc.includes("llm-bridge-composer-file-text")
-        && viewSrc.includes("native ref")
+        && viewSrc.includes("fileRefModeLabel")
         && viewSrc.includes("ref.fileType");
       const policyOk = readPending.decision === "confirm"
         && readPending.pendingRequest?.operation === "read"
@@ -17310,18 +17310,18 @@ if (!runV214BUnit) {
       const hasRuntimeStore = viewSrc.includes("externalReadGrantStore: SessionReadGrantStore = createSessionReadGrantStore()")
         && viewSrc.includes("queueExternalFileAccessRequest")
         && viewSrc.includes("clearExternalReadRequests");
-      const hasPendingUi = viewSrc.includes("外部文件读取请求")
-        && ["路径", "授权范围", "风险", "原因", "来源"].every((needle) => viewSrc.includes(needle))
+      const hasPendingUi = viewSrc.includes("File access request")
+        && ["Path", "Scope", "Risk", "Reason"].every((needle) => viewSrc.includes(needle))
         && stylesSrc.includes(".llm-bridge-external-read-panel");
-      const hasGrantActions = viewSrc.includes("允许本次会话读取此目录")
-        && viewSrc.includes("仅允许此文件")
-        && viewSrc.includes("拒绝")
+      const hasGrantActions = viewSrc.includes("Allow folder")
+        && viewSrc.includes("Allow file")
+        && viewSrc.includes("Deny")
         && viewSrc.includes("approvePendingExternalReadRequest(this.externalReadGrantStore, requestId, { forceFileScope, strongConfirm })")
         && viewSrc.includes("this.approveExternalReadRequest(req.id, false, req.grantRootSafety === \"confirm\")")
         && viewSrc.includes("this.approveExternalReadRequest(req.id, true, req.grantRootSafety === \"confirm\")");
       const hasSafetyBehavior = viewSrc.includes("req.grantRootSafety === \"deny\"")
         && viewSrc.includes("req.grantRootSafety === \"confirm\"")
-        && viewSrc.includes("需要强确认")
+        && viewSrc.includes("Wide scope")
         && viewSrc.includes("if (req.grantRootSafety !== \"deny\")")
         && viewSrc.includes("strongConfirm = false");
       const nonReadStillNoPending = createPendingExternalReadRequest(createFileAccessPolicy({ vaultPath: "C:\\Vault" }), { operation: "delete", path: "D:\\External\\x.md" }) === null;
@@ -18636,9 +18636,9 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("this.attachmentFileInputEl?.click()")
       && viewSrc.includes("decorateCommandMenuItem")
       && viewSrc.includes('cls: "llm-bridge-composer-file-text"')
-      && viewSrc.includes("固定引用")
-      && viewSrc.includes("本条消息附件")
-      && viewSrc.includes("本会话授权")
+      && viewSrc.includes("Next message")
+      && viewSrc.includes("Pinned context")
+      && viewSrc.includes("Session grants")
       && viewSrc.includes('composer.createDiv({ cls: "llm-bridge-composer-status-rail"')
       && viewSrc.includes("refreshComposerStatusRail")
       && viewSrc.includes("正在自动压缩上下文")
@@ -18711,6 +18711,30 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13g: V17-G6 Files/request/composer compact Codex-style cleanup ----
+  {
+    const ok = viewSrc.includes("private renderFileContextSection(")
+      && viewSrc.includes("private fileRefDisplayPath(ref: FileRef): string")
+      && viewSrc.includes("private fileRefModeLabel(ref: FileRef): string")
+      && viewSrc.includes("text: this.fileRefDisplayPath(ref)")
+      && viewSrc.includes('"Allow once"')
+      && viewSrc.includes('"Allow session"')
+      && viewSrc.includes('"Deny once"')
+      && viewSrc.includes('"Deny session"')
+      && viewSrc.includes('"File access request"')
+      && viewSrc.includes('"Read external file"')
+      && viewSrc.includes('"补充信息（可选）"')
+      && stylesSrc.includes("V17-G6: Codex-like files, request cards and tighter composer")
+      && stylesSrc.includes(".llm-bridge-context-section-head")
+      && stylesSrc.includes(".llm-bridge-context-section-count")
+      && stylesSrc.includes(".llm-bridge-context-ref-mode")
+      && stylesSrc.includes("grid-template-rows: minmax(20px, auto) minmax(66px, 1fr)")
+      && !viewSrc.includes('text: snippet ? "bounded text" : "native ref"')
+      && !viewSrc.includes("Yes, proceed");
+    addTest("V17-G6 UI: Files 清单、请求弹窗和 composer 继续靠近 Codex 风格",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----
   {
     const ok = viewSrc.includes("const vaultRef = this.addVaultFileRef")
@@ -18750,10 +18774,10 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('buildApprovalCardTitle')
       && viewSrc.includes('"Would you like to run this command?"')
       && viewSrc.includes('"Would you like to make these edits?"')
-      && viewSrc.includes('"Yes, proceed"')
-      && viewSrc.includes('"Yes, don\'t ask again for this session"')
-      && viewSrc.includes('"No, skip this once"')
-      && viewSrc.includes('"No, don\'t ask again this session"')
+      && viewSrc.includes('"Allow once"')
+      && viewSrc.includes('"Allow session"')
+      && viewSrc.includes('"Deny once"')
+      && viewSrc.includes('"Deny session"')
       && viewSrc.includes('llm-bridge-approval-card-dev-details')
       && stylesSrc.includes(".llm-bridge-approval-card")
       && stylesSrc.includes(".llm-bridge-approval-btn.is-proceed");

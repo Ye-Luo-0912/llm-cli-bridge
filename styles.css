@@ -7412,3 +7412,158 @@
   background: color-mix(in srgb, var(--interactive-accent) 13%, transparent);
   color: var(--interactive-accent);
 }
+
+/* ===== V17-G6: Codex-like files, request cards and tighter composer ===== */
+.llm-bridge-composer {
+  padding: 6px 24px 11px;
+}
+
+.llm-bridge-composer-bar {
+  grid-template-rows: minmax(20px, auto) minmax(66px, 1fr);
+  min-height: 112px;
+  padding: 8px 10px;
+}
+
+.llm-bridge-composer-context {
+  min-height: 20px;
+  padding: 0 5px;
+}
+
+.llm-bridge-input-row,
+.llm-bridge-input {
+  min-height: 68px;
+}
+
+.llm-bridge-input {
+  height: 74px;
+  padding: 6px 116px 36px 13px;
+}
+
+.llm-bridge-composer-tools-left,
+.llm-bridge-composer-tools-right {
+  bottom: 8px;
+}
+
+.llm-bridge-context-ref-chip {
+  grid-template-columns: 28px minmax(0, 1fr) auto auto auto;
+  min-height: 46px;
+  padding: 7px 9px;
+}
+
+.llm-bridge-context-section {
+  display: grid;
+  gap: 0;
+}
+
+.llm-bridge-context-section-head {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+}
+
+.llm-bridge-context-section-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-secondary) 72%, var(--background-primary));
+  color: var(--text-muted);
+}
+
+.llm-bridge-context-section-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.llm-bridge-context-section-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.llm-bridge-context-section-title strong {
+  color: var(--text-normal);
+  font-size: var(--font-small);
+  line-height: 1.2;
+}
+
+.llm-bridge-context-section-title span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-context-section-count {
+  min-width: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 80%, var(--background-primary));
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  text-align: center;
+}
+
+.llm-bridge-context-section-body {
+  padding: 9px 11px 11px;
+}
+
+.llm-bridge-context-ref-mode {
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 78%, transparent);
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.llm-bridge-context-empty {
+  display: block;
+  padding: 4px 1px;
+  color: var(--text-faint);
+  font-size: var(--font-small);
+}
+
+.llm-bridge-approval-card-btns,
+.llm-bridge-external-read-actions,
+.llm-bridge-clarification-footer {
+  gap: 7px;
+}
+
+.llm-bridge-approval-btn,
+.llm-bridge-clarification-btn,
+.llm-bridge-external-read-actions button {
+  min-height: 30px;
+  padding: 0 12px;
+  font-size: var(--font-ui-smaller);
+}
+
+.llm-bridge-approval-card-row-command,
+.llm-bridge-external-read-field-value {
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-external-read-card {
+  padding: 11px 12px;
+}
+
+.llm-bridge-external-read-fields {
+  gap: 5px;
+}
+
+.llm-bridge-external-read-field {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+
+.llm-bridge-external-read-warning {
+  border-radius: 10px;
+}

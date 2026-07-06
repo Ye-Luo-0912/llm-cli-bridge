@@ -1800,13 +1800,13 @@ export class LLMBridgeView extends ItemView {
           text: "This approval request is no longer active. It may have been resolved by another path or the run was cancelled.",
         });
         const btns = staleCard.createDiv({ cls: "llm-bridge-approval-card-btns" });
-        const dismissBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-dismiss-stale", text: "Dismiss stale request" });
+        const dismissBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-dismiss-stale", text: "Dismiss" });
         dismissBtn.addEventListener("click", () => {
           this.staleApprovalRequestIds.delete(staleId);
           this.pendingPermissions.delete(staleId);
           this.refreshPermissionPanel();
         });
-        const stopBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-stop-run", text: "Stop run" });
+        const stopBtn = btns.createEl("button", { cls: "llm-bridge-approval-btn is-stop-run", text: "Stop" });
         stopBtn.addEventListener("click", () => {
           this.staleApprovalRequestIds.delete(staleId);
           this.pendingPermissions.delete(staleId);
@@ -1937,10 +1937,10 @@ export class LLMBridgeView extends ItemView {
       return btn;
     };
 
-    createApprovalButton("is-proceed", "Yes, proceed", "Approving…", "allow_once");
-    createApprovalButton("is-proceed-session", "Yes, don't ask again for this session", "Approving…", "allow_session");
-    createApprovalButton("is-decline", "No, skip this once", "Skipping…", "deny_once");
-    createApprovalButton("is-decline-session", "No, don't ask again this session", "Declining…", "deny_session");
+    createApprovalButton("is-proceed", "Allow once", "Approving…", "allow_once");
+    createApprovalButton("is-proceed-session", "Allow session", "Approving…", "allow_session");
+    createApprovalButton("is-decline", "Deny once", "Skipping…", "deny_once");
+    createApprovalButton("is-decline-session", "Deny session", "Declining…", "deny_session");
   }
 
   /**
@@ -2066,7 +2066,7 @@ export class LLMBridgeView extends ItemView {
     const title = header.createEl("div", {
       cls: "llm-bridge-clarification-title",
       text: isSupplementStep
-        ? "是否有更多的补充信息需要提供？（可选）"
+        ? "补充信息（可选）"
         : currentQuestion?.header ?? req.prompt,
     });
     title.setAttribute("title", isSupplementStep ? req.prompt : currentQuestion?.question ?? req.prompt);
@@ -3107,10 +3107,27 @@ export class LLMBridgeView extends ItemView {
       : ref.kind === "external" ? "external"
       : ref.kind === "attachment" ? "attachment"
       : "vault";
-    const pathText = ref.resolvedPath.replace(/\\/g, "/");
+    const pathText = this.fileRefDisplayPath(ref);
     const parts = pathText.split("/").filter(Boolean);
     const folder = parts.length > 1 ? parts.slice(Math.max(0, parts.length - 3), -1).join("/") : "";
     return folder ? `${source} · ${folder}` : `${source} · ${ref.fileType}`;
+  }
+
+  private fileRefDisplayPath(ref: FileRef): string {
+    const vaultRelPath = this.resolveFileRefVaultPath(ref);
+    if (vaultRelPath) return vaultRelPath;
+    const raw = (ref.requestedPath || ref.resolvedPath || ref.displayName).replace(/\\/g, "/");
+    const parts = raw.split("/").filter(Boolean);
+    if (parts.length <= 3) return raw || ref.displayName;
+    return `.../${parts.slice(-3).join("/")}`;
+  }
+
+  private fileRefModeLabel(ref: FileRef): string {
+    const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id || ref.id.startsWith(item.refId));
+    if (snippet) return "text preview";
+    if (ref.scope === "pinned") return "pinned";
+    if (ref.scope === "session") return "session grant";
+    return "attached";
   }
 
   private filePathToUrl(filePath: string): string {
@@ -3136,32 +3153,62 @@ export class LLMBridgeView extends ItemView {
   private renderFilesContext(): void {
     const container = this.filesContextEl;
     container.empty();
-    const pinned = container.createEl("details", { cls: "llm-bridge-context-section" });
-    pinned.createEl("summary", { text: `固定引用 (${this.pinnedFileRefs.length})` });
-    const pinnedBody = pinned.createDiv({ cls: "llm-bridge-context-section-body" });
-    if (this.pinnedFileRefs.length === 0) {
-      pinnedBody.createEl("span", { cls: "llm-bridge-context-empty", text: "Pin 附件后才会跨轮保留。" });
-    } else {
-      for (const ref of this.pinnedFileRefs) this.renderContextRefChip(pinnedBody, ref, { allowUnpin: true, allowRemove: true });
-    }
+    this.renderFileContextSection(container, {
+      variant: "current",
+      icon: "paperclip",
+      title: "Next message",
+      description: "Files attached to the next request.",
+      refs: this.messageFileRefs,
+      emptyText: "Drop files, paste paths, or type @ to attach a file.",
+      actions: { allowPin: true, allowRemove: true },
+    });
+    this.renderFileContextSection(container, {
+      variant: "pinned",
+      icon: "pin",
+      title: "Pinned context",
+      description: "Files kept across turns.",
+      refs: this.pinnedFileRefs,
+      emptyText: "Pin an attachment to keep it across future turns.",
+      actions: { allowUnpin: true, allowRemove: true },
+    });
+    this.renderFileContextSection(container, {
+      variant: "session",
+      icon: "shield-check",
+      title: "Session grants",
+      description: "External file access allowed for this session.",
+      refs: this.sessionFileRefs,
+      emptyText: "External read grants appear here after approval.",
+      actions: { allowPin: true, allowRemove: true },
+    });
+  }
 
-    const current = container.createEl("details", { cls: "llm-bridge-context-section", attr: { open: "" } });
-    current.createEl("summary", { text: `本条消息附件 (${this.messageFileRefs.length})` });
-    const currentBody = current.createDiv({ cls: "llm-bridge-context-section-body" });
-    if (this.messageFileRefs.length === 0) {
-      currentBody.createEl("span", { cls: "llm-bridge-context-empty", text: "拖拽、粘贴、@ 选择或输入路径后，附件只用于下一次发送。" });
-    } else {
-      for (const ref of this.messageFileRefs) this.renderContextRefChip(currentBody, ref, { allowPin: true, allowRemove: true });
-    }
+  private renderFileContextSection(
+    container: HTMLElement,
+    options: {
+      variant: string;
+      icon: string;
+      title: string;
+      description: string;
+      refs: FileRef[];
+      emptyText: string;
+      actions: { allowPin?: boolean; allowUnpin?: boolean; allowRemove?: boolean };
+    },
+  ): void {
+    const section = container.createDiv({ cls: `llm-bridge-context-section is-${options.variant}` });
+    const head = section.createDiv({ cls: "llm-bridge-context-section-head" });
+    const icon = head.createEl("span", { cls: "llm-bridge-context-section-icon" });
+    setIcon(icon, options.icon);
+    const titleWrap = head.createDiv({ cls: "llm-bridge-context-section-title" });
+    titleWrap.createEl("strong", { text: options.title });
+    titleWrap.createEl("span", { text: options.description });
+    head.createEl("span", { cls: "llm-bridge-context-section-count", text: String(options.refs.length) });
 
-    const session = container.createEl("details", { cls: "llm-bridge-context-section" });
-    session.createEl("summary", { text: `本会话授权 (${this.sessionFileRefs.length})` });
-    const sessionBody = session.createDiv({ cls: "llm-bridge-context-section-body" });
-    if (this.sessionFileRefs.length === 0) {
-      sessionBody.createEl("span", { cls: "llm-bridge-context-empty", text: "外部读取授权会话内有效，但不会自动变成 prompt 附件。" });
-    } else {
-      for (const ref of this.sessionFileRefs) this.renderContextRefChip(sessionBody, ref, { allowPin: true, allowRemove: true });
+    const body = section.createDiv({ cls: "llm-bridge-context-section-body" });
+    if (options.refs.length === 0) {
+      body.createEl("span", { cls: "llm-bridge-context-empty", text: options.emptyText });
+      return;
     }
+    for (const ref of options.refs) this.renderContextRefChip(body, ref, options.actions);
   }
 
   private renderContextRefChip(container: HTMLElement, ref: FileRef, options: { allowPin?: boolean; allowUnpin?: boolean; allowRemove?: boolean }): void {
@@ -3171,9 +3218,8 @@ export class LLMBridgeView extends ItemView {
     setIcon(icon, ref.fileType === "image" ? "image" : ref.fileType === "markdown" ? "file-text" : "file");
     const text = chip.createDiv({ cls: "llm-bridge-context-ref-text" });
     text.createEl("span", { cls: "llm-bridge-context-ref-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
-    text.createEl("span", { cls: "llm-bridge-context-ref-meta", text: this.fileRefMetaLabel(ref), attr: { title: ref.resolvedPath } });
-    const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id || ref.id.startsWith(item.refId));
-    chip.createEl("span", { cls: "llm-bridge-context-ref-mode", text: snippet ? "bounded text" : "native ref" });
+    text.createEl("span", { cls: "llm-bridge-context-ref-meta", text: this.fileRefDisplayPath(ref), attr: { title: ref.resolvedPath } });
+    chip.createEl("span", { cls: "llm-bridge-context-ref-mode", text: this.fileRefModeLabel(ref) });
     if (options.allowPin) {
       chip.createEl("button", { cls: "llm-bridge-context-ref-action", text: "Pin" }).addEventListener("click", (event) => {
         event.stopPropagation();
@@ -3330,38 +3376,37 @@ export class LLMBridgeView extends ItemView {
 
     panel.style.display = "block";
     const header = panel.createDiv({ cls: "llm-bridge-external-read-header" });
-    header.createEl("span", { cls: "llm-bridge-external-read-title", text: "外部文件读取请求" });
+    header.createEl("span", { cls: "llm-bridge-external-read-title", text: "File access request" });
     header.createEl("span", { cls: "llm-bridge-external-read-count", text: `${pending.length} pending` });
 
     for (const req of pending) {
       const card = panel.createDiv({ cls: `llm-bridge-external-read-card is-risk-${req.risk} is-safety-${req.grantRootSafety}` });
       const title = card.createDiv({ cls: "llm-bridge-external-read-card-title" });
-      title.createEl("span", { text: "Agent 请求读取外部文件" });
+      title.createEl("span", { text: "Read external file" });
       title.createEl("span", { cls: "llm-bridge-external-read-source", text: req.source });
 
       const fields = card.createDiv({ cls: "llm-bridge-external-read-fields" });
-      this.renderExternalReadField(fields, "路径", req.requestedPath);
-      this.renderExternalReadField(fields, "授权范围", req.proposedGrantRoot || "(none)");
-      this.renderExternalReadField(fields, "风险", req.risk);
-      this.renderExternalReadField(fields, "原因", req.reason);
-      this.renderExternalReadField(fields, "来源", req.source);
+      this.renderExternalReadField(fields, "Path", req.requestedPath);
+      this.renderExternalReadField(fields, "Scope", req.proposedGrantRoot || "(none)");
+      this.renderExternalReadField(fields, "Risk", req.risk);
+      this.renderExternalReadField(fields, "Reason", req.reason);
 
       if (req.grantRootSafety === "deny") {
-        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "授权范围过宽或不安全，目录授权已禁用。" });
+        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "Folder access is disabled because the scope is too broad." });
       } else if (req.grantRootSafety === "confirm") {
-        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "需要强确认：授权范围较宽，请确认路径后再允许。" });
+        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "Wide scope. Confirm the path before allowing folder access." });
       }
 
       const btns = card.createDiv({ cls: "llm-bridge-external-read-actions" });
       if (req.grantRootSafety !== "deny") {
-        const allowDirText = req.grantRootSafety === "confirm" ? "强确认：允许本次会话读取此目录" : "允许本次会话读取此目录";
+        const allowDirText = req.grantRootSafety === "confirm" ? "Allow folder once confirmed" : "Allow folder";
         const allowDirBtn = btns.createEl("button", { cls: "llm-bridge-external-read-allow-dir", text: allowDirText });
         allowDirBtn.addEventListener("click", () => this.approveExternalReadRequest(req.id, false, req.grantRootSafety === "confirm"));
-        const allowFileText = req.grantRootSafety === "confirm" ? "强确认：仅允许此文件" : "仅允许此文件";
+        const allowFileText = req.grantRootSafety === "confirm" ? "Allow file once confirmed" : "Allow file";
         const allowFileBtn = btns.createEl("button", { cls: "llm-bridge-external-read-allow-file", text: allowFileText });
         allowFileBtn.addEventListener("click", () => this.approveExternalReadRequest(req.id, true, req.grantRootSafety === "confirm"));
       }
-      const denyBtn = btns.createEl("button", { cls: "llm-bridge-external-read-deny", text: "拒绝" });
+      const denyBtn = btns.createEl("button", { cls: "llm-bridge-external-read-deny", text: "Deny" });
       denyBtn.addEventListener("click", () => this.denyExternalReadRequest(req.id));
     }
   }
