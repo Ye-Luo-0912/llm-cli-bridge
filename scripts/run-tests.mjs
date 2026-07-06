@@ -16560,8 +16560,10 @@ if (!runV214BUnit) {
         && viewSrc.includes("drop")
         && viewSrc.includes("webUtils")
         && viewSrc.includes("getPathForFile")
-        && viewSrc.includes("直接拖拽文件")
-        && viewSrc.includes("粘贴文件/路径")
+        && viewSrc.includes("添加文件或图片")
+        && viewSrc.includes("拖拽、粘贴路径")
+        && viewSrc.includes("this.attachmentFileInputEl?.click()")
+        && viewSrc.includes("llm-bridge-composer-file-text")
         && viewSrc.includes("native ref")
         && viewSrc.includes("ref.fileType");
       const policyOk = readPending.decision === "confirm"
@@ -17308,8 +17310,8 @@ if (!runV214BUnit) {
       const hasRuntimeStore = viewSrc.includes("externalReadGrantStore: SessionReadGrantStore = createSessionReadGrantStore()")
         && viewSrc.includes("queueExternalFileAccessRequest")
         && viewSrc.includes("clearExternalReadRequests");
-      const hasPendingUi = viewSrc.includes("External Read Requests")
-        && ["requestedPath", "proposedGrantRoot", "risk", "reason", "source"].every((needle) => viewSrc.includes(needle))
+      const hasPendingUi = viewSrc.includes("外部文件读取请求")
+        && ["路径", "授权范围", "风险", "原因", "来源"].every((needle) => viewSrc.includes(needle))
         && stylesSrc.includes(".llm-bridge-external-read-panel");
       const hasGrantActions = viewSrc.includes("允许本次会话读取此目录")
         && viewSrc.includes("仅允许此文件")
@@ -17319,7 +17321,7 @@ if (!runV214BUnit) {
         && viewSrc.includes("this.approveExternalReadRequest(req.id, true, req.grantRootSafety === \"confirm\")");
       const hasSafetyBehavior = viewSrc.includes("req.grantRootSafety === \"deny\"")
         && viewSrc.includes("req.grantRootSafety === \"confirm\"")
-        && viewSrc.includes("Strong confirmation required")
+        && viewSrc.includes("需要强确认")
         && viewSrc.includes("if (req.grantRootSafety !== \"deny\")")
         && viewSrc.includes("strongConfirm = false");
       const nonReadStillNoPending = createPendingExternalReadRequest(createFileAccessPolicy({ vaultPath: "C:\\Vault" }), { operation: "delete", path: "D:\\External\\x.md" }) === null;
@@ -17500,8 +17502,10 @@ if (!runV214BUnit) {
 
     {
       const attachmentMenuOk = viewSrc.includes("llm-bridge-attach-file-btn")
-        && viewSrc.includes("直接拖拽文件")
-        && viewSrc.includes("粘贴文件/路径")
+        && viewSrc.includes("添加文件或图片")
+        && viewSrc.includes("拖拽、粘贴路径")
+        && viewSrc.includes("this.attachmentFileInputEl?.click()")
+        && viewSrc.includes("decorateCommandMenuItem")
         && viewSrc.includes("webUtils")
         && viewSrc.includes("getPathForFile")
         && viewSrc.includes("llm-bridge-mention-picker")
@@ -17542,7 +17546,8 @@ if (!runV214BUnit) {
         && stylesSrc.includes(".llm-bridge-composer-tools-left")
         && stylesSrc.includes("position: absolute")
         && stylesSrc.includes(".llm-bridge-input")
-        && stylesSrc.includes("padding-bottom: 44px");
+        && stylesSrc.includes("box-sizing: border-box")
+        && stylesSrc.includes("height: 84px");
       const chatIconOk = viewSrc.includes("\"message-square\"")
         && !viewSrc.includes("text: \"☏\"");
       const detailsCollapsedOk = viewSrc.includes("this.runFlowBody.setAttribute(\"hidden\", \"\")")
@@ -18622,6 +18627,23 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("llm-bridge-composer-file-image")
       && stylesSrc.includes(".llm-bridge-composer-file-chip");
     addTest("V2.16-D composer: 拖拽/粘贴文件和路径入口存在", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13b: V17-G3 Codex-style composer/files surface ----
+  {
+    const ok = viewSrc.includes('composer.createDiv({ cls: "llm-bridge-composer-context" })')
+      && viewSrc.includes("this.attachmentFileInputEl?.click()")
+      && viewSrc.includes("decorateCommandMenuItem")
+      && viewSrc.includes('cls: "llm-bridge-composer-file-text"')
+      && viewSrc.includes("固定引用")
+      && viewSrc.includes("本条消息附件")
+      && viewSrc.includes("本会话授权")
+      && stylesSrc.includes("V17-G3: Codex-native composer")
+      && stylesSrc.includes(".llm-bridge-composer-context")
+      && stylesSrc.includes(".llm-bridge-command-menu-item-desc")
+      && stylesSrc.includes(".llm-bridge-context-ref-icon");
+    addTest("V17-G3 UI: composer/context/files surface 靠近 Codex native 风格",
+      ok ? "pass" : "fail", "");
   }
 
   // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----

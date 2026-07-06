@@ -6743,3 +6743,473 @@
 .llm-bridge-codex-event-summary {
   position: relative;
 }
+
+/* ===== V17-G3: Codex-native composer, files and request surface ===== */
+.llm-bridge-composer {
+  gap: 6px;
+  padding: 8px 24px 12px;
+  background: linear-gradient(180deg, transparent, color-mix(in srgb, var(--background-primary) 98%, transparent) 18%);
+}
+
+.llm-bridge-composer-context {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 22px;
+  padding: 0 8px;
+  color: var(--text-muted);
+}
+
+.llm-bridge-composer-context .llm-bridge-context-tags {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 22px;
+  padding: 0;
+  border: 0;
+  gap: 10px;
+}
+
+.llm-bridge-composer-context .llm-bridge-context-strip {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 42%;
+  margin: 0;
+  padding: 0;
+  gap: 5px;
+}
+
+.llm-bridge-context-tag {
+  max-width: 42ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--font-smaller);
+}
+
+.llm-bridge-context-tag.is-empty {
+  color: var(--text-faint);
+  font-style: italic;
+  text-decoration: none;
+}
+
+.llm-bridge-context-label {
+  font-size: var(--font-smaller);
+}
+
+.llm-bridge-context-detail {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-composer-bar {
+  min-height: 86px;
+  padding: 9px;
+  border-radius: 20px;
+  border-color: color-mix(in srgb, var(--text-muted) 24%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--background-primary) 97%, var(--background-secondary));
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.08),
+    inset 0 0 0 1px color-mix(in srgb, var(--background-primary) 65%, transparent);
+}
+
+.llm-bridge-composer-bar:focus-within {
+  border-color: color-mix(in srgb, var(--interactive-accent) 30%, var(--background-modifier-border));
+  box-shadow:
+    0 10px 28px rgba(0, 0, 0, 0.09),
+    inset 0 0 0 1px color-mix(in srgb, var(--interactive-accent) 7%, transparent);
+}
+
+.llm-bridge-input-row,
+.llm-bridge-input {
+  min-height: 78px;
+}
+
+.llm-bridge-input {
+  box-sizing: border-box;
+  height: 84px;
+  max-height: 150px;
+  padding: 10px 116px 39px 13px;
+  font-size: var(--font-ui-small);
+  line-height: 1.45;
+}
+
+.llm-bridge-composer-tools-left,
+.llm-bridge-composer-tools-right {
+  bottom: 9px;
+}
+
+.llm-bridge-composer-tools-left {
+  left: 11px;
+}
+
+.llm-bridge-composer-tools-right {
+  right: 11px;
+}
+
+.llm-bridge-composer-tool-btn {
+  width: 30px;
+  height: 30px;
+}
+
+.llm-bridge-attach-file-btn {
+  border-color: color-mix(in srgb, var(--text-muted) 18%, transparent);
+  background: color-mix(in srgb, var(--background-primary) 84%, var(--background-secondary));
+}
+
+.llm-bridge-permission-chip {
+  max-width: 150px;
+  padding: 0 9px;
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline,
+.llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline {
+  max-width: 88px;
+  color: var(--text-normal);
+}
+
+.llm-bridge-composer-file-refs {
+  gap: 7px;
+  padding: 0 5px 6px;
+}
+
+.llm-bridge-composer-file-chip {
+  justify-content: flex-start;
+  width: auto;
+  max-width: min(320px, 100%);
+  min-height: 40px;
+  height: auto;
+  padding: 4px 28px 4px 5px;
+  gap: 8px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--background-primary) 88%, var(--background-secondary));
+  overflow: hidden;
+}
+
+.llm-bridge-composer-file-thumb {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+}
+
+.llm-bridge-composer-file-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+  text-align: left;
+}
+
+.llm-bridge-composer-file-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-normal);
+  font-size: var(--font-small);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-composer-file-meta {
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+  line-height: 1.2;
+}
+
+.llm-bridge-composer-file-remove {
+  top: 50%;
+  right: 7px;
+  transform: translateY(-50%);
+  opacity: 0.58;
+}
+
+.llm-bridge-composer-file-pin {
+  left: 22px;
+  bottom: -5px;
+}
+
+.llm-bridge-command-menu-body,
+.llm-bridge-perm-popover,
+.llm-bridge-model-effort-popover {
+  border-radius: 16px;
+  border-color: color-mix(in srgb, var(--text-muted) 22%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary));
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.16);
+}
+
+.llm-bridge-command-menu-body {
+  min-width: 310px;
+  padding: 7px;
+  gap: 2px;
+}
+
+.llm-bridge-command-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 46px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-normal);
+  text-align: left;
+}
+
+.llm-bridge-command-menu-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.llm-bridge-command-menu-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+}
+
+.llm-bridge-command-menu-item-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.llm-bridge-command-menu-item-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.llm-bridge-command-menu-item-title {
+  color: var(--text-normal);
+  font-size: var(--font-small);
+  font-weight: 600;
+}
+
+.llm-bridge-command-menu-item-desc {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-perm-popover {
+  width: min(320px, calc(100vw - 32px));
+  padding: 7px;
+  gap: 2px;
+}
+
+.llm-bridge-perm-option {
+  min-height: 50px;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 11px;
+}
+
+.llm-bridge-perm-option.is-active {
+  background: color-mix(in srgb, var(--interactive-accent) 9%, transparent);
+  border-color: transparent;
+}
+
+.llm-bridge-perm-option-title {
+  font-size: var(--font-small);
+}
+
+.llm-bridge-perm-option-desc {
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-approval-dock,
+.llm-bridge-user-input-dock {
+  margin: 0 0 3px;
+}
+
+.llm-bridge-perm-panel {
+  max-height: min(360px, 46vh);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.llm-bridge-approval-card,
+.llm-bridge-clarification-card,
+.llm-bridge-external-read-card {
+  border-radius: 16px;
+  border-color: color-mix(in srgb, var(--text-muted) 20%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--background-primary) 97%, var(--background-secondary));
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.12);
+}
+
+.llm-bridge-approval-card {
+  padding: 14px;
+}
+
+.llm-bridge-approval-card-row-command {
+  max-height: 96px;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: var(--background-secondary);
+  color: var(--text-normal);
+}
+
+.llm-bridge-approval-card-btns {
+  justify-content: flex-end;
+}
+
+.llm-bridge-approval-btn,
+.llm-bridge-clarification-btn,
+.llm-bridge-external-read-actions button {
+  min-height: 32px;
+  border-radius: 999px;
+}
+
+.llm-bridge-user-input-panel {
+  margin: 0;
+}
+
+.llm-bridge-clarification-card {
+  gap: 12px;
+  padding: 14px;
+}
+
+.llm-bridge-clarification-title {
+  font-size: var(--font-ui-small);
+}
+
+.llm-bridge-clarification-option {
+  min-height: 40px;
+  border-radius: 11px;
+}
+
+.llm-bridge-clarification-supplement-textarea {
+  min-height: 118px;
+  border-radius: 12px;
+}
+
+.llm-bridge-secondary-head {
+  border-radius: 14px;
+}
+
+.llm-bridge-context-refs-page {
+  display: grid;
+  gap: 10px;
+  padding: 0;
+  border: 0;
+}
+
+.llm-bridge-context-section {
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 18%, var(--background-modifier-border));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--background-primary) 95%, var(--background-secondary));
+  overflow: hidden;
+}
+
+.llm-bridge-context-section summary {
+  padding: 11px 13px;
+  color: var(--text-normal);
+  font-size: var(--font-small);
+}
+
+.llm-bridge-context-section-body {
+  display: grid;
+  gap: 7px;
+  padding: 0 12px 12px;
+}
+
+.llm-bridge-context-ref-chip {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) auto auto auto;
+  gap: 9px;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--background-primary);
+  text-align: left;
+}
+
+.llm-bridge-context-ref-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+}
+
+.llm-bridge-context-ref-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.llm-bridge-context-ref-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.llm-bridge-context-ref-name {
+  max-width: none;
+  font-family: var(--font-ui);
+  font-size: var(--font-small);
+}
+
+.llm-bridge-context-ref-meta,
+.llm-bridge-context-ref-mode {
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-context-ref-action,
+.llm-bridge-context-ref-remove {
+  min-height: 28px;
+  padding: 0 9px;
+  border-radius: 999px;
+  background: var(--background-secondary);
+}
+
+.llm-bridge-external-read-panel {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.llm-bridge-external-read-card {
+  margin-bottom: 0;
+  padding: 12px;
+  border-left-width: 1px;
+}
+
+.llm-bridge-external-read-field {
+  grid-template-columns: 78px minmax(0, 1fr);
+}
+
+.llm-bridge-external-read-field-value {
+  font-family: var(--font-ui);
+}
+
+.llm-bridge-codex-inline-shell-panel {
+  margin-top: 6px;
+  padding: 10px 12px 26px;
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--background-secondary) 86%, var(--background-primary));
+}
+
+.llm-bridge-codex-event-block.llm-bridge-codex-feed-item,
+.llm-bridge-codex-change-row.llm-bridge-codex-event-block.llm-bridge-codex-feed-item {
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--background-secondary) 68%, transparent);
+}
+
+.llm-bridge-codex-event-summary {
+  min-height: 40px;
+  padding: 8px 11px;
+}

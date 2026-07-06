@@ -511,14 +511,14 @@ export class LLMBridgeView extends ItemView {
     // ===== Files page: attachments / pinned context / FileRef index / approvals =====
     const filesHead = filesPanel.createDiv({ cls: "llm-bridge-secondary-head" });
     filesHead.createEl("span", { cls: "llm-bridge-secondary-kicker", text: "Files" });
-    filesHead.createEl("strong", { text: "Attachments、Pinned context 与 FileRef index" });
-    filesHead.createEl("small", { text: "这里只管理文件引用和授权状态；文件执行交给 Claude Code / SDK native handoff。" });
+    filesHead.createEl("strong", { text: "文件、附件与授权" });
+    filesHead.createEl("small", { text: "管理下一条消息会携带的文件、跨轮保留的引用，以及外部读取授权。" });
     this.filesContextEl = filesPanel.createDiv({ cls: "llm-bridge-context-refs llm-bridge-context-refs-page" });
 
     // ===== Pending Actions 区域（在 Files 页默认折叠） =====
     this.pendingActionsEl = filesPanel.createDiv({ cls: "llm-bridge-pending-wrap" });
     const pendingHead = this.pendingActionsEl.createDiv({ cls: "llm-bridge-pending-head" });
-    const pendingToggle = pendingHead.createEl("span", { cls: "llm-bridge-pending-toggle", text: "▶ Action approvals (0)" });
+    const pendingToggle = pendingHead.createEl("span", { cls: "llm-bridge-pending-toggle", text: "▶ 待处理授权 (0)" });
     this.pendingActionsCountEl = pendingHead.createEl("span", { cls: "llm-bridge-pending-count", text: "" });
     const pendingBody = this.pendingActionsEl.createDiv({ cls: "llm-bridge-pending-body" });
     pendingBody.setAttribute("hidden", "");
@@ -527,10 +527,10 @@ export class LLMBridgeView extends ItemView {
       const hidden = pendingBody.hasAttribute("hidden");
       if (hidden) {
         pendingBody.removeAttribute("hidden");
-        pendingToggle.textContent = "▼ Action approvals";
+        pendingToggle.textContent = "▼ 待处理授权";
       } else {
         pendingBody.setAttribute("hidden", "");
-        pendingToggle.textContent = "▶ Action approvals";
+        pendingToggle.textContent = "▶ 待处理授权";
       }
     });
 
@@ -613,12 +613,21 @@ export class LLMBridgeView extends ItemView {
     this.externalReadPanelEl.style.display = "none";
 
     // P4-D: 轻量 Context tags（替代 Sources 大按钮条）
-    const contextTagsRow = chatPanel.createDiv({ cls: "llm-bridge-context-tags" });
     this.pinnedContextEl = chatPanel.createEl("details", { cls: "llm-bridge-pinned-context" });
     this.pinnedContextEl.setAttribute("hidden", "");
 
+    // ===== 底部 composer =====
+    const composer = chatPanel.createDiv({ cls: "llm-bridge-composer" });
+    // V16.4-F: permission approval dock 与 AskUserQuestion dock 同级，均在 composer 内部、composerBar 上方
+    this.permissionPanelEl = composer.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" });
+    this.permissionPanelEl.style.display = "none";
+    this.userInputPanelEl = composer.createDiv({ cls: "llm-bridge-user-input-panel llm-bridge-user-input-dock" });
+    this.userInputPanelEl.style.display = "none";
+
+    const composerContextRow = composer.createDiv({ cls: "llm-bridge-composer-context" });
+    const contextTagsRow = composerContextRow.createDiv({ cls: "llm-bridge-context-tags" });
     // V2.16-D: Context indicator（V16.3: 普通用户态只显示 ring，developer mode 点击展开明细）
-    const contextStrip = chatPanel.createDiv({ cls: "llm-bridge-context-strip" });
+    const contextStrip = composerContextRow.createDiv({ cls: "llm-bridge-context-strip" });
     this.contextRingEl = contextStrip.createDiv({ cls: "llm-bridge-context-ring" });
     this.contextLabelEl = contextStrip.createDiv({ cls: "llm-bridge-context-label", text: "Context estimate" });
     this.contextDetailEl = contextStrip.createDiv({ cls: "llm-bridge-context-detail" });
@@ -635,14 +644,6 @@ export class LLMBridgeView extends ItemView {
       }
     });
 
-    // ===== 底部 composer =====
-    const composer = chatPanel.createDiv({ cls: "llm-bridge-composer" });
-    // V16.4-F: permission approval dock 与 AskUserQuestion dock 同级，均在 composer 内部、composerBar 上方
-    this.permissionPanelEl = composer.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" });
-    this.permissionPanelEl.style.display = "none";
-    this.userInputPanelEl = composer.createDiv({ cls: "llm-bridge-user-input-panel llm-bridge-user-input-dock" });
-    this.userInputPanelEl.style.display = "none";
-
     const composerBar = composer.createDiv({ cls: "llm-bridge-composer-bar" });
     this.composerBarEl = composerBar;
     composerBar.addEventListener("click", (e) => {
@@ -653,12 +654,14 @@ export class LLMBridgeView extends ItemView {
     const leftTools = composerBar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-left" });
     const attachmentBtn = leftTools.createEl("button", {
       cls: "llm-bridge-composer-tool-btn llm-bridge-attach-file-btn",
-      attr: { title: "直接拖拽文件、粘贴文件或粘贴路径；输入 @ 选择 Vault 文件" },
+      attr: { title: "添加文件或图片；也可以拖拽、粘贴路径，或输入 @ 选择 Vault 文件" },
     });
     setIcon(attachmentBtn, "plus");
-    attachmentBtn.addEventListener("click", () => {
+    attachmentBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
       this.inputEl.focus();
-      new Notice("直接拖拽文件到输入框、粘贴文件/路径，或输入 @ 选择 Vault 文件。", 3500);
+      this.attachmentFileInputEl?.click();
     });
     const commandMenu = leftTools.createEl("details", { cls: "llm-bridge-command-menu" });
     const commandSummary = commandMenu.createEl("summary", {
@@ -672,6 +675,7 @@ export class LLMBridgeView extends ItemView {
       text: "检测 runtime",
       attr: { title: "检测 agent 命令是否可用（不调用真实模型）" },
     });
+    this.decorateCommandMenuItem(this.preflightBtn, "scan-line", "检测 runtime", "确认 managed provider 与本地桥接状态");
     this.preflightBtn.addEventListener("click", () => {
       commandMenu.removeAttribute("open");
       void this.runPreflightCheck();
@@ -681,6 +685,7 @@ export class LLMBridgeView extends ItemView {
       text: "刷新上下文",
       attr: { title: "刷新当前笔记、选区和状态显示" },
     });
+    this.decorateCommandMenuItem(refreshContextBtn, "refresh-cw", "刷新上下文", "同步当前笔记、选区和状态显示");
     refreshContextBtn.addEventListener("click", () => {
       commandMenu.removeAttribute("open");
       this.lastPreflightResult = null;
@@ -692,6 +697,7 @@ export class LLMBridgeView extends ItemView {
       text: "添加路径附件",
       attr: { title: "通过路径添加附件（fallback/debug）" },
     });
+    this.decorateCommandMenuItem(pathAttachBtn, "folder-plus", "添加路径附件", "通过文件路径添加附件或外部引用");
     pathAttachBtn.addEventListener("click", () => {
       commandMenu.removeAttribute("open");
       void this.promptAndAddAttachmentFile();
@@ -1026,6 +1032,15 @@ export class LLMBridgeView extends ItemView {
     return check;
   }
 
+  private decorateCommandMenuItem(button: HTMLButtonElement, iconName: string, title: string, description: string): void {
+    button.empty();
+    const icon = button.createEl("span", { cls: "llm-bridge-command-menu-item-icon" });
+    setIcon(icon, iconName);
+    const text = button.createDiv({ cls: "llm-bridge-command-menu-item-text" });
+    text.createEl("span", { cls: "llm-bridge-command-menu-item-title", text: title });
+    text.createEl("span", { cls: "llm-bridge-command-menu-item-desc", text: description });
+  }
+
   private labelForValue(options: { value: string; label: string }[], v: string): string {
     return options.find((o) => o.value === v)?.label ?? v;
   }
@@ -1046,15 +1061,18 @@ export class LLMBridgeView extends ItemView {
       const on = this.plugin.settings.includeActiveNote;
       const noteWrap = this.includeNoteCheckEl.parentElement;
       const fname = this.activeFileLabelEl.textContent || "";
-      if (noteWrap) noteWrap.toggleAttribute("hidden", !fname);
+      if (noteWrap) noteWrap.toggleAttribute("hidden", false);
       noteTag.classList.toggle("is-active", on);
       noteTag.classList.toggle("is-off", !on);
+      noteTag.classList.toggle("is-empty", !fname);
       noteTag.classList.toggle("is-path-only", on && this.activeNoteAttachState === "path-only");
       noteTag.setAttribute("aria-pressed", String(on));
       // V17-G2: 活动笔记 tag 只显示当前文件名；状态通过颜色/删除线表达。
-      const fnameOrFallback = fname || "";
+      const fnameOrFallback = fname || "无活动笔记";
       noteTag.textContent = fnameOrFallback;
-      if (!on) {
+      if (!fname) {
+        noteTag.setAttribute("title", "当前没有活动笔记；打开文件后这里会显示被引用的文件名");
+      } else if (!on) {
         noteTag.setAttribute("title", `${fnameOrFallback}：当前未引用，点击开启`);
       } else if (this.activeNoteAttachState === "full") {
         noteTag.setAttribute("title", `${fnameOrFallback}：路径 + 内容已引用，点击关闭`);
@@ -2999,6 +3017,12 @@ export class LLMBridgeView extends ItemView {
       } else {
         thumb.createEl("span", { cls: "llm-bridge-composer-file-ext", text: this.getFileRefShortLabel(ref) });
       }
+      const fileText = chip.createEl("span", { cls: "llm-bridge-composer-file-text" });
+      fileText.createEl("span", { cls: "llm-bridge-composer-file-name", text: ref.displayName });
+      fileText.createEl("span", {
+        cls: "llm-bridge-composer-file-meta",
+        text: `${ref.kind} · ${ref.fileType}`,
+      });
       chip.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -3066,7 +3090,7 @@ export class LLMBridgeView extends ItemView {
     const container = this.filesContextEl;
     container.empty();
     const pinned = container.createEl("details", { cls: "llm-bridge-context-section" });
-    pinned.createEl("summary", { text: `Pinned context (${this.pinnedFileRefs.length})` });
+    pinned.createEl("summary", { text: `固定引用 (${this.pinnedFileRefs.length})` });
     const pinnedBody = pinned.createDiv({ cls: "llm-bridge-context-section-body" });
     if (this.pinnedFileRefs.length === 0) {
       pinnedBody.createEl("span", { cls: "llm-bridge-context-empty", text: "Pin 附件后才会跨轮保留。" });
@@ -3075,7 +3099,7 @@ export class LLMBridgeView extends ItemView {
     }
 
     const current = container.createEl("details", { cls: "llm-bridge-context-section", attr: { open: "" } });
-    current.createEl("summary", { text: `Current message attachments (${this.messageFileRefs.length})` });
+    current.createEl("summary", { text: `本条消息附件 (${this.messageFileRefs.length})` });
     const currentBody = current.createDiv({ cls: "llm-bridge-context-section-body" });
     if (this.messageFileRefs.length === 0) {
       currentBody.createEl("span", { cls: "llm-bridge-context-empty", text: "拖拽、粘贴、@ 选择或输入路径后，附件只用于下一次发送。" });
@@ -3084,7 +3108,7 @@ export class LLMBridgeView extends ItemView {
     }
 
     const session = container.createEl("details", { cls: "llm-bridge-context-section" });
-    session.createEl("summary", { text: `Session grants / refs (${this.sessionFileRefs.length})` });
+    session.createEl("summary", { text: `本会话授权 (${this.sessionFileRefs.length})` });
     const sessionBody = session.createDiv({ cls: "llm-bridge-context-section-body" });
     if (this.sessionFileRefs.length === 0) {
       sessionBody.createEl("span", { cls: "llm-bridge-context-empty", text: "外部读取授权会话内有效，但不会自动变成 prompt 附件。" });
@@ -3096,8 +3120,11 @@ export class LLMBridgeView extends ItemView {
   private renderContextRefChip(container: HTMLElement, ref: FileRef, options: { allowPin?: boolean; allowUnpin?: boolean; allowRemove?: boolean }): void {
     const chip = container.createDiv({ cls: `llm-bridge-context-ref-chip is-${ref.kind} is-${ref.status}` });
     chip.addEventListener("click", () => void this.openFileRefPreview(ref));
-    chip.createEl("span", { cls: "llm-bridge-context-ref-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
-    chip.createEl("span", { cls: "llm-bridge-context-ref-meta", text: `${ref.kind} · ${ref.scope} · ${ref.fileType}` });
+    const icon = chip.createEl("span", { cls: "llm-bridge-context-ref-icon" });
+    setIcon(icon, ref.fileType === "image" ? "image" : ref.fileType === "markdown" ? "file-text" : "file");
+    const text = chip.createDiv({ cls: "llm-bridge-context-ref-text" });
+    text.createEl("span", { cls: "llm-bridge-context-ref-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
+    text.createEl("span", { cls: "llm-bridge-context-ref-meta", text: `${ref.kind} · ${ref.scope} · ${ref.fileType}` });
     const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id || ref.id.startsWith(item.refId));
     chip.createEl("span", { cls: "llm-bridge-context-ref-mode", text: snippet ? "bounded text" : "native ref" });
     if (options.allowPin) {
@@ -3256,26 +3283,26 @@ export class LLMBridgeView extends ItemView {
 
     panel.style.display = "block";
     const header = panel.createDiv({ cls: "llm-bridge-external-read-header" });
-    header.createEl("span", { cls: "llm-bridge-external-read-title", text: "External Read Requests" });
+    header.createEl("span", { cls: "llm-bridge-external-read-title", text: "外部文件读取请求" });
     header.createEl("span", { cls: "llm-bridge-external-read-count", text: `${pending.length} pending` });
 
     for (const req of pending) {
       const card = panel.createDiv({ cls: `llm-bridge-external-read-card is-risk-${req.risk} is-safety-${req.grantRootSafety}` });
       const title = card.createDiv({ cls: "llm-bridge-external-read-card-title" });
-      title.createEl("span", { text: "Agent requested external read" });
+      title.createEl("span", { text: "Agent 请求读取外部文件" });
       title.createEl("span", { cls: "llm-bridge-external-read-source", text: req.source });
 
       const fields = card.createDiv({ cls: "llm-bridge-external-read-fields" });
-      this.renderExternalReadField(fields, "requestedPath", req.requestedPath);
-      this.renderExternalReadField(fields, "proposedGrantRoot", req.proposedGrantRoot || "(none)");
-      this.renderExternalReadField(fields, "risk", req.risk);
-      this.renderExternalReadField(fields, "reason", req.reason);
-      this.renderExternalReadField(fields, "source", req.source);
+      this.renderExternalReadField(fields, "路径", req.requestedPath);
+      this.renderExternalReadField(fields, "授权范围", req.proposedGrantRoot || "(none)");
+      this.renderExternalReadField(fields, "风险", req.risk);
+      this.renderExternalReadField(fields, "原因", req.reason);
+      this.renderExternalReadField(fields, "来源", req.source);
 
       if (req.grantRootSafety === "deny") {
-        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "Grant root is too broad or unsafe. Directory approval is disabled." });
+        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "授权范围过宽或不安全，目录授权已禁用。" });
       } else if (req.grantRootSafety === "confirm") {
-        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "Strong confirmation required: this grant root is broad. Review the path before approving." });
+        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "需要强确认：授权范围较宽，请确认路径后再允许。" });
       }
 
       const btns = card.createDiv({ cls: "llm-bridge-external-read-actions" });
