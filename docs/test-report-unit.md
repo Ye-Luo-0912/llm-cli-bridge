@@ -1,14 +1,14 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-06T13:25:16.060Z
+- **测试时间**: 2026-07-06T13:56:02.120Z
 - **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.16.0
-- **main.js 大小**: 893.4 KB
+- **main.js 大小**: 903.2 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 59338
-- **commit sha**: afe723cde957d3c3ef68097064f5cde8bbf21d0c
-- **commit 短 sha**: afe723cde957
+- **HTTP 端口**: 64130
+- **commit sha**: 3ac798b779c5e537a70ce394ba23d4289c9639a4
+- **commit 短 sha**: 3ac798b779c5
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
@@ -103,7 +103,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成运行前快照 | 文件数: 21 |
+| ✅ | 生成运行前快照 | 文件数: 22 |
 
 ### diff
 
@@ -953,7 +953,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783344317924-0 update=pi-sdk-read-1783344317924-0 end=pi-sdk-read-1783344317924-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783346163971-0 update=pi-sdk-read-1783346163971-0 end=pi-sdk-read-1783346163971-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -2294,7 +2294,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-06T13-25-45-656Z-22kni3 |
+| ✅ | 返回非空 id | id=s-2026-07-06T13-56-31-635Z-c3pcf6 |
 
 ### V2.5 Session 版本
 
@@ -2313,7 +2313,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-06T13-25-45-770Z-ggns8a second=s-2026-07-06T13-25-45-693Z-tn89ot |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-06T13-56-31-758Z-50ah0o second=s-2026-07-06T13-56-31-682Z-08wrgt |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2340,7 +2340,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-06T13-25-45-809Z-86jad3 id2=s-2026-07-06T13-25-45-809Z-b9tewe |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-06T13-56-31-800Z-x1sjxi id2=s-2026-07-06T13-56-31-800Z-7yobb9 |
 
 ### V2.5 Session 上限
 
@@ -2438,7 +2438,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-06T13:25:45.886Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-06T13:56:31.878Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2526,7 +2526,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-06T13:25:45.955Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-06T13:56:31.951Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2640,7 +2640,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-06T13:25:46.094Z after=2026-07-06T13:25:46.172Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-06T13:56:32.077Z after=2026-07-06T13:56:32.150Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -3011,13 +3011,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-06T13:25:47.022Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-06T13:56:32.948Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-06T13:25:47.043Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-06T13:56:32.968Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3328,7 +3328,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-LR8oUe\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-CVG2OE\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-o7FdWp\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-PAinEo\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3340,7 +3340,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-HWMViO\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-BPwohp\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-E3uACa\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-q0330z\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3352,7 +3352,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-oBVfjm\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-ztO3VW\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-7EyZvw\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-ROTXnP\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
