@@ -46,11 +46,23 @@ const report = {
   approvalCardObserved: false,
   diffCardObserved: false,
   codexRunHeaderObserved: false,
+  codexRunWaterfallFeedObserved: false,
+  codexRunFeedBatchObserved: false,
+  codexRunFeedBatchCount: 0,
+  codexRunFeedItemCount: 0,
+  codexRunNestedEventCount: 0,
+  codexRunFeedSequence: "",
+  codexRunThinkingCarrierObserved: false,
+  codexRunThinkingCarrierStatus: "",
+  codexRunOutputLabelCompact: false,
   changesPanelVisible: false,
   stepRowCount: 0,
   approvalGateVisibleWhenPending: false,
   diagnosticsCollapsedByDefault: false,
   commandOutputCollapsedInNormalMode: false,
+  codexRunCommandShellPanelAvailable: false,
+  normalModeCommandSummaryPathRedacted: false,
+  messageRenderFailureAbsent: false,
   developerRawEventAccessibleFromRunView: false,
   finalAnswerVisuallySeparated: false,
   installButtonMetadataComplete: false,
@@ -533,8 +545,20 @@ const CDP_PROBE = `
   let stepRowCount = 0;
   let diagnosticsCollapsedByDefault = false;
   let commandOutputCollapsedInNormalMode = false;
+  let codexRunCommandShellPanelAvailable = false;
+  let normalModeCommandSummaryPathRedacted = false;
   let developerRawEventAccessibleFromRunView = false;
   let finalAnswerVisuallySeparated = false;
+  let codexRunWaterfallFeedObserved = false;
+  let codexRunFeedBatchObserved = false;
+  let codexRunFeedBatchCount = 0;
+  let codexRunFeedItemCount = 0;
+  let codexRunNestedEventCount = 0;
+  let codexRunFeedSequence = "";
+  let codexRunThinkingCarrierObserved = false;
+  let codexRunThinkingCarrierStatus = "";
+  let codexRunOutputLabelCompact = false;
+  let messageRenderFailureAbsent = false;
   if (view && turn) {
     if (plugin.settings) plugin.settings.developerMode = false;
     view.renderMessagesFromHistory?.();
@@ -543,11 +567,39 @@ const CDP_PROBE = `
     normalModeRawSourceRefAbsentInDom = !/threadId=|turnId=|itemId=|sourceRef|raw provider events/i.test(normalText);
     codexRunHeaderObserved = !!view.containerEl?.querySelector?.(".llm-bridge-codex-run-header .llm-bridge-codex-run-status")
       && !!view.containerEl?.querySelector?.(".llm-bridge-codex-run-metrics");
+    const feedItems = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-feed-item") ?? []);
+    const feedBatches = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-feed-batch") ?? []);
+    const nestedEvents = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-feed-item.is-batch-event") ?? []);
+    const feedKinds = feedItems.map((el) => el.getAttribute("data-step-kind") || "unknown");
+    const thinkingItem = feedItems.find((el) => (el.getAttribute("data-step-kind") || "") === "thinking");
+    const thinkingSummary = thinkingItem?.querySelector?.(".llm-bridge-codex-feed-summary")?.textContent?.trim() || "";
+    const outputLabels = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-feed-item.is-assistant .llm-bridge-codex-feed-label") ?? [])
+      .map((el) => el.textContent?.trim() || "");
+    codexRunFeedBatchCount = feedBatches.length;
+    codexRunFeedItemCount = feedItems.length;
+    codexRunNestedEventCount = nestedEvents.length;
+    codexRunFeedSequence = feedKinds.join(">");
+    codexRunThinkingCarrierObserved = thinkingSummary.length > 0;
+    codexRunThinkingCarrierStatus = thinkingSummary.includes("not provided by Codex") ? "not-provided" : thinkingSummary ? "summary-visible" : "empty";
+    codexRunOutputLabelCompact = outputLabels.length > 0 && outputLabels.every((label) => label === "Output");
+    codexRunWaterfallFeedObserved = feedItems.length >= 2
+      && (feedKinds.includes("thinking") || feedKinds.includes("assistant"))
+      && feedKinds.some((kind) => ["command", "file", "mcp", "dynamic"].includes(kind));
+    codexRunFeedBatchObserved = feedBatches.length >= 1 && nestedEvents.length >= 1;
     changesPanelVisible = !!view.containerEl?.querySelector?.(".llm-bridge-codex-changes-panel .llm-bridge-codex-change-row");
     stepRowCount = view.containerEl?.querySelectorAll?.(".llm-bridge-codex-step-row")?.length ?? 0;
     const diagnosticsBody = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-diagnostics-body") ?? []);
     diagnosticsCollapsedByDefault = diagnosticsBody.length === 0 || diagnosticsBody.every((el) => el.hasAttribute("hidden"));
     commandOutputCollapsedInNormalMode = !view.containerEl?.querySelector?.(".llm-bridge-codex-detail-stdout[open], .llm-bridge-codex-detail-stderr[open]");
+    const commandSummaryText = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-feed-item.is-command .llm-bridge-codex-feed-summary") ?? [])
+      .map((el) => el.textContent || "")
+      .join(" ");
+    const commandDetailSummaryText = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-detail-command summary") ?? [])
+      .map((el) => el.textContent || "")
+      .join(" ");
+    codexRunCommandShellPanelAvailable = /Shell\\s*·/.test(commandDetailSummaryText);
+    normalModeCommandSummaryPathRedacted = commandSummaryText.length === 0 || (!/\\bcwd\\s*=/.test(commandSummaryText) && !/[A-Za-z]:\\\\/.test(commandSummaryText));
+    messageRenderFailureAbsent = !/消息渲染失败|Cannot use .?in.? operator/i.test(normalText);
     finalAnswerVisuallySeparated = !!view.containerEl?.querySelector?.(".llm-bridge-codex-final-answer-marker")
       && !!view.containerEl?.querySelector?.(".llm-bridge-msg-content");
 
@@ -555,6 +607,7 @@ const CDP_PROBE = `
     view.renderMessagesFromHistory?.();
     await sleep(50);
     const devText = view.containerEl?.textContent ?? "";
+    messageRenderFailureAbsent = messageRenderFailureAbsent && !/消息渲染失败|Cannot use .?in.? operator/i.test(devText);
     developerDebugViewAccessible = !!view.containerEl?.querySelector?.(".llm-bridge-raw-events, .llm-bridge-provider-session-audit, .llm-bridge-attachment-audit")
       || /threadId=|turnId=|itemId=|method=/.test(devText);
     developerRawProviderEventAccessible = !!view.containerEl?.querySelector?.(".llm-bridge-raw-events-text")
@@ -593,6 +646,15 @@ const CDP_PROBE = `
     approvalCardObserved,
     diffCardObserved,
     codexRunHeaderObserved,
+    codexRunWaterfallFeedObserved,
+    codexRunFeedBatchObserved,
+    codexRunFeedBatchCount,
+    codexRunFeedItemCount,
+    codexRunNestedEventCount,
+    codexRunFeedSequence,
+    codexRunThinkingCarrierObserved,
+    codexRunThinkingCarrierStatus,
+    codexRunOutputLabelCompact,
     changesPanelVisible,
     stepRowCount,
     approvalGateVisibleWhenPending,
@@ -600,6 +662,9 @@ const CDP_PROBE = `
     uiSmokeFileToken,
     diagnosticsCollapsedByDefault,
     commandOutputCollapsedInNormalMode,
+    codexRunCommandShellPanelAvailable,
+    normalModeCommandSummaryPathRedacted,
+    messageRenderFailureAbsent,
     developerRawEventAccessibleFromRunView,
     finalAnswerVisuallySeparated,
     normalModeRawSourceRefAbsentInDom,
@@ -641,11 +706,23 @@ async function runCdpProbe() {
     report.approvalCardObserved = !!probe.approvalCardObserved;
     report.diffCardObserved = !!probe.diffCardObserved;
     report.codexRunHeaderObserved = !!probe.codexRunHeaderObserved;
+    report.codexRunWaterfallFeedObserved = !!probe.codexRunWaterfallFeedObserved;
+    report.codexRunFeedBatchObserved = !!probe.codexRunFeedBatchObserved;
+    report.codexRunFeedBatchCount = Number(probe.codexRunFeedBatchCount || 0);
+    report.codexRunFeedItemCount = Number(probe.codexRunFeedItemCount || 0);
+    report.codexRunNestedEventCount = Number(probe.codexRunNestedEventCount || 0);
+    report.codexRunFeedSequence = probe.codexRunFeedSequence || "";
+    report.codexRunThinkingCarrierObserved = !!probe.codexRunThinkingCarrierObserved;
+    report.codexRunThinkingCarrierStatus = probe.codexRunThinkingCarrierStatus || "";
+    report.codexRunOutputLabelCompact = !!probe.codexRunOutputLabelCompact;
     report.changesPanelVisible = !!probe.changesPanelVisible;
     report.stepRowCount = Number(probe.stepRowCount || 0);
     report.approvalGateVisibleWhenPending = !!probe.approvalGateVisibleWhenPending;
     report.diagnosticsCollapsedByDefault = !!probe.diagnosticsCollapsedByDefault;
     report.commandOutputCollapsedInNormalMode = !!probe.commandOutputCollapsedInNormalMode;
+    report.codexRunCommandShellPanelAvailable = !!probe.codexRunCommandShellPanelAvailable;
+    report.normalModeCommandSummaryPathRedacted = !!probe.normalModeCommandSummaryPathRedacted;
+    report.messageRenderFailureAbsent = !!probe.messageRenderFailureAbsent;
     report.developerRawEventAccessibleFromRunView = !!probe.developerRawEventAccessibleFromRunView;
     report.finalAnswerVisuallySeparated = !!probe.finalAnswerVisuallySeparated;
     report.installButtonMetadataComplete = !!probe.installButtonMetadataComplete;
@@ -682,11 +759,18 @@ async function runCdpProbe() {
       report.approvalCardObserved ? "observed" : "not-observed in this real run");
     addCheck("real Obsidian diff card observed", report.diffCardObserved, "");
     addCheck("real Obsidian Codex run header observed", report.codexRunHeaderObserved, "");
+    addCheck("real Obsidian Codex waterfall feed observed", report.codexRunWaterfallFeedObserved, `feed=${report.codexRunFeedSequence}`);
+    addCheck("real Obsidian Codex feed batches observed", report.codexRunFeedBatchObserved, `batches=${report.codexRunFeedBatchCount} nestedEvents=${report.codexRunNestedEventCount}`);
+    addCheck("real Obsidian Codex thinking carrier visible", report.codexRunThinkingCarrierObserved, report.codexRunThinkingCarrierStatus);
+    addCheck("real Obsidian Codex output label compact", report.codexRunOutputLabelCompact, "");
     addCheck("real Obsidian changes panel visible", report.changesPanelVisible, "");
     addCheck("real Obsidian step row count correct", report.stepRowCount >= 2, `stepRowCount=${report.stepRowCount}`);
     addCheck("real Obsidian approval gate visible when pending", report.approvalGateVisibleWhenPending || report.uiSmokeApprovalCount === 0, `approvals=${report.uiSmokeApprovalCount}`);
     addCheck("real Obsidian diagnostics collapsed by default", report.diagnosticsCollapsedByDefault, "");
     addCheck("real Obsidian command output collapsed in normal mode", report.commandOutputCollapsedInNormalMode, "");
+    addCheck("real Obsidian Codex-style command shell panel available", report.codexRunCommandShellPanelAvailable, "");
+    addCheck("real Obsidian normal mode command summary path redacted", report.normalModeCommandSummaryPathRedacted, "");
+    addCheck("real Obsidian message render failure absent", report.messageRenderFailureAbsent, "");
     addCheck("real Obsidian developer mode raw event accessible from run view", report.developerRawEventAccessibleFromRunView, "");
     addCheck("real Obsidian final answer visually separated", report.finalAnswerVisuallySeparated, "");
     addCheck("real Obsidian normal mode raw sourceRef absent", report.normalModeRawSourceRefAbsentInDom, "");
@@ -757,6 +841,15 @@ function writeReport() {
     `- **approvalCardObserved**: ${report.approvalCardObserved}`,
     `- **diffCardObserved**: ${report.diffCardObserved}`,
     `- **codexRunHeaderObserved**: ${report.codexRunHeaderObserved}`,
+    `- **codexRunWaterfallFeedObserved**: ${report.codexRunWaterfallFeedObserved}`,
+    `- **codexRunFeedBatchObserved**: ${report.codexRunFeedBatchObserved}`,
+    `- **codexRunFeedBatchCount**: ${report.codexRunFeedBatchCount}`,
+    `- **codexRunFeedItemCount**: ${report.codexRunFeedItemCount}`,
+    `- **codexRunNestedEventCount**: ${report.codexRunNestedEventCount}`,
+    `- **codexRunFeedSequence**: ${report.codexRunFeedSequence || "null"}`,
+    `- **codexRunThinkingCarrierObserved**: ${report.codexRunThinkingCarrierObserved}`,
+    `- **codexRunThinkingCarrierStatus**: ${report.codexRunThinkingCarrierStatus || "null"}`,
+    `- **codexRunOutputLabelCompact**: ${report.codexRunOutputLabelCompact}`,
     `- **changesPanelVisible**: ${report.changesPanelVisible}`,
     `- **stepRowCount**: ${report.stepRowCount}`,
     `- **approvalGateVisibleWhenPending**: ${report.approvalGateVisibleWhenPending}`,
@@ -765,6 +858,9 @@ function writeReport() {
     "",
     `- **diagnosticsCollapsedByDefault**: ${report.diagnosticsCollapsedByDefault}`,
     `- **commandOutputCollapsedInNormalMode**: ${report.commandOutputCollapsedInNormalMode}`,
+    `- **codexRunCommandShellPanelAvailable**: ${report.codexRunCommandShellPanelAvailable}`,
+    `- **normalModeCommandSummaryPathRedacted**: ${report.normalModeCommandSummaryPathRedacted}`,
+    `- **messageRenderFailureAbsent**: ${report.messageRenderFailureAbsent}`,
     `- **developerRawEventAccessibleFromRunView**: ${report.developerRawEventAccessibleFromRunView}`,
     `- **finalAnswerVisuallySeparated**: ${report.finalAnswerVisuallySeparated}`,
     `- **normalUserVerboseOutputDefaultCollapsed**: ${report.normalUserVerboseOutputDefaultCollapsed}`,

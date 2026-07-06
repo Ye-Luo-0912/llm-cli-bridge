@@ -22,7 +22,7 @@ import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment } from "./runtime/core/types";
 import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
-import { buildCodexRunViewModel, formatCodexRunValue, type CodexRunApprovalGate, type CodexRunChangeGroup, type CodexRunDiagnosticsGroup, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
+import { buildCodexRunViewModel, formatCodexRunValue, type CodexRunApprovalGate, type CodexRunChangeGroup, type CodexRunDiagnosticsGroup, type CodexRunFeedItem, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
 import { DEFAULT_PROVIDER_CAPABILITIES, type ProviderCapabilityInfo, type ObsidianCliAvailability } from "./runtime/core/bridgePromptContract";
@@ -1691,6 +1691,11 @@ export class LLMBridgeView extends ItemView {
     const permission = this.getSession().permission;
     const boundaryPending = permission.pending;
 
+    if (!this.runHandle && boundaryPending.size === 0 && this.staleApprovalRequestIds.size > 0) {
+      this.staleApprovalRequestIds.clear();
+      this.pendingPermissions.clear();
+    }
+
     // 清理 staleApprovalRequestIds 中已不在 boundary pending 的项（避免累积）
     // 同时同步 pendingPermissions：boundary 中已消失的 requestId 从缓存删除
     for (const cachedId of Array.from(this.pendingPermissions.keys())) {
@@ -2222,13 +2227,16 @@ export class LLMBridgeView extends ItemView {
     }
     let resolved = 0;
     for (const id of requestIds) {
+      const wasKnownPending = permission.pending.has(id) || this.pendingPermissions.has(id);
       const result = permission.resolveApprovalDetailed(id, response);
       if (result.ok) {
         this.pendingPermissions.delete(id);
         resolved++;
-      } else {
+      } else if (wasKnownPending && this.runHandle) {
         // V16.5-B: resolve 失败 — 加入 stale 集合，UI 显示 stale card
         this.staleApprovalRequestIds.add(id);
+      } else {
+        this.pendingPermissions.delete(id);
       }
     }
     // V16.5-B: 清除 resolving 状态并刷新 UI
@@ -4081,8 +4089,7 @@ export class LLMBridgeView extends ItemView {
     const body = wrap.createDiv({ cls: "llm-bridge-timeline-body llm-bridge-codex-run-body" });
     this.renderCodexCurrentActivity(body, run);
     if (run.approvalGates.length > 0) this.renderCodexApprovalGates(body, run.approvalGates, developerMode);
-    if (run.changeGroups.length > 0) this.renderCodexChangesPanel(body, run.changeGroups, developerMode);
-    if (run.stepGroups.length > 0) this.renderCodexStepsTimeline(body, run.stepGroups, developerMode);
+    if (run.feedItems.length > 0) this.renderCodexFeed(body, run.feedItems, developerMode);
     if (run.diagnosticsGroups.length > 0) this.renderCodexDiagnosticsDrawer(body, run.diagnosticsGroups, developerMode);
     if (run.finalAnswer.trim().length > 0) {
       body.createDiv({ cls: "llm-bridge-codex-final-answer-marker", text: "Final answer" });
@@ -4148,6 +4155,127 @@ export class LLMBridgeView extends ItemView {
       addButton("Deny", "deny_once", "is-deny");
       this.renderCodexSourceRef(card, gate.sourceRef, developerMode);
     }
+  }
+
+  private renderCodexFeed(parent: HTMLElement, items: ReadonlyArray<CodexRunFeedItem>, developerMode: boolean): void {
+    const section = parent.createDiv({ cls: "llm-bridge-codex-feed llm-bridge-codex-changes-panel" });
+    const list = section.createDiv({ cls: "llm-bridge-codex-feed-list llm-bridge-codex-step-list" });
+    for (const batch of this.groupCodexFeedBatches(items)) {
+      const batchEl = list.createDiv({ cls: "llm-bridge-codex-feed-batch" });
+      batch.forEach((item, index) => {
+        this.renderCodexFeedItem(batchEl, item, developerMode, index > 0 && this.isCodexFeedEvent(item));
+      });
+    }
+  }
+
+  private groupCodexFeedBatches(items: ReadonlyArray<CodexRunFeedItem>): CodexRunFeedItem[][] {
+    const batches: CodexRunFeedItem[][] = [];
+    let current: CodexRunFeedItem[] = [];
+    for (const item of items) {
+      const currentHasEvent = current.some((candidate) => this.isCodexFeedEvent(candidate));
+      const startsNewBatch = item.kind === "thinking" || (item.kind === "assistant" && currentHasEvent);
+      if (current.length > 0 && startsNewBatch) {
+        batches.push(current);
+        current = [];
+      }
+      current.push(item);
+    }
+    if (current.length > 0) batches.push(current);
+    return batches;
+  }
+
+  private isCodexFeedEvent(item: CodexRunFeedItem): boolean {
+    return item.kind !== "thinking" && item.kind !== "assistant";
+  }
+
+  private renderCodexFeedItem(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean, nestedEvent: boolean): void {
+    const changeCls = item.change ? ` llm-bridge-codex-change-row is-${item.change.action}` : "";
+    const nestedCls = nestedEvent ? " is-batch-event" : "";
+    const row = parent.createDiv({
+      cls: `llm-bridge-codex-feed-item llm-bridge-codex-step-row is-${item.kind} is-${item.status}${changeCls}${nestedCls}`,
+    });
+    row.setAttribute("data-step-kind", item.kind);
+    if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
+
+    const icon = row.createEl("span", { cls: "llm-bridge-codex-feed-icon llm-bridge-codex-step-icon" });
+    setIcon(icon, item.icon);
+
+    const main = row.createDiv({ cls: "llm-bridge-codex-feed-main" });
+    const title = main.createDiv({ cls: "llm-bridge-codex-feed-title" });
+    title.createEl("span", { cls: "llm-bridge-codex-feed-label llm-bridge-codex-step-label", text: item.label, attr: { title: item.label } });
+    if (item.change) {
+      title.createEl("span", {
+        cls: `llm-bridge-codex-change-approval is-${item.change.approvalStatus ?? "resolved"}`,
+        text: item.change.approvalStatus ?? "changed",
+      });
+      main.createDiv({ cls: "llm-bridge-codex-change-path", text: item.change.relativePath, attr: { title: item.change.fullPath } });
+    } else if (item.summary) {
+      const feedSummary = this.formatCodexFeedSummary(item, developerMode);
+      if (feedSummary) {
+        const summaryText = item.kind === "assistant" ? truncateText(feedSummary, 420) : truncateText(feedSummary, 180);
+        main.createDiv({ cls: "llm-bridge-codex-feed-summary", text: summaryText, attr: { title: feedSummary } });
+      }
+    }
+
+    const meta = row.createDiv({ cls: "llm-bridge-codex-feed-meta" });
+    meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${item.status}`, text: item.status });
+    if (item.durationMs) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(item.durationMs) });
+    if (item.step?.exitCode !== undefined) meta.createEl("span", { cls: "llm-bridge-codex-step-exit", text: `exit ${item.step.exitCode}` });
+    if (item.change) meta.createEl("span", { cls: "llm-bridge-codex-change-diff-summary", text: item.change.diffSummary });
+
+    if (item.change) {
+      const actions = row.createDiv({ cls: "llm-bridge-codex-change-actions" });
+      const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "Copy path" } });
+      setIcon(copyBtn, "copy");
+      copyBtn.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(item.change?.relativePath || item.change?.fullPath || "");
+          new Notice("Path copied");
+        } catch {
+          new Notice("Copy failed");
+        }
+      });
+      const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "Open file" } });
+      setIcon(openBtn, "external-link");
+      openBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (!item.change) return;
+        const target = path.isAbsolute(item.change.fullPath) ? item.change.fullPath : path.join(this.getVaultPath(), item.change.fullPath || item.change.relativePath);
+        void this.openPathWithSystemDefault(target);
+      });
+      if (item.change.diff) {
+        const details = row.createEl("details", { cls: "llm-bridge-codex-diff-preview" });
+        details.createEl("summary", { text: "Diff preview" });
+        details.createEl("pre", { cls: "llm-bridge-codex-diff-pre", text: item.change.diff });
+      }
+    }
+
+    if (item.step) {
+      this.renderCodexCollapsedText(row, "command", item.step.command);
+      if (item.step.cwd && developerMode) row.createDiv({ cls: "llm-bridge-codex-step-cwd", text: `cwd: ${item.step.cwd}`, attr: { title: item.step.cwd } });
+      this.renderCodexCollapsedText(row, "stdout", item.step.stdout);
+      this.renderCodexCollapsedText(row, "stderr", item.step.stderr);
+      if (developerMode) {
+        this.renderCodexCollapsedText(row, "args", item.step.args);
+        this.renderCodexCollapsedText(row, "structured result", formatCodexRunValue(item.step.structuredResult));
+        this.renderCodexCollapsedText(row, "content items", formatCodexRunValue(item.step.contentItems));
+      }
+    }
+
+    this.renderCodexSourceRef(row, item.sourceRef, developerMode);
+  }
+
+  private formatCodexFeedSummary(item: CodexRunFeedItem, developerMode: boolean): string {
+    let summary = item.summary ?? "";
+    if (developerMode || !summary) return summary;
+    if (item.step) {
+      summary = summary
+        .split(" · ")
+        .filter((part) => !part.trim().startsWith("cwd="))
+        .join(" · ");
+    }
+    return summary.replace(/[A-Za-z]:\\[^\s·]+/g, (match) => path.basename(match));
   }
 
   private renderCodexChangesPanel(parent: HTMLElement, changes: ReadonlyArray<CodexRunChangeGroup>, developerMode: boolean): void {
@@ -4261,12 +4389,17 @@ export class LLMBridgeView extends ItemView {
 
   private renderCodexCollapsedText(parent: HTMLElement, label: string, value?: string): void {
     if (!value) return;
-    const details = parent.createEl("details", { cls: `llm-bridge-codex-detail llm-bridge-codex-detail-${label.replace(/\s+/g, "-")}` });
+    const slug = label.replace(/\s+/g, "-");
+    const displayLabel = label === "command" ? "Shell" : label === "stdout" ? "Output" : label === "stderr" ? "Error output" : label;
+    const bodyText = label === "command" ? `$ ${value}` : value;
+    const details = parent.createEl("details", { cls: `llm-bridge-codex-detail llm-bridge-codex-detail-${slug}` });
     const lines = value.split(/\r?\n/).filter((line) => line.length > 0).length || 1;
     const bytes = new TextEncoder().encode(value).length;
     const sizeText = bytes >= 1024 ? `${Math.round(bytes / 102.4) / 10} KB` : `${bytes} B`;
-    details.createEl("summary", { text: `${label} · ${lines} line${lines === 1 ? "" : "s"} · ${sizeText}` });
-    details.createEl("pre", { cls: "llm-bridge-codex-detail-pre", text: value });
+    details.createEl("summary", { text: `${displayLabel} · ${lines} line${lines === 1 ? "" : "s"} · ${sizeText}` });
+    const panel = details.createDiv({ cls: "llm-bridge-codex-detail-panel" });
+    panel.createDiv({ cls: "llm-bridge-codex-detail-panel-title", text: displayLabel });
+    panel.createEl("pre", { cls: "llm-bridge-codex-detail-pre", text: bodyText });
   }
 
   private renderCodexSourceRef(parent: HTMLElement, sourceRef?: import("./runtime/core/types").RuntimeSourceRef, developerMode = false): void {

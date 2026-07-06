@@ -24,6 +24,8 @@ export type CodexRunStepKind =
   | "user-input"
   | "status";
 
+export type CodexRunFeedKind = CodexRunStepKind | "assistant";
+
 export interface CodexRunHeader {
   readonly status: string;
   readonly statusKind: CodexRunStatusKind;
@@ -51,6 +53,7 @@ export interface CodexRunChangeGroup {
   readonly diff?: string;
   readonly approvalStatus?: "pending" | "approved" | "declined" | "cancelled" | "resolved";
   readonly durationMs?: number;
+  readonly timestamp?: string;
   readonly sourceRef?: RuntimeSourceRef;
 }
 
@@ -92,11 +95,27 @@ export interface CodexRunDiagnosticsGroup {
   readonly raw?: unknown;
 }
 
+export interface CodexRunFeedItem {
+  readonly id: string;
+  readonly kind: CodexRunFeedKind;
+  readonly icon: string;
+  readonly label: string;
+  readonly status: "running" | "completed" | "failed" | "pending" | "idle";
+  readonly summary?: string;
+  readonly detail?: string;
+  readonly timestamp?: string;
+  readonly durationMs?: number;
+  readonly step?: CodexRunStepGroup;
+  readonly change?: CodexRunChangeGroup;
+  readonly sourceRef?: RuntimeSourceRef;
+}
+
 export interface CodexRunViewModel {
   readonly runHeader: CodexRunHeader;
   readonly currentActivity: CodexRunCurrentActivity;
   readonly changeGroups: ReadonlyArray<CodexRunChangeGroup>;
   readonly stepGroups: ReadonlyArray<CodexRunStepGroup>;
+  readonly feedItems: ReadonlyArray<CodexRunFeedItem>;
   readonly approvalGates: ReadonlyArray<CodexRunApprovalGate>;
   readonly diagnosticsGroups: ReadonlyArray<CodexRunDiagnosticsGroup>;
   readonly finalAnswer: string;
@@ -242,6 +261,13 @@ function toolStepKind(card: ToolCallCard): CodexRunStepKind {
   return "dynamic";
 }
 
+function thinkingSummary(card: Extract<import("./agentRunDisplayModel").AgentRunCard, { kind: "thinking" }>): string {
+  const value = (card.text || card.detail || card.summary || "").trim();
+  const title = card.title.trim();
+  if (value && value !== title) return value;
+  return "Reasoning summary not provided by Codex.";
+}
+
 function buildChangeGroups(model: AgentRunDisplayModel, turnView: AssistantTurnView, cwd?: string): CodexRunChangeGroup[] {
   const root = cwd ?? model.debugView?.effectiveRunPlan?.cwd;
   const groups: CodexRunChangeGroup[] = [];
@@ -254,6 +280,7 @@ function buildChangeGroups(model: AgentRunDisplayModel, turnView: AssistantTurnV
     diff?: string,
     approvalStatus?: CodexRunChangeGroup["approvalStatus"],
     durationMs?: number,
+    timestamp?: string,
     sourceRef?: RuntimeSourceRef,
   ) => {
     if (!fullPath) return;
@@ -269,6 +296,7 @@ function buildChangeGroups(model: AgentRunDisplayModel, turnView: AssistantTurnV
           diffSummary: diffSummary(diff),
           approvalStatus: approvalStatus ?? existing.approvalStatus,
           durationMs: durationMs ?? existing.durationMs,
+          timestamp: timestamp ?? existing.timestamp,
           sourceRef: sourceRef ?? existing.sourceRef,
         };
       }
@@ -285,6 +313,7 @@ function buildChangeGroups(model: AgentRunDisplayModel, turnView: AssistantTurnV
       diff,
       approvalStatus,
       durationMs,
+      timestamp,
       sourceRef,
     });
   };
@@ -293,22 +322,219 @@ function buildChangeGroups(model: AgentRunDisplayModel, turnView: AssistantTurnV
     if (card.kind !== "file-change") continue;
     if (card.changes && card.changes.length > 0) {
       for (const change of card.changes) {
-        addChange(card.id, change.action, change.path, change.diff, change.approvalStatus ?? card.approvalStatus, undefined, card.sourceRef);
+        addChange(card.id, change.action, change.path, change.diff, change.approvalStatus ?? card.approvalStatus, undefined, card.timestamp, card.sourceRef);
       }
     } else {
-      addChange(card.id, card.action, card.path, card.diff, card.approvalStatus, undefined, card.sourceRef);
+      addChange(card.id, card.action, card.path, card.diff, card.approvalStatus, undefined, card.timestamp, card.sourceRef);
     }
   }
 
   for (const card of model.fileChangeCards as FileChangeCard[]) {
-    addChange(card.id, card.action, card.path, card.diff, card.approvalStatus, undefined, card.sourceRef);
+    addChange(card.id, card.action, card.path, card.diff, card.approvalStatus, undefined, card.timestamp, card.sourceRef);
   }
 
   for (const fc of turnView.fileChanges) {
-    addChange(`segment-${fc.timestamp}`, fc.action, fc.path, undefined, undefined, undefined, undefined);
+    addChange(`segment-${fc.timestamp}`, fc.action, fc.path, undefined, undefined, undefined, fc.timestamp, undefined);
   }
 
   return groups;
+}
+
+function stepFromToolCard(card: ToolCallCard): CodexRunStepGroup {
+  const kind = toolStepKind(card);
+  return {
+    id: card.id,
+    kind,
+    icon: stepIcon(kind),
+    label: card.label || card.title,
+    status: card.status,
+    durationMs: card.durationMs,
+    command: stringifyCommand(card.command),
+    cwd: card.cwd,
+    stdout: card.stdout,
+    stderr: card.stderr,
+    exitCode: card.exitCode,
+    args: card.toolInput,
+    structuredResult: card.structuredResult,
+    contentItems: card.contentItems,
+    sourceRef: card.sourceRef,
+  };
+}
+
+function findMatchingChange(
+  changes: ReadonlyArray<CodexRunChangeGroup>,
+  usedChangeIds: Set<string>,
+  action: "create" | "modify" | "delete",
+  fullPath: string,
+  diff?: string,
+  sourceRef?: RuntimeSourceRef,
+): CodexRunChangeGroup | undefined {
+  const normalizedPath = fullPath.replace(/\\/g, "/").toLowerCase();
+  const sourceItemId = sourceRef?.itemId;
+  return changes.find((change) => {
+    if (usedChangeIds.has(change.id)) return false;
+    if (sourceItemId && change.sourceRef?.itemId === sourceItemId) return true;
+    return change.action === action
+      && change.fullPath.replace(/\\/g, "/").toLowerCase() === normalizedPath
+      && (!diff || change.diff === diff);
+  });
+}
+
+function buildFeedItems(
+  model: AgentRunDisplayModel,
+  changes: ReadonlyArray<CodexRunChangeGroup>,
+): CodexRunFeedItem[] {
+  const feed: CodexRunFeedItem[] = [];
+  const usedChangeIds = new Set<string>();
+
+  const pushChange = (
+    id: string,
+    action: "create" | "modify" | "delete",
+    fullPath: string,
+    diff?: string,
+    approvalStatus?: CodexRunChangeGroup["approvalStatus"],
+    timestamp?: string,
+    sourceRef?: RuntimeSourceRef,
+  ) => {
+    const existing = findMatchingChange(changes, usedChangeIds, action, fullPath, diff, sourceRef);
+    const change: CodexRunChangeGroup = existing ?? {
+      id,
+      action,
+      fileName: basename(fullPath),
+      relativePath: fullPath,
+      fullPath,
+      diffSummary: diffSummary(diff),
+      diff,
+      approvalStatus,
+      timestamp,
+      sourceRef,
+    };
+    usedChangeIds.add(change.id);
+    feed.push({
+      id: `feed-change-${change.id}`,
+      kind: "file",
+      icon: stepIcon("file"),
+      label: `${actionLabel(change.action)} ${change.fileName}`,
+      status: "completed",
+      summary: [change.relativePath, change.diffSummary, change.approvalStatus ? `approval ${change.approvalStatus}` : ""].filter(Boolean).join(" · "),
+      timestamp: change.timestamp ?? timestamp,
+      durationMs: change.durationMs,
+      change,
+      sourceRef: change.sourceRef ?? sourceRef,
+    });
+  };
+
+  for (const card of model.timelineCards) {
+    if (card.kind === "warning" || card.kind === "error" || card.kind === "debug-raw-event") continue;
+    if (card.kind === "thinking") {
+      feed.push({
+        id: `feed-${card.id}`,
+        kind: "thinking",
+        icon: stepIcon("thinking"),
+        label: card.text ? "Thinking" : card.title,
+        status: card.status,
+        summary: thinkingSummary(card),
+        detail: card.detail,
+        timestamp: card.timestamp,
+        sourceRef: card.sourceRef,
+      });
+      continue;
+    }
+    if (card.kind === "tool-call") {
+      const step = stepFromToolCard(card);
+      feed.push({
+        id: `feed-${card.id}`,
+        kind: step.kind,
+        icon: step.icon,
+        label: step.label,
+        status: step.status,
+        summary: card.summary,
+        detail: card.detail,
+        timestamp: card.timestamp,
+        durationMs: step.durationMs,
+        step,
+        sourceRef: step.sourceRef,
+      });
+      continue;
+    }
+    if (card.kind === "file-change") {
+      const nestedChanges = card.changes && card.changes.length > 0
+        ? card.changes
+        : card.path ? [{ action: card.action, path: card.path, diff: card.diff, approvalStatus: card.approvalStatus }] : [];
+      nestedChanges.forEach((change, index) => {
+        pushChange(
+          `${card.id}-${index}`,
+          change.action,
+          change.path,
+          change.diff,
+          change.approvalStatus,
+          card.timestamp,
+          card.sourceRef,
+        );
+      });
+      continue;
+    }
+    if (card.kind === "approval") {
+      feed.push({
+        id: `feed-${card.id}`,
+        kind: "approval",
+        icon: stepIcon("approval"),
+        label: card.pending ? `Waiting approval: ${card.label}` : `Approval resolved: ${card.label}`,
+        status: card.pending ? "pending" : "completed",
+        summary: card.summary,
+        detail: card.detail,
+        timestamp: card.timestamp,
+        sourceRef: card.sourceRef,
+      });
+      continue;
+    }
+    if (card.kind === "user-input") {
+      feed.push({
+        id: `feed-${card.id}`,
+        kind: "user-input",
+        icon: stepIcon("user-input"),
+        label: card.pending ? "Waiting for user input" : "User input resolved",
+        status: card.pending ? "pending" : "completed",
+        summary: card.summary,
+        detail: card.detail,
+        timestamp: card.timestamp,
+        sourceRef: card.sourceRef,
+      });
+      continue;
+    }
+    if (card.kind === "final-answer" && card.text.trim().length > 0) {
+      feed.push({
+        id: `feed-${card.id}`,
+        kind: "assistant",
+        icon: "message-square",
+        label: "Output",
+        status: card.status,
+        summary: card.text,
+        detail: card.detail,
+        timestamp: card.timestamp,
+        sourceRef: card.sourceRef,
+      });
+    }
+  }
+
+  for (const change of changes) {
+    if (usedChangeIds.has(change.id)) continue;
+    feed.push({
+      id: `feed-change-${change.id}`,
+      kind: "file",
+      icon: stepIcon("file"),
+      label: `${actionLabel(change.action)} ${change.fileName}`,
+      status: "completed",
+      summary: [change.relativePath, change.diffSummary, change.approvalStatus ? `approval ${change.approvalStatus}` : ""].filter(Boolean).join(" · "),
+      timestamp: change.timestamp,
+      durationMs: change.durationMs,
+      change,
+      sourceRef: change.sourceRef,
+    });
+    usedChangeIds.add(change.id);
+  }
+
+  return feed;
 }
 
 function buildStepGroups(model: AgentRunDisplayModel): CodexRunStepGroup[] {
@@ -327,24 +553,7 @@ function buildStepGroups(model: AgentRunDisplayModel): CodexRunStepGroup[] {
       continue;
     }
     if (card.kind === "tool-call") {
-      const kind = toolStepKind(card);
-      steps.push({
-        id: card.id,
-        kind,
-        icon: stepIcon(kind),
-        label: card.label || card.title,
-        status: card.status,
-        durationMs: card.durationMs,
-        command: stringifyCommand(card.command),
-        cwd: card.cwd,
-        stdout: card.stdout,
-        stderr: card.stderr,
-        exitCode: card.exitCode,
-        args: card.toolInput,
-        structuredResult: card.structuredResult,
-        contentItems: card.contentItems,
-        sourceRef: card.sourceRef,
-      });
+      steps.push(stepFromToolCard(card));
       continue;
     }
     if (card.kind === "approval") {
@@ -428,6 +637,7 @@ export function buildCodexRunViewModel(
 ): CodexRunViewModel {
   const stepGroups = buildStepGroups(model);
   const changeGroups = buildChangeGroups(model, turnView, options.cwd);
+  const feedItems = buildFeedItems(model, changeGroups);
   const approvalGates = buildApprovalGates(model);
   const diagnosticsGroups = buildDiagnosticsGroups(model);
   const kind = statusKind(options.status, model);
@@ -454,6 +664,7 @@ export function buildCodexRunViewModel(
     currentActivity: normalizeActivity(model, stepGroups, kind, changeGroups),
     changeGroups,
     stepGroups,
+    feedItems,
     approvalGates,
     diagnosticsGroups,
     finalAnswer: model.finalAnswer,

@@ -2423,6 +2423,10 @@ if (runMode !== "all" && runMode !== "unit") {
       });
       const commandStep = run.stepGroups.find((step) => step.kind === "command");
       const change = run.changeGroups[0];
+      const feedKinds = run.feedItems.map((item) => item.kind).join(">");
+      const thinkingFeed = run.feedItems.find((item) => item.kind === "thinking");
+      const commandFeed = run.feedItems.find((item) => item.kind === "command");
+      const fileFeed = run.feedItems.find((item) => item.kind === "file");
       const ok = run.runHeader.statusKind === "blocked"
         && run.currentActivity.label === "Waiting approval"
         && run.runHeader.commandCount === 1
@@ -2432,11 +2436,15 @@ if (runMode !== "all" && runMode !== "unit") {
         && commandStep?.stdout?.includes("V17G")
         && change?.relativePath === "notes/run.md"
         && change.diffSummary === "+1 -1"
+        && feedKinds.includes("thinking>command")
+        && /Plan the edit/.test(thinkingFeed?.summary || "")
+        && !!commandFeed?.step?.stdout?.includes("V17G")
+        && fileFeed?.change?.relativePath === "notes/run.md"
         && run.debugPanel === undefined
         && devRun.debugPanel?.rawProviderEvents?.length === 1;
-      addTest("V17-G CodexRunViewModel: runHeader/currentActivity/changes/steps/approval/debugPanel 分层",
+      addTest("V17-G CodexRunViewModel: runHeader/currentActivity/feed/changes/steps/approval/debugPanel 分层",
         ok ? "pass" : "fail",
-        `status=${run.runHeader.statusKind} activity=${run.currentActivity.label} commands=${run.runHeader.commandCount} changes=${run.runHeader.fileChangeCount} approvals=${run.approvalGates.length} stepStdout=${!!commandStep?.stdout} relativePath=${change?.relativePath} debug=${!!run.debugPanel}/${!!devRun.debugPanel}`);
+        `status=${run.runHeader.statusKind} activity=${run.currentActivity.label} commands=${run.runHeader.commandCount} changes=${run.runHeader.fileChangeCount} approvals=${run.approvalGates.length} feed=${feedKinds} thinkingSummary=${thinkingFeed?.summary || ""} stepStdout=${!!commandStep?.stdout} relativePath=${change?.relativePath} debug=${!!run.debugPanel}/${!!devRun.debugPanel}`);
     }
 
     // ---------- 5c. P3-C: Developer mode / legacy 分层隔离 ----------
@@ -9792,9 +9800,21 @@ if (!runV20Unit) {
     } = await import(pathToFileURL(sdkMapperBundleV20).href);
     const { SdkBackend, deriveAssistantTextDelta, generateMockFailureWorkflowEvents } = await import(pathToFileURL(sdkBackendBundleV20).href);
     const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV20).href);
-    const { adaptEventsToTimeline } = await import(pathToFileURL(timelineAdapterBundleV20).href);
+    const { adaptEventsToTimeline, extractToolParams } = await import(pathToFileURL(timelineAdapterBundleV20).href);
 
     const TS = "2026-06-28T00:00:00.000Z";
+
+    // ---- Test 0: tool params 只处理对象，历史 command 字符串不应让消息渲染失败 ----
+    {
+      const stringParams = extractToolParams("Bash", JSON.stringify("C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe -Command Write-Output ok"));
+      const objectParams = extractToolParams("Bash", JSON.stringify({ command: "echo ok", cwd: "C:\\vault" }));
+      const ok = Array.isArray(stringParams)
+        && stringParams.length === 0
+        && objectParams.some((p) => p.key === "command" && p.value === "echo ok");
+      addTest("V17-G timelineAdapter: JSON 字符串 toolInput 不触发 in-operator 渲染异常",
+        ok ? "pass" : "fail",
+        `stringParams=${stringParams.length} objectParams=${objectParams.map((p) => `${p.key}=${p.value}`).join(",")}`);
+    }
 
     // ---- Test 1: thinking block 映射为 ThinkingEvent ----
     {

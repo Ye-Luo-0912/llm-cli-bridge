@@ -5125,20 +5125,40 @@
   cursor: pointer;
   color: var(--text-muted);
 }
+.llm-bridge-codex-detail-panel {
+  margin-top: 5px;
+  padding: 8px 9px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+}
+.llm-bridge-codex-detail-panel-title {
+  margin-bottom: 6px;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+}
 .llm-bridge-codex-diff-pre,
 .llm-bridge-codex-detail-pre {
   max-height: 220px;
   overflow: auto;
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.llm-bridge-codex-diff-pre {
   margin: 4px 0 0;
   padding: 6px 8px;
   border-radius: 6px;
   background: var(--background-primary);
   color: var(--text-muted);
-  font-family: var(--font-monospace);
   font-size: 10px;
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 .llm-bridge-codex-step-row {
   display: grid;
@@ -5161,6 +5181,108 @@
 .llm-bridge-codex-step-label {
   color: var(--text-normal);
   font-size: var(--font-smallest);
+}
+.llm-bridge-codex-feed,
+.llm-bridge-codex-feed-list {
+  display: grid;
+  gap: 4px;
+}
+.llm-bridge-codex-feed-batch {
+  display: grid;
+  gap: 0;
+  padding: 1px 0 1px 9px;
+  border-left: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
+}
+.llm-bridge-codex-feed-batch:first-child {
+  padding-top: 0;
+}
+.llm-bridge-codex-feed-item,
+.llm-bridge-codex-change-row.llm-bridge-codex-feed-item {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  gap: 7px;
+  align-items: start;
+  min-height: 26px;
+  padding: 5px 0;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 34%, transparent);
+}
+.llm-bridge-codex-feed-batch .llm-bridge-codex-feed-item:first-child {
+  border-top: 0;
+}
+.llm-bridge-codex-feed-item.is-batch-event,
+.llm-bridge-codex-change-row.llm-bridge-codex-feed-item.is-batch-event {
+  grid-template-columns: 16px minmax(0, 1fr) auto auto;
+  gap: 6px;
+  min-height: 24px;
+  margin-left: 13px;
+  padding: 4px 0;
+}
+.llm-bridge-codex-feed-item.is-batch-event .llm-bridge-codex-feed-icon {
+  opacity: 0.76;
+}
+.llm-bridge-codex-feed-item.is-batch-event .llm-bridge-codex-feed-label {
+  color: var(--text-muted);
+}
+.llm-bridge-codex-feed-item.is-batch-event .llm-bridge-codex-feed-summary,
+.llm-bridge-codex-feed-item.is-batch-event .llm-bridge-codex-change-path {
+  color: var(--text-faint);
+}
+.llm-bridge-codex-feed-icon {
+  margin-top: 2px;
+}
+.llm-bridge-codex-feed-item.is-thinking .llm-bridge-codex-feed-icon,
+.llm-bridge-codex-feed-item.is-running .llm-bridge-codex-feed-icon {
+  color: var(--interactive-accent);
+}
+.llm-bridge-codex-feed-item.is-file .llm-bridge-codex-feed-icon {
+  color: var(--text-muted);
+}
+.llm-bridge-codex-feed-item.is-file.is-create .llm-bridge-codex-feed-icon {
+  color: var(--text-success);
+}
+.llm-bridge-codex-feed-item.is-file.is-delete .llm-bridge-codex-feed-icon {
+  color: var(--text-error);
+}
+.llm-bridge-codex-feed-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.llm-bridge-codex-feed-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.llm-bridge-codex-feed-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.llm-bridge-codex-feed-summary {
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  line-height: 1.42;
+  word-break: break-word;
+}
+.llm-bridge-codex-feed-item.is-thinking .llm-bridge-codex-feed-summary {
+  color: var(--text-muted);
+}
+.llm-bridge-codex-feed-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.llm-bridge-codex-feed-item .llm-bridge-codex-change-actions {
+  margin-top: -1px;
+}
+.llm-bridge-codex-feed-item .llm-bridge-codex-diff-preview,
+.llm-bridge-codex-feed-item .llm-bridge-codex-detail,
+.llm-bridge-codex-feed-item .llm-bridge-codex-source-ref {
+  grid-column: 2 / -1;
 }
 .llm-bridge-codex-step-command,
 .llm-bridge-codex-step-cwd,

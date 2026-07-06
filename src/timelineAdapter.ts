@@ -495,6 +495,7 @@ export function extractToolParams(toolName: string, toolInput: string): ToolPara
   } catch {
     return [];
   }
+  if (!input || typeof input !== "object" || Array.isArray(input)) return [];
   const params: ToolParam[] = [];
   const skipKeys = new Set(["file_path", "notebook_path", "path", "_type"]);
   const addParam = (key: string, value: unknown): void => {
