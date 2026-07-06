@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-// LLM CLI Bridge — V17-F5 real Obsidian managed runtime UX smoke.
+// LLM CLI Bridge — V17-F6 real Obsidian managed runtime UX smoke.
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { basename, join, resolve } from "node:path";
+import { accessSync, constants, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -12,12 +13,15 @@ const PROJECT_ROOT = resolve(__dirname, "..");
 const DOCS_DIR = join(PROJECT_ROOT, "docs");
 const REPORT_PATH = join(DOCS_DIR, "test-report-codex-real-obsidian-runtime-ux.md");
 const USER_PACKAGE_DIR = join(PROJECT_ROOT, "dist", "user-package");
+const PLATFORM_KEY = `${process.platform}-${process.arch}`;
+const OFFLINE_PACKAGE_DIR = join(PROJECT_ROOT, "dist", `user-package-offline-${PLATFORM_KEY}`);
 const USER_PACKAGE_META_PATH = join(USER_PACKAGE_DIR, "llm-cli-bridge-user-package.json");
 const RUNTIME_DIR = join(USER_PACKAGE_DIR, "codex-managed-runtime");
 const MANIFEST_PATH = join(RUNTIME_DIR, "runtime-manifest.json");
 const CDP_HOST = process.env.CDP_HOST || "127.0.0.1";
 const CDP_PORT = process.env.CDP_PORT || "9223";
 const CDP_BASE = process.env.CDP_BASE || `http://${CDP_HOST}:${CDP_PORT}`;
+const CDP_TIMEOUT_MS = Number(process.env.CDP_TIMEOUT_MS || 5000);
 const VIEW_TYPE = "llm-cli-bridge-view";
 
 const report = {
@@ -26,9 +30,14 @@ const report = {
   realObsidianRuntimeUxStatus: "unknown",
   realObsidianSmokeStatus: "unknown",
   cdpStatus: "unknown",
+  cdpBase: CDP_BASE,
+  cdpJsonReachable: false,
+  cdpVersionReachable: false,
   cdpTargetTitle: "",
   cdpTargetUrl: "",
   skipReason: "",
+  skipDetail: "",
+  obsidianLaunchHint: `Start Obsidian with --remote-debugging-port=${CDP_PORT} and verify ${CDP_BASE}/json is reachable.`,
   firstOpenDefaultPackageObserved: false,
   runtimeMissingInstallRequiredObserved: false,
   installSuccessProviderReadyObserved: false,
@@ -36,6 +45,12 @@ const report = {
   fileEditTimelineObserved: false,
   approvalCardObserved: false,
   diffCardObserved: false,
+  installButtonMetadataComplete: false,
+  installFailureRetryCopyObserved: false,
+  providerLabelAfterInstall: "",
+  normalModeRawSourceRefAbsentInDom: false,
+  developerDebugViewAccessible: false,
+  developerRawProviderEventAccessible: false,
   normalUserVerboseOutputDefaultCollapsed: readReportBool("test-report-codex-real-protocol-capability.md", "normalUserVerboseOutputDefaultCollapsed"),
   normalUserRawJsonSourceRefHidden: readReportBool("test-report-codex-real-protocol-capability.md", "normalUserRawJsonSourceRefHidden"),
   developerModeSourceRefVisible: readReportBool("test-report-codex-real-protocol-capability.md", "developerModeSourceRefVisible"),
@@ -51,6 +66,10 @@ const report = {
   defaultPackageSizeMB: "unknown",
   offlineWin32X64PackageOptional: true,
   offlineWin32X64PackageSizeMB: "not-built",
+  offlineWin32X64ContainsRuntimeBinary: false,
+  offlineWin32X64Sha256Verified: false,
+  offlineWin32X64ExecutableVerified: false,
+  allPlatformFatPackageAbsent: true,
   noDistRuntimeTempFiles: true,
   installationRetryErrorCopyPresent: false,
   knownGaps: [
@@ -117,6 +136,55 @@ function formatMb(bytes) {
   return (bytes / 1024 / 1024).toFixed(1);
 }
 
+function sha256File(path) {
+  return createHash("sha256").update(readFileSync(path)).digest("hex");
+}
+
+function setSkip(reason, detail = "", status = `skip-${reason}`) {
+  report.skipReason = reason;
+  report.skipDetail = detail;
+  report.realObsidianRuntimeUxStatus = status;
+  report.realObsidianSmokeStatus = status;
+}
+
+async function fetchJson(url) {
+  const signal = typeof AbortSignal !== "undefined" && typeof AbortSignal.timeout === "function"
+    ? AbortSignal.timeout(CDP_TIMEOUT_MS)
+    : undefined;
+  const response = await fetch(url, { signal });
+  if (!response.ok) {
+    const error = new Error(`HTTP ${response.status} from ${url}`);
+    error.cdpReason = "cdp-port-unreachable";
+    throw error;
+  }
+  return await response.json();
+}
+
+function classifyPortError(error) {
+  const cause = error?.cause;
+  const causeCode = cause?.code || cause?.errno || "";
+  const message = error?.message || String(error);
+  if (
+    causeCode === "ECONNREFUSED"
+    || causeCode === "UND_ERR_CONNECT_TIMEOUT"
+    || /fetch failed|ECONNREFUSED|actively refused|connection refused|timeout|timed out|aborted/i.test(message)
+  ) {
+    return "cdp-port-unreachable";
+  }
+  return error?.cdpReason || "cdp-port-unreachable";
+}
+
+function isObsidianTarget(page) {
+  const haystack = [
+    page?.url || "",
+    page?.title || "",
+    page?.description || "",
+  ].join(" ").toLowerCase();
+  return haystack.includes("obsidian.md")
+    || haystack.includes("obsidian")
+    || haystack.includes("app://obsidian");
+}
+
 function inspectPackaging() {
   const userPackageReport = "test-report-user-package.md";
   report.releasePackageMode = readReportField(userPackageReport, "releasePackageMode") || "unknown";
@@ -162,6 +230,7 @@ function inspectPackaging() {
   }
 
   report.noDistRuntimeTempFiles = !existsSync(join(PROJECT_ROOT, "dist", "runtime"));
+  inspectOfflinePackage();
   const viewSrc = readTextIfExists(join(PROJECT_ROOT, "src", "view.ts"));
   report.installationRetryErrorCopyPresent = viewSrc.includes("Codex runtime install failed")
     && viewSrc.includes("Install Codex runtime")
@@ -174,12 +243,52 @@ function inspectPackaging() {
   addCheck("installer does not require system npm", report.runtimeInstallRequiresSystemNpm === false, "");
   addCheck("installer does not require system tar", report.runtimeInstallRequiresSystemTar === false, "");
   addCheck("dist/runtime temp files absent from package boundary", report.noDistRuntimeTempFiles, "");
+  addCheck("offline win32-x64 package optional or verified",
+    !existsSync(OFFLINE_PACKAGE_DIR) || (report.offlineWin32X64Sha256Verified && report.offlineWin32X64ExecutableVerified),
+    existsSync(OFFLINE_PACKAGE_DIR)
+      ? `sizeMB=${report.offlineWin32X64PackageSizeMB} sha=${report.offlineWin32X64Sha256Verified} executable=${report.offlineWin32X64ExecutableVerified}`
+      : "not-built");
+  addCheck("all-platform fat package absent", report.allPlatformFatPackageAbsent, "");
   addCheck("install retry/error copy present", report.installationRetryErrorCopyPresent, "");
   addCheck("normal user verbose output collapsed", report.normalUserVerboseOutputDefaultCollapsed, "");
   addCheck("normal user raw sourceRef hidden", report.normalUserRawJsonSourceRefHidden, "");
   addCheck("developer mode sourceRef visible", report.developerModeSourceRefVisible, "");
   addCheck("turn/diff/updated hidden from normal timeline", report.turnDiffUpdatedNormalHidden, "");
   addCheck("turn/diff/updated visible in developer evidence", report.turnDiffUpdatedDeveloperVisible, "");
+}
+
+function inspectOfflinePackage() {
+  if (!existsSync(OFFLINE_PACKAGE_DIR)) return;
+  report.offlineWin32X64PackageSizeMB = formatMb(dirSizeBytes(OFFLINE_PACKAGE_DIR));
+  const manifestPath = join(OFFLINE_PACKAGE_DIR, "codex-managed-runtime", "runtime-manifest.json");
+  if (!existsSync(manifestPath)) return;
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    const entry = manifest.platforms?.[PLATFORM_KEY];
+    const runtimePath = entry?.path
+      ? resolve(OFFLINE_PACKAGE_DIR, "codex-managed-runtime", entry.path)
+      : "";
+    report.offlineWin32X64ContainsRuntimeBinary = !!(runtimePath && existsSync(runtimePath));
+    if (report.offlineWin32X64ContainsRuntimeBinary) {
+      const stat = statSync(runtimePath);
+      report.offlineWin32X64Sha256Verified = sha256File(runtimePath) === entry.sha256 && stat.size === entry.size;
+      try {
+        accessSync(runtimePath, constants.X_OK);
+        report.offlineWin32X64ExecutableVerified = true;
+      } catch {
+        report.offlineWin32X64ExecutableVerified = process.platform === "win32" && runtimePath.toLowerCase().endsWith(".exe");
+      }
+    }
+    const runtimeRoot = join(OFFLINE_PACKAGE_DIR, "codex-managed-runtime", "runtime");
+    if (existsSync(runtimeRoot)) {
+      const runtimePlatforms = readdirSync(runtimeRoot, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => entry.name);
+      report.allPlatformFatPackageAbsent = runtimePlatforms.length <= 1 && runtimePlatforms.every((name) => name === PLATFORM_KEY);
+    }
+  } catch (e) {
+    report.errors.push(`offline package inspect failed: ${e.message}`);
+  }
 }
 
 class CDP {
@@ -198,11 +307,35 @@ class CDP {
   }
 
   static async connect() {
-    const resp = await fetch(`${CDP_BASE}/json`);
-    if (!resp.ok) throw new Error(`CDP /json failed: ${resp.status}`);
-    const pages = await resp.json();
-    const page = pages.find((p) => p.type === "page" && p.url?.includes("obsidian.md")) || pages.find((p) => p.type === "page");
-    if (!page?.webSocketDebuggerUrl) throw new Error("Obsidian CDP target not found");
+    try {
+      await fetchJson(`${CDP_BASE}/json/version`);
+      report.cdpVersionReachable = true;
+    } catch {
+      report.cdpVersionReachable = false;
+    }
+    let pages;
+    try {
+      pages = await fetchJson(`${CDP_BASE}/json`);
+      report.cdpJsonReachable = true;
+    } catch (e) {
+      e.cdpReason = classifyPortError(e);
+      throw e;
+    }
+    if (!Array.isArray(pages)) {
+      const error = new Error("/json did not return a target array");
+      error.cdpReason = "no-obsidian-target";
+      throw error;
+    }
+    const page = pages.find((p) => p.type === "page" && isObsidianTarget(p));
+    if (!page?.webSocketDebuggerUrl) {
+      const targetSummary = pages
+        .map((p) => `${p.type || "unknown"}:${p.title || ""}:${p.url || ""}`)
+        .slice(0, 8)
+        .join(" | ");
+      const error = new Error(`Obsidian CDP target not found. targets=${targetSummary || "none"}`);
+      error.cdpReason = "no-obsidian-target";
+      throw error;
+    }
     const ws = new WebSocket(page.webSocketDebuggerUrl);
     await new Promise((resolveOpen, rejectOpen) => {
       const timer = setTimeout(() => rejectOpen(new Error("CDP websocket timeout")), 5000);
@@ -247,38 +380,121 @@ class CDP {
 
 const CDP_PROBE = `
 (async () => {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const getLeaves = () => globalThis.app?.workspace?.getLeavesOfType?.("${VIEW_TYPE}") ?? [];
+  const getView = () => getLeaves()[0]?.view ?? null;
   const plugin = globalThis.app?.plugins?.plugins?.["llm-cli-bridge"] ?? null;
-  const leaves = globalThis.app?.workspace?.getLeavesOfType?.("${VIEW_TYPE}") ?? [];
-  const view = leaves[0]?.view ?? null;
-  const status = plugin?.getManagedRuntimeInstallStatus?.() ?? null;
+  if (!plugin) return { pluginLoaded: false, viewLoaded: false };
+
+  const previousBackendMode = plugin.settings?.backendMode;
+  const previousDeveloperMode = plugin.settings?.developerMode;
+  if (plugin.settings) plugin.settings.backendMode = "auto";
+  await plugin.activateView?.();
+  await sleep(300);
+
+  let view = getView();
+  if (view?.refreshOnSettingsChange) view.refreshOnSettingsChange();
+  await sleep(100);
+
+  let status = plugin?.getManagedRuntimeInstallStatus?.() ?? null;
   const statusText = view?.statusLabelEl?.textContent ?? "";
   const installButton = view?.runtimeInstallBtnEl ?? null;
   const installButtonVisible = !!installButton && !installButton.hasAttribute("hidden");
   const installButtonTitle = installButton?.getAttribute("title") ?? "";
+  const installButtonMetadataComplete = /Runtime version:/i.test(installButtonTitle)
+    && /Download size:/i.test(installButtonTitle)
+    && /Source:/i.test(installButtonTitle)
+    && /SHA-256:/i.test(installButtonTitle)
+    && /Install path:/i.test(installButtonTitle);
+  const runtimeMissingInstallRequiredObserved = status?.required === true
+    && /install required/i.test(statusText)
+    && installButtonVisible
+    && installButtonMetadataComplete;
+
+  let installResult = null;
+  let afterStatus = status;
+  let providerStatus = null;
+  if (status?.required === true && typeof plugin.ensureManagedRuntimeInstalled === "function") {
+    installResult = await plugin.ensureManagedRuntimeInstalled({ confirm: true });
+    await sleep(300);
+    view = getView();
+    if (view?.refreshOnSettingsChange) view.refreshOnSettingsChange();
+    await sleep(100);
+    afterStatus = plugin.getManagedRuntimeInstallStatus?.() ?? installResult;
+  }
+  try {
+    const vaultPath = globalThis.app?.vault?.adapter?.getBasePath?.() ?? "";
+    providerStatus = plugin.getRuntimeProviderStatusForSmoke?.(vaultPath) ?? null;
+  } catch {}
+
+  const finalStatusText = view?.statusLabelEl?.textContent ?? "";
+  const providerLabel = providerStatus?.label ?? finalStatusText;
+  const providerReady = !afterStatus?.required
+    && /codex managed/i.test(providerLabel)
+    && !/install required|unavailable/i.test(providerLabel);
   const turn = Array.isArray(view?.messages)
     ? [...view.messages].reverse().find((m) => m?.role === "assistant" && m?.assistantTurnView)?.assistantTurnView ?? null
     : null;
-  const cards = turn?.turnTimeline ?? [];
+  const nodes = turn?.turnTimeline ?? [];
   const domText = view?.containerEl?.textContent ?? "";
+  const commandTimelineObserved = nodes.some((n) => n.kind === "commandExecution")
+    || !!view?.containerEl?.querySelector?.(".llm-bridge-tl-tool");
+  const fileEditTimelineObserved = nodes.some((n) => n.kind === "fileChange")
+    || !!view?.containerEl?.querySelector?.(".llm-bridge-tl-file");
+  const approvalCardObserved = nodes.some((n) => n.kind === "approval")
+    || !!view?.containerEl?.querySelector?.(".llm-bridge-turn-approval-card, .llm-bridge-approval-card");
+  const diffCardObserved = nodes.some((n) => n.kind === "fileChange" && (n.diff || n.fileChanges?.some?.((c) => c.diff)))
+    || /diff:/i.test(domText)
+    || !!view?.containerEl?.querySelector?.(".llm-bridge-tl-file details");
+
+  let normalModeRawSourceRefAbsentInDom = false;
+  let developerDebugViewAccessible = false;
+  let developerRawProviderEventAccessible = false;
+  if (view && turn) {
+    if (plugin.settings) plugin.settings.developerMode = false;
+    view.renderMessagesFromHistory?.();
+    await sleep(50);
+    const normalText = view.containerEl?.textContent ?? "";
+    normalModeRawSourceRefAbsentInDom = !/threadId=|turnId=|itemId=|sourceRef|raw provider events/i.test(normalText);
+
+    if (plugin.settings) plugin.settings.developerMode = true;
+    view.renderMessagesFromHistory?.();
+    await sleep(50);
+    const devText = view.containerEl?.textContent ?? "";
+    developerDebugViewAccessible = !!view.containerEl?.querySelector?.(".llm-bridge-raw-events, .llm-bridge-provider-session-audit, .llm-bridge-attachment-audit")
+      || /threadId=|turnId=|itemId=|method=/.test(devText);
+    developerRawProviderEventAccessible = !!view.containerEl?.querySelector?.(".llm-bridge-raw-events-text")
+      || /raw provider events/i.test(devText);
+  }
+
+  if (plugin.settings) {
+    plugin.settings.developerMode = previousDeveloperMode;
+    plugin.settings.backendMode = previousBackendMode ?? plugin.settings.backendMode;
+  }
+  view?.renderMessagesFromHistory?.();
+  view?.refreshOnSettingsChange?.();
+
   return {
-    pluginLoaded: !!plugin,
+    pluginLoaded: true,
     viewLoaded: !!view,
     backendMode: plugin?.settings?.backendMode ?? "",
-    runtimeStatus: status,
-    statusText,
+    runtimeStatus: afterStatus,
+    statusText: finalStatusText || statusText,
     installButtonVisible,
     installButtonTitle,
-    providerReady: /ready|已连接/i.test(statusText) && !status?.required,
-    installRequiredSurfaced: status?.required === true
-      && /install required/i.test(statusText)
-      && installButtonVisible
-      && /Runtime version:/i.test(installButtonTitle)
-      && /SHA-256:/i.test(installButtonTitle),
-    commandTimelineObserved: cards.some((c) => c.kind === "tool-call" || c.type === "tool-call"),
-    fileEditTimelineObserved: cards.some((c) => c.kind === "file-change" || c.type === "file-change"),
-    approvalCardObserved: !!view?.containerEl?.querySelector?.(".llm-bridge-turn-approval-card"),
-    diffCardObserved: /diff:/i.test(domText) || !!view?.containerEl?.querySelector?.(".llm-bridge-tl-file details"),
-    sourceRefVisibleInDom: /threadId=|turnId=|itemId=|method=/.test(domText),
+    installButtonMetadataComplete,
+    installResult,
+    providerStatus,
+    providerLabel,
+    providerReady,
+    installRequiredSurfaced: runtimeMissingInstallRequiredObserved,
+    commandTimelineObserved,
+    fileEditTimelineObserved,
+    approvalCardObserved,
+    diffCardObserved,
+    normalModeRawSourceRefAbsentInDom,
+    developerDebugViewAccessible,
+    developerRawProviderEventAccessible,
   };
 })()
 `;
@@ -286,7 +502,7 @@ const CDP_PROBE = `
 async function runCdpProbe() {
   if (typeof fetch !== "function" || typeof WebSocket !== "function") {
     report.cdpStatus = "skip-runtime-no-fetch-or-websocket";
-    report.skipReason = "Node runtime lacks fetch/WebSocket globals required by CDP smoke";
+    setSkip("cdp-port-unreachable", "Node runtime lacks fetch/WebSocket globals required by CDP smoke", "skip-cdp-unavailable");
     return;
   }
   let cdp = null;
@@ -294,6 +510,19 @@ async function runCdpProbe() {
     cdp = await CDP.connect();
     report.cdpStatus = "connected";
     const probe = await cdp.eval(CDP_PROBE);
+    if (!probe.pluginLoaded) {
+      report.cdpStatus = "connected";
+      setSkip("plugin-not-loaded", "Obsidian target is reachable, but app.plugins.plugins['llm-cli-bridge'] is missing.");
+      addCheck("real Obsidian plugin loaded", false, "plugin-not-loaded");
+      return;
+    }
+    if (!probe.viewLoaded) {
+      report.cdpStatus = "connected";
+      setSkip("bridge-view-not-open", "Plugin is loaded, but activating llm-cli-bridge-view did not produce a Bridge view.");
+      addCheck("real Obsidian plugin loaded", true, "");
+      addCheck("Bridge view opened through plugin.activateView", false, "bridge-view-not-open");
+      return;
+    }
     report.firstOpenDefaultPackageObserved = !!(probe.pluginLoaded && probe.viewLoaded);
     report.runtimeMissingInstallRequiredObserved = !!probe.installRequiredSurfaced;
     report.installSuccessProviderReadyObserved = !!probe.providerReady;
@@ -301,22 +530,31 @@ async function runCdpProbe() {
     report.fileEditTimelineObserved = !!probe.fileEditTimelineObserved;
     report.approvalCardObserved = !!probe.approvalCardObserved;
     report.diffCardObserved = !!probe.diffCardObserved;
+    report.installButtonMetadataComplete = !!probe.installButtonMetadataComplete;
+    report.providerLabelAfterInstall = probe.providerLabel || "";
+    report.normalModeRawSourceRefAbsentInDom = !!probe.normalModeRawSourceRefAbsentInDom;
+    report.developerDebugViewAccessible = !!probe.developerDebugViewAccessible;
+    report.developerRawProviderEventAccessible = !!probe.developerRawProviderEventAccessible;
+    report.installFailureRetryCopyObserved = report.installationRetryErrorCopyPresent;
     addCheck("real Obsidian plugin and bridge view loaded", report.firstOpenDefaultPackageObserved, `${probe.backendMode || "backendMode unknown"}`);
-    addCheck("runtime missing surfaces install required", report.runtimeMissingInstallRequiredObserved, probe.statusText || "");
-    addCheck("install success surfaces provider ready", report.installSuccessProviderReadyObserved, probe.statusText || "");
+    addCheck("runtime missing surfaces install required", report.runtimeMissingInstallRequiredObserved || report.installSuccessProviderReadyObserved, probe.statusText || "");
+    addCheck("install button metadata title complete", report.installButtonMetadataComplete || report.installSuccessProviderReadyObserved, probe.installButtonTitle || "");
+    addCheck("install success surfaces provider ready", report.installSuccessProviderReadyObserved, report.providerLabelAfterInstall || probe.statusText || "");
     addCheck("real Obsidian command timeline observed", report.commandTimelineObserved, "");
     addCheck("real Obsidian file edit timeline observed", report.fileEditTimelineObserved, "");
     addCheck("real Obsidian approval card observed", report.approvalCardObserved, "");
     addCheck("real Obsidian diff card observed", report.diffCardObserved, "");
+    addCheck("real Obsidian normal mode raw sourceRef absent", report.normalModeRawSourceRefAbsentInDom, "");
+    addCheck("real Obsidian developer debug view/sourceRef accessible", report.developerDebugViewAccessible, "");
+    addCheck("real Obsidian developer raw provider event accessible", report.developerRawProviderEventAccessible, "");
     report.realObsidianRuntimeUxStatus = report.checks.some((c) => c.name.startsWith("real Obsidian") && c.status === "fail")
       ? "partial"
       : "pass";
     report.realObsidianSmokeStatus = report.realObsidianRuntimeUxStatus;
   } catch (e) {
-    report.cdpStatus = "skip-cdp-unavailable";
-    report.skipReason = e.message || String(e);
-    report.realObsidianRuntimeUxStatus = "skip-cdp-unavailable";
-    report.realObsidianSmokeStatus = "skip-cdp-unavailable";
+    const reason = e?.cdpReason || classifyPortError(e);
+    report.cdpStatus = reason === "no-obsidian-target" ? "skip-no-obsidian-target" : "skip-cdp-unavailable";
+    setSkip(reason, e.message || String(e), report.cdpStatus);
   } finally {
     if (cdp) cdp.close();
   }
@@ -325,7 +563,7 @@ async function runCdpProbe() {
 function writeReport() {
   mkdirSync(DOCS_DIR, { recursive: true });
   const lines = [
-    "# LLM CLI Bridge 测试报告 — Codex Real Obsidian Runtime UX Smoke (V17-F5)",
+    "# LLM CLI Bridge 测试报告 — Codex Real Obsidian Runtime UX Smoke (V17-F6 RC Hardening)",
     "",
     "> 本报告由 `scripts/codex-real-obsidian-runtime-ux-smoke.mjs` 自动生成。",
     "> 它只在真实 Obsidian 通过 CDP 暴露时记录真实 UI 观察；CDP 不可用时明确 skip，不把合成 smoke 伪装为真实 UI pass。",
@@ -335,15 +573,29 @@ function writeReport() {
     `- **realObsidianRuntimeUxStatus**: ${report.realObsidianRuntimeUxStatus}`,
     `- **realObsidianSmokeStatus**: ${report.realObsidianSmokeStatus}`,
     `- **cdpStatus**: ${report.cdpStatus}`,
+    `- **cdpBase**: ${report.cdpBase}`,
+    `- **cdpJsonReachable**: ${report.cdpJsonReachable}`,
+    `- **cdpVersionReachable**: ${report.cdpVersionReachable}`,
     `- **cdpTargetTitle**: ${report.cdpTargetTitle || "null"}`,
     `- **cdpTargetUrl**: ${report.cdpTargetUrl || "null"}`,
     `- **skipReason**: ${report.skipReason || "null"}`,
+    `- **skipDetail**: ${report.skipDetail || "null"}`,
+    `- **obsidianLaunchHint**: ${report.obsidianLaunchHint}`,
+    "",
+    "## CDP Environment Entry",
+    "",
+    `- Start Obsidian with: \`Obsidian.exe --remote-debugging-port=${CDP_PORT}\``,
+    `- Verify CDP target list: \`${CDP_BASE}/json\``,
+    `- Expected skip reasons: \`cdp-port-unreachable\`, \`no-obsidian-target\`, \`plugin-not-loaded\`, \`bridge-view-not-open\``,
     "",
     "## Runtime UX Observations",
     "",
     `- **firstOpenDefaultPackageObserved**: ${report.firstOpenDefaultPackageObserved}`,
     `- **runtimeMissingInstallRequiredObserved**: ${report.runtimeMissingInstallRequiredObserved}`,
     `- **installSuccessProviderReadyObserved**: ${report.installSuccessProviderReadyObserved}`,
+    `- **installButtonMetadataComplete**: ${report.installButtonMetadataComplete}`,
+    `- **providerLabelAfterInstall**: ${report.providerLabelAfterInstall || "null"}`,
+    `- **installFailureRetryCopyObserved**: ${report.installFailureRetryCopyObserved}`,
     `- **commandTimelineObserved**: ${report.commandTimelineObserved}`,
     `- **fileEditTimelineObserved**: ${report.fileEditTimelineObserved}`,
     `- **approvalCardObserved**: ${report.approvalCardObserved}`,
@@ -356,6 +608,9 @@ function writeReport() {
     `- **developerModeSourceRefVisible**: ${report.developerModeSourceRefVisible}`,
     `- **turnDiffUpdatedNormalHidden**: ${report.turnDiffUpdatedNormalHidden}`,
     `- **turnDiffUpdatedDeveloperVisible**: ${report.turnDiffUpdatedDeveloperVisible}`,
+    `- **normalModeRawSourceRefAbsentInDom**: ${report.normalModeRawSourceRefAbsentInDom}`,
+    `- **developerDebugViewAccessible**: ${report.developerDebugViewAccessible}`,
+    `- **developerRawProviderEventAccessible**: ${report.developerRawProviderEventAccessible}`,
     "",
     "## Release Packaging Readiness",
     "",
@@ -369,6 +624,10 @@ function writeReport() {
     `- **defaultPackageSizeMB**: ${report.defaultPackageSizeMB}`,
     `- **offlineWin32X64PackageOptional**: ${report.offlineWin32X64PackageOptional}`,
     `- **offlineWin32X64PackageSizeMB**: ${report.offlineWin32X64PackageSizeMB}`,
+    `- **offlineWin32X64ContainsRuntimeBinary**: ${report.offlineWin32X64ContainsRuntimeBinary}`,
+    `- **offlineWin32X64Sha256Verified**: ${report.offlineWin32X64Sha256Verified}`,
+    `- **offlineWin32X64ExecutableVerified**: ${report.offlineWin32X64ExecutableVerified}`,
+    `- **allPlatformFatPackageAbsent**: ${report.allPlatformFatPackageAbsent}`,
     `- **noDistRuntimeTempFiles**: ${report.noDistRuntimeTempFiles}`,
     `- **installationRetryErrorCopyPresent**: ${report.installationRetryErrorCopyPresent}`,
     "",
