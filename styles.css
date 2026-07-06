@@ -8638,6 +8638,96 @@
   color: var(--text-muted);
 }
 
+.llm-bridge-msg-user {
+  align-self: stretch;
+  max-width: min(920px, 100%);
+  margin-left: 28px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-head {
+  justify-content: flex-start;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-role::before {
+  content: "";
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content {
+  padding: 1px 0 4px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  line-height: 1.55;
+}
+
+.llm-bridge-user-prompt-collapse {
+  display: block;
+  max-width: min(760px, 100%);
+}
+
+.llm-bridge-user-prompt-collapse[open] .llm-bridge-user-prompt-summary {
+  color: var(--text-normal);
+}
+
+.llm-bridge-user-prompt-summary {
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 8px;
+  cursor: pointer;
+  color: var(--text-muted);
+  list-style: none;
+}
+
+.llm-bridge-user-prompt-summary::-webkit-details-marker {
+  display: none;
+}
+
+.llm-bridge-user-prompt-summary::before {
+  content: "›";
+  color: var(--interactive-accent);
+  font-family: var(--font-monospace);
+  transform: translateY(-1px);
+}
+
+.llm-bridge-user-prompt-collapse[open] .llm-bridge-user-prompt-summary::before {
+  content: "⌄";
+}
+
+.llm-bridge-user-prompt-label {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.llm-bridge-user-prompt-preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-user-prompt-count {
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-user-prompt-body {
+  margin-top: 8px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 9px 10px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-secondary) 46%, transparent);
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: var(--font-small);
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 @media (max-width: 720px) {
   .llm-bridge-composer {
     padding-left: 10px;

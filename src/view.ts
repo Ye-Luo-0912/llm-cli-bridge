@@ -3810,7 +3810,7 @@ export class LLMBridgeView extends ItemView {
       return;
     }
     if (msg.role !== "assistant") {
-      content.textContent = text;
+      this.renderUserMessageContent(content, text);
       return;
     }
 
@@ -3829,6 +3829,27 @@ export class LLMBridgeView extends ItemView {
     } catch {
       fallback();
     }
+  }
+
+  private renderUserMessageContent(content: HTMLElement, text: string): void {
+    const normalized = text.trim();
+    const shouldCollapse = normalized.length > 360 || /\r?\n/.test(normalized);
+    if (!shouldCollapse) {
+      content.textContent = normalized;
+      return;
+    }
+    const details = content.createEl("details", { cls: "llm-bridge-user-prompt-collapse" });
+    const summary = details.createEl("summary", { cls: "llm-bridge-user-prompt-summary" });
+    summary.createEl("span", { cls: "llm-bridge-user-prompt-label", text: "Request" });
+    summary.createEl("span", { cls: "llm-bridge-user-prompt-preview", text: this.compactPreviewText(normalized, 180) });
+    summary.createEl("span", { cls: "llm-bridge-user-prompt-count", text: `${normalized.length} chars` });
+    details.createEl("div", { cls: "llm-bridge-user-prompt-body", text: normalized });
+  }
+
+  private compactPreviewText(text: string, maxChars: number): string {
+    const oneLine = text.replace(/\s+/g, " ").trim();
+    if (oneLine.length <= maxChars) return oneLine;
+    return `${oneLine.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
   }
 
   private renderStreamingMessageContent(content: HTMLElement, text: string): void {
