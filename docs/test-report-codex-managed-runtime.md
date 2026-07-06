@@ -3,7 +3,7 @@
 > 本报告由 `scripts/codex-managed-runtime-smoke.mjs` 自动生成。
 > 验证 production manifest + pinned binary + app-server protocol proof。
 
-- **测试时间**: 2026-07-06T12:37:58.553Z
+- **测试时间**: 2026-07-06T12:55:38.233Z
 - **resolverSmokeStatus**: pass
 - **runtimeSmokeStatus**: pass
 - **managedAppServerProtocolStatus**: pass
@@ -49,14 +49,14 @@
 | PASS | size valid | 323143472 |
 | PASS | sha256 valid | 645f5a1a0347abb2b31fae4e594c198ad00e3a4b4a999dcfa3a66c0d0f8cd43b |
 | PASS | executable valid | - |
-| PASS | spawn managed runtime | pid=72472 |
+| PASS | spawn managed runtime | pid=37516 |
 | PASS | initialize | Codex Desktop/0.142.5 (Windows 10.0.26300; x86_64) unknown (llm-cli-bridge-managed-smoke; 17-f2) |
 | PASS | initialized | - |
 | PASS | model/list | selected=gpt-5.5 |
-| PASS | thread/start | threadId=019f376f-75a4-77a0-a3a7-361cf4d9901c |
+| PASS | thread/start | threadId=019f377f-a0a4-74c0-a564-314c114ba653 |
 | PASS | turn/start | - |
 | PASS | turn/completed | - |
-| PASS | clean shutdown / cancel | {"timestamp":"2026-07-06T12:37:59.501994Z","level":"WARN","fields":{"message":"ignoring interface.defaultPrompt: maximum of 3 prompts is supported","path":"C:\\Users\\Ye_Luo\\.codex\\plugins\\cache\\o |
+| PASS | clean shutdown / cancel | {"timestamp":"2026-07-06T12:55:39.058812Z","level":"WARN","fields":{"message":"ignoring interface.defaultPrompt: maximum of 3 prompts is supported","path":"C:\\Users\\Ye_Luo\\.codex\\plugins\\cache\\o |
 | PASS | no vault root pollution | - |
 
 ## codexUserReady gate

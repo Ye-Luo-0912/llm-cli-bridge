@@ -1,7 +1,7 @@
 # Codex Capability Matrix
 
-- **generatedAt**: 2026-07-06T12:39:19.789Z
-- **testedCodeCommitSha**: 9e1042d27f3760831f371df99cf4c98efa52a2eb
+- **generatedAt**: 2026-07-06T12:56:59.890Z
+- **testedCodeCommitSha**: 1c836bb1bd3860ff2a90a95c6b6be6166563e8c7
 - **schemaManifest**: `src/runtime/providers/codex-app-server/schema/manifest.json`
 - **schemaSource**: `src/runtime/providers/codex-app-server/schema/index.ts`
 - **schemaVersion**: 0.3.0-official-aligned
@@ -13,16 +13,21 @@
 - **fileChangeRealSmokeStatus**: pass
 - **approvalRealSmokeStatus**: pass
 - **userInputRealSmokeStatus**: not-observed
-- **unknownMethodCount**: 7
+- **unknownMethodCount**: 0
 - **unknownItemTypeCount**: 0
 - **observedShapeNoteCount**: 2
+- **observedUnknownMethodClassification**: {"remoteControl/status/changed":"infra","thread/started":"lifecycle","mcpServer/startupStatus/updated":"infra","thread/status/changed":"telemetry/status","thread/tokenUsage/updated":"telemetry/status","account/rateLimits/updated":"telemetry/status","turn/diff/updated":"diff/timeline"}
+- **telemetryMethodsObserved**: account/rateLimits/updated, thread/status/changed, thread/tokenUsage/updated
+- **timelineMethodsObserved**: turn/diff/updated
+- **ignoredInfraMethodsObserved**: mcpServer/startupStatus/updated, remoteControl/status/changed
+- **userInputNotObservedReason**: The real managed app-server completed the userInput scenario without sending item/tool/requestUserInput; synthetic mapping remains covered but is not counted as real pass.
 - **realProtocolSmokePassed**: false
-- **realSmokePassed**: 13
+- **realSmokePassed**: 14
 - **syntheticPassed**: 9
 - **notObserved**: 1
-- **mapped**: 7
+- **mapped**: 8
 - **weakMapped**: 8
-- **ignored**: 2
+- **ignored**: 7
 - **unsupported**: 0
 - **experimental**: 2
 
@@ -32,6 +37,7 @@ This report inventories Codex app-server methods, item types, and server-initiat
 
 | Surface | Status | Mapped | Synthetic | Real Smoke | Observation | Notes |
 | --- | --- | --- | --- | --- | --- | --- |
+| `account/rateLimits/updated` | ignored | no | no | no | observed-telemetry | Observed real app-server telemetry/infra method; kept out of normal user timeline. |
 | `initialize` | mapped | yes | no | no | not-real-smoked | Preserves sourceRef and maps into TurnTimelineNode. |
 | `initialized` | mapped | yes | no | no | not-real-smoked | Preserves sourceRef and maps into TurnTimelineNode. |
 | `item/agentMessage/delta` | mapped | yes | no | no | not-real-smoked | Preserves sourceRef and maps into TurnTimelineNode. |
@@ -45,10 +51,16 @@ This report inventories Codex app-server methods, item types, and server-initiat
 | `item/started` | real-smoke-passed | yes | yes | yes | observed | Verified against the managed Codex app-server real protocol smoke. |
 | `item/text/delta` | weak-mapped | yes | no | no | not-real-smoked | Compatibility/status mapping; not all native fields have rich UI. |
 | `item/thinking/delta` | weak-mapped | yes | no | no | not-real-smoked | Compatibility/status mapping; not all native fields have rich UI. |
+| `mcpServer/startupStatus/updated` | ignored | no | no | no | observed-telemetry | Observed real app-server telemetry/infra method; kept out of normal user timeline. |
+| `remoteControl/status/changed` | ignored | no | no | no | observed-telemetry | Observed real app-server telemetry/infra method; kept out of normal user timeline. |
 | `serverRequest/resolved` | real-smoke-passed | yes | yes | yes | observed | Verified against the managed Codex app-server real protocol smoke. |
 | `thread/resume` | mapped | yes | no | no | not-real-smoked | Preserves sourceRef and maps into TurnTimelineNode. |
 | `thread/start` | real-smoke-passed | yes | yes | yes | observed | Verified against the managed Codex app-server real protocol smoke. |
+| `thread/started` | mapped | no | no | no | observed-lifecycle | Observed lifecycle notification; useful for diagnostics but not a timeline item. |
+| `thread/status/changed` | ignored | no | no | no | observed-telemetry | Observed real app-server telemetry/infra method; kept out of normal user timeline. |
+| `thread/tokenUsage/updated` | ignored | no | no | no | observed-telemetry | Observed real app-server telemetry/infra method; kept out of normal user timeline. |
 | `turn/completed` | real-smoke-passed | yes | yes | yes | observed | Verified against the managed Codex app-server real protocol smoke. |
+| `turn/diff/updated` | real-smoke-passed | yes | yes | yes | observed | Verified against the managed Codex app-server real protocol smoke. |
 | `turn/failed` | mapped | yes | no | no | not-real-smoked | Preserves sourceRef and maps into TurnTimelineNode. |
 | `turn/start` | real-smoke-passed | yes | yes | yes | observed | Verified against the managed Codex app-server real protocol smoke. |
 | `turn/started` | real-smoke-passed | yes | yes | yes | observed | Verified against the managed Codex app-server real protocol smoke. |
