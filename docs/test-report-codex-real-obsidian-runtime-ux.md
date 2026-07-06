@@ -1,22 +1,36 @@
-# LLM CLI Bridge 测试报告 — Codex Real Obsidian Runtime UX Smoke (V17-F5)
+# LLM CLI Bridge 测试报告 — Codex Real Obsidian Runtime UX Smoke (V17-F6 RC Hardening)
 
 > 本报告由 `scripts/codex-real-obsidian-runtime-ux-smoke.mjs` 自动生成。
 > 它只在真实 Obsidian 通过 CDP 暴露时记录真实 UI 观察；CDP 不可用时明确 skip，不把合成 smoke 伪装为真实 UI pass。
 
-- **测试时间**: 2026-07-06T13:11:57.645Z
-- **testedCodeCommitSha**: d6d81eda6d79b88f328bdf191325fae9c7a800a4
+- **测试时间**: 2026-07-06T13:27:32.617Z
+- **testedCodeCommitSha**: afe723cde957d3c3ef68097064f5cde8bbf21d0c
 - **realObsidianRuntimeUxStatus**: skip-cdp-unavailable
 - **realObsidianSmokeStatus**: skip-cdp-unavailable
 - **cdpStatus**: skip-cdp-unavailable
+- **cdpBase**: http://127.0.0.1:9223
+- **cdpJsonReachable**: false
+- **cdpVersionReachable**: false
 - **cdpTargetTitle**: null
 - **cdpTargetUrl**: null
-- **skipReason**: fetch failed
+- **skipReason**: cdp-port-unreachable
+- **skipDetail**: fetch failed
+- **obsidianLaunchHint**: Start Obsidian with --remote-debugging-port=9223 and verify http://127.0.0.1:9223/json is reachable.
+
+## CDP Environment Entry
+
+- Start Obsidian with: `Obsidian.exe --remote-debugging-port=9223`
+- Verify CDP target list: `http://127.0.0.1:9223/json`
+- Expected skip reasons: `cdp-port-unreachable`, `no-obsidian-target`, `plugin-not-loaded`, `bridge-view-not-open`
 
 ## Runtime UX Observations
 
 - **firstOpenDefaultPackageObserved**: false
 - **runtimeMissingInstallRequiredObserved**: false
 - **installSuccessProviderReadyObserved**: false
+- **installButtonMetadataComplete**: false
+- **providerLabelAfterInstall**: null
+- **installFailureRetryCopyObserved**: false
 - **commandTimelineObserved**: false
 - **fileEditTimelineObserved**: false
 - **approvalCardObserved**: false
@@ -29,6 +43,9 @@
 - **developerModeSourceRefVisible**: true
 - **turnDiffUpdatedNormalHidden**: true
 - **turnDiffUpdatedDeveloperVisible**: true
+- **normalModeRawSourceRefAbsentInDom**: false
+- **developerDebugViewAccessible**: false
+- **developerRawProviderEventAccessible**: false
 
 ## Release Packaging Readiness
 
@@ -41,7 +58,11 @@
 - **runtimeInstallRequiresSystemTar**: false
 - **defaultPackageSizeMB**: 97.9
 - **offlineWin32X64PackageOptional**: true
-- **offlineWin32X64PackageSizeMB**: not-built
+- **offlineWin32X64PackageSizeMB**: 406.1
+- **offlineWin32X64ContainsRuntimeBinary**: true
+- **offlineWin32X64Sha256Verified**: true
+- **offlineWin32X64ExecutableVerified**: true
+- **allPlatformFatPackageAbsent**: true
 - **noDistRuntimeTempFiles**: true
 - **installationRetryErrorCopyPresent**: true
 
@@ -56,6 +77,8 @@
 | installer does not require system npm | pass |  |
 | installer does not require system tar | pass |  |
 | dist/runtime temp files absent from package boundary | pass |  |
+| offline win32-x64 package optional or verified | pass | sizeMB=406.1 sha=true executable=true |
+| all-platform fat package absent | pass |  |
 | install retry/error copy present | pass |  |
 | normal user verbose output collapsed | pass |  |
 | normal user raw sourceRef hidden | pass |  |
