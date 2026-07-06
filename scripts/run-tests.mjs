@@ -6324,21 +6324,32 @@ if (runMode !== "all" && runMode !== "unit") {
           `a=${aOk} (typesManifest=${typesHasManifest} manifestExists=${manifestExists} fixtureManifest=${fixtureManifestExists} manifestOk=${manifestOk} fixture=${manifestFixture} platforms=${manifestPlatforms}) b=${bOk} (exports=${resolverExports} sha=${resolverChecksSha} exec=${resolverChecksExec} resultIf=${resolverHasResultInterface}) c=${cOk} (extends=${providerExtends} providerId=${providerId} overrides=${providerOverrides} coreTypesProviderId=${coreTypesHasProviderId} templateMethod=${parentHasTemplateMethod}) d=${dOk} (backendMode=${typesHasBackendMode} autoManagedFirst=${autoManagedFirst} settingsOption=${settingsHasOption})`);
       }
 
-      // ===== V17-F1 任务 E+F：user-package + smoke 脚本集成 managed runtime =====
+      // ===== V17-F3：user-package runtime distribution strategy =====
       {
         const buildScript = readFileSync(join(PROJECT_ROOT, "scripts", "build-user-package.mjs"), "utf8");
         const userPkgSmoke = readFileSync(join(PROJECT_ROOT, "scripts", "user-package-smoke.mjs"), "utf8");
         const managedSmokeSrc = readFileSync(join(PROJECT_ROOT, "scripts", "codex-managed-runtime-smoke.mjs"), "utf8");
         const pkgJson = readFileSync(join(PROJECT_ROOT, "package.json"), "utf8");
 
-        // 任务 E：build-user-package 复制 managed runtime manifest + binary
-        const buildCopiesManifest = buildScript.includes("runtime-manifest.json") && /codex-managed-runtime/.test(buildScript);
-        // 任务 E：user-package-smoke 验证 5 字段
+        // V17-F3：默认包复制 manifest + installer/downloader，不复制大 binary；offline mode 才复制当前平台 binary
+        const buildCopiesManifestAndInstaller = buildScript.includes("runtime-manifest.json") &&
+                                                buildScript.includes("install-codex-managed-runtime.mjs") &&
+                                                /download-on-first-run/.test(buildScript);
+        const buildHasOfflineMode = buildScript.includes("--offline-runtime") &&
+                                    buildScript.includes("bundled-platform-runtime") &&
+                                    buildScript.includes("runtime/${platformKey}");
+        const buildAvoidsDefaultRuntimeCopy = buildScript.includes("默认包不复制 runtime/ 大 binary") &&
+                                             buildScript.includes("首次运行按 pinned artifact 下载");
+        // user-package-smoke 验证 managed runtime 分发字段
         const smokeChecksManaged = userPkgSmoke.includes("containsCodexManagedRuntime") &&
                                     userPkgSmoke.includes("codexRuntimeSha256Valid") &&
                                     userPkgSmoke.includes("codexRuntimeExecutable") &&
                                     userPkgSmoke.includes("codexRuntimePinnedVersion") &&
-                                    userPkgSmoke.includes("codexRuntimeFixture");
+                                    userPkgSmoke.includes("codexRuntimeFixture") &&
+                                    userPkgSmoke.includes("releasePackageMode") &&
+                                    userPkgSmoke.includes("containsRuntimeBinary") &&
+                                    userPkgSmoke.includes("runtimeDownloadRequired") &&
+                                    userPkgSmoke.includes("runtimeCanInstallFromPinnedArtifact");
         // 任务 F：smoke:codex-managed-runtime 脚本存在
         const hasSmokeScript = pkgJson.includes('"smoke:codex-managed-runtime"');
         // 任务 F：smoke 脚本校验 manifest/sha256/executable + 输出 runtimeSmokeStatus
@@ -6352,12 +6363,48 @@ if (runMode !== "all" && runMode !== "unit") {
                                    managedSmokeSrc.includes("codexUserReady") &&
                                    managedSmokeSrc.includes("skip-fixture");
 
-        const eOk = buildCopiesManifest && smokeChecksManaged;
+        const eOk = buildCopiesManifestAndInstaller && buildHasOfflineMode && buildAvoidsDefaultRuntimeCopy && smokeChecksManaged;
         const fOk = hasSmokeScript && smokeVerifiesChain && smokeProtocolProof;
 
-        addTest("V17-F2 E+F: user-package 集成 managed runtime（build 安装复制 + smoke 5 字段）+ managed runtime smoke 脚本（resolver 校验链 + protocol proof）",
+        addTest("V17-F3: user-package 默认 download-on-first-run + offline bundled current platform + smoke 分发字段 + managed runtime protocol smoke 保持",
           eOk && fOk ? "pass" : "fail",
-          `e=${eOk} (buildCopiesManifest=${buildCopiesManifest} smokeChecksManaged=${smokeChecksManaged}) f=${fOk} (hasSmokeScript=${hasSmokeScript} verifiesChain=${smokeVerifiesChain} protocolProof=${smokeProtocolProof})`);
+          `e=${eOk} (manifestInstaller=${buildCopiesManifestAndInstaller} offlineMode=${buildHasOfflineMode} avoidsDefaultRuntimeCopy=${buildAvoidsDefaultRuntimeCopy} smokeChecksManaged=${smokeChecksManaged}) f=${fOk} (hasSmokeScript=${hasSmokeScript} verifiesChain=${smokeVerifiesChain} protocolProof=${smokeProtocolProof})`);
+      }
+
+      // ===== V17-F3 任务 A-E：runtime distribution report + platform package strategy =====
+      {
+        const reportScriptPath = join(PROJECT_ROOT, "scripts", "generate-runtime-distribution-report.mjs");
+        const reportScriptExists = existsSync(reportScriptPath);
+        const reportScript = reportScriptExists ? readFileSync(reportScriptPath, "utf8") : "";
+        const pkgJson = readFileSync(join(PROJECT_ROOT, "package.json"), "utf8");
+
+        const hasReportScript = pkgJson.includes('"report:runtime-distribution"') &&
+                                reportScript.includes("test-report-runtime-distribution.md");
+        const hasDistributionModes = reportScript.includes("bundled-platform-runtime") &&
+                                     reportScript.includes("download-on-first-run") &&
+                                     reportScript.includes("external-fallback-dev");
+        const hasRequiredFields = reportScript.includes("defaultPackageSizeMB") &&
+                                  reportScript.includes("offlineWin32X64PackageSizeMB") &&
+                                  reportScript.includes("runtimeBinarySizeMB") &&
+                                  reportScript.includes("runtimeDownloadRequired") &&
+                                  reportScript.includes("runtimePinnedArtifactVerified") &&
+                                  reportScript.includes("crossPlatformPackageStrategy");
+        const hasPlatformNames = reportScript.includes("llm-cli-bridge-win32-x64") &&
+                                 reportScript.includes("llm-cli-bridge-win32-arm64") &&
+                                 reportScript.includes("llm-cli-bridge-darwin-arm64") &&
+                                 reportScript.includes("llm-cli-bridge-linux-x64");
+        const bansFatPackage = reportScript.includes("no-all-platform-fat-package") &&
+                               !reportScript.includes("all-platform fat package | include all binaries");
+        const hasInstallerUxContract = reportScript.includes("runtime version") &&
+                                       reportScript.includes("download size") &&
+                                       reportScript.includes("source package") &&
+                                       reportScript.includes("sha256") &&
+                                       reportScript.includes("install path") &&
+                                       reportScript.includes("校验失败必须删除");
+
+        addTest("V17-F3 A-E: runtime distribution report 覆盖三种模式、平台专用包、默认下载、离线包体积字段、installer UX contract",
+          reportScriptExists && hasReportScript && hasDistributionModes && hasRequiredFields && hasPlatformNames && bansFatPackage && hasInstallerUxContract ? "pass" : "fail",
+          `scriptExists=${reportScriptExists} reportScript=${hasReportScript} modes=${hasDistributionModes} fields=${hasRequiredFields} platformNames=${hasPlatformNames} noFat=${bansFatPackage} installerUx=${hasInstallerUxContract}`);
       }
 
       // ===== V17-F1.1 任务 F：resolver 行为测试（sha mismatch / platform missing / executable fail） =====
@@ -6603,17 +6650,18 @@ if (runMode !== "all" && runMode !== "unit") {
           `mainSets=${mainSetsPluginDir} selectAccepts=${selectAcceptsPluginDir} createAccepts=${createAcceptsPluginDir} managedAccepts=${managedAcceptsPluginDir} fallback=${managedFallback} viewPasses=${viewPassesPluginDir}`);
       }
 
-      // ===== V17-F1.1 任务 D+F：user-package pass gate 纳入 managed runtime =====
-      // 验证：userPackageStatus 包含 containsCodexManagedRuntime + sha256Valid + executable
+      // ===== V17-F3：user-package pass gate 纳入 runtime distribution mode =====
+      // 验证：默认包要求 manifest + installer + pinned artifact，offline 包才要求 binary sha/executable
       {
         const smokeSrc = readFileSync(join(PROJECT_ROOT, "scripts", "user-package-smoke.mjs"), "utf8");
         const summarySrc = readFileSync(join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs"), "utf8");
 
-        // userPackageStatus gate 包含 managed runtime 字段
+        // userPackageStatus gate 包含 managed runtime 分发字段
         const gateIncludesManaged = /report\.containsCodexManagedRuntime/.test(smokeSrc) &&
-                                     /report\.codexRuntimeSha256Valid/.test(smokeSrc) &&
-                                     /report\.codexRuntimeExecutable/.test(smokeSrc) &&
                                      /report\.releasePackageContainsCodexRuntime/.test(smokeSrc) &&
+                                     /report\.runtimeCanInstallFromPinnedArtifact/.test(smokeSrc) &&
+                                     /report\.releasePackageMode\s*===\s*"download-on-first-run"/.test(smokeSrc) &&
+                                     /report\.releasePackageMode\s*===\s*"bundled-platform-runtime"/.test(smokeSrc) &&
                                      /report\.runtimeBinarySha256Verified/.test(smokeSrc);
         // fixture=true 不阻塞 userPackageStatus（fixture 仍是合法包内容）
         const fixtureNotBlocking = !/report\.codexRuntimeFixture/.test(smokeSrc.replace(/codexRuntimeFixture.*?(?=&&)/g, "")) ||
@@ -6624,6 +6672,10 @@ if (runMode !== "all" && runMode !== "unit") {
                                       summarySrc.includes("codexRuntimeExecutable") &&
                                       summarySrc.includes("codexRuntimePinnedVersion") &&
                                       summarySrc.includes("codexRuntimeFixture") &&
+                                      summarySrc.includes("releasePackageMode") &&
+                                      summarySrc.includes("containsRuntimeBinary") &&
+                                      summarySrc.includes("runtimeDownloadRequired") &&
+                                      summarySrc.includes("runtimeCanInstallFromPinnedArtifact") &&
                                       summarySrc.includes("releasePackageContainsCodexRuntime") &&
                                       summarySrc.includes("releasePackageSizeMB") &&
                                       summarySrc.includes("runtimeBinarySha256Verified");
@@ -6632,11 +6684,15 @@ if (runMode !== "all" && runMode !== "unit") {
                                         summarySrc.includes("- **codexRuntimeSha256Valid**") &&
                                         summarySrc.includes("- **codexRuntimeExecutable**") &&
                                         summarySrc.includes("- **codexRuntimeFixture**") &&
+                                        summarySrc.includes("- **releasePackageMode**") &&
+                                        summarySrc.includes("- **containsRuntimeBinary**") &&
+                                        summarySrc.includes("- **runtimeDownloadRequired**") &&
+                                        summarySrc.includes("- **runtimeCanInstallFromPinnedArtifact**") &&
                                         summarySrc.includes("- **releasePackageContainsCodexRuntime**") &&
                                         summarySrc.includes("- **releasePackageSizeMB**") &&
                                         summarySrc.includes("- **runtimeBinarySha256Verified**");
 
-        addTest("V17-F1.1/F2.1 D+F: user-package pass gate 纳入 managed runtime + release packaging gate + fixture 不阻塞 + summary 解析输出",
+        addTest("V17-F3: user-package pass gate 纳入 runtime distribution mode + summary 解析输出",
           gateIncludesManaged && fixtureNotBlocking && summaryParsesManaged && summaryOutputsManaged ? "pass" : "fail",
           `gateIncludes=${gateIncludesManaged} fixtureNotBlocking=${fixtureNotBlocking} summaryParses=${summaryParsesManaged} summaryOutputs=${summaryOutputsManaged}`);
       }

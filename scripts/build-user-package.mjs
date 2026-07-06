@@ -1,9 +1,11 @@
 // LLM CLI Bridge — User Package Build (V17-D 任务 A)
 //
-// 构建零安装发行包：dist/user-package
+// 构建发行包：dist/user-package
 //   - main.js / manifest.json / styles.css / README.md
 //   - node_modules/@earendil-works/pi-coding-agent 及其运行依赖（vendor 策略）
-// 不要求终端用户执行 npm install。
+//   - 默认只复制 Codex managed runtime manifest + installer/downloader，不复制大 binary。
+//   - 显式 --offline-runtime 才复制当前平台 pinned binary。
+// 不要求终端用户执行 npm install；download-on-first-run 模式也不要求终端用户手动 npm pack。
 //
 // 用法：npm run build:user-package
 // 产物：dist/user-package/
@@ -26,7 +28,16 @@ if (!version) {
   process.exit(1);
 }
 
-const OUT_DIR = path.join(PROJECT_ROOT, "dist", "user-package");
+const args = new Set(process.argv.slice(2));
+const platformKey = `${process.platform}-${process.arch}`;
+const offlineRuntime = args.has("--offline-runtime")
+  || process.env.LLM_BRIDGE_USER_PACKAGE_MODE === "bundled-platform-runtime";
+const releasePackageMode = offlineRuntime ? "bundled-platform-runtime" : "download-on-first-run";
+const OUT_DIR = path.join(
+  PROJECT_ROOT,
+  "dist",
+  offlineRuntime ? `user-package-offline-${platformKey}` : "user-package",
+);
 const SDK_PACKAGE_NAME = "@earendil-works/pi-coding-agent";
 
 // 必须包含的顶层文件
@@ -39,6 +50,8 @@ const REQUIRED_FILES = [
 
 console.log(`[user-package] 版本: ${version}`);
 console.log(`[user-package] 项目根: ${PROJECT_ROOT}`);
+console.log(`[user-package] releasePackageMode: ${releasePackageMode}`);
+console.log(`[user-package] platformPackageName: llm-cli-bridge-${platformKey}`);
 
 // 1. 先执行 npm run build（含 tsc 类型检查 + esbuild；V17-E1 任务 G：不允许跳过 tsc）
 console.log("\n[user-package] 步骤 1: 执行 npm run build（含 tsc）...");
@@ -51,7 +64,16 @@ try {
 
 // 2. 清理旧的 user-package 目录
 console.log("\n[user-package] 步骤 2: 清理旧产物...");
-try { fs.rmSync(OUT_DIR, { recursive: true, force: true }); } catch {}
+try {
+  fs.rmSync(OUT_DIR, { recursive: true, force: true });
+} catch (e) {
+  console.error(`[user-package] 清理旧产物失败: ${e.message}`);
+  process.exit(1);
+}
+if (fs.existsSync(OUT_DIR)) {
+  console.error(`[user-package] 清理旧产物后目录仍存在，终止以避免旧 runtime binary 污染: ${OUT_DIR}`);
+  process.exit(1);
+}
 fs.mkdirSync(OUT_DIR, { recursive: true });
 
 // 3. 复制顶层文件
@@ -154,40 +176,57 @@ for (const [pkgName, srcPath] of vendorPaths) {
 }
 console.log(`  ✓ vendor 完成：${copiedCount} 包复制，${skippedCount} 跳过`);
 
-// 4b. V17-F2 任务 C：安装并复制 Codex Managed Runtime manifest + pinned binary
-console.log("\n[user-package] 步骤 4b: 安装并复制 Codex Managed Runtime manifest + pinned binary...");
+// 4b. V17-F3：复制 Codex Managed Runtime manifest + installer/downloader；
+//     默认 download-on-first-run 不复制大 binary，显式 offline package 才复制当前平台 binary。
+console.log("\n[user-package] 步骤 4b: 准备 Codex Managed Runtime manifest + installer/downloader...");
 const managedRuntimeSrcDir = path.join(PROJECT_ROOT, "src", "runtime", "providers", "codex-managed-app-server");
 const managedRuntimeDestDir = path.join(OUT_DIR, "codex-managed-runtime");
 const managedManifestSrc = path.join(managedRuntimeSrcDir, "runtime-manifest.json");
 const managedManifestDest = path.join(managedRuntimeDestDir, "runtime-manifest.json");
 const managedRuntimeBinarySrcDir = path.join(managedRuntimeSrcDir, "runtime");
 const managedRuntimeBinaryDestDir = path.join(managedRuntimeDestDir, "runtime");
+const managedInstallerSrc = path.join(PROJECT_ROOT, "scripts", "install-codex-managed-runtime.mjs");
+const managedInstallerDest = path.join(managedRuntimeDestDir, "install-codex-managed-runtime.mjs");
 
 if (!fs.existsSync(managedManifestSrc)) {
   console.error(`[user-package] 错误：managed runtime manifest 不存在: ${managedManifestSrc}`);
   process.exit(1);
 }
 
-try {
-  execSync("node scripts/install-codex-managed-runtime.mjs", { cwd: PROJECT_ROOT, stdio: "inherit" });
-} catch {
-  console.error("[user-package] managed runtime 安装失败，终止");
-  process.exit(1);
-}
-
 // 复制 manifest
+fs.rmSync(managedRuntimeDestDir, { recursive: true, force: true });
 fs.mkdirSync(managedRuntimeDestDir, { recursive: true });
 fs.copyFileSync(managedManifestSrc, managedManifestDest);
 console.log(`  ✓ runtime-manifest.json 已复制`);
 
-// 复制 runtime binary 目录（所有平台）
-if (fs.existsSync(managedRuntimeBinarySrcDir)) {
-  copyDirSync(managedRuntimeBinarySrcDir, managedRuntimeBinaryDestDir);
-  console.log(`  ✓ runtime/ 目录已复制（含 pinned managed binary + fixture manifests）`);
-} else {
-  console.log(`  ⚠ runtime/ 目录不存在（managed binary 缺失）`);
+if (!fs.existsSync(managedInstallerSrc)) {
+  console.error(`[user-package] 错误：managed runtime installer 不存在: ${managedInstallerSrc}`);
+  process.exit(1);
 }
-console.log(`  ✓ managed runtime 已集成到 user-package`);
+fs.copyFileSync(managedInstallerSrc, managedInstallerDest);
+console.log(`  ✓ install-codex-managed-runtime.mjs 已复制`);
+
+if (offlineRuntime) {
+  try {
+    execSync("node scripts/install-codex-managed-runtime.mjs", { cwd: PROJECT_ROOT, stdio: "inherit" });
+  } catch {
+    console.error("[user-package] managed runtime 安装失败，终止");
+    process.exit(1);
+  }
+
+  const currentPlatformRuntimeSrc = path.join(managedRuntimeBinarySrcDir, platformKey);
+  const currentPlatformRuntimeDest = path.join(managedRuntimeBinaryDestDir, platformKey);
+  if (fs.existsSync(currentPlatformRuntimeSrc)) {
+    copyDirSync(currentPlatformRuntimeSrc, currentPlatformRuntimeDest);
+    console.log(`  ✓ runtime/${platformKey}/ 已复制（仅当前平台 pinned binary）`);
+  } else {
+    console.error(`[user-package] 错误：当前平台 runtime 不存在: ${currentPlatformRuntimeSrc}`);
+    process.exit(1);
+  }
+} else {
+  console.log(`  ✓ 默认包不复制 runtime/ 大 binary（首次运行按 pinned artifact 下载）`);
+}
+console.log(`  ✓ managed runtime 分发元数据已集成到 user-package`);
 
 // 5. 写元数据文件（V17-E1 任务 C：不写 package.json，避免 type=module 影响 main.js CJS 加载）
 //    main.js 是 esbuild format=cjs；若根目录有 package.json 含 "type":"module"，
@@ -195,10 +234,30 @@ console.log(`  ✓ managed runtime 已集成到 user-package`);
 //    改为写 llm-cli-bridge-user-package.json 作为纯元数据，不影响模块解析。
 console.log("\n[user-package] 步骤 5: 写元数据文件（不写 package.json，避免 type=module 风险）...");
 const userPkgMeta = {
-  name: "obsidian-llm-cli-bridge-user-package",
+  name: offlineRuntime ? `llm-cli-bridge-${platformKey}` : "llm-cli-bridge",
   version: version,
-  description: "User distribution package (zero-install) for obsidian-llm-cli-bridge",
+  description: offlineRuntime
+    ? `Offline user distribution package with bundled ${platformKey} runtime`
+    : "User distribution package with download-on-first-run managed runtime",
   private: true,
+  releasePackageMode,
+  runtimeDistributionModes: [
+    "bundled-platform-runtime",
+    "download-on-first-run",
+    "external-fallback-dev",
+  ],
+  defaultRuntimeDistributionMode: "download-on-first-run",
+  offlineRuntimePackageMode: "bundled-platform-runtime",
+  platformPackageNames: [
+    "llm-cli-bridge-win32-x64",
+    "llm-cli-bridge-win32-arm64",
+    "llm-cli-bridge-darwin-arm64",
+    "llm-cli-bridge-linux-x64",
+  ],
+  platformPackageName: `llm-cli-bridge-${platformKey}`,
+  containsRuntimeBinary: offlineRuntime,
+  runtimeDownloadRequired: !offlineRuntime,
+  runtimeInstaller: "codex-managed-runtime/install-codex-managed-runtime.mjs",
   // 注意：不写 "type": "module"。main.js 是 CJS（esbuild format=cjs）。
   // 元数据文件名为 llm-cli-bridge-user-package.json，不干扰 Node 模块解析。
 };
@@ -238,6 +297,9 @@ console.log(`  ✓ 总大小: ${(totalSize / 1024 / 1024).toFixed(1)} MB`);
 
 console.log(`\n[user-package] 完成。产物: ${path.relative(PROJECT_ROOT, OUT_DIR)}`);
 console.log(`[user-package] 该目录可直接复制到 .obsidian/plugins/llm-cli-bridge/，无需 npm install。`);
+if (!offlineRuntime) {
+  console.log("[user-package] 默认包不含 Codex runtime binary；首次运行需要用户确认后从 pinned artifact 安装。");
+}
 
 // ---------- helpers ----------
 

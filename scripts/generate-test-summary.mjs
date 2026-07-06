@@ -142,6 +142,18 @@ function parseUserPackageReport(path) {
   const releaseContainsMatch = text.match(/- \*\*releasePackageContainsCodexRuntime\*\*: (true|false)/);
   result.releasePackageContainsCodexRuntime = releaseContainsMatch ? releaseContainsMatch[1] : null;
 
+  const modeMatch = text.match(/- \*\*releasePackageMode\*\*: ([^\r\n]+)/);
+  result.releasePackageMode = modeMatch ? modeMatch[1].trim() : null;
+
+  const containsBinaryMatch = text.match(/- \*\*containsRuntimeBinary\*\*: (true|false)/);
+  result.containsRuntimeBinary = containsBinaryMatch ? containsBinaryMatch[1] : null;
+
+  const downloadRequiredMatch = text.match(/- \*\*runtimeDownloadRequired\*\*: (true|false)/);
+  result.runtimeDownloadRequired = downloadRequiredMatch ? downloadRequiredMatch[1] : null;
+
+  const canInstallMatch = text.match(/- \*\*runtimeCanInstallFromPinnedArtifact\*\*: (true|false)/);
+  result.runtimeCanInstallFromPinnedArtifact = canInstallMatch ? canInstallMatch[1] : null;
+
   const releaseSizeMatch = text.match(/- \*\*releasePackageSizeMB\*\*: ([\d.]+)/);
   result.releasePackageSizeMB = releaseSizeMatch ? releaseSizeMatch[1] : null;
 
@@ -327,10 +339,10 @@ function main() {
   }
   if (!userPackage.error) {
     if (userPackage.releasePackageContainsCodexRuntime !== "true"
-      || userPackage.runtimeBinarySha256Verified !== "true"
+      || userPackage.runtimeCanInstallFromPinnedArtifact !== "true"
       || !userPackage.releasePackageSizeMB) {
       auditFailures.push(
-        `release packaging gate 未通过: containsRuntime=${userPackage.releasePackageContainsCodexRuntime} sizeMB=${userPackage.releasePackageSizeMB} shaVerified=${userPackage.runtimeBinarySha256Verified}`,
+        `release packaging gate 未通过: containsRuntime=${userPackage.releasePackageContainsCodexRuntime} mode=${userPackage.releasePackageMode} canInstall=${userPackage.runtimeCanInstallFromPinnedArtifact} sizeMB=${userPackage.releasePackageSizeMB}`,
       );
     }
   }
@@ -406,6 +418,10 @@ function main() {
     `- **codexRuntimePinnedVersion**: ${userPackage.codexRuntimePinnedVersion || "(解析失败)"}`,
     `- **codexRuntimeFixture**: ${userPackage.codexRuntimeFixture || "(解析失败)"}`,
     `- **userPackageSizeMB**: ${userPackage.totalSizeMB || "(解析失败)"}`,
+    `- **releasePackageMode**: ${userPackage.releasePackageMode || "(解析失败)"}`,
+    `- **containsRuntimeBinary**: ${userPackage.containsRuntimeBinary || "(解析失败)"}`,
+    `- **runtimeDownloadRequired**: ${userPackage.runtimeDownloadRequired || "(解析失败)"}`,
+    `- **runtimeCanInstallFromPinnedArtifact**: ${userPackage.runtimeCanInstallFromPinnedArtifact || "(解析失败)"}`,
     `- **releasePackageContainsCodexRuntime**: ${userPackage.releasePackageContainsCodexRuntime || "(解析失败)"}`,
     `- **releasePackageSizeMB**: ${userPackage.releasePackageSizeMB || "(解析失败)"}`,
     `- **runtimeBinarySha256Verified**: ${userPackage.runtimeBinarySha256Verified || "(解析失败)"}`,
@@ -456,7 +472,7 @@ function main() {
   lines.push("- **Managed Codex Runtime gate**：resolver/runtime/protocol/codexUserReady 必须全部通过；external Codex compatibility 字段不影响审计。");
   lines.push("- **平台边界**：当前 production manifest 只声明已验证平台，`crossPlatformReady=false`，不得表述为 all-platform release-ready。");
   lines.push("- **依赖边界**：binary 为 managed/pinned/bundled，不依赖用户安装 CLI/App；auth/config 仍需要可用 user-level Codex/OpenAI credentials 或环境变量。");
-  lines.push("- **Release packaging gate**：dist/user-package 必须包含 codex runtime + manifest，记录包大小，并验证 runtime sha256。");
+  lines.push("- **Release packaging gate**：dist/user-package 默认包含 manifest + installer/downloader，不打包大 binary；必须能从 pinned artifact 安装，记录包大小。");
   lines.push("- **报告过期判定**：若 unit/process 报告的 commit sha 与 testedCodeCommitSha 不一致，说明报告是旧 commit 的结果，必须重新生成。");
   lines.push("");
 

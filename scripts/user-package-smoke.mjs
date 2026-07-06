@@ -29,7 +29,11 @@ import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const USER_PKG_DIR = join(PROJECT_ROOT, "dist", "user-package");
+const packageDirArg = process.argv.find((arg) => arg.startsWith("--package-dir="));
+const USER_PKG_DIR = resolve(
+  PROJECT_ROOT,
+  packageDirArg ? packageDirArg.slice("--package-dir=".length) : (process.env.USER_PACKAGE_DIR || join("dist", "user-package")),
+);
 const DOCS_DIR = join(PROJECT_ROOT, "docs");
 const REPORT_PATH = join(DOCS_DIR, "test-report-user-package.md");
 
@@ -72,6 +76,13 @@ const report = {
   releasePackageContainsCodexRuntime: false,
   releasePackageSizeMB: 0,
   runtimeBinarySha256Verified: false,
+  releasePackageMode: "unknown",
+  containsRuntimeBinary: false,
+  runtimeDownloadRequired: true,
+  runtimeCanInstallFromPinnedArtifact: false,
+  offlinePackageSizeMB: 0,
+  runtimeInstallerPresent: false,
+  runtimePinnedArtifactPackage: null,
   timestamp: new Date().toISOString(),
 };
 
@@ -213,10 +224,23 @@ report.missingDeps = missingDeps;
 report.userNeedsNpmInstall = missingDeps.length > 0;
 console.log(`关键 transitive deps 检查：${missingDeps.length === 0 ? "✓ 全部存在" : "✗ 缺失：" + missingDeps.join(", ")}`);
 
+const userPackageMetaPath = join(USER_PKG_DIR, "llm-cli-bridge-user-package.json");
+let userPackageMeta = {};
+if (existsSync(userPackageMetaPath)) {
+  try {
+    userPackageMeta = JSON.parse(readFileSync(userPackageMetaPath, "utf8"));
+    report.releasePackageMode = userPackageMeta.releasePackageMode || "unknown";
+  } catch {
+    report.releasePackageMode = "metadata-invalid";
+  }
+}
+
 // ---------- 7b. V17-F1 任务 E：验证 Codex Managed Runtime ----------
 console.log("");
-console.log("--- V17-F1 任务 E：Codex Managed Runtime 校验 ---");
+console.log("--- V17-F3：Codex Managed Runtime 分发校验 ---");
 const managedManifestPath = join(USER_PKG_DIR, "codex-managed-runtime", "runtime-manifest.json");
+const managedInstallerPath = join(USER_PKG_DIR, "codex-managed-runtime", "install-codex-managed-runtime.mjs");
+report.runtimeInstallerPresent = existsSync(managedInstallerPath);
 if (existsSync(managedManifestPath)) {
   report.containsCodexManagedRuntime = true;
   let managedManifest;
@@ -230,9 +254,19 @@ if (existsSync(managedManifestPath)) {
     const platformKey = `${process.platform}-${process.arch}`;
     const platformEntry = managedManifest.platforms?.[platformKey];
     if (platformEntry) {
+      report.runtimePinnedArtifactPackage = platformEntry.artifact?.package || null;
+      report.runtimeCanInstallFromPinnedArtifact = !!(
+        report.runtimeInstallerPresent
+        && platformEntry.artifact?.package
+        && platformEntry.artifact?.tarballSha256
+        && platformEntry.artifact?.vendorPath
+        && platformEntry.sha256
+        && platformEntry.size
+      );
       const managedManifestDir = dirname(managedManifestPath);
       const runtimeBinaryPath = resolve(managedManifestDir, platformEntry.path);
       if (existsSync(runtimeBinaryPath)) {
+        report.containsRuntimeBinary = true;
         // sha256 校验
         const fileBuf = readFileSync(runtimeBinaryPath);
         const actualSha256 = createHash("sha256").update(fileBuf).digest("hex");
@@ -253,7 +287,7 @@ if (existsSync(managedManifestPath)) {
         report.codexRuntimeExecutable = execOk;
         console.log(`${execOk ? "✓" : "✗"} executable 权限 (${platformKey})`);
       } else {
-        console.log(`✗ runtime binary 不存在: ${runtimeBinaryPath}`);
+        console.log(`✓ 默认包未包含 runtime binary，需首次运行按 pinned artifact 下载: ${runtimeBinaryPath}`);
       }
     } else {
       console.log(`✗ 平台 ${platformKey} 不在 manifest 中`);
@@ -269,16 +303,26 @@ console.log(`codexRuntimeSha256Valid=${report.codexRuntimeSha256Valid}`);
 console.log(`codexRuntimeExecutable=${report.codexRuntimeExecutable}`);
 console.log(`codexRuntimePinnedVersion=${report.codexRuntimePinnedVersion}`);
 console.log(`codexRuntimeFixture=${report.codexRuntimeFixture}`);
-report.releasePackageContainsCodexRuntime = report.containsCodexManagedRuntime && report.codexRuntimeExecutable;
+report.runtimeDownloadRequired = !report.containsRuntimeBinary;
+report.releasePackageContainsCodexRuntime = report.containsCodexManagedRuntime;
 report.runtimeBinarySha256Verified = report.codexRuntimeSha256Valid;
+if (report.releasePackageMode === "unknown") {
+  report.releasePackageMode = report.containsRuntimeBinary ? "bundled-platform-runtime" : "download-on-first-run";
+}
 console.log(`releasePackageContainsCodexRuntime=${report.releasePackageContainsCodexRuntime}`);
+console.log(`releasePackageMode=${report.releasePackageMode}`);
+console.log(`containsRuntimeBinary=${report.containsRuntimeBinary}`);
+console.log(`runtimeDownloadRequired=${report.runtimeDownloadRequired}`);
+console.log(`runtimeCanInstallFromPinnedArtifact=${report.runtimeCanInstallFromPinnedArtifact}`);
 console.log(`runtimeBinarySha256Verified=${report.runtimeBinarySha256Verified}`);
 
 // ---------- 8. 统计 user-package 大小 ----------
 report.totalSizeMB = Number((dirSize(USER_PKG_DIR) / 1024 / 1024).toFixed(1));
 report.releasePackageSizeMB = report.totalSizeMB;
+report.offlinePackageSizeMB = report.containsRuntimeBinary ? report.totalSizeMB : 0;
 console.log(`user-package 总大小: ${report.totalSizeMB} MB`);
 console.log(`releasePackageSizeMB=${report.releasePackageSizeMB}`);
+console.log(`offlinePackageSizeMB=${report.offlinePackageSizeMB}`);
 
 // ---------- 9. 最终状态 ----------
 // V17-F1.1 任务 D：userPackageStatus 必须纳入 managed runtime 字段
@@ -289,10 +333,17 @@ report.userPackageStatus =
   report.containsPiSdk && report.canRequirePiSdk && !report.userNeedsNpmInstall
   && report.canLoadMainJs && report.noRootPackageJson
   && report.containsCodexManagedRuntime
-  && report.codexRuntimeSha256Valid
-  && report.codexRuntimeExecutable
   && report.releasePackageContainsCodexRuntime
-  && report.runtimeBinarySha256Verified
+  && report.runtimeCanInstallFromPinnedArtifact
+  && (
+    report.releasePackageMode === "download-on-first-run"
+      ? !report.containsRuntimeBinary && report.runtimeDownloadRequired
+      : report.releasePackageMode === "bundled-platform-runtime"
+        && report.containsRuntimeBinary
+        && report.codexRuntimeSha256Valid
+        && report.codexRuntimeExecutable
+        && report.runtimeBinarySha256Verified
+  )
     ? "pass" : "fail";
 
 console.log("");
@@ -313,8 +364,13 @@ console.log(`codexRuntimeExecutable=${report.codexRuntimeExecutable}`);
 console.log(`codexRuntimePinnedVersion=${report.codexRuntimePinnedVersion}`);
 console.log(`codexRuntimeFixture=${report.codexRuntimeFixture}`);
 console.log(`releasePackageContainsCodexRuntime=${report.releasePackageContainsCodexRuntime}`);
+console.log(`releasePackageMode=${report.releasePackageMode}`);
+console.log(`containsRuntimeBinary=${report.containsRuntimeBinary}`);
+console.log(`runtimeDownloadRequired=${report.runtimeDownloadRequired}`);
+console.log(`runtimeCanInstallFromPinnedArtifact=${report.runtimeCanInstallFromPinnedArtifact}`);
 console.log(`releasePackageSizeMB=${report.releasePackageSizeMB}`);
 console.log(`runtimeBinarySha256Verified=${report.runtimeBinarySha256Verified}`);
+console.log(`offlinePackageSizeMB=${report.offlinePackageSizeMB}`);
 
 // ---------- 10. 写报告 ----------
 writeReport(report);
@@ -326,11 +382,11 @@ process.exit(report.userPackageStatus === "pass" ? 0 : 1);
 function writeReport(r) {
   if (!existsSync(DOCS_DIR)) mkdirSync(DOCS_DIR, { recursive: true });
   const lines = [
-    "# LLM CLI Bridge 测试报告 — User Package Smoke (V17-D + V17-E1 + V17-F1)",
+    "# LLM CLI Bridge 测试报告 — User Package Smoke (V17-F3 Runtime Distribution)",
     "",
     "> 本报告由 `scripts/user-package-smoke.mjs` 自动生成。",
-    "> 验证 dist/user-package 发行包的完整性、CJS 加载安全性与 managed runtime 打包边界。",
-    "> V17-F1 任务 E：验证 Codex Managed Runtime manifest + binary 已集成。",
+    "> 验证 dist/user-package 发行包的完整性、CJS 加载安全性与 managed runtime 分发边界。",
+    "> V17-F3：默认 download-on-first-run 不打包大 binary；offline package 才 bundling 当前平台 runtime。",
     "",
     `- **测试时间**: ${r.timestamp}`,
     `- **userPackageStatus**: ${r.userPackageStatus}`,
@@ -346,9 +402,16 @@ function writeReport(r) {
     `- **codexRuntimeExecutable**: ${r.codexRuntimeExecutable}（V17-F1 任务 E）`,
     `- **codexRuntimePinnedVersion**: ${r.codexRuntimePinnedVersion || "null"}`,
     `- **codexRuntimeFixture**: ${r.codexRuntimeFixture}（V17-F1 任务 E：fixture=true 不标 production ready）`,
+    `- **releasePackageMode**: ${r.releasePackageMode}`,
+    `- **containsRuntimeBinary**: ${r.containsRuntimeBinary}`,
+    `- **runtimeDownloadRequired**: ${r.runtimeDownloadRequired}`,
+    `- **runtimeCanInstallFromPinnedArtifact**: ${r.runtimeCanInstallFromPinnedArtifact}`,
     `- **releasePackageContainsCodexRuntime**: ${r.releasePackageContainsCodexRuntime}`,
     `- **releasePackageSizeMB**: ${r.releasePackageSizeMB}`,
     `- **runtimeBinarySha256Verified**: ${r.runtimeBinarySha256Verified}`,
+    `- **offlinePackageSizeMB**: ${r.offlinePackageSizeMB}`,
+    `- **runtimeInstallerPresent**: ${r.runtimeInstallerPresent}`,
+    `- **runtimePinnedArtifactPackage**: ${r.runtimePinnedArtifactPackage || "null"}`,
     "",
     "## 验证项说明",
     "",
@@ -358,13 +421,18 @@ function writeReport(r) {
     "- **noRootPackageJson**: 根目录无 package.json（或无 type=module），不干扰 CJS 加载",
     "- **userNeedsNpmInstall**: 关键 transitive deps 全部 vendor，无需终端用户 npm install",
     "- **containsCodexManagedRuntime**: dist/user-package/codex-managed-runtime/runtime-manifest.json 存在",
-    "- **codexRuntimeSha256Valid**: 当前平台 runtime binary 的 sha256 与 manifest 匹配",
-    "- **codexRuntimeExecutable**: 当前平台 runtime binary 可执行权限校验通过",
+    "- **codexRuntimeSha256Valid**: offline package 中当前平台 runtime binary 的 sha256 与 manifest 匹配；download-on-first-run 默认包不要求该字段为 true",
+    "- **codexRuntimeExecutable**: offline package 中当前平台 runtime binary 可执行权限校验通过；download-on-first-run 默认包不要求该字段为 true",
     "- **codexRuntimePinnedVersion**: manifest 中记录的 runtime 版本",
     "- **codexRuntimeFixture**: manifest.fixture=true（fixture runtime，不标 production ready）",
-    "- **releasePackageContainsCodexRuntime**: dist/user-package 已包含 codex.exe 与 runtime-manifest.json，终端用户不需要执行 npm pack 来获得 runtime",
+    "- **releasePackageMode**: download-on-first-run 为普通用户默认；bundled-platform-runtime 仅用于离线朋友版/平台专用包；external-fallback-dev 仅开发者兼容路径",
+    "- **containsRuntimeBinary**: 当前包是否实际包含 runtime binary",
+    "- **runtimeDownloadRequired**: 当前包是否需要首次运行安装 runtime",
+    "- **runtimeCanInstallFromPinnedArtifact**: manifest + installer + pinned artifact metadata 完整，首次运行可从固定 artifact 安装",
+    "- **releasePackageContainsCodexRuntime**: dist/user-package 已包含 runtime-manifest.json 与 installer/downloader；默认不包含 codex.exe",
     "- **releasePackageSizeMB**: dist/user-package 当前产物大小，用于 release 风险记录",
-    "- **runtimeBinarySha256Verified**: 当前平台 runtime binary sha256 已按 manifest 校验",
+    "- **runtimeBinarySha256Verified**: offline package 中当前平台 runtime binary sha256 已按 manifest 校验；默认包为 false",
+    "- **offlinePackageSizeMB**: offline package 构建时记录实际包大小；默认包为 0",
     "- **auth/config boundary**: 发行包不依赖用户安装 Codex CLI/App；运行真实 Codex turn 仍需要可用的 user-level Codex/OpenAI credentials 或环境变量",
     "",
     "## V17-E1 任务 C：package.json type=module 风险修复",
