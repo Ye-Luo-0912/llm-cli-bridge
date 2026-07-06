@@ -17413,9 +17413,10 @@ if (!runV214BUnit) {
         && viewSrc.includes("renderPermissionPopover")
         && viewSrc.includes("togglePermissionPopover")
         && viewSrc.includes("Ask before edits")
-        && viewSrc.includes("Edit automatically")
-        && viewSrc.includes("Plan mode")
-        && viewSrc.includes("Auto mode");
+        && viewSrc.includes("Auto-apply edits")
+        && viewSrc.includes("Read only")
+        && viewSrc.includes("Low-risk auto")
+        && viewSrc.includes("Full access");
       const topbarOk = !viewSrc.includes("const refreshBtn = headerRight.createEl")
         && viewSrc.includes("llm-bridge-runtime-status")
         && viewSrc.includes("llm-bridge-settings-btn")
@@ -18662,7 +18663,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("this.runFlowToggle = null;")
       && viewSrc.includes("this.renderRunFlowPanel(chatPanel);")
       && viewSrc.includes("chatPanel.insertBefore(this.runFlowEl, anchor)")
-      && viewSrc.includes("this.refreshComposerStatusRail();");
+      && viewSrc.includes("this.refreshComposerStatusRail();")
+      && viewSrc.includes("this.renderMessagesFromHistory();");
     addTest("V17-G4 UI: 普通模式移除 legacy Run Flow，composer 状态随设置刷新",
       ok ? "pass" : "fail", "");
   }
@@ -18686,6 +18688,26 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("const f = this.getActiveFile();")
       && viewSrc.includes("const activeFile = this.getActiveFile();");
     addTest("V17-G4 UI: 活动笔记在 Bridge/composer 聚焦后仍保留最近文件",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13f: V17-G5 composer integrates active note/context and unified file/request labels ----
+  {
+    const ok = viewSrc.includes("composerBar.appendChild(composerContextRow);")
+      && viewSrc.includes("private fileRefMetaLabel(ref: FileRef): string")
+      && viewSrc.includes("text: this.fileRefMetaLabel(ref)")
+      && viewSrc.includes('title: "Read only"')
+      && viewSrc.includes('title: "Auto-apply edits"')
+      && viewSrc.includes('title: "Full access"')
+      && viewSrc.includes("this.renderCodexRunView(parent, codexRun, model, options.developerMode);")
+      && viewSrc.includes("sourceModel: AgentRunDisplayModel,\n    developerMode: boolean,")
+      && !viewSrc.includes("const developerMode = !!run.debugPanel;")
+      && stylesSrc.includes("V17-G5: Codex-native composer integration")
+      && stylesSrc.includes("grid-template-rows: auto minmax(78px, 1fr)")
+      && stylesSrc.includes(".llm-bridge-composer-context .llm-bridge-context-tags")
+      && stylesSrc.includes(".llm-bridge-context-ref-chip:hover")
+      && stylesSrc.includes(".llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon");
+    addTest("V17-G5 UI: composer 内嵌活动笔记/context，文件和权限标签统一收口",
       ok ? "pass" : "fail", "");
   }
 

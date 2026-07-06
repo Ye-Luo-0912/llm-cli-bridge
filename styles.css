@@ -7282,3 +7282,133 @@
   min-height: 40px;
   padding: 8px 11px;
 }
+
+/* ===== V17-G5: Codex-native composer integration and file/request polish ===== */
+.llm-bridge-composer {
+  padding: 7px 24px 12px;
+}
+
+.llm-bridge-composer-bar {
+  display: grid;
+  grid-template-rows: auto minmax(78px, 1fr);
+  gap: 2px;
+  min-height: 122px;
+  padding: 10px;
+  border-radius: 22px;
+}
+
+.llm-bridge-composer-context {
+  position: relative;
+  z-index: 4;
+  min-height: 22px;
+  padding: 0 6px 1px;
+  gap: 12px;
+}
+
+.llm-bridge-composer-context .llm-bridge-context-tags {
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+  gap: 10px;
+}
+
+.llm-bridge-composer-context .llm-bridge-context-strip {
+  align-self: center;
+  max-width: 38%;
+  color: var(--text-faint);
+}
+
+.llm-bridge-context-tag {
+  max-width: min(36ch, 42vw);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.2;
+}
+
+.llm-bridge-context-tag.is-empty {
+  color: color-mix(in srgb, var(--text-faint) 82%, transparent);
+  font-style: normal;
+}
+
+.llm-bridge-context-tag.is-off {
+  text-decoration-thickness: 1px;
+}
+
+.llm-bridge-input-row,
+.llm-bridge-input {
+  min-height: 78px;
+}
+
+.llm-bridge-input {
+  height: 82px;
+  padding: 7px 116px 39px 13px;
+}
+
+.llm-bridge-composer-file-refs {
+  padding: 0 5px 5px;
+}
+
+.llm-bridge-composer-file-chip {
+  max-width: min(360px, 100%);
+  min-height: 42px;
+  border-color: color-mix(in srgb, var(--text-muted) 15%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 74%, var(--background-primary));
+}
+
+.llm-bridge-composer-file-chip:hover {
+  border-color: color-mix(in srgb, var(--interactive-accent) 34%, var(--background-modifier-border));
+}
+
+.llm-bridge-composer-file-name,
+.llm-bridge-context-ref-name {
+  font-weight: 500;
+}
+
+.llm-bridge-composer-file-meta,
+.llm-bridge-context-ref-meta {
+  overflow: hidden;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-context-ref-chip {
+  grid-template-columns: 30px minmax(0, 1fr) auto auto auto;
+  min-height: 50px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
+}
+
+.llm-bridge-context-ref-chip:hover {
+  border-color: color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--background-secondary) 48%, var(--background-primary));
+}
+
+.llm-bridge-context-ref-mode {
+  color: var(--text-muted);
+}
+
+.llm-bridge-perm-popover {
+  width: min(340px, calc(100vw - 32px));
+}
+
+.llm-bridge-perm-option {
+  min-height: 48px;
+  align-items: center;
+  gap: 10px;
+}
+
+.llm-bridge-perm-option-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 82%, var(--background-primary));
+  color: var(--text-muted);
+  font-size: var(--font-small);
+}
+
+.llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon {
+  background: color-mix(in srgb, var(--interactive-accent) 13%, transparent);
+  color: var(--interactive-accent);
+}

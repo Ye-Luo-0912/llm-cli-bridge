@@ -657,6 +657,7 @@ export class LLMBridgeView extends ItemView {
 
     const composerBar = composer.createDiv({ cls: "llm-bridge-composer-bar" });
     this.composerBarEl = composerBar;
+    composerBar.appendChild(composerContextRow);
     composerBar.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       if (target.closest("button, select, summary, details, input, textarea")) return;
@@ -1353,11 +1354,11 @@ export class LLMBridgeView extends ItemView {
     this.permissionPopoverEl.addEventListener("pointerdown", (event) => event.stopPropagation());
     this.permissionPopoverEl.addEventListener("click", (event) => event.stopPropagation());
     const modes: Array<{ value: string; icon: string; title: string; desc: string }> = [
-      { value: "plan", icon: "☐", title: "Plan mode", desc: "只读规划，不执行修改" },
-      { value: "default", icon: "✓", title: "Ask before edits", desc: "编辑前询问确认" },
-      { value: "acceptEdits", icon: "✎", title: "Edit automatically", desc: "自动接受文件编辑" },
-      { value: "auto", icon: "⚡", title: "Auto mode", desc: "自动决策，低风险自动允许" },
-      { value: "bypassPermissions", icon: "⚠", title: "Bypass", desc: "跳过所有权限检查（高风险）" },
+      { value: "plan", icon: "○", title: "Read only", desc: "只规划和读取，不修改文件" },
+      { value: "default", icon: "◇", title: "Ask before edits", desc: "编辑或高风险命令前先确认" },
+      { value: "acceptEdits", icon: "✓", title: "Auto-apply edits", desc: "自动接受文件编辑，命令仍按策略确认" },
+      { value: "auto", icon: "↯", title: "Low-risk auto", desc: "低风险自动允许，敏感操作仍拦截" },
+      { value: "bypassPermissions", icon: "!", title: "Full access", desc: "跳过权限确认，仅在可信任务中使用" },
     ];
     const current = this.plugin.settings.claudePermissionMode;
     for (const mode of modes) {
@@ -1486,6 +1487,7 @@ export class LLMBridgeView extends ItemView {
     this.syncDeveloperRunFlowPanel();
     this.refreshStatusBar();
     this.refreshComposerStatusRail();
+    if (this.messagesEl) this.renderMessagesFromHistory();
   }
 
   private syncDeveloperRunFlowPanel(): void {
@@ -3053,7 +3055,8 @@ export class LLMBridgeView extends ItemView {
       fileText.createEl("span", { cls: "llm-bridge-composer-file-name", text: ref.displayName });
       fileText.createEl("span", {
         cls: "llm-bridge-composer-file-meta",
-        text: `${ref.kind} · ${ref.fileType}`,
+        text: this.fileRefMetaLabel(ref),
+        attr: { title: ref.resolvedPath },
       });
       chip.addEventListener("click", (event) => {
         event.preventDefault();
@@ -3096,6 +3099,18 @@ export class LLMBridgeView extends ItemView {
     }
     if (path.isAbsolute(ref.resolvedPath)) return this.filePathToUrl(ref.resolvedPath);
     return null;
+  }
+
+  private fileRefMetaLabel(ref: FileRef): string {
+    const source = ref.scope === "pinned" ? "pinned"
+      : ref.scope === "session" ? "session"
+      : ref.kind === "external" ? "external"
+      : ref.kind === "attachment" ? "attachment"
+      : "vault";
+    const pathText = ref.resolvedPath.replace(/\\/g, "/");
+    const parts = pathText.split("/").filter(Boolean);
+    const folder = parts.length > 1 ? parts.slice(Math.max(0, parts.length - 3), -1).join("/") : "";
+    return folder ? `${source} · ${folder}` : `${source} · ${ref.fileType}`;
   }
 
   private filePathToUrl(filePath: string): string {
@@ -3156,7 +3171,7 @@ export class LLMBridgeView extends ItemView {
     setIcon(icon, ref.fileType === "image" ? "image" : ref.fileType === "markdown" ? "file-text" : "file");
     const text = chip.createDiv({ cls: "llm-bridge-context-ref-text" });
     text.createEl("span", { cls: "llm-bridge-context-ref-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
-    text.createEl("span", { cls: "llm-bridge-context-ref-meta", text: `${ref.kind} · ${ref.scope} · ${ref.fileType}` });
+    text.createEl("span", { cls: "llm-bridge-context-ref-meta", text: this.fileRefMetaLabel(ref), attr: { title: ref.resolvedPath } });
     const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id || ref.id.startsWith(item.refId));
     chip.createEl("span", { cls: "llm-bridge-context-ref-mode", text: snippet ? "bounded text" : "native ref" });
     if (options.allowPin) {
@@ -3999,7 +4014,7 @@ export class LLMBridgeView extends ItemView {
         modelLabel,
         cwd: options.debug?.effectiveRunPlan?.cwd ?? this.getVaultPath(),
       });
-      this.renderCodexRunView(parent, codexRun, model);
+      this.renderCodexRunView(parent, codexRun, model, options.developerMode);
       return;
     }
 
@@ -4129,8 +4144,8 @@ export class LLMBridgeView extends ItemView {
     parent: HTMLElement,
     run: CodexRunViewModel,
     sourceModel: AgentRunDisplayModel,
+    developerMode: boolean,
   ): void {
-    const developerMode = !!run.debugPanel;
     const hasBodyContent = run.approvalGates.length > 0
       || run.changeGroups.length > 0
       || run.stepGroups.length > 0
