@@ -1,29 +1,27 @@
 # LLM CLI Bridge 测试报告 — 汇总（Managed Codex Runtime 主线）
 
-> 本报告由 `scripts/generate-test-summary.mjs` 从 unit/process/codex-smoke 报告解析生成，不手写。
+> 本报告由 `scripts/generate-test-summary.mjs` 从 unit/process/managed-runtime/user-package 报告解析生成，不手写。
 > 详细结果分别见：
 > - [docs/test-report-unit.md](./test-report-unit.md) — 单元测试详细结果
 > - [docs/test-report-process.md](./test-report-process.md) — 进程测试详细结果
 > - [docs/test-report-codex-managed-runtime.md](./test-report-codex-managed-runtime.md) — Managed Codex Runtime smoke
-> - [docs/test-report-codex-smoke.md](./test-report-codex-smoke.md) — Codex external app-server smoke（兼容字段）
 >
 > 报告不互相覆盖：unit/process/managed-runtime/user-package 各自独立生成，summary 仅汇总主线结论。
+> external Codex CLI/app-server 是兼容路径；本 summary 不解析旧 codex-smoke 报告，也不把 external 状态作为主 gate。
 
-- **生成时间**: 2026-07-06T05:06:07.590Z
-- **reportCommitSha**: 2a7cf1d05ff654d89c5405d8e9bd17cbd6e85c2e
-- **reportCommitSha 短**: 2a7cf1d05ff6
-- **reportParentSha**: 7540548776e8f70369c8e42f1810d1c11b856431
-- **reportParentSha 短**: 7540548776e8
-- **testedCodeCommitSha**: 2a7cf1d05ff654d89c5405d8e9bd17cbd6e85c2e
-- **testedCodeCommitSha 短**: 2a7cf1d05ff6
+- **生成时间**: 2026-07-06T05:25:52.683Z
+- **reportCommitSha**: 5d7ebc0c606a49f6f2e781c18a9e352384726cf8
+- **reportCommitSha 短**: 5d7ebc0c606a
+- **reportParentSha**: 990fda4837fba1bbbf93bac4a0fb109b7c490d04
+- **reportParentSha 短**: 990fda4837fb
+- **testedCodeCommitSha**: 5d7ebc0c606a49f6f2e781c18a9e352384726cf8
+- **testedCodeCommitSha 短**: 5d7ebc0c606a
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: 2a7cf1d05ff654d89c5405d8e9bd17cbd6e85c2e
-- **processReportCommitSha**: 2a7cf1d05ff654d89c5405d8e9bd17cbd6e85c2e
-- **codexSmokeStatus**: fail
-- **codexHandshakeStatus**: fail
-- **codexTurnStatus**: skip
-- **codexVersion**: codex-cli 0.142.5
-- **codexSchemaSource**: generated
+- **unitReportCommitSha**: 5d7ebc0c606a49f6f2e781c18a9e352384726cf8
+- **processReportCommitSha**: 5d7ebc0c606a49f6f2e781c18a9e352384726cf8
+- **externalCodexSmokeStatus**: not-evaluated
+- **externalCodexHandshakeStatus**: not-evaluated
+- **externalCodexCompatibilityStatus**: not-main-gate
 - **codexUserReady**: true
 - **codexManagedResolverSmokeStatus**: pass
 - **codexManagedRuntimeSmokeStatus**: pass
@@ -33,20 +31,17 @@
 - **codexManagedRuntimeSha256Valid**: true
 - **codexManagedRuntimeExecutable**: true
 - **codexManagedAppServerSpawnStatus**: pass
-- **codexSdkAvailable**: false
-- **codexEmbeddedRuntimeAvailable**: false
-- **codexSdkAuthAvailable**: false
-- **codexExternalExecutableAvailable**: true
-- **externalAppServerSpawnStatus**: pass
-- **codexCliAvailable**: true
-- **codexAuthAvailable**: unknown
-- **appServerSpawnStatus**: pass
+- **supportedPlatforms**: win32-x64
+- **testedPlatform**: win32-x64
+- **crossPlatformReady**: false
+- **binaryDependency**: managed,pinned,bundled
+- **authConfigDependency**: user-level Codex/OpenAI credentials or env
+- **managedRuntimeReadsUserCodexHome**: true
+- **codexHome**: C:\Users\Ye_Luo\.codex
 - **initializeStatus**: pass
 - **threadStartStatus**: pass
 - **turnStartStatus**: pass
 - **turnCompletedStatus**: pass
-- **approvalRequestStatus**: unknown
-- **fileChangeRequestStatus**: unknown
 - **stopCancelStatus**: pass
 - **noVaultRootPollution**: true
 - **userPackageStatus**: pass
@@ -61,26 +56,29 @@
 - **codexRuntimePinnedVersion**: 0.142.5
 - **codexRuntimeFixture**: false
 - **userPackageSizeMB**: 406
+- **releasePackageContainsCodexRuntime**: true
+- **releasePackageSizeMB**: 406
+- **runtimeBinarySha256Verified**: true
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-06T05:04:19.336Z
-- **process 测试时间**: 2026-07-06T05:04:58.686Z
+- **unit 测试时间**: 2026-07-06T05:24:01.036Z
+- **process 测试时间**: 2026-07-06T05:24:38.825Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=2a7cf1d05ff6。
-- **当前 commit 改动文件**：.gitignore, scripts/build-user-package.mjs, scripts/codex-app-server-smoke.mjs, scripts/codex-managed-runtime-smoke.mjs, scripts/generate-test-summary.mjs, scripts/install-codex-managed-runtime.mjs, scripts/run-tests.mjs, scripts/user-package-smoke.mjs, src/runtime/providers/codex-managed-app-server/codexManagedRuntimeResolver.ts, src/runtime/providers/codex-managed-app-server/runtime-manifest.fixture.json, src/runtime/providers/codex-managed-app-server/runtime-manifest.json, src/types.ts, src/view.ts
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=5d7ebc0c606a。
+- **当前 commit 改动文件**：scripts/codex-managed-runtime-smoke.mjs, scripts/generate-test-summary.mjs, scripts/run-tests.mjs, scripts/user-package-smoke.mjs
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 1027 | 0 | 25 | 0 | 1052 | 2a7cf1d05ff6 | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | 2a7cf1d05ff6 | ✅ 通过 |
-| codex-smoke | - | - | - | - | - | codex-cli 0. | ❌ 失败 |
-| **合计** | **1124** | **0** | **81** | **0** | **1205** | 2a7cf1d05ff6 | ✅ **主线通过** |
+| unit | 1027 | 0 | 25 | 0 | 1052 | 5d7ebc0c606a | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | 5d7ebc0c606a | ✅ 通过 |
+| managed-runtime | - | - | - | - | - | 0.142.5 | ✅ 通过 |
+| **合计** | **1124** | **0** | **81** | **0** | **1205** | 5d7ebc0c606a | ✅ **主线通过** |
 
 **双轨均 0 失败 + Managed Codex Runtime smoke pass → Managed Codex Runtime 主线通过。**
 
@@ -90,7 +88,10 @@
 - **uncaughtException / unhandledRejection 计为 fail**：进程级未捕获异常必须反映在测试结果中，不得仅记日志。
 - 本轮 unit 轨道：uncaughtException = 0，unhandledRejection = 0
 - 本轮 process 轨道：uncaughtException = 0，unhandledRejection = 0
-- **Managed Codex Runtime gate**：resolver/runtime/protocol/codexUserReady 必须全部通过；external codexSmokeStatus 仅保留为兼容字段，不影响审计。
+- **Managed Codex Runtime gate**：resolver/runtime/protocol/codexUserReady 必须全部通过；external Codex compatibility 字段不影响审计。
+- **平台边界**：当前 production manifest 只声明已验证平台，`crossPlatformReady=false`，不得表述为 all-platform release-ready。
+- **依赖边界**：binary 为 managed/pinned/bundled，不依赖用户安装 CLI/App；auth/config 仍需要可用 user-level Codex/OpenAI credentials 或环境变量。
+- **Release packaging gate**：dist/user-package 必须包含 codex runtime + manifest，记录包大小，并验证 runtime sha256。
 - **报告过期判定**：若 unit/process 报告的 commit sha 与 testedCodeCommitSha 不一致，说明报告是旧 commit 的结果，必须重新生成。
 
 ## 审计结果
