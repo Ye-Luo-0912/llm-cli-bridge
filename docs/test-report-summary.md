@@ -9,9 +9,9 @@
 > 报告不互相覆盖：unit/process/managed-runtime/user-package 各自独立生成，summary 仅汇总主线结论。
 > external Codex CLI/app-server 是兼容路径；本 summary 不解析旧 codex-smoke 报告，也不把 external 状态作为主 gate。
 
-- **生成时间**: 2026-07-06T06:54:40.904Z
-- **reportCommitSha**: 998160728467413b37431d0f6e84a3fb9c1170e2
-- **reportCommitSha 短**: 998160728467
+- **生成时间**: 2026-07-06T11:00:23.526Z
+- **reportCommitSha**: f0de04cd04915ed2912f911fba986487d4c5fd59
+- **reportCommitSha 短**: f0de04cd0491
 - **reportParentSha**: e44badc3236dd17ffb51c01ba9e8fee6c8349ff4
 - **reportParentSha 短**: e44badc3236d
 - **testedCodeCommitSha**: e44badc3236dd17ffb51c01ba9e8fee6c8349ff4
