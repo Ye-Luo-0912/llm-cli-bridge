@@ -9,16 +9,16 @@
 > 报告不互相覆盖：unit/process/managed-runtime/user-package 各自独立生成，summary 仅汇总主线结论。
 > external Codex CLI/app-server 是兼容路径；本 summary 不解析旧 codex-smoke 报告，也不把 external 状态作为主 gate。
 
-- **生成时间**: 2026-07-06T05:25:52.683Z
-- **reportCommitSha**: 5d7ebc0c606a49f6f2e781c18a9e352384726cf8
-- **reportCommitSha 短**: 5d7ebc0c606a
-- **reportParentSha**: 990fda4837fba1bbbf93bac4a0fb109b7c490d04
-- **reportParentSha 短**: 990fda4837fb
-- **testedCodeCommitSha**: 5d7ebc0c606a49f6f2e781c18a9e352384726cf8
-- **testedCodeCommitSha 短**: 5d7ebc0c606a
+- **生成时间**: 2026-07-06T05:50:18.773Z
+- **reportCommitSha**: 78775fee8140b527ea4be4c0fd44fd9fd95d5db1
+- **reportCommitSha 短**: 78775fee8140
+- **reportParentSha**: 1656c15285f2abaf8bda570aaa08b9fce2f91cd5
+- **reportParentSha 短**: 1656c15285f2
+- **testedCodeCommitSha**: 78775fee8140b527ea4be4c0fd44fd9fd95d5db1
+- **testedCodeCommitSha 短**: 78775fee8140
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: 5d7ebc0c606a49f6f2e781c18a9e352384726cf8
-- **processReportCommitSha**: 5d7ebc0c606a49f6f2e781c18a9e352384726cf8
+- **unitReportCommitSha**: 78775fee8140b527ea4be4c0fd44fd9fd95d5db1
+- **processReportCommitSha**: 78775fee8140b527ea4be4c0fd44fd9fd95d5db1
 - **externalCodexSmokeStatus**: not-evaluated
 - **externalCodexHandshakeStatus**: not-evaluated
 - **externalCodexCompatibilityStatus**: not-main-gate
@@ -51,34 +51,38 @@
 - **noRootPackageJson**: true
 - **userNeedsNpmInstall**: false
 - **containsCodexManagedRuntime**: true
-- **codexRuntimeSha256Valid**: true
-- **codexRuntimeExecutable**: true
+- **codexRuntimeSha256Valid**: false
+- **codexRuntimeExecutable**: false
 - **codexRuntimePinnedVersion**: 0.142.5
 - **codexRuntimeFixture**: false
-- **userPackageSizeMB**: 406
+- **userPackageSizeMB**: 97.8
+- **releasePackageMode**: download-on-first-run
+- **containsRuntimeBinary**: false
+- **runtimeDownloadRequired**: true
+- **runtimeCanInstallFromPinnedArtifact**: true
 - **releasePackageContainsCodexRuntime**: true
-- **releasePackageSizeMB**: 406
-- **runtimeBinarySha256Verified**: true
+- **releasePackageSizeMB**: 97.8
+- **runtimeBinarySha256Verified**: false
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-06T05:24:01.036Z
-- **process 测试时间**: 2026-07-06T05:24:38.825Z
+- **unit 测试时间**: 2026-07-06T05:47:14.375Z
+- **process 测试时间**: 2026-07-06T05:47:54.665Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=5d7ebc0c606a。
-- **当前 commit 改动文件**：scripts/codex-managed-runtime-smoke.mjs, scripts/generate-test-summary.mjs, scripts/run-tests.mjs, scripts/user-package-smoke.mjs
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=78775fee8140。
+- **当前 commit 改动文件**：package.json, scripts/build-user-package.mjs, scripts/generate-runtime-distribution-report.mjs, scripts/generate-test-summary.mjs, scripts/install-codex-managed-runtime.mjs, scripts/run-tests.mjs, scripts/user-package-smoke.mjs
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 1027 | 0 | 25 | 0 | 1052 | 5d7ebc0c606a | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | 5d7ebc0c606a | ✅ 通过 |
+| unit | 1028 | 0 | 25 | 0 | 1053 | 78775fee8140 | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | 78775fee8140 | ✅ 通过 |
 | managed-runtime | - | - | - | - | - | 0.142.5 | ✅ 通过 |
-| **合计** | **1124** | **0** | **81** | **0** | **1205** | 5d7ebc0c606a | ✅ **主线通过** |
+| **合计** | **1125** | **0** | **81** | **0** | **1206** | 78775fee8140 | ✅ **主线通过** |
 
 **双轨均 0 失败 + Managed Codex Runtime smoke pass → Managed Codex Runtime 主线通过。**
 
@@ -91,7 +95,7 @@
 - **Managed Codex Runtime gate**：resolver/runtime/protocol/codexUserReady 必须全部通过；external Codex compatibility 字段不影响审计。
 - **平台边界**：当前 production manifest 只声明已验证平台，`crossPlatformReady=false`，不得表述为 all-platform release-ready。
 - **依赖边界**：binary 为 managed/pinned/bundled，不依赖用户安装 CLI/App；auth/config 仍需要可用 user-level Codex/OpenAI credentials 或环境变量。
-- **Release packaging gate**：dist/user-package 必须包含 codex runtime + manifest，记录包大小，并验证 runtime sha256。
+- **Release packaging gate**：dist/user-package 默认包含 manifest + installer/downloader，不打包大 binary；必须能从 pinned artifact 安装，记录包大小。
 - **报告过期判定**：若 unit/process 报告的 commit sha 与 testedCodeCommitSha 不一致，说明报告是旧 commit 的结果，必须重新生成。
 
 ## 审计结果

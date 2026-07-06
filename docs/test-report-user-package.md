@@ -1,10 +1,10 @@
-# LLM CLI Bridge 测试报告 — User Package Smoke (V17-D + V17-E1 + V17-F1)
+# LLM CLI Bridge 测试报告 — User Package Smoke (V17-F3 Runtime Distribution)
 
 > 本报告由 `scripts/user-package-smoke.mjs` 自动生成。
-> 验证 dist/user-package 发行包的完整性、CJS 加载安全性与 managed runtime 打包边界。
-> V17-F1 任务 E：验证 Codex Managed Runtime manifest + binary 已集成。
+> 验证 dist/user-package 发行包的完整性、CJS 加载安全性与 managed runtime 分发边界。
+> V17-F3：默认 download-on-first-run 不打包大 binary；offline package 才 bundling 当前平台 runtime。
 
-- **测试时间**: 2026-07-06T05:25:28.164Z
+- **测试时间**: 2026-07-06T05:50:16.346Z
 - **userPackageStatus**: pass
 - **containsPiSdk**: true
 - **canRequirePiSdk**: true
@@ -12,15 +12,22 @@
 - **noRootPackageJson**: true（V17-E1 任务 C：根目录无 package.json 或无 type=module）
 - **userNeedsNpmInstall**: false
 - **sdkVersion**: 0.80.3
-- **totalSizeMB**: 406
+- **totalSizeMB**: 97.8
 - **containsCodexManagedRuntime**: true（V17-F1 任务 E）
-- **codexRuntimeSha256Valid**: true（V17-F1 任务 E）
-- **codexRuntimeExecutable**: true（V17-F1 任务 E）
+- **codexRuntimeSha256Valid**: false（V17-F1 任务 E）
+- **codexRuntimeExecutable**: false（V17-F1 任务 E）
 - **codexRuntimePinnedVersion**: 0.142.5
 - **codexRuntimeFixture**: false（V17-F1 任务 E：fixture=true 不标 production ready）
+- **releasePackageMode**: download-on-first-run
+- **containsRuntimeBinary**: false
+- **runtimeDownloadRequired**: true
+- **runtimeCanInstallFromPinnedArtifact**: true
 - **releasePackageContainsCodexRuntime**: true
-- **releasePackageSizeMB**: 406
-- **runtimeBinarySha256Verified**: true
+- **releasePackageSizeMB**: 97.8
+- **runtimeBinarySha256Verified**: false
+- **offlinePackageSizeMB**: 0
+- **runtimeInstallerPresent**: true
+- **runtimePinnedArtifactPackage**: @openai/codex@0.142.5-win32-x64
 
 ## 验证项说明
 
@@ -30,13 +37,18 @@
 - **noRootPackageJson**: 根目录无 package.json（或无 type=module），不干扰 CJS 加载
 - **userNeedsNpmInstall**: 关键 transitive deps 全部 vendor，无需终端用户 npm install
 - **containsCodexManagedRuntime**: dist/user-package/codex-managed-runtime/runtime-manifest.json 存在
-- **codexRuntimeSha256Valid**: 当前平台 runtime binary 的 sha256 与 manifest 匹配
-- **codexRuntimeExecutable**: 当前平台 runtime binary 可执行权限校验通过
+- **codexRuntimeSha256Valid**: offline package 中当前平台 runtime binary 的 sha256 与 manifest 匹配；download-on-first-run 默认包不要求该字段为 true
+- **codexRuntimeExecutable**: offline package 中当前平台 runtime binary 可执行权限校验通过；download-on-first-run 默认包不要求该字段为 true
 - **codexRuntimePinnedVersion**: manifest 中记录的 runtime 版本
 - **codexRuntimeFixture**: manifest.fixture=true（fixture runtime，不标 production ready）
-- **releasePackageContainsCodexRuntime**: dist/user-package 已包含 codex.exe 与 runtime-manifest.json，终端用户不需要执行 npm pack 来获得 runtime
+- **releasePackageMode**: download-on-first-run 为普通用户默认；bundled-platform-runtime 仅用于离线朋友版/平台专用包；external-fallback-dev 仅开发者兼容路径
+- **containsRuntimeBinary**: 当前包是否实际包含 runtime binary
+- **runtimeDownloadRequired**: 当前包是否需要首次运行安装 runtime
+- **runtimeCanInstallFromPinnedArtifact**: manifest + installer + pinned artifact metadata 完整，首次运行可从固定 artifact 安装
+- **releasePackageContainsCodexRuntime**: dist/user-package 已包含 runtime-manifest.json 与 installer/downloader；默认不包含 codex.exe
 - **releasePackageSizeMB**: dist/user-package 当前产物大小，用于 release 风险记录
-- **runtimeBinarySha256Verified**: 当前平台 runtime binary sha256 已按 manifest 校验
+- **runtimeBinarySha256Verified**: offline package 中当前平台 runtime binary sha256 已按 manifest 校验；默认包为 false
+- **offlinePackageSizeMB**: offline package 构建时记录实际包大小；默认包为 0
 - **auth/config boundary**: 发行包不依赖用户安装 Codex CLI/App；运行真实 Codex turn 仍需要可用的 user-level Codex/OpenAI credentials 或环境变量
 
 ## V17-E1 任务 C：package.json type=module 风险修复
