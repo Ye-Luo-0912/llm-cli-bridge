@@ -4785,7 +4785,7 @@ export class LLMBridgeView extends ItemView {
     panel.createEl("pre", { cls: "llm-bridge-codex-detail-pre llm-bridge-codex-shell-pre", text: bodyText });
     const footer = panel.createDiv({ cls: "llm-bridge-codex-shell-footer" });
     const ok = step.status !== "failed" && (step.exitCode === undefined || step.exitCode === 0);
-    footer.createEl("span", { cls: ok ? "is-success" : "is-failed", text: ok ? "✓ success" : "failed" });
+    footer.createEl("span", { cls: ok ? "is-success" : "is-failed", text: ok ? "✓ 成功" : "失败" });
   }
 
   private buildCodexShellText(step: CodexRunStepGroup): string {

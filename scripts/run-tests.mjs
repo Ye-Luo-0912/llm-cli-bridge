@@ -18781,6 +18781,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('cls: "llm-bridge-permission-chip-label"')
       && viewSrc.includes("private renderCodexDiffPreview(")
       && viewSrc.includes('`Diff · ${truncateText(summaryText, 72)}`')
+      && viewSrc.includes('text: ok ? "✓ 成功" : "失败"')
       && viewSrc.includes('text: kind === "note" ? "No active note" : "Selection"')
       && viewSrc.includes('"data-context-kind": kind')
       && viewSrc.includes('fname || "No active note"')
