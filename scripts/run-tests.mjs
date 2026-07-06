@@ -18776,11 +18776,21 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('content.addClass("llm-bridge-msg-content-suppressed")')
       && viewSrc.includes("private getVisibleMarkdownFile(): TFile | null")
       && viewSrc.includes('this.app.workspace.getLeavesOfType("markdown")')
+      && viewSrc.includes('text: "目标"')
+      && viewSrc.includes('fname || "No active note"')
+      && viewSrc.includes('cls: `llm-bridge-context-tag ${kind === "note" ? "is-active-file" : "is-selection-ref"}`')
+      && viewSrc.includes("this.activeFileLabelEl.dataset.value = activeFileName")
+      && viewSrc.includes('if (selWrap) selWrap.toggleAttribute("hidden", !selectionText);')
+      && viewSrc.includes('selTag.textContent = selectionText ? `Selection ${selectionText}` : "Selection";')
       && stylesSrc.includes("V17-G8: Codex desktop-style run stream")
       && stylesSrc.includes(".llm-bridge-msg-content-suppressed")
       && stylesSrc.includes(".llm-bridge-codex-event-block.llm-bridge-codex-feed-item")
       && stylesSrc.includes(".llm-bridge-composer-bar")
-      && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-section");
+      && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-section")
+      && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-name")
+      && stylesSrc.includes(".llm-bridge-approval-dock")
+      && stylesSrc.includes(".llm-bridge-command-menu-label")
+      && stylesSrc.includes(".llm-bridge-composer-step-pill");
     addTest("V17-G8 UI: Codex 瀑布流去重、活动笔记兜底和输入/文件表面继续收口",
       ok ? "pass" : "fail", "");
   }

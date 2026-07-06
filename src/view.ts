@@ -678,9 +678,10 @@ export class LLMBridgeView extends ItemView {
     const commandMenu = leftTools.createEl("details", { cls: "llm-bridge-command-menu" });
     const commandSummary = commandMenu.createEl("summary", {
       cls: "llm-bridge-composer-tool-btn llm-bridge-command-menu-summary",
-      attr: { title: "命令入口：检测、路径附件、刷新上下文" },
+      attr: { title: "目标、上下文与辅助操作" },
     });
-    setIcon(commandSummary, "terminal");
+    setIcon(commandSummary.createEl("span", { cls: "llm-bridge-command-menu-summary-icon" }), "target");
+    commandSummary.createEl("span", { cls: "llm-bridge-command-menu-label", text: "目标" });
     const commandMenuBody = commandMenu.createDiv({ cls: "llm-bridge-command-menu-body" });
     this.preflightBtn = commandMenuBody.createEl("button", {
       cls: "llm-bridge-command-menu-item",
@@ -1026,7 +1027,7 @@ export class LLMBridgeView extends ItemView {
     const check = wrap.createEl("input", { type: "checkbox", cls: "llm-bridge-chip-check" });
     check.checked = getCurrent();
     const tag = wrap.createEl("span", {
-      cls: "llm-bridge-context-tag",
+      cls: `llm-bridge-context-tag ${kind === "note" ? "is-active-file" : "is-selection-ref"}`,
       text: kind === "note" ? "Using current note" : "Selection",
       attr: { "aria-pressed": String(check.checked), role: "button", tabindex: "0" },
     });
@@ -1074,7 +1075,7 @@ export class LLMBridgeView extends ItemView {
     if (noteTag) {
       const on = this.plugin.settings.includeActiveNote;
       const noteWrap = this.includeNoteCheckEl.parentElement;
-      const fname = this.activeFileLabelEl.textContent || "";
+      const fname = this.activeFileLabelEl.dataset.value || "";
       if (noteWrap) noteWrap.toggleAttribute("hidden", false);
       noteTag.classList.toggle("is-active", on);
       noteTag.classList.toggle("is-off", !on);
@@ -1082,10 +1083,10 @@ export class LLMBridgeView extends ItemView {
       noteTag.classList.toggle("is-path-only", on && this.activeNoteAttachState === "path-only");
       noteTag.setAttribute("aria-pressed", String(on));
       // V17-G2: 活动笔记 tag 只显示当前文件名；状态通过颜色/删除线表达。
-      const fnameOrFallback = fname || "无活动笔记";
+      const fnameOrFallback = fname || "No active note";
       noteTag.textContent = fnameOrFallback;
       if (!fname) {
-        noteTag.setAttribute("title", "当前没有活动笔记；打开文件后这里会显示被引用的文件名");
+        noteTag.setAttribute("title", "No active note. Open a markdown file and it will appear here.");
       } else if (!on) {
         noteTag.setAttribute("title", `${fnameOrFallback}：当前未引用，点击开启`);
       } else if (this.activeNoteAttachState === "full") {
@@ -1099,7 +1100,12 @@ export class LLMBridgeView extends ItemView {
     const selTag = this.includeSelectionCheckEl.parentElement?.querySelector(".llm-bridge-context-tag");
     if (selTag) {
       const on = this.plugin.settings.includeSelection;
+      const selectionText = this.selectionLabelEl.dataset.value || "";
+      const selWrap = this.includeSelectionCheckEl.parentElement;
+      if (selWrap) selWrap.toggleAttribute("hidden", !selectionText);
+      selTag.textContent = selectionText ? `Selection ${selectionText}` : "Selection";
       selTag.classList.toggle("is-active", on);
+      selTag.classList.toggle("is-off", !on);
       selTag.setAttribute("aria-pressed", String(on));
     }
   }
@@ -1523,11 +1529,15 @@ export class LLMBridgeView extends ItemView {
 
   private updateContextDisplay(): void {
     const f = this.getActiveFile();
-    this.activeFileLabelEl.textContent = f ? path.basename(f.path) : "";
+    const activeFileName = f ? path.basename(f.path) : "";
+    this.activeFileLabelEl.dataset.value = activeFileName;
+    this.activeFileLabelEl.textContent = "";
     const sel = this.getSelection();
     if (sel) {
-      this.selectionLabelEl.textContent = `${sel.length}c`;
+      this.selectionLabelEl.dataset.value = `${sel.length}c`;
+      this.selectionLabelEl.textContent = "";
     } else {
+      this.selectionLabelEl.dataset.value = "";
       this.selectionLabelEl.textContent = "";
     }
     // V16.3 Round 3: note tag title/文案统一由 refreshAllChips 处理（合并单 chip 语义）
