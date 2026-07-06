@@ -295,6 +295,50 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
+    const runtimeStatus = this.plugin.getManagedRuntimeInstallStatus();
+    const runtimeSize = typeof runtimeStatus.size === "number"
+      ? `${(runtimeStatus.size / 1024 / 1024).toFixed(1)} MB`
+      : "unknown";
+    const runtimeBox = containerEl.createDiv({ cls: "llm-bridge-managed-runtime-settings" });
+    runtimeBox.createEl("div", {
+      cls: "llm-bridge-managed-runtime-settings-title",
+      text: "Managed Codex Runtime",
+    });
+    runtimeBox.createEl("div", {
+      cls: "llm-bridge-managed-runtime-settings-grid",
+      text: [
+        `version=${runtimeStatus.version || "unknown"}`,
+        `size=${runtimeSize}`,
+        `source=${runtimeStatus.source || "unknown"}`,
+        `sha256=${runtimeStatus.sha256 || "unknown"}`,
+        `installPath=${runtimeStatus.installPath || "unknown"}`,
+        `status=${runtimeStatus.status}`,
+      ].join("\n"),
+    });
+    if (runtimeStatus.error) {
+      runtimeBox.createEl("div", { cls: "llm-bridge-setting-hint llm-bridge-setting-hint-warn", text: runtimeStatus.error });
+    }
+    new Setting(runtimeBox)
+      .setName("Codex runtime")
+      .setDesc("Default package installs the pinned runtime on first run after user confirmation.")
+      .addButton((button) => {
+        button
+          .setButtonText(runtimeStatus.required ? "Install Codex runtime" : "Retry install")
+          .setTooltip("Download, verify, and install the pinned managed runtime")
+          .onClick(async () => {
+            button.setDisabled(true);
+            button.setButtonText("Installing...");
+            const result = await this.plugin.ensureManagedRuntimeInstalled({ confirm: true });
+            if (result.status === "installed" || result.status === "already-installed") {
+              new Notice("Codex runtime installed");
+            } else {
+              new Notice(`Codex runtime install failed: ${result.error || result.status}`);
+            }
+            this.display();
+            this.plugin.refreshBridgeView();
+          });
+      });
+
     new Setting(containerEl)
       .setName("Backend 配置档")
       .setDesc("V17-F0 任务 C：developer/portable 的 auto 均走 SDK-first 链；portable 仅 UI 精简不暴露实验选项。Pi 为 optional/advanced。")

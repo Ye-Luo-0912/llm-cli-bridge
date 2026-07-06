@@ -294,6 +294,27 @@
   min-width: 50px;
 }
 
+.llm-bridge-runtime-install-btn {
+  display: inline-flex;
+  align-items: center;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+  font-size: var(--font-smallest);
+  white-space: nowrap;
+}
+
+.llm-bridge-runtime-install-btn[hidden] {
+  display: none;
+}
+
+.llm-bridge-runtime-install-btn:disabled {
+  opacity: 0.65;
+}
+
 .llm-bridge-icon-btn {
   display: inline-flex;
   align-items: center;
@@ -2062,6 +2083,28 @@
 .llm-bridge-setting-hint-warn {
   color: #fb8c00;
   border-left-color: #fb8c00;
+}
+
+.llm-bridge-managed-runtime-settings {
+  margin: 10px 0 16px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 8px;
+  background: var(--background-secondary);
+}
+
+.llm-bridge-managed-runtime-settings-title {
+  font-weight: 600;
+  color: var(--text-normal);
+  margin-bottom: 6px;
+}
+
+.llm-bridge-managed-runtime-settings-grid {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.5;
 }
 
 /* 空状态引导（多行可操作） */

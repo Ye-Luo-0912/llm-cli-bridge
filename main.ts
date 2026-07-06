@@ -9,6 +9,12 @@ import { DEFAULT_SETTINGS, LLMBridgeSettings } from "./src/types";
 import { OutboxWatcher } from "./src/outbox";
 import { BridgeInfo, BridgeWriteResult, HttpBridge } from "./src/httpServer";
 import { writeHelper } from "./src/toolsWriter";
+import { createBridgeSession } from "./src/runtime/core/bridgeSession";
+import {
+  ensureManagedRuntimeInstalledFromPlugin,
+  getManagedRuntimeInstallStatus,
+  type ManagedRuntimeInstallStatus,
+} from "./src/runtime/providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge";
 
 const BRIDGE_FILE_REL = ".llm-bridge/bridge.json";
 
@@ -108,6 +114,26 @@ export default class LLMBridgePlugin extends Plugin {
 
   getHttpBridge(): HttpBridge | null {
     return this.httpBridge;
+  }
+
+  getManagedRuntimeInstallStatus(): ManagedRuntimeInstallStatus {
+    return getManagedRuntimeInstallStatus(this.pluginDir);
+  }
+
+  async ensureManagedRuntimeInstalled(options: { confirm?: boolean } = {}): Promise<ManagedRuntimeInstallStatus> {
+    const result = await ensureManagedRuntimeInstalledFromPlugin(this.pluginDir, options);
+    this.refreshBridgeView();
+    return result;
+  }
+
+  getRuntimeProviderStatusForSmoke(cwd?: string): { providerId: string; label: string } {
+    const session = createBridgeSession(
+      `smoke-${Date.now()}`,
+      this.settings,
+      cwd || this.getVaultPath(),
+      this.pluginDir,
+    );
+    return { providerId: session.providerId, label: session.displayLabel };
   }
 
   private getVaultPath(): string {

@@ -33,6 +33,8 @@ const PROCESS_REPORT = join(DOCS_DIR, "test-report-process.md");
 const CODEX_MANAGED_RUNTIME_REPORT = join(DOCS_DIR, "test-report-codex-managed-runtime.md");
 const USER_PACKAGE_REPORT = join(DOCS_DIR, "test-report-user-package.md"); // V17-E1 任务 D
 const CODEX_RUNTIME_INSTALL_REPORT = join(DOCS_DIR, "test-report-codex-runtime-install-default-package.md");
+const CODEX_RUNTIME_DOWNLOAD_REPORT = join(DOCS_DIR, "test-report-codex-runtime-install-download.md");
+const CODEX_FIRST_RUN_REPORT = join(DOCS_DIR, "test-report-codex-managed-first-run.md");
 const SUMMARY_REPORT = join(DOCS_DIR, "test-report-summary.md");
 
 // ============================================================
@@ -203,6 +205,53 @@ function parseRuntimeInstallReport(path) {
   return result;
 }
 
+function parseRuntimeDownloadReport(path) {
+  if (!existsSync(path)) {
+    return { label: "codex-runtime-install-download", error: `报告文件不存在: ${path}` };
+  }
+  const text = readFileSync(path, "utf8");
+  const result = { label: "codex-runtime-install-download", raw: text };
+  const fields = [
+    "runtimeInstallSource",
+    "runtimeRemoteDownloadSmokeStatus",
+    "tarballSha256Valid",
+    "binarySha256Valid",
+    "binarySizeValid",
+    "runtimeExecutable",
+    "runtimeInstallRequiresSystemNpm",
+    "runtimeInstallRequiresSystemTar",
+    "noPartialArtifactsAfterFail",
+  ];
+  for (const field of fields) {
+    const m = text.match(new RegExp(`- \\*\\*${field}\\*\\*: ([^\\r\\n]+)`));
+    result[field] = m ? m[1].trim() : null;
+  }
+  if (!result.runtimeRemoteDownloadSmokeStatus) result.error = "runtimeRemoteDownloadSmokeStatus 字段解析失败";
+  return result;
+}
+
+function parseFirstRunReport(path) {
+  if (!existsSync(path)) {
+    return { label: "codex-managed-first-run", error: `报告文件不存在: ${path}` };
+  }
+  const text = readFileSync(path, "utf8");
+  const result = { label: "codex-managed-first-run", raw: text };
+  const fields = [
+    "runtimeFirstRunIntegrationStatus",
+    "resolverBeforeInstallStatus",
+    "installRequiredSurfaced",
+    "installerStatus",
+    "resolverAfterInstallStatus",
+    "providerAfterInstall",
+  ];
+  for (const field of fields) {
+    const m = text.match(new RegExp(`- \\*\\*${field}\\*\\*: ([^\\r\\n]+)`));
+    result[field] = m ? m[1].trim() : null;
+  }
+  if (!result.runtimeFirstRunIntegrationStatus) result.error = "runtimeFirstRunIntegrationStatus 字段解析失败";
+  return result;
+}
+
 // ============================================================
 // V17-F2：解析 Managed Codex Runtime production smoke 报告
 // ============================================================
@@ -307,12 +356,16 @@ function main() {
   const managedRuntime = parseManagedRuntimeReport(CODEX_MANAGED_RUNTIME_REPORT);
   const userPackage = parseUserPackageReport(USER_PACKAGE_REPORT); // V17-E1 任务 D
   const runtimeInstall = parseRuntimeInstallReport(CODEX_RUNTIME_INSTALL_REPORT);
+  const runtimeDownload = parseRuntimeDownloadReport(CODEX_RUNTIME_DOWNLOAD_REPORT);
+  const firstRun = parseFirstRunReport(CODEX_FIRST_RUN_REPORT);
 
   if (unit.error) auditFailures.push(`unit 报告: ${unit.error}`);
   if (processReport.error) auditFailures.push(`process 报告: ${processReport.error}`);
   if (managedRuntime.error) auditFailures.push(`managed-runtime 报告: ${managedRuntime.error}`);
   if (userPackage.error) auditFailures.push(`user-package 报告: ${userPackage.error}`);
   if (runtimeInstall.error) auditFailures.push(`runtime-install 报告: ${runtimeInstall.error}`);
+  if (runtimeDownload.error) auditFailures.push(`runtime-download 报告: ${runtimeDownload.error}`);
+  if (firstRun.error) auditFailures.push(`first-run 报告: ${firstRun.error}`);
 
   // 3. 判定 docs-only commit → 计算 testedCodeCommitSha
   const commitClass = classifyCurrentCommit(reportCommitSha);
@@ -395,6 +448,26 @@ function main() {
       );
     }
   }
+  if (!runtimeDownload.error) {
+    if (runtimeDownload.runtimeRemoteDownloadSmokeStatus !== "pass"
+      || runtimeDownload.runtimeInstallSource !== "download"
+      || runtimeDownload.runtimeInstallRequiresSystemNpm !== "false"
+      || runtimeDownload.runtimeInstallRequiresSystemTar !== "false") {
+      auditFailures.push(
+        `runtime remote download smoke 未通过: status=${runtimeDownload.runtimeRemoteDownloadSmokeStatus} source=${runtimeDownload.runtimeInstallSource} npm=${runtimeDownload.runtimeInstallRequiresSystemNpm} tar=${runtimeDownload.runtimeInstallRequiresSystemTar}`,
+      );
+    }
+  }
+  if (!firstRun.error) {
+    if (firstRun.runtimeFirstRunIntegrationStatus !== "pass"
+      || firstRun.installRequiredSurfaced !== "true"
+      || firstRun.resolverAfterInstallStatus !== "pass"
+      || firstRun.providerAfterInstall !== "codex-managed-app-server") {
+      auditFailures.push(
+        `first-run integration smoke 未通过: status=${firstRun.runtimeFirstRunIntegrationStatus} surfaced=${firstRun.installRequiredSurfaced} resolverAfter=${firstRun.resolverAfterInstallStatus} providerAfter=${firstRun.providerAfterInstall}`,
+      );
+    }
+  }
   const managedRuntimePassed = managedCodexUserReady === "true"
     && managedResolverSmokeStatus === "pass"
     && managedRuntimeSmokeStatus === "pass"
@@ -473,6 +546,12 @@ function main() {
     `- **runtimePinnedArtifactMetadataComplete**: ${userPackage.runtimePinnedArtifactMetadataComplete || "(解析失败)"}`,
     `- **runtimeInstallerExecutable**: ${userPackage.runtimeInstallerExecutable || "(解析失败)"}`,
     `- **runtimeInstallSmokeStatus**: ${runtimeInstall.runtimeInstallSmokeStatus || "(解析失败)"}`,
+    `- **runtimeInstallSource**: ${runtimeDownload.runtimeInstallSource || "(解析失败)"}`,
+    `- **runtimeRemoteDownloadSmokeStatus**: ${runtimeDownload.runtimeRemoteDownloadSmokeStatus || "(解析失败)"}`,
+    `- **runtimeFirstRunIntegrationStatus**: ${firstRun.runtimeFirstRunIntegrationStatus || "(解析失败)"}`,
+    `- **installRequiredSurfaced**: ${firstRun.installRequiredSurfaced || "(解析失败)"}`,
+    `- **resolverAfterInstallStatus**: ${firstRun.resolverAfterInstallStatus || "(解析失败)"}`,
+    `- **providerAfterInstall**: ${firstRun.providerAfterInstall || "(解析失败)"}`,
     `- **runtimeInstallRequiresSystemNpm**: ${runtimeInstall.runtimeInstallRequiresSystemNpm || "(解析失败)"}`,
     `- **runtimeInstallRequiresSystemTar**: ${runtimeInstall.runtimeInstallRequiresSystemTar || "(解析失败)"}`,
     `- **releasePackageContainsCodexRuntime**: ${userPackage.releasePackageContainsCodexRuntime || "(解析失败)"}`,

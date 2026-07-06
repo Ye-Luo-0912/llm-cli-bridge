@@ -6422,6 +6422,47 @@ if (runMode !== "all" && runMode !== "unit") {
           `scriptExists=${reportScriptExists} reportScript=${hasReportScript} installerSmoke=${hasInstallerSmoke} modes=${hasDistributionModes} fields=${hasRequiredFields} platformNames=${hasPlatformNames} noFat=${bansFatPackage} installerNpmFree=${installerNpmFree} installerUx=${hasInstallerUxContract}`);
       }
 
+      // ===== V17-F3.2：first-run installer UI/selection + remote download proof =====
+      {
+        const pkgJson = readFileSync(join(PROJECT_ROOT, "package.json"), "utf8");
+        const bridgeSessionSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "bridgeSession.ts"), "utf8");
+        const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+        const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
+        const mainSrc = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf8");
+        const reportScript = readFileSync(join(PROJECT_ROOT, "scripts", "generate-runtime-distribution-report.mjs"), "utf8");
+        const summarySrc = readFileSync(join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs"), "utf8");
+        const downloadSmokeExists = existsSync(join(PROJECT_ROOT, "scripts", "codex-runtime-install-download-smoke.mjs"));
+        const firstRunSmokeExists = existsSync(join(PROJECT_ROOT, "scripts", "codex-managed-first-run-smoke.mjs"));
+        const scriptsRegistered = pkgJson.includes('"smoke:codex-runtime-install-download"')
+          && pkgJson.includes('"smoke:codex-managed-first-run"');
+        const autoStopsOnMissing = bridgeSessionSrc.includes('managed.resolver.reason === "path-not-exist"')
+          && bridgeSessionSrc.includes("Codex runtime install required");
+        const uiSurfacesInstall = viewSrc.includes("runtimeInstallBtnEl")
+          && viewSrc.includes("installManagedRuntimeFromUi")
+          && viewSrc.includes("getManagedRuntimeInstallStatusForCurrentMode")
+          && viewSrc.includes("install required");
+        const settingsSurfacesStatus = settingsSrc.includes("Managed Codex Runtime")
+          && settingsSrc.includes("version=")
+          && settingsSrc.includes("sha256=")
+          && settingsSrc.includes("installPath=")
+          && settingsSrc.includes("Install Codex runtime");
+        const pluginExposesEnsure = mainSrc.includes("ensureManagedRuntimeInstalled")
+          && mainSrc.includes("getManagedRuntimeInstallStatus")
+          && mainSrc.includes("getRuntimeProviderStatusForSmoke");
+        const reportsParseFields = reportScript.includes("runtimeRemoteDownloadSmokeStatus")
+          && reportScript.includes("runtimeFirstRunIntegrationStatus")
+          && reportScript.includes("installRequiredSurfaced")
+          && reportScript.includes("providerAfterInstall")
+          && summarySrc.includes("parseRuntimeDownloadReport")
+          && summarySrc.includes("parseFirstRunReport")
+          && summarySrc.includes("runtimeInstallSource")
+          && summarySrc.includes("resolverAfterInstallStatus");
+
+        addTest("V17-F3.2: first-run runtime install 状态/UI 接入 + 远程下载/first-run smoke + summary 字段",
+          downloadSmokeExists && firstRunSmokeExists && scriptsRegistered && autoStopsOnMissing && uiSurfacesInstall && settingsSurfacesStatus && pluginExposesEnsure && reportsParseFields ? "pass" : "fail",
+          `downloadSmoke=${downloadSmokeExists} firstRunSmoke=${firstRunSmokeExists} scripts=${scriptsRegistered} autoStops=${autoStopsOnMissing} ui=${uiSurfacesInstall} settings=${settingsSurfacesStatus} plugin=${pluginExposesEnsure} reports=${reportsParseFields}`);
+      }
+
       // ===== V17-F1.1 任务 F：resolver 行为测试（sha mismatch / platform missing / executable fail） =====
       // 创建临时 manifest + binary，验证 resolver 校验链的各种失败场景
       {

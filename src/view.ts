@@ -25,6 +25,7 @@ import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, expla
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
 import { DEFAULT_PROVIDER_CAPABILITIES, type ProviderCapabilityInfo, type ObsidianCliAvailability } from "./runtime/core/bridgePromptContract";
+import type { ManagedRuntimeInstallStatus } from "./runtime/providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge";
 import { AssistantTurnViewBuilder } from "./runtime/core/assistantTurnView";
 import { mapNormalizedToWorkflowEvent } from "./runtime/providers/workflowEventMapper";
 import { getRuntimeModelCatalog, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
@@ -273,6 +274,7 @@ export class LLMBridgeView extends ItemView {
   // DOM
   private statusDotEl!: HTMLElement;
   private statusLabelEl!: HTMLElement;
+  private runtimeInstallBtnEl!: HTMLButtonElement;
   private activeFileLabelEl!: HTMLElement;
   private selectionLabelEl!: HTMLElement;
   private agentChipGroup!: HTMLElement;
@@ -428,6 +430,13 @@ export class LLMBridgeView extends ItemView {
       cls: "llm-bridge-status-text",
       text: "SDK · ready",
     });
+    this.runtimeInstallBtnEl = headerRight.createEl("button", {
+      cls: "llm-bridge-runtime-install-btn",
+      text: "Install Codex runtime",
+      attr: { type: "button", title: "Install the pinned Codex managed runtime" },
+    });
+    this.runtimeInstallBtnEl.setAttribute("hidden", "");
+    this.runtimeInstallBtnEl.addEventListener("click", () => void this.installManagedRuntimeFromUi());
 
     // agent selector 迁入 composer 右侧；header 只保留 compact runtime status。
     const agentSelect = document.createElement("select");
@@ -1510,12 +1519,72 @@ export class LLMBridgeView extends ItemView {
     return sess;
   }
 
+  private getManagedRuntimeInstallStatusForCurrentMode(): ManagedRuntimeInstallStatus | null {
+    const mode = this.plugin.settings.backendMode;
+    if (mode !== "auto" && mode !== "codex-managed-app-server") return null;
+    if (typeof this.plugin.getManagedRuntimeInstallStatus !== "function") return null;
+    return this.plugin.getManagedRuntimeInstallStatus();
+  }
+
+  private formatRuntimeInstallTitle(status: ManagedRuntimeInstallStatus): string {
+    const sizeMb = typeof status.size === "number" ? `${(status.size / 1024 / 1024).toFixed(1)} MB` : "unknown";
+    return [
+      `Runtime version: ${status.version || "unknown"}`,
+      `Download size: ${sizeMb}`,
+      `Source: ${status.source || "unknown"}`,
+      `SHA-256: ${status.sha256 || "unknown"}`,
+      `Install path: ${status.installPath || "unknown"}`,
+      `Status: ${status.status}`,
+      status.error ? `Error: ${status.error}` : "",
+    ].filter(Boolean).join("\n");
+  }
+
+  private refreshManagedRuntimeInstallAction(status: ManagedRuntimeInstallStatus | null): void {
+    if (!this.runtimeInstallBtnEl) return;
+    if (status?.required) {
+      this.runtimeInstallBtnEl.removeAttribute("hidden");
+      this.runtimeInstallBtnEl.disabled = false;
+      this.runtimeInstallBtnEl.textContent = "Install Codex runtime";
+      this.runtimeInstallBtnEl.setAttribute("title", this.formatRuntimeInstallTitle(status));
+    } else {
+      this.runtimeInstallBtnEl.setAttribute("hidden", "");
+      this.runtimeInstallBtnEl.disabled = false;
+      this.runtimeInstallBtnEl.textContent = "Install Codex runtime";
+      if (status) this.runtimeInstallBtnEl.setAttribute("title", this.formatRuntimeInstallTitle(status));
+    }
+  }
+
+  private async installManagedRuntimeFromUi(): Promise<void> {
+    if (!this.runtimeInstallBtnEl || this.runtimeInstallBtnEl.disabled) return;
+    const before = this.getManagedRuntimeInstallStatusForCurrentMode();
+    if (!before?.required) {
+      this.refreshStatusBar();
+      return;
+    }
+    this.runtimeInstallBtnEl.disabled = true;
+    this.runtimeInstallBtnEl.textContent = "Installing...";
+    this.runtimeInstallBtnEl.setAttribute("title", this.formatRuntimeInstallTitle(before));
+    const result = await this.plugin.ensureManagedRuntimeInstalled({ confirm: true });
+    if (result.status === "installed" || result.status === "already-installed") {
+      this.session = null;
+      this.sessionMode = null;
+      new Notice("Codex runtime installed");
+    } else {
+      new Notice(`Codex runtime install failed: ${result.error || result.status}`);
+    }
+    this.refreshStatusBar();
+  }
+
   private setGlobalStatus(status: RunStatus): void {
     const runtimeLabel = this.actualRuntimeLabel;
-    const runtimeState = status === "failed" ? "失败" : status === "running" ? "运行中" : "已连接";
-    this.statusLabelEl.textContent = `${runtimeLabel} · ${runtimeState}`;
+    const installStatus = this.getManagedRuntimeInstallStatusForCurrentMode();
+    const runtimeState = installStatus?.required
+      ? "install required"
+      : status === "failed" ? "失败" : status === "running" ? "运行中" : "已连接";
+    this.statusLabelEl.textContent = `${installStatus?.required ? "Codex runtime" : runtimeLabel} · ${runtimeState}`;
     this.statusDotEl.className = `llm-bridge-status-dot llm-bridge-status-dot-${status}`;
-    this.statusDotEl.setAttribute("title", STATUS_LABEL[status]);
+    this.statusDotEl.setAttribute("title", installStatus?.required ? this.formatRuntimeInstallTitle(installStatus) : STATUS_LABEL[status]);
+    this.refreshManagedRuntimeInstallAction(installStatus);
     const running = status === "running";
     // 停止按钮只在运行中显示，发送按钮反之
     this.stopBtn.style.display = running ? "inline-flex" : "none";
@@ -1553,8 +1622,13 @@ export class LLMBridgeView extends ItemView {
     const runtimeLabel = this.getSession().displayLabel;
     this.actualRuntimeLabel = runtimeLabel;
     // V2.16-D: runtime status 缩成 pill（简短英文：SDK · ready / running / error）
-    const runtimeState = this.sessionState.status === "failed" ? "error" : this.sessionState.status === "running" ? "running" : "ready";
-    this.statusLabelEl.textContent = `${runtimeLabel} · ${runtimeState}`;
+    const installStatus = this.getManagedRuntimeInstallStatusForCurrentMode();
+    const runtimeState = installStatus?.required
+      ? "install required"
+      : this.sessionState.status === "failed" ? "error" : this.sessionState.status === "running" ? "running" : "ready";
+    this.statusLabelEl.textContent = `${installStatus?.required ? "Codex runtime" : runtimeLabel} · ${runtimeState}`;
+    this.statusDotEl.setAttribute("title", installStatus?.required ? this.formatRuntimeInstallTitle(installStatus) : STATUS_LABEL[this.sessionState.status] || "Runtime status");
+    this.refreshManagedRuntimeInstallAction(installStatus);
     // Cwd（Vault 根目录）— getBasePath 运行时存在但类型未声明，用 as 绕过
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     // 只显示最后两级目录，避免过长
@@ -6403,6 +6477,14 @@ export class LLMBridgeView extends ItemView {
     const userInput = this.inputEl.value.trim();
     if (!userInput) {
       new Notice("请输入请求");
+      return;
+    }
+    const installStatus = this.getManagedRuntimeInstallStatusForCurrentMode();
+    if (installStatus?.required) {
+      this.refreshManagedRuntimeInstallAction(installStatus);
+      this.statusLabelEl.textContent = "Codex runtime · install required";
+      this.statusDotEl.setAttribute("title", this.formatRuntimeInstallTitle(installStatus));
+      new Notice("Codex managed runtime needs to be installed first");
       return;
     }
 

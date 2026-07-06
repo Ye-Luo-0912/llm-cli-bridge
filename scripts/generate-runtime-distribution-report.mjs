@@ -15,6 +15,8 @@ const PROJECT_ROOT = resolve(__dirname, "..");
 const DOCS_DIR = join(PROJECT_ROOT, "docs");
 const REPORT_PATH = join(DOCS_DIR, "test-report-runtime-distribution.md");
 const INSTALL_REPORT_PATH = join(DOCS_DIR, "test-report-codex-runtime-install-default-package.md");
+const DOWNLOAD_REPORT_PATH = join(DOCS_DIR, "test-report-codex-runtime-install-download.md");
+const FIRST_RUN_REPORT_PATH = join(DOCS_DIR, "test-report-codex-managed-first-run.md");
 const DEFAULT_PACKAGE_DIR = join(PROJECT_ROOT, "dist", "user-package");
 const PLATFORM_KEY = `${process.platform}-${process.arch}`;
 const OFFLINE_PACKAGE_DIR = join(PROJECT_ROOT, "dist", `user-package-offline-${PLATFORM_KEY}`);
@@ -57,6 +59,12 @@ function readInstallSmokeReport() {
       runtimeInstallSmokeStatus: "not-run",
       runtimeInstallRequiresSystemNpm: "unknown",
       runtimeInstallRequiresSystemTar: "unknown",
+      runtimeInstallSource: "unknown",
+      runtimeRemoteDownloadSmokeStatus: "not-run",
+      runtimeFirstRunIntegrationStatus: "not-run",
+      installRequiredSurfaced: "unknown",
+      resolverAfterInstallStatus: "unknown",
+      providerAfterInstall: "unknown",
     };
   }
   const text = readFileSync(INSTALL_REPORT_PATH, "utf8");
@@ -68,6 +76,44 @@ function readInstallSmokeReport() {
     runtimeInstallSmokeStatus: field("runtimeInstallSmokeStatus") || "unknown",
     runtimeInstallRequiresSystemNpm: field("runtimeInstallRequiresSystemNpm") || "unknown",
     runtimeInstallRequiresSystemTar: field("runtimeInstallRequiresSystemTar") || "unknown",
+    runtimeInstallSource: field("installSource") || "unknown",
+    runtimeRemoteDownloadSmokeStatus: "not-run",
+    runtimeFirstRunIntegrationStatus: "not-run",
+    installRequiredSurfaced: "unknown",
+    resolverAfterInstallStatus: "unknown",
+    providerAfterInstall: "unknown",
+  };
+}
+
+function mergeDownloadSmokeReport(report) {
+  if (!existsSync(DOWNLOAD_REPORT_PATH)) return report;
+  const text = readFileSync(DOWNLOAD_REPORT_PATH, "utf8");
+  const field = (name) => {
+    const m = text.match(new RegExp(`- \\*\\*${name}\\*\\*: ([^\\r\\n]+)`));
+    return m ? m[1].trim() : null;
+  };
+  return {
+    ...report,
+    runtimeInstallSource: field("runtimeInstallSource") || report.runtimeInstallSource,
+    runtimeRemoteDownloadSmokeStatus: field("runtimeRemoteDownloadSmokeStatus") || "unknown",
+    runtimeInstallRequiresSystemNpm: field("runtimeInstallRequiresSystemNpm") || report.runtimeInstallRequiresSystemNpm,
+    runtimeInstallRequiresSystemTar: field("runtimeInstallRequiresSystemTar") || report.runtimeInstallRequiresSystemTar,
+  };
+}
+
+function mergeFirstRunSmokeReport(report) {
+  if (!existsSync(FIRST_RUN_REPORT_PATH)) return report;
+  const text = readFileSync(FIRST_RUN_REPORT_PATH, "utf8");
+  const field = (name) => {
+    const m = text.match(new RegExp(`- \\*\\*${name}\\*\\*: ([^\\r\\n]+)`));
+    return m ? m[1].trim() : null;
+  };
+  return {
+    ...report,
+    runtimeFirstRunIntegrationStatus: field("runtimeFirstRunIntegrationStatus") || "unknown",
+    installRequiredSurfaced: field("installRequiredSurfaced") || "unknown",
+    resolverAfterInstallStatus: field("resolverAfterInstallStatus") || "unknown",
+    providerAfterInstall: field("providerAfterInstall") || "unknown",
   };
 }
 
@@ -102,7 +148,7 @@ function main() {
   const runtimeInstallRequiresSystemNpm = /\bnpm\s+pack\b|execSync\([^)]*npm/.test(installerSource);
   const runtimeInstallRequiresSystemTar = /\btar\s+-xzf\b|execSync\([^)]*tar/.test(installerSource);
   const runtimeInstallerExecutable = defaultInstallerExists && !runtimeInstallRequiresSystemNpm && !runtimeInstallRequiresSystemTar;
-  const installSmoke = readInstallSmokeReport();
+  const installSmoke = mergeFirstRunSmokeReport(mergeDownloadSmokeReport(readInstallSmokeReport()));
   const currentRuntimeVerified = !!(
     currentRuntimePath
     && existsSync(currentRuntimePath)
@@ -140,6 +186,12 @@ function main() {
     `- **runtimePinnedArtifactMetadataComplete**: ${artifactMetadataComplete}`,
     `- **runtimeInstallerExecutable**: ${runtimeInstallerExecutable}`,
     `- **runtimeInstallSmokeStatus**: ${installSmoke.runtimeInstallSmokeStatus}`,
+    `- **runtimeInstallSource**: ${installSmoke.runtimeInstallSource}`,
+    `- **runtimeRemoteDownloadSmokeStatus**: ${installSmoke.runtimeRemoteDownloadSmokeStatus}`,
+    `- **runtimeFirstRunIntegrationStatus**: ${installSmoke.runtimeFirstRunIntegrationStatus}`,
+    `- **installRequiredSurfaced**: ${installSmoke.installRequiredSurfaced}`,
+    `- **resolverAfterInstallStatus**: ${installSmoke.resolverAfterInstallStatus}`,
+    `- **providerAfterInstall**: ${installSmoke.providerAfterInstall}`,
     `- **runtimeInstallRequiresSystemNpm**: ${String(runtimeInstallRequiresSystemNpm || installSmoke.runtimeInstallRequiresSystemNpm === "true")}`,
     `- **runtimeInstallRequiresSystemTar**: ${String(runtimeInstallRequiresSystemTar || installSmoke.runtimeInstallRequiresSystemTar === "true")}`,
     `- **defaultManifestExists**: ${defaultManifestExists}`,
@@ -178,7 +230,17 @@ function main() {
   writeFileSync(REPORT_PATH, lines.join("\n") + "\n", "utf8");
   console.log(`runtime distribution 报告已写入: ${REPORT_PATH}`);
 
-  if (!defaultManifestExists || !defaultInstallerExists || !artifactMetadataComplete || !runtimeInstallerExecutable || !runtimePinnedArtifactVerified) {
+  if (!defaultManifestExists
+    || !defaultInstallerExists
+    || !artifactMetadataComplete
+    || !runtimeInstallerExecutable
+    || !runtimePinnedArtifactVerified
+    || installSmoke.runtimeRemoteDownloadSmokeStatus !== "pass"
+    || installSmoke.runtimeFirstRunIntegrationStatus !== "pass"
+    || installSmoke.runtimeInstallSource !== "download"
+    || installSmoke.installRequiredSurfaced !== "true"
+    || installSmoke.resolverAfterInstallStatus !== "pass"
+    || installSmoke.providerAfterInstall !== "codex-managed-app-server") {
     process.exit(1);
   }
 }

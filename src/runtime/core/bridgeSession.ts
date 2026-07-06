@@ -82,6 +82,9 @@ export function selectProvider(
     if (managed.resolver.available) {
       return { provider: managed.provider, label: managed.fixture ? "Codex managed (fixture)" : "Codex managed" };
     }
+    if (managed.resolver.reason === "path-not-exist") {
+      return { provider: managed.provider, label: "Codex runtime install required" };
+    }
     return { provider: managed.provider, label: `Codex managed (unavailable: ${managed.resolver.reason})` };
   }
   // V17-F0 任务 C：codex-sdk 为主线占位（本轮未完整实现，readiness 以 smoke 报告为准）
@@ -123,11 +126,15 @@ export function selectProvider(
     return { provider: piSdk, label: "Pi SDK (unavailable)" };
   }
 
-  // V17-F1 任务 D：auto = Managed runtime first 链
-  // codex-managed-app-server → codex-sdk → claude-sdk → pi-sdk → claude-cli
+  // V17-F1 任务 D + V17-F3.2 任务 A：auto = Managed runtime first 链。
+  // 若 managed runtime manifest 存在但 binary 缺失，普通用户需要 first-run installer，
+  // 不静默 fallback 到 Claude/Pi；其它不可用原因才继续兼容链。
   const managed = createManagedProvider(pluginDir);
   if (managed.resolver.available) {
     return { provider: managed.provider, label: managed.fixture ? "Codex managed (fixture)" : "Codex managed" };
+  }
+  if (managed.resolver.reason === "path-not-exist") {
+    return { provider: managed.provider, label: "Codex runtime install required" };
   }
   const codexSdk = new CodexSdkProvider();
   if (codexSdk.isAvailable(cwd)) {
