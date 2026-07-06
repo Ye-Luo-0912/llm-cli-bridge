@@ -62,10 +62,31 @@ import type { NormalizedRuntimeEvent, ProviderId } from "../../core/types";
  * 无状态：每个方法纯函数返回 NormalizedRuntimeEvent（或 null 表示忽略）。
  */
 export class CodexAppServerEventMapper {
+  private sequence = 0;
+
   constructor(
     private readonly providerId: ProviderId,
     private readonly developerMode: boolean,
   ) {}
+
+  private sourceRef(method: string, params: {
+    threadId?: string;
+    turnId?: string;
+    itemId?: string;
+    item?: { id?: string; parentItemId?: string };
+    parentItemId?: string;
+    requestId?: string | number;
+  } = {}): import("../../core/types").RuntimeSourceRef {
+    return {
+      threadId: params.threadId,
+      turnId: params.turnId,
+      itemId: params.item?.id ?? params.itemId,
+      parentItemId: params.item?.parentItemId ?? params.parentItemId,
+      serverRequestId: params.requestId,
+      method,
+      sequence: this.sequence++,
+    };
+  }
 
   // ---------- item/started（官方 nested params.item） ----------
 
@@ -79,6 +100,7 @@ export class CodexAppServerEventMapper {
     const base = {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("item/started", params),
       rawProviderEvent: this.developerMode ? { method: "item/started", params } : undefined,
     };
 
@@ -133,6 +155,8 @@ export class CodexAppServerEventMapper {
             toolName,
             toolInput: cmdItem?.command ? JSON.stringify(cmdItem.command) : "",
             callId,
+            command: cmdItem?.command,
+            cwd: cmdItem?.cwd,
             sessionId: params.sessionId,
             parentToolUseId: params.parentToolUseId,
           },
@@ -153,13 +177,97 @@ export class CodexAppServerEventMapper {
             toolInput: mcpItem?.arguments ? JSON.stringify(mcpItem.arguments)
               : dynItem?.arguments ? JSON.stringify(dynItem.arguments) : "",
             callId,
+            server: mcpItem?.server,
+            args: mcpItem?.arguments ?? dynItem?.arguments,
             sessionId: params.sessionId,
             parentToolUseId: params.parentToolUseId,
           },
         };
       }
+      case "fileChange": {
+        return {
+          ...base,
+          payload: {
+            kind: "progress",
+            label: "fileChange",
+            detail: "started",
+            category: "tool",
+          },
+        };
+      }
+      case "plan": {
+        const planItem = item as Extract<CodexThreadItem, { type: "plan" }> | undefined;
+        return {
+          ...base,
+          payload: {
+            kind: "progress",
+            label: "plan",
+            detail: planItem?.text ?? "started",
+            category: "thinking",
+          },
+        };
+      }
+      case "webSearch": {
+        const webItem = item as Extract<CodexThreadItem, { type: "webSearch" }> | undefined;
+        return {
+          ...base,
+          payload: {
+            kind: "progress",
+            label: "webSearch",
+            detail: webItem?.query ?? "started",
+            category: "tool",
+          },
+        };
+      }
+      case "imageView": {
+        const imageItem = item as Extract<CodexThreadItem, { type: "imageView" }> | undefined;
+        return {
+          ...base,
+          payload: {
+            kind: "progress",
+            label: "imageView",
+            detail: imageItem?.path ?? "started",
+            category: "tool",
+          },
+        };
+      }
+      case "enteredReviewMode":
+      case "exitedReviewMode": {
+        const reviewItem = item as Extract<CodexThreadItem, { type: "enteredReviewMode" | "exitedReviewMode" }> | undefined;
+        return {
+          ...base,
+          payload: {
+            kind: "progress",
+            label: itemType,
+            detail: reviewItem?.review ?? itemType,
+            category: "status",
+          },
+        };
+      }
+      case "contextCompaction": {
+        return {
+          ...base,
+          payload: {
+            kind: "progress",
+            label: "contextCompaction",
+            detail: "started",
+            category: "status",
+          },
+        };
+      }
+      case "userMessage": {
+        return {
+          ...base,
+          payload: {
+            kind: "progress",
+            label: "userMessage",
+            detail: "input",
+            category: "request",
+          },
+        };
+      }
       default:
-        // 其他类型（fileChange/file_change/approval_request/tool_result/plan/webSearch 等）
+        // 其他 legacy 类型（file_change/approval_request/tool_result 等）
         // 在 item/completed 时统一处理（started 时不发）
         return null;
     }
@@ -175,6 +283,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("item/agentMessage/delta", params),
       rawProviderEvent: this.developerMode ? { method: "item/agentMessage/delta", params } : undefined,
       payload: {
         kind: "message",
@@ -193,6 +302,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("item/reasoning/summaryTextDelta", params),
       rawProviderEvent: this.developerMode ? { method: "item/reasoning/summaryTextDelta", params } : undefined,
       payload: { kind: "thinking", text: params.delta },
     };
@@ -206,6 +316,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("item/reasoning/textDelta", params),
       rawProviderEvent: this.developerMode ? { method: "item/reasoning/textDelta", params } : undefined,
       payload: { kind: "thinking", text: params.delta },
     };
@@ -221,6 +332,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("item/commandExecution/outputDelta", params),
       rawProviderEvent: this.developerMode ? { method: "item/commandExecution/outputDelta", params } : undefined,
       payload: {
         kind: "progress",
@@ -242,6 +354,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("item/plan/delta", params),
       rawProviderEvent: this.developerMode ? { method: "item/plan/delta", params } : undefined,
       payload: { kind: "thinking", text: params.delta },
     };
@@ -255,6 +368,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("item/fileChange/outputDelta", params),
       rawProviderEvent: this.developerMode ? { method: "item/fileChange/outputDelta", params } : undefined,
       payload: {
         kind: "progress",
@@ -277,6 +391,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("item/text/delta", params),
       rawProviderEvent: this.developerMode ? { method: "item/text/delta (legacy)", params } : undefined,
       payload: {
         kind: "message",
@@ -295,6 +410,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("item/thinking/delta", params),
       rawProviderEvent: this.developerMode ? { method: "item/thinking/delta (legacy)", params } : undefined,
       payload: { kind: "thinking", text: params.delta },
     };
@@ -308,6 +424,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("item/argument/delta", params),
       rawProviderEvent: this.developerMode ? { method: "item/argument/delta (legacy)", params } : undefined,
       payload: {
         kind: "tool_start",
@@ -330,6 +447,7 @@ export class CodexAppServerEventMapper {
     const base = {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("item/completed", params),
       rawProviderEvent: this.developerMode ? { method: "item/completed", params } : undefined,
     };
 
@@ -364,6 +482,8 @@ export class CodexAppServerEventMapper {
             toolName: "Bash",
             output: cmdItem?.aggregatedOutput ?? params.text ?? "",
             isError: cmdItem?.status === "failed" || !!params.isError,
+            exitCode: cmdItem?.exitCode,
+            durationMs: cmdItem?.durationMs ?? params.durationMs,
           },
         };
       }
@@ -391,6 +511,8 @@ export class CodexAppServerEventMapper {
             toolName: mcpItem?.tool ?? "mcp",
             output: mcpItem?.result !== undefined ? JSON.stringify(mcpItem.result) : "",
             isError: mcpItem?.status === "failed",
+            durationMs: mcpItem?.durationMs,
+            result: mcpItem?.result ?? mcpItem?.error,
           },
         };
       }
@@ -405,6 +527,8 @@ export class CodexAppServerEventMapper {
             toolName: dynItem?.tool ?? "dynamic",
             output: dynItem?.contentItems !== undefined ? JSON.stringify(dynItem.contentItems) : "",
             isError: dynItem?.status === "failed" || dynItem?.success === false,
+            durationMs: dynItem?.durationMs,
+            contentItems: dynItem?.contentItems,
           },
         };
       }
@@ -422,6 +546,8 @@ export class CodexAppServerEventMapper {
               kind: "file_change",
               action: change.kind,
               path: change.path,
+              diff: change.diff,
+              approvalStatus: fcItem.status === "declined" ? "declined" : fcItem.status === "completed" ? "approved" : undefined,
             },
           };
         }
@@ -443,6 +569,76 @@ export class CodexAppServerEventMapper {
             kind: "file_change",
             action: params.fileAction ?? "modify",
             path: params.filePath ?? "",
+          },
+        };
+      }
+      case "plan": {
+        const planItem = item as Extract<CodexThreadItem, { type: "plan" }> | undefined;
+        return {
+          ...base,
+          payload: {
+            kind: "progress",
+            label: "plan",
+            detail: planItem?.text ?? "completed",
+            category: "thinking",
+          },
+        };
+      }
+      case "reasoning": {
+        const reasoningItem = item as Extract<CodexThreadItem, { type: "reasoning" }> | undefined;
+        return {
+          ...base,
+          payload: {
+            kind: "thinking",
+            text: [...(reasoningItem?.summary ?? []), ...(reasoningItem?.content ?? [])].join("\n"),
+          },
+        };
+      }
+      case "webSearch": {
+        const webItem = item as Extract<CodexThreadItem, { type: "webSearch" }> | undefined;
+        return {
+          ...base,
+          payload: {
+            kind: "progress",
+            label: "webSearch",
+            detail: webItem?.query ?? "completed",
+            category: "tool",
+          },
+        };
+      }
+      case "imageView": {
+        const imageItem = item as Extract<CodexThreadItem, { type: "imageView" }> | undefined;
+        return {
+          ...base,
+          payload: {
+            kind: "progress",
+            label: "imageView",
+            detail: imageItem?.path ?? "completed",
+            category: "tool",
+          },
+        };
+      }
+      case "enteredReviewMode":
+      case "exitedReviewMode": {
+        const reviewItem = item as Extract<CodexThreadItem, { type: "enteredReviewMode" | "exitedReviewMode" }> | undefined;
+        return {
+          ...base,
+          payload: {
+            kind: "progress",
+            label: itemType,
+            detail: reviewItem?.review ?? itemType,
+            category: "status",
+          },
+        };
+      }
+      case "contextCompaction": {
+        return {
+          ...base,
+          payload: {
+            kind: "progress",
+            label: "contextCompaction",
+            detail: "completed",
+            category: "status",
           },
         };
       }
@@ -469,6 +665,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("initialize", {}),
       rawProviderEvent: this.developerMode ? { method: "initialize", result } : undefined,
       payload: {
         kind: "progress",
@@ -485,6 +682,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("turn/started", { threadId: params.threadId, turnId: params.turn?.id }),
       rawProviderEvent: this.developerMode ? { method: "turn/started", params } : undefined,
       payload: {
         kind: "progress",
@@ -507,6 +705,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("serverRequest/resolved", params),
       rawProviderEvent: this.developerMode ? { method: "serverRequest/resolved", params } : undefined,
       payload: {
         kind: "approval_resolved",
@@ -532,6 +731,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("approval-resolved", { requestId }),
       rawProviderEvent: this.developerMode ? { method: "approval-resolved", requestId, response } : undefined,
       payload: {
         kind: "approval_resolved",
@@ -548,6 +748,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("turn/completed", { threadId: params.threadId, turnId: params.turnId }),
       rawProviderEvent: this.developerMode ? { method: "turn/completed", params } : undefined,
       payload: {
         kind: "completed",
@@ -564,6 +765,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("turn/failed", { threadId: params.threadId, turnId: params.turnId }),
       rawProviderEvent: this.developerMode ? { method: "turn/failed", params } : undefined,
       payload: {
         kind: "failed",
@@ -580,6 +782,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("thread/start", { threadId }),
       rawProviderEvent: this.developerMode ? { method: "thread/start", threadId, sessionId } : undefined,
       payload: {
         kind: "session_started",
@@ -595,6 +798,7 @@ export class CodexAppServerEventMapper {
     return {
       providerId: this.providerId,
       timestamp: ts,
+      sourceRef: this.sourceRef("thread/resume", { threadId }),
       rawProviderEvent: this.developerMode ? { method: "thread/resume", threadId, sessionId } : undefined,
       payload: {
         kind: "session_started",

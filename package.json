@@ -25,7 +25,8 @@
     "build:user-package": "node scripts/build-user-package.mjs",
     "build:user-package:offline": "node scripts/build-user-package.mjs --offline-runtime",
     "build:user-package:smoke": "node scripts/build-user-package.mjs && node scripts/user-package-smoke.mjs",
-    "report:runtime-distribution": "node scripts/generate-runtime-distribution-report.mjs"
+    "report:runtime-distribution": "node scripts/generate-runtime-distribution-report.mjs",
+    "report:codex-capability-matrix": "node scripts/generate-codex-capability-matrix.mjs"
   },
   "keywords": [
     "obsidian",

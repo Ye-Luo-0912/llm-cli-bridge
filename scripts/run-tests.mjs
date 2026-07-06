@@ -19194,6 +19194,7 @@ if (!runCodexSchemaAlignment) {
   let codexSessionMapperBundle = null;
   let codexEffectiveRunPlanBundle = null;
   let assistantTurnViewBundle = null;
+  let codexDisplayModelBundle = null;
   let codexAppServerProviderBundle = null;
   try {
     const esbuild = (await import("esbuild")).default;
@@ -19203,6 +19204,7 @@ if (!runCodexSchemaAlignment) {
     codexSessionMapperBundle = join(PROJECT_ROOT, ".test-codex-session-mapper-v217a-temp.mjs");
     codexEffectiveRunPlanBundle = join(PROJECT_ROOT, ".test-codex-effective-run-plan-v217a-temp.mjs");
     assistantTurnViewBundle = join(PROJECT_ROOT, ".test-assistant-turn-view-v217a-temp.mjs");
+    codexDisplayModelBundle = join(PROJECT_ROOT, ".test-codex-display-model-v17f4-temp.mjs");
     codexAppServerProviderBundle = join(PROJECT_ROOT, ".test-codex-app-server-provider-v217a-temp.mjs");
 
     await esbuild.build({
@@ -19230,6 +19232,10 @@ if (!runCodexSchemaAlignment) {
       bundle: true, format: "esm", platform: "node", outfile: assistantTurnViewBundle,
     });
     await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "core", "agentRunDisplayModel.ts")],
+      bundle: true, format: "esm", platform: "node", outfile: codexDisplayModelBundle,
+    });
+    await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerProvider.ts")],
       bundle: true, format: "esm", platform: "node", outfile: codexAppServerProviderBundle,
     });
@@ -19240,6 +19246,7 @@ if (!runCodexSchemaAlignment) {
     const { buildCodexAppServerRunOptions, computeCodexRunOptionsAuditHash } =
       await import(pathToFileURL(codexEffectiveRunPlanBundle).href);
     const { AssistantTurnViewBuilder } = await import(pathToFileURL(assistantTurnViewBundle).href);
+    const { buildAgentRunDisplayModel } = await import(pathToFileURL(codexDisplayModelBundle).href);
 
     const TS = () => new Date().toISOString();
     const PROVIDER_ID = "codex-app-server";
@@ -19521,6 +19528,210 @@ if (!runCodexSchemaAlignment) {
       addTest("Codex schema: item/completed 解析 nested params.item（agentMessage 完整文本）",
         completedOk ? "pass" : "fail",
         `kind=${compEv?.payload.kind} partial=${compEv?.payload.partial} text="${compEv?.payload.text}"`);
+    }
+
+    // ---- Test 15b: V17-F4 sourceRef + item reducer capability smoke ----
+    {
+      const mapper = new CodexAppServerEventMapper(PROVIDER_ID, false);
+      const builder = new AssistantTurnViewBuilder("turn-f4", PROVIDER_ID, TS());
+      const manualEvent = (payload, sourceRef) => ({
+        providerId: PROVIDER_ID,
+        timestamp: TS(),
+        sourceRef,
+        payload,
+      });
+
+      builder.ingest(mapper.mapItemStarted({
+        threadId: "thread-f4", turnId: "turn-f4",
+        item: { type: "commandExecution", id: "cmd-1", command: ["npm", "test"], cwd: "/vault" },
+      }));
+      builder.ingest(manualEvent({
+        kind: "approval_request",
+        requestId: "codex-req-1",
+        toolName: "Bash",
+        description: "Execute npm test",
+        riskLevel: "high",
+        inputSummary: "npm test",
+      }, {
+        threadId: "thread-f4", turnId: "turn-f4", itemId: "cmd-1",
+        serverRequestId: 1, method: "item/commandExecution/requestApproval", sequence: 100,
+      }));
+      builder.ingest(mapper.mapServerRequestResolved({
+        requestId: 1, threadId: "thread-f4", turnId: "turn-f4", itemId: "cmd-1", decision: "accept",
+      }));
+      builder.ingest(mapper.mapItemCommandExecutionOutputDelta({
+        threadId: "thread-f4", turnId: "turn-f4", itemId: "cmd-1", delta: "ok\n",
+      }));
+      builder.ingest(mapper.mapItemCompleted({
+        threadId: "thread-f4", turnId: "turn-f4",
+        item: {
+          type: "commandExecution", id: "cmd-1", command: ["npm", "test"], cwd: "/vault",
+          status: "completed", aggregatedOutput: "ok\n", exitCode: 0, durationMs: 1234,
+        },
+      }));
+
+      builder.ingest(mapper.mapItemStarted({
+        threadId: "thread-f4", turnId: "turn-f4",
+        item: { type: "fileChange", id: "fc-1", changes: [{ path: "src/a.ts", kind: "modify", diff: "-old\n+new\n" }] },
+      }));
+      builder.ingest(manualEvent({
+        kind: "approval_request",
+        requestId: "codex-req-2",
+        toolName: "Write",
+        description: "Modify src/a.ts",
+        riskLevel: "medium",
+        inputSummary: "src/a.ts",
+      }, {
+        threadId: "thread-f4", turnId: "turn-f4", itemId: "fc-1",
+        serverRequestId: 2, method: "item/fileChange/requestApproval", sequence: 101,
+      }));
+      builder.ingest(mapper.mapServerRequestResolved({
+        requestId: 2, threadId: "thread-f4", turnId: "turn-f4", itemId: "fc-1", decision: "accept",
+      }));
+      builder.ingest(mapper.mapItemCompleted({
+        threadId: "thread-f4", turnId: "turn-f4",
+        item: { type: "fileChange", id: "fc-1", status: "completed", changes: [{ path: "src/a.ts", kind: "modify", diff: "-old\n+new\n" }] },
+      }));
+
+      builder.ingest(manualEvent({
+        kind: "user_input_request",
+        requestId: "codex-req-3",
+        toolName: "request_user_input",
+        prompt: "Choose target",
+      }, {
+        threadId: "thread-f4", turnId: "turn-f4", itemId: "input-1",
+        serverRequestId: 3, method: "item/tool/requestUserInput", sequence: 102,
+      }));
+      builder.ingest(manualEvent({
+        kind: "user_input_resolved",
+        requestId: "codex-req-3",
+        response: { type: "submit", value: "src/a.ts" },
+        source: "user",
+      }, {
+        threadId: "thread-f4", turnId: "turn-f4", itemId: "input-1",
+        serverRequestId: 3, method: "user-input-resolved", sequence: 103,
+      }));
+
+      builder.ingest(mapper.mapItemReasoningSummaryTextDelta({
+        threadId: "thread-f4", turnId: "turn-f4", itemId: "reason-1", summaryIndex: 0, delta: "Plan ",
+      }));
+      builder.ingest(mapper.mapItemReasoningTextDelta({
+        threadId: "thread-f4", turnId: "turn-f4", itemId: "reason-1", delta: "details",
+      }));
+
+      builder.ingest(mapper.mapItemStarted({
+        threadId: "thread-f4", turnId: "turn-f4",
+        item: { type: "mcpToolCall", id: "mcp-1", server: "github", tool: "listIssues", arguments: { state: "open" } },
+      }));
+      builder.ingest(mapper.mapItemCompleted({
+        threadId: "thread-f4", turnId: "turn-f4",
+        item: { type: "mcpToolCall", id: "mcp-1", server: "github", tool: "listIssues", status: "completed", result: { total: 1 } },
+      }));
+      builder.ingest(mapper.mapItemStarted({
+        threadId: "thread-f4", turnId: "turn-f4",
+        item: { type: "dynamicToolCall", id: "dyn-1", tool: "webSearch", arguments: { q: "codex" } },
+      }));
+      builder.ingest(mapper.mapItemCompleted({
+        threadId: "thread-f4", turnId: "turn-f4",
+        item: { type: "dynamicToolCall", id: "dyn-1", tool: "webSearch", status: "completed", success: true, contentItems: [{ type: "text", text: "result" }] },
+      }));
+      builder.ingest(mapper.mapItemCompleted({
+        threadId: "thread-f4", turnId: "turn-f4",
+        item: { type: "contextCompaction", id: "compact-1" },
+      }));
+      builder.ingest(mapper.mapItemStarted({
+        threadId: "thread-f4", turnId: "turn-f4",
+        item: { type: "enteredReviewMode", id: "review-1", review: "reviewing changes" },
+      }));
+      builder.ingest(mapper.mapTurnCompleted({ threadId: "thread-f4", turnId: "turn-f4", finalText: "done" }));
+
+      const view = builder.toView();
+      const byKind = new Map(view.turnTimeline.map((node) => [node.kind, node]));
+      const command = view.turnTimeline.find((node) => node.kind === "commandExecution");
+      const fileChange = view.turnTimeline.find((node) => node.kind === "fileChange");
+      const userInput = view.turnTimeline.find((node) => node.kind === "userInput");
+      const mcp = view.turnTimeline.find((node) => node.kind === "mcpToolCall");
+      const dynamic = view.turnTimeline.find((node) => node.kind === "dynamicToolCall");
+      const sourceRefsOk = view.turnTimeline.every((node) =>
+        node.sourceRef?.threadId === "thread-f4"
+          && node.sourceRef.turnId === "turn-f4"
+          && node.sourceRef.itemId
+          && typeof node.sourceRef.method === "string"
+          && typeof node.sourceRef.sequence === "number");
+      const ok = sourceRefsOk
+        && command?.stdout?.includes("ok")
+        && command.exitCode === 0
+        && command.durationMs === 1234
+        && command.approvalStatus === "approved"
+        && fileChange?.diff?.includes("+new")
+        && fileChange.approvalStatus === "approved"
+        && userInput?.status === "resolved"
+        && byKind.has("reasoning")
+        && mcp?.server === "github"
+        && dynamic?.contentItems
+        && byKind.has("contextCompaction")
+        && byKind.has("reviewMode");
+      addTest("V17-F4 Codex capability smoke: sourceRef + command/file/user-input/reasoning/mcp/dynamic/context/review timeline",
+        ok ? "pass" : "fail",
+        `nodes=${view.turnTimeline.length} sourceRefs=${sourceRefsOk} command=${!!command} file=${!!fileChange} userInput=${userInput?.status} mcp=${mcp?.server} dynamic=${!!dynamic?.contentItems}`);
+    }
+
+    // ---- Test 15c: V17-F4 AssistantTurnView display model consumes TurnTimelineNode ----
+    {
+      const builder = new AssistantTurnViewBuilder("turn-f4-display", PROVIDER_ID, TS());
+      const ev = {
+        providerId: PROVIDER_ID,
+        timestamp: TS(),
+        sourceRef: {
+          threadId: "thread-display",
+          turnId: "turn-f4-display",
+          itemId: "cmd-display",
+          method: "item/started",
+          sequence: 1,
+        },
+        payload: {
+          kind: "tool_start",
+          toolName: "Bash",
+          toolInput: JSON.stringify(["npm", "run", "build"]),
+          callId: "cmd-display",
+          command: ["npm", "run", "build"],
+          cwd: "/vault",
+        },
+      };
+      builder.ingest(ev);
+      builder.ingest({
+        ...ev,
+        timestamp: TS(),
+        sourceRef: { ...ev.sourceRef, method: "item/commandExecution/outputDelta", sequence: 2 },
+        payload: { kind: "progress", label: "output", detail: "built", category: "tool" },
+      });
+      const view = builder.toView();
+      const model = buildAgentRunDisplayModel(view, { developerMode: true, isRunning: true });
+      const commandCard = model.timelineCards.find((card) => card.kind === "tool-call" && card.toolName === "Bash");
+      const oldInferenceSuppressed = model.timelineCards.filter((card) => card.kind === "tool-call").length === view.turnTimeline.length;
+      const ok = !!commandCard
+        && commandCard.summary.includes("Run command")
+        && commandCard.toolInput.includes("npm")
+        && commandCard.output?.includes("built")
+        && oldInferenceSuppressed;
+      addTest("V17-F4 TurnTimelineModel: display model renders TurnTimelineNode instead of legacy running-tool inference",
+        ok ? "pass" : "fail",
+        `timelineNodes=${view.turnTimeline.length} cards=${model.timelineCards.length} commandCard=${!!commandCard} legacySuppressed=${oldInferenceSuppressed}`);
+    }
+
+    // ---- Test 15d: V17-F4 capability matrix report exists and covers required statuses ----
+    {
+      const reportPath = join(PROJECT_ROOT, "docs", "test-report-codex-capability-matrix.md");
+      const reportExists = existsSync(reportPath);
+      const report = reportExists ? readFileSync(reportPath, "utf8") : "";
+      const hasMethods = report.includes("## Methods") && report.includes("`item/commandExecution/outputDelta`");
+      const hasItems = report.includes("## Item Types") && report.includes("`contextCompaction`") && report.includes("`dynamicToolCall`");
+      const hasRequests = report.includes("## Server Requests") && report.includes("`item/tool/requestUserInput`");
+      const hasStatuses = ["mapped", "weak-mapped", "ignored", "unsupported", "experimental"].every((s) => report.includes(s));
+      const ok = reportExists && hasMethods && hasItems && hasRequests && hasStatuses;
+      addTest("V17-F4 capability matrix report: method/item/serverRequest statuses generated",
+        ok ? "pass" : "fail",
+        `exists=${reportExists} methods=${hasMethods} items=${hasItems} requests=${hasRequests} statuses=${hasStatuses}`);
     }
 
     // ============================================================
@@ -20003,6 +20214,7 @@ if (!runCodexSchemaAlignment) {
     try { if (codexSessionMapperBundle) rmSync(codexSessionMapperBundle, { force: true }); } catch {}
     try { if (codexEffectiveRunPlanBundle) rmSync(codexEffectiveRunPlanBundle, { force: true }); } catch {}
     try { if (assistantTurnViewBundle) rmSync(assistantTurnViewBundle, { force: true }); } catch {}
+    try { if (codexDisplayModelBundle) rmSync(codexDisplayModelBundle, { force: true }); } catch {}
     try { if (tempAgentRunDisplayModelBundle) rmSync(tempAgentRunDisplayModelBundle, { force: true }); } catch {}
     try { if (tempRunPhaseModelBundle) rmSync(tempRunPhaseModelBundle, { force: true }); } catch {}
     try { if (tempProviderLifecycleBundle) rmSync(tempProviderLifecycleBundle, { force: true }); } catch {}

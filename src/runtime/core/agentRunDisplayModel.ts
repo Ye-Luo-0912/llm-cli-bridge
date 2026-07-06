@@ -9,7 +9,7 @@
 //    fileChangeCards/diagnosticCards/debugView。
 // 3. developer mode 信息汇总到 debugView，不散落在业务字段。
 
-import type { AssistantTurnView, ApprovalResponse, UserInputQuestion, UserInputResponse } from "./types";
+import type { AssistantTurnView, ApprovalResponse, TurnTimelineNode, UserInputQuestion, UserInputResponse } from "./types";
 import type { AttachmentPlan, EffectiveRunPlan } from "../../types";
 import { redactSecrets } from "../../workflowEvent";
 import { buildLifecycleEventsFromTurnView, type ProviderLifecycleEvent } from "./providerLifecycleEvent";
@@ -212,6 +212,141 @@ export interface BuildDisplayModelOptions {
 // ---------- Builder ----------
 
 const EMPTY_CARDS: readonly AgentRunCard[] = [];
+
+function mapTimelineStatus(status: TurnTimelineNode["status"]): AgentRunCardStatus {
+  switch (status) {
+    case "running": return "running";
+    case "failed": return "failed";
+    case "blocked": return "pending";
+    case "resolved":
+    case "completed": return "completed";
+  }
+}
+
+function formatTimelineArgs(args: unknown): string {
+  if (args === undefined || args === null) return "";
+  if (typeof args === "string") return args;
+  try {
+    return JSON.stringify(args);
+  } catch {
+    return String(args);
+  }
+}
+
+function buildTimelineToolLabel(node: TurnTimelineNode): string {
+  if (node.kind === "commandExecution") return node.command ? "Run command" : (node.tool ?? node.title);
+  if (node.kind === "mcpToolCall") return node.server ? `${node.server}.${node.tool ?? "tool"}` : (node.tool ?? node.title);
+  if (node.kind === "dynamicToolCall") return node.tool ?? node.title;
+  return node.tool ?? node.title;
+}
+
+function mapTurnTimelineNodeToCard(node: TurnTimelineNode): AgentRunCard {
+  const status = mapTimelineStatus(node.status);
+  const summary = node.summary ?? node.text?.slice(0, 120) ?? node.detail ?? node.title;
+  const base = {
+    id: `timeline-${node.sourceRef?.sequence ?? node.id}`,
+    title: node.title,
+    status,
+    summary,
+    detail: node.detail,
+    timestamp: node.startedAt,
+    defaultExpanded: status === "running" || status === "failed" || status === "pending",
+  };
+
+  if (node.kind === "agentMessage") {
+    return {
+      ...base,
+      kind: "final-answer",
+      title: "Assistant message",
+      text: node.text ?? "",
+      detail: node.text,
+    };
+  }
+
+  if (node.kind === "reasoning" || node.kind === "plan" || node.kind === "contextCompaction" || node.kind === "reviewMode") {
+    return {
+      ...base,
+      kind: "thinking",
+      title: node.title,
+      text: node.text ?? node.detail ?? summary,
+      meta: node.kind,
+    };
+  }
+
+  if (node.kind === "fileChange") {
+    return {
+      ...base,
+      kind: "file-change",
+      title: node.path ? `${node.action ?? "modify"} ${node.path}` : node.title,
+      summary: [
+        node.path ?? summary,
+        node.approvalStatus ? `approval=${node.approvalStatus}` : "",
+      ].filter(Boolean).join(" · "),
+      detail: node.diff ?? node.detail ?? node.stdout,
+      action: node.action ?? "modify",
+      path: node.path ?? "",
+    };
+  }
+
+  if (node.kind === "approval") {
+    return {
+      ...base,
+      kind: "approval",
+      title: node.title,
+      requestId: String(node.sourceRef?.serverRequestId ?? node.id),
+      toolName: node.tool ?? "approval",
+      label: summary,
+      description: node.detail ?? summary,
+      riskLevel: "medium",
+      pending: node.status === "blocked",
+    };
+  }
+
+  if (node.kind === "userInput") {
+    return {
+      ...base,
+      kind: "user-input",
+      title: node.title,
+      requestId: String(node.sourceRef?.serverRequestId ?? node.id),
+      toolName: node.tool ?? "request_user_input",
+      prompt: summary,
+      response: node.result as UserInputResponse | undefined,
+      pending: node.status === "blocked",
+    };
+  }
+
+  if (node.kind === "commandExecution" || node.kind === "mcpToolCall" || node.kind === "dynamicToolCall" || node.kind === "webSearch" || node.kind === "imageView") {
+    const label = buildTimelineToolLabel(node);
+    const input = node.kind === "commandExecution"
+      ? formatTimelineArgs(node.command ?? node.args)
+      : formatTimelineArgs(node.args);
+    const output = node.stdout || node.stderr || formatTimelineArgs(node.result ?? node.contentItems);
+    return {
+      ...base,
+      kind: "tool-call",
+      title: label,
+      summary: [
+        label,
+        typeof node.exitCode === "number" ? `exit=${node.exitCode}` : "",
+        typeof node.durationMs === "number" ? `${node.durationMs}ms` : "",
+      ].filter(Boolean).join(" · "),
+      detail: output || node.detail,
+      toolName: node.tool ?? node.kind,
+      label,
+      toolInput: input,
+      durationMs: node.durationMs,
+      output,
+      isError: node.status === "failed",
+      progress: node.stdout ? [{ label: "output", detail: node.stdout, timestamp: node.startedAt ?? "" }] : [],
+    };
+  }
+
+  return {
+    ...base,
+    kind: node.status === "failed" ? "error" : "warning",
+    message: summary,
+  };
+}
 
 /**
  * Map tool name to user-friendly activity label.
@@ -519,9 +654,19 @@ export function buildAgentRunDisplayModel(
 
   // --- timelineCards ---
   const timelineCards: AgentRunCard[] = [];
+  const providerTimeline = turnView.turnTimeline ?? [];
+  const hasProviderTimeline = providerTimeline.some((node) =>
+    !!node.sourceRef?.itemId && node.kind !== "approval" && node.kind !== "userInput");
+
+  if (hasProviderTimeline) {
+    timelineCards.push(...providerTimeline.map(mapTurnTimelineNodeToCard));
+  }
+  const legacyTools = hasProviderTimeline ? [] : turnView.tools;
+  const legacyApprovals = hasProviderTimeline ? [] : turnView.approvals;
+  const legacyUserInputRequests = hasProviderTimeline ? [] : userInputRequests;
 
   // thoughts → ThinkingCard
-  for (let i = 0; i < turnView.thoughts.length; i++) {
+  for (let i = 0; !hasProviderTimeline && i < turnView.thoughts.length; i++) {
     const t = turnView.thoughts[i];
     timelineCards.push({
       id: `thought-${i}`,
@@ -540,7 +685,7 @@ export function buildAgentRunDisplayModel(
 
   // tools → ToolCallCard
   const callIdCounter = new Map<string, number>();
-  for (const tool of turnView.tools) {
+  for (const tool of legacyTools) {
     const count = callIdCounter.get(tool.callId) ?? 0;
     callIdCounter.set(tool.callId, count + 1);
     const isToolError = tool.status === "error";
@@ -568,7 +713,7 @@ export function buildAgentRunDisplayModel(
   }
 
   // resolved approvals → ApprovalCard（timeline）
-  for (const ap of turnView.approvals) {
+  for (const ap of legacyApprovals) {
     if (ap.pending) continue;
     const label = approvalDisplayLabel(ap.toolName, ap.inputSummary, ap.description);
     timelineCards.push({
@@ -597,7 +742,7 @@ export function buildAgentRunDisplayModel(
   }
 
   // resolved user inputs → UserInputCard（timeline）
-  for (const req of userInputRequests) {
+  for (const req of legacyUserInputRequests) {
     if (req.pending) continue;
     timelineCards.push({
       id: `user-input-${req.requestId}`,

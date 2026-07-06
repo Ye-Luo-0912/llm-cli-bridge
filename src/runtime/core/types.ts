@@ -141,6 +141,8 @@ export interface NormalizedRuntimeEvent {
   readonly providerId: ProviderId;
   /** 事件时间戳 ISO */
   readonly timestamp: string;
+  /** Provider source identity; Codex app-server item/turn/serverRequest events must preserve this. */
+  readonly sourceRef?: RuntimeSourceRef;
   /** 事件负载（判别联合） */
   readonly payload: NormalizedRuntimeEventPayload;
   /**
@@ -148,6 +150,16 @@ export interface NormalizedRuntimeEvent {
    * CLI stdout line 等）。UI 不直接消费，只在 raw log 面板展示。
    */
   readonly rawProviderEvent?: unknown;
+}
+
+export interface RuntimeSourceRef {
+  readonly threadId?: string;
+  readonly turnId?: string;
+  readonly itemId?: string;
+  readonly parentItemId?: string;
+  readonly serverRequestId?: string | number;
+  readonly method?: string;
+  readonly sequence?: number;
 }
 
 export type NormalizedRuntimeEventPayload =
@@ -169,6 +181,10 @@ export type NormalizedRuntimeEventPayload =
       callId: string;
       sessionId?: string;
       parentToolUseId?: string;
+      command?: string | readonly string[];
+      cwd?: string;
+      server?: string;
+      args?: unknown;
     }
   | {
       kind: "tool_result";
@@ -176,8 +192,20 @@ export type NormalizedRuntimeEventPayload =
       toolName: string;
       output: string;
       isError: boolean;
+      exitCode?: number;
+      durationMs?: number;
+      result?: unknown;
+      contentItems?: unknown;
     }
-  | { kind: "file_change"; action: "create" | "modify" | "delete"; path: string; additions?: number; deletions?: number }
+  | {
+      kind: "file_change";
+      action: "create" | "modify" | "delete";
+      path: string;
+      additions?: number;
+      deletions?: number;
+      diff?: string;
+      approvalStatus?: "pending" | "approved" | "declined" | "cancelled" | "resolved";
+    }
   | {
       kind: "progress";
       label: string;
@@ -224,6 +252,53 @@ export type NormalizedRuntimeEventPayload =
   | { kind: "stderr_delta"; data: string }
   | { kind: "completed"; text: string; durationMs?: number; sessionId?: string }
   | { kind: "failed"; message: string; recoverable: boolean; sessionId?: string };
+
+export type TurnTimelineNodeKind =
+  | "agentMessage"
+  | "reasoning"
+  | "plan"
+  | "commandExecution"
+  | "fileChange"
+  | "mcpToolCall"
+  | "dynamicToolCall"
+  | "webSearch"
+  | "imageView"
+  | "reviewMode"
+  | "contextCompaction"
+  | "approval"
+  | "userInput"
+  | "status";
+
+export type TurnTimelineNodeStatus = "running" | "completed" | "failed" | "blocked" | "resolved";
+
+export interface TurnTimelineNode {
+  readonly id: string;
+  readonly kind: TurnTimelineNodeKind;
+  status: TurnTimelineNodeStatus;
+  readonly title: string;
+  summary?: string;
+  detail?: string;
+  sourceRef?: RuntimeSourceRef;
+  startedAt?: string;
+  endedAt?: string;
+  command?: string | readonly string[];
+  cwd?: string;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  durationMs?: number;
+  path?: string;
+  action?: "create" | "modify" | "delete";
+  diff?: string;
+  approvalStatus?: "pending" | "approved" | "declined" | "cancelled" | "resolved";
+  server?: string;
+  tool?: string;
+  args?: unknown;
+  result?: unknown;
+  contentItems?: unknown;
+  text?: string;
+  children?: TurnTimelineNode[];
+}
 
 // ---------- Approval / PermissionBoundary ----------
 
@@ -412,6 +487,8 @@ export interface AssistantTurnView {
   fileChanges: ReadonlyArray<FileChangeSegment>;
   approvals: ReadonlyArray<ApprovalSegment>;
   userInputRequests: ReadonlyArray<UserInputRequestSegment>;
+  /** Provider-neutral item timeline, preserving Codex thread/turn/item identity when available. */
+  turnTimeline: ReadonlyArray<TurnTimelineNode>;
   finalAnswer: string;
   warnings: ReadonlyArray<string>;
   errors: ReadonlyArray<string>;

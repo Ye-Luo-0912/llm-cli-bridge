@@ -36,6 +36,7 @@ import type {
 } from "./types";
 import type { ProviderLifecycleEvent } from "./providerLifecycleEvent";
 import { isInternalFilePath } from "../../timelineAdapter";
+import { CodexItemTimelineReducer } from "../providers/codex-app-server/codexItemTimeline";
 
 function isUserInputApprovalTool(toolName: string): boolean {
   const normalized = toolName.trim().toLowerCase();
@@ -81,6 +82,7 @@ export class AssistantTurnViewBuilder {
    * RunPhaseModel 优先消费此数组；buildLifecycleEventsFromTurnView 仅作 fallback。
    */
   private readonly lifecycleEventsList: ProviderLifecycleEvent[] = [];
+  private readonly codexTimelineReducer: CodexItemTimelineReducer | null;
   // V16.4: 追踪上一个 lifecycle event 是否为 observation（tool_result）。
   // 用于判定下一个 thinking/tool_start 是否开启新的 SDKAssistantMessage（新 evaluation）。
   // 初始 true → 第一个 thinking/tool_start 发出 evaluation_started。
@@ -94,6 +96,9 @@ export class AssistantTurnViewBuilder {
   constructor(turnId: string, providerId: import("./types").ProviderId, startedAt: string) {
     this.turnId = turnId;
     this.providerId = providerId;
+    this.codexTimelineReducer = providerId === "codex-app-server" || providerId === "codex-managed-app-server"
+      ? new CodexItemTimelineReducer()
+      : null;
     this.startedAt = startedAt;
     // session_started + run_started 作为 lifecycle 序列的起始
     this.lifecycleEventsList.push(
@@ -103,6 +108,7 @@ export class AssistantTurnViewBuilder {
   }
 
   ingest(event: NormalizedRuntimeEvent): AssistantTurnView {
+    this.codexTimelineReducer?.ingest(event);
     if (event.rawProviderEvent !== undefined) {
       this.rawProviderEvents.push(event.rawProviderEvent);
     }
@@ -604,6 +610,7 @@ export class AssistantTurnViewBuilder {
       fileChanges: this.fileChangeList,
       approvals: Array.from(this.approvalMap.values()),
       userInputRequests: Array.from(this.userInputMap.values()),
+      turnTimeline: this.codexTimelineReducer?.toNodes() ?? [],
       finalAnswer: this.finalAnswerBuffer,
       warnings: this.warnings,
       errors: this.errors,

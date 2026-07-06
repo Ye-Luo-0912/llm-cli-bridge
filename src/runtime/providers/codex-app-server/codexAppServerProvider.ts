@@ -86,6 +86,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
   // 这样子类通过 super() 传入正确的 providerId，mappers 在父类 constructor 中捕获正确值
   readonly providerId: ProviderId;
   readonly displayName: string;
+  private directSourceRefSequence = 0;
 
   private readonly approvalMapper: CodexAppServerApprovalMapper;
   private readonly userInputMapper: CodexAppServerUserInputMapper;
@@ -621,6 +622,14 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     push({
       providerId: this.providerId,
       timestamp: new Date().toISOString(),
+      sourceRef: {
+        threadId: (rawParams as { threadId?: string })?.threadId,
+        turnId: (rawParams as { turnId?: string })?.turnId,
+        itemId: (rawParams as { itemId?: string })?.itemId,
+        serverRequestId: (approvalReq.providerContext as { serverRequestId?: string | number } | undefined)?.serverRequestId,
+        method: (approvalReq.providerContext as { method?: string } | undefined)?.method ?? "approval-server-request",
+        sequence: this.directSourceRefSequence++,
+      },
       rawProviderEvent: developerMode ? { method: "approval-server-request", params: rawParams } : undefined,
       payload: {
         kind: "approval_request",
@@ -671,6 +680,14 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     push({
       providerId: this.providerId,
       timestamp: new Date().toISOString(),
+      sourceRef: {
+        threadId: (rawParams as { threadId?: string })?.threadId,
+        turnId: (rawParams as { turnId?: string })?.turnId,
+        itemId: (rawParams as { itemId?: string })?.itemId,
+        serverRequestId: (inputReq.providerContext as { serverRequestId?: string | number } | undefined)?.serverRequestId,
+        method: "item/tool/requestUserInput",
+        sequence: this.directSourceRefSequence++,
+      },
       rawProviderEvent: developerMode ? { method: "user-input-server-request", params: rawParams } : undefined,
       payload: {
         kind: "user_input_request",
@@ -687,6 +704,11 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       push({
         providerId: this.providerId,
         timestamp: new Date().toISOString(),
+        sourceRef: {
+          serverRequestId: (inputReq.providerContext as { serverRequestId?: string | number } | undefined)?.serverRequestId,
+          method: "user-input-resolved",
+          sequence: this.directSourceRefSequence++,
+        },
         rawProviderEvent: developerMode ? { method: "user-input-resolved", requestId: inputReq.requestId, response: result.response } : undefined,
         payload: {
           kind: "user_input_resolved",
