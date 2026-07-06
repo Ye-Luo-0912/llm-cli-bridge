@@ -16,6 +16,12 @@ function sourceKey(ref?: RuntimeSourceRef): string | null {
   return ref?.itemId ?? null;
 }
 
+function requestIdMatches(a: string | number | undefined, b: string | number | undefined): boolean {
+  if (a === undefined || b === undefined) return false;
+  if (String(a) === String(b)) return true;
+  return `codex-req-${a}` === String(b) || String(a) === `codex-req-${b}`;
+}
+
 function stringifyValue(value: unknown): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value;
@@ -112,7 +118,9 @@ export class CodexItemTimelineReducer {
     if (payload.kind === "approval_resolved") {
       const requestId = payload.requestId;
       for (const record of this.itemMap.values()) {
-        if (record.node.sourceRef?.serverRequestId === requestId || record.node.approvalStatus === "pending") {
+        const sameRequest = requestIdMatches(record.node.sourceRef?.serverRequestId, requestId);
+        const sameItem = !!itemId && record.itemId === itemId;
+        if (sameRequest || sameItem) {
           record.node.approvalStatus = payload.response.type === "accept" || payload.response.type === "acceptForSession"
             ? "approved"
             : payload.response.type === "cancel" ? "cancelled" : "declined";
@@ -126,7 +134,9 @@ export class CodexItemTimelineReducer {
     if (payload.kind === "user_input_resolved") {
       const requestId = payload.requestId;
       for (const record of this.itemMap.values()) {
-        if (record.node.sourceRef?.serverRequestId === requestId || record.node.status === "blocked") {
+        const sameRequest = requestIdMatches(record.node.sourceRef?.serverRequestId, requestId);
+        const sameItem = !!itemId && record.itemId === itemId;
+        if (sameRequest || sameItem) {
           record.node.status = "resolved";
           record.node.endedAt = event.timestamp;
           record.node.result = payload.response;
@@ -192,7 +202,11 @@ export class CodexItemTimelineReducer {
         break;
       case "progress":
         if (kind === "commandExecution" || kind === "fileChange") {
-          record.node.stdout = `${record.node.stdout || ""}${payload.detail || ""}`;
+          if (/stderr/i.test(payload.label)) {
+            record.node.stderr = `${record.node.stderr || ""}${payload.detail || ""}`;
+          } else {
+            record.node.stdout = `${record.node.stdout || ""}${payload.detail || ""}`;
+          }
           record.node.summary = payload.label;
         } else if (kind === "plan" || kind === "reasoning") {
           record.node.text = `${record.node.text || ""}${payload.detail || ""}`;
@@ -220,6 +234,15 @@ export class CodexItemTimelineReducer {
         record.node.action = payload.action;
         record.node.diff = payload.diff;
         record.node.approvalStatus = payload.approvalStatus ?? record.node.approvalStatus;
+        record.node.fileChanges = [
+          ...(record.node.fileChanges ?? []),
+          {
+            path: payload.path,
+            action: payload.action,
+            diff: payload.diff,
+            approvalStatus: payload.approvalStatus ?? record.node.approvalStatus,
+          },
+        ];
         record.node.summary = `${payload.action} ${payload.path}`;
         record.node.status = "completed";
         record.node.endedAt = event.timestamp;

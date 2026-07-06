@@ -290,6 +290,12 @@ export interface TurnTimelineNode {
   path?: string;
   action?: "create" | "modify" | "delete";
   diff?: string;
+  fileChanges?: ReadonlyArray<{
+    readonly action: "create" | "modify" | "delete";
+    readonly path: string;
+    readonly diff?: string;
+    readonly approvalStatus?: "pending" | "approved" | "declined" | "cancelled" | "resolved";
+  }>;
   approvalStatus?: "pending" | "approved" | "declined" | "cancelled" | "resolved";
   server?: string;
   tool?: string;

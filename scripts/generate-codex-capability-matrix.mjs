@@ -73,13 +73,15 @@ function statusForItemType(type) {
     "fileChange",
     "mcpToolCall",
     "dynamicToolCall",
+    "webSearch",
+    "imageView",
     "enteredReviewMode",
     "exitedReviewMode",
     "contextCompaction",
   ]);
-  const weak = new Set(["userMessage", "webSearch", "imageView", "message", "tool_call", "tool_result", "thinking", "file_change"]);
+  const weak = new Set(["message", "tool_call", "tool_result", "thinking", "file_change"]);
   const experimental = new Set(["plan"]);
-  const ignored = new Set(["approval_request"]);
+  const ignored = new Set(["userMessage", "approval_request"]);
   if (mapped.has(type)) return "mapped";
   if (experimental.has(type)) return "experimental";
   if (weak.has(type)) return "weak-mapped";

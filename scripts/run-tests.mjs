@@ -19569,6 +19569,24 @@ if (!runCodexSchemaAlignment) {
           status: "completed", aggregatedOutput: "ok\n", exitCode: 0, durationMs: 1234,
         },
       }));
+      builder.ingest(mapper.mapItemStarted({
+        threadId: "thread-f4", turnId: "turn-f4",
+        item: { type: "commandExecution", id: "cmd-2", command: ["npm", "run", "build"], cwd: "/vault" },
+      }));
+      builder.ingest(manualEvent({
+        kind: "approval_request",
+        requestId: "codex-req-4",
+        toolName: "Bash",
+        description: "Execute npm run build",
+        riskLevel: "high",
+        inputSummary: "npm run build",
+      }, {
+        threadId: "thread-f4", turnId: "turn-f4", itemId: "cmd-2",
+        serverRequestId: 4, method: "item/commandExecution/requestApproval", sequence: 104,
+      }));
+      builder.ingest(mapper.mapItemCommandExecutionOutputDelta({
+        threadId: "thread-f4", turnId: "turn-f4", itemId: "cmd-2", delta: "cmd2\n",
+      }));
 
       builder.ingest(mapper.mapItemStarted({
         threadId: "thread-f4", turnId: "turn-f4",
@@ -19648,6 +19666,7 @@ if (!runCodexSchemaAlignment) {
       const view = builder.toView();
       const byKind = new Map(view.turnTimeline.map((node) => [node.kind, node]));
       const command = view.turnTimeline.find((node) => node.kind === "commandExecution");
+      const command2 = view.turnTimeline.find((node) => node.id === "cmd-2");
       const fileChange = view.turnTimeline.find((node) => node.kind === "fileChange");
       const userInput = view.turnTimeline.find((node) => node.kind === "userInput");
       const mcp = view.turnTimeline.find((node) => node.kind === "mcpToolCall");
@@ -19660,9 +19679,13 @@ if (!runCodexSchemaAlignment) {
           && typeof node.sourceRef.sequence === "number");
       const ok = sourceRefsOk
         && command?.stdout?.includes("ok")
+        && !command.stdout.includes("cmd2")
         && command.exitCode === 0
         && command.durationMs === 1234
         && command.approvalStatus === "approved"
+        && command2?.approvalStatus === "pending"
+        && command2?.stdout?.includes("cmd2")
+        && !command2.stdout.includes("ok")
         && fileChange?.diff?.includes("+new")
         && fileChange.approvalStatus === "approved"
         && userInput?.status === "resolved"
@@ -19673,7 +19696,7 @@ if (!runCodexSchemaAlignment) {
         && byKind.has("reviewMode");
       addTest("V17-F4 Codex capability smoke: sourceRef + command/file/user-input/reasoning/mcp/dynamic/context/review timeline",
         ok ? "pass" : "fail",
-        `nodes=${view.turnTimeline.length} sourceRefs=${sourceRefsOk} command=${!!command} file=${!!fileChange} userInput=${userInput?.status} mcp=${mcp?.server} dynamic=${!!dynamic?.contentItems}`);
+        `nodes=${view.turnTimeline.length} sourceRefs=${sourceRefsOk} command=${!!command} command2=${command2?.approvalStatus} file=${!!fileChange} userInput=${userInput?.status} mcp=${mcp?.server} dynamic=${!!dynamic?.contentItems}`);
     }
 
     // ---- Test 15c: V17-F4 AssistantTurnView display model consumes TurnTimelineNode ----
@@ -19732,6 +19755,24 @@ if (!runCodexSchemaAlignment) {
       addTest("V17-F4 capability matrix report: method/item/serverRequest statuses generated",
         ok ? "pass" : "fail",
         `exists=${reportExists} methods=${hasMethods} items=${hasItems} requests=${hasRequests} statuses=${hasStatuses}`);
+    }
+
+    // ---- Test 15e: V17-F4 timeline smoke report covers rich renderer and binding paths ----
+    {
+      const reportPath = join(PROJECT_ROOT, "docs", "test-report-codex-timeline-smoke.md");
+      const reportExists = existsSync(reportPath);
+      const report = reportExists ? readFileSync(reportPath, "utf8") : "";
+      const statusPass = report.includes("- **timelineSmokeStatus**: pass");
+      const hasParallel = report.includes("parallel tools no output cross-talk") && report.includes("approval request/resolved");
+      const hasRich = report.includes("fileChange diff card")
+        && report.includes("mcpToolCall structured result")
+        && report.includes("dynamicToolCall contentItems");
+      const hasUi = report.includes("normal user verbose output collapsed")
+        && report.includes("developer mode sourceRef visible");
+      const ok = reportExists && statusPass && hasParallel && hasRich && hasUi;
+      addTest("V17-F4 timeline smoke report: rich renderer + item binding + UI contract covered",
+        ok ? "pass" : "fail",
+        `exists=${reportExists} status=${statusPass} parallel=${hasParallel} rich=${hasRich} ui=${hasUi}`);
     }
 
     // ============================================================

@@ -256,15 +256,8 @@ export class CodexAppServerEventMapper {
         };
       }
       case "userMessage": {
-        return {
-          ...base,
-          payload: {
-            kind: "progress",
-            label: "userMessage",
-            detail: "input",
-            category: "request",
-          },
-        };
+        // userMessage 是 turn input 的镜像，不进入 assistant timeline，避免把用户气泡重复渲染为过程节点。
+        return null;
       }
       default:
         // 其他 legacy 类型（file_change/approval_request/tool_result 等）

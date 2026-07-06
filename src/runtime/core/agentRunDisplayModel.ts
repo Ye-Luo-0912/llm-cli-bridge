@@ -9,7 +9,7 @@
 //    fileChangeCards/diagnosticCards/debugView。
 // 3. developer mode 信息汇总到 debugView，不散落在业务字段。
 
-import type { AssistantTurnView, ApprovalResponse, TurnTimelineNode, UserInputQuestion, UserInputResponse } from "./types";
+import type { AssistantTurnView, ApprovalResponse, RuntimeSourceRef, TurnTimelineNode, UserInputQuestion, UserInputResponse } from "./types";
 import type { AttachmentPlan, EffectiveRunPlan } from "../../types";
 import { redactSecrets } from "../../workflowEvent";
 import { buildLifecycleEventsFromTurnView, type ProviderLifecycleEvent } from "./providerLifecycleEvent";
@@ -41,6 +41,8 @@ export interface AgentRunCardBase {
   timestamp?: string;
   /** 默认展开（running/error 卡片默认展开） */
   defaultExpanded?: boolean;
+  /** Developer-mode source identity for provider-native timeline nodes. */
+  sourceRef?: RuntimeSourceRef;
 }
 
 export interface ThinkingCard extends AgentRunCardBase {
@@ -58,6 +60,13 @@ export interface ToolCallCard extends AgentRunCardBase {
   toolInput: string;
   durationMs?: number;
   output?: string;
+  command?: string | readonly string[];
+  cwd?: string;
+  stdout?: string;
+  stderr?: string;
+  exitCode?: number;
+  structuredResult?: unknown;
+  contentItems?: unknown;
   isError: boolean;
   progress: ReadonlyArray<{ label: string; detail?: string; timestamp: string }>;
 }
@@ -70,6 +79,14 @@ export interface FileChangeCard extends AgentRunCardBase {
   additions?: number;
   /** V16.4: 删除行数（若 provider 提供） */
   deletions?: number;
+  diff?: string;
+  approvalStatus?: "pending" | "approved" | "declined" | "cancelled" | "resolved";
+  changes?: ReadonlyArray<{
+    readonly action: "create" | "modify" | "delete";
+    readonly path: string;
+    readonly diff?: string;
+    readonly approvalStatus?: "pending" | "approved" | "declined" | "cancelled" | "resolved";
+  }>;
 }
 
 export interface ApprovalCard extends AgentRunCardBase {
@@ -233,6 +250,10 @@ function formatTimelineArgs(args: unknown): string {
   }
 }
 
+function truncateInline(value: string, max = 240): string {
+  return value.length > max ? `${value.slice(0, max - 1)}...` : value;
+}
+
 function buildTimelineToolLabel(node: TurnTimelineNode): string {
   if (node.kind === "commandExecution") return node.command ? "Run command" : (node.tool ?? node.title);
   if (node.kind === "mcpToolCall") return node.server ? `${node.server}.${node.tool ?? "tool"}` : (node.tool ?? node.title);
@@ -240,7 +261,7 @@ function buildTimelineToolLabel(node: TurnTimelineNode): string {
   return node.tool ?? node.title;
 }
 
-function mapTurnTimelineNodeToCard(node: TurnTimelineNode): AgentRunCard {
+function mapTurnTimelineNodeToCard(node: TurnTimelineNode, developerMode: boolean): AgentRunCard {
   const status = mapTimelineStatus(node.status);
   const summary = node.summary ?? node.text?.slice(0, 120) ?? node.detail ?? node.title;
   const base = {
@@ -251,6 +272,7 @@ function mapTurnTimelineNodeToCard(node: TurnTimelineNode): AgentRunCard {
     detail: node.detail,
     timestamp: node.startedAt,
     defaultExpanded: status === "running" || status === "failed" || status === "pending",
+    sourceRef: developerMode ? node.sourceRef : undefined,
   };
 
   if (node.kind === "agentMessage") {
@@ -274,17 +296,27 @@ function mapTurnTimelineNodeToCard(node: TurnTimelineNode): AgentRunCard {
   }
 
   if (node.kind === "fileChange") {
+    const changes = node.fileChanges ?? (node.path ? [{
+      action: node.action ?? "modify",
+      path: node.path,
+      diff: node.diff,
+      approvalStatus: node.approvalStatus,
+    }] : []);
+    const diffPreview = changes.map((change) => change.diff).filter((d): d is string => !!d).join("\n");
     return {
       ...base,
       kind: "file-change",
-      title: node.path ? `${node.action ?? "modify"} ${node.path}` : node.title,
+      title: changes.length > 1 ? `File changes (${changes.length})` : node.path ? `${node.action ?? "modify"} ${node.path}` : node.title,
       summary: [
-        node.path ?? summary,
+        changes.length > 1 ? changes.map((c) => `${c.action} ${c.path}`).join(", ") : node.path ?? summary,
         node.approvalStatus ? `approval=${node.approvalStatus}` : "",
       ].filter(Boolean).join(" · "),
-      detail: node.diff ?? node.detail ?? node.stdout,
+      detail: truncateInline(diffPreview || node.detail || node.stdout || "", 500),
       action: node.action ?? "modify",
       path: node.path ?? "",
+      diff: diffPreview || node.diff,
+      approvalStatus: node.approvalStatus,
+      changes,
     };
   }
 
@@ -321,23 +353,39 @@ function mapTurnTimelineNodeToCard(node: TurnTimelineNode): AgentRunCard {
       ? formatTimelineArgs(node.command ?? node.args)
       : formatTimelineArgs(node.args);
     const output = node.stdout || node.stderr || formatTimelineArgs(node.result ?? node.contentItems);
+    const sourceLabel = node.kind === "mcpToolCall" && node.server ? `${node.server}.${node.tool ?? "tool"}`
+      : node.kind === "dynamicToolCall" ? node.tool ?? label
+      : label;
     return {
       ...base,
       kind: "tool-call",
-      title: label,
+      title: sourceLabel,
       summary: [
-        label,
+        sourceLabel,
+        node.cwd ? `cwd=${node.cwd}` : "",
         typeof node.exitCode === "number" ? `exit=${node.exitCode}` : "",
         typeof node.durationMs === "number" ? `${node.durationMs}ms` : "",
       ].filter(Boolean).join(" · "),
       detail: output || node.detail,
       toolName: node.tool ?? node.kind,
-      label,
+      label: sourceLabel,
       toolInput: input,
       durationMs: node.durationMs,
       output,
+      command: node.command,
+      cwd: node.cwd,
+      stdout: node.stdout,
+      stderr: node.stderr,
+      exitCode: node.exitCode,
+      structuredResult: node.result,
+      contentItems: node.contentItems,
       isError: node.status === "failed",
-      progress: node.stdout ? [{ label: "output", detail: node.stdout, timestamp: node.startedAt ?? "" }] : [],
+      progress: node.stdout || node.stderr
+        ? [
+            node.stdout ? { label: "stdout", detail: node.stdout, timestamp: node.startedAt ?? "" } : null,
+            node.stderr ? { label: "stderr", detail: node.stderr, timestamp: node.startedAt ?? "" } : null,
+          ].filter((p): p is { label: string; detail: string; timestamp: string } => !!p)
+        : [],
     };
   }
 
@@ -659,7 +707,7 @@ export function buildAgentRunDisplayModel(
     !!node.sourceRef?.itemId && node.kind !== "approval" && node.kind !== "userInput");
 
   if (hasProviderTimeline) {
-    timelineCards.push(...providerTimeline.map(mapTurnTimelineNodeToCard));
+    timelineCards.push(...providerTimeline.map((node) => mapTurnTimelineNodeToCard(node, options.developerMode === true)));
   }
   const legacyTools = hasProviderTimeline ? [] : turnView.tools;
   const legacyApprovals = hasProviderTimeline ? [] : turnView.approvals;

@@ -4374,19 +4374,64 @@ export class LLMBridgeView extends ItemView {
     if (card.durationMs !== undefined) {
       titleRow.createEl("span", { cls: "llm-bridge-tl-tool-duration", text: this.formatDurationMs(card.durationMs) });
     }
-    // P4-D: 仅在 developer mode（card.toolInput 非空时由 builder 注入）显示 raw JSON input
-    if (card.toolInput) {
-      content.createEl("div", { cls: "llm-bridge-tl-tool-input", text: truncateText(card.toolInput, 100), attr: { title: card.toolInput } });
+    if (card.exitCode !== undefined) {
+      titleRow.createEl("span", { cls: "llm-bridge-tl-tool-duration", text: `exit ${card.exitCode}` });
+    }
+    if (card.command) {
+      const commandText = typeof card.command === "string" ? card.command : card.command.join(" ");
+      content.createEl("div", { cls: "llm-bridge-tl-tool-input", text: `command: ${truncateText(commandText, 160)}`, attr: { title: commandText } });
+    }
+    if (card.cwd) {
+      content.createEl("div", { cls: "llm-bridge-tl-tool-input", text: `cwd: ${truncateText(card.cwd, 160)}`, attr: { title: card.cwd } });
+    }
+    if (card.toolInput && !card.command) {
+      const inputLabel = card.toolName === "mcpToolCall" || card.toolName === "dynamicToolCall" ? "args" : "input";
+      content.createEl("div", { cls: "llm-bridge-tl-tool-input", text: `${inputLabel}: ${truncateText(card.toolInput, 160)}`, attr: { title: card.toolInput } });
     }
     for (const prog of card.progress) {
       const progEl = content.createDiv({ cls: "llm-bridge-tl-tool-progress" });
       const progText = prog.detail ? `${prog.label}: ${prog.detail}` : prog.label;
       progEl.createEl("span", { cls: "llm-bridge-tl-tool-progress-text", text: truncateText(progText, 120) });
     }
-    // P4-D: 仅在 developer mode（card.output 非空时由 builder 注入）显示 raw output
-    if (card.output) {
-      content.createEl("div", { cls: "llm-bridge-tl-tool-output", text: truncateText(card.output, 120), attr: { title: card.output } });
+    this.renderCollapsedText(content, "stdout", card.stdout);
+    this.renderCollapsedText(content, "stderr", card.stderr);
+    if (!card.stdout && !card.stderr) {
+      this.renderCollapsedText(content, "output", card.output);
     }
+    this.renderCollapsedJson(content, "structured result", card.structuredResult);
+    this.renderCollapsedJson(content, "content items", card.contentItems);
+    this.renderSourceRefDetail(content, card);
+  }
+
+  private renderCollapsedText(parent: HTMLElement, label: string, value?: string): void {
+    if (!value) return;
+    const details = parent.createEl("details", { cls: "llm-bridge-tl-details" });
+    details.createEl("summary", { text: `${label}: ${truncateText(value.replace(/\s+/g, " "), 120)}` });
+    details.createEl("pre", { cls: "llm-bridge-tl-pre", text: value });
+  }
+
+  private renderCollapsedJson(parent: HTMLElement, label: string, value: unknown): void {
+    if (value === undefined || value === null) return;
+    let text = "";
+    try {
+      text = JSON.stringify(value, null, 2);
+    } catch {
+      text = String(value);
+    }
+    this.renderCollapsedText(parent, label, text);
+  }
+
+  private renderSourceRefDetail(parent: HTMLElement, card: AgentRunCard): void {
+    if (!card.sourceRef) return;
+    const parts = [
+      card.sourceRef.threadId ? `threadId=${card.sourceRef.threadId}` : "",
+      card.sourceRef.turnId ? `turnId=${card.sourceRef.turnId}` : "",
+      card.sourceRef.itemId ? `itemId=${card.sourceRef.itemId}` : "",
+      card.sourceRef.serverRequestId !== undefined ? `serverRequestId=${card.sourceRef.serverRequestId}` : "",
+      card.sourceRef.method ? `method=${card.sourceRef.method}` : "",
+      card.sourceRef.sequence !== undefined ? `sequence=${card.sourceRef.sequence}` : "",
+    ].filter(Boolean).join(" · ");
+    if (parts) parent.createEl("div", { cls: "llm-bridge-tl-detail", text: parts });
   }
 
   private renderFileChangeCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "file-change" }>): void {
@@ -4394,7 +4439,18 @@ export class LLMBridgeView extends ItemView {
     node.createDiv({ cls: "llm-bridge-tl-dot" });
     const content = node.createDiv({ cls: "llm-bridge-tl-content" });
     content.createEl("div", { cls: "llm-bridge-tl-title", text: card.title });
-    content.createEl("div", { cls: "llm-bridge-tl-detail", text: card.path });
+    if (card.approvalStatus) {
+      content.createEl("div", { cls: "llm-bridge-tl-detail", text: `approval: ${card.approvalStatus}` });
+    }
+    if (card.changes && card.changes.length > 0) {
+      for (const change of card.changes) {
+        content.createEl("div", { cls: "llm-bridge-tl-detail", text: `${change.action} ${change.path}` });
+      }
+    } else {
+      content.createEl("div", { cls: "llm-bridge-tl-detail", text: `${card.action} ${card.path}` });
+    }
+    this.renderCollapsedText(content, "diff", card.diff);
+    this.renderSourceRefDetail(content, card);
   }
 
   private renderApprovalCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "approval" }>): void {
