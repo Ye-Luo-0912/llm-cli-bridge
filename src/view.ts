@@ -1005,18 +1005,23 @@ export class LLMBridgeView extends ItemView {
     const wrap = parent.createDiv({ cls: `llm-bridge-context-tag-wrap llm-bridge-context-tag-${kind}` });
     const check = wrap.createEl("input", { type: "checkbox", cls: "llm-bridge-chip-check" });
     check.checked = getCurrent();
-    const tag = wrap.createEl("button", {
+    const tag = wrap.createEl("span", {
       cls: "llm-bridge-context-tag",
       text: kind === "note" ? "Using current note" : "Selection",
-      attr: { "aria-pressed": String(check.checked) },
+      attr: { "aria-pressed": String(check.checked), role: "button", tabindex: "0" },
     });
-    tag.addEventListener("click", async (e) => {
+    const toggle = async (e: Event) => {
       e.preventDefault();
       if (this.runHandle) return;
       check.checked = !check.checked;
       tag.setAttribute("aria-pressed", String(check.checked));
       await onToggle(check.checked);
       this.refreshAllChips();
+    };
+    tag.addEventListener("click", toggle);
+    tag.addEventListener("keydown", (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      void toggle(e);
     });
     return check;
   }
@@ -1039,24 +1044,24 @@ export class LLMBridgeView extends ItemView {
     const noteTag = this.includeNoteCheckEl.parentElement?.querySelector(".llm-bridge-context-tag");
     if (noteTag) {
       const on = this.plugin.settings.includeActiveNote;
-      noteTag.classList.toggle("is-active", on);
-      noteTag.setAttribute("aria-pressed", String(on));
-      // V16.3 Round 3: 合并为单 chip — "{filename} · attached" / "{filename} · path only" / "Auto attach off"
+      const noteWrap = this.includeNoteCheckEl.parentElement;
       const fname = this.activeFileLabelEl.textContent || "";
-      const fnameOrFallback = fname || "current note";
+      if (noteWrap) noteWrap.toggleAttribute("hidden", !fname);
+      noteTag.classList.toggle("is-active", on);
+      noteTag.classList.toggle("is-off", !on);
+      noteTag.classList.toggle("is-path-only", on && this.activeNoteAttachState === "path-only");
+      noteTag.setAttribute("aria-pressed", String(on));
+      // V17-G2: 活动笔记 tag 只显示当前文件名；状态通过颜色/删除线表达。
+      const fnameOrFallback = fname || "";
+      noteTag.textContent = fnameOrFallback;
       if (!on) {
-        noteTag.textContent = "Auto attach off";
-        noteTag.setAttribute("title", "未附带当前活动笔记（点击开启自动引用）");
+        noteTag.setAttribute("title", `${fnameOrFallback}：当前未引用，点击开启`);
       } else if (this.activeNoteAttachState === "full") {
-        noteTag.textContent = `${fnameOrFallback} · attached`;
-        noteTag.setAttribute("title", `${fname ? fname : "当前活动笔记"}：路径 + 内容已注入 prompt（点击关闭）`);
+        noteTag.setAttribute("title", `${fnameOrFallback}：路径 + 内容已引用，点击关闭`);
       } else if (this.activeNoteAttachState === "path-only") {
-        noteTag.textContent = `${fnameOrFallback} · path only`;
-        noteTag.setAttribute("title", `${fname ? fname : "当前活动笔记"}：仅路径注入 prompt，内容读取失败（点击关闭）`);
+        noteTag.setAttribute("title", `${fnameOrFallback}：仅路径已引用，内容读取失败，点击关闭`);
       } else {
-        // on 但状态未知（如尚未读取）— 兜底显示为 attached
-        noteTag.textContent = `${fnameOrFallback} · attached`;
-        noteTag.setAttribute("title", `${fname ? fname : "当前活动笔记"}：已开启自动引用（点击关闭）`);
+        noteTag.setAttribute("title", `${fnameOrFallback}：已开启自动引用，点击关闭`);
       }
     }
     const selTag = this.includeSelectionCheckEl.parentElement?.querySelector(".llm-bridge-context-tag");
@@ -3827,7 +3832,7 @@ export class LLMBridgeView extends ItemView {
     if (developerMode && msg.log) {
       this.appendCollapsible(details, "log", msg.log, "llm-bridge-log-text", false, false);
     }
-    if (msg.generatedFiles.length > 0) {
+    if (msg.generatedFiles.length > 0 && (developerMode || !msg.assistantTurnView)) {
       const filesWrap = details.createDiv({ cls: "llm-bridge-gen-wrap" });
       filesWrap.createEl("div", { cls: "llm-bridge-gen-title", text: "新增/修改的 Markdown 文件" });
       const files = filesWrap.createDiv({ cls: "llm-bridge-gen-list" });
@@ -4091,8 +4096,8 @@ export class LLMBridgeView extends ItemView {
     if (run.approvalGates.length > 0) this.renderCodexApprovalGates(body, run.approvalGates, developerMode);
     if (run.feedItems.length > 0) this.renderCodexFeed(body, run.feedItems, developerMode);
     if (run.diagnosticsGroups.length > 0) this.renderCodexDiagnosticsDrawer(body, run.diagnosticsGroups, developerMode);
-    if (run.finalAnswer.trim().length > 0) {
-      body.createDiv({ cls: "llm-bridge-codex-final-answer-marker", text: "Final answer" });
+    if (developerMode && run.finalAnswer.trim().length > 0) {
+      body.createDiv({ cls: "llm-bridge-codex-final-answer-marker", text: "Answer" });
     }
     if (developerMode && run.debugPanel) this.renderAgentRunDebugView(body, run.debugPanel);
 
@@ -4172,8 +4177,7 @@ export class LLMBridgeView extends ItemView {
     const batches: CodexRunFeedItem[][] = [];
     let current: CodexRunFeedItem[] = [];
     for (const item of items) {
-      const currentHasEvent = current.some((candidate) => this.isCodexFeedEvent(candidate));
-      const startsNewBatch = item.kind === "thinking" || (item.kind === "assistant" && currentHasEvent);
+      const startsNewBatch = item.kind === "thinking";
       if (current.length > 0 && startsNewBatch) {
         batches.push(current);
         current = [];
@@ -4189,6 +4193,18 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderCodexFeedItem(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean, nestedEvent: boolean): void {
+    if (item.kind === "thinking" && !developerMode) {
+      this.renderCodexFeedThinking(parent, item);
+      return;
+    }
+    if (item.kind === "assistant" && !developerMode) {
+      this.renderCodexFeedOutput(parent, item, nestedEvent);
+      return;
+    }
+    if (nestedEvent && this.isCodexFeedEvent(item)) {
+      this.renderCodexFeedEventBlock(parent, item, developerMode);
+      return;
+    }
     const changeCls = item.change ? ` llm-bridge-codex-change-row is-${item.change.action}` : "";
     const nestedCls = nestedEvent ? " is-batch-event" : "";
     const row = parent.createDiv({
@@ -4252,18 +4268,116 @@ export class LLMBridgeView extends ItemView {
     }
 
     if (item.step) {
-      this.renderCodexCollapsedText(row, "command", item.step.command);
-      if (item.step.cwd && developerMode) row.createDiv({ cls: "llm-bridge-codex-step-cwd", text: `cwd: ${item.step.cwd}`, attr: { title: item.step.cwd } });
-      this.renderCodexCollapsedText(row, "stdout", item.step.stdout);
-      this.renderCodexCollapsedText(row, "stderr", item.step.stderr);
-      if (developerMode) {
-        this.renderCodexCollapsedText(row, "args", item.step.args);
-        this.renderCodexCollapsedText(row, "structured result", formatCodexRunValue(item.step.structuredResult));
-        this.renderCodexCollapsedText(row, "content items", formatCodexRunValue(item.step.contentItems));
-      }
+      this.renderCodexStepPayload(row, item.step, developerMode);
     }
 
     this.renderCodexSourceRef(row, item.sourceRef, developerMode);
+  }
+
+  private renderCodexFeedThinking(parent: HTMLElement, item: CodexRunFeedItem): void {
+    const summary = this.formatCodexFeedSummary(item, false).trim();
+    const row = parent.createDiv({ cls: `llm-bridge-codex-thinking-line is-${item.status}` });
+    row.setAttribute("data-step-kind", item.kind);
+    if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
+    row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: "Thinking" });
+    if (summary) {
+      row.createEl("span", {
+        cls: "llm-bridge-codex-thinking-summary",
+        text: truncateText(summary, 360),
+        attr: { title: summary },
+      });
+    }
+  }
+
+  private renderCodexFeedOutput(parent: HTMLElement, item: CodexRunFeedItem, nestedEvent: boolean): void {
+    const text = this.formatCodexFeedSummary(item, false).trim();
+    if (!text) return;
+    const row = parent.createDiv({
+      cls: `llm-bridge-codex-feed-output is-${item.status}${nestedEvent ? " is-batch-output" : ""}`,
+    });
+    row.setAttribute("data-step-kind", item.kind);
+    if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
+    const outputText = text.length > 900 ? `${text.slice(0, 900).trimEnd()}...` : text;
+    row.createDiv({ cls: "llm-bridge-codex-feed-output-text", text: outputText, attr: { title: text } });
+  }
+
+  private renderCodexFeedEventBlock(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean): void {
+    const changeCls = item.change ? ` llm-bridge-codex-change-row is-${item.change.action}` : "";
+    const block = parent.createEl("details", {
+      cls: `llm-bridge-codex-feed-item llm-bridge-codex-event-block is-batch-event is-${item.kind} is-${item.status}${changeCls}`,
+    });
+    if (item.status === "pending" || item.status === "failed") block.setAttribute("open", "");
+    block.setAttribute("data-step-kind", item.kind);
+    if (item.sourceRef?.itemId) block.setAttribute("data-item-id", item.sourceRef.itemId);
+
+    const summary = block.createEl("summary", { cls: "llm-bridge-codex-event-summary" });
+    const icon = summary.createEl("span", { cls: "llm-bridge-codex-feed-icon llm-bridge-codex-step-icon" });
+    setIcon(icon, item.icon);
+    const main = summary.createDiv({ cls: "llm-bridge-codex-event-main" });
+    const title = main.createDiv({ cls: "llm-bridge-codex-event-title" });
+    const changeActionText = item.change?.action === "create" ? "Created"
+      : item.change?.action === "delete" ? "Deleted"
+      : item.change ? "Modified" : "";
+    const label = item.change ? `${changeActionText} ${item.change.fileName}` : item.label;
+    title.createEl("span", { cls: "llm-bridge-codex-feed-label llm-bridge-codex-step-label", text: label, attr: { title: label } });
+    if (item.change?.approvalStatus) {
+      title.createEl("span", {
+        cls: `llm-bridge-codex-change-approval is-${item.change.approvalStatus}`,
+        text: item.change.approvalStatus,
+      });
+    }
+    const isCommandEvent = item.kind === "command" && !!item.step;
+    const summaryText = item.change
+      ? [item.change.relativePath, item.change.diffSummary].filter(Boolean).join(" · ")
+      : isCommandEvent && !developerMode
+        ? ""
+      : this.formatCodexFeedSummary(item, developerMode);
+    if (summaryText) {
+      main.createDiv({ cls: "llm-bridge-codex-event-hint", text: truncateText(summaryText, developerMode ? 260 : 150), attr: { title: summaryText } });
+    }
+
+    const meta = summary.createDiv({ cls: "llm-bridge-codex-feed-meta llm-bridge-codex-event-meta" });
+    meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${item.status}`, text: item.status });
+    if (item.durationMs) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(item.durationMs) });
+    if (item.step?.exitCode !== undefined) meta.createEl("span", { cls: "llm-bridge-codex-step-exit", text: `exit ${item.step.exitCode}` });
+    if (item.change) meta.createEl("span", { cls: "llm-bridge-codex-change-diff-summary", text: item.change.diffSummary });
+
+    const body = block.createDiv({ cls: "llm-bridge-codex-event-body" });
+    if (item.change) {
+      const changeInfo = body.createDiv({ cls: "llm-bridge-codex-event-change-info" });
+      changeInfo.createDiv({ cls: "llm-bridge-codex-change-path", text: item.change.relativePath, attr: { title: item.change.fullPath } });
+      const actions = changeInfo.createDiv({ cls: "llm-bridge-codex-change-actions" });
+      const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "Copy path" } });
+      setIcon(copyBtn, "copy");
+      copyBtn.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        try {
+          await navigator.clipboard.writeText(item.change?.relativePath || item.change?.fullPath || "");
+          new Notice("Path copied");
+        } catch {
+          new Notice("Copy failed");
+        }
+      });
+      const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "Open file" } });
+      setIcon(openBtn, "external-link");
+      openBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        if (!item.change) return;
+        const target = path.isAbsolute(item.change.fullPath) ? item.change.fullPath : path.join(this.getVaultPath(), item.change.fullPath || item.change.relativePath);
+        void this.openPathWithSystemDefault(target);
+      });
+      if (item.change.diff) {
+        const details = body.createEl("details", { cls: "llm-bridge-codex-diff-preview" });
+        details.createEl("summary", { text: "Diff preview" });
+        details.createEl("pre", { cls: "llm-bridge-codex-diff-pre", text: item.change.diff });
+      }
+    }
+    if (item.step) {
+      this.renderCodexStepPayload(body, item.step, developerMode, { inlineShellPanel: item.kind === "command" });
+    } else if (!item.change && (item.summary || item.detail)) {
+      body.createDiv({ cls: "llm-bridge-codex-event-text", text: truncateText([item.summary, item.detail].filter(Boolean).join("\n"), 420) });
+    }
+    this.renderCodexSourceRef(body, item.sourceRef, developerMode);
   }
 
   private formatCodexFeedSummary(item: CodexRunFeedItem, developerMode: boolean): string {
@@ -4340,16 +4454,8 @@ export class LLMBridgeView extends ItemView {
       const status = row.createDiv({ cls: `llm-bridge-codex-step-status is-${step.status}`, text: step.status });
       if (step.durationMs) row.createDiv({ cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(step.durationMs) });
       if (step.exitCode !== undefined) row.createDiv({ cls: "llm-bridge-codex-step-exit", text: `exit ${step.exitCode}` });
-      this.renderCodexCollapsedText(row, "command", step.command);
-      if (step.cwd && developerMode) row.createDiv({ cls: "llm-bridge-codex-step-cwd", text: `cwd: ${step.cwd}`, attr: { title: step.cwd } });
-      this.renderCodexCollapsedText(row, "stdout", step.stdout);
-      this.renderCodexCollapsedText(row, "stderr", step.stderr);
-      if (developerMode) {
-        this.renderCodexCollapsedText(row, "args", step.args);
-        this.renderCodexCollapsedText(row, "structured result", formatCodexRunValue(step.structuredResult));
-        this.renderCodexCollapsedText(row, "content items", formatCodexRunValue(step.contentItems));
-        this.renderCodexSourceRef(row, step.sourceRef, developerMode);
-      }
+      this.renderCodexStepPayload(row, step, developerMode);
+      if (developerMode) this.renderCodexSourceRef(row, step.sourceRef, developerMode);
       label.toggleClass("is-running", step.status === "running");
       status.toggleClass("is-hidden", false);
     }
@@ -4400,6 +4506,62 @@ export class LLMBridgeView extends ItemView {
     const panel = details.createDiv({ cls: "llm-bridge-codex-detail-panel" });
     panel.createDiv({ cls: "llm-bridge-codex-detail-panel-title", text: displayLabel });
     panel.createEl("pre", { cls: "llm-bridge-codex-detail-pre", text: bodyText });
+  }
+
+  private renderCodexStepPayload(
+    parent: HTMLElement,
+    step: CodexRunStepGroup,
+    developerMode: boolean,
+    options: { inlineShellPanel?: boolean } = {},
+  ): void {
+    if (step.kind === "command" || step.command) {
+      if (options.inlineShellPanel) {
+        this.renderCodexShellPanel(parent, step);
+      } else {
+        this.renderCodexShellDetails(parent, step);
+      }
+    } else {
+      this.renderCodexCollapsedText(parent, "stdout", step.stdout);
+      this.renderCodexCollapsedText(parent, "stderr", step.stderr);
+    }
+    if (step.cwd && developerMode) parent.createDiv({ cls: "llm-bridge-codex-step-cwd", text: `cwd: ${step.cwd}`, attr: { title: step.cwd } });
+    if (developerMode) {
+      this.renderCodexCollapsedText(parent, "args", step.args);
+      this.renderCodexCollapsedText(parent, "structured result", formatCodexRunValue(step.structuredResult));
+      this.renderCodexCollapsedText(parent, "content items", formatCodexRunValue(step.contentItems));
+    }
+  }
+
+  private renderCodexShellDetails(parent: HTMLElement, step: CodexRunStepGroup): void {
+    const bodyText = this.buildCodexShellText(step);
+    if (!bodyText) return;
+    const details = parent.createEl("details", { cls: "llm-bridge-codex-detail llm-bridge-codex-detail-command llm-bridge-codex-detail-shell" });
+    const lines = bodyText.split(/\r?\n/).filter((line) => line.length > 0).length || 1;
+    const bytes = new TextEncoder().encode(bodyText).length;
+    const sizeText = bytes >= 1024 ? `${Math.round(bytes / 102.4) / 10} KB` : `${bytes} B`;
+    details.createEl("summary", { text: `Shell · ${lines} line${lines === 1 ? "" : "s"} · ${sizeText}` });
+    const panel = details.createDiv({ cls: "llm-bridge-codex-detail-panel llm-bridge-codex-shell-panel" });
+    panel.createDiv({ cls: "llm-bridge-codex-detail-panel-title", text: "Shell" });
+    panel.createEl("pre", { cls: "llm-bridge-codex-detail-pre llm-bridge-codex-shell-pre", text: bodyText });
+  }
+
+  private renderCodexShellPanel(parent: HTMLElement, step: CodexRunStepGroup): void {
+    const bodyText = this.buildCodexShellText(step);
+    if (!bodyText) return;
+    const panel = parent.createDiv({ cls: "llm-bridge-codex-shell-panel llm-bridge-codex-inline-shell-panel" });
+    panel.createDiv({ cls: "llm-bridge-codex-detail-panel-title", text: "Shell" });
+    panel.createEl("pre", { cls: "llm-bridge-codex-detail-pre llm-bridge-codex-shell-pre", text: bodyText });
+    const footer = panel.createDiv({ cls: "llm-bridge-codex-shell-footer" });
+    const ok = step.status !== "failed" && (step.exitCode === undefined || step.exitCode === 0);
+    footer.createEl("span", { cls: ok ? "is-success" : "is-failed", text: ok ? "✓ success" : "failed" });
+  }
+
+  private buildCodexShellText(step: CodexRunStepGroup): string {
+    const sections: string[] = [];
+    if (step.command?.trim()) sections.push(`$ ${step.command.trim()}`);
+    if (step.stdout?.trim()) sections.push(step.stdout.trimEnd());
+    if (step.stderr?.trim()) sections.push(step.stderr.trimEnd());
+    return sections.join("\n\n").trim();
   }
 
   private renderCodexSourceRef(parent: HTMLElement, sourceRef?: import("./runtime/core/types").RuntimeSourceRef, developerMode = false): void {
