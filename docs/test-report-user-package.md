@@ -4,7 +4,7 @@
 > 验证 dist/user-package 发行包的完整性、CJS 加载安全性与 managed runtime 分发边界。
 > V17-F3：默认 download-on-first-run 不打包大 binary；offline package 才 bundling 当前平台 runtime。
 
-- **测试时间**: 2026-07-06T05:50:16.346Z
+- **测试时间**: 2026-07-06T06:08:44.609Z
 - **userPackageStatus**: pass
 - **containsPiSdk**: true
 - **canRequirePiSdk**: true
@@ -21,7 +21,10 @@
 - **releasePackageMode**: download-on-first-run
 - **containsRuntimeBinary**: false
 - **runtimeDownloadRequired**: true
-- **runtimeCanInstallFromPinnedArtifact**: true
+- **runtimePinnedArtifactMetadataComplete**: true
+- **runtimeInstallerExecutable**: true
+- **runtimeInstallRequiresSystemNpm**: false
+- **runtimeInstallRequiresSystemTar**: false
 - **releasePackageContainsCodexRuntime**: true
 - **releasePackageSizeMB**: 97.8
 - **runtimeBinarySha256Verified**: false
@@ -44,7 +47,10 @@
 - **releasePackageMode**: download-on-first-run 为普通用户默认；bundled-platform-runtime 仅用于离线朋友版/平台专用包；external-fallback-dev 仅开发者兼容路径
 - **containsRuntimeBinary**: 当前包是否实际包含 runtime binary
 - **runtimeDownloadRequired**: 当前包是否需要首次运行安装 runtime
-- **runtimeCanInstallFromPinnedArtifact**: manifest + installer + pinned artifact metadata 完整，首次运行可从固定 artifact 安装
+- **runtimePinnedArtifactMetadataComplete**: manifest 中固定 artifact package/tarball/tarballSha256/vendorPath/size/sha256 完整
+- **runtimeInstallerExecutable**: 包内 installer 不依赖系统 npm/tar，可由 Node/Electron 执行
+- **runtimeInstallRequiresSystemNpm**: runtime installer 是否依赖系统 npm CLI
+- **runtimeInstallRequiresSystemTar**: runtime installer 是否依赖系统 tar CLI
 - **releasePackageContainsCodexRuntime**: dist/user-package 已包含 runtime-manifest.json 与 installer/downloader；默认不包含 codex.exe
 - **releasePackageSizeMB**: dist/user-package 当前产物大小，用于 release 风险记录
 - **runtimeBinarySha256Verified**: offline package 中当前平台 runtime binary sha256 已按 manifest 校验；默认包为 false

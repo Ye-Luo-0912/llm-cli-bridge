@@ -3,7 +3,7 @@
 > 本报告由 `scripts/generate-runtime-distribution-report.mjs` 自动生成。
 > 默认包采用 download-on-first-run，不复制 Codex runtime 大 binary；offline package 才 bundling 当前平台 binary。
 
-- **测试时间**: 2026-07-06T05:49:43.501Z
+- **测试时间**: 2026-07-06T06:09:07.688Z
 - **defaultPackageDir**: D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\dist\user-package
 - **defaultPackageMode**: download-on-first-run
 - **defaultPackageSizeMB**: 97.8
@@ -15,7 +15,11 @@
 - **runtimeDownloadRequired**: true
 - **containsRuntimeBinary**: false
 - **runtimePinnedArtifactVerified**: true
-- **runtimeCanInstallFromPinnedArtifact**: true
+- **runtimePinnedArtifactMetadataComplete**: true
+- **runtimeInstallerExecutable**: true
+- **runtimeInstallSmokeStatus**: pass
+- **runtimeInstallRequiresSystemNpm**: false
+- **runtimeInstallRequiresSystemTar**: false
 - **defaultManifestExists**: true
 - **defaultInstallerExists**: true
 - **runtimeVersion**: 0.142.5
