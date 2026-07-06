@@ -729,7 +729,7 @@ export class LLMBridgeView extends ItemView {
     this.composerFileRefsEl = inputRow.createDiv({ cls: "llm-bridge-composer-file-refs" });
     this.inputEl = inputRow.createEl("textarea", {
       cls: "llm-bridge-input",
-      attr: { placeholder: "输入消息，或使用 / 命令…", rows: "3" },
+      attr: { placeholder: "要求后续变更", rows: "3" },
     });
     this.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
       if (this.mentionPickerEl && !this.mentionPickerEl.hasAttribute("hidden")) {

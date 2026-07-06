@@ -17366,7 +17366,7 @@ if (!runV214BUnit) {
       const composerOk = viewSrc.includes("llm-bridge-composer-bar")
         && viewSrc.includes("llm-bridge-composer-tools-left")
         && viewSrc.includes("llm-bridge-composer-tools-right")
-        && viewSrc.includes("输入消息，或使用 / 命令…")
+        && viewSrc.includes("要求后续变更")
         && viewSrc.includes("llm-bridge-model-effort-picker")
         && viewSrc.includes("llm-bridge-model-list")
         && viewSrc.includes("llm-bridge-effort-list")
@@ -18809,7 +18809,10 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-context-tag-note")
       && stylesSrc.includes(".llm-bridge-context-tag.is-active-file:focus-visible")
       && stylesSrc.includes(".llm-bridge-command-menu-label")
-      && stylesSrc.includes(".llm-bridge-composer-step-pill");
+      && stylesSrc.includes(".llm-bridge-composer-step-pill")
+      && stylesSrc.includes("V17-G9: Codex-like composer surface and active note text")
+      && stylesSrc.includes(".llm-bridge-context-tag-note .llm-bridge-context-tag")
+      && stylesSrc.includes(".llm-bridge-input::placeholder");
     addTest("V17-G8 UI: Codex 瀑布流去重、活动笔记兜底和输入/文件表面继续收口",
       ok ? "pass" : "fail", "");
   }
