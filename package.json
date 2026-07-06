@@ -28,7 +28,8 @@
     "report:runtime-distribution": "node scripts/generate-runtime-distribution-report.mjs",
     "report:codex-capability-matrix": "node scripts/generate-codex-capability-matrix.mjs",
     "report:codex-timeline-smoke": "node scripts/generate-codex-timeline-smoke.mjs",
-    "smoke:codex-real-protocol-capability": "node scripts/codex-real-protocol-capability-smoke.mjs"
+    "smoke:codex-real-protocol-capability": "node scripts/codex-real-protocol-capability-smoke.mjs",
+    "smoke:codex-real-obsidian-runtime-ux": "node scripts/codex-real-obsidian-runtime-ux-smoke.mjs"
   },
   "keywords": [
     "obsidian",
