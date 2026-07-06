@@ -4484,9 +4484,7 @@ export class LLMBridgeView extends ItemView {
         void this.openPathWithSystemDefault(target);
       });
       if (item.change.diff) {
-        const details = row.createEl("details", { cls: "llm-bridge-codex-diff-preview" });
-        details.createEl("summary", { text: "Diff preview" });
-        details.createEl("pre", { cls: "llm-bridge-codex-diff-pre", text: item.change.diff });
+        this.renderCodexDiffPreview(row, item.change.diff, item.change.diffSummary);
       }
     }
 
@@ -4594,9 +4592,7 @@ export class LLMBridgeView extends ItemView {
         void this.openPathWithSystemDefault(target);
       });
       if (item.change.diff) {
-        const details = body.createEl("details", { cls: "llm-bridge-codex-diff-preview" });
-        details.createEl("summary", { text: "Diff preview" });
-        details.createEl("pre", { cls: "llm-bridge-codex-diff-pre", text: item.change.diff });
+        this.renderCodexDiffPreview(body, item.change.diff, item.change.diffSummary);
       }
     }
     if (item.step) {
@@ -4658,12 +4654,21 @@ export class LLMBridgeView extends ItemView {
         void this.openPathWithSystemDefault(target);
       });
       if (change.diff) {
-        const details = row.createEl("details", { cls: "llm-bridge-codex-diff-preview" });
-        details.createEl("summary", { text: "Diff preview" });
-        details.createEl("pre", { cls: "llm-bridge-codex-diff-pre", text: change.diff });
+        this.renderCodexDiffPreview(row, change.diff, change.diffSummary);
       }
       this.renderCodexSourceRef(row, change.sourceRef, developerMode);
     }
+  }
+
+  private renderCodexDiffPreview(parent: HTMLElement, diff: string, diffSummary?: string): void {
+    const summaryText = diffSummary?.trim();
+    const details = parent.createEl("details", { cls: "llm-bridge-codex-diff-preview" });
+    const label = summaryText ? `Diff · ${truncateText(summaryText, 72)}` : "Diff";
+    details.createEl("summary", {
+      text: label,
+      attr: { title: summaryText ? `Diff preview: ${summaryText}` : "Diff preview" },
+    });
+    details.createEl("pre", { cls: "llm-bridge-codex-diff-pre", text: diff });
   }
 
   private renderCodexStepsTimeline(parent: HTMLElement, steps: ReadonlyArray<CodexRunStepGroup>, developerMode: boolean): void {

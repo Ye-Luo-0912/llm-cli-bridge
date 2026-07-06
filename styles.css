@@ -8271,7 +8271,20 @@
 }
 
 .llm-bridge-codex-diff-preview summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
   color: var(--text-muted);
+  font-size: var(--font-small);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-diff-preview summary:hover {
+  color: var(--text-normal);
 }
 
 .llm-bridge-codex-diff-pre {
