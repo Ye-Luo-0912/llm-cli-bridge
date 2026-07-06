@@ -6539,7 +6539,7 @@ export class LLMBridgeView extends ItemView {
     const isContextCompaction = current.kind === "contextCompaction";
     const label = this.getComposerStatusLabel(turn, current, isActive);
     const stepText = isActive
-      ? `第 ${Math.max(1, currentIndex + 1)} / ${nodes.length} 步`
+      ? `第 ${Math.max(1, currentIndex + 1)}/${nodes.length} 步`
       : isContextCompaction ? `已完成 ${nodes.length} 步` : "";
     const kind = current.status === "blocked"
       ? "blocked"

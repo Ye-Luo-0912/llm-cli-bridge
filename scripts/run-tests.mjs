@@ -18784,6 +18784,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('selTag.textContent = selectionText ? `Selection ${selectionText}` : "Selection";')
       && viewSrc.includes("private renderUserMessageContent(content: HTMLElement, text: string): void")
       && viewSrc.includes('cls: "llm-bridge-user-prompt-collapse"')
+      && viewSrc.includes('`第 ${Math.max(1, currentIndex + 1)}/${nodes.length} 步`')
       && stylesSrc.includes("V17-G8: Codex desktop-style run stream")
       && stylesSrc.includes(".llm-bridge-msg-content-suppressed")
       && stylesSrc.includes(".llm-bridge-codex-event-block.llm-bridge-codex-feed-item")
@@ -18792,6 +18793,7 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-name")
       && stylesSrc.includes(".llm-bridge-approval-dock")
       && stylesSrc.includes(".llm-bridge-user-prompt-summary")
+      && stylesSrc.includes(".llm-bridge-composer-step-pill::before")
       && stylesSrc.includes(".llm-bridge-command-menu-label")
       && stylesSrc.includes(".llm-bridge-composer-step-pill");
     addTest("V17-G8 UI: Codex 瀑布流去重、活动笔记兜底和输入/文件表面继续收口",
