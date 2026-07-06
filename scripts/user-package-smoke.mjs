@@ -330,7 +330,7 @@ function writeReport(r) {
     `- **containsCodexManagedRuntime**: ${r.containsCodexManagedRuntime}（V17-F1 任务 E）`,
     `- **codexRuntimeSha256Valid**: ${r.codexRuntimeSha256Valid}（V17-F1 任务 E）`,
     `- **codexRuntimeExecutable**: ${r.codexRuntimeExecutable}（V17-F1 任务 E）`,
-    `- **codexRuntimePinnedVersion**: ${r.codexRuntimePinnedVersion || "null"}（V17-F1 任务 E）`,
+    `- **codexRuntimePinnedVersion**: ${r.codexRuntimePinnedVersion || "null"}`,
     `- **codexRuntimeFixture**: ${r.codexRuntimeFixture}（V17-F1 任务 E：fixture=true 不标 production ready）`,
     "",
     "## 验证项说明",

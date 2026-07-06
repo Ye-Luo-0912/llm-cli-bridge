@@ -1,27 +1,28 @@
 {
-  "runtimeId": "codex-managed-app-server-fixture",
-  "version": "0.1.0-fixture",
-  "protocolVersion": "2025-07-06",
-  "fixture": true,
+  "runtimeId": "codex-managed-app-server",
+  "version": "0.142.5",
+  "protocolVersion": "2026-07-06",
+  "fixture": false,
   "appServerArgs": ["app-server"],
+  "source": {
+    "type": "npm-pack",
+    "packageName": "@openai/codex",
+    "packageVersion": "0.142.5",
+    "artifactCacheDir": ".tmp/codex-managed-runtime-artifacts"
+  },
   "platforms": {
     "win32-x64": {
-      "path": "runtime/win32-x64/codex-app-server-fake.bat",
-      "sha256": "82256d51ab011242eae463a66ebe76dcf4ba4b5108e952afe06c76c27c3d35fd",
-      "size": 159,
-      "executableName": "codex-app-server-fake.bat"
-    },
-    "linux-x64": {
-      "path": "runtime/linux-x64/codex-app-server-fake",
-      "sha256": "ae909b49b004cde0866b2eff1366401fa0dd882dc9cd618aa620dd7605618369",
-      "size": 155,
-      "executableName": "codex-app-server-fake"
-    },
-    "darwin-x64": {
-      "path": "runtime/darwin-x64/codex-app-server-fake",
-      "sha256": "f48aa3dcaa582cfe824cb14eef655878d89fbadcd5b05756bf2571424e936db6",
-      "size": 156,
-      "executableName": "codex-app-server-fake"
+      "path": "runtime/win32-x64/codex.exe",
+      "sha256": "645f5a1a0347abb2b31fae4e594c198ad00e3a4b4a999dcfa3a66c0d0f8cd43b",
+      "size": 323143472,
+      "executableName": "codex.exe",
+      "artifact": {
+        "package": "@openai/codex@0.142.5-win32-x64",
+        "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.142.5-win32-x64.tgz",
+        "tarballSha256": "b828ee8f4056d9d7061af1f57bc6b3f041f8629a4488ac9a4a7838237a8d0957",
+        "integrity": "sha512-a+wI4PEx9a2fg6V5ueTTDkOkr1XpEvA5RFXIbo/L2hOfzMmGtyRnbG24bCGu5Q2RSgVxSQV0aLkdb3vdYMNH9A==",
+        "vendorPath": "vendor/x86_64-pc-windows-msvc/bin/codex.exe"
+      }
     }
   }
 }

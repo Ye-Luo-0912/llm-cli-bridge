@@ -6121,18 +6121,22 @@ if (runMode !== "all" && runMode !== "unit") {
         // smoke 脚本写入 codexUserReady 到报告
         // V17-E1 任务 E：改用 deriveCodexUserReady(report, matrix) gate，输出 ${codexUserReady ? "true" : "false"}
         const smokeWritesReady = /- \*\*codexUserReady\*\*: \$\{(report\.smokeStatus === "pass"|codexUserReady \? "true" : "false")/.test(smokeSrc);
-        // summary 脚本解析 codexUserReady
-        const summaryParsesReady = summarySrc.includes("codexUserReady") && /true\|false/.test(summarySrc) && summarySrc.includes("userReadyMatch");
+        // summary 脚本解析 codexUserReady（V17-F2：优先从 managed runtime 报告读取）
+        const summaryParsesReady = summarySrc.includes("parseManagedRuntimeReport") &&
+                                    summarySrc.includes("codexUserReady") &&
+                                    summarySrc.includes("managedCodexUserReady");
         // summary 输出 codexUserReady 字段
-        const summaryOutputsReady = /- \*\*codexUserReady\*\*: \$\{codexSmoke\.codexUserReady/.test(summarySrc);
-        // skip 时不写"主线闭环测试通过"
-        const skipNotPass = /codexSmokeSkipped/.test(summarySrc) && /real smoke skipped/.test(summarySrc);
-        // 拆分 fixture/unit pass 与 real smoke pass
-        const splitsLayers = /fixture\/unit 层 pass/.test(summarySrc) && /real smoke 层/.test(summarySrc);
-        // codexSmokePassed 才写"闭环测试通过（含 real smoke）"
-        const passRequiresSmoke = /codexSmokePassed/.test(summarySrc) && /real smoke pass/.test(summarySrc) && !/totalFailed === 0 && auditFailures\.length === 0 && !codexSmokePassed\)\s*{[^}]*主线闭环测试通过/.test(summarySrc);
+        const summaryOutputsReady = /- \*\*codexUserReady\*\*: \$\{managedCodexUserReady/.test(summarySrc);
+        // fixture/skip 时不写主线通过
+        const skipNotPass = /managedRuntimeSkipped/.test(summarySrc) && /Managed Codex Runtime 未完整验证/.test(summarySrc);
+        // 拆分 fixture/unit pass 与 managed runtime pass
+        const splitsLayers = /fixture\/unit 层 pass/.test(summarySrc) && /Managed Codex Runtime/.test(summarySrc);
+        // managedRuntimePassed 才写主线通过
+        const passRequiresSmoke = /managedRuntimePassed/.test(summarySrc) &&
+                                  /Managed Codex Runtime smoke pass/.test(summarySrc) &&
+                                  /managedProtocolStatus !== "pass"/.test(summarySrc);
 
-        addTest("V17-E E: codex-app-server-smoke 写入 codexUserReady + generate-test-summary 解析/输出 + skip 不写主线闭环通过 + 拆分 fixture/real smoke 层",
+        addTest("V17-E/F2: codex/managed smoke 写入 codexUserReady + generate-test-summary 解析/输出 + skip 不写主线通过 + 拆分 fixture/managed runtime 层",
           smokeWritesReady && summaryParsesReady && summaryOutputsReady && skipNotPass && splitsLayers && passRequiresSmoke ? "pass" : "fail",
           `smokeWrites=${smokeWritesReady} summaryParses=${summaryParsesReady} summaryOutputs=${summaryOutputsReady} skipNotPass=${skipNotPass} splitsLayers=${splitsLayers} passRequiresSmoke=${passRequiresSmoke}`);
       }
@@ -6275,8 +6279,10 @@ if (runMode !== "all" && runMode !== "unit") {
 
         // 任务 A：types.ts 含 CodexManagedRuntimeManifest 接口
         const typesHasManifest = typesSrc.includes("CodexManagedRuntimeManifest") && /runtimeId/.test(typesSrc) && /protocolVersion/.test(typesSrc) && /platforms/.test(typesSrc);
-        // 任务 A：manifest 文件存在且结构完整（runtimeId/version/protocolVersion/platforms）+ fixture=true
-        const manifestStructOk = manifestExists && manifestOk && manifestFixture && manifestPlatforms >= 3;
+        const fixtureManifestPath = join(PROJECT_ROOT, "src", "runtime", "providers", "codex-managed-app-server", "runtime-manifest.fixture.json");
+        const fixtureManifestExists = existsSync(fixtureManifestPath);
+        // V17-F2：production manifest fixture=false，当前平台可先单 entry；fixture manifest 单独保留测试数据。
+        const manifestStructOk = manifestExists && manifestOk && !manifestFixture && manifestPlatforms >= 1 && fixtureManifestExists;
 
         // 任务 B：resolver 导出 resolveManagedRuntime / resolveManifestPath / getPlatformKey
         const resolverExports = resolverSrc.includes("export function resolveManagedRuntime") &&
@@ -6313,9 +6319,9 @@ if (runMode !== "all" && runMode !== "unit") {
         const cOk = providerExtends && providerId && providerOverrides && coreTypesHasProviderId && parentHasTemplateMethod;
         const dOk = typesHasBackendMode && autoManagedFirst && settingsHasOption;
 
-        addTest("V17-F1 A+B+C+D: managed runtime 组件结构（manifest + resolver + provider + BackendMode + auto 链 + settings）",
+        addTest("V17-F2 A+B+C+D: managed runtime 组件结构（production manifest + fixture manifest + resolver + provider + BackendMode + auto 链 + settings）",
           aOk && bOk && cOk && dOk ? "pass" : "fail",
-          `a=${aOk} (typesManifest=${typesHasManifest} manifestExists=${manifestExists} manifestOk=${manifestOk} fixture=${manifestFixture} platforms=${manifestPlatforms}) b=${bOk} (exports=${resolverExports} sha=${resolverChecksSha} exec=${resolverChecksExec} resultIf=${resolverHasResultInterface}) c=${cOk} (extends=${providerExtends} providerId=${providerId} overrides=${providerOverrides} coreTypesProviderId=${coreTypesHasProviderId} templateMethod=${parentHasTemplateMethod}) d=${dOk} (backendMode=${typesHasBackendMode} autoManagedFirst=${autoManagedFirst} settingsOption=${settingsHasOption})`);
+          `a=${aOk} (typesManifest=${typesHasManifest} manifestExists=${manifestExists} fixtureManifest=${fixtureManifestExists} manifestOk=${manifestOk} fixture=${manifestFixture} platforms=${manifestPlatforms}) b=${bOk} (exports=${resolverExports} sha=${resolverChecksSha} exec=${resolverChecksExec} resultIf=${resolverHasResultInterface}) c=${cOk} (extends=${providerExtends} providerId=${providerId} overrides=${providerOverrides} coreTypesProviderId=${coreTypesHasProviderId} templateMethod=${parentHasTemplateMethod}) d=${dOk} (backendMode=${typesHasBackendMode} autoManagedFirst=${autoManagedFirst} settingsOption=${settingsHasOption})`);
       }
 
       // ===== V17-F1 任务 E+F：user-package + smoke 脚本集成 managed runtime =====
@@ -6340,15 +6346,18 @@ if (runMode !== "all" && runMode !== "unit") {
                                     managedSmokeSrc.includes("sha256") &&
                                     managedSmokeSrc.includes("executable") &&
                                     managedSmokeSrc.includes("runtimeSmokeStatus");
-        // 任务 F：fixture-only 不标 user-ready
-        const smokeFixtureOnlyNotReady = managedSmokeSrc.includes("fixture-only") && !/codexUserReady\s*=\s*true/.test(managedSmokeSrc);
+        // V17-F2：production smoke 必须执行 protocol proof，fixture-only 只能 explicit fixture manifest skip
+        const smokeProtocolProof = managedSmokeSrc.includes("runProtocolSmoke") &&
+                                   managedSmokeSrc.includes("turn/completed") &&
+                                   managedSmokeSrc.includes("codexUserReady") &&
+                                   managedSmokeSrc.includes("skip-fixture");
 
         const eOk = buildCopiesManifest && smokeChecksManaged;
-        const fOk = hasSmokeScript && smokeVerifiesChain && smokeFixtureOnlyNotReady;
+        const fOk = hasSmokeScript && smokeVerifiesChain && smokeProtocolProof;
 
-        addTest("V17-F1 E+F: user-package 集成 managed runtime（build 复制 + smoke 5 字段）+ managed runtime smoke 脚本（resolver 校验链 + fixture-only 不标 ready）",
+        addTest("V17-F2 E+F: user-package 集成 managed runtime（build 安装复制 + smoke 5 字段）+ managed runtime smoke 脚本（resolver 校验链 + protocol proof）",
           eOk && fOk ? "pass" : "fail",
-          `e=${eOk} (buildCopiesManifest=${buildCopiesManifest} smokeChecksManaged=${smokeChecksManaged}) f=${fOk} (hasSmokeScript=${hasSmokeScript} verifiesChain=${smokeVerifiesChain} fixtureNotReady=${smokeFixtureOnlyNotReady})`);
+          `e=${eOk} (buildCopiesManifest=${buildCopiesManifest} smokeChecksManaged=${smokeChecksManaged}) f=${fOk} (hasSmokeScript=${hasSmokeScript} verifiesChain=${smokeVerifiesChain} protocolProof=${smokeProtocolProof})`);
       }
 
       // ===== V17-F1.1 任务 F：resolver 行为测试（sha mismatch / platform missing / executable fail） =====
@@ -19789,8 +19798,8 @@ if (!runCodexSchemaAlignment) {
     }
 
     // ---- Test 24: summary 报告含 P2 必需审计字段（testedCodeCommitSha 等）----
-    // P2 要求 summary 显式记录：testedCodeCommitSha / reportCommitSha / reportParentSha /
-    // unitReportCommitSha / processReportCommitSha / codexSmokeStatus。
+    // V17-F2 要求 summary 显式记录：testedCodeCommitSha / reportCommitSha / reportParentSha /
+    // unitReportCommitSha / processReportCommitSha / Managed Codex Runtime gate。
     // 此测试校验这些字段都存在且 testedCodeCommitSha 为合法 sha 格式；
     // 实际的 sha 一致性 / 过期校验由 generate-test-summary.mjs 的审计模式（exit 1）兜底。
     {
@@ -19801,7 +19810,7 @@ if (!runCodexSchemaAlignment) {
       let hasReportParentSha = false;
       let hasUnitReportSha = false;
       let hasProcessReportSha = false;
-      let hasCodexSmokeStatus = false;
+      let hasManagedRuntimeGate = false;
       let capturedTestedSha = "";
       if (summaryExists) {
         const txt = readFileSync(summaryPath, "utf8");
@@ -19811,37 +19820,40 @@ if (!runCodexSchemaAlignment) {
         hasReportParentSha = /- \*\*reportParentSha\*\*:/.test(txt);
         hasUnitReportSha = /- \*\*unitReportCommitSha\*\*:/.test(txt);
         hasProcessReportSha = /- \*\*processReportCommitSha\*\*:/.test(txt);
-        hasCodexSmokeStatus = /- \*\*codexSmokeStatus\*\*: (skip|pass|handshake-only|fail)/.test(txt);
+        hasManagedRuntimeGate = /- \*\*codexManagedResolverSmokeStatus\*\*:/.test(txt) &&
+                                /- \*\*codexManagedRuntimeSmokeStatus\*\*:/.test(txt) &&
+                                /- \*\*codexManagedAppServerProtocolStatus\*\*:/.test(txt) &&
+                                /- \*\*codexUserReady\*\*:/.test(txt);
       }
       const ok = summaryExists && hasTestedCodeSha && hasReportCommitSha && hasReportParentSha
-        && hasUnitReportSha && hasProcessReportSha && hasCodexSmokeStatus;
-      addTest("Test report integrity: summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus）",
+        && hasUnitReportSha && hasProcessReportSha && hasManagedRuntimeGate;
+      addTest("Test report integrity: summary 含 Managed Codex Runtime 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/managed gate）",
         ok ? "pass" : "fail",
-        `exists=${summaryExists} testedSha=${hasTestedCodeSha} reportSha=${hasReportCommitSha} parentSha=${hasReportParentSha} unitSha=${hasUnitReportSha} processSha=${hasProcessReportSha} smokeStatus=${hasCodexSmokeStatus} capturedTestedSha=${capturedTestedSha.slice(0, 12)}`);
+        `exists=${summaryExists} testedSha=${hasTestedCodeSha} reportSha=${hasReportCommitSha} parentSha=${hasReportParentSha} unitSha=${hasUnitReportSha} processSha=${hasProcessReportSha} managedGate=${hasManagedRuntimeGate} capturedTestedSha=${capturedTestedSha.slice(0, 12)}`);
     }
 
     // ---- Test 25: 审计模式下 testedCodeCommitSha 不匹配 → exit 1（generate-test-summary.mjs 行为）----
     {
       // 验证 generate-test-summary.mjs 脚本存在且包含 P2 审计失败 → exit 1 逻辑：
       // - testedCodeCommitSha 不匹配检查
-      // - codexSmokeStatus 异常检查
+      // - Managed Codex Runtime gate 异常检查
       const scriptPath = join(PROJECT_ROOT, "scripts", "generate-test-summary.mjs");
       const scriptExists = existsSync(scriptPath);
       let hasAuditFailExit = false;
       let hasTestedCodeShaCheck = false;
-      let hasCodexSmokeCheck = false;
+      let hasManagedRuntimeGateCheck = false;
       let hasDocsOnlyLogic = false;
       if (scriptExists) {
         const txt = readFileSync(scriptPath, "utf8");
         hasAuditFailExit = txt.includes("auditFailures.length > 0") && txt.includes("process.exit(1)");
         hasTestedCodeShaCheck = txt.includes("testedCodeCommitSha 不匹配") || txt.includes("与 testedCodeCommitSha 不匹配");
-        hasCodexSmokeCheck = txt.includes("codex smoke 状态异常") || txt.includes("codexSmokeStatus");
+        hasManagedRuntimeGateCheck = txt.includes("managed runtime gate 未通过") && txt.includes("managedProtocolStatus");
         hasDocsOnlyLogic = txt.includes("isDocsOnlyCommit") && txt.includes("docs-only");
       }
-      const ok = scriptExists && hasAuditFailExit && hasTestedCodeShaCheck && hasCodexSmokeCheck && hasDocsOnlyLogic;
-      addTest("Test report integrity: 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑）",
+      const ok = scriptExists && hasAuditFailExit && hasTestedCodeShaCheck && hasManagedRuntimeGateCheck && hasDocsOnlyLogic;
+      addTest("Test report integrity: 审计模式 testedCodeCommitSha 不匹配 + managed runtime gate 异常 → exit 1",
         ok ? "pass" : "fail",
-        `scriptExists=${scriptExists} auditFailExit=${hasAuditFailExit} testedCodeShaCheck=${hasTestedCodeShaCheck} codexSmokeCheck=${hasCodexSmokeCheck} docsOnlyLogic=${hasDocsOnlyLogic}`);
+        `scriptExists=${scriptExists} auditFailExit=${hasAuditFailExit} testedCodeShaCheck=${hasTestedCodeShaCheck} managedGateCheck=${hasManagedRuntimeGateCheck} docsOnlyLogic=${hasDocsOnlyLogic}`);
     }
 
   } catch (e) {

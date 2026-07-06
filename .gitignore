@@ -39,3 +39,12 @@ Thumbs.db
 
 # Release 打包产物（不入库，仅本地生成）
 release/
+
+# Codex managed runtime artifacts（由 pinned manifest/source 安装，不进代码提交）
+.tmp/
+src/runtime/providers/codex-managed-app-server/runtime/win32-x64/codex.exe
+src/runtime/providers/codex-managed-app-server/runtime/win32-arm64/codex.exe
+src/runtime/providers/codex-managed-app-server/runtime/linux-x64/codex
+src/runtime/providers/codex-managed-app-server/runtime/linux-arm64/codex
+src/runtime/providers/codex-managed-app-server/runtime/darwin-x64/codex
+src/runtime/providers/codex-managed-app-server/runtime/darwin-arm64/codex

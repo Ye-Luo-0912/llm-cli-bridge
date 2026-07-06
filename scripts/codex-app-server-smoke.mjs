@@ -429,17 +429,22 @@ async function runSmoke(codexVersion) {
   // Step H4: thread/start
   let threadId;
   try {
+    const modelList = await client.request("model/list", {}, { timeout: 15000 });
+    const models = Array.isArray(modelList?.data) ? modelList.data : [];
+    const selected = models.find((m) => m?.isDefault && (m.model || m.id)) || models.find((m) => m?.model || m?.id);
+    const selectedModel = selected?.model || selected?.id || "gpt-5.5";
     const threadRes = await client.request("thread/start", {
-      config: {
-        model: "gpt-5",
-        sandboxPolicy: { mode: "workspace-write" },
-        personality: { name: "smoke" },
-      },
-      instructions: "You are a smoke test assistant. Reply concisely.",
+      model: selectedModel,
       cwd: PROJECT_ROOT,
+      approvalPolicy: "never",
+      sandbox: "workspace-write",
+      baseInstructions: "You are a smoke test assistant. Reply concisely.",
+      personality: "pragmatic",
+      ephemeral: true,
+      sessionStartSource: "clear",
     }, { timeout: 15000 });
     threadId = threadRes?.thread?.id;
-    step("handshake", "thread/start", !!threadId, `threadId=${threadId || "?"}`);
+    step("handshake", "thread/start", !!threadId, `threadId=${threadId || "?"} model=${selectedModel}`);
   } catch (e) {
     step("handshake", "thread/start", false, e?.message || String(e));
     try { proc.kill("SIGKILL"); } catch {}
@@ -503,7 +508,7 @@ async function runSmoke(codexVersion) {
   try {
     await client.request("turn/start", {
       threadId,
-      input: [{ type: "text", text: "Reply with exactly: SMOKE_OK" }],
+      input: [{ type: "text", text: "Reply with exactly: SMOKE_OK", text_elements: [] }],
     }, { timeout: 15000 });
     turnStartOk = true;
     step("turn", "turn/start request", true, `threadId=${threadId}`);

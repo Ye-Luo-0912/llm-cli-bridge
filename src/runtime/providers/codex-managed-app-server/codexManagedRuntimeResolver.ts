@@ -15,8 +15,9 @@
 //   1. manifest 存在且 JSON 合法
 //   2. 当前平台在 manifest.platforms 中有对应条目
 //   3. binary 文件存在
-//   4. sha256 匹配
-//   5. executable 权限（Windows: .exe/.bat/.cmd 扩展名；Unix: access X_OK）
+//   4. size 匹配
+//   5. sha256 匹配
+//   6. executable 权限（Windows: .exe/.bat/.cmd 扩展名；Unix: access X_OK）
 //
 // 本轮 manifest.fixture=true，fixture runtime 不是真实 app-server；
 // resolver 只校验 manifest/sha256/executable，不验证 app-server 协议。
@@ -47,6 +48,7 @@ export type ManagedRuntimeUnavailableReason =
   | "manifest-invalid"
   | "platform-not-found"
   | "path-not-exist"
+  | "size-mismatch"
   | "sha256-mismatch"
   | "not-executable";
 
@@ -140,8 +142,22 @@ export function resolveManagedRuntime(
     };
   }
 
-  // 5. sha256 匹配
+  // 5. size 匹配
   const fileBuf = readFileSync(runtimePath);
+  if (platformEntry.size !== fileBuf.length) {
+    return {
+      available: false,
+      runtimePath: null,
+      version: manifest.version || null,
+      protocolVersion: manifest.protocolVersion || null,
+      appServerArgs,
+      fixture,
+      reason: "size-mismatch",
+      error: `size mismatch: expected ${platformEntry.size}, got ${fileBuf.length}`,
+    };
+  }
+
+  // 6. sha256 匹配
   const actualSha256 = createHash("sha256").update(fileBuf).digest("hex");
   if (actualSha256 !== platformEntry.sha256) {
     return {
@@ -156,7 +172,7 @@ export function resolveManagedRuntime(
     };
   }
 
-  // 6. executable 权限
+  // 7. executable 权限
   const execCheck = checkExecutable(runtimePath, platform);
   if (!execCheck.ok) {
     return {

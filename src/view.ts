@@ -1840,6 +1840,7 @@ export class LLMBridgeView extends ItemView {
     // V17-B: pi-sdk 同样不提供 native write 直通 — 写操作走 Bridge-controlled custom tools。
     const providerNativeFileTools = providerId === "claude-sdk"
       || providerId === "codex-app-server"
+      || providerId === "codex-managed-app-server"
       || providerId === "claude-cli"
       || providerId === "mock";
     // bridge runtime file tools: 由 createRuntimeFileToolAdapter 提供（read-only adapter）

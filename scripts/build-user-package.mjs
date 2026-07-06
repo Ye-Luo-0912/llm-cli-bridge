@@ -154,8 +154,8 @@ for (const [pkgName, srcPath] of vendorPaths) {
 }
 console.log(`  ✓ vendor 完成：${copiedCount} 包复制，${skippedCount} 跳过`);
 
-// 4b. V17-F1 任务 E：复制 Codex Managed Runtime manifest + fixture binary
-console.log("\n[user-package] 步骤 4b: 复制 Codex Managed Runtime manifest + binary...");
+// 4b. V17-F2 任务 C：安装并复制 Codex Managed Runtime manifest + pinned binary
+console.log("\n[user-package] 步骤 4b: 安装并复制 Codex Managed Runtime manifest + pinned binary...");
 const managedRuntimeSrcDir = path.join(PROJECT_ROOT, "src", "runtime", "providers", "codex-managed-app-server");
 const managedRuntimeDestDir = path.join(OUT_DIR, "codex-managed-runtime");
 const managedManifestSrc = path.join(managedRuntimeSrcDir, "runtime-manifest.json");
@@ -168,6 +168,13 @@ if (!fs.existsSync(managedManifestSrc)) {
   process.exit(1);
 }
 
+try {
+  execSync("node scripts/install-codex-managed-runtime.mjs", { cwd: PROJECT_ROOT, stdio: "inherit" });
+} catch {
+  console.error("[user-package] managed runtime 安装失败，终止");
+  process.exit(1);
+}
+
 // 复制 manifest
 fs.mkdirSync(managedRuntimeDestDir, { recursive: true });
 fs.copyFileSync(managedManifestSrc, managedManifestDest);
@@ -176,9 +183,9 @@ console.log(`  ✓ runtime-manifest.json 已复制`);
 // 复制 runtime binary 目录（所有平台）
 if (fs.existsSync(managedRuntimeBinarySrcDir)) {
   copyDirSync(managedRuntimeBinarySrcDir, managedRuntimeBinaryDestDir);
-  console.log(`  ✓ runtime/ 目录已复制（含所有平台 fixture binary）`);
+  console.log(`  ✓ runtime/ 目录已复制（含 pinned managed binary + fixture manifests）`);
 } else {
-  console.log(`  ⚠ runtime/ 目录不存在（fixture binary 缺失）`);
+  console.log(`  ⚠ runtime/ 目录不存在（managed binary 缺失）`);
 }
 console.log(`  ✓ managed runtime 已集成到 user-package`);
 

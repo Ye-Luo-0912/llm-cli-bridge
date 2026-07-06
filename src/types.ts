@@ -74,6 +74,13 @@ export interface CodexManagedRuntimeManifest {
   fixture: boolean;
   /** 启动 app-server 的参数（默认 ["app-server"]） */
   appServerArgs: string[];
+  /** 真实 runtime 的固定 artifact/source；resolver 不下载，只用于安装脚本 */
+  source?: {
+    type: "npm-pack";
+    packageName: string;
+    packageVersion: string;
+    artifactCacheDir: string;
+  };
   /** 平台 -> binary 信息映射 */
   platforms: {
     [platformArch: string]: {
@@ -85,6 +92,14 @@ export interface CodexManagedRuntimeManifest {
       size: number;
       /** 可执行文件名（Windows 含 .exe/.bat，Unix 无扩展名） */
       executableName: string;
+      /** 固定 artifact 来源；安装脚本用它安装 pinned binary */
+      artifact?: {
+        package: string;
+        tarball: string;
+        tarballSha256: string;
+        integrity: string;
+        vendorPath: string;
+      };
     };
   };
 }

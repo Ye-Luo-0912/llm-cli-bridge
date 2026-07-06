@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// LLM CLI Bridge — Test report summary generator (P2: Codex app-server Runtime 主线闭环)
+// LLM CLI Bridge — Test report summary generator (Managed Codex Runtime 主线)
 //
 // 从 docs/test-report-unit.md + docs/test-report-process.md + docs/test-report-codex-smoke.md
 // 解析生成 docs/test-report-summary.md。不手写：所有数字/commit sha/运行命令均来自
@@ -12,7 +12,7 @@
 //   - 若当前 commit 修改 src/scripts/package.json/schema 等主线文件，
 //     则 testedCodeCommitSha = current HEAD（报告必须证明当前 commit）。
 // - unit / process 报告的 commit sha 必须一致，且等于 testedCodeCommitSha。
-// - codexSmokeStatus 必须为 skip 或 pass（fail 或缺失 → 审计失败）。
+// - Managed Codex Runtime gate 必须通过（resolver/runtime/protocol/codexUserReady）。
 // - 任一报告缺失 / 字段解析失败 / uncaught-unhandled 非 0 → 标记 fail，退出码 1。
 //
 // 运行：node scripts/generate-test-summary.mjs
@@ -30,6 +30,7 @@ const DOCS_DIR = join(PROJECT_ROOT, "docs");
 const UNIT_REPORT = join(DOCS_DIR, "test-report-unit.md");
 const PROCESS_REPORT = join(DOCS_DIR, "test-report-process.md");
 const CODEX_SMOKE_REPORT = join(DOCS_DIR, "test-report-codex-smoke.md");
+const CODEX_MANAGED_RUNTIME_REPORT = join(DOCS_DIR, "test-report-codex-managed-runtime.md");
 const USER_PACKAGE_REPORT = join(DOCS_DIR, "test-report-user-package.md"); // V17-E1 任务 D
 const SUMMARY_REPORT = join(DOCS_DIR, "test-report-summary.md");
 
@@ -215,7 +216,7 @@ function parseUserPackageReport(path) {
   const execMatch = text.match(/- \*\*codexRuntimeExecutable\*\*: (true|false)/);
   result.codexRuntimeExecutable = execMatch ? execMatch[1] : null;
 
-  const pinnedVerMatch = text.match(/- \*\*codexRuntimePinnedVersion\*\*: (\S+)/);
+  const pinnedVerMatch = text.match(/- \*\*codexRuntimePinnedVersion\*\*: ([^\r\n]+)/);
   result.codexRuntimePinnedVersion = pinnedVerMatch ? pinnedVerMatch[1] : null;
 
   const fixtureMatch = text.match(/- \*\*codexRuntimeFixture\*\*: (true|false)/);
@@ -223,6 +224,46 @@ function parseUserPackageReport(path) {
 
   if (result.userPackageStatus === null) {
     result.error = "userPackageStatus 字段解析失败";
+  }
+  return result;
+}
+
+// ============================================================
+// V17-F2：解析 Managed Codex Runtime production smoke 报告
+// ============================================================
+
+function parseManagedRuntimeReport(path) {
+  if (!existsSync(path)) {
+    return { label: "codex-managed-runtime", error: `报告文件不存在: ${path}` };
+  }
+  const text = readFileSync(path, "utf8");
+  const result = { label: "codex-managed-runtime", raw: text };
+  const fields = [
+    "resolverSmokeStatus",
+    "runtimeSmokeStatus",
+    "managedAppServerProtocolStatus",
+    "codexUserReady",
+    "manifestVersion",
+    "manifestFixture",
+    "sha256Valid",
+    "executableValid",
+    "appServerSpawnStatus",
+    "initializeStatus",
+    "initializedStatus",
+    "threadStartStatus",
+    "turnStartStatus",
+    "turnCompletedStatus",
+    "stopCancelStatus",
+    "noVaultRootPollution",
+  ];
+  for (const field of fields) {
+    const m = text.match(new RegExp(`- \\*\\*${field}\\*\\*: ([^\\r\\n]+)`));
+    result[field] = m ? m[1].trim() : null;
+  }
+  const missing = ["resolverSmokeStatus", "runtimeSmokeStatus", "managedAppServerProtocolStatus", "codexUserReady"]
+    .filter((field) => result[field] === null);
+  if (missing.length > 0) {
+    result.error = `字段解析失败: ${missing.join(", ")}`;
   }
   return result;
 }
@@ -278,15 +319,17 @@ function main() {
     auditFailures.push(`无法获取当前 HEAD commit sha: ${e?.message || e}`);
   }
 
-  // 2. 解析 unit / process / codex-smoke / user-package 报告
+  // 2. 解析 unit / process / codex-smoke / managed-runtime / user-package 报告
   const unit = parseReport(UNIT_REPORT, "unit");
   const processReport = parseReport(PROCESS_REPORT, "process");
   const codexSmoke = parseCodexSmokeReport(CODEX_SMOKE_REPORT);
+  const managedRuntime = parseManagedRuntimeReport(CODEX_MANAGED_RUNTIME_REPORT);
   const userPackage = parseUserPackageReport(USER_PACKAGE_REPORT); // V17-E1 任务 D
 
   if (unit.error) auditFailures.push(`unit 报告: ${unit.error}`);
   if (processReport.error) auditFailures.push(`process 报告: ${processReport.error}`);
-  if (codexSmoke.error) auditFailures.push(`codex-smoke 报告: ${codexSmoke.error}`);
+  // V17-F2：external codex-smoke 是兼容信息，不参与 Managed Codex Runtime 审计 gate。
+  if (managedRuntime.error) auditFailures.push(`managed-runtime 报告: ${managedRuntime.error}`);
   if (userPackage.error) auditFailures.push(`user-package 报告: ${userPackage.error}`);
 
   // 3. 判定 docs-only commit → 计算 testedCodeCommitSha
@@ -312,17 +355,7 @@ function main() {
     }
   }
 
-  // 5. codexSmokeStatus 必须为 skip / pass / handshake-only
-  //    P2 分层：handshake-only = handshake pass 但 turn 非 pass（如 codex 存在但 auth 不可用），
-  //    属合法非 fail 状态（handshake 已证明 wire 闭环；turn 受 auth 限制不计为 smoke 硬失败）。
-  //    fail 仍计为审计失败。
-  if (!codexSmoke.error) {
-    if (codexSmoke.smokeStatus !== "skip"
-      && codexSmoke.smokeStatus !== "pass"
-      && codexSmoke.smokeStatus !== "handshake-only") {
-      auditFailures.push(`codex smoke 状态异常: smokeStatus=${codexSmoke.smokeStatus}（必须为 skip / pass / handshake-only）`);
-    }
-  }
+  // 5. V17-F2：external codexSmokeStatus 不再参与审计失败判定。
 
   // 6. 审计模式：uncaughtException / unhandledRejection 必须为 0（否则计为 fail）
   if (!unit.error && (unit.uncaughtCount > 0 || unit.unhandledCount > 0)) {
@@ -340,16 +373,32 @@ function main() {
   const grandTotal = (unit.total || 0) + (processReport.total || 0);
 
   // 8. 生成 summary 报告
+  const managedCodexUserReady = managedRuntime.codexUserReady || codexSmoke.codexUserReady || null;
+  const managedResolverSmokeStatus = managedRuntime.resolverSmokeStatus || codexSmoke.codexManagedResolverSmokeStatus || null;
+  const managedRuntimeSmokeStatus = managedRuntime.runtimeSmokeStatus || codexSmoke.codexManagedRuntimeSmokeStatus || null;
+  const managedProtocolStatus = managedRuntime.managedAppServerProtocolStatus || codexSmoke.codexManagedAppServerProtocolStatus || null;
+  if (!managedRuntime.error) {
+    if (managedResolverSmokeStatus !== "pass"
+      || managedRuntimeSmokeStatus !== "pass"
+      || managedProtocolStatus !== "pass"
+      || managedCodexUserReady !== "true") {
+      auditFailures.push(
+        `managed runtime gate 未通过: resolver=${managedResolverSmokeStatus} runtime=${managedRuntimeSmokeStatus} protocol=${managedProtocolStatus} codexUserReady=${managedCodexUserReady}`,
+      );
+    }
+  }
+
   const lines = [
-    "# LLM CLI Bridge 测试报告 — 汇总（P2: Codex app-server Runtime 主线闭环）",
+    "# LLM CLI Bridge 测试报告 — 汇总（Managed Codex Runtime 主线）",
     "",
     "> 本报告由 `scripts/generate-test-summary.mjs` 从 unit/process/codex-smoke 报告解析生成，不手写。",
     "> 详细结果分别见：",
     "> - [docs/test-report-unit.md](./test-report-unit.md) — 单元测试详细结果",
     "> - [docs/test-report-process.md](./test-report-process.md) — 进程测试详细结果",
-    "> - [docs/test-report-codex-smoke.md](./test-report-codex-smoke.md) — Codex real app-server smoke",
+    "> - [docs/test-report-codex-managed-runtime.md](./test-report-codex-managed-runtime.md) — Managed Codex Runtime smoke",
+    "> - [docs/test-report-codex-smoke.md](./test-report-codex-smoke.md) — Codex external app-server smoke（兼容字段）",
     ">",
-    "> 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。",
+    "> 报告不互相覆盖：unit/process/managed-runtime/user-package 各自独立生成，summary 仅汇总主线结论。",
     "",
     `- **生成时间**: ${new Date().toISOString()}`,
     `- **reportCommitSha**: ${reportCommitSha}`,
@@ -369,17 +418,17 @@ function main() {
     // V17-E 任务 E：新增 codexUserReady 字段（smoke=pass 才 true；skip/fail/handshake-only 均 false）
     // V17-F1 任务 G：codexUserReady 主 gate 改为 managed runtime gate
     // V17-F1.1 任务 E：使用分层字段 gate
-    `- **codexUserReady**: ${codexSmoke.codexUserReady || "(解析失败)"}`,
+    `- **codexUserReady**: ${managedCodexUserReady || "(解析失败)"}`,
     // V17-F1.1 任务 E：分层字段（3 个，主 gate）
-    `- **codexManagedResolverSmokeStatus**: ${codexSmoke.codexManagedResolverSmokeStatus || "(解析失败)"}`,
-    `- **codexManagedRuntimeSmokeStatus**: ${codexSmoke.codexManagedRuntimeSmokeStatus || "(解析失败)"}`,
-    `- **codexManagedAppServerProtocolStatus**: ${codexSmoke.codexManagedAppServerProtocolStatus || "(解析失败)"}`,
+    `- **codexManagedResolverSmokeStatus**: ${managedResolverSmokeStatus || "(解析失败)"}`,
+    `- **codexManagedRuntimeSmokeStatus**: ${managedRuntimeSmokeStatus || "(解析失败)"}`,
+    `- **codexManagedAppServerProtocolStatus**: ${managedProtocolStatus || "(解析失败)"}`,
     // V17-F1 任务 G：Managed runtime 主线字段（主 gate，5 个）
-    `- **codexManagedRuntimeAvailable**: ${codexSmoke.codexManagedRuntimeAvailable || "(解析失败)"}`,
-    `- **codexManagedRuntimeVersion**: ${codexSmoke.codexManagedRuntimeVersion || "(解析失败)"}`,
-    `- **codexManagedRuntimeSha256Valid**: ${codexSmoke.codexManagedRuntimeSha256Valid || "(解析失败)"}`,
-    `- **codexManagedRuntimeExecutable**: ${codexSmoke.codexManagedRuntimeExecutable || "(解析失败)"}`,
-    `- **codexManagedAppServerSpawnStatus**: ${codexSmoke.codexManagedAppServerSpawnStatus || "(解析失败)"}`,
+    `- **codexManagedRuntimeAvailable**: ${managedRuntime.runtimeSmokeStatus === "pass" ? "true" : "false"}`,
+    `- **codexManagedRuntimeVersion**: ${managedRuntime.manifestVersion || codexSmoke.codexManagedRuntimeVersion || "(解析失败)"}`,
+    `- **codexManagedRuntimeSha256Valid**: ${managedRuntime.sha256Valid || codexSmoke.codexManagedRuntimeSha256Valid || "(解析失败)"}`,
+    `- **codexManagedRuntimeExecutable**: ${managedRuntime.executableValid || codexSmoke.codexManagedRuntimeExecutable || "(解析失败)"}`,
+    `- **codexManagedAppServerSpawnStatus**: ${managedRuntime.appServerSpawnStatus || codexSmoke.codexManagedAppServerSpawnStatus || "(解析失败)"}`,
     // V17-F0 SDK 字段（占位 false）
     `- **codexSdkAvailable**: ${codexSmoke.codexSdkAvailable || "(解析失败)"}`,
     `- **codexEmbeddedRuntimeAvailable**: ${codexSmoke.codexEmbeddedRuntimeAvailable || "(解析失败)"}`,
@@ -391,14 +440,14 @@ function main() {
     `- **codexCliAvailable**: ${codexSmoke.codexCliAvailable || "(解析失败)"}`,
     `- **codexAuthAvailable**: ${codexSmoke.codexAuthAvailable || "(解析失败)"}`,
     `- **appServerSpawnStatus**: ${codexSmoke.appServerSpawnStatus || "(解析失败)"}`,
-    `- **initializeStatus**: ${codexSmoke.initializeStatus || "(解析失败)"}`,
-    `- **threadStartStatus**: ${codexSmoke.threadStartStatus || "(解析失败)"}`,
-    `- **turnStartStatus**: ${codexSmoke.turnStartStatus || "(解析失败)"}`,
-    `- **turnCompletedStatus**: ${codexSmoke.turnCompletedStatus || "(解析失败)"}`,
+    `- **initializeStatus**: ${managedRuntime.initializeStatus || codexSmoke.initializeStatus || "(解析失败)"}`,
+    `- **threadStartStatus**: ${managedRuntime.threadStartStatus || codexSmoke.threadStartStatus || "(解析失败)"}`,
+    `- **turnStartStatus**: ${managedRuntime.turnStartStatus || codexSmoke.turnStartStatus || "(解析失败)"}`,
+    `- **turnCompletedStatus**: ${managedRuntime.turnCompletedStatus || codexSmoke.turnCompletedStatus || "(解析失败)"}`,
     `- **approvalRequestStatus**: ${codexSmoke.approvalRequestStatus || "(解析失败)"}`,
     `- **fileChangeRequestStatus**: ${codexSmoke.fileChangeRequestStatus || "(解析失败)"}`,
-    `- **stopCancelStatus**: ${codexSmoke.stopCancelStatus || "(解析失败)"}`,
-    `- **noVaultRootPollution**: ${codexSmoke.noVaultRootPollution || "(解析失败)"}`,
+    `- **stopCancelStatus**: ${managedRuntime.stopCancelStatus || codexSmoke.stopCancelStatus || "(解析失败)"}`,
+    `- **noVaultRootPollution**: ${managedRuntime.noVaultRootPollution || codexSmoke.noVaultRootPollution || "(解析失败)"}`,
     // V17-E1 任务 D：user-package smoke 字段
     `- **userPackageStatus**: ${userPackage.userPackageStatus || "(解析失败)"}`,
     `- **containsPiSdk**: ${userPackage.containsPiSdk || "(解析失败)"}`,
@@ -441,14 +490,17 @@ function main() {
   // - unit/process 0 失败 = fixture/unit 层 pass
   // - codexSmokeStatus=pass = real smoke 层 pass
   // - skip/fail/handshake-only = real smoke 层未验证
-  const codexSmokePassed = codexSmoke.smokeStatus === "pass";
-  const codexSmokeSkipped = codexSmoke.smokeStatus === "skip";
-  if (totalFailed === 0 && auditFailures.length === 0 && codexSmokePassed) {
-    lines.push("**双轨均 0 失败 + Codex real smoke pass → P2 Codex app-server Runtime 主线闭环测试通过（含 real smoke）。**");
-  } else if (totalFailed === 0 && auditFailures.length === 0 && codexSmokeSkipped) {
-    lines.push("**双轨均 0 失败（fixture/unit 层 pass），但 Codex real smoke skipped — Runtime 主线未完整验证（real smoke 层未验证）。codexUserReady=false。**");
-  } else if (totalFailed === 0 && auditFailures.length === 0 && !codexSmokePassed) {
-    lines.push(`**双轨均 0 失败（fixture/unit 层 pass），但 Codex real smoke 未 pass（${codexSmoke.smokeStatus}）— Runtime 主线未完整验证。codexUserReady=false。**`);
+  const managedRuntimePassed = managedCodexUserReady === "true"
+    && managedResolverSmokeStatus === "pass"
+    && managedRuntimeSmokeStatus === "pass"
+    && managedProtocolStatus === "pass";
+  const managedRuntimeSkipped = managedRuntimeSmokeStatus === "fixture-only" || managedProtocolStatus === "skip-fixture";
+  if (totalFailed === 0 && auditFailures.length === 0 && managedRuntimePassed) {
+    lines.push("**双轨均 0 失败 + Managed Codex Runtime smoke pass → Managed Codex Runtime 主线通过。**");
+  } else if (totalFailed === 0 && auditFailures.length === 0 && managedRuntimeSkipped) {
+    lines.push("**双轨均 0 失败（fixture/unit 层 pass），但 Managed Codex Runtime 未完整验证。codexUserReady=false。**");
+  } else if (totalFailed === 0 && auditFailures.length === 0 && !managedRuntimePassed) {
+    lines.push(`**双轨均 0 失败（fixture/unit 层 pass），但 Managed Codex Runtime 未 pass（${managedProtocolStatus || codexSmoke.smokeStatus}）。codexUserReady=false。**`);
   } else {
     lines.push(`**主线状态: ${totalFailed === 0 ? "通过" : "失败"}（审计失败: ${auditFailures.length}；codex smoke: ${codexSmoke.smokeStatus || "?"}）**`);
   }
@@ -461,7 +513,7 @@ function main() {
   lines.push("- **uncaughtException / unhandledRejection 计为 fail**：进程级未捕获异常必须反映在测试结果中，不得仅记日志。");
   lines.push(`- 本轮 unit 轨道：uncaughtException = ${unit.uncaughtCount || 0}，unhandledRejection = ${unit.unhandledCount || 0}`);
   lines.push(`- 本轮 process 轨道：uncaughtException = ${processReport.uncaughtCount || 0}，unhandledRejection = ${processReport.unhandledCount || 0}`);
-  lines.push("- **codexSmokeStatus**：必须为 `skip`（无 codex CLI）/ `pass`（handshake + turn 全通）/ `handshake-only`（handshake pass 但 turn 非 pass，如 auth 不可用）；`fail` 或缺失 → 审计失败。分层字段 `codexHandshakeStatus` / `codexTurnStatus` 记录根因。");
+  lines.push("- **Managed Codex Runtime gate**：resolver/runtime/protocol/codexUserReady 必须全部通过；external codexSmokeStatus 仅保留为兼容字段，不影响审计。");
   lines.push("- **报告过期判定**：若 unit/process 报告的 commit sha 与 testedCodeCommitSha 不一致，说明报告是旧 commit 的结果，必须重新生成。");
   lines.push("");
 
@@ -469,7 +521,7 @@ function main() {
   lines.push("## 审计结果");
   lines.push("");
   if (auditFailures.length === 0) {
-    lines.push("✅ **审计通过**：testedCodeCommitSha 一致 + codexSmokeStatus 合法 + uncaught/unhandled 为 0 + 字段解析完整。");
+    lines.push("✅ **审计通过**：testedCodeCommitSha 一致 + Managed Codex Runtime gate 通过 + uncaught/unhandled 为 0 + 字段解析完整。");
   } else {
     lines.push("❌ **审计失败**：");
     for (const f of auditFailures) {
@@ -504,7 +556,7 @@ function main() {
     for (const f of auditFailures) console.error(`  - ${f}`);
     process.exit(1);
   }
-  console.log("✅ 审计通过：testedCodeCommitSha 一致 + codexSmokeStatus 合法 + uncaught/unhandled 为 0 + 字段解析完整。");
+  console.log("✅ 审计通过：testedCodeCommitSha 一致 + Managed Codex Runtime gate 通过 + uncaught/unhandled 为 0 + 字段解析完整。");
   process.exit(0);
 }
 
