@@ -1,65 +1,65 @@
-# LLM CLI Bridge 测试报告 — Codex Managed Runtime Smoke (V17-F1.1 任务 E)
+# LLM CLI Bridge 测试报告 — Managed Codex Runtime Smoke (V17-F2)
 
 > 本报告由 `scripts/codex-managed-runtime-smoke.mjs` 自动生成。
-> 验证 Managed Codex App-Server Runtime 的 manifest + sha256 + executable。
-> V17-F1.1 任务 E：分层字段（resolverSmokeStatus / runtimeSmokeStatus / managedAppServerProtocolStatus）。
+> 验证 production manifest + pinned binary + app-server protocol proof。
 
-- **测试时间**: 2026-07-06T01:36:06.662Z
+- **测试时间**: 2026-07-06T05:05:06.734Z
 - **resolverSmokeStatus**: pass
-- **runtimeSmokeStatus**: fixture-only
-- **managedAppServerProtocolStatus**: skip-fixture
+- **runtimeSmokeStatus**: pass
+- **managedAppServerProtocolStatus**: pass
+- **codexUserReady**: true
 - **manifestLoaded**: true
-- **manifestVersion**: 0.1.0-fixture
-- **manifestProtocolVersion**: 2025-07-06
-- **manifestFixture**: true
+- **manifestVersion**: 0.142.5
+- **manifestProtocolVersion**: 2026-07-06
+- **manifestFixture**: false
 - **platformSelected**: true
 - **platformKey**: win32-x64
-- **runtimePath**: D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\src\runtime\providers\codex-managed-app-server\runtime\win32-x64\codex-app-server-fake.bat
+- **runtimePath**: D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\src\runtime\providers\codex-managed-app-server\runtime\win32-x64\codex.exe
 - **pathExists**: true
+- **sizeValid**: true
 - **sha256Valid**: true
 - **executableValid**: true
-- **codexRuntimePinnedVersion**: 0.1.0-fixture
+- **codexRuntimePinnedVersion**: 0.142.5
+- **appServerSpawnStatus**: pass
+- **initializeStatus**: pass
+- **initializedStatus**: pass
+- **threadStartStatus**: pass
+- **turnStartStatus**: pass
+- **turnCompletedStatus**: pass
+- **stopCancelStatus**: pass
+- **noVaultRootPollution**: true
+- **selectedModel**: gpt-5.5
 - **reason**: ok
 - **error**: null
 
-## V17-F1.1 任务 E：分层字段语义
+## 步骤结果
 
-### resolverSmokeStatus (pass/fail)
-- **pass**: resolver 校验链全部通过（manifest 存在 + JSON 合法 + 平台匹配 + binary 存在 + sha256 + executable）
-- **fail**: 任一校验失败
+| 状态 | 步骤 | 详情 |
+|------|------|------|
+| PASS | manifest loaded | version=0.142.5 fixture=false |
+| PASS | platform selected | win32-x64 (codex.exe) |
+| PASS | runtime binary exists | D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\src\runtime\providers\codex-managed-app-server\runtime\win32-x64\codex.exe |
+| PASS | size valid | 323143472 |
+| PASS | sha256 valid | 645f5a1a0347abb2b31fae4e594c198ad00e3a4b4a999dcfa3a66c0d0f8cd43b |
+| PASS | executable valid | - |
+| PASS | spawn managed runtime | pid=74588 |
+| PASS | initialize | Codex Desktop/0.142.5 (Windows 10.0.26300; x86_64) unknown (llm-cli-bridge-managed-smoke; 17-f2) |
+| PASS | initialized | - |
+| PASS | model/list | selected=gpt-5.5 |
+| PASS | thread/start | threadId=019f35d0-d92b-7ca3-9280-e38b923a0390 |
+| PASS | turn/start | - |
+| PASS | turn/completed | - |
+| PASS | clean shutdown / cancel | {"timestamp":"2026-07-06T05:05:07.496709Z","level":"WARN","fields":{"message":"ignoring interface.defaultPrompt: maximum of 3 prompts is supported","path":"C:\\Users\\Ye_Luo\\.codex\\plugins\\cache\\o |
+| PASS | no vault root pollution | - |
 
-### runtimeSmokeStatus (pass/fixture-only/fail/skip)
-- **pass**: 真实 binary（fixture=false），可标 user-ready
-- **fixture-only**: fixture binary（fixture=true），不是真实 app-server，不标 user-ready
-- **skip**: resolver 失败，无法判断 runtime
-- **fail**: resolver 通过但 runtime 不可用（保留扩展位）
+## codexUserReady gate
 
-### managedAppServerProtocolStatus (pass/skip-fixture/fail)
-- **pass**: 真实 binary 的 app-server 协议可用（initialize/thread/turn pass）
-- **skip-fixture**: fixture runtime 不支持真实 app-server，协议层跳过
-- **fail**: 协议层失败（后续真实 binary 接入后）
-
-## 校验链
-
-1. manifest 存在且 JSON 合法
-2. 当前平台在 manifest.platforms 中
-3. runtime binary 文件存在
-4. sha256 匹配（防篡改）
-5. executable 权限（Windows: .exe/.bat/.cmd；Unix: X_OK）
-
-## V17-F1 任务 G：codexUserReady 主 gate
-
-- codexUserReady 的主 gate 改为 managed runtime gate
-- 条件：resolverSmokeStatus=pass + runtimeSmokeStatus=pass + managedAppServerProtocolStatus=pass
-- fixture-only（runtimeSmokeStatus=fixture-only）不标 user-ready
-- external 字段保留，但不得影响 codexUserReady
-
-## 运行命令
+- `codexUserReady=true` 只允许 resolver/runtime/protocol 三层均 pass。
+- production manifest 下 `skip-fixture` 不允许通过。
+- external codex CLI/app-server 不参与本报告 gate。
 
 ```bash
 npm run smoke:codex-managed-runtime
 ```
-
----
 
 *报告由 `scripts/codex-managed-runtime-smoke.mjs` 自动生成*

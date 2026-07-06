@@ -1,14 +1,14 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-06T01:35:12.899Z
-- **测试环境**: win32 / Node.js v24.14.0
+- **测试时间**: 2026-07-06T05:04:19.336Z
+- **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.16.0
-- **main.js 大小**: 850.8 KB
+- **main.js 大小**: 851.2 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 59338
-- **commit sha**: 834af8b115b8c3b92e43cdf81315cfe290c5ea2c
-- **commit 短 sha**: 834af8b115b8
+- **commit sha**: 2a7cf1d05ff654d89c5405d8e9bd17cbd6e85c2e
+- **commit 短 sha**: 2a7cf1d05ff6
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
@@ -701,7 +701,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=296845 capLine=296990 orderOk=true |
+| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=296896 capLine=297041 orderOk=true |
 | ✅ | buildBridgePromptPackage 主路径接收 runtimeCapabilities | hasRuntimeCapabilities=true hasPassedToBuilder=true |
 
 ### V16.5-E workspace
@@ -953,7 +953,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783301714427-0 update=pi-sdk-read-1783301714427-0 end=pi-sdk-read-1783301714427-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783314261152-0 update=pi-sdk-read-1783314261152-0 end=pi-sdk-read-1783314261152-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -1212,11 +1212,11 @@
 |------|--------|------|
 | ✅ | settings.ts Codex Mainline Status 区块 + Desktop App 非集成目标 + 普通用户主线无 install/login 引导 + External fallback 在 Advanced | mainlineSection=true desktopNotTarget=true noInstallHint=true noLoginHint=true extFallbackSection=true |
 
-### V17-E E
+### V17-E/F2
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | codex-app-server-smoke 写入 codexUserReady + generate-test-summary 解析/输出 + skip 不写主线闭环通过 + 拆分 fixture/real smoke 层 | smokeWrites=true summaryParses=true summaryOutputs=true skipNotPass=true splitsLayers=true passRequiresSmoke=true |
+| ✅ | codex/managed smoke 写入 codexUserReady + generate-test-summary 解析/输出 + skip 不写主线通过 + 拆分 fixture/managed runtime 层 | smokeWrites=true summaryParses=true summaryOutputs=true skipNotPass=true splitsLayers=true passRequiresSmoke=true |
 
 ### V17-E F
 
@@ -1230,17 +1230,17 @@
 |------|--------|------|
 | ✅ | user-package 不写 type=module + smoke:user-package 脚本 + 报告产物 + canLoadMainJs/noRootPackageJson 检查 | c=true (noTypeModule=true writesMeta=true cleansResidual=true runsNpmBuild=true) d=true (hasSmoke=true hasBuildSmoke=true writesReport=true outputsStatus=true) smoke=true (canLoadMainJs=true noRootPkgJson=true) |
 
-### V17-F1 A+B+C+D
+### V17-F2 A+B+C+D
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | managed runtime 组件结构（manifest + resolver + provider + BackendMode + auto 链 + settings） | a=true (typesManifest=true manifestExists=true manifestOk=true fixture=true platforms=3) b=true (exports=true sha=true exec=true resultIf=true) c=true (extends=true providerId=true overrides=true coreTypesProviderId=true templateMethod=true) d=true (backendMode=true autoManagedFirst=true settingsOption=true) |
+| ✅ | managed runtime 组件结构（production manifest + fixture manifest + resolver + provider + BackendMode + auto 链 + settings） | a=true (typesManifest=true manifestExists=true fixtureManifest=true manifestOk=true fixture=false platforms=1) b=true (exports=true sha=true exec=true resultIf=true) c=true (extends=true providerId=true overrides=true coreTypesProviderId=true templateMethod=true) d=true (backendMode=true autoManagedFirst=true settingsOption=true) |
 
-### V17-F1 E+F
+### V17-F2 E+F
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | user-package 集成 managed runtime（build 复制 + smoke 5 字段）+ managed runtime smoke 脚本（resolver 校验链 + fixture-only 不标 ready） | e=true (buildCopiesManifest=true smokeChecksManaged=true) f=true (hasSmokeScript=true verifiesChain=true fixtureNotReady=true) |
+| ✅ | user-package 集成 managed runtime（build 安装复制 + smoke 5 字段）+ managed runtime smoke 脚本（resolver 校验链 + protocol proof） | e=true (buildCopiesManifest=true smokeChecksManaged=true) f=true (hasSmokeScript=true verifiesChain=true protocolProof=true) |
 
 ### V17-F1.1 F
 
@@ -2282,7 +2282,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-06T01-35-42-754Z-x6mqdp |
+| ✅ | 返回非空 id | id=s-2026-07-06T05-04-48-821Z-esyed4 |
 
 ### V2.5 Session 版本
 
@@ -2301,7 +2301,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-06T01-35-42-870Z-btjj2y second=s-2026-07-06T01-35-42-786Z-5agshh |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-06T05-04-48-930Z-qw9e1t second=s-2026-07-06T05-04-48-858Z-q7k1l4 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2328,7 +2328,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-06T01-35-43-001Z-4nntl2 id2=s-2026-07-06T01-35-43-001Z-sk1oti |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-06T05-04-48-968Z-o58z7l id2=s-2026-07-06T05-04-48-968Z-cbr684 |
 
 ### V2.5 Session 上限
 
@@ -2426,7 +2426,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-06T01:35:43.142Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-06T05:04:49.051Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2514,7 +2514,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-06T01:35:43.330Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-06T05:04:49.118Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2628,7 +2628,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-06T01:35:43.489Z after=2026-07-06T01:35:43.558Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-06T05:04:49.248Z after=2026-07-06T05:04:49.317Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -2999,13 +2999,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-06T01:35:45.051Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-06T05:04:50.120Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-06T01:35:45.070Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-06T05:04:50.139Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3316,7 +3316,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-5gBI4w\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-U6ksxi\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-XEkL2q\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-blvGjt\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3328,7 +3328,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-y8pF0j\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-669pkN\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-ywSIMY\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-DAe6W2\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3340,7 +3340,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-Xx9KC0\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-IPfxwx\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-XqImt1\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-rct7Gq\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -3660,8 +3660,8 @@
 |------|--------|------|
 | ✅ | unit/process 报告含 commit sha + 运行命令字段 | unitExists=true processExists=true unitSha=true processSha=true unitCmd=true processCmd=true |
 | ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
-| ✅ | summary 含 P2 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/codexSmokeStatus） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true smokeStatus=true capturedTestedSha=30baad659f55 |
-| ✅ | 审计模式 testedCodeCommitSha 不匹配 + codexSmokeStatus 异常 → exit 1（P2 条件逻辑） | scriptExists=true auditFailExit=true testedCodeShaCheck=true codexSmokeCheck=true docsOnlyLogic=true |
+| ✅ | summary 含 Managed Codex Runtime 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/managed gate） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true managedGate=true capturedTestedSha=834af8b115b8 |
+| ✅ | 审计模式 testedCodeCommitSha 不匹配 + managed runtime gate 异常 → exit 1 | scriptExists=true auditFailExit=true testedCodeShaCheck=true managedGateCheck=true docsOnlyLogic=true |
 
 ## 失败项详情
 

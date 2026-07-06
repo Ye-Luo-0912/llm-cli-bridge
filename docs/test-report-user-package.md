@@ -4,7 +4,7 @@
 > 验证 dist/user-package 零安装发行包的完整性与 CJS 加载安全性。
 > V17-F1 任务 E：验证 Codex Managed Runtime manifest + binary 已集成。
 
-- **测试时间**: 2026-07-06T01:36:30.224Z
+- **测试时间**: 2026-07-06T05:05:45.263Z
 - **userPackageStatus**: pass
 - **containsPiSdk**: true
 - **canRequirePiSdk**: true
@@ -12,12 +12,12 @@
 - **noRootPackageJson**: true（V17-E1 任务 C：根目录无 package.json 或无 type=module）
 - **userNeedsNpmInstall**: false
 - **sdkVersion**: 0.80.3
-- **totalSizeMB**: 97.8
+- **totalSizeMB**: 406
 - **containsCodexManagedRuntime**: true（V17-F1 任务 E）
 - **codexRuntimeSha256Valid**: true（V17-F1 任务 E）
 - **codexRuntimeExecutable**: true（V17-F1 任务 E）
-- **codexRuntimePinnedVersion**: 0.1.0-fixture（V17-F1 任务 E）
-- **codexRuntimeFixture**: true（V17-F1 任务 E：fixture=true 不标 production ready）
+- **codexRuntimePinnedVersion**: 0.142.5
+- **codexRuntimeFixture**: false（V17-F1 任务 E：fixture=true 不标 production ready）
 
 ## 验证项说明
 

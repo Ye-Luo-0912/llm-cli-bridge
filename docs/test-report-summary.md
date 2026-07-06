@@ -1,52 +1,53 @@
-# LLM CLI Bridge 测试报告 — 汇总（P2: Codex app-server Runtime 主线闭环）
+# LLM CLI Bridge 测试报告 — 汇总（Managed Codex Runtime 主线）
 
 > 本报告由 `scripts/generate-test-summary.mjs` 从 unit/process/codex-smoke 报告解析生成，不手写。
 > 详细结果分别见：
 > - [docs/test-report-unit.md](./test-report-unit.md) — 单元测试详细结果
 > - [docs/test-report-process.md](./test-report-process.md) — 进程测试详细结果
-> - [docs/test-report-codex-smoke.md](./test-report-codex-smoke.md) — Codex real app-server smoke
+> - [docs/test-report-codex-managed-runtime.md](./test-report-codex-managed-runtime.md) — Managed Codex Runtime smoke
+> - [docs/test-report-codex-smoke.md](./test-report-codex-smoke.md) — Codex external app-server smoke（兼容字段）
 >
-> 三份报告不互相覆盖：unit/process/codex-smoke 各自独立生成，summary 仅汇总主线结论。
+> 报告不互相覆盖：unit/process/managed-runtime/user-package 各自独立生成，summary 仅汇总主线结论。
 
-- **生成时间**: 2026-07-06T01:36:46.387Z
-- **reportCommitSha**: 834af8b115b8c3b92e43cdf81315cfe290c5ea2c
-- **reportCommitSha 短**: 834af8b115b8
-- **reportParentSha**: a092184e30b3fe68d3ecb33d0dd86f9b2b8b921c
-- **reportParentSha 短**: a092184e30b3
-- **testedCodeCommitSha**: 834af8b115b8c3b92e43cdf81315cfe290c5ea2c
-- **testedCodeCommitSha 短**: 834af8b115b8
+- **生成时间**: 2026-07-06T05:06:07.590Z
+- **reportCommitSha**: 2a7cf1d05ff654d89c5405d8e9bd17cbd6e85c2e
+- **reportCommitSha 短**: 2a7cf1d05ff6
+- **reportParentSha**: 7540548776e8f70369c8e42f1810d1c11b856431
+- **reportParentSha 短**: 7540548776e8
+- **testedCodeCommitSha**: 2a7cf1d05ff654d89c5405d8e9bd17cbd6e85c2e
+- **testedCodeCommitSha 短**: 2a7cf1d05ff6
 - **commitKind**: code commit（报告证明当前 HEAD）
-- **unitReportCommitSha**: 834af8b115b8c3b92e43cdf81315cfe290c5ea2c
-- **processReportCommitSha**: 834af8b115b8c3b92e43cdf81315cfe290c5ea2c
-- **codexSmokeStatus**: skip
-- **codexHandshakeStatus**: skip
+- **unitReportCommitSha**: 2a7cf1d05ff654d89c5405d8e9bd17cbd6e85c2e
+- **processReportCommitSha**: 2a7cf1d05ff654d89c5405d8e9bd17cbd6e85c2e
+- **codexSmokeStatus**: fail
+- **codexHandshakeStatus**: fail
 - **codexTurnStatus**: skip
-- **codexVersion**: null
-- **codexSchemaSource**: fixture
-- **codexUserReady**: false
+- **codexVersion**: codex-cli 0.142.5
+- **codexSchemaSource**: generated
+- **codexUserReady**: true
 - **codexManagedResolverSmokeStatus**: pass
-- **codexManagedRuntimeSmokeStatus**: fixture-only
-- **codexManagedAppServerProtocolStatus**: skip-fixture
+- **codexManagedRuntimeSmokeStatus**: pass
+- **codexManagedAppServerProtocolStatus**: pass
 - **codexManagedRuntimeAvailable**: true
-- **codexManagedRuntimeVersion**: 0.1.0-fixture
+- **codexManagedRuntimeVersion**: 0.142.5
 - **codexManagedRuntimeSha256Valid**: true
 - **codexManagedRuntimeExecutable**: true
-- **codexManagedAppServerSpawnStatus**: fixture-only
+- **codexManagedAppServerSpawnStatus**: pass
 - **codexSdkAvailable**: false
 - **codexEmbeddedRuntimeAvailable**: false
 - **codexSdkAuthAvailable**: false
-- **codexExternalExecutableAvailable**: false
-- **externalAppServerSpawnStatus**: unknown
-- **codexCliAvailable**: false
+- **codexExternalExecutableAvailable**: true
+- **externalAppServerSpawnStatus**: pass
+- **codexCliAvailable**: true
 - **codexAuthAvailable**: unknown
-- **appServerSpawnStatus**: unknown
-- **initializeStatus**: unknown
-- **threadStartStatus**: unknown
-- **turnStartStatus**: unknown
-- **turnCompletedStatus**: fail
+- **appServerSpawnStatus**: pass
+- **initializeStatus**: pass
+- **threadStartStatus**: pass
+- **turnStartStatus**: pass
+- **turnCompletedStatus**: pass
 - **approvalRequestStatus**: unknown
 - **fileChangeRequestStatus**: unknown
-- **stopCancelStatus**: unknown
+- **stopCancelStatus**: pass
 - **noVaultRootPollution**: true
 - **userPackageStatus**: pass
 - **containsPiSdk**: true
@@ -57,31 +58,31 @@
 - **containsCodexManagedRuntime**: true
 - **codexRuntimeSha256Valid**: true
 - **codexRuntimeExecutable**: true
-- **codexRuntimePinnedVersion**: 0.1.0-fixture（V17-F1
-- **codexRuntimeFixture**: true
-- **userPackageSizeMB**: 97.8
+- **codexRuntimePinnedVersion**: 0.142.5
+- **codexRuntimeFixture**: false
+- **userPackageSizeMB**: 406
 - **unit 运行命令**: node scripts/run-tests.mjs --unit
 - **process 运行命令**: node scripts/run-tests.mjs --process
-- **unit 测试时间**: 2026-07-06T01:35:12.899Z
-- **process 测试时间**: 2026-07-06T01:35:52.666Z
+- **unit 测试时间**: 2026-07-06T05:04:19.336Z
+- **process 测试时间**: 2026-07-06T05:04:58.686Z
 
 ## testedCodeCommitSha 语义说明
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=834af8b115b8。
-- **当前 commit 改动文件**：main.ts, scripts/codex-app-server-smoke.mjs, scripts/codex-managed-runtime-smoke.mjs, scripts/generate-test-summary.mjs, scripts/run-tests.mjs, scripts/user-package-smoke.mjs, src/runtime/core/bridgeSession.ts, src/runtime/providers/codex-app-server/codexAppServerApprovalMapper.ts, src/runtime/providers/codex-app-server/codexAppServerProvider.ts, src/runtime/providers/codex-managed-app-server/codexManagedAppServerProvider.ts, src/view.ts
+- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=2a7cf1d05ff6。
+- **当前 commit 改动文件**：.gitignore, scripts/build-user-package.mjs, scripts/codex-app-server-smoke.mjs, scripts/codex-managed-runtime-smoke.mjs, scripts/generate-test-summary.mjs, scripts/install-codex-managed-runtime.mjs, scripts/run-tests.mjs, scripts/user-package-smoke.mjs, src/runtime/providers/codex-managed-app-server/codexManagedRuntimeResolver.ts, src/runtime/providers/codex-managed-app-server/runtime-manifest.fixture.json, src/runtime/providers/codex-managed-app-server/runtime-manifest.json, src/types.ts, src/view.ts
 
 ## 主线结论
 
 | 轨道 | 通过 | 失败 | 跳过 | 需人工 | 总计 | commit sha | 主线状态 |
 |------|------|------|------|--------|------|------------|----------|
-| unit | 1027 | 0 | 25 | 0 | 1052 | 834af8b115b8 | ✅ 通过 |
-| process | 97 | 0 | 56 | 0 | 153 | 834af8b115b8 | ✅ 通过 |
-| codex-smoke | - | - | - | - | - | null | ⏭️ skip |
-| **合计** | **1124** | **0** | **81** | **0** | **1205** | 834af8b115b8 | ✅ **主线通过** |
+| unit | 1027 | 0 | 25 | 0 | 1052 | 2a7cf1d05ff6 | ✅ 通过 |
+| process | 97 | 0 | 56 | 0 | 153 | 2a7cf1d05ff6 | ✅ 通过 |
+| codex-smoke | - | - | - | - | - | codex-cli 0. | ❌ 失败 |
+| **合计** | **1124** | **0** | **81** | **0** | **1205** | 2a7cf1d05ff6 | ✅ **主线通过** |
 
-**双轨均 0 失败（fixture/unit 层 pass），但 Codex real smoke skipped — Runtime 主线未完整验证（real smoke 层未验证）。codexUserReady=false。**
+**双轨均 0 失败 + Managed Codex Runtime smoke pass → Managed Codex Runtime 主线通过。**
 
 ## 审计模式说明（P2 integrity check）
 
@@ -89,12 +90,12 @@
 - **uncaughtException / unhandledRejection 计为 fail**：进程级未捕获异常必须反映在测试结果中，不得仅记日志。
 - 本轮 unit 轨道：uncaughtException = 0，unhandledRejection = 0
 - 本轮 process 轨道：uncaughtException = 0，unhandledRejection = 0
-- **codexSmokeStatus**：必须为 `skip`（无 codex CLI）/ `pass`（handshake + turn 全通）/ `handshake-only`（handshake pass 但 turn 非 pass，如 auth 不可用）；`fail` 或缺失 → 审计失败。分层字段 `codexHandshakeStatus` / `codexTurnStatus` 记录根因。
+- **Managed Codex Runtime gate**：resolver/runtime/protocol/codexUserReady 必须全部通过；external codexSmokeStatus 仅保留为兼容字段，不影响审计。
 - **报告过期判定**：若 unit/process 报告的 commit sha 与 testedCodeCommitSha 不一致，说明报告是旧 commit 的结果，必须重新生成。
 
 ## 审计结果
 
-✅ **审计通过**：testedCodeCommitSha 一致 + codexSmokeStatus 合法 + uncaught/unhandled 为 0 + 字段解析完整。
+✅ **审计通过**：testedCodeCommitSha 一致 + Managed Codex Runtime gate 通过 + uncaught/unhandled 为 0 + 字段解析完整。
 
 ## skip 策略与覆盖替代
 
