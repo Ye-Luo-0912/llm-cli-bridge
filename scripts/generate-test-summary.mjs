@@ -128,7 +128,22 @@ function parseCodexSmokeReport(path) {
   result.codexUserReady = userReadyMatch ? userReadyMatch[1] : null;
 
   // V17-E1 任务 E：解析 readiness matrix 12 字段
+  // V17-F1 任务 G：新增 5 个 managed runtime 字段 + SDK 字段（共 22 字段）
   const matrixFields = [
+    // V17-F1 Managed runtime 主线字段（主 gate）
+    "codexManagedRuntimeAvailable",
+    "codexManagedRuntimeVersion",
+    "codexManagedRuntimeSha256Valid",
+    "codexManagedRuntimeExecutable",
+    "codexManagedAppServerSpawnStatus",
+    // V17-F0 SDK 字段（占位 false）
+    "codexSdkAvailable",
+    "codexEmbeddedRuntimeAvailable",
+    "codexSdkAuthAvailable",
+    // V17-F0 External fallback 字段（非主 gate）
+    "codexExternalExecutableAvailable",
+    "externalAppServerSpawnStatus",
+    // V17-E1 旧字段（保留兼容）
     "codexCliAvailable",
     "codexAuthAvailable",
     "appServerSpawnStatus",
@@ -331,8 +346,22 @@ function main() {
     `- **codexVersion**: ${codexSmoke.codexVersion || "(解析失败)"}`,
     `- **codexSchemaSource**: ${codexSmoke.schemaSource || "(解析失败)"}`,
     // V17-E 任务 E：新增 codexUserReady 字段（smoke=pass 才 true；skip/fail/handshake-only 均 false）
+    // V17-F1 任务 G：codexUserReady 主 gate 改为 managed runtime gate
     `- **codexUserReady**: ${codexSmoke.codexUserReady || "(解析失败)"}`,
-    // V17-E1 任务 E：readiness matrix 12 字段
+    // V17-F1 任务 G：Managed runtime 主线字段（主 gate，5 个）
+    `- **codexManagedRuntimeAvailable**: ${codexSmoke.codexManagedRuntimeAvailable || "(解析失败)"}`,
+    `- **codexManagedRuntimeVersion**: ${codexSmoke.codexManagedRuntimeVersion || "(解析失败)"}`,
+    `- **codexManagedRuntimeSha256Valid**: ${codexSmoke.codexManagedRuntimeSha256Valid || "(解析失败)"}`,
+    `- **codexManagedRuntimeExecutable**: ${codexSmoke.codexManagedRuntimeExecutable || "(解析失败)"}`,
+    `- **codexManagedAppServerSpawnStatus**: ${codexSmoke.codexManagedAppServerSpawnStatus || "(解析失败)"}`,
+    // V17-F0 SDK 字段（占位 false）
+    `- **codexSdkAvailable**: ${codexSmoke.codexSdkAvailable || "(解析失败)"}`,
+    `- **codexEmbeddedRuntimeAvailable**: ${codexSmoke.codexEmbeddedRuntimeAvailable || "(解析失败)"}`,
+    `- **codexSdkAuthAvailable**: ${codexSmoke.codexSdkAuthAvailable || "(解析失败)"}`,
+    // V17-F0 External fallback 字段（非主 gate）
+    `- **codexExternalExecutableAvailable**: ${codexSmoke.codexExternalExecutableAvailable || "(解析失败)"}`,
+    `- **externalAppServerSpawnStatus**: ${codexSmoke.externalAppServerSpawnStatus || "(解析失败)"}`,
+    // V17-E1 旧字段（保留兼容）
     `- **codexCliAvailable**: ${codexSmoke.codexCliAvailable || "(解析失败)"}`,
     `- **codexAuthAvailable**: ${codexSmoke.codexAuthAvailable || "(解析失败)"}`,
     `- **appServerSpawnStatus**: ${codexSmoke.appServerSpawnStatus || "(解析失败)"}`,

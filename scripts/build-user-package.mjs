@@ -154,6 +154,34 @@ for (const [pkgName, srcPath] of vendorPaths) {
 }
 console.log(`  ✓ vendor 完成：${copiedCount} 包复制，${skippedCount} 跳过`);
 
+// 4b. V17-F1 任务 E：复制 Codex Managed Runtime manifest + fixture binary
+console.log("\n[user-package] 步骤 4b: 复制 Codex Managed Runtime manifest + binary...");
+const managedRuntimeSrcDir = path.join(PROJECT_ROOT, "src", "runtime", "providers", "codex-managed-app-server");
+const managedRuntimeDestDir = path.join(OUT_DIR, "codex-managed-runtime");
+const managedManifestSrc = path.join(managedRuntimeSrcDir, "runtime-manifest.json");
+const managedManifestDest = path.join(managedRuntimeDestDir, "runtime-manifest.json");
+const managedRuntimeBinarySrcDir = path.join(managedRuntimeSrcDir, "runtime");
+const managedRuntimeBinaryDestDir = path.join(managedRuntimeDestDir, "runtime");
+
+if (!fs.existsSync(managedManifestSrc)) {
+  console.error(`[user-package] 错误：managed runtime manifest 不存在: ${managedManifestSrc}`);
+  process.exit(1);
+}
+
+// 复制 manifest
+fs.mkdirSync(managedRuntimeDestDir, { recursive: true });
+fs.copyFileSync(managedManifestSrc, managedManifestDest);
+console.log(`  ✓ runtime-manifest.json 已复制`);
+
+// 复制 runtime binary 目录（所有平台）
+if (fs.existsSync(managedRuntimeBinarySrcDir)) {
+  copyDirSync(managedRuntimeBinarySrcDir, managedRuntimeBinaryDestDir);
+  console.log(`  ✓ runtime/ 目录已复制（含所有平台 fixture binary）`);
+} else {
+  console.log(`  ⚠ runtime/ 目录不存在（fixture binary 缺失）`);
+}
+console.log(`  ✓ managed runtime 已集成到 user-package`);
+
 // 5. 写元数据文件（V17-E1 任务 C：不写 package.json，避免 type=module 影响 main.js CJS 加载）
 //    main.js 是 esbuild format=cjs；若根目录有 package.json 含 "type":"module"，
 //    Node 会把 main.js 当 ESM 解析，导致 require() 失败。

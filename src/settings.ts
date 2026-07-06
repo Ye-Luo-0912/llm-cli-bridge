@@ -274,10 +274,11 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Backend 模式")
-      .setDesc("V17-F0 任务 C：auto = SDK-first 链（codex-sdk→claude-sdk→pi-sdk→claude-cli）。codex-sdk=Codex Agent SDK（主线占位）；codex-app-server-external=外部 codex app-server（高级/开发者 fallback）；cli=Claude Code CLI；sdk=Claude Agent SDK；pi-sdk/pi-rpc=Pi（optional/advanced）；mock=离线测试。")
+      .setDesc("V17-F1 任务 D：auto = Managed runtime first（codex-managed→codex-sdk→claude-sdk→pi-sdk→cli）。codex-managed-app-server=我们管理的 pinned runtime binary（主线，不依赖用户安装 Codex CLI）；codex-sdk=Codex Agent SDK（占位）；codex-app-server-external=外部 codex app-server（高级/开发者 fallback）；cli=Claude Code CLI；sdk=Claude Agent SDK；pi-sdk/pi-rpc=Pi（optional/advanced）；mock=离线测试。")
       .addDropdown((d) => {
-        d.addOption("auto", "auto（SDK-first：codex-sdk→claude-sdk→pi-sdk→cli）");
-        d.addOption("codex-sdk", "codex-sdk（Codex Agent SDK 主线占位）");
+        d.addOption("auto", "auto（Managed：codex-managed→codex-sdk→claude-sdk→pi-sdk→cli）");
+        d.addOption("codex-managed-app-server", "codex-managed-app-server（Managed pinned runtime 主线）");
+        d.addOption("codex-sdk", "codex-sdk（Codex Agent SDK 占位）");
         d.addOption("codex-app-server-external", "codex-app-server-external（高级 fallback）");
         d.addOption("cli", "cli（Claude Code CLI）");
         d.addOption("sdk", "sdk（Claude Agent SDK）");

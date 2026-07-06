@@ -1,0 +1,27 @@
+{
+  "runtimeId": "codex-managed-app-server-fixture",
+  "version": "0.1.0-fixture",
+  "protocolVersion": "2025-07-06",
+  "fixture": true,
+  "appServerArgs": ["app-server"],
+  "platforms": {
+    "win32-x64": {
+      "path": "runtime/win32-x64/codex-app-server-fake.bat",
+      "sha256": "82256d51ab011242eae463a66ebe76dcf4ba4b5108e952afe06c76c27c3d35fd",
+      "size": 159,
+      "executableName": "codex-app-server-fake.bat"
+    },
+    "linux-x64": {
+      "path": "runtime/linux-x64/codex-app-server-fake",
+      "sha256": "ae909b49b004cde0866b2eff1366401fa0dd882dc9cd618aa620dd7605618369",
+      "size": 155,
+      "executableName": "codex-app-server-fake"
+    },
+    "darwin-x64": {
+      "path": "runtime/darwin-x64/codex-app-server-fake",
+      "sha256": "f48aa3dcaa582cfe824cb14eef655878d89fbadcd5b05756bf2571424e936db6",
+      "size": 156,
+      "executableName": "codex-app-server-fake"
+    }
+  }
+}

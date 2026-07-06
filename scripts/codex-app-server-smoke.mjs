@@ -38,9 +38,9 @@
 // - 结果记录到 docs/test-report-codex-smoke.md（skip 时也覆盖，明确 skip 状态）
 
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, mkdtempSync, rmSync, readdirSync, readFileSync, accessSync, constants } from "node:fs";
 import { createHash } from "node:crypto";
-import { join, resolve } from "node:path";
+import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -50,6 +50,11 @@ const DOCS_DIR = join(PROJECT_ROOT, "docs");
 const REPORT_PATH = join(DOCS_DIR, "test-report-codex-smoke.md");
 const FIXTURE_MANIFEST_PATH = join(
   PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "schema", "manifest.json",
+);
+
+// V17-F1 任务 G：Managed runtime manifest 路径
+const MANAGED_RUNTIME_MANIFEST_PATH = join(
+  PROJECT_ROOT, "src", "runtime", "providers", "codex-managed-app-server", "runtime-manifest.json",
 );
 
 const CODEX_COMMAND = process.env.CODEX_COMMAND || "codex";
@@ -69,6 +74,97 @@ function probeCodex() {
   }
   const version = (probe.stdout || probe.stderr).trim().split(/\r?\n/)[0] || "unknown";
   return { available: true, version, reason: null };
+}
+
+// ============================================================
+// V17-F1 任务 G：探测 Managed Codex App-Server Runtime
+// ============================================================
+
+/**
+ * 探测 managed runtime（manifest + sha256 + executable）。
+ *
+ * 不依赖用户安装 Codex CLI / Desktop App。
+ * 校验我们管理的 pinned runtime binary。
+ *
+ * spawnStatus 语义：
+ *   - pass: available=true + fixture=false（真实 binary）
+ *   - fixture-only: available=true + fixture=true（fixture，不标 user-ready）
+ *   - fail: available=false 或校验失败
+ *   - unknown: manifest 不存在或解析失败
+ */
+function probeManagedRuntime() {
+  const result = {
+    available: false,
+    version: null,
+    sha256Valid: false,
+    executableValid: false,
+    spawnStatus: "unknown",
+    fixture: false,
+    reason: null,
+  };
+
+  if (!existsSync(MANAGED_RUNTIME_MANIFEST_PATH)) {
+    result.reason = "manifest-not-found";
+    result.spawnStatus = "unknown";
+    return result;
+  }
+
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(MANAGED_RUNTIME_MANIFEST_PATH, "utf8"));
+  } catch (e) {
+    result.reason = `manifest-invalid: ${e.message}`;
+    result.spawnStatus = "unknown";
+    return result;
+  }
+
+  result.version = manifest.version || null;
+  result.fixture = !!manifest.fixture;
+
+  const platformKey = `${process.platform}-${process.arch}`;
+  const platformEntry = manifest.platforms?.[platformKey];
+  if (!platformEntry) {
+    result.reason = `platform-not-found: ${platformKey}`;
+    result.spawnStatus = "fail";
+    return result;
+  }
+
+  const manifestDir = dirname(MANAGED_RUNTIME_MANIFEST_PATH);
+  const runtimePath = resolve(manifestDir, platformEntry.path);
+  if (!existsSync(runtimePath)) {
+    result.reason = `path-not-exist: ${runtimePath}`;
+    result.spawnStatus = "fail";
+    return result;
+  }
+
+  // sha256 校验
+  const fileBuf = readFileSync(runtimePath);
+  const actualSha256 = createHash("sha256").update(fileBuf).digest("hex");
+  if (actualSha256 !== platformEntry.sha256) {
+    result.reason = `sha256-mismatch: expected ${platformEntry.sha256}, got ${actualSha256}`;
+    result.spawnStatus = "fail";
+    return result;
+  }
+  result.sha256Valid = true;
+
+  // executable 校验
+  let execOk = false;
+  if (process.platform === "win32") {
+    const lower = runtimePath.toLowerCase();
+    execOk = lower.endsWith(".exe") || lower.endsWith(".bat") || lower.endsWith(".cmd") || lower.endsWith(".ps1");
+  } else {
+    try { accessSync(runtimePath, constants.X_OK); execOk = true; } catch {}
+  }
+  if (!execOk) {
+    result.reason = "not-executable";
+    result.spawnStatus = "fail";
+    return result;
+  }
+  result.executableValid = true;
+  result.available = true;
+  result.spawnStatus = result.fixture ? "fixture-only" : "pass";
+  result.reason = "ok";
+  return result;
 }
 
 // ============================================================
@@ -489,10 +585,21 @@ function writeReport(report) {
   // V17-E1 任务 E：readiness matrix 12 字段写入报告
   // V17-F0 任务 E：新增 5 字段（codexSdkAvailable / codexEmbeddedRuntimeAvailable /
   // codexSdkAuthAvailable / codexExternalExecutableAvailable / externalAppServerSpawnStatus）
+  // V17-F1 任务 G：新增 5 字段（codexManagedRuntimeAvailable / codexManagedRuntimeVersion /
+  // codexManagedRuntimeSha256Valid / codexManagedRuntimeExecutable / codexManagedAppServerSpawnStatus）
   // 旧 codexCliAvailable / appServerSpawnStatus 不得作为 Codex user-ready 主 gate
-  lines.push("## Readiness Matrix (V17-F0 任务 E — 17 字段)");
+  // V17-F1 主 gate 改为 managed runtime gate（external 字段保留但不影响 codexUserReady）
+  lines.push("## Readiness Matrix (V17-F1 任务 G — 22 字段)");
   lines.push("");
-  lines.push("### V17-F0 新增 SDK 主线字段");
+  lines.push("### V17-F1 新增 Managed runtime 主线字段（主 gate）");
+  lines.push("");
+  lines.push(`- **codexManagedRuntimeAvailable**: ${matrix.codexManagedRuntimeAvailable}`);
+  lines.push(`- **codexManagedRuntimeVersion**: ${matrix.codexManagedRuntimeVersion}`);
+  lines.push(`- **codexManagedRuntimeSha256Valid**: ${matrix.codexManagedRuntimeSha256Valid}`);
+  lines.push(`- **codexManagedRuntimeExecutable**: ${matrix.codexManagedRuntimeExecutable}`);
+  lines.push(`- **codexManagedAppServerSpawnStatus**: ${matrix.codexManagedAppServerSpawnStatus}`);
+  lines.push("");
+  lines.push("### V17-F0 SDK 字段（保留，非主 gate；本轮占位 false）");
   lines.push("");
   lines.push(`- **codexSdkAvailable**: ${matrix.codexSdkAvailable}`);
   lines.push(`- **codexEmbeddedRuntimeAvailable**: ${matrix.codexEmbeddedRuntimeAvailable}`);
@@ -524,7 +631,7 @@ function writeReport(report) {
   lines.push("- **handshakeStatus** = `pass`：codex --version / generate-ts / app-server spawn / initialize / initialized / thread/start 全部通过。");
   lines.push("- **turnStatus** = `pass`：turn/start + turn/completed 通过；`skip-auth`：turn 因 auth/login 不可用而跳过（handshake 仍可 pass）；`fail`：turn 硬失败；`skip-handshake-failed`：handshake fail 时 turn 不执行。");
   lines.push("- **smokeStatus**：`skip`=无 codex CLI；`pass`=handshake+turn 全 pass；`handshake-only`=handshake pass 但 turn 非 pass（如 auth 不可用）；`fail`=handshake fail。");
-  lines.push("- **codexUserReady**：`true` 仅当 smokeStatus=pass 且关键 matrix 字段（appServerSpawn/initialize/threadStart/turnStart/turnCompleted/stopCancel/noVaultRootPollution）均 pass/true。`not-triggered` 的 approval/fileChange 不阻塞 ready（agent 可能不需要审批）。");
+  lines.push("- **codexUserReady**：`true` 仅当 managed runtime gate 通过（codexManagedRuntimeAvailable=true + sha256Valid=true + executable=true + spawnStatus=pass）且 smoke=pass 且关键 matrix 字段（appServerSpawn/initialize/threadStart/turnStart/turnCompleted/stopCancel/noVaultRootPollution）均 pass/true。fixture-only（spawnStatus=fixture-only）不算 ready。`not-triggered` 的 approval/fileChange 不阻塞 ready。external app-server pass 不影响 codexUserReady。");
   if (report.codexAvailable && report.schemaSource === "generated") {
     lines.push("");
     lines.push("## Generated schema manifest 摘要（task 4）");
@@ -553,15 +660,24 @@ function writeReport(report) {
   console.log(`报告已写入: ${REPORT_PATH}`);
 }
 
-// V17-F0 任务 E：codexUserReady 派生 — 只有 SDK 主线或明确 bundled runtime 主线通过时才 true
-// 旧 external app-server pass 不再让 codexUserReady=true
-// SDK 主线（codexSdkAvailable + codexSdkAuthAvailable）为本轮占位，默认 false
+// V17-F1 任务 G：codexUserReady 派生 — 主 gate 改为 managed runtime gate
+// 旧 SDK 主线 gate（codexSdkAvailable + codexSdkAuthAvailable）保留为占位 false，不再作为主 gate
+// external app-server pass 不影响 codexUserReady
+//
+// managed runtime gate 条件：
+//   - codexManagedRuntimeAvailable=true
+//   - codexManagedRuntimeSha256Valid=true
+//   - codexManagedRuntimeExecutable=true
+//   - codexManagedAppServerSpawnStatus="pass"（fixture-only 不算 ready）
+// 后续真实 binary 接入后还需 app-server initialize/thread/turn pass
 function deriveCodexUserReady(report, matrix) {
-  // V17-F0 任务 E：SDK 主线 gate — 必须 codexSdkAvailable=true 且 codexSdkAuthAvailable=true
-  // 本轮 CodexSdkProvider 为占位（isAvailable 返回 false），所以 codexUserReady 保持 false
-  if (matrix.codexSdkAvailable !== "true") return false;
-  if (matrix.codexSdkAuthAvailable !== "true") return false;
-  // SDK 主线通过后，仍需 smoke 关键字段 pass
+  // V17-F1 任务 G：managed runtime 主 gate
+  if (matrix.codexManagedRuntimeAvailable !== "true") return false;
+  if (matrix.codexManagedRuntimeSha256Valid !== "true") return false;
+  if (matrix.codexManagedRuntimeExecutable !== "true") return false;
+  // fixture-only 不算 user-ready（manifest.fixture=true → spawnStatus="fixture-only"）
+  if (matrix.codexManagedAppServerSpawnStatus !== "pass") return false;
+  // 后续真实 binary 接入后：仍需 smoke 关键字段 pass
   if (report.smokeStatus !== "pass") return false;
   const keyFields = [
     matrix.appServerSpawnStatus,
@@ -631,14 +747,26 @@ function deriveReadinessMatrix(report) {
   const codexExternalExecutableAvailable = report.codexAvailable === true ? "true" : "false";
   const externalAppServerSpawnStatus = spawnStep ? (spawnStep.ok ? "pass" : "fail") : "unknown";
 
+  // V17-F1 任务 G：Managed runtime 字段（5 个，从 report.managedRuntime 读取）
+  // managed runtime 为 V17-F1 主线，codexUserReady 主 gate 改为 managed runtime gate
+  const managed = report.managedRuntime || {};
+  const codexManagedRuntimeAvailable = managed.available === true ? "true" : "false";
+  const codexManagedRuntimeVersion = managed.version || "null";
+  const codexManagedRuntimeSha256Valid = managed.sha256Valid === true ? "true" : "false";
+  const codexManagedRuntimeExecutable = managed.executableValid === true ? "true" : "false";
+  // spawnStatus 语义：pass（真实 binary）/ fixture-only（fixture，不标 user-ready）/ fail / unknown
+  const codexManagedAppServerSpawnStatus = managed.spawnStatus || "unknown";
+
   return {
-    // ===== V17-F0 新增：SDK 主线字段（5 个，本轮占位） =====
-    // codexSdkAvailable：Codex Agent SDK 是否可用。本轮 CodexSdkProvider 为占位
-    //   （isAvailable 返回 false），故恒为 "false"。后续 SDK 接入后改为真实探测。
+    // ===== V17-F1 新增：Managed runtime 主线字段（5 个，本轮 fixture-only） =====
+    codexManagedRuntimeAvailable,
+    codexManagedRuntimeVersion,
+    codexManagedRuntimeSha256Valid,
+    codexManagedRuntimeExecutable,
+    codexManagedAppServerSpawnStatus,
+    // ===== V17-F0 SDK 字段（保留，非主 gate；本轮占位 false） =====
     codexSdkAvailable: "false",
-    // codexEmbeddedRuntimeAvailable：Codex embedded runtime 是否随包可用。本轮未实现。
     codexEmbeddedRuntimeAvailable: "false",
-    // codexSdkAuthAvailable：Codex SDK auth 是否可用。本轮未实现 auth 探测。
     codexSdkAuthAvailable: "false",
     // ===== V17-F0 External fallback 字段（不得作为 user-ready 主 gate） =====
     codexExternalExecutableAvailable,
@@ -662,6 +790,22 @@ function deriveReadinessMatrix(report) {
 function main() {
   console.log("=== Codex real app-server smoke gate (P2 分层) ===");
 
+  // V17-F1 任务 G：探测 managed runtime（manifest + sha256 + executable）
+  // managed runtime 为 V17-F1 主线，codexUserReady 主 gate 改为 managed runtime gate
+  // 即使 external codex CLI 不可用（skip），managed runtime 探测仍执行并写入报告
+  console.log("--- V17-F1 任务 G：探测 Managed Codex App-Server Runtime ---");
+  const managedProbe = probeManagedRuntime();
+  console.log(`codexManagedRuntimeAvailable=${managedProbe.available ? "true" : "false"}`);
+  console.log(`codexManagedRuntimeVersion=${managedProbe.version || "null"}`);
+  console.log(`codexManagedRuntimeSha256Valid=${managedProbe.sha256Valid ? "true" : "false"}`);
+  console.log(`codexManagedRuntimeExecutable=${managedProbe.executableValid ? "true" : "false"}`);
+  console.log(`codexManagedAppServerSpawnStatus=${managedProbe.spawnStatus}`);
+  console.log(`codexManagedRuntimeFixture=${managedProbe.fixture ? "true" : "false"}`);
+  if (managedProbe.reason && managedProbe.reason !== "ok") {
+    console.log(`codexManagedRuntimeReason=${managedProbe.reason}`);
+  }
+  console.log("");
+
   const probe = probeCodex();
   if (!probe.available) {
     console.log(`⏭️  codex CLI 不可用，明确 skip（不伪装通过）— reason: ${probe.reason}`);
@@ -676,6 +820,7 @@ function main() {
       smokeStatus: "skip",
       skipReason: probe.reason,
       steps: [],
+      managedRuntime: managedProbe,
     };
     writeReport(report);
     printReadinessMatrix(report);
@@ -688,6 +833,7 @@ function main() {
     const report = {
       codexAvailable: true,
       ...result,
+      managedRuntime: managedProbe,
     };
     writeReport(report);
     printReadinessMatrix(report);
@@ -708,6 +854,7 @@ function main() {
       smokeStatus: "fail",
       steps: [],
       skipReason: `uncaught: ${e?.message || e}`,
+      managedRuntime: managedProbe,
     };
     writeReport(report);
     printReadinessMatrix(report);
@@ -718,9 +865,24 @@ function main() {
 
 // V17-E 任务 C：打印 readiness matrix（12 字段）
 // V17-E1 任务 E：codexUserReady 改用 deriveCodexUserReady（smoke=pass + 关键 matrix 字段 pass/true）
+// V17-F1 任务 G：新增 5 个 managed runtime 字段，主 gate 改为 managed runtime gate
 function printReadinessMatrix(report) {
   const m = deriveReadinessMatrix(report);
-  console.log("\n=== Readiness Matrix (V17-E 任务 C + V17-E1 任务 E) ===");
+  console.log("\n=== Readiness Matrix (V17-E + V17-E1 + V17-F0 + V17-F1) ===");
+  console.log("--- V17-F1 Managed runtime 主线字段（主 gate） ---");
+  console.log(`codexManagedRuntimeAvailable=${m.codexManagedRuntimeAvailable}`);
+  console.log(`codexManagedRuntimeVersion=${m.codexManagedRuntimeVersion}`);
+  console.log(`codexManagedRuntimeSha256Valid=${m.codexManagedRuntimeSha256Valid}`);
+  console.log(`codexManagedRuntimeExecutable=${m.codexManagedRuntimeExecutable}`);
+  console.log(`codexManagedAppServerSpawnStatus=${m.codexManagedAppServerSpawnStatus}`);
+  console.log("--- V17-F0 SDK 字段（占位 false） ---");
+  console.log(`codexSdkAvailable=${m.codexSdkAvailable}`);
+  console.log(`codexEmbeddedRuntimeAvailable=${m.codexEmbeddedRuntimeAvailable}`);
+  console.log(`codexSdkAuthAvailable=${m.codexSdkAuthAvailable}`);
+  console.log("--- V17-F0 External fallback 字段（非主 gate） ---");
+  console.log(`codexExternalExecutableAvailable=${m.codexExternalExecutableAvailable}`);
+  console.log(`externalAppServerSpawnStatus=${m.externalAppServerSpawnStatus}`);
+  console.log("--- V17-E1 旧字段（保留兼容） ---");
   console.log(`codexCliAvailable=${m.codexCliAvailable}`);
   console.log(`codexVersion=${m.codexVersion}`);
   console.log(`codexAuthAvailable=${m.codexAuthAvailable}`);
@@ -733,7 +895,7 @@ function printReadinessMatrix(report) {
   console.log(`fileChangeRequestStatus=${m.fileChangeRequestStatus}`);
   console.log(`stopCancelStatus=${m.stopCancelStatus}`);
   console.log(`noVaultRootPollution=${m.noVaultRootPollution}`);
-  // V17-E1 任务 E：codexUserReady gate — smoke=pass + 关键 matrix 字段 pass/true
+  // V17-F1 任务 G：codexUserReady 主 gate = managed runtime gate
   const codexUserReady = deriveCodexUserReady(report, m);
   console.log(`codexUserReady=${codexUserReady}`);
 }

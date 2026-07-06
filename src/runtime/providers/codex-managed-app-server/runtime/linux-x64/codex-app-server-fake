@@ -1,0 +1,4 @@
+#!/bin/sh
+# V17-F1 Codex managed runtime fixture (linux-x64)
+# This is NOT a real codex app-server; only for manifest/sha256/executable validation.
+exit 0

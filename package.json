@@ -13,6 +13,7 @@
     "test:integration": "node scripts/run-tests.mjs --integration",
     "test:codex-app-server": "node scripts/codex-app-server-smoke.mjs",
     "smoke:codex-app-server": "node scripts/codex-app-server-smoke.mjs",
+    "smoke:codex-managed-runtime": "node scripts/codex-managed-runtime-smoke.mjs",
     "smoke:pi-sdk": "node scripts/pi-sdk-smoke.mjs",
     "smoke:user-package": "node scripts/user-package-smoke.mjs",
     "test:summary": "node scripts/generate-test-summary.mjs",

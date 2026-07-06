@@ -38,19 +38,23 @@ import { ClaudeCliProvider } from "../providers/claude-cli/claudeCliProvider";
 import { MockProvider } from "../providers/mock/mockProvider";
 import { CodexExternalAppServerProvider } from "../providers/codex-app-server/codexAppServerProvider";
 import { CodexSdkProvider } from "../providers/codex-sdk/codexSdkProvider";
+import { CodexManagedAppServerProvider } from "../providers/codex-managed-app-server/codexManagedAppServerProvider";
+import { resolveManagedRuntime, resolveManifestPath } from "../providers/codex-managed-app-server/codexManagedRuntimeResolver";
 import { PiRpcProvider } from "../providers/pi-rpc/piRpcProvider";
 import { PiSdkProvider } from "../providers/pi-sdk/piSdkProvider";
 
 /**
  * 选择 RuntimeProvider（按 settings.backendMode + provider 可用性）。
  *
- * V17-F0 任务 C：SDK-first 方向。
- * - auto（不论 portable 还是 developer）：codex-sdk → claude-sdk → pi-sdk → claude-cli
- *   不再依赖 external codex executable 作为普通用户主线。
+ * V17-F1 任务 D：Managed runtime 主线。
+ * - auto（不论 portable 还是 developer）：codex-managed-app-server → codex-sdk → claude-sdk → pi-sdk → claude-cli
+ *   不依赖用户安装 Codex CLI / Desktop App，使用我们管理的 pinned runtime binary。
+ * - codex-managed-app-server: V17-F1 主线，使用 manifest + sha256 + executable 校验的 pinned binary
  * - codex-sdk: 显式 Codex SDK（本轮占位，未完整实现时 unavailable）
  * - codex-app-server-external: 显式 external app-server（高级/开发者 fallback）
  * - cli / sdk / pi-sdk / pi-rpc: 各自显式 provider
  *
+ * V17-F0 任务 C：SDK-first 方向。
  * V17-E1 任务 B：portable auto 不再 Pi-first。
  * V17-E 任务 F：Pi 降级为 optional/advanced backend；friendReady 改名为 piAdvancedReady。
  *
@@ -69,6 +73,14 @@ export function selectProvider(
   }
   if (mode === "mock-failure") {
     return { provider: new MockProvider("failure"), label: "Mock" };
+  }
+  // V17-F1 任务 D：codex-managed-app-server 为主线（使用我们管理的 pinned runtime binary）
+  if (mode === "codex-managed-app-server") {
+    const managed = createManagedProvider();
+    if (managed.resolver.available) {
+      return { provider: managed.provider, label: managed.fixture ? "Codex managed (fixture)" : "Codex managed" };
+    }
+    return { provider: managed.provider, label: `Codex managed (unavailable: ${managed.resolver.reason})` };
   }
   // V17-F0 任务 C：codex-sdk 为主线占位（本轮未完整实现，readiness 以 smoke 报告为准）
   if (mode === "codex-sdk") {
@@ -109,8 +121,12 @@ export function selectProvider(
     return { provider: piSdk, label: "Pi SDK (unavailable)" };
   }
 
-  // V17-F0 任务 C：auto = SDK-first 链，不再依赖 external codex executable
-  // codex-sdk → claude-sdk → pi-sdk → claude-cli（具体 fallback 另行决策）
+  // V17-F1 任务 D：auto = Managed runtime first 链
+  // codex-managed-app-server → codex-sdk → claude-sdk → pi-sdk → claude-cli
+  const managed = createManagedProvider();
+  if (managed.resolver.available) {
+    return { provider: managed.provider, label: managed.fixture ? "Codex managed (fixture)" : "Codex managed" };
+  }
   const codexSdk = new CodexSdkProvider();
   if (codexSdk.isAvailable(cwd)) {
     return { provider: codexSdk, label: "Codex SDK" };
@@ -124,6 +140,26 @@ export function selectProvider(
     return { provider: piSdk, label: "Pi SDK" };
   }
   return { provider: new ClaudeCliProvider(), label: "Claude Code fallback" };
+}
+
+/**
+ * V17-F1 任务 D：创建 CodexManagedAppServerProvider。
+ *
+ * 从 pluginDir（globalThis.__dirname）解析 manifest，调用 resolver，
+ * 构造 CodexManagedAppServerProvider。
+ */
+function createManagedProvider(): {
+  provider: CodexManagedAppServerProvider;
+  resolver: import("../providers/codex-managed-app-server/codexManagedRuntimeResolver").ManagedRuntimeResolverResult;
+  fixture: boolean;
+} {
+  // 复用 PiSdkProvider 的 pluginDir 获取方式（Obsidian 加载时 __dirname 为插件目录）
+  const g = globalThis as { __dirname?: string };
+  const pluginDir = g.__dirname || "";
+  const manifestPath = resolveManifestPath(pluginDir);
+  const resolver = resolveManagedRuntime(manifestPath);
+  const provider = new CodexManagedAppServerProvider(resolver, resolver.appServerArgs);
+  return { provider, resolver, fixture: resolver.fixture };
 }
 
 /**

@@ -22,10 +22,11 @@
 // 运行：npm run smoke:user-package
 // 前置：npm run build:user-package
 
-import { existsSync, statSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, statSync, readdirSync, readFileSync, writeFileSync, mkdirSync, accessSync, constants } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { createRequire } from "node:module";
+import { createHash } from "node:crypto";
 
 const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const USER_PKG_DIR = join(PROJECT_ROOT, "dist", "user-package");
@@ -62,6 +63,12 @@ const report = {
   missingDeps: [],
   sdkVersion: null,
   totalSizeMB: 0,
+  // V17-F1 任务 E：Codex Managed Runtime 字段
+  containsCodexManagedRuntime: false,
+  codexRuntimeSha256Valid: false,
+  codexRuntimeExecutable: false,
+  codexRuntimePinnedVersion: null,
+  codexRuntimeFixture: false,
   timestamp: new Date().toISOString(),
 };
 
@@ -203,6 +210,63 @@ report.missingDeps = missingDeps;
 report.userNeedsNpmInstall = missingDeps.length > 0;
 console.log(`关键 transitive deps 检查：${missingDeps.length === 0 ? "✓ 全部存在" : "✗ 缺失：" + missingDeps.join(", ")}`);
 
+// ---------- 7b. V17-F1 任务 E：验证 Codex Managed Runtime ----------
+console.log("");
+console.log("--- V17-F1 任务 E：Codex Managed Runtime 校验 ---");
+const managedManifestPath = join(USER_PKG_DIR, "codex-managed-runtime", "runtime-manifest.json");
+if (existsSync(managedManifestPath)) {
+  report.containsCodexManagedRuntime = true;
+  let managedManifest;
+  try {
+    managedManifest = JSON.parse(readFileSync(managedManifestPath, "utf8"));
+    report.codexRuntimePinnedVersion = managedManifest.version || null;
+    report.codexRuntimeFixture = !!managedManifest.fixture;
+    console.log(`✓ managed runtime manifest 存在 (version=${managedManifest.version}, fixture=${managedManifest.fixture})`);
+
+    // 校验当前平台的 runtime binary
+    const platformKey = `${process.platform}-${process.arch}`;
+    const platformEntry = managedManifest.platforms?.[platformKey];
+    if (platformEntry) {
+      const managedManifestDir = dirname(managedManifestPath);
+      const runtimeBinaryPath = resolve(managedManifestDir, platformEntry.path);
+      if (existsSync(runtimeBinaryPath)) {
+        // sha256 校验
+        const fileBuf = readFileSync(runtimeBinaryPath);
+        const actualSha256 = createHash("sha256").update(fileBuf).digest("hex");
+        if (actualSha256 === platformEntry.sha256) {
+          report.codexRuntimeSha256Valid = true;
+          console.log(`✓ sha256 校验通过 (${platformKey})`);
+        } else {
+          console.log(`✗ sha256 校验失败 (${platformKey}): expected ${platformEntry.sha256}, got ${actualSha256}`);
+        }
+        // executable 校验
+        let execOk = false;
+        if (process.platform === "win32") {
+          const lower = runtimeBinaryPath.toLowerCase();
+          execOk = lower.endsWith(".exe") || lower.endsWith(".bat") || lower.endsWith(".cmd") || lower.endsWith(".ps1");
+        } else {
+          try { accessSync(runtimeBinaryPath, constants.X_OK); execOk = true; } catch {}
+        }
+        report.codexRuntimeExecutable = execOk;
+        console.log(`${execOk ? "✓" : "✗"} executable 权限 (${platformKey})`);
+      } else {
+        console.log(`✗ runtime binary 不存在: ${runtimeBinaryPath}`);
+      }
+    } else {
+      console.log(`✗ 平台 ${platformKey} 不在 manifest 中`);
+    }
+  } catch (e) {
+    console.log(`✗ managed runtime manifest 解析失败: ${e.message}`);
+  }
+} else {
+  console.log(`✗ managed runtime manifest 不存在: ${managedManifestPath}`);
+}
+console.log(`containsCodexManagedRuntime=${report.containsCodexManagedRuntime}`);
+console.log(`codexRuntimeSha256Valid=${report.codexRuntimeSha256Valid}`);
+console.log(`codexRuntimeExecutable=${report.codexRuntimeExecutable}`);
+console.log(`codexRuntimePinnedVersion=${report.codexRuntimePinnedVersion}`);
+console.log(`codexRuntimeFixture=${report.codexRuntimeFixture}`);
+
 // ---------- 8. 统计 user-package 大小 ----------
 report.totalSizeMB = Number((dirSize(USER_PKG_DIR) / 1024 / 1024).toFixed(1));
 console.log(`user-package 总大小: ${report.totalSizeMB} MB`);
@@ -225,6 +289,11 @@ console.log(`canRequirePiSdk=${report.canRequirePiSdk}`);
 console.log(`canLoadMainJs=${report.canLoadMainJs}`);
 console.log(`noRootPackageJson=${report.noRootPackageJson}`);
 console.log(`userNeedsNpmInstall=${report.userNeedsNpmInstall}`);
+console.log(`containsCodexManagedRuntime=${report.containsCodexManagedRuntime}`);
+console.log(`codexRuntimeSha256Valid=${report.codexRuntimeSha256Valid}`);
+console.log(`codexRuntimeExecutable=${report.codexRuntimeExecutable}`);
+console.log(`codexRuntimePinnedVersion=${report.codexRuntimePinnedVersion}`);
+console.log(`codexRuntimeFixture=${report.codexRuntimeFixture}`);
 
 // ---------- 10. 写报告 ----------
 writeReport(report);
@@ -236,10 +305,11 @@ process.exit(report.userPackageStatus === "pass" ? 0 : 1);
 function writeReport(r) {
   if (!existsSync(DOCS_DIR)) mkdirSync(DOCS_DIR, { recursive: true });
   const lines = [
-    "# LLM CLI Bridge 测试报告 — User Package Smoke (V17-D + V17-E1)",
+    "# LLM CLI Bridge 测试报告 — User Package Smoke (V17-D + V17-E1 + V17-F1)",
     "",
     "> 本报告由 `scripts/user-package-smoke.mjs` 自动生成。",
     "> 验证 dist/user-package 零安装发行包的完整性与 CJS 加载安全性。",
+    "> V17-F1 任务 E：验证 Codex Managed Runtime manifest + binary 已集成。",
     "",
     `- **测试时间**: ${r.timestamp}`,
     `- **userPackageStatus**: ${r.userPackageStatus}`,
@@ -250,6 +320,11 @@ function writeReport(r) {
     `- **userNeedsNpmInstall**: ${r.userNeedsNpmInstall}`,
     `- **sdkVersion**: ${r.sdkVersion || "null"}`,
     `- **totalSizeMB**: ${r.totalSizeMB}`,
+    `- **containsCodexManagedRuntime**: ${r.containsCodexManagedRuntime}（V17-F1 任务 E）`,
+    `- **codexRuntimeSha256Valid**: ${r.codexRuntimeSha256Valid}（V17-F1 任务 E）`,
+    `- **codexRuntimeExecutable**: ${r.codexRuntimeExecutable}（V17-F1 任务 E）`,
+    `- **codexRuntimePinnedVersion**: ${r.codexRuntimePinnedVersion || "null"}（V17-F1 任务 E）`,
+    `- **codexRuntimeFixture**: ${r.codexRuntimeFixture}（V17-F1 任务 E：fixture=true 不标 production ready）`,
     "",
     "## 验证项说明",
     "",
@@ -258,6 +333,11 @@ function writeReport(r) {
     "- **canLoadMainJs**: main.js 可被 CJS require 解析（无 ERR_REQUIRE_ESM）",
     "- **noRootPackageJson**: 根目录无 package.json（或无 type=module），不干扰 CJS 加载",
     "- **userNeedsNpmInstall**: 关键 transitive deps 全部 vendor，无需终端用户 npm install",
+    "- **containsCodexManagedRuntime**: dist/user-package/codex-managed-runtime/runtime-manifest.json 存在",
+    "- **codexRuntimeSha256Valid**: 当前平台 runtime binary 的 sha256 与 manifest 匹配",
+    "- **codexRuntimeExecutable**: 当前平台 runtime binary 可执行权限校验通过",
+    "- **codexRuntimePinnedVersion**: manifest 中记录的 runtime 版本",
+    "- **codexRuntimeFixture**: manifest.fixture=true（fixture runtime，不标 production ready）",
     "",
     "## V17-E1 任务 C：package.json type=module 风险修复",
     "",

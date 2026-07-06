@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-05T19:21:56.609Z
+- **测试时间**: 2026-07-05T19:48:33.945Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 843.2 KB
+- **main.js 大小**: 850.0 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 59338
-- **commit sha**: 2feec37724fba98c524ba30d7aac8624f8f1ae5a
-- **commit 短 sha**: 2feec37724fb
+- **commit sha**: 30baad659f558663f49f7938e7202aec630e08cf
+- **commit 短 sha**: 30baad659f55
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 1020
+- ✅ **通过**: 1022
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 1045
+- **总计**: 1047
 
 ### 审计模式说明
 
@@ -953,7 +953,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783279318138-0 update=pi-sdk-read-1783279318138-0 end=pi-sdk-read-1783279318138-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783280915439-0 update=pi-sdk-read-1783280915439-0 end=pi-sdk-read-1783280915439-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -1199,12 +1199,12 @@
 |------|--------|------|
 | ✅ | BackendMode 拆分 codex-sdk/codex-app-server-external + selectProvider SDK-first 链 + Provider 重命名 + CodexSdkProvider 占位 + settings UI 下拉 + 旧 codex 迁移 | codexSdkMode=true codexExtMode=true handlesSdk=true handlesExt=true autoSdkFirst=true extProviderClass=true alias=true sdkProviderFile=true codexSdkOption=true codexExtOption=true autoDescSdkFirst=true migratesLegacyCodex=true |
 
-### V17-F0 E
+### V17-F1 G
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | codex-app-server-smoke 输出 17 字段 readiness matrix（5 SDK 主线 + 2 external + 12 旧）+ codexUserReady SDK 主线 gate + flag 收集 | newFields=true legacyFields=true derive=true print=true codexUserReady=true sdkGate=true skipNotReady=true approval=true fileChange=true procKill=true pollution=true |
-| ✅ | readiness matrix 写入 codex smoke report（17 字段）+ codexUserReady SDK 主线 gate + summary 解析/输出 | e=true (writeReportHasMatrix=true hasDeriveUserReady=true gateChecksKeyFields=true gateChecksAuth=true) summary=true (parses=true outputs=true) |
+| ✅ | codex-app-server-smoke 输出 22 字段 readiness matrix（5 managed runtime + 5 SDK/ext + 12 旧）+ codexUserReady managed runtime gate + probeManagedRuntime + flag 收集 | managedFields=true sdkFields=true legacyFields=true derive=true print=true codexUserReady=true managedGate=true probeManaged=true skipNotReady=true approval=true fileChange=true procKill=true pollution=true |
+| ✅ | readiness matrix 写入 codex smoke report（22 字段）+ codexUserReady managed runtime gate + summary 解析/输出 | g=true (writeReportHasMatrix=true hasDeriveUserReady=true gateChecksKeyFields=true gateChecksManaged=true) summary=true (parses=true outputs=true) |
 
 ### V17-F0 D
 
@@ -1229,6 +1229,18 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | user-package 不写 type=module + smoke:user-package 脚本 + 报告产物 + canLoadMainJs/noRootPackageJson 检查 | c=true (noTypeModule=true writesMeta=true cleansResidual=true runsNpmBuild=true) d=true (hasSmoke=true hasBuildSmoke=true writesReport=true outputsStatus=true) smoke=true (canLoadMainJs=true noRootPkgJson=true) |
+
+### V17-F1 A+B+C+D
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | managed runtime 组件结构（manifest + resolver + provider + BackendMode + auto 链 + settings） | a=true (typesManifest=true manifestExists=true manifestOk=true fixture=true platforms=3) b=true (exports=true sha=true exec=true resultIf=true) c=true (extends=true providerId=true overrides=true coreTypesProviderId=true templateMethod=true) d=true (backendMode=true autoManagedFirst=true settingsOption=true) |
+
+### V17-F1 E+F
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | user-package 集成 managed runtime（build 复制 + smoke 5 字段）+ managed runtime smoke 脚本（resolver 校验链 + fixture-only 不标 ready） | e=true (buildCopiesManifest=true smokeChecksManaged=true) f=true (hasSmokeScript=true verifiesChain=true fixtureNotReady=true) |
 
 ### V17-F0 F
 
@@ -2240,7 +2252,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-05T19-22-25-716Z-eblm1w |
+| ✅ | 返回非空 id | id=s-2026-07-05T19-49-02-818Z-oy2oy9 |
 
 ### V2.5 Session 版本
 
@@ -2259,7 +2271,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-05T19-22-25-784Z-5rkomy second=s-2026-07-05T19-22-25-726Z-9q0ryt |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-05T19-49-02-888Z-ue4pv1 second=s-2026-07-05T19-49-02-830Z-9ndmkk |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2286,7 +2298,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-05T19-22-25-804Z-n9pxd3 id2=s-2026-07-05T19-22-25-804Z-lpkmwh |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-05T19-49-02-908Z-clr0d7 id2=s-2026-07-05T19-49-02-908Z-1gxula |
 
 ### V2.5 Session 上限
 
@@ -2384,7 +2396,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-05T19:22:25.867Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-05T19:49:02.970Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2472,7 +2484,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-05T19:22:25.931Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-05T19:49:03.030Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2586,7 +2598,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-05T19:22:26.012Z after=2026-07-05T19:22:26.080Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-05T19:49:03.105Z after=2026-07-05T19:49:03.168Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -2957,13 +2969,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-05T19:22:26.743Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-05T19:49:03.805Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-05T19:22:26.752Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-05T19:49:03.814Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3274,7 +3286,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-zihLzO\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-AtysGE\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-JjnTAd\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-qLlp6h\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3286,7 +3298,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-9bAglY\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-yyi6rg\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-UTp8T3\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-kbiAKk\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3298,7 +3310,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-GqktfO\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-JW2vTD\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-KtI1fo\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-06EEZw\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 

@@ -19,27 +19,29 @@ export type RunStatus = "idle" | "running" | "completed" | "failed" | "stopped";
 export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "auto" | "dontAsk" | "bypassPermissions";
 
 /**
- * Backend 选择（V17-F0: Codex SDK-first Direction Correction）
+ * Backend 选择（V17-F1: Managed Codex App-Server Runtime）
  *
- * 主线策略：SDK-first（与 Claude/Pi 一致使用 SDK/runtime provider）。
- * Codex Desktop App / codex CLI 不是集成目标，不作为普通用户默认主线。
+ * 主线策略：Managed runtime（不依赖用户安装 Codex CLI / Codex Desktop App）。
+ * 主线依赖 App Server 协议 + 我们管理的 pinned runtime binary。
  *
- * - auto: SDK-first 链 codex-sdk → claude-sdk → pi-sdk → claude-cli（具体 fallback 另行决策）
- * - codex-sdk: Codex Agent SDK（主线占位，本轮未完整实现，readiness 以 smoke 报告为准）
+ * - auto: codex-managed-app-server → codex-sdk → claude-sdk → pi-sdk → claude-cli
+ * - codex-managed-app-server: V17-F1 主线，使用我们管理的 pinned runtime binary（manifest + sha256 + executable）
+ * - codex-sdk: Codex Agent SDK（占位，本轮未完整实现）
  * - codex-app-server-external: 外部 codex app-server（高级/开发者 fallback，需 codex CLI 可执行）
  * - cli: Claude Code CLI
  * - sdk: Claude Agent SDK（strict，不可用时报错不 fallback）
  * - pi-sdk / pi-rpc: Pi provider（optional/advanced）
  * - mock-success / mock-failure: 离线测试
  *
+ * V17-F1 任务 D：auto 默认改为 codex-managed-app-server 优先（不再依赖 external codex executable）。
  * V17-F0 任务 C：拆分原 "codex" → "codex-sdk" + "codex-app-server-external"。
- * auto 不再依赖 external codex executable。
  *
  * V17-E 任务 F：pi-sdk / pi-rpc 降级为 optional/advanced backend。
  * V17-E1 任务 B：portable auto 不再 Pi-first。
  */
 export type BackendMode =
   | "auto"
+  | "codex-managed-app-server"
   | "codex-sdk"
   | "codex-app-server-external"
   | "cli"
@@ -51,6 +53,41 @@ export type BackendMode =
 
 /** V17-F0 任务 C：旧值迁移用（"codex" → "codex-app-server-external"） */
 export type LegacyBackendMode = "codex";
+
+/**
+ * V17-F1 任务 A：Managed Codex App-Server Runtime manifest 类型。
+ *
+ * 描述我们管理的 pinned runtime binary（不依赖用户安装 Codex CLI / Desktop App）。
+ * manifest 文件位于 src/runtime/providers/codex-managed-app-server/runtime-manifest.json，
+ * 复制到 user-package 时随 dist/user-package/codex-managed-runtime/ 分发。
+ *
+ * 本轮为 fixture（fixture=true），后续接入真实 binary 时 fixture 改为 false。
+ */
+export interface CodexManagedRuntimeManifest {
+  /** runtime 唯一标识 */
+  runtimeId: string;
+  /** runtime 版本（fixture 为 0.1.0-fixture） */
+  version: string;
+  /** App Server 协议版本 */
+  protocolVersion: string;
+  /** 是否为 fixture（本轮 true，真实 binary 接入后 false） */
+  fixture: boolean;
+  /** 启动 app-server 的参数（默认 ["app-server"]） */
+  appServerArgs: string[];
+  /** 平台 -> binary 信息映射 */
+  platforms: {
+    [platformArch: string]: {
+      /** 相对 manifest 目录的 binary 路径 */
+      path: string;
+      /** binary 文件的 sha256 校验值 */
+      sha256: string;
+      /** 文件大小（字节） */
+      size: number;
+      /** 可执行文件名（Windows 含 .exe/.bat，Unix 无扩展名） */
+      executableName: string;
+    };
+  };
+}
 
 /**
  * V17-A: 后端配置档（朋友版 portable vs 开发者 developer）。

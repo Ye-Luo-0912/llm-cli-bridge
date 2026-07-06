@@ -32,6 +32,7 @@ import type {
   RunContext,
   RunInput,
   RuntimeProvider,
+  ProviderId,
 } from "../../core/types";
 import { CodexAppServerEventMapper } from "./codexAppServerEventMapper";
 import { CodexAppServerApprovalMapper } from "./codexAppServerApprovalMapper";
@@ -81,8 +82,9 @@ import { buildEnhancedPath } from "../../../claudeCliBackend";
  * 主线为 CodexSdkProvider（嵌入式 SDK），本轮为占位。
  */
 export class CodexExternalAppServerProvider implements RuntimeProvider {
-  readonly providerId = "codex-app-server" as const;
-  readonly displayName = "Codex app-server (external)";
+  // V17-F1 任务 C：类型改为 ProviderId/string，允许子类 CodexManagedAppServerProvider 覆盖
+  readonly providerId: ProviderId = "codex-app-server";
+  readonly displayName: string = "Codex app-server (external)";
 
   private readonly approvalMapper: CodexAppServerApprovalMapper;
   private readonly userInputMapper: CodexAppServerUserInputMapper;
@@ -120,6 +122,16 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
   }
 
   /**
+   * V17-F1 任务 C：返回 app-server 启动参数。
+   *
+   * CodexExternalAppServerProvider 固定使用 ["app-server"]。
+   * CodexManagedAppServerProvider 覆盖此方法返回 manifest.appServerArgs。
+   */
+  protected getAppServerArgs(): string[] {
+    return ["app-server"];
+  }
+
+  /**
    * V17-E 任务 A：构建 spawn env（含 enhanced PATH）。
    * 复用 claudeCliBackend 的 buildEnhancedPath，避免普通用户因 PATH 不完整被误判不可用。
    */
@@ -149,7 +161,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     // V17-E 任务 A：启动 codex app-server 进程（command 来源 = this.codexCommand，env 含 enhanced PATH）
     const process = this.createProcess({
       command: this.codexCommand,
-      args: ["app-server"],
+      args: this.getAppServerArgs(),
       cwd: ctx.plan.cwd,
       env: this.buildSpawnEnv(ctx.plan.cwd),
     });
@@ -307,7 +319,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     const codexCommand = this.codexCommand;
     const process = this.createProcess({
       command: codexCommand,
-      args: ["app-server"],
+      args: this.getAppServerArgs(),
       cwd: ctx.plan.cwd,
       env: this.buildSpawnEnv(ctx.plan.cwd),
     });

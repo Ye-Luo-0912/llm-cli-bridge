@@ -1,6 +1,6 @@
 # Codex real app-server smoke 报告
 
-- **测试时间**: 2026-07-05T18:27:51.129Z
+- **测试时间**: 2026-07-05T19:45:58.319Z
 - **codex 可用**: 否
 - **codexVersion**: null
 - **schemaSource**: fixture
@@ -14,7 +14,28 @@
 - **protocolCapabilities**: null
 - **skip 原因**: spawnSync codex ENOENT
 
-## Readiness Matrix (V17-E1 任务 E — 12 字段)
+## Readiness Matrix (V17-F1 任务 G — 22 字段)
+
+### V17-F1 新增 Managed runtime 主线字段（主 gate）
+
+- **codexManagedRuntimeAvailable**: true
+- **codexManagedRuntimeVersion**: 0.1.0-fixture
+- **codexManagedRuntimeSha256Valid**: true
+- **codexManagedRuntimeExecutable**: true
+- **codexManagedAppServerSpawnStatus**: fixture-only
+
+### V17-F0 SDK 字段（保留，非主 gate；本轮占位 false）
+
+- **codexSdkAvailable**: false
+- **codexEmbeddedRuntimeAvailable**: false
+- **codexSdkAuthAvailable**: false
+
+### V17-F0 External fallback 字段（不得作为 user-ready 主 gate）
+
+- **codexExternalExecutableAvailable**: false
+- **externalAppServerSpawnStatus**: unknown
+
+### V17-E1 旧字段（保留兼容，非主 gate）
 
 - **codexCliAvailable**: false
 - **codexVersion**: null
@@ -34,7 +55,7 @@
 - **handshakeStatus** = `pass`：codex --version / generate-ts / app-server spawn / initialize / initialized / thread/start 全部通过。
 - **turnStatus** = `pass`：turn/start + turn/completed 通过；`skip-auth`：turn 因 auth/login 不可用而跳过（handshake 仍可 pass）；`fail`：turn 硬失败；`skip-handshake-failed`：handshake fail 时 turn 不执行。
 - **smokeStatus**：`skip`=无 codex CLI；`pass`=handshake+turn 全 pass；`handshake-only`=handshake pass 但 turn 非 pass（如 auth 不可用）；`fail`=handshake fail。
-- **codexUserReady**：`true` 仅当 smokeStatus=pass 且关键 matrix 字段（appServerSpawn/initialize/threadStart/turnStart/turnCompleted/stopCancel/noVaultRootPollution）均 pass/true。`not-triggered` 的 approval/fileChange 不阻塞 ready（agent 可能不需要审批）。
+- **codexUserReady**：`true` 仅当 managed runtime gate 通过（codexManagedRuntimeAvailable=true + sha256Valid=true + executable=true + spawnStatus=pass）且 smoke=pass 且关键 matrix 字段（appServerSpawn/initialize/threadStart/turnStart/turnCompleted/stopCancel/noVaultRootPollution）均 pass/true。fixture-only（spawnStatus=fixture-only）不算 ready。`not-triggered` 的 approval/fileChange 不阻塞 ready。external app-server pass 不影响 codexUserReady。
 
 **最终结果**: handshake=skip turn=skip smoke=skip codexUserReady=false
 
