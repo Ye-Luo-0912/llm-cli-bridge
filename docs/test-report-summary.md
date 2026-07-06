@@ -9,14 +9,14 @@
 > 报告不互相覆盖：unit/process/managed-runtime/user-package 各自独立生成，summary 仅汇总主线结论。
 > external Codex CLI/app-server 是兼容路径；本 summary 不解析旧 codex-smoke 报告，也不把 external 状态作为主 gate。
 
-- **生成时间**: 2026-07-06T11:13:14.257Z
-- **reportCommitSha**: d3c966371f43d7e6ba8f4dd6204fd31d49cc527d
-- **reportCommitSha 短**: d3c966371f43
-- **reportParentSha**: cddc9d6fe87a310068fadac7fdf75db8d6486887
-- **reportParentSha 短**: cddc9d6fe87a
+- **生成时间**: 2026-07-06T11:14:03.175Z
+- **reportCommitSha**: 5c758bec3c092c177498eb2ecb2cd9535d2a2c4c
+- **reportCommitSha 短**: 5c758bec3c09
+- **reportParentSha**: d3c966371f43d7e6ba8f4dd6204fd31d49cc527d
+- **reportParentSha 短**: d3c966371f43
 - **testedCodeCommitSha**: d3c966371f43d7e6ba8f4dd6204fd31d49cc527d
 - **testedCodeCommitSha 短**: d3c966371f43
-- **commitKind**: code commit（报告证明当前 HEAD）
+- **commitKind**: docs-only（报告证明父 commit 代码）
 - **unitReportCommitSha**: d3c966371f43d7e6ba8f4dd6204fd31d49cc527d
 - **processReportCommitSha**: d3c966371f43d7e6ba8f4dd6204fd31d49cc527d
 - **externalCodexSmokeStatus**: not-evaluated
@@ -82,8 +82,8 @@
 
 - **docs-only commit**（当前 commit 只修改 `docs/test-report*.md`）：`testedCodeCommitSha = reportParentSha`，即报告证明的是父 commit（代码 commit）的测试结果。
 - **code commit**（当前 commit 修改 `src/` / `scripts/` / `package.json` / `schema/` 等主线文件）：`testedCodeCommitSha = reportCommitSha`（= HEAD），报告必须证明当前 commit。
-- **本次判定**：code commit（报告证明当前 HEAD）；testedCodeCommitSha=d3c966371f43。
-- **当前 commit 改动文件**：package.json, scripts/generate-codex-capability-matrix.mjs, scripts/generate-codex-timeline-smoke.mjs, scripts/run-tests.mjs, src/runtime/core/agentRunDisplayModel.ts, src/runtime/core/types.ts, src/runtime/providers/codex-app-server/codexAppServerEventMapper.ts, src/runtime/providers/codex-app-server/codexItemTimeline.ts, src/view.ts
+- **本次判定**：docs-only（报告证明父 commit 代码）；testedCodeCommitSha=d3c966371f43。
+- **当前 commit 改动文件**：docs/test-report-codex-capability-matrix.md, docs/test-report-codex-timeline-smoke.md, docs/test-report-process.md, docs/test-report-summary.md, docs/test-report-unit.md
 
 ## 主线结论
 
