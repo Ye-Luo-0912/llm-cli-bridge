@@ -16561,7 +16561,7 @@ if (!runV214BUnit) {
         && viewSrc.includes("webUtils")
         && viewSrc.includes("getPathForFile")
         && viewSrc.includes("添加文件或图片")
-        && viewSrc.includes("拖拽、粘贴路径")
+        && viewSrc.includes("拖拽/粘贴文件")
         && viewSrc.includes("this.attachmentFileInputEl?.click()")
         && viewSrc.includes("llm-bridge-composer-file-text")
         && viewSrc.includes("fileRefModeLabel")
@@ -17504,7 +17504,7 @@ if (!runV214BUnit) {
     {
       const attachmentMenuOk = viewSrc.includes("llm-bridge-attach-file-btn")
         && viewSrc.includes("添加文件或图片")
-        && viewSrc.includes("拖拽、粘贴路径")
+        && viewSrc.includes("拖拽/粘贴文件")
         && viewSrc.includes("this.attachmentFileInputEl?.click()")
         && viewSrc.includes("decorateCommandMenuItem")
         && viewSrc.includes("webUtils")
@@ -17526,8 +17526,10 @@ if (!runV214BUnit) {
         && viewSrc.includes("availableFormats")
         && viewSrc.includes("readBuffer?.(format)")
         && viewSrc.includes("\"FileNameW\"")
-        && viewSrc.includes("没有可缓存的文件内容")
-        && viewSrc.includes("拖拽内容没有可用文件 path");
+        && viewSrc.includes("未拿到可附加的文件对象")
+        && viewSrc.includes("拖拽内容没有可用文件 path")
+        && !viewSrc.includes("addText(clipboard.readText?.())")
+        && !viewSrc.includes('const text = data.getData("text/plain")');
       const skillsNoAutoInsertOk = viewSrc.includes("renderAgentSkillsPanel(skillsPanel)")
         && !viewSrc.includes("renderSkillsPanel(skillsPanel)")
         && !/renderAgentSkillsList[\s\S]{0,1800}insertPromptSnippetAtCursor/.test(viewSrc)
@@ -18592,12 +18594,14 @@ if (!runNoteSummarizeSmoke) {
     addTest("V2.16-D view.ts: doNewSession 清除 lastActiveSessionId", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 11: 会话下拉包含请求/回复摘要，并点击恢复而非跳 History ----
+  // ---- Test 11: 会话下拉包含单行摘要，并点击恢复而非跳 History ----
   {
     const ok = sessionsSrc.includes("firstUserSummary")
       && sessionsSrc.includes("lastAssistantSummary")
-      && viewSrc.includes("llm-bridge-session-dropdown-request")
-      && viewSrc.includes("llm-bridge-session-dropdown-reply")
+      && viewSrc.includes("llm-bridge-session-dropdown-summary")
+      && viewSrc.includes("sessionSummaryText(item)")
+      && !viewSrc.includes("llm-bridge-session-dropdown-request")
+      && !viewSrc.includes("llm-bridge-session-dropdown-reply")
       && viewSrc.includes("await this.restoreSession(item.id)")
       && viewSrc.includes("查看全部历史");
     addTest("V2.16-D sessions/view.ts: 最近会话摘要下拉与恢复入口", ok ? "pass" : "fail", "");
@@ -18621,7 +18625,7 @@ if (!runNoteSummarizeSmoke) {
     addTest("V2.16-D context: exact/estimated 区分 + message/pinned 拆分", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 13: composer 支持 drag/drop、clipboard file、粘贴路径文本 ----
+  // ---- Test 13: composer 支持 drag/drop、clipboard file，普通 text/plain 不转附件 ----
   {
     const ok = viewSrc.includes('this.inputEl.addEventListener("paste"')
       && viewSrc.includes("private async handleComposerPaste")
@@ -18633,8 +18637,9 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("getIndexedVaultFile")
       && viewSrc.includes("findLeafForFile")
       && viewSrc.includes("has-image-preview")
+      && !viewSrc.includes('const text = data.getData("text/plain")')
       && stylesSrc.includes(".llm-bridge-composer-file-chip");
-    addTest("V2.16-D composer: 拖拽/粘贴文件和路径入口存在", ok ? "pass" : "fail", "");
+    addTest("V2.16-D composer: 拖拽/粘贴文件入口存在，普通复制文本保持文本", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 13b: V17-G3 Codex-style composer/files surface ----
@@ -19223,6 +19228,35 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-context-ref-thumb.has-document-preview .llm-bridge-context-ref-ext")
       && stylesSrc.includes("display: none;");
     addTest("V17-G37 UI: Files/Context 非图片文件使用文档缩略块，不用扩展名角标作主视觉",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13ab: V17-G38 text-aware file thumbnails and calmer session surfaces ----
+  {
+    const fileRefsSrc = readFileSync(join(PROJECT_ROOT, "src", "fileRefs.ts"), "utf8");
+    const ok = viewSrc.includes('setIcon(topbarLogo, "message-square")')
+      && viewSrc.includes('setIcon(sessionIcon, "history")')
+      && viewSrc.includes('setIcon(sessionCaret, "chevron-down")')
+      && viewSrc.includes('setIcon(settingsBtn.createEl("span", { cls: "llm-bridge-icon" }), "settings")')
+      && fileRefsSrc.includes("previewText?: string;")
+      && viewSrc.includes("private findAttachmentSnippet(ref: FileRef)")
+      && viewSrc.includes("private getFileRefPreviewText(ref: FileRef)")
+      && viewSrc.includes("private getDocumentPreviewLines(ref: FileRef")
+      && viewSrc.includes("private renderDocumentPreviewThumb(")
+      && viewSrc.includes('docThumb.addClass("has-text-preview")')
+      && viewSrc.includes("const enrichedRef = result.snippet?.content ? { ...ref, previewText: result.snippet.content } : ref;")
+      && viewSrc.includes("...(typeof r.previewText === \"string\" && r.previewText.trim() ? { previewText: r.previewText } : {}),")
+      && viewSrc.includes("const inlinePreview = this.getFileRefPreviewText(ref);")
+      && viewSrc.includes("const previewText = this.getFileRefPreviewText(ref);")
+      && viewSrc.includes('cls: "llm-bridge-session-dropdown-summary"')
+      && viewSrc.includes('cls: "llm-bridge-history-preview"')
+      && stylesSrc.includes("V17-G38: text-aware file thumbnails and calmer session surfaces")
+      && stylesSrc.includes(".llm-bridge-session-dropdown-summary")
+      && stylesSrc.includes(".llm-bridge-history-preview")
+      && stylesSrc.includes(".llm-bridge-context-ref-doc-line.is-text")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-text")
+      && stylesSrc.includes(".llm-bridge-composer-file-doc-line.is-text");
+    addTest("V17-G38 UI: 文件缩略块承载真实文本预览，顶部会话/历史表层继续简化",
       ok ? "pass" : "fail", "");
   }
 

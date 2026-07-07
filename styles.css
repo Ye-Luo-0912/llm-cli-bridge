@@ -10165,6 +10165,182 @@
   background: color-mix(in srgb, var(--text-warning) 58%, var(--text-muted));
 }
 
+/* ===== V17-G38: text-aware file thumbnails and calmer session surfaces ===== */
+.llm-bridge-topbar-logo,
+.llm-bridge-session-icon,
+.llm-bridge-session-caret,
+.llm-bridge-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.llm-bridge-topbar-logo svg,
+.llm-bridge-session-icon svg,
+.llm-bridge-session-caret svg,
+.llm-bridge-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.llm-bridge-topbar {
+  gap: 10px;
+  padding: 5px 12px;
+}
+
+.llm-bridge-topbar-brand {
+  gap: 8px;
+}
+
+.llm-bridge-topbar-logo {
+  width: 18px;
+  height: 18px;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: color-mix(in srgb, var(--text-normal) 74%, var(--text-muted));
+}
+
+.llm-bridge-topbar-title {
+  font-size: var(--font-ui-small);
+  font-weight: 620;
+}
+
+.llm-bridge-page-title {
+  padding-left: 6px;
+  border-left-color: color-mix(in srgb, var(--text-muted) 12%, transparent);
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 560;
+}
+
+.llm-bridge-session-selector {
+  gap: 6px;
+  max-width: min(320px, 42%);
+  padding: 4px 8px;
+  border-radius: 10px;
+  background: transparent;
+}
+
+.llm-bridge-session-icon {
+  color: var(--text-faint);
+}
+
+.llm-bridge-session-kicker {
+  display: none;
+}
+
+.llm-bridge-sb-session-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--font-ui-small);
+  font-weight: 560;
+}
+
+.llm-bridge-session-caret {
+  margin-left: auto;
+  color: var(--text-faint);
+}
+
+.llm-bridge-runtime-status {
+  padding: 3px 8px;
+  background: transparent;
+}
+
+.llm-bridge-new-chat-btn {
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 10px;
+}
+
+.llm-bridge-session-dropdown {
+  top: calc(100% - 4px);
+  left: 116px;
+  width: min(320px, calc(100% - 200px));
+  padding: 6px;
+  border-color: color-mix(in srgb, var(--text-muted) 10%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--background-primary) 94%, var(--background-secondary));
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.14);
+}
+
+.llm-bridge-session-dropdown-item,
+.llm-bridge-session-dropdown-history {
+  gap: 3px;
+  padding: 7px 8px;
+  border-radius: 10px;
+}
+
+.llm-bridge-session-dropdown-summary,
+.llm-bridge-history-preview {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--text-muted) 82%, transparent);
+  font-size: var(--font-smallest);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-session-dropdown-meta {
+  color: var(--text-faint);
+}
+
+.llm-bridge-history-list {
+  gap: 6px;
+}
+
+.llm-bridge-history-item {
+  gap: 6px;
+  padding: 4px 6px;
+  border-color: color-mix(in srgb, var(--text-muted) 10%, transparent);
+  border-radius: 10px;
+  background: transparent;
+}
+
+.llm-bridge-history-main {
+  gap: 3px;
+  padding: 5px 6px;
+}
+
+.llm-bridge-history-title {
+  font-size: var(--font-ui-small);
+  font-weight: 580;
+}
+
+.llm-bridge-history-meta {
+  color: var(--text-faint);
+}
+
+.llm-bridge-context-ref-doc-thumb.has-text-preview,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb.has-text-preview,
+.llm-bridge-composer-file-doc-thumb.has-text-preview {
+  align-content: stretch;
+  gap: 2px;
+}
+
+.llm-bridge-context-ref-doc-line.is-text,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-text,
+.llm-bridge-composer-file-doc-line.is-text {
+  display: flex;
+  align-items: center;
+  width: 100% !important;
+  min-height: 6px;
+  height: auto;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--background-primary) 72%, var(--background-secondary));
+  color: color-mix(in srgb, var(--text-faint) 88%, var(--text-muted));
+  font-size: 6px;
+  line-height: 1.05;
+  letter-spacing: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 6%, transparent);
+}
+
 /* ===== V17-G37: context and Files refs use document thumbnails for non-images ===== */
 .llm-bridge-context-ref-thumb.has-document-preview {
   display: grid;

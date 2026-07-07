@@ -24,6 +24,7 @@ export interface FileRef {
   resolvedPath: string;
   pathKind: FileAccessPathKind;
   fileType: FileRefFileType;
+  previewText?: string;
   source: FileRefSource;
   grantScope: FileRefGrantScope;
   scope: FileRefScope;

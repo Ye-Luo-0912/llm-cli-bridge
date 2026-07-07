@@ -402,16 +402,20 @@ export class LLMBridgeView extends ItemView {
     // ===== 顶部栏：会话 / 新聊天 / 设置 / compact runtime status =====
     const header = main.createDiv({ cls: "llm-bridge-header llm-bridge-topbar" });
     const topbarBrand = header.createDiv({ cls: "llm-bridge-topbar-brand" });
-    topbarBrand.createEl("span", { cls: "llm-bridge-topbar-logo", text: "⌘" });
+    const topbarLogo = topbarBrand.createEl("span", { cls: "llm-bridge-topbar-logo" });
+    setIcon(topbarLogo, "message-square");
     topbarBrand.createEl("span", { cls: "llm-bridge-topbar-title", text: "Bridge" });
     this.pageTitleEl = topbarBrand.createEl("span", { cls: "llm-bridge-page-title", text: "Chat" });
     const sessionPreview = header.createEl("button", {
       cls: "llm-bridge-session-selector",
       attr: { title: "打开最近会话下拉；完整历史在 History 页面" },
     });
-    sessionPreview.createEl("span", { cls: "llm-bridge-session-kicker", text: "当前会话" });
+    const sessionIcon = sessionPreview.createEl("span", { cls: "llm-bridge-session-icon" });
+    setIcon(sessionIcon, "history");
+    sessionPreview.createEl("span", { cls: "llm-bridge-session-kicker", text: "Session" });
     this.sessionTitleEl = sessionPreview.createEl("span", { cls: "llm-bridge-sb-session-title", text: this.sessionState.title });
-    sessionPreview.createEl("span", { cls: "llm-bridge-session-caret", text: "⌄" });
+    const sessionCaret = sessionPreview.createEl("span", { cls: "llm-bridge-session-caret" });
+    setIcon(sessionCaret, "chevron-down");
     const sessionDropdown = header.createDiv({ cls: "llm-bridge-session-dropdown" });
     sessionDropdown.setAttribute("hidden", "");
 
@@ -423,7 +427,7 @@ export class LLMBridgeView extends ItemView {
     });
     this.clearBtn.addEventListener("click", () => this.newSession());
     const settingsBtn = headerRight.createEl("button", { cls: "llm-bridge-icon-btn llm-bridge-settings-btn", attr: { title: "打开插件设置" } });
-    settingsBtn.createEl("span", { cls: "llm-bridge-icon", text: "⚙" });
+    setIcon(settingsBtn.createEl("span", { cls: "llm-bridge-icon" }), "settings");
     settingsBtn.addEventListener("click", () => this.openPluginSettings());
     const runtimeStatus = headerRight.createDiv({ cls: "llm-bridge-runtime-status", attr: { title: "Runtime status" } });
     this.statusDotEl = runtimeStatus.createEl("span", {
@@ -665,7 +669,7 @@ export class LLMBridgeView extends ItemView {
     const leftTools = composerBar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-left" });
     const attachmentBtn = leftTools.createEl("button", {
       cls: "llm-bridge-composer-tool-btn llm-bridge-attach-file-btn",
-      attr: { title: "添加文件或图片；也可以拖拽、粘贴路径，或输入 @ 选择 Vault 文件" },
+      attr: { title: "添加文件或图片；也可以拖拽/粘贴文件，或输入 @ 选择 Vault 文件" },
     });
     setIcon(attachmentBtn, "plus");
     attachmentBtn.addEventListener("click", (event) => {
@@ -794,7 +798,7 @@ export class LLMBridgeView extends ItemView {
     this.attachmentFileInputEl.addEventListener("change", () => void this.addNativeSelectedAttachments());
 
     composer.addEventListener("dragover", (event) => {
-      const hasFiles = !!event.dataTransfer?.files?.length || Array.from(event.dataTransfer?.types ?? []).some((type) => /files|uri-list|plain/i.test(type));
+      const hasFiles = !!event.dataTransfer?.files?.length || Array.from(event.dataTransfer?.types ?? []).some((type) => /files|uri-list/i.test(type));
       if (!hasFiles) return;
       event.preventDefault();
       composer.addClass("is-dragging-file");
@@ -2427,8 +2431,10 @@ export class LLMBridgeView extends ItemView {
     if (result.snippet) {
       this.attachmentTextSnippets.push(result.snippet);
     }
+    const enrichedRef = result.snippet?.content ? { ...ref, previewText: result.snippet.content } : ref;
+    if (enrichedRef !== ref) this.addScopedFileRef(enrichedRef);
     this.refreshContextRefs();
-    return ref;
+    return enrichedRef;
   }
 
   public async addAttachmentFilesWithIngestion(requestedPaths: string[]): Promise<FileRef[]> {
@@ -2651,7 +2657,7 @@ export class LLMBridgeView extends ItemView {
   private async addFilesFromFileList(files: FileList, source = "native-picker"): Promise<FileRef[]> {
     const paths = await this.collectPathsAndCacheBlobsFromFileList(files, source);
     if (paths.length === 0) {
-      new Notice("未拿到文件 path，也没有可缓存的文件内容；请使用 @ 选择 Vault 文件，或粘贴/输入文件路径。");
+      new Notice("未拿到可附加的文件对象；请使用 @ 选择 Vault 文件，或拖拽/选择本地文件。");
       return [];
     }
     const refs = await this.addUserFilePathsToContext(paths, source);
@@ -2716,9 +2722,6 @@ export class LLMBridgeView extends ItemView {
 
     const uriList = data.getData("text/uri-list");
     for (const filePath of this.extractPastedFilePaths(uriList)) addPath(filePath);
-
-    const text = data.getData("text/plain");
-    for (const filePath of this.extractPastedFilePaths(text)) addPath(filePath);
 
     return paths;
   }
@@ -3008,9 +3011,8 @@ export class LLMBridgeView extends ItemView {
         for (const filePath of this.extractPastedFilePaths(text)) values.push(filePath);
       };
 
-      addText(clipboard.readText?.());
       for (const format of clipboard.availableFormats?.() ?? []) {
-        if (/text\/uri-list|file/i.test(format)) {
+        if (/text\/uri-list/i.test(format)) {
           try {
             addText(clipboard.readText?.(format));
           } catch {
@@ -3096,10 +3098,7 @@ export class LLMBridgeView extends ItemView {
         preview.src = thumbnailUrl;
       } else {
         thumb.addClass("has-document-preview");
-        const docThumb = thumb.createEl("span", { cls: `llm-bridge-composer-file-doc-thumb is-${ref.fileType}` });
-        for (let i = 0; i < 4; i += 1) {
-          docThumb.createEl("span", { cls: "llm-bridge-composer-file-doc-line" });
-        }
+        this.renderDocumentPreviewThumb(thumb, "llm-bridge-composer-file-doc-thumb", "llm-bridge-composer-file-doc-line", ref, 4, 12);
       }
       const fileText = chip.createEl("span", { cls: "llm-bridge-composer-file-text" });
       fileText.createEl("span", { cls: "llm-bridge-composer-file-name", text: ref.displayName });
@@ -3223,8 +3222,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   private fileRefModeLabel(ref: FileRef): string {
-    const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id || ref.id.startsWith(item.refId));
-    if (snippet) return "text preview";
+    if (this.getFileRefPreviewText(ref)) return "text preview";
     if (ref.scope === "pinned") return "pinned";
     if (ref.scope === "session") return "session grant";
     return "attached";
@@ -3241,6 +3239,54 @@ export class LLMBridgeView extends ItemView {
         return `file:///${drive}/${rest.map((part) => encodeURIComponent(part)).join("/")}`;
       }
       return `file://${portablePath.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
+    }
+  }
+
+  private findAttachmentSnippet(ref: FileRef): AttachmentTextSnippet | null {
+    return this.attachmentTextSnippets.find((item) => item.refId === ref.id || ref.id.startsWith(item.refId)) ?? null;
+  }
+
+  private getFileRefPreviewText(ref: FileRef): string | null {
+    if (typeof ref.previewText === "string" && ref.previewText.trim()) return ref.previewText;
+    const snippet = this.findAttachmentSnippet(ref);
+    if (snippet?.content?.trim()) return snippet.content;
+    return null;
+  }
+
+  private getDocumentPreviewLines(ref: FileRef, maxLines: number, maxChars: number): string[] {
+    const previewText = this.getFileRefPreviewText(ref);
+    if (!previewText?.trim()) return [];
+    const cleaned = previewText
+      .replace(/\r\n?/g, "\n")
+      .split("\n")
+      .map((line) => line.replace(/\s+/g, " ").trim())
+      .map((line) => line.replace(/^[#>*+\-`\[\]\(\)\d.\s]+/, "").trim())
+      .filter(Boolean);
+    const source = cleaned.length > 0 ? cleaned : [previewText.replace(/\s+/g, " ").trim()];
+    return source
+      .slice(0, maxLines)
+      .map((line) => truncateText(line, maxChars))
+      .filter(Boolean);
+  }
+
+  private renderDocumentPreviewThumb(
+    parent: HTMLElement,
+    thumbClass: string,
+    lineClass: string,
+    ref: FileRef,
+    maxLines: number,
+    maxChars: number,
+  ): void {
+    const docThumb = parent.createEl("span", { cls: `${thumbClass} is-${ref.fileType}` });
+    const lines = this.getDocumentPreviewLines(ref, maxLines, maxChars);
+    if (lines.length > 0) docThumb.addClass("has-text-preview");
+    for (let i = 0; i < maxLines; i += 1) {
+      const text = lines[i] ?? "";
+      docThumb.createEl("span", {
+        cls: `${lineClass}${text ? " is-text" : ""}`,
+        text: text || undefined,
+        attr: text ? { title: text } : undefined,
+      });
     }
   }
 
@@ -3268,7 +3314,7 @@ export class LLMBridgeView extends ItemView {
       title: "Next message",
       description: "Files attached to the next request.",
       refs: this.messageFileRefs,
-      emptyText: "Drop files, paste paths, or type @ to attach a file.",
+      emptyText: "Drop files, paste files, or type @ to attach a file.",
       actions: { allowPin: true, allowRemove: true },
     });
     this.renderFileContextSection(container, {
@@ -3378,10 +3424,7 @@ export class LLMBridgeView extends ItemView {
     }
     if (ref.fileType !== "image") {
       visual.addClass("has-document-preview");
-      const docThumb = visual.createEl("span", { cls: `llm-bridge-context-ref-doc-thumb is-${ref.fileType}` });
-      for (let i = 0; i < 4; i += 1) {
-        docThumb.createEl("span", { cls: "llm-bridge-context-ref-doc-line" });
-      }
+      this.renderDocumentPreviewThumb(visual, "llm-bridge-context-ref-doc-thumb", "llm-bridge-context-ref-doc-line", ref, 4, 18);
       return;
     }
     const fileIcon = visual.createEl("span", { cls: "llm-bridge-context-ref-visual-icon" });
@@ -3393,7 +3436,7 @@ export class LLMBridgeView extends ItemView {
     if (ref.scope === "pinned") return `pinned · ${type}`;
     if (ref.scope === "session") return `session · ${type}`;
     if (ref.kind === "external") return `external · ${type}`;
-    if (this.attachmentTextSnippets.some((item) => item.refId === ref.id || ref.id.startsWith(item.refId))) {
+    if (this.getFileRefPreviewText(ref)) {
       return `preview · ${type}`;
     }
     return `attached · ${type}`;
@@ -3502,6 +3545,10 @@ export class LLMBridgeView extends ItemView {
     if (!isBoundedTextAttachmentType(ref.fileType)) return null;
     const maxBytes = 256 * 1024;
     const maxChars = 12000;
+    const inlinePreview = this.getFileRefPreviewText(ref);
+    if (inlinePreview) {
+      return inlinePreview.length > maxChars ? `${inlinePreview.slice(0, maxChars).trimEnd()}\n...` : inlinePreview;
+    }
     const vaultRelPath = this.resolveFileRefVaultPath(ref);
     try {
       if (vaultRelPath) {
@@ -4119,10 +4166,7 @@ export class LLMBridgeView extends ItemView {
         setIcon(placeholder, "image");
         chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });
       } else {
-        const docThumb = chip.createEl("span", { cls: `llm-bridge-msg-attachment-doc-thumb is-${ref.fileType}` });
-        for (let i = 0; i < 4; i++) {
-          docThumb.createEl("span", { cls: "llm-bridge-msg-attachment-doc-line" });
-        }
+        this.renderDocumentPreviewThumb(chip, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 4, 14);
         chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });
       }
       chip.addEventListener("click", () => void this.openFileRefPreview(ref));
@@ -6993,13 +7037,13 @@ export class LLMBridgeView extends ItemView {
       dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-empty", text: "暂无历史会话" });
     } else {
       for (const item of recent) {
+        const summary = this.sessionSummaryText(item);
         const row = dropdown.createEl("button", {
           cls: `llm-bridge-session-dropdown-item${item.id === this.currentSessionId ? " is-current" : ""}`,
-          attr: { title: `${item.title}\n${item.firstUserSummary || "无用户请求摘要"}\n${item.lastAssistantSummary || "无回复摘要"}\n${item.messageCount} 条消息 · ${item.savedAt}` },
+          attr: { title: `${item.title}\n${summary}\n${item.messageCount} 条消息 · ${item.savedAt}` },
         });
         row.createEl("span", { cls: "llm-bridge-session-dropdown-name", text: item.title });
-        row.createEl("span", { cls: "llm-bridge-session-dropdown-request", text: item.firstUserSummary || "无用户请求摘要" });
-        row.createEl("span", { cls: "llm-bridge-session-dropdown-reply", text: item.lastAssistantSummary || "无回复摘要" });
+        row.createEl("span", { cls: "llm-bridge-session-dropdown-summary", text: summary });
         row.createEl("span", { cls: "llm-bridge-session-dropdown-meta", text: `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条` });
         row.addEventListener("click", async () => {
           dropdown.setAttribute("hidden", "");
@@ -7064,6 +7108,7 @@ export class LLMBridgeView extends ItemView {
     }
     const list = this.historyListEl.createDiv({ cls: "llm-bridge-history-list" });
     for (const item of filtered) {
+      const preview = this.sessionSummaryText(item);
       const row = list.createDiv({
         cls: `llm-bridge-history-item is-${item.status}`,
         attr: { title: `${item.title} · ${item.messageCount} 条消息 · ${item.savedAt}` },
@@ -7073,6 +7118,7 @@ export class LLMBridgeView extends ItemView {
       main.createEl("span", { cls: "llm-bridge-history-title", text: item.title });
       const meta = `${item.messageCount} 条 · ${item.agentType} · ${this.formatHistoryTime(item.savedAt)}`;
       main.createEl("span", { cls: "llm-bridge-history-meta", text: meta });
+      main.createEl("span", { cls: "llm-bridge-history-preview", text: preview });
       main.addEventListener("click", () => void this.restoreSession(item.id));
       // V2.8: 编辑按钮（重命名标题）
       const editBtn = row.createEl("button", {
@@ -7118,6 +7164,10 @@ export class LLMBridgeView extends ItemView {
     } catch {
       return iso;
     }
+  }
+
+  private sessionSummaryText(item: SessionListItem): string {
+    return item.lastAssistantSummary || item.firstUserSummary || "无摘要";
   }
 
   // V2.5: 恢复历史会话（确认后加载消息 + 状态 + workflow trace）
@@ -7240,6 +7290,7 @@ export class LLMBridgeView extends ItemView {
       resolvedPath,
       pathKind: (typeof r.pathKind === "string" ? r.pathKind : "vault") as FileRef["pathKind"],
       fileType: (typeof r.fileType === "string" ? r.fileType : "unknown") as FileRef["fileType"],
+      ...(typeof r.previewText === "string" && r.previewText.trim() ? { previewText: r.previewText } : {}),
       source: typeof r.source === "string" ? r.source : "manual",
       grantScope: (typeof r.grantScope === "string" ? r.grantScope : "session") as FileRef["grantScope"],
       scope: "pinned",
@@ -7746,7 +7797,14 @@ export class LLMBridgeView extends ItemView {
     }
 
     this.beforeFiles = await snapshotVaultMarkdownFiles(vaultPath);
-    const messageRefsForRun = this.messageFileRefs.map((ref) => ({ ...ref, scope: "message" as const }));
+    const messageRefsForRun = this.messageFileRefs.map((ref) => {
+      const previewText = this.getFileRefPreviewText(ref);
+      return {
+        ...ref,
+        scope: "message" as const,
+        ...(previewText ? { previewText } : {}),
+      };
+    });
     const promptFileRefsForRun = this.getPromptFileRefs(messageRefsForRun);
     const promptAttachmentSnippetsForRun = this.getPromptAttachmentSnippets(promptFileRefsForRun);
 
@@ -8201,7 +8259,7 @@ export class LLMBridgeView extends ItemView {
         pinnedContextRefs: this.pinnedFileRefs.map((r) => ({
           id: r.id, kind: r.kind, displayName: r.displayName,
           requestedPath: r.requestedPath, resolvedPath: r.resolvedPath,
-          pathKind: r.pathKind, fileType: r.fileType, source: r.source,
+          pathKind: r.pathKind, fileType: r.fileType, previewText: r.previewText, source: r.source,
           grantScope: r.grantScope, scope: r.scope, createdAt: r.createdAt, status: r.status,
         })),
         sessionMode: s.sessionMode,
