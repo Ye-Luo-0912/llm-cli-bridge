@@ -19080,6 +19080,27 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13t: V17-G30 user input stays right-aligned and attachment previews are compact squares ----
+  {
+    const ok = viewSrc.includes('modal.containerEl.addClass("llm-bridge-file-preview-container")')
+      && stylesSrc.includes("V17-G30: Codex-like right user input and square attachment previews")
+      && stylesSrc.includes(".llm-bridge-msg-user {")
+      && stylesSrc.includes("align-self: flex-end !important;")
+      && stylesSrc.includes("margin-left: auto !important;")
+      && stylesSrc.includes("flex: 0 0 42px !important;")
+      && stylesSrc.includes("width: 42px !important;")
+      && stylesSrc.includes("height: 42px !important;")
+      && stylesSrc.includes("object-fit: cover;")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name")
+      && stylesSrc.includes("display: none !important;")
+      && stylesSrc.includes(".llm-bridge-composer-file-chip:not(.is-preview-only)")
+      && stylesSrc.includes("max-width: 118px;")
+      && stylesSrc.includes(".llm-bridge-file-preview-container .modal-button-container")
+      && stylesSrc.includes(".llm-bridge-file-preview-modal .modal-button-container");
+    addTest("V17-G30 UI: 用户输入右侧展示，消息附件为小方块，轻量预览无底部按钮",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----
   {
     const ok = viewSrc.includes("const vaultRef = this.addVaultFileRef")

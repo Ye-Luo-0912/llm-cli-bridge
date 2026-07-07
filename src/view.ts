@@ -3419,6 +3419,7 @@ export class LLMBridgeView extends ItemView {
 
   private async openFileRefPreview(ref: FileRef): Promise<void> {
     const modal = new Modal(this.app);
+    modal.containerEl.addClass("llm-bridge-file-preview-container");
     modal.titleEl.setText(ref.displayName);
     modal.contentEl.empty();
     modal.contentEl.addClass("llm-bridge-file-preview-modal");

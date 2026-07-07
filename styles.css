@@ -10962,3 +10962,96 @@
   opacity: 0.72 !important;
   text-decoration: none !important;
 }
+
+/* ===== V17-G30: Codex-like right user input and square attachment previews ===== */
+.llm-bridge-msg-user {
+  align-self: flex-end !important;
+  width: fit-content;
+  max-width: min(620px, 82%);
+  margin-left: auto !important;
+  margin-right: 16px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-head {
+  justify-content: flex-end;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content {
+  align-items: flex-end;
+  width: fit-content;
+  max-width: min(560px, 100%);
+  margin-left: auto;
+  user-select: text;
+  cursor: text;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only),
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
+  display: inline-grid !important;
+  flex: 0 0 42px !important;
+  place-items: center;
+  width: 42px !important;
+  min-width: 42px !important;
+  max-width: 42px !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  max-height: 42px !important;
+  aspect-ratio: 1 / 1;
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 10px;
+  line-height: 1;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
+  display: block !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  max-height: 100% !important;
+  aspect-ratio: 1 / 1;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: inherit !important;
+  font-size: 8px;
+  letter-spacing: 0;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-preview .llm-bridge-msg-attachment-ext,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name {
+  display: none !important;
+}
+
+.llm-bridge-composer-file-chip:not(.is-preview-only) {
+  grid-template-columns: 28px minmax(0, 1fr) 14px 14px;
+  max-width: 118px;
+  min-height: 32px;
+  padding: 3px 5px 3px 3px;
+}
+
+.llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
+
+.llm-bridge-file-preview-container .modal-button-container,
+.llm-bridge-file-preview-modal .modal-button-container {
+  display: none !important;
+}
