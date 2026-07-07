@@ -10081,9 +10081,12 @@
 }
 
 /* ===== V17-G23: plain Codex-like context and step status text ===== */
-.llm-bridge-context-tag-note.is-empty,
 .llm-bridge-context-tag-note[hidden] {
   display: none;
+}
+
+.llm-bridge-context-tag-note.is-empty {
+  display: inline-flex;
 }
 
 .llm-bridge-context-tag-note .llm-bridge-context-tag {
@@ -10100,6 +10103,12 @@
 .llm-bridge-context-tag-note .llm-bridge-context-tag.is-off:not(.is-empty) {
   color: var(--text-faint);
   text-decoration: line-through;
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag.is-empty {
+  color: color-mix(in srgb, var(--text-faint) 78%, transparent);
+  cursor: default;
+  opacity: 0.78;
 }
 
 .llm-bridge-composer-status-rail {
@@ -10939,4 +10948,17 @@
   min-height: 28px;
   padding: 0 10px;
   border-radius: 999px;
+}
+
+/* ===== V17-G29: stable empty active-note placeholder ===== */
+.llm-bridge-context-tag-note.is-empty {
+  display: inline-flex !important;
+}
+
+.llm-bridge-context-tag-note.is-empty .llm-bridge-context-tag,
+.llm-bridge-context-tag-note .llm-bridge-context-tag.is-empty {
+  color: color-mix(in srgb, var(--text-faint) 76%, transparent) !important;
+  cursor: default !important;
+  opacity: 0.72 !important;
+  text-decoration: none !important;
 }

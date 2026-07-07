@@ -18762,8 +18762,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("llm-bridge-message-render-error-detail")
       && viewSrc.includes('{ value: "default", icon: "shield-question"')
       && viewSrc.includes("setIcon(optIcon, mode.icon)")
-      && viewSrc.includes('if (noteWrap) noteWrap.toggleAttribute("hidden", !fname);')
-      && viewSrc.includes('const displayName = fname;')
+      && viewSrc.includes('if (noteWrap) noteWrap.removeAttribute("hidden");')
+      && viewSrc.includes('const displayName = fname || "No active note";')
       && viewSrc.includes("noteTag.textContent = displayName")
       && stylesSrc.includes("V17-G7: Codex-like run waterfall, composer, files and request polish")
       && stylesSrc.includes(".llm-bridge-context-tag.is-empty")
@@ -18794,8 +18794,8 @@ if (!runNoteSummarizeSmoke) {
       && !viewSrc.includes('"正在运行命令"')
       && viewSrc.includes('text: kind === "note" ? "" : "Selection"')
       && viewSrc.includes('"data-context-kind": kind')
-      && viewSrc.includes('if (noteWrap) noteWrap.toggleAttribute("hidden", !fname);')
-      && viewSrc.includes('const displayName = fname;')
+      && viewSrc.includes('if (noteWrap) noteWrap.removeAttribute("hidden");')
+      && viewSrc.includes('const displayName = fname || "No active note";')
       && viewSrc.includes("noteTag.textContent = displayName")
       && viewSrc.includes('cls: `llm-bridge-context-tag ${kind === "note" ? "is-active-file" : "is-selection-ref"}`')
       && viewSrc.includes("this.activeFileLabelEl.dataset.value = activeFileName")
@@ -18824,7 +18824,7 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-composer-step-pill")
       && stylesSrc.includes("V17-G11: Codex-like step and context compression status")
       && stylesSrc.includes("V17-G23: plain Codex-like context and step status text")
-      && stylesSrc.includes(".llm-bridge-context-tag-note.is-empty,")
+      && stylesSrc.includes(".llm-bridge-context-tag-note.is-empty")
       && stylesSrc.includes(".llm-bridge-codex-shell-panel-head")
       && stylesSrc.includes("V17-G9: Codex-like composer surface and active note text")
       && stylesSrc.includes(".llm-bridge-context-tag-note .llm-bridge-context-tag")
@@ -18986,16 +18986,22 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13p: V17-G23 context note and composer step status are plain text ----
   {
-    const ok = viewSrc.includes('if (noteWrap) noteWrap.toggleAttribute("hidden", !fname);')
-      && viewSrc.includes('const displayName = fname;')
+    const ok = viewSrc.includes('if (noteWrap) noteWrap.removeAttribute("hidden");')
+      && viewSrc.includes('const displayName = fname || "No active note";')
+      && viewSrc.includes('noteTag.setAttribute("aria-pressed", String(on && !!fname));')
       && viewSrc.includes('`${Math.max(1, currentIndex + 1)}/${total} · ${label}`')
       && stylesSrc.includes("V17-G23: plain Codex-like context and step status text")
-      && stylesSrc.includes(".llm-bridge-context-tag-note.is-empty,")
+      && stylesSrc.includes(".llm-bridge-context-tag-note.is-empty")
+      && stylesSrc.includes('display: inline-flex;')
+      && stylesSrc.includes("cursor: default;")
+      && stylesSrc.includes("V17-G29: stable empty active-note placeholder")
+      && stylesSrc.includes("display: inline-flex !important;")
+      && stylesSrc.includes("opacity: 0.72 !important;")
       && stylesSrc.includes(".llm-bridge-composer-step-pill {")
       && stylesSrc.includes("border-radius: 0;")
       && stylesSrc.includes("background: transparent;")
       && stylesSrc.includes("@keyframes llm-bridge-status-pulse");
-    addTest("V17-G23 UI: 活动笔记空态隐藏，步骤状态改为 Codex 纯文本",
+    addTest("V17-G23 UI: 活动笔记空态保留 No active note，步骤状态改为 Codex 纯文本",
       ok ? "pass" : "fail", "");
   }
 
