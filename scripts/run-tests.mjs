@@ -13435,13 +13435,16 @@ if (!runV29Unit) {
     {
       const ok = viewSrc.includes("private historyBodyEl!")
         && viewSrc.includes("llm-bridge-history-list-container")
-        && viewSrc.includes("this.historyBodyEl.hasAttribute(\"hidden\")");
+        && (viewSrc.includes("this.historyBodyEl.hasAttribute(\"hidden\")")
+          || viewSrc.includes("this.historyBodyEl.toggleAttribute(\"hidden\", !expanded)"));
       addTest("V2.9 view.ts: historyBodyEl + listContainer 分离", ok ? "pass" : "fail", "");
     }
 
     // ---- Test 20: 搜索时 countLabel 显示「匹配数/总数」----
     {
-      const ok = viewSrc.includes("${filtered.length}/${this.historyItems.length}");
+      const ok = viewSrc.includes("${filtered.length}/${this.historyItems.length}")
+        || viewSrc.includes("private updateHistoryCountLabel(visibleCount: number, totalCount: number): void")
+        || viewSrc.includes("const label = visibleCount === totalCount ? String(totalCount) : `${visibleCount}/${totalCount}`;");
       addTest("V2.9 view.ts: 搜索时显示匹配数/总数", ok ? "pass" : "fail", "");
     }
 
@@ -14418,7 +14421,9 @@ if (runMode !== "all" && runMode !== "unit") {
       && !viewSrcV212.includes("renderSkillsPanel") ? "pass" : "fail", "");
 
   addTest("V2.12 UI: History 面板默认折叠",
-    /renderHistoryPanel[\s\S]{0,1500}body\.setAttribute\("hidden", ""\)/.test(viewSrcV212) ? "pass" : "fail", "");
+    /renderHistoryPanel[\s\S]{0,2200}body\.setAttribute\("hidden", ""\)/.test(viewSrcV212)
+      || /renderHistoryPanel[\s\S]{0,2600}setHistoryPanelExpanded\(false\)/.test(viewSrcV212)
+      ? "pass" : "fail", "");
 
   addTest("V2.12 UI: Advanced 指标区默认折叠（sbAdvancedItems setAttribute hidden）",
     /sbAdvancedItems\.setAttribute\("hidden", ""\)/.test(viewSrcV212) ? "pass" : "fail", "");
@@ -19343,11 +19348,17 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13ac: V17-G39 run hierarchy separates process from final answer ----
   {
     const ok = viewSrc.includes('const processFeedItems = run.feedItems.filter((item) => item.kind !== "assistant");')
+      && viewSrc.includes('const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);')
       && viewSrc.includes('if (run.changeGroups.length > 0) this.renderCodexChangesPanel(body, run.changeGroups, developerMode);')
       && viewSrc.includes('const process = body.createDiv({ cls: "llm-bridge-codex-process" });')
       && viewSrc.includes('const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });')
+      && viewSrc.includes('processHead.createDiv({ cls: "llm-bridge-codex-section-title", text: "Steps" });')
       && viewSrc.includes('if (hasAnswer) this.renderCodexFinalAnswer(body, run.finalAnswer);')
       && viewSrc.includes("private renderCodexFinalAnswer(parent: HTMLElement, text: string): void {")
+      && viewSrc.includes('section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Output" });')
+      && viewSrc.includes("private renderCodexFeedBatch(")
+      && viewSrc.includes("private renderCodexFeedBatchSummary(")
+      && viewSrc.includes("private formatCodexBatchSummary(")
       && viewSrc.includes('setIcon(this.clearBtn.createEl("span", { cls: "llm-bridge-icon" }), "plus");')
       && viewSrc.includes('setIcon(refreshHistBtn.createEl("span", { cls: "llm-bridge-icon" }), "refresh-cw");')
       && viewSrc.includes('setIcon(editBtn.createEl("span", { cls: "llm-bridge-icon" }), "pencil");')
@@ -19357,6 +19368,28 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-codex-final-answer")
       && stylesSrc.includes(".llm-bridge-new-chat-label");
     addTest("V17-G39 UI: run 过程与最终答案分层，顶部/历史/输入区继续收口",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13ae: V17-G53 waterfall batches + history header + right-aligned user file previews ----
+  {
+    const ok = viewSrc.includes("private setPageTitleForTab(tab:")
+      && viewSrc.includes('this.pageTitleEl.toggleAttribute("hidden", tab === "chat");')
+      && viewSrc.includes("private setHistoryPanelExpanded(expanded: boolean): void")
+      && viewSrc.includes("private updateHistoryCountLabel(visibleCount: number, totalCount: number): void")
+      && viewSrc.includes('this.historyToggleChevronEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-chevron", text: "▶" });')
+      && viewSrc.includes('this.historyToggleLabelEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-label", text: "Sessions" });')
+      && viewSrc.includes('this.historyToggleCountEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-count", text: "0" });')
+      && viewSrc.includes('const bodyItems = lead.kind === "thinking" ? batch.slice(1) : batch;')
+      && viewSrc.includes('text: `${eventCount} ${eventCount === 1 ? "step" : "steps"}`')
+      && stylesSrc.includes("V17-G53: waterfall batches, calmer sessions, right-aligned user previews")
+      && stylesSrc.includes(".llm-bridge-history-toggle-label")
+      && stylesSrc.includes(".llm-bridge-history-toggle-count")
+      && stylesSrc.includes(".llm-bridge-codex-feed-batch-summary")
+      && stylesSrc.includes(".llm-bridge-codex-feed-batch-body")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments")
+      && stylesSrc.includes(".llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only");
+    addTest("V17-G53 UI: batch waterfall、Sessions 头部和右侧用户附件缩略继续靠近 Codex",
       ok ? "pass" : "fail", "");
   }
 

@@ -261,6 +261,9 @@ export class LLMBridgeView extends ItemView {
   // V2.5: 历史会话列表
   private historyListEl!: HTMLElement;
   private historyToggleEl!: HTMLElement;
+  private historyToggleChevronEl!: HTMLElement;
+  private historyToggleLabelEl!: HTMLElement;
+  private historyToggleCountEl!: HTMLElement;
   private historyItems: SessionListItem[] = [];
   private historySortMode: "time" | "messages" = "time"; // V2.8: 历史会话排序模式
   // V2.9: 历史会话搜索 + 列表缓存（避免频繁展开/收起重复全量读盘）
@@ -493,17 +496,13 @@ export class LLMBridgeView extends ItemView {
       else if (tab === "skills") { skillsTab.classList.add("is-active"); skillsPanel.classList.add("is-active"); }
       else { historyTab.classList.add("is-active"); historyPanel.classList.add("is-active"); }
       this.activeTab = tab;
-      if (this.pageTitleEl) {
-        this.pageTitleEl.textContent = tab === "chat" ? "Chat" : tab === "files" ? "Files" : tab === "skills" ? "Skills" : "History";
-      }
+      this.setPageTitleForTab(tab);
       if (tab === "skills") {
         const agentBody = skillsPanel.querySelector(".llm-bridge-agent-skills-body") as HTMLElement | null;
         if (agentBody && agentBody.hasAttribute("hidden")) agentBody.removeAttribute("hidden");
         this.updateAgentSkillsToggle();
       } else if (tab === "history") {
-        const hBody = historyPanel.querySelector(".llm-bridge-history-body") as HTMLElement | null;
-        if (hBody && hBody.hasAttribute("hidden")) hBody.removeAttribute("hidden");
-        if (this.historyToggleEl) this.historyToggleEl.textContent = "\u25BC Sessions";
+        this.setHistoryPanelExpanded(true);
         void this.refreshHistory();
       } else if (tab === "files") {
         this.refreshContextRefs();
@@ -520,6 +519,7 @@ export class LLMBridgeView extends ItemView {
     filesTab.addEventListener("click", () => switchTab("files"));
     skillsTab.addEventListener("click", () => switchTab("skills"));
     historyTab.addEventListener("click", () => switchTab("history"));
+    this.setPageTitleForTab("chat");
 
     // ===== Files page: attachments / pinned context / FileRef index / approvals =====
     const filesHead = filesPanel.createDiv({ cls: "llm-bridge-secondary-head" });
@@ -1054,6 +1054,13 @@ export class LLMBridgeView extends ItemView {
       void toggle(e);
     });
     return check;
+  }
+
+  private setPageTitleForTab(tab: "chat" | "files" | "skills" | "history"): void {
+    if (!this.pageTitleEl) return;
+    const label = tab === "chat" ? "Chat" : tab === "files" ? "Files" : tab === "skills" ? "Skills" : "History";
+    this.pageTitleEl.textContent = label;
+    this.pageTitleEl.toggleAttribute("hidden", tab === "chat");
   }
 
   private decorateCommandMenuItem(button: HTMLButtonElement, iconName: string, title: string, description: string): void {
@@ -4898,6 +4905,7 @@ export class LLMBridgeView extends ItemView {
   ): void {
     const diagnosticsForDisplay = this.filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode);
     const processFeedItems = run.feedItems.filter((item) => item.kind !== "assistant");
+    const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);
     const hasProcessContent = run.changeGroups.length > 0
       || processFeedItems.length > 0
       || diagnosticsForDisplay.length > 0
@@ -4945,8 +4953,8 @@ export class LLMBridgeView extends ItemView {
     const process = body.createDiv({ cls: "llm-bridge-codex-process" });
     if (hasProcessContent) {
       const processHead = process.createDiv({ cls: "llm-bridge-codex-section-head llm-bridge-codex-process-head" });
-      processHead.createDiv({ cls: "llm-bridge-codex-section-title", text: "Process" });
-      processHead.createDiv({ cls: "llm-bridge-codex-section-count", text: String(processFeedItems.length) });
+      processHead.createDiv({ cls: "llm-bridge-codex-section-title", text: "Steps" });
+      processHead.createDiv({ cls: "llm-bridge-codex-section-count", text: String(processFeedBatches.length) });
       const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
       if (processCollapsedByDefault) processBody.setAttribute("hidden", "");
       if (processFeedItems.length > 0) this.renderCodexFeed(processBody, processFeedItems, developerMode);
@@ -5003,7 +5011,7 @@ export class LLMBridgeView extends ItemView {
     const normalized = text.trim();
     if (!normalized) return;
     const section = parent.createDiv({ cls: "llm-bridge-codex-final-answer" });
-    section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Answer" });
+    section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Output" });
     const body = section.createDiv({ cls: "llm-bridge-codex-final-answer-body llm-bridge-msg-markdown" });
     const fallback = () => {
       body.empty();
@@ -5048,10 +5056,7 @@ export class LLMBridgeView extends ItemView {
     const section = parent.createDiv({ cls: "llm-bridge-codex-feed llm-bridge-codex-changes-panel" });
     const list = section.createDiv({ cls: "llm-bridge-codex-feed-list llm-bridge-codex-step-list" });
     for (const batch of this.groupCodexFeedBatches(items)) {
-      const batchEl = list.createDiv({ cls: "llm-bridge-codex-feed-batch" });
-      batch.forEach((item, index) => {
-        this.renderCodexFeedItem(batchEl, item, developerMode, index > 0 && this.isCodexFeedEvent(item));
-      });
+      this.renderCodexFeedBatch(list, batch, developerMode);
     }
   }
 
@@ -5072,6 +5077,84 @@ export class LLMBridgeView extends ItemView {
 
   private isCodexFeedEvent(item: CodexRunFeedItem): boolean {
     return item.kind !== "thinking" && item.kind !== "assistant";
+  }
+
+  private renderCodexFeedBatch(
+    parent: HTMLElement,
+    batch: ReadonlyArray<CodexRunFeedItem>,
+    developerMode: boolean,
+  ): void {
+    if (batch.length === 0) return;
+    const lead = batch[0];
+    const bodyItems = lead.kind === "thinking" ? batch.slice(1) : batch;
+    const eventCount = bodyItems.filter((item) => this.isCodexFeedEvent(item)).length;
+    const batchEl = parent.createEl("details", {
+      cls: `llm-bridge-codex-feed-batch is-${lead.status}${bodyItems.length === 0 ? " is-summary-only" : ""}`,
+    });
+    if (this.isCodexFeedBatchOpenByDefault(batch, developerMode)) batchEl.setAttribute("open", "");
+    const summary = batchEl.createEl("summary", { cls: "llm-bridge-codex-feed-batch-summary" });
+    this.renderCodexFeedBatchSummary(summary, batch, developerMode, eventCount);
+    if (bodyItems.length === 0) return;
+    const body = batchEl.createDiv({ cls: "llm-bridge-codex-feed-batch-body" });
+    bodyItems.forEach((item) => {
+      this.renderCodexFeedItem(body, item, developerMode, this.isCodexFeedEvent(item));
+    });
+  }
+
+  private isCodexFeedBatchOpenByDefault(
+    batch: ReadonlyArray<CodexRunFeedItem>,
+    developerMode: boolean,
+  ): boolean {
+    if (developerMode) return true;
+    return batch.some((item) => item.status === "running" || item.status === "pending" || item.status === "failed");
+  }
+
+  private renderCodexFeedBatchSummary(
+    parent: HTMLElement,
+    batch: ReadonlyArray<CodexRunFeedItem>,
+    developerMode: boolean,
+    eventCount: number,
+  ): void {
+    const lead = batch[0];
+    const leadIsThinking = lead.kind === "thinking";
+    const bodyItems = leadIsThinking ? batch.slice(1) : batch;
+    const label = leadIsThinking
+      ? "Thinking"
+      : lead.kind === "assistant"
+        ? "Output"
+        : lead.label || "Step";
+    const batchSummary = leadIsThinking
+      ? this.formatCodexFeedSummary(lead, developerMode).trim() || this.formatCodexBatchSummary(bodyItems, developerMode)
+      : this.formatCodexBatchSummary(batch, developerMode);
+
+    const textWrap = parent.createDiv({ cls: "llm-bridge-codex-feed-batch-summary-main" });
+    textWrap.createEl("span", { cls: "llm-bridge-codex-feed-batch-label", text: label });
+    textWrap.createEl("span", {
+      cls: `llm-bridge-codex-feed-batch-text${batchSummary ? "" : " is-placeholder"}`,
+      text: batchSummary ? truncateText(batchSummary, 420) : "Reasoning summary unavailable.",
+      attr: { title: batchSummary || "Provider did not expose a reasoning summary for this batch." },
+    });
+
+    const meta = parent.createDiv({ cls: "llm-bridge-codex-feed-batch-meta" });
+    if (eventCount > 0) {
+      meta.createEl("span", {
+        cls: "llm-bridge-codex-feed-batch-count",
+        text: `${eventCount} ${eventCount === 1 ? "step" : "steps"}`,
+      });
+    }
+    meta.createEl("span", { cls: `llm-bridge-codex-feed-batch-status is-${lead.status}`, text: lead.status });
+  }
+
+  private formatCodexBatchSummary(
+    batch: ReadonlyArray<CodexRunFeedItem>,
+    developerMode: boolean,
+  ): string {
+    for (const item of batch) {
+      const summary = this.formatCodexFeedSummary(item, developerMode).trim();
+      if (summary) return summary;
+    }
+    const firstEvent = batch.find((item) => this.isCodexFeedEvent(item));
+    return firstEvent?.label ?? batch[0]?.label ?? "";
   }
 
   private renderCodexFeedItem(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean, nestedEvent: boolean): void {
@@ -7326,11 +7409,17 @@ export class LLMBridgeView extends ItemView {
   private renderHistoryPanel(parent: HTMLElement): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-history-panel" });
     const head = wrap.createDiv({ cls: "llm-bridge-history-head" });
-    this.historyToggleEl = head.createEl("span", {
+    this.historyToggleEl = head.createEl("button", {
       cls: "llm-bridge-history-toggle",
-      text: "▶ Sessions",
-      attr: { title: "展开历史会话列表（从 .llm-bridge/sessions/ 读取）" },
+      attr: {
+        type: "button",
+        title: "展开历史会话列表（从 .llm-bridge/sessions/ 读取）",
+        "aria-expanded": "false",
+      },
     });
+    this.historyToggleChevronEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-chevron", text: "▶" });
+    this.historyToggleLabelEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-label", text: "Sessions" });
+    this.historyToggleCountEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-count", text: "0" });
     const refreshHistBtn = head.createEl("button", {
       cls: "llm-bridge-history-refresh-btn",
       attr: { title: "刷新历史会话列表" },
@@ -7376,16 +7465,34 @@ export class LLMBridgeView extends ItemView {
     this.historyToggleEl.addEventListener("click", () => {
       const hidden = body.hasAttribute("hidden");
       if (hidden) {
-        body.removeAttribute("hidden");
-        this.historyToggleEl.textContent = "▼ Sessions";
+        this.setHistoryPanelExpanded(true);
         void this.refreshHistory();
       } else {
-        body.setAttribute("hidden", "");
-        this.historyToggleEl.textContent = "▶ Sessions";
+        this.setHistoryPanelExpanded(false);
       }
     });
     // 初始空状态
+    this.updateHistoryCountLabel(0, 0);
     listContainer.createDiv({ cls: "llm-bridge-history-empty", text: "暂无历史会话" });
+  }
+
+  private setHistoryPanelExpanded(expanded: boolean): void {
+    if (!this.historyBodyEl || !this.historyToggleEl) return;
+    this.historyBodyEl.toggleAttribute("hidden", !expanded);
+    this.historyToggleEl.setAttribute("aria-expanded", String(expanded));
+    if (this.historyToggleChevronEl) this.historyToggleChevronEl.textContent = expanded ? "▼" : "▶";
+  }
+
+  private updateHistoryCountLabel(visibleCount: number, totalCount: number): void {
+    if (!this.historyToggleCountEl) return;
+    if (totalCount <= 0) {
+      this.historyToggleCountEl.textContent = "0";
+      this.historyToggleCountEl.setAttribute("title", "0 sessions");
+      return;
+    }
+    const label = visibleCount === totalCount ? String(totalCount) : `${visibleCount}/${totalCount}`;
+    this.historyToggleCountEl.textContent = label;
+    this.historyToggleCountEl.setAttribute("title", `${visibleCount} visible / ${totalCount} total`);
   }
 
   private async toggleSessionDropdown(dropdown: HTMLElement, openHistory: () => void): Promise<void> {
@@ -7461,15 +7568,14 @@ export class LLMBridgeView extends ItemView {
     // V2.9: 按搜索词过滤（标题子串，大小写不敏感）；filter 返回新数组，可直接排序不修改原 historyItems
     const query = this.historySearchQuery.trim().toLowerCase();
     const filtered = this.historyItems.filter((it) => !query || it.title.toLowerCase().includes(query));
-    const arrow = this.historyBodyEl.hasAttribute("hidden") ? "▶" : "▼";
     if (this.historyItems.length === 0) {
       this.historyListEl.createDiv({ cls: "llm-bridge-history-empty", text: "暂无历史会话" });
-      this.historyToggleEl.textContent = `${arrow} Sessions (0)`;
+      this.updateHistoryCountLabel(0, 0);
       return;
     }
     if (filtered.length === 0) {
       this.historyListEl.createDiv({ cls: "llm-bridge-history-empty", text: `无匹配「${this.historySearchQuery.trim()}」的会话` });
-      this.historyToggleEl.textContent = `${arrow} Sessions (0/${this.historyItems.length})`;
+      this.updateHistoryCountLabel(0, this.historyItems.length);
       return;
     }
     // V2.8: 按 sortMode 排序（filtered 已是新数组，直接排序不修改原 historyItems）
@@ -7520,8 +7626,7 @@ export class LLMBridgeView extends ItemView {
       });
     }
     // V2.9: 搜索时显示「匹配数/总数」，否则显示总数
-    const countLabel = query ? `${filtered.length}/${this.historyItems.length}` : `${this.historyItems.length}`;
-    this.historyToggleEl.textContent = `${arrow} Sessions (${countLabel})`;
+    this.updateHistoryCountLabel(filtered.length, this.historyItems.length);
     } catch (e) {
       this.renderListError(this.historyListEl, "history", e);
     }
