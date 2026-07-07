@@ -13692,3 +13692,162 @@
 .llm-bridge-composer-file-chip:focus-within .llm-bridge-composer-file-pin {
   opacity: 1 !important;
 }
+
+/* ===== V17-G46: contained attachment thumbnails and lighter preview surfaces ===== */
+.llm-bridge-msg-user .llm-bridge-msg-content {
+  gap: 3px !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
+  align-self: stretch !important;
+  justify-content: flex-start !important;
+  gap: 5px !important;
+  max-width: 100% !important;
+  margin: 0 0 10px !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary)) 0%,
+    color-mix(in srgb, var(--background-secondary) 52%, transparent) 100%
+  ) !important;
+  border-color: color-mix(in srgb, var(--text-muted) 11%, transparent) !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
+  box-sizing: border-box !important;
+  padding: 1px !important;
+  object-fit: cover !important;
+  object-position: left top !important;
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary)) !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
+.llm-bridge-composer-file-doc-thumb {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--background-primary) 95%, var(--background-secondary)) 0%,
+    color-mix(in srgb, var(--background-secondary) 40%, transparent) 100%
+  ) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
+}
+
+.llm-bridge-composer-file-thumb.has-image-preview {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary)) 0%,
+    color-mix(in srgb, var(--background-secondary) 50%, transparent) 100%
+  ) !important;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 12%, transparent) !important;
+}
+
+.llm-bridge-composer-file-image {
+  display: block !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  max-height: 100% !important;
+  box-sizing: border-box !important;
+  padding: 1px !important;
+  border-radius: inherit !important;
+  object-fit: cover !important;
+  object-position: left top !important;
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary)) !important;
+}
+
+.llm-bridge-composer-file-thumb.has-image-preview .llm-bridge-composer-file-icon.is-fallback[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-file-preview-modal {
+  gap: 10px !important;
+  padding-bottom: 10px !important;
+}
+
+.llm-bridge-file-preview {
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
+  border-radius: 14px !important;
+  background: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary)) !important;
+}
+
+.llm-bridge-file-preview-image {
+  display: block !important;
+  width: 100% !important;
+  height: auto !important;
+  max-height: min(62vh, 720px) !important;
+  object-fit: contain !important;
+  background: color-mix(in srgb, var(--background-primary) 94%, var(--background-secondary)) !important;
+}
+
+.llm-bridge-context-tag-note,
+.llm-bridge-context-tag-note.is-empty {
+  display: inline-flex !important;
+}
+
+/* ===== V17-G47: smart image thumbnails and calmer document preview tiles ===== */
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image,
+.llm-bridge-composer-file-image {
+  box-sizing: border-box !important;
+  padding: 1px !important;
+  object-fit: contain !important;
+  object-position: center center !important;
+  background: color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary)) !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
+.llm-bridge-composer-file-doc-thumb {
+  display: grid !important;
+  align-content: start !important;
+  gap: 3px !important;
+  padding: 5px !important;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--background-primary) 97%, var(--background-secondary)) 0%,
+      color-mix(in srgb, var(--background-secondary) 44%, transparent) 100%
+    ) !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line,
+.llm-bridge-composer-file-doc-line {
+  display: block !important;
+  width: 100% !important;
+  margin: 0 !important;
+  letter-spacing: 0 !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-primary,
+.llm-bridge-composer-file-doc-line.is-primary {
+  color: color-mix(in srgb, var(--text-normal) 74%, var(--text-muted)) !important;
+  font-size: 5.8px !important;
+  font-weight: 600 !important;
+  line-height: 1.15 !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-secondary,
+.llm-bridge-composer-file-doc-line.is-secondary {
+  color: color-mix(in srgb, var(--text-muted) 82%, transparent) !important;
+  font-size: 5.2px !important;
+  font-weight: 500 !important;
+  line-height: 1.15 !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-placeholder,
+.llm-bridge-composer-file-doc-line.is-placeholder {
+  align-self: center !important;
+  height: 2px !important;
+  min-height: 2px !important;
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--text-muted) 18%, transparent) !important;
+}

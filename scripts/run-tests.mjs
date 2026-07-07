@@ -18660,6 +18660,9 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("defaultClipboardTextAttachmentFileName")
       && viewSrc.includes("CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS")
       && viewSrc.includes("CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES")
+      && viewSrc.includes('const normalized = (text ?? "").replace(/\\r\\n?/g, "\\n").trim();')
+      && viewSrc.includes('const lineCount = normalized.split("\\n").length;')
+      && viewSrc.includes("return normalized.length >= CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS || lineCount >= CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES;")
       && viewSrc.includes('if (!/^paste$/i.test(source)) return true;')
       && viewSrc.includes("if (!this.isClipboardTextBlob(file)) return true;")
       && viewSrc.includes("return this.shouldPersistLargeClipboardText(options.clipboardText);")
@@ -18670,6 +18673,35 @@ if (!runNoteSummarizeSmoke) {
       && !viewSrc.includes('candidate.startsWith("./")')
       && !viewSrc.includes('candidate.startsWith("../")');
     addTest("V17-G41 composer: 普通复制文本保持原文，仅真实文件或超大文本进入附件流", ok ? "pass" : "fail", "");
+  }
+
+  {
+    const ok = viewSrc.includes("private maybeApplySmartImageThumbnail")
+      && viewSrc.includes("private buildSmartImageThumbnailDataUrl")
+      && viewSrc.includes('previewEl.dataset.smartThumbApplied = "true"')
+      && viewSrc.includes("const coverage = (cropWidth * cropHeight) / (sampleWidth * sampleHeight);")
+      && viewSrc.includes("let usedDenseSquareCrop = false;")
+      && viewSrc.includes("Math.max(20, Math.floor(minDimension * 0.42))")
+      && viewSrc.includes("? Math.max(innerSize / finalCropWidth, innerSize / finalCropHeight)")
+      && viewSrc.includes('this.renderDocumentPreviewThumb(thumb, "llm-bridge-composer-file-doc-thumb", "llm-bridge-composer-file-doc-line", ref, 3, 14);')
+      && viewSrc.includes('this.renderDocumentPreviewThumb(chip, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);')
+      && viewSrc.includes('is-primary')
+      && viewSrc.includes('is-secondary')
+      && viewSrc.includes('is-placeholder')
+      && stylesSrc.includes("V17-G47: smart image thumbnails and calmer document preview tiles")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-primary")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-secondary")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-placeholder");
+    addTest("V17-G47 UI: 图片缩略会裁掉大白边，文档缩略改为更平静的三行卡片", ok ? "pass" : "fail", "");
+  }
+
+  {
+    const ok = viewSrc.includes("private filePreviewModal: Modal | null = null;")
+      && viewSrc.includes("if (this.filePreviewModal) {")
+      && viewSrc.includes("this.filePreviewModal.close();")
+      && viewSrc.includes("this.filePreviewModal = modal;")
+      && viewSrc.includes("if (this.filePreviewModal === modal) this.filePreviewModal = null;");
+    addTest("V17-G48 UI: 轻量文件预览弹窗保持单实例", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 13b: V17-G3 Codex-style composer/files surface ----
@@ -18886,8 +18918,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private fileRefSourceLabel(ref: FileRef): string")
       && viewSrc.includes('cls: "llm-bridge-composer-file-icon is-fallback"')
       && viewSrc.includes("llm-bridge-composer-file-doc-thumb")
-      && viewSrc.includes('thumb.style.setProperty("background-image"')
-      && viewSrc.includes('preview.addEventListener("error"')
+      && viewSrc.includes('cls: "llm-bridge-composer-file-image"')
+      && viewSrc.includes('previewEl.addEventListener("error"')
       && viewSrc.includes('cls: "llm-bridge-perm-popover-head"')
       && viewSrc.includes('cls: `llm-bridge-perm-popover-risk is-${currentInfo.level}`')
       && viewSrc.includes('text: currentInfo.level === "danger" ? "高风险" : currentInfo.level === "caution" ? "需确认" : "安全"')

@@ -356,12 +356,14 @@ export class LLMBridgeView extends ItemView {
   private attachmentReadGrants: FileAccessReadGrant[] = [];
   private attachmentTextSnippets: AttachmentTextSnippet[] = [];
   private fileThumbnailCache = new Map<string, string | null>();
+  private smartImageThumbnailCache = new Map<string, string | null>();
   private fileInlinePreviewCache = new Map<string, string | null>();
   private attachmentFileInputEl!: HTMLInputElement;
   private pinnedContextEl!: HTMLElement;
   private composerFileRefsEl!: HTMLElement;
   private filesContextEl!: HTMLElement;
   private filePreviewLeaf: WorkspaceLeaf | null = null;
+  private filePreviewModal: Modal | null = null;
   private lastActiveMarkdownFile: TFile | null = null;
   // V2.16-D: Context metrics UI 元素
   private contextRingEl!: HTMLElement;
@@ -3178,29 +3180,32 @@ export class LLMBridgeView extends ItemView {
         chip.addClass("has-preview");
         chip.addClass("is-preview-only");
         thumb.addClass("has-image-preview");
-        thumb.style.setProperty("background-image", `url("${thumbnailUrl.replace(/"/g, '\\"')}")`);
-        const fallback = thumb.createEl("span", { cls: "llm-bridge-composer-file-icon is-fallback" });
-        setIcon(fallback, this.getFileRefIconName(ref));
-        const preview = new Image();
-        preview.addEventListener("load", () => {
-          thumb.addClass("is-preview-loaded");
+        const previewEl = thumb.createEl("img", {
+          cls: "llm-bridge-composer-file-image",
+          attr: { src: thumbnailUrl, alt: ref.displayName },
         });
-        preview.addEventListener("error", () => {
-          thumb.empty();
+        const fallback = thumb.createEl("span", { cls: "llm-bridge-composer-file-icon is-fallback", attr: { hidden: "" } });
+        setIcon(fallback, this.getFileRefIconName(ref));
+        previewEl.addEventListener("load", () => {
+          thumb.addClass("is-preview-loaded");
+          fallback.setAttribute("hidden", "");
+          this.maybeApplySmartImageThumbnail(previewEl, this.getSmartImageThumbnailCacheKey(ref, thumbnailUrl));
+        });
+        previewEl.addEventListener("error", () => {
+          previewEl.remove();
           thumb.removeClass("has-image-preview");
           thumb.removeClass("is-preview-loaded");
           thumb.addClass("is-preview-missing");
-          thumb.style.removeProperty("background-image");
           chip.addClass("is-thumbnail-fallback");
-          const placeholder = thumb.createEl("span", { cls: "llm-bridge-composer-file-icon is-fallback" });
-          setIcon(placeholder, "image");
+          fallback.removeAttribute("hidden");
+          fallback.empty();
+          setIcon(fallback, "image");
         });
-        preview.src = thumbnailUrl;
       } else {
         chip.addClass("is-preview-only");
         chip.addClass("has-document-preview");
         thumb.addClass("has-document-preview");
-        this.renderDocumentPreviewThumb(thumb, "llm-bridge-composer-file-doc-thumb", "llm-bridge-composer-file-doc-line", ref, 4, 12);
+        this.renderDocumentPreviewThumb(thumb, "llm-bridge-composer-file-doc-thumb", "llm-bridge-composer-file-doc-line", ref, 3, 14);
       }
       const fileText = chip.createEl("span", { cls: "llm-bridge-composer-file-text" });
       fileText.createEl("span", { cls: "llm-bridge-composer-file-name", text: ref.displayName });
@@ -3293,6 +3298,183 @@ export class LLMBridgeView extends ItemView {
     if (ext === ".svg") return "image/svg+xml";
     if (ext === ".bmp") return "image/bmp";
     return "image/png";
+  }
+
+  private getSmartImageThumbnailCacheKey(ref: FileRef, thumbnailUrl: string): string {
+    return [ref.id, ref.resolvedPath, thumbnailUrl].join("::");
+  }
+
+  private maybeApplySmartImageThumbnail(previewEl: HTMLImageElement, cacheKey: string): void {
+    if (previewEl.dataset.smartThumbPending === "true" || previewEl.dataset.smartThumbApplied === "true") return;
+    if (this.smartImageThumbnailCache.has(cacheKey)) {
+      const cached = this.smartImageThumbnailCache.get(cacheKey);
+      previewEl.dataset.smartThumbApplied = "true";
+      if (cached && previewEl.src !== cached) previewEl.src = cached;
+      return;
+    }
+    previewEl.dataset.smartThumbPending = "true";
+    window.setTimeout(() => {
+      try {
+        const cropped = this.buildSmartImageThumbnailDataUrl(previewEl);
+        this.smartImageThumbnailCache.set(cacheKey, cropped);
+        previewEl.dataset.smartThumbApplied = "true";
+        if (cropped && previewEl.isConnected && previewEl.src !== cropped) {
+          previewEl.src = cropped;
+        }
+      } catch {
+        this.smartImageThumbnailCache.set(cacheKey, null);
+        previewEl.dataset.smartThumbApplied = "true";
+      } finally {
+        delete previewEl.dataset.smartThumbPending;
+      }
+    }, 0);
+  }
+
+  private buildSmartImageThumbnailDataUrl(imageEl: HTMLImageElement): string | null {
+    const sourceWidth = imageEl.naturalWidth;
+    const sourceHeight = imageEl.naturalHeight;
+    if (!sourceWidth || !sourceHeight) return null;
+
+    const sampleMax = 256;
+    const sampleScale = Math.min(1, sampleMax / Math.max(sourceWidth, sourceHeight));
+    const sampleWidth = Math.max(1, Math.round(sourceWidth * sampleScale));
+    const sampleHeight = Math.max(1, Math.round(sourceHeight * sampleScale));
+    const sampleCanvas = document.createElement("canvas");
+    sampleCanvas.width = sampleWidth;
+    sampleCanvas.height = sampleHeight;
+    const sampleCtx = sampleCanvas.getContext("2d");
+    if (!sampleCtx) return null;
+    sampleCtx.imageSmoothingEnabled = true;
+    sampleCtx.imageSmoothingQuality = "high";
+    sampleCtx.drawImage(imageEl, 0, 0, sampleWidth, sampleHeight);
+
+    const pixels = sampleCtx.getImageData(0, 0, sampleWidth, sampleHeight).data;
+    const significant = new Uint8Array(sampleWidth * sampleHeight);
+    let significantCount = 0;
+    let minX = sampleWidth;
+    let minY = sampleHeight;
+    let maxX = -1;
+    let maxY = -1;
+    for (let y = 0; y < sampleHeight; y += 1) {
+      for (let x = 0; x < sampleWidth; x += 1) {
+        const offset = (y * sampleWidth + x) * 4;
+        const alpha = pixels[offset + 3];
+        const red = pixels[offset];
+        const green = pixels[offset + 1];
+        const blue = pixels[offset + 2];
+        const nearWhite = red >= 248 && green >= 248 && blue >= 248;
+        if (alpha < 24 || nearWhite) continue;
+        significant[y * sampleWidth + x] = 1;
+        significantCount += 1;
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+    }
+
+    if (maxX < minX || maxY < minY) return null;
+    const cropWidth = maxX - minX + 1;
+    const cropHeight = maxY - minY + 1;
+    const coverage = (cropWidth * cropHeight) / (sampleWidth * sampleHeight);
+    let cropSampleX = minX;
+    let cropSampleY = minY;
+    let cropSampleWidth = cropWidth;
+    let cropSampleHeight = cropHeight;
+    let usedDenseSquareCrop = false;
+    const overallDensity = significantCount / (sampleWidth * sampleHeight);
+    const aspect = sourceWidth / sourceHeight;
+    if (sampleWidth >= 40 && sampleHeight >= 40 && (aspect >= 1.25 || aspect <= 0.8 || coverage >= 0.75)) {
+      const minDimension = Math.min(sampleWidth, sampleHeight);
+      const candidateSizes = Array.from(new Set([
+        Math.max(20, Math.floor(minDimension * 0.42)),
+        Math.max(24, Math.floor(minDimension * 0.58)),
+        Math.max(24, Math.floor(minDimension * 0.72)),
+        Math.max(24, Math.floor(minDimension * 0.86)),
+      ])).filter((size) => size <= minDimension);
+      let bestDensity = 0;
+      let bestScore = -1;
+      let bestX = 0;
+      let bestY = 0;
+      let bestSize = 0;
+      for (const squareSize of candidateSizes) {
+        const step = Math.max(2, Math.floor(squareSize / 12));
+        for (let y = 0; y <= sampleHeight - squareSize; y += step) {
+          for (let x = 0; x <= sampleWidth - squareSize; x += step) {
+            let score = 0;
+            for (let yy = y; yy < y + squareSize; yy += 1) {
+              const rowOffset = yy * sampleWidth;
+              for (let xx = x; xx < x + squareSize; xx += 1) {
+                score += significant[rowOffset + xx];
+              }
+            }
+            const density = score / (squareSize * squareSize);
+            const rankedDensity = density + (squareSize / minDimension) * 0.06;
+            if (rankedDensity > bestDensity || (rankedDensity === bestDensity && score > bestScore)) {
+              bestDensity = rankedDensity;
+              bestScore = score;
+              bestX = x;
+              bestY = y;
+              bestSize = squareSize;
+            }
+          }
+        }
+      }
+      const bestActualDensity = bestSize > 0 ? bestScore / (bestSize * bestSize) : 0;
+      if (bestActualDensity > overallDensity * 1.12 && bestScore >= 20) {
+        cropSampleX = bestX;
+        cropSampleY = bestY;
+        cropSampleWidth = bestSize;
+        cropSampleHeight = bestSize;
+        usedDenseSquareCrop = true;
+      } else if (coverage > 0.9) {
+        return null;
+      }
+    } else if (coverage > 0.9) {
+      return null;
+    }
+
+    const padding = usedDenseSquareCrop ? 4 : 8;
+    const cropX = Math.max(0, Math.floor((cropSampleX - padding) / sampleScale));
+    const cropY = Math.max(0, Math.floor((cropSampleY - padding) / sampleScale));
+    const cropRight = Math.min(sourceWidth, Math.ceil((cropSampleX + cropSampleWidth + padding) / sampleScale));
+    const cropBottom = Math.min(sourceHeight, Math.ceil((cropSampleY + cropSampleHeight + padding) / sampleScale));
+    const finalCropWidth = Math.max(1, cropRight - cropX);
+    const finalCropHeight = Math.max(1, cropBottom - cropY);
+
+    const thumbSize = 96;
+    const inset = usedDenseSquareCrop ? 2 : 4;
+    const thumbCanvas = document.createElement("canvas");
+    thumbCanvas.width = thumbSize;
+    thumbCanvas.height = thumbSize;
+    const thumbCtx = thumbCanvas.getContext("2d");
+    if (!thumbCtx) return null;
+    thumbCtx.fillStyle = "#f3f5f7";
+    thumbCtx.fillRect(0, 0, thumbSize, thumbSize);
+    const innerSize = thumbSize - inset * 2;
+    const scale = usedDenseSquareCrop
+      ? Math.max(innerSize / finalCropWidth, innerSize / finalCropHeight)
+      : Math.min(innerSize / finalCropWidth, innerSize / finalCropHeight);
+    const drawWidth = Math.max(1, Math.round(finalCropWidth * scale));
+    const drawHeight = Math.max(1, Math.round(finalCropHeight * scale));
+    const drawX = Math.round((thumbSize - drawWidth) / 2);
+    const drawY = Math.round((thumbSize - drawHeight) / 2);
+    thumbCtx.imageSmoothingEnabled = true;
+    thumbCtx.imageSmoothingQuality = "high";
+    thumbCtx.filter = "contrast(1.14) saturate(1.04)";
+    thumbCtx.drawImage(
+      imageEl,
+      cropX,
+      cropY,
+      finalCropWidth,
+      finalCropHeight,
+      drawX,
+      drawY,
+      drawWidth,
+      drawHeight,
+    );
+    thumbCtx.filter = "none";
+    return thumbCanvas.toDataURL("image/png");
   }
 
   private fileRefMetaLabel(ref: FileRef): string {
@@ -3416,7 +3598,7 @@ export class LLMBridgeView extends ItemView {
     for (let i = 0; i < maxLines; i += 1) {
       const text = lines[i] ?? "";
       docThumb.createEl("span", {
-        cls: `${lineClass}${text ? " is-text" : ""}`,
+        cls: `${lineClass}${text ? ` is-text ${i === 0 ? "is-primary" : "is-secondary"}` : " is-placeholder"}`,
         text: text || undefined,
         attr: text ? { title: text } : undefined,
       });
@@ -3613,7 +3795,17 @@ export class LLMBridgeView extends ItemView {
   }
 
   private async openFileRefPreview(ref: FileRef): Promise<void> {
+    if (this.filePreviewModal) {
+      this.filePreviewModal.close();
+      this.filePreviewModal = null;
+    }
     const modal = new Modal(this.app);
+    this.filePreviewModal = modal;
+    const originalOnClose = modal.onClose.bind(modal);
+    modal.onClose = () => {
+      if (this.filePreviewModal === modal) this.filePreviewModal = null;
+      originalOnClose();
+    };
     modal.containerEl.addClass("llm-bridge-file-preview-container");
     modal.titleEl.setText(ref.displayName);
     modal.contentEl.empty();
@@ -4288,6 +4480,9 @@ export class LLMBridgeView extends ItemView {
         chip.addClass("has-preview");
         chip.addClass("is-preview-only");
         const preview = chip.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });
+        preview.addEventListener("load", () => {
+          this.maybeApplySmartImageThumbnail(preview, this.getSmartImageThumbnailCacheKey(ref, thumbnailUrl));
+        });
         preview.addEventListener("error", () => {
           chip.addClass("is-preview-missing");
           preview.remove();
@@ -4302,7 +4497,7 @@ export class LLMBridgeView extends ItemView {
       } else {
         chip.addClass("is-preview-only");
         chip.addClass("has-document-preview");
-        this.renderDocumentPreviewThumb(chip, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 4, 14);
+        this.renderDocumentPreviewThumb(chip, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);
       }
       chip.addEventListener("click", () => void this.openFileRefPreview(ref));
     }
