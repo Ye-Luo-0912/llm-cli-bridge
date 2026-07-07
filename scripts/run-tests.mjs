@@ -19045,6 +19045,35 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13s: V17-G28 lightweight previews/dialogs and smaller attachment tiles ----
+  {
+    const skillDocStart = viewSrc.indexOf("class AgentSkillDocumentView");
+    const skillDocEnd = viewSrc.indexOf("export class LLMBridgeView", skillDocStart);
+    const skillDocSection = skillDocStart >= 0 && skillDocEnd > skillDocStart
+      ? viewSrc.slice(skillDocStart, skillDocEnd)
+      : "";
+    const ok = !skillDocSection.includes("llm-bridge-agent-skill-doc-copy")
+      && !skillDocSection.includes("llm-bridge-error-detail")
+      && skillDocSection.includes("llm-bridge-agent-skill-doc-error-path")
+      && viewSrc.includes('modal.contentEl.addClass("llm-bridge-prompt-modal")')
+      && viewSrc.includes('modal.contentEl.addClass("llm-bridge-confirm-modal")')
+      && viewSrc.includes('modal.contentEl.addClass("llm-bridge-file-not-found-modal")')
+      && stylesSrc.includes("V17-G28: lighter previews, dialogs and attachment tiles")
+      && stylesSrc.includes("flex: 0 0 40px !important;")
+      && stylesSrc.includes("aspect-ratio: 1 / 1;")
+      && stylesSrc.includes("flex: 0 0 38px;")
+      && stylesSrc.includes(".llm-bridge-agent-skill-doc-copy")
+      && stylesSrc.includes("display: none !important;")
+      && stylesSrc.includes(".llm-bridge-agent-skill-doc-error-path")
+      && stylesSrc.includes(".llm-bridge-file-preview-modal")
+      && stylesSrc.includes("user-select: text;")
+      && stylesSrc.includes(".llm-bridge-confirm-modal,")
+      && stylesSrc.includes(".llm-bridge-prompt-modal,")
+      && stylesSrc.includes(".llm-bridge-file-not-found-modal");
+    addTest("V17-G28 UI: previews, dialogs and attachment tiles stay lightweight",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----
   {
     const ok = viewSrc.includes("const vaultRef = this.addVaultFileRef")

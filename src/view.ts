@@ -135,15 +135,6 @@ export class AgentSkillDocumentView extends ItemView {
       text: displayPath || "No SKILL.md path",
       attr: { title: displayPath || "" },
     });
-    const copyBtn = header.createEl("button", { cls: "llm-bridge-agent-skill-doc-copy", text: "复制路径" });
-    copyBtn.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(displayPath || skillPath);
-        new Notice("已复制 Skill 路径");
-      } catch {
-        new Notice("复制 Skill 路径失败");
-      }
-    });
 
     const body = root.createDiv({ cls: "llm-bridge-agent-skill-doc-body" });
     if (!skillPath) {
@@ -156,7 +147,11 @@ export class AgentSkillDocumentView extends ItemView {
     } catch (error) {
       const err = body.createDiv({ cls: "llm-bridge-list-error" });
       err.createEl("span", { text: "无法读取 Agent Skill 文档" });
-      err.createEl("pre", { cls: "llm-bridge-error-detail", text: error instanceof Error ? error.message : String(error) });
+      err.createEl("span", {
+        cls: "llm-bridge-agent-skill-doc-error-path",
+        text: displayPath || skillPath,
+        attr: { title: error instanceof Error ? error.message : String(error) },
+      });
     }
   }
 
@@ -7359,6 +7354,7 @@ export class LLMBridgeView extends ItemView {
       const modal = new Modal(this.app);
       modal.titleEl.setText(title);
       modal.contentEl.empty();
+      modal.contentEl.addClass("llm-bridge-prompt-modal");
       modal.contentEl.createEl("p", { text: message, cls: "llm-bridge-confirm-msg" });
       const input = modal.contentEl.createEl("input", {
         cls: "llm-bridge-prompt-input",
@@ -7382,6 +7378,7 @@ export class LLMBridgeView extends ItemView {
       const modal = new Modal(this.app);
       modal.titleEl.setText(title);
       modal.contentEl.empty();
+      modal.contentEl.addClass("llm-bridge-confirm-modal");
       modal.contentEl.createEl("p", { text: message, cls: "llm-bridge-confirm-msg" });
       const btns = modal.contentEl.createDiv({ cls: "modal-button-container" });
       const cancel = btns.createEl("button", { text: "取消" });
@@ -8217,6 +8214,7 @@ export class LLMBridgeView extends ItemView {
     const modal = new Modal(this.app);
     modal.titleEl.setText("文件无法打开");
     modal.contentEl.empty();
+    modal.contentEl.addClass("llm-bridge-file-not-found-modal");
     modal.contentEl.createEl("p", {
       text: "文件可能已被删除或尚未被 Obsidian 索引。可复制路径后手动查找：",
       cls: "llm-bridge-confirm-msg",
