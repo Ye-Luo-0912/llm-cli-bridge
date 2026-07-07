@@ -1092,6 +1092,7 @@ if (runMode !== "all" && runMode !== "unit") {
     const tempCodexRunViewModelBundle = join(PROJECT_ROOT, ".test-codex-run-view-model-temp.mjs");
     const tempRunPhaseModelBundle = join(PROJECT_ROOT, ".test-run-phase-model-temp.mjs");
     const tempProviderLifecycleBundle = join(PROJECT_ROOT, ".test-provider-lifecycle-temp.mjs");
+    const tempClipboardPastePolicyBundle = join(PROJECT_ROOT, ".test-clipboard-paste-policy-temp.mjs");
     // V16.5-B: sdkPermission bundle 供 normalizeToolName / assessToolRisk 测试
     const tempSdkPermissionBundle = join(PROJECT_ROOT, ".test-sdk-permission-temp.mjs");
     // V16.5-C: bridgePromptContract bundle 供 capability/autonomy/safety contract 测试
@@ -1120,6 +1121,7 @@ if (runMode !== "all" && runMode !== "unit") {
     await esbuild.build({ ...bundleOpts("runtime/core/codexRunViewModel.ts"), outfile: tempCodexRunViewModelBundle });
     await esbuild.build({ ...bundleOpts("runtime/core/runPhaseModel.ts"), outfile: tempRunPhaseModelBundle });
     await esbuild.build({ ...bundleOpts("runtime/core/providerLifecycleEvent.ts"), outfile: tempProviderLifecycleBundle });
+    await esbuild.build({ ...bundleOpts("clipboardPastePolicy.ts"), outfile: tempClipboardPastePolicyBundle });
     await esbuild.build({ ...bundleOpts("sdkPermission.ts"), outfile: tempSdkPermissionBundle });
     // V16.5-C: bridgePromptContract bundle
     await esbuild.build({ ...bundleOpts("runtime/core/bridgePromptContract.ts"), outfile: tempBridgeContractBundle });
@@ -1139,6 +1141,7 @@ if (runMode !== "all" && runMode !== "unit") {
     const codexRunViewModelMod = await import(pathToFileURL(tempCodexRunViewModelBundle).href);
     const runPhaseModelMod = await import(pathToFileURL(tempRunPhaseModelBundle).href);
     const providerLifecycleMod = await import(pathToFileURL(tempProviderLifecycleBundle).href);
+    const clipboardPastePolicyMod = await import(pathToFileURL(tempClipboardPastePolicyBundle).href);
     // V16.5-B: sdkPermission 模块（normalizeToolName / assessToolRisk）
     const sdkPermissionMod = await import(pathToFileURL(tempSdkPermissionBundle).href);
     const { normalizeToolName, assessToolRisk } = sdkPermissionMod;
@@ -1150,6 +1153,31 @@ if (runMode !== "all" && runMode !== "unit") {
     const piRpcProviderMod = await import(pathToFileURL(tempPiRpcProviderBundle).href);
     // V17-B: piSdkProvider 模块
     const piSdkProviderMod = await import(pathToFileURL(tempPiSdkProviderBundle).href);
+
+    {
+      const shortPlainText = clipboardPastePolicyMod.shouldPersistLargeClipboardText("just a short copied note");
+      const hugeText = clipboardPastePolicyMod.shouldPersistLargeClipboardText("x".repeat(20000));
+      const manyLines = clipboardPastePolicyMod.shouldPersistLargeClipboardText(Array.from({ length: 240 }, (_, i) => `line-${i}`).join("\n"));
+      const whitespaceOnly = clipboardPastePolicyMod.shouldPersistLargeClipboardText("   \n\t");
+      const jsonName = clipboardPastePolicyMod.defaultClipboardTextAttachmentFileName('{"ok":true}');
+      const markdownName = clipboardPastePolicyMod.defaultClipboardTextAttachmentFileName("# Heading\n- item");
+      const plainName = clipboardPastePolicyMod.defaultClipboardTextAttachmentFileName("hello world");
+      const textBlob = clipboardPastePolicyMod.isClipboardTextBlobDescriptor({ type: "text/plain", name: "note.txt" });
+      const htmlBlob = clipboardPastePolicyMod.isClipboardTextBlobDescriptor({ type: "text/html", name: "snippet.html" });
+      const imageBlob = clipboardPastePolicyMod.isClipboardTextBlobDescriptor({ type: "image/png", name: "image.png" });
+      const ok = shortPlainText === false
+        && hugeText === true
+        && manyLines === true
+        && whitespaceOnly === false
+        && jsonName === "pasted-data.json"
+        && markdownName === "pasted-note.md"
+        && plainName === "pasted-text.txt"
+        && textBlob === true
+        && htmlBlob === true
+        && imageBlob === false;
+      addTest("Clipboard paste policy: 普通复制文本保持原文，仅超大文本退化为附件", ok ? "pass" : "fail",
+        `short=${shortPlainText} huge=${hugeText} lines=${manyLines} whitespace=${whitespaceOnly} json=${jsonName} markdown=${markdownName} plain=${plainName} textBlob=${textBlob} htmlBlob=${htmlBlob} imageBlob=${imageBlob}`);
+    }
 
     // ---------- 最小 settings + snapshot ----------
     const baseBridgeSettings = {
@@ -6942,6 +6970,7 @@ if (runMode !== "all" && runMode !== "unit") {
       tempCodexRunViewModelBundle,
       tempRunPhaseModelBundle,
       tempProviderLifecycleBundle,
+      tempClipboardPastePolicyBundle,
       tempSdkPermissionBundle,
       tempBridgeContractBundle,
       tempAgentRuntimeWorkspaceBundle,
@@ -18530,6 +18559,7 @@ if (!runNoteSummarizeSmoke) {
   const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
   const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf-8");
   const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
+  const clipboardPastePolicySrc = readFileSync(join(PROJECT_ROOT, "src", "clipboardPastePolicy.ts"), "utf-8").replace(/\r\n/g, "\n");
   const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf-8");
   const codexRunViewModelSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "codexRunViewModel.ts"), "utf-8");
   const uxSmokeSrc = readFileSync(join(PROJECT_ROOT, "scripts", "codex-real-obsidian-runtime-ux-smoke.mjs"), "utf-8");
@@ -18658,17 +18688,22 @@ if (!runNoteSummarizeSmoke) {
   }
 
   {
+    const hasThresholdsInView = viewSrc.includes("CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS")
+      && viewSrc.includes("CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES");
+    const hasPolicyImpl = clipboardPastePolicySrc.includes("export function shouldPersistLargeClipboardText")
+      && clipboardPastePolicySrc.includes('const normalized = (text ?? "").replace(/\\r\\n?/g, "\\n").trim();')
+      && clipboardPastePolicySrc.includes('const lineCount = normalized.split("\\n").length;')
+      && clipboardPastePolicySrc.includes("return normalized.length >= CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS || lineCount >= CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES;")
+      && clipboardPastePolicySrc.includes("export function isClipboardTextBlobDescriptor")
+      && clipboardPastePolicySrc.includes("export function defaultClipboardTextAttachmentFileName");
     const ok = viewSrc.includes("shouldPersistPathlessAttachmentBlob")
       && viewSrc.includes("hasNonTextClipboardFileBlob")
       && viewSrc.includes("const hasBinaryClipboardFile = this.hasNonTextClipboardFileBlob(data?.files);")
       && viewSrc.includes("isClipboardTextBlob")
       && viewSrc.includes("persistClipboardTextToVault")
       && viewSrc.includes("defaultClipboardTextAttachmentFileName")
-      && viewSrc.includes("CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS")
-      && viewSrc.includes("CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES")
-      && viewSrc.includes('const normalized = (text ?? "").replace(/\\r\\n?/g, "\\n").trim();')
-      && viewSrc.includes('const lineCount = normalized.split("\\n").length;')
-      && viewSrc.includes("return normalized.length >= CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS || lineCount >= CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES;")
+      && hasThresholdsInView
+      && hasPolicyImpl
       && viewSrc.includes('if (!/^paste$/i.test(source)) return true;')
       && viewSrc.includes("if (!this.isClipboardTextBlob(file)) return true;")
       && viewSrc.includes("return this.shouldPersistLargeClipboardText(options.clipboardText);")
@@ -19443,8 +19478,8 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13ag2: V17-G57 plain paste stays text; user attachment tiles keep preview surface ----
   {
-    const ok = viewSrc.includes("const CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS = 20000;")
-      && viewSrc.includes("const CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES = 240;")
+    const ok = clipboardPastePolicySrc.includes("export const CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS = 20000;")
+      && clipboardPastePolicySrc.includes("export const CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES = 240;")
       && viewSrc.includes("普通复制文本保持 textarea 默认粘贴行为；只有真实文件 / 图片 / 超大文本才接管为附件。")
       && viewSrc.includes('visual.addClass("has-image-preview");')
       && viewSrc.includes('visual.addClass("is-image-placeholder");')

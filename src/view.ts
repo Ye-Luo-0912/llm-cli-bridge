@@ -64,6 +64,13 @@ import { DEFAULT_ATTACHMENT_PACKING_POLICY } from "./attachmentPackingPolicy";
 import { FileToolExecutionRequest, FileToolResult, executeFileTool } from "./fileToolExecutor";
 import { AgentFileToolRouteRequest, AgentFileToolRouteResult, executeAgentFileToolRoute as routeAgentFileTool } from "./agentFileToolBridge";
 import { createRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
+import {
+  CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS,
+  CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES,
+  defaultClipboardTextAttachmentFileName as chooseClipboardTextAttachmentFileName,
+  isClipboardTextBlobDescriptor,
+  shouldPersistLargeClipboardText as shouldPersistClipboardTextAttachment,
+} from "./clipboardPastePolicy";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
 export const VIEW_TYPE_AGENT_SKILL_DOCUMENT = "llm-cli-bridge-agent-skill-document";
@@ -84,10 +91,6 @@ interface UserInputDraft {
 }
 
 const USER_INPUT_OPTIONS_PER_PAGE = 6;
-// 普通粘贴文本应保持原文输入；只有“特别大”的文本才退化为临时 txt/json/md 附件。
-const CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS = 20000;
-const CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES = 240;
-
 export class AgentSkillDocumentView extends ItemView {
   private state: AgentSkillDocumentState = {};
 
@@ -2767,6 +2770,7 @@ export class LLMBridgeView extends ItemView {
     if (!data) return paths;
     for (const filePath of this.extractPathsFromFileList(data.files)) addPath(filePath);
 
+    // 只从原生 file / uri-list 通道提取文件；普通 text/plain 即使像路径，也保持原文本输入。
     const uriList = data.getData("text/uri-list");
     for (const filePath of this.extractPastedFilePaths(uriList)) addPath(filePath);
 
@@ -2816,19 +2820,12 @@ export class LLMBridgeView extends ItemView {
   }
 
   private isClipboardTextBlob(file: File): boolean {
-    const mimeType = (file.type || "").toLowerCase();
-    const lowerName = (file.name || "").toLowerCase();
-    if (/^text\//.test(mimeType)) return true;
-    if (/(json|xml|javascript|markdown|csv|rtf|html)/.test(mimeType)) return true;
-    if (!mimeType && /\.(txt|md|markdown|json|csv|log|html?|xml|rtf)$/i.test(lowerName)) return true;
-    return false;
+    return isClipboardTextBlobDescriptor(file);
   }
 
+  // 普通粘贴文本应保持原文输入；只有“特别大”的文本才退化为临时 txt/json/md 附件。
   private shouldPersistLargeClipboardText(text?: string): boolean {
-    const normalized = (text ?? "").replace(/\r\n?/g, "\n").trim();
-    if (!normalized) return false;
-    const lineCount = normalized.split("\n").length;
-    return normalized.length >= CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS || lineCount >= CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES;
+    return shouldPersistClipboardTextAttachment(text);
   }
 
   private async persistClipboardTextToVault(text: string, source: string): Promise<string | null> {
@@ -2849,18 +2846,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   private defaultClipboardTextAttachmentFileName(text: string): string {
-    const trimmed = text.trim();
-    if (!trimmed) return "pasted-text.txt";
-    if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
-      try {
-        JSON.parse(trimmed);
-        return "pasted-data.json";
-      } catch {
-        // Fallback below.
-      }
-    }
-    if (/```|^\s{0,3}(#|>|\* |- |\d+\.)/m.test(trimmed)) return "pasted-note.md";
-    return "pasted-text.txt";
+    return chooseClipboardTextAttachmentFileName(text);
   }
 
   private async persistBlobAttachmentToVault(file: File, source: string): Promise<string | null> {
