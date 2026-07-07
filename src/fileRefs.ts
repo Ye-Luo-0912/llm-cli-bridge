@@ -155,11 +155,36 @@ export function createPendingExternalFileRef(pending: PendingExternalReadRequest
   });
 }
 
+const MARKDOWN_FILE_EXTENSIONS = new Set([".md", ".markdown", ".mdown", ".mkd", ".mdx"]);
+const JSON_FILE_EXTENSIONS = new Set([".json", ".jsonc"]);
+const TEXT_FILE_EXTENSIONS = new Set([
+  ".txt", ".text", ".csv", ".tsv", ".log", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+  ".html", ".htm", ".css", ".scss", ".sass", ".less",
+  ".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts",
+  ".py", ".rb", ".php", ".java", ".kt", ".kts", ".cs", ".csx",
+  ".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx",
+  ".rs", ".go", ".swift", ".sql", ".sh", ".bash", ".zsh", ".ps1", ".psm1", ".bat", ".cmd",
+  ".vue", ".svelte", ".astro", ".gradle", ".properties",
+]);
+const TEXT_FILE_BASENAMES = new Set([
+  "dockerfile",
+  "makefile",
+  "justfile",
+  ".gitignore",
+  ".gitattributes",
+  ".gitmodules",
+  ".npmrc",
+  ".prettierrc",
+  ".prettierignore",
+  ".editorconfig",
+]);
+
 export function classifyFileTypeByPath(filePath: string): FileRefFileType {
   const ext = path.extname(filePath).toLowerCase();
-  if ([".md", ".markdown", ".mdown", ".mkd"].includes(ext)) return "markdown";
-  if (ext === ".json" || ext === ".jsonc") return "json";
-  if ([".txt", ".text", ".csv", ".tsv", ".log", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf"].includes(ext)) return "text";
+  const basename = path.basename(filePath).toLowerCase();
+  if (MARKDOWN_FILE_EXTENSIONS.has(ext)) return "markdown";
+  if (JSON_FILE_EXTENSIONS.has(ext)) return "json";
+  if (TEXT_FILE_EXTENSIONS.has(ext) || TEXT_FILE_BASENAMES.has(basename) || basename.startsWith(".env")) return "text";
   if ([".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".bmp", ".ico", ".avif"].includes(ext)) return "image";
   if (ext === ".pdf") return "pdf";
   if ([".zip", ".7z", ".rar", ".gz", ".tar", ".exe", ".dll", ".bin", ".wasm", ".class"].includes(ext)) return "binary";

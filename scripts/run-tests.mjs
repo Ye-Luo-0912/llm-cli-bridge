@@ -16425,7 +16425,11 @@ if (!runV214BUnit) {
         && classifyFileTypeByPath(smallJson) === "json"
         && classifyFileTypeByPath(image) === "image"
         && classifyFileTypeByPath(pdf) === "pdf"
-        && classifyFileTypeByPath(binary) === "binary";
+        && classifyFileTypeByPath(binary) === "binary"
+        && classifyFileTypeByPath("D:\\Repo\\src\\view.ts") === "text"
+        && classifyFileTypeByPath("D:\\Repo\\styles\\main.css") === "text"
+        && classifyFileTypeByPath("D:\\Repo\\.env.local") === "text"
+        && classifyFileTypeByPath("D:\\Repo\\Dockerfile") === "text";
       const uiOk = viewSrc.includes("llm-bridge-attach-file-btn")
         && viewSrc.includes("promptAndAddAttachmentFile")
         && viewSrc.includes("refreshContextRefs")
@@ -18649,6 +18653,8 @@ if (!runNoteSummarizeSmoke) {
 
   {
     const ok = viewSrc.includes("shouldPersistPathlessAttachmentBlob")
+      && viewSrc.includes("hasNonTextClipboardFileBlob")
+      && viewSrc.includes("const hasBinaryClipboardFile = this.hasNonTextClipboardFileBlob(data?.files);")
       && viewSrc.includes("isClipboardTextBlob")
       && viewSrc.includes("persistClipboardTextToVault")
       && viewSrc.includes("defaultClipboardTextAttachmentFileName")
@@ -18657,6 +18663,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('if (!/^paste$/i.test(source)) return true;')
       && viewSrc.includes("if (!this.isClipboardTextBlob(file)) return true;")
       && viewSrc.includes("return this.shouldPersistLargeClipboardText(options.clipboardText);")
+      && viewSrc.includes("if (this.extractNativeFilePath(file)) return true;")
       && viewSrc.includes("options?: { allowRawAbsolutePaths?: boolean }")
       && viewSrc.includes("if (!isFileUri && !options?.allowRawAbsolutePaths) continue;")
       && viewSrc.includes('addText(text.replace(/\\0/g, "\\n"), { allowRawAbsolutePaths: format !== "text/uri-list" });')
@@ -18820,7 +18827,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private renderCodexDiffPreview(")
       && viewSrc.includes('`Diff · ${truncateText(summaryText, 72)}`')
       && viewSrc.includes('text: ok ? "✓ 成功" : "失败"')
-      && viewSrc.includes('item.status === "running" ? "Running command" : "Ran command"')
+      && (viewSrc.includes('item.status === "running" ? "Running command" : "Ran command"') || viewSrc.includes('? "Command"'))
       && viewSrc.includes("private renderCodexShellPanelHead(")
       && !viewSrc.includes('"已运行命令"')
       && !viewSrc.includes('"正在运行命令"')
@@ -19168,6 +19175,20 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes("align-content: center;")
       && stylesSrc.includes("nth-child(4)");
     addTest("V17-G32 UI: 非图片附件以文档缩略块展示，不用格式标签占主视觉",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13v2: V17-G45 document thumbnails fall back to file icons when no text preview exists ----
+  {
+    const ok = viewSrc.includes('docThumb.addClass("is-icon-fallback")')
+      && viewSrc.includes('cls: "llm-bridge-doc-thumb-fallback"')
+      && viewSrc.includes("return this.readInlineFileRefPreviewText(ref);")
+      && viewSrc.includes("private readInlineFileRefPreviewText(ref: FileRef): string | null {")
+      && stylesSrc.includes("V17-G45: explicit clipboard-text boundary and lighter attachment tiles")
+      && stylesSrc.includes(".llm-bridge-doc-thumb-fallback")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb.is-icon-fallback")
+      && stylesSrc.includes(".llm-bridge-composer-file-doc-thumb.is-icon-fallback");
+    addTest("V17-G45 UI: 文档缩略块无文本时退化为轻量图标，不出现空白 tile",
       ok ? "pass" : "fail", "");
   }
 

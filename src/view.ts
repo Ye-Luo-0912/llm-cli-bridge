@@ -356,6 +356,7 @@ export class LLMBridgeView extends ItemView {
   private attachmentReadGrants: FileAccessReadGrant[] = [];
   private attachmentTextSnippets: AttachmentTextSnippet[] = [];
   private fileThumbnailCache = new Map<string, string | null>();
+  private fileInlinePreviewCache = new Map<string, string | null>();
   private attachmentFileInputEl!: HTMLInputElement;
   private pinnedContextEl!: HTMLElement;
   private composerFileRefsEl!: HTMLElement;
@@ -2671,11 +2672,13 @@ export class LLMBridgeView extends ItemView {
   private async handleComposerPaste(event: ClipboardEvent): Promise<void> {
     const data = event.clipboardData;
     const plainText = data?.getData("text/plain") ?? "";
+    const shouldAutoAttachText = this.shouldPersistLargeClipboardText(plainText);
     const paths = this.collectFilePathsFromClipboardEvent(event);
     for (const cachedPath of await this.cachePathlessFilesFromFileList(data?.files, "paste", { clipboardText: plainText })) {
       if (!paths.includes(cachedPath)) paths.push(cachedPath);
     }
-    if (paths.length === 0 && !data?.files?.length && this.shouldPersistLargeClipboardText(plainText)) {
+    const hasBinaryClipboardFile = this.hasNonTextClipboardFileBlob(data?.files);
+    if (paths.length === 0 && !hasBinaryClipboardFile && shouldAutoAttachText) {
       const textPath = await this.persistClipboardTextToVault(plainText, "paste");
       if (textPath) paths.push(textPath);
     }
@@ -2691,6 +2694,14 @@ export class LLMBridgeView extends ItemView {
       return;
     }
     new Notice(`已从粘贴内容添加 ${refs.length}/${paths.length} 个本轮附件`);
+  }
+
+  private hasNonTextClipboardFileBlob(files: FileList | null | undefined): boolean {
+    if (!files?.length) return false;
+    return Array.from(files).some((file) => {
+      if (this.extractNativeFilePath(file)) return true;
+      return !this.isClipboardTextBlob(file);
+    });
   }
 
   private async handleComposerDrop(event: DragEvent): Promise<void> {
@@ -3341,7 +3352,31 @@ export class LLMBridgeView extends ItemView {
     if (typeof ref.previewText === "string" && ref.previewText.trim()) return ref.previewText;
     const snippet = this.findAttachmentSnippet(ref);
     if (snippet?.content?.trim()) return snippet.content;
-    return null;
+    return this.readInlineFileRefPreviewText(ref);
+  }
+
+  private readInlineFileRefPreviewText(ref: FileRef): string | null {
+    if (!isBoundedTextAttachmentType(ref.fileType)) return null;
+    const filePath = this.resolveFileRefAbsolutePath(ref);
+    if (!filePath) return null;
+    const maxBytes = 64 * 1024;
+    const maxChars = 12_000;
+    try {
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile() || stat.size > maxBytes) return null;
+      const cacheKey = `${filePath}:${stat.size}:${stat.mtimeMs}`;
+      if (this.fileInlinePreviewCache.has(cacheKey)) {
+        return this.fileInlinePreviewCache.get(cacheKey) ?? null;
+      }
+      const text = fs.readFileSync(filePath, "utf8");
+      const previewText = text.trim()
+        ? (text.length > maxChars ? `${text.slice(0, maxChars).trimEnd()}\n...` : text)
+        : null;
+      this.fileInlinePreviewCache.set(cacheKey, previewText);
+      return previewText;
+    } catch {
+      return null;
+    }
   }
 
   private getDocumentPreviewLines(ref: FileRef, maxLines: number, maxChars: number): string[] {
@@ -3370,7 +3405,14 @@ export class LLMBridgeView extends ItemView {
   ): void {
     const docThumb = parent.createEl("span", { cls: `${thumbClass} is-${ref.fileType}` });
     const lines = this.getDocumentPreviewLines(ref, maxLines, maxChars);
-    if (lines.length > 0) docThumb.addClass("has-text-preview");
+    if (lines.length > 0) {
+      docThumb.addClass("has-text-preview");
+    } else {
+      docThumb.addClass("is-icon-fallback");
+      const fallback = docThumb.createEl("span", { cls: "llm-bridge-doc-thumb-fallback" });
+      setIcon(fallback, this.getFileRefIconName(ref));
+      return;
+    }
     for (let i = 0; i < maxLines; i += 1) {
       const text = lines[i] ?? "";
       docThumb.createEl("span", {
@@ -3576,6 +3618,11 @@ export class LLMBridgeView extends ItemView {
     modal.titleEl.setText(ref.displayName);
     modal.contentEl.empty();
     modal.contentEl.addClass("llm-bridge-file-preview-modal");
+    modal.contentEl.createDiv({
+      cls: "llm-bridge-file-preview-path",
+      text: this.fileRefDisplayPath(ref),
+      attr: { title: ref.resolvedPath },
+    });
 
     const preview = modal.contentEl.createDiv({ cls: `llm-bridge-file-preview is-${ref.fileType}` });
     const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
@@ -3595,12 +3642,6 @@ export class LLMBridgeView extends ItemView {
         empty.createEl("span", { text: "此文件类型暂不支持轻量预览。" });
       }
     }
-
-    modal.contentEl.createDiv({
-      cls: "llm-bridge-file-preview-path",
-      text: this.fileRefDisplayPath(ref),
-      attr: { title: ref.resolvedPath },
-    });
 
     modal.open();
   }
@@ -4231,6 +4272,7 @@ export class LLMBridgeView extends ItemView {
 
   private renderMessageFileRefs(parent: HTMLElement, refs: ReadonlyArray<FileRef>): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-msg-attachments" });
+    parent.addClass("has-attachments");
     parent.prepend(wrap);
     for (const ref of refs) {
       const chip = wrap.createEl("button", {
@@ -4758,8 +4800,6 @@ export class LLMBridgeView extends ItemView {
 
   private renderCodexCurrentActivity(parent: HTMLElement, run: CodexRunViewModel): void {
     const activity = parent.createDiv({ cls: `llm-bridge-codex-current-activity is-${run.currentActivity.kind}` });
-    const icon = activity.createEl("span", { cls: "llm-bridge-codex-current-activity-icon" });
-    setIcon(icon, run.currentActivity.kind === "blocked" ? "shield-alert" : run.currentActivity.kind === "running" ? "loader" : "check-circle");
     const text = activity.createEl("span", { cls: "llm-bridge-codex-current-activity-text" });
     this.renderRunStatusText(text, run.currentActivity.label, run.currentActivity.kind === "blocked" ? "blocked" : run.currentActivity.kind === "running" ? "running" : "completed");
   }
@@ -4768,7 +4808,7 @@ export class LLMBridgeView extends ItemView {
     const normalized = text.trim();
     if (!normalized) return;
     const section = parent.createDiv({ cls: "llm-bridge-codex-final-answer" });
-    section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Final answer" });
+    section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Answer" });
     const body = section.createDiv({ cls: "llm-bridge-codex-final-answer-body llm-bridge-msg-markdown" });
     const fallback = () => {
       body.empty();
@@ -4925,13 +4965,11 @@ export class LLMBridgeView extends ItemView {
     row.setAttribute("data-step-kind", item.kind);
     if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
     row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: "Thinking" });
-    if (summary) {
-      row.createEl("span", {
-        cls: "llm-bridge-codex-thinking-summary",
-        text: truncateText(summary, 360),
-        attr: { title: summary },
-      });
-    }
+    row.createEl("span", {
+      cls: `llm-bridge-codex-thinking-summary${summary ? "" : " is-placeholder"}`,
+      text: summary ? truncateText(summary, 360) : "Reasoning summary unavailable.",
+      attr: { title: summary || "Provider did not expose a reasoning summary for this step." },
+    });
   }
 
   private renderCodexFeedOutput(parent: HTMLElement, item: CodexRunFeedItem, nestedEvent: boolean): void {
@@ -4966,7 +5004,7 @@ export class LLMBridgeView extends ItemView {
     const label = item.change
       ? `${changeActionText} ${item.change.fileName}`
       : item.kind === "command"
-        ? item.status === "running" ? "Running command" : "Ran command"
+        ? "Command"
         : item.label;
     title.createEl("span", { cls: "llm-bridge-codex-feed-label llm-bridge-codex-step-label", text: label, attr: { title: label } });
     if (item.change?.approvalStatus) {
@@ -5124,12 +5162,13 @@ export class LLMBridgeView extends ItemView {
     developerMode: boolean,
   ): void {
     const total = diagnostics.reduce((sum, group) => sum + group.count, 0);
+    const hasError = diagnostics.some((group) => group.severity === "error");
     const section = parent.createDiv({ cls: "llm-bridge-codex-diagnostics" });
     const head = section.createDiv({ cls: "llm-bridge-codex-diagnostics-head" });
     const toggle = head.createEl("span", { cls: "llm-bridge-codex-diagnostics-toggle", text: "▶" });
     const icon = head.createEl("span", { cls: "llm-bridge-codex-diagnostics-icon" });
     setIcon(icon, "triangle-alert");
-    head.createEl("span", { cls: "llm-bridge-codex-diagnostics-summary", text: `Diagnostics · ${total} warning${total === 1 ? "" : "s"}` });
+    head.createEl("span", { cls: "llm-bridge-codex-diagnostics-summary", text: `${hasError ? "Issues" : "Warnings"} · ${total}` });
     const body = section.createDiv({ cls: "llm-bridge-codex-diagnostics-body", attr: { hidden: "" } });
     for (const diagnostic of diagnostics) {
       const item = body.createDiv({ cls: `llm-bridge-codex-diagnostic-item is-${diagnostic.severity}` });
@@ -7177,7 +7216,11 @@ export class LLMBridgeView extends ItemView {
           cls: `llm-bridge-session-dropdown-item${item.id === this.currentSessionId ? " is-current" : ""}`,
           attr: { title: `${item.title}\n${summary}\n${item.messageCount} 条消息 · ${item.savedAt}` },
         });
-        row.createEl("span", { cls: "llm-bridge-session-dropdown-name", text: item.title });
+        const titleRow = row.createDiv({ cls: "llm-bridge-session-dropdown-title-row" });
+        titleRow.createEl("span", { cls: "llm-bridge-session-dropdown-name", text: item.title });
+        if (item.id === this.currentSessionId) {
+          titleRow.createEl("span", { cls: "llm-bridge-session-dropdown-current", text: "Current" });
+        }
         row.createEl("span", { cls: "llm-bridge-session-dropdown-summary", text: summary });
         row.createEl("span", { cls: "llm-bridge-session-dropdown-meta", text: `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条` });
         row.addEventListener("click", async () => {
@@ -7186,10 +7229,10 @@ export class LLMBridgeView extends ItemView {
         });
       }
     }
-    const historyBtn = dropdown.createEl("button", {
-      cls: "llm-bridge-session-dropdown-history",
-      text: "Open history",
-    });
+    const historyBtn = dropdown.createEl("button", { cls: "llm-bridge-session-dropdown-history" });
+    const historyIcon = historyBtn.createEl("span", { cls: "llm-bridge-session-dropdown-history-icon" });
+    setIcon(historyIcon, "history");
+    historyBtn.createEl("span", { text: "Open history" });
     historyBtn.addEventListener("click", () => {
       dropdown.setAttribute("hidden", "");
       openHistory();
