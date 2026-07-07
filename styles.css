@@ -11119,3 +11119,134 @@
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line:nth-child(4) {
   width: 56%;
 }
+
+/* ===== V17-G33: flatter Codex-like Skills, permission and approval surfaces ===== */
+.llm-bridge-skills-head {
+  align-items: center;
+  gap: 6px;
+  padding: 4px 2px;
+  border-radius: 8px;
+  background: transparent !important;
+}
+
+.llm-bridge-skills-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: color-mix(in srgb, var(--text-muted) 88%, transparent);
+  font: inherit;
+  font-size: var(--font-ui-small);
+  font-weight: 560;
+  letter-spacing: 0;
+}
+
+.llm-bridge-skills-toggle:hover,
+.llm-bridge-skills-toggle:focus-visible {
+  background: color-mix(in srgb, var(--background-modifier-hover) 58%, transparent);
+  color: var(--text-normal);
+}
+
+.llm-bridge-skills-toggle-chevron {
+  color: var(--text-faint);
+  font-size: 15px;
+  line-height: 1;
+}
+
+.llm-bridge-skills-toggle-count {
+  min-width: 28px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 42%, transparent);
+  color: var(--text-faint);
+  font-size: 10px;
+  font-weight: 520;
+  text-align: center;
+}
+
+.llm-bridge-skills-refresh-btn {
+  width: 26px;
+  height: 26px;
+  min-height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-faint);
+}
+
+.llm-bridge-skills-refresh-btn:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 58%, transparent);
+  color: var(--text-normal);
+}
+
+.llm-bridge-perm-popover {
+  width: min(300px, calc(100vw - 28px));
+  padding: 5px;
+  border-radius: 12px;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.12);
+}
+
+.llm-bridge-perm-option {
+  min-height: 34px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+}
+
+.llm-bridge-perm-option:hover,
+.llm-bridge-perm-option.is-active {
+  background: color-mix(in srgb, var(--background-modifier-hover) 64%, transparent);
+}
+
+.llm-bridge-perm-option-desc {
+  display: none;
+}
+
+.llm-bridge-perm-option-icon {
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.llm-bridge-perm-option.is-active .llm-bridge-perm-option-title {
+  color: var(--text-normal);
+}
+
+.llm-bridge-approval-card,
+.llm-bridge-clarification-card,
+.llm-bridge-external-read-card {
+  border-color: color-mix(in srgb, var(--text-muted) 10%, transparent);
+  box-shadow: none;
+}
+
+.llm-bridge-approval-card-btns {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.llm-bridge-approval-btn {
+  min-height: 26px;
+  padding: 0 9px;
+  border-radius: 8px;
+}
+
+.llm-bridge-approval-btn.is-proceed {
+  background: var(--text-normal);
+  color: var(--background-primary);
+}
+
+.llm-bridge-approval-btn.is-proceed-session {
+  background: color-mix(in srgb, var(--text-success) 9%, transparent);
+}
+
+.llm-bridge-approval-btn.is-decline,
+.llm-bridge-approval-btn.is-decline-session {
+  background: transparent;
+}

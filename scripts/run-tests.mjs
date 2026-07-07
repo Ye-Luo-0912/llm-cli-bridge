@@ -14413,7 +14413,7 @@ if (runMode !== "all" && runMode !== "unit") {
   // ===== 要求 7: UI 默认折叠 =====
 
   addTest("V2.15-E UI: Skills 页只保留 Agent Skills 且默认折叠",
-    /renderAgentSkillsPanel[\s\S]{0,800}body\.setAttribute\("hidden", ""\)/.test(viewSrcV212)
+    /renderAgentSkillsPanel[\s\S]{0,1200}body\.setAttribute\("hidden", ""\)/.test(viewSrcV212)
       && !viewSrcV212.includes("renderSkillsPanel") ? "pass" : "fail", "");
 
   addTest("V2.12 UI: History 面板默认折叠",
@@ -17579,8 +17579,12 @@ if (!runV214BUnit) {
     }
 
     {
-      const skillsPageOk = viewSrc.includes('text: "▶ Skills"')
-        && viewSrc.includes('`${hidden ? "▶" : "▼"} Skills (${enabled}/${total})`')
+      const skillsPageOk = viewSrc.includes('cls: "llm-bridge-skills-toggle-chevron"')
+        && viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Skills"')
+        && viewSrc.includes('cls: "llm-bridge-skills-toggle-count"')
+        && viewSrc.includes('this.agentSkillsToggleEl.setAttribute("aria-expanded", hidden ? "false" : "true")')
+        && viewSrc.includes('this.agentSkillsToggleChevronEl.setText(hidden ? "›" : "⌄")')
+        && viewSrc.includes('this.agentSkillsToggleCountEl.setText(`${enabled}/${total}`)')
         && viewSrc.includes("runtime capabilities")
         && viewSrc.includes("不会写入 composer")
         && !viewSrc.includes("Prompt Snippets")
@@ -19025,7 +19029,9 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13r: V17-G27 right user bubbles, square attachments and modern Skills registry ----
   {
-    const ok = viewSrc.includes('text: "▶ Skills"')
+    const ok = viewSrc.includes('cls: "llm-bridge-skills-toggle-chevron"')
+      && viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Skills"')
+      && viewSrc.includes('cls: "llm-bridge-skills-toggle-count"')
       && viewSrc.includes('cls: "llm-bridge-agent-skill-icon"')
       && viewSrc.includes('setIcon(icon, skill.enabled ? "sparkles" : "circle-dashed")')
       && viewSrc.includes('chip.addClass("is-preview-missing")')
@@ -19127,6 +19133,24 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes("align-content: center;")
       && stylesSrc.includes("nth-child(4)");
     addTest("V17-G32 UI: 非图片附件以文档缩略块展示，不用格式标签占主视觉",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13w: V17-G33 flatter Skills, permission and approval surfaces ----
+  {
+    const ok = viewSrc.includes('this.agentSkillsToggleEl.setAttribute("aria-expanded", hidden ? "false" : "true")')
+      && viewSrc.includes('this.agentSkillsToggleChevronEl.setText(hidden ? "›" : "⌄")')
+      && stylesSrc.includes("V17-G33: flatter Codex-like Skills, permission and approval surfaces")
+      && stylesSrc.includes(".llm-bridge-skills-toggle-count")
+      && stylesSrc.includes(".llm-bridge-perm-option-desc")
+      && stylesSrc.includes("display: none;")
+      && stylesSrc.includes(".llm-bridge-approval-card,")
+      && stylesSrc.includes(".llm-bridge-clarification-card,")
+      && stylesSrc.includes(".llm-bridge-external-read-card")
+      && stylesSrc.includes("box-shadow: none;")
+      && stylesSrc.includes(".llm-bridge-approval-btn.is-proceed")
+      && stylesSrc.includes("border-radius: 8px;");
+    addTest("V17-G33 UI: Skills、权限弹窗和审批卡片保持扁平紧凑",
       ok ? "pass" : "fail", "");
   }
 

@@ -247,6 +247,8 @@ export class LLMBridgeView extends ItemView {
   // V2.13.0-F: Agent Skills 是 runtime capability，不插入 composer。
   private agentSkills: AgentSkillRecord[] = [];
   private agentSkillsToggleEl!: HTMLElement;
+  private agentSkillsToggleChevronEl!: HTMLElement;
+  private agentSkillsToggleCountEl!: HTMLElement;
   private agentSkillsBodyEl!: HTMLElement;
   private agentSkillsListEl!: HTMLElement;
   // V2.9: scrollToBottom rAF 批处理定时器（合并同帧多次调用，避免每个 delta 触发 reflow）
@@ -6830,11 +6832,13 @@ export class LLMBridgeView extends ItemView {
   private renderAgentSkillsPanel(parent: HTMLElement): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-agent-skills-panel" });
     const head = wrap.createDiv({ cls: "llm-bridge-skills-head" });
-    this.agentSkillsToggleEl = head.createEl("span", {
+    this.agentSkillsToggleEl = head.createEl("button", {
       cls: "llm-bridge-skills-toggle",
-      text: "▶ Skills",
-      attr: { title: "Agent 可发现/可调用的 runtime capabilities；不会插入输入框" },
+      attr: { type: "button", title: "Agent 可发现/可调用的 runtime capabilities；不会插入输入框", "aria-expanded": "false" },
     });
+    this.agentSkillsToggleChevronEl = this.agentSkillsToggleEl.createEl("span", { cls: "llm-bridge-skills-toggle-chevron", text: "›" });
+    this.agentSkillsToggleEl.createEl("span", { cls: "llm-bridge-skills-toggle-label", text: "Skills" });
+    this.agentSkillsToggleCountEl = this.agentSkillsToggleEl.createEl("span", { cls: "llm-bridge-skills-toggle-count", text: "0/0" });
     const refreshBtn = head.createEl("button", {
       cls: "llm-bridge-skills-refresh-btn",
       text: "↻",
@@ -6856,6 +6860,7 @@ export class LLMBridgeView extends ItemView {
       } else {
         body.setAttribute("hidden", "");
       }
+      this.agentSkillsToggleEl.setAttribute("aria-expanded", hidden ? "true" : "false");
       this.updateAgentSkillsToggle();
     });
   }
@@ -7416,7 +7421,10 @@ export class LLMBridgeView extends ItemView {
     const enabled = this.agentSkills.filter((skill) => skill.enabled).length;
     const total = this.agentSkills.length;
     const hidden = this.agentSkillsBodyEl.hasAttribute("hidden");
-    this.agentSkillsToggleEl.textContent = `${hidden ? "▶" : "▼"} Skills (${enabled}/${total})`;
+    this.agentSkillsToggleEl.classList.toggle("is-open", !hidden);
+    this.agentSkillsToggleEl.setAttribute("aria-expanded", hidden ? "false" : "true");
+    if (this.agentSkillsToggleChevronEl) this.agentSkillsToggleChevronEl.setText(hidden ? "›" : "⌄");
+    if (this.agentSkillsToggleCountEl) this.agentSkillsToggleCountEl.setText(`${enabled}/${total}`);
   }
 
   private renderAgentSkillsList(): void {
