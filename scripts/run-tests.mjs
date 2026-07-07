@@ -2356,12 +2356,12 @@ if (runMode !== "all" && runMode !== "unit") {
 
         // Test AI: 权限 popover
         const hasBypass = viewSrc.includes("bypassPermissions")
-          && viewSrc.includes("Full access");
+          && viewSrc.includes("完全访问");
         const hasParentMount = viewSrc.includes("parentElement");
         const hasPointerdownClose = viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-permission-chip")')
           && viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-perm-popover")');
         const permPopoverOk = hasBypass && hasParentMount && hasPointerdownClose;
-        addTest("V16.4-D: 权限 popover 含 5 模式（含 Full access）+ 外部挂载 + pointerdown close",
+        addTest("V16.4-D: 权限 popover 含 5 模式（含完全访问）+ 外部挂载 + pointerdown close",
           permPopoverOk ? "pass" : "fail",
           permPopoverOk ? "" : `hasBypass=${hasBypass} hasParentMount=${hasParentMount} hasPointerdownClose=${hasPointerdownClose}`);
 
@@ -3276,13 +3276,13 @@ if (runMode !== "all" && runMode !== "unit") {
         `runStatus=${hasRunStatus} glow=${hasGlowKeyframes} reducedMotion=${hasReducedMotion} disablesGlow=${reducedMotionDisablesGlow} spinnerHidden=${oldSpinnerHidden} declineBtn=${hasDeclineSessionBtn}`);
     }
 
-    // Test G-f: UI approval card 4 按钮（Allow once / Allow session / Deny once / Deny session）
+    // Test G-f: UI approval card 4 按钮（允许一次 / 本会话允许 / 拒绝一次 / 本会话拒绝）
     {
       const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
-      const hasProceed = viewSrc.includes('"Allow once"');
-      const hasProceedSession = viewSrc.includes('"Allow session"');
-      const hasDeclineOnce = viewSrc.includes('"Deny once"');
-      const hasDeclineSession = viewSrc.includes('"Deny session"');
+      const hasProceed = viewSrc.includes('"允许一次"');
+      const hasProceedSession = viewSrc.includes('"本会话允许"');
+      const hasDeclineOnce = viewSrc.includes('"拒绝一次"');
+      const hasDeclineSession = viewSrc.includes('"本会话拒绝"');
       // deny_once → decline；deny_session → declineForSession
       const mapsDeclineOnce = viewSrc.includes('"deny_once"') && viewSrc.includes('{ type: "decline" }');
       const mapsDeclineSession = viewSrc.includes('"deny_session"') && viewSrc.includes('{ type: "declineForSession" }');
@@ -3512,14 +3512,14 @@ if (runMode !== "all" && runMode !== "unit") {
       const hasStaleSet = viewSrc.includes("staleApprovalRequestIds")
         && viewSrc.includes("resolvingApprovalRequestId");
       const hasCancelBtn = viewSrc.includes("llm-bridge-approval-card-cancel")
-        && viewSrc.includes("Cancel request");
+        && viewSrc.includes("取消请求");
       const hasStaleCard = viewSrc.includes("is-stale")
         && viewSrc.includes('text: "Dismiss"')
         && viewSrc.includes('text: "Stop"');
       const hasResolvingBtn = viewSrc.includes("is-resolving")
-        && viewSrc.includes("Approving…")
-        && viewSrc.includes("Skipping…")
-        && viewSrc.includes("Declining…");
+        && viewSrc.includes("正在允许…")
+        && viewSrc.includes("正在跳过…")
+        && viewSrc.includes("正在拒绝…");
       const hasDetailedCall = viewSrc.includes("resolveApprovalDetailed");
       const ok = hasBoundaryPending && hasStaleSet && hasCancelBtn && hasStaleCard && hasResolvingBtn && hasDetailedCall;
       addTest("V16.5-B view.ts: boundary.pending 主源 + stale/resolving + Cancel × + resolveApprovalDetailed",
@@ -17310,18 +17310,18 @@ if (!runV214BUnit) {
       const hasRuntimeStore = viewSrc.includes("externalReadGrantStore: SessionReadGrantStore = createSessionReadGrantStore()")
         && viewSrc.includes("queueExternalFileAccessRequest")
         && viewSrc.includes("clearExternalReadRequests");
-      const hasPendingUi = viewSrc.includes("File access request")
-        && ["Path", "Scope", "Risk", "Reason"].every((needle) => viewSrc.includes(needle))
+      const hasPendingUi = viewSrc.includes("文件访问请求")
+        && ["路径", "范围", "风险", "原因"].every((needle) => viewSrc.includes(needle))
         && stylesSrc.includes(".llm-bridge-external-read-panel");
-      const hasGrantActions = viewSrc.includes("Allow folder")
-        && viewSrc.includes("Allow file")
-        && viewSrc.includes("Deny")
+      const hasGrantActions = viewSrc.includes("允许文件夹")
+        && viewSrc.includes("允许文件")
+        && viewSrc.includes("拒绝")
         && viewSrc.includes("approvePendingExternalReadRequest(this.externalReadGrantStore, requestId, { forceFileScope, strongConfirm })")
         && viewSrc.includes("this.approveExternalReadRequest(req.id, false, req.grantRootSafety === \"confirm\")")
         && viewSrc.includes("this.approveExternalReadRequest(req.id, true, req.grantRootSafety === \"confirm\")");
       const hasSafetyBehavior = viewSrc.includes("req.grantRootSafety === \"deny\"")
         && viewSrc.includes("req.grantRootSafety === \"confirm\"")
-        && viewSrc.includes("Wide scope")
+        && viewSrc.includes("授权范围较大")
         && viewSrc.includes("if (req.grantRootSafety !== \"deny\")")
         && viewSrc.includes("strongConfirm = false");
       const nonReadStillNoPending = createPendingExternalReadRequest(createFileAccessPolicy({ vaultPath: "C:\\Vault" }), { operation: "delete", path: "D:\\External\\x.md" }) === null;
@@ -17412,11 +17412,11 @@ if (!runV214BUnit) {
       const permissionChipOk = viewSrc.includes("permissionModeChipEl")
         && viewSrc.includes("renderPermissionPopover")
         && viewSrc.includes("togglePermissionPopover")
-        && viewSrc.includes("Ask before edits")
-        && viewSrc.includes("Auto-apply edits")
-        && viewSrc.includes("Read only")
-        && viewSrc.includes("Low-risk auto")
-        && viewSrc.includes("Full access");
+        && viewSrc.includes("编辑前询问")
+        && viewSrc.includes("自动接受编辑")
+        && viewSrc.includes("只读规划")
+        && viewSrc.includes("低风险自动")
+        && viewSrc.includes("完全访问");
       const topbarOk = !viewSrc.includes("const refreshBtn = headerRight.createEl")
         && viewSrc.includes("llm-bridge-runtime-status")
         && viewSrc.includes("llm-bridge-settings-btn")
@@ -18699,9 +18699,9 @@ if (!runNoteSummarizeSmoke) {
     const ok = viewSrc.includes("composerBar.appendChild(composerContextRow);")
       && viewSrc.includes("private fileRefMetaLabel(ref: FileRef): string")
       && viewSrc.includes("text: this.fileRefMetaLabel(ref)")
-      && viewSrc.includes('title: "Read only"')
-      && viewSrc.includes('title: "Auto-apply edits"')
-      && viewSrc.includes('title: "Full access"')
+      && viewSrc.includes('title: "只读规划"')
+      && viewSrc.includes('title: "自动接受编辑"')
+      && viewSrc.includes('title: "完全访问"')
       && viewSrc.includes("this.renderCodexRunView(parent, codexRun, model, options.developerMode);")
       && viewSrc.includes("sourceModel: AgentRunDisplayModel,\n    developerMode: boolean,")
       && !viewSrc.includes("const developerMode = !!run.debugPanel;")
@@ -18722,12 +18722,12 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private fileRefBadgeLabel(ref: FileRef): string")
       && viewSrc.includes("text: this.fileRefDisplayPath(ref)")
       && viewSrc.includes("text: this.fileRefBadgeLabel(ref)")
-      && viewSrc.includes('"Allow once"')
-      && viewSrc.includes('"Allow session"')
-      && viewSrc.includes('"Deny once"')
-      && viewSrc.includes('"Deny session"')
-      && viewSrc.includes('"File access request"')
-      && viewSrc.includes('"Read external file"')
+      && viewSrc.includes('"允许一次"')
+      && viewSrc.includes('"本会话允许"')
+      && viewSrc.includes('"拒绝一次"')
+      && viewSrc.includes('"本会话拒绝"')
+      && viewSrc.includes('"文件访问请求"')
+      && viewSrc.includes('"读取外部文件"')
       && viewSrc.includes('"补充信息（可选）"')
       && stylesSrc.includes("V17-G6: Codex-like files, request cards and tighter composer")
       && stylesSrc.includes(".llm-bridge-context-section-head")
@@ -18847,6 +18847,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('preview.addEventListener("error"')
       && viewSrc.includes('cls: "llm-bridge-perm-popover-head"')
       && viewSrc.includes('cls: `llm-bridge-perm-popover-risk is-${currentInfo.level}`')
+      && viewSrc.includes('text: currentInfo.level === "danger" ? "高风险" : currentInfo.level === "caution" ? "需确认" : "安全"')
+      && viewSrc.includes('headText.createEl("strong", { text: "访问权限" })')
       && stylesSrc.includes("V17-G10: Codex-like permission and files surfaces")
       && stylesSrc.includes("V17-G12: Codex-like attachment, permission and dialog surfaces")
       && stylesSrc.includes("V17-G15: Codex-like permission menu header")
@@ -18908,10 +18910,16 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('modal.contentEl.addClass("llm-bridge-file-preview-modal")')
       && viewSrc.includes('cls: "llm-bridge-file-preview-image"')
       && viewSrc.includes('cls: "llm-bridge-file-preview-text"')
+      && !viewSrc.includes("llm-bridge-file-preview-actions")
       && stylesSrc.includes("V17-G18: user bubble attachment previews")
       && stylesSrc.includes("V17-G19: lightweight file preview modal")
       && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments")
       && stylesSrc.includes(".llm-bridge-msg-attachment-chip.has-preview")
+      && stylesSrc.includes("grid-template-columns: 42px minmax(0, 1fr)")
+      && stylesSrc.includes("width: 42px;")
+      && stylesSrc.includes("height: 42px;")
+      && stylesSrc.includes("user-select: text")
+      && !stylesSrc.includes(".llm-bridge-file-preview-actions")
       && stylesSrc.includes(".llm-bridge-file-preview-image");
     addTest("V17-G18 UI: user bubble attachments preview inline with lightweight modal",
       ok ? "pass" : "fail", "");
@@ -18954,12 +18962,12 @@ if (!runNoteSummarizeSmoke) {
     const ok = viewSrc.includes('composer.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" })')
       && viewSrc.includes('llm-bridge-approval-card')
       && viewSrc.includes('buildApprovalCardTitle')
-      && viewSrc.includes('"Would you like to run this command?"')
-      && viewSrc.includes('"Would you like to make these edits?"')
-      && viewSrc.includes('"Allow once"')
-      && viewSrc.includes('"Allow session"')
-      && viewSrc.includes('"Deny once"')
-      && viewSrc.includes('"Deny session"')
+      && viewSrc.includes('"运行这条命令？"')
+      && viewSrc.includes('"应用这些编辑？"')
+      && viewSrc.includes('"允许一次"')
+      && viewSrc.includes('"本会话允许"')
+      && viewSrc.includes('"拒绝一次"')
+      && viewSrc.includes('"本会话拒绝"')
       && viewSrc.includes('llm-bridge-approval-card-dev-details')
       && stylesSrc.includes(".llm-bridge-approval-card")
       && stylesSrc.includes(".llm-bridge-approval-btn.is-proceed");
@@ -18999,6 +19007,11 @@ if (!runNoteSummarizeSmoke) {
     const ok = stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content")
       && stylesSrc.includes("user-select: text;")
       && stylesSrc.includes("cursor: text;")
+      && stylesSrc.includes("V17-G20: Codex-like right-aligned user messages")
+      && stylesSrc.includes("align-self: flex-end;")
+      && stylesSrc.includes("width: fit-content;")
+      && stylesSrc.includes("margin-left: auto;")
+      && stylesSrc.includes("justify-content: flex-end;")
       && !viewSrc.includes("llm-bridge-user-copy")
       && !stylesSrc.includes("llm-bridge-user-copy");
     addTest("V16.4-D user bubble: 文本可选择复制且不新增复制按钮",

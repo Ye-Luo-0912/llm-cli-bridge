@@ -1339,9 +1339,12 @@ export class LLMBridgeView extends ItemView {
 
   private permissionModeShortLabel(): string {
     const mode = this.plugin.settings.claudePermissionMode ?? "default";
-    if (mode === "plan") return "受限";
-    if (mode === "default") return "默认";
-    if (mode === "acceptEdits") return "acceptEdits";
+    if (mode === "plan") return "只读";
+    if (mode === "default") return "询问";
+    if (mode === "acceptEdits") return "自动编辑";
+    if (mode === "auto") return "低风险自动";
+    if (mode === "bypassPermissions") return "完全访问";
+    if (mode === "dontAsk") return "不询问";
     return mode;
   }
 
@@ -1363,11 +1366,11 @@ export class LLMBridgeView extends ItemView {
     this.permissionPopoverEl.addEventListener("pointerdown", (event) => event.stopPropagation());
     this.permissionPopoverEl.addEventListener("click", (event) => event.stopPropagation());
     const modes: Array<{ value: string; icon: string; title: string; desc: string }> = [
-      { value: "plan", icon: "lock", title: "Read only", desc: "只规划和读取，不修改文件" },
-      { value: "default", icon: "shield-question", title: "Ask before edits", desc: "编辑或高风险命令前先确认" },
-      { value: "acceptEdits", icon: "file-check-2", title: "Auto-apply edits", desc: "自动接受文件编辑，命令仍按策略确认" },
-      { value: "auto", icon: "zap", title: "Low-risk auto", desc: "低风险自动允许，敏感操作仍拦截" },
-      { value: "bypassPermissions", icon: "shield-alert", title: "Full access", desc: "跳过权限确认，仅在可信任务中使用" },
+      { value: "plan", icon: "lock", title: "只读规划", desc: "只规划和读取，不修改文件" },
+      { value: "default", icon: "shield-question", title: "编辑前询问", desc: "编辑或高风险命令前先确认" },
+      { value: "acceptEdits", icon: "file-check-2", title: "自动接受编辑", desc: "自动接受文件编辑，命令仍按策略确认" },
+      { value: "auto", icon: "zap", title: "低风险自动", desc: "低风险自动允许，敏感操作仍拦截" },
+      { value: "bypassPermissions", icon: "shield-alert", title: "完全访问", desc: "跳过权限确认，仅在可信任务中使用" },
     ];
     const current = this.plugin.settings.claudePermissionMode ?? "default";
     const currentMode = modes.find((mode) => mode.value === current) ?? modes[1];
@@ -1376,9 +1379,9 @@ export class LLMBridgeView extends ItemView {
     const headIcon = head.createEl("span", { cls: "llm-bridge-perm-popover-head-icon" });
     setIcon(headIcon, currentMode.icon);
     const headText = head.createDiv({ cls: "llm-bridge-perm-popover-head-text" });
-    headText.createEl("strong", { text: "Access" });
+    headText.createEl("strong", { text: "访问权限" });
     headText.createEl("span", { text: currentMode.title });
-    head.createEl("span", { cls: `llm-bridge-perm-popover-risk is-${currentInfo.level}`, text: currentInfo.level === "danger" ? "High risk" : currentInfo.level === "caution" ? "Review" : "Safe" });
+    head.createEl("span", { cls: `llm-bridge-perm-popover-risk is-${currentInfo.level}`, text: currentInfo.level === "danger" ? "高风险" : currentInfo.level === "caution" ? "需确认" : "安全" });
     for (const mode of modes) {
       const opt = this.permissionPopoverEl.createEl("button", {
         cls: "llm-bridge-perm-option" + (current === mode.value ? " is-active" : ""),
@@ -1438,12 +1441,7 @@ export class LLMBridgeView extends ItemView {
     if (!this.permissionModeChipEl) return;
     const mode = this.plugin.settings.claudePermissionMode ?? "default";
     const info = getPermissionModeInfo(mode);
-    const claudeLabel = mode === "default" ? "Ask before edits"
-      : mode === "acceptEdits" ? "Edit automatically"
-      : mode === "plan" ? "Plan"
-      : mode === "auto" ? "Auto"
-      : mode === "bypassPermissions" ? "Full access"
-      : mode;
+    const claudeLabel = this.permissionModeShortLabel();
     const iconName = mode === "bypassPermissions" || mode === "dontAsk" ? "shield-alert"
       : mode === "plan" ? "shield-check"
       : "shield-question";
@@ -1904,7 +1902,7 @@ export class LLMBridgeView extends ItemView {
       cardHeader.createEl("span", { cls: "llm-bridge-approval-card-queue", text: `1 of ${totalGroups}` });
     }
     // V16.5-B: 右上角 Cancel × 按钮（映射为 decline）
-    const cancelBtn = cardHeader.createEl("button", { cls: "llm-bridge-approval-card-cancel", attr: { "aria-label": "Cancel request", title: "Cancel this request (decline)" } });
+    const cancelBtn = cardHeader.createEl("button", { cls: "llm-bridge-approval-card-cancel", attr: { "aria-label": "取消请求", title: "取消本次请求（拒绝一次）" } });
     setIcon(cancelBtn, "x");
     cancelBtn.addEventListener("click", (ev) => {
       ev.preventDefault();
@@ -1927,7 +1925,7 @@ export class LLMBridgeView extends ItemView {
       riskRow.createEl("span", { text: first.riskReason });
     }
     if (first.highRiskFlags && first.highRiskFlags.length > 0) {
-      body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-highrisk", text: `High risk: ${first.highRiskFlags.join(", ")}` });
+      body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-highrisk", text: `高风险：${first.highRiskFlags.join(", ")}` });
     }
     if (first.subagentRisk) {
       body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-subagent", text: first.subagentRisk });
@@ -1966,10 +1964,10 @@ export class LLMBridgeView extends ItemView {
       return btn;
     };
 
-    createApprovalButton("is-proceed", "Allow once", "Approving…", "allow_once");
-    createApprovalButton("is-proceed-session", "Allow session", "Approving…", "allow_session");
-    createApprovalButton("is-decline", "Deny once", "Skipping…", "deny_once");
-    createApprovalButton("is-decline-session", "Deny session", "Declining…", "deny_session");
+    createApprovalButton("is-proceed", "允许一次", "正在允许…", "allow_once");
+    createApprovalButton("is-proceed-session", "本会话允许", "正在允许…", "allow_session");
+    createApprovalButton("is-decline", "拒绝一次", "正在跳过…", "deny_once");
+    createApprovalButton("is-decline-session", "本会话拒绝", "正在拒绝…", "deny_session");
   }
 
   /**
@@ -2038,16 +2036,16 @@ export class LLMBridgeView extends ItemView {
     // RunCommand/CommandExecution/command_execution/exec/execute 都归一为 "Bash"。
     const normalized = normalizeToolName(toolName);
     if (normalized === "Bash") {
-      return "Would you like to run this command?";
+      return "运行这条命令？";
     }
     const lower = normalized.toLowerCase();
     if (lower === "write" || lower === "edit" || lower === "multiedit" || lower === "filechange" || lower === "create_file" || lower === "edit_file" || lower === "str_replace" || lower === "insert") {
-      return "Would you like to make these edits?";
+      return "应用这些编辑？";
     }
     if (lower === "permission" || lower === "grant") {
-      return "Would you like to grant these permissions?";
+      return "授予这些权限？";
     }
-    return "Would you like to proceed?";
+    return "继续执行？";
   }
 
   private refreshUserInputPanel(): void {
@@ -3435,7 +3433,7 @@ export class LLMBridgeView extends ItemView {
         const empty = preview.createDiv({ cls: "llm-bridge-file-preview-empty" });
         const icon = empty.createSpan({ cls: "llm-bridge-file-preview-icon" });
         setIcon(icon, this.getFileRefIconName(ref));
-        empty.createEl("span", { text: "Light preview is not available for this file type." });
+        empty.createEl("span", { text: "此文件类型暂不支持轻量预览。" });
       }
     }
 
@@ -3443,18 +3441,6 @@ export class LLMBridgeView extends ItemView {
     meta.createEl("span", { text: this.getFileRefShortLabel(ref).toLowerCase() });
     meta.createEl("span", { text: this.fileRefSourceLabel(ref) });
     meta.createEl("span", { text: this.fileRefDisplayPath(ref), attr: { title: ref.resolvedPath } });
-
-    const actions = modal.contentEl.createDiv({ cls: "llm-bridge-file-preview-actions" });
-    actions.createEl("button", { text: "Close" }).addEventListener("click", () => modal.close());
-    actions.createEl("button", { text: "Copy path" }).addEventListener("click", async () => {
-      await navigator.clipboard?.writeText(ref.resolvedPath);
-      new Notice("Path copied");
-    });
-    actions.createEl("button", { text: this.resolveFileRefVaultPath(ref) ? "Open in Obsidian" : "Open file" })
-      .addEventListener("click", () => {
-        modal.close();
-        void this.openFileRefExternally(ref);
-      });
 
     modal.open();
   }
@@ -3581,37 +3567,37 @@ export class LLMBridgeView extends ItemView {
 
     panel.style.display = "block";
     const header = panel.createDiv({ cls: "llm-bridge-external-read-header" });
-    header.createEl("span", { cls: "llm-bridge-external-read-title", text: "File access request" });
-    header.createEl("span", { cls: "llm-bridge-external-read-count", text: `${pending.length} pending` });
+    header.createEl("span", { cls: "llm-bridge-external-read-title", text: "文件访问请求" });
+    header.createEl("span", { cls: "llm-bridge-external-read-count", text: `${pending.length} 个待确认` });
 
     for (const req of pending) {
       const card = panel.createDiv({ cls: `llm-bridge-external-read-card is-risk-${req.risk} is-safety-${req.grantRootSafety}` });
       const title = card.createDiv({ cls: "llm-bridge-external-read-card-title" });
-      title.createEl("span", { text: "Read external file" });
+      title.createEl("span", { text: "读取外部文件" });
       title.createEl("span", { cls: "llm-bridge-external-read-source", text: req.source });
 
       const fields = card.createDiv({ cls: "llm-bridge-external-read-fields" });
-      this.renderExternalReadField(fields, "Path", req.requestedPath);
-      this.renderExternalReadField(fields, "Scope", req.proposedGrantRoot || "(none)");
-      this.renderExternalReadField(fields, "Risk", req.risk);
-      this.renderExternalReadField(fields, "Reason", req.reason);
+      this.renderExternalReadField(fields, "路径", req.requestedPath);
+      this.renderExternalReadField(fields, "范围", req.proposedGrantRoot || "无");
+      this.renderExternalReadField(fields, "风险", req.risk === "high" ? "高" : req.risk === "medium" ? "中" : "低");
+      this.renderExternalReadField(fields, "原因", req.reason);
 
       if (req.grantRootSafety === "deny") {
-        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "Folder access is disabled because the scope is too broad." });
+        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "范围过大，已禁用文件夹授权。" });
       } else if (req.grantRootSafety === "confirm") {
-        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "Wide scope. Confirm the path before allowing folder access." });
+        card.createDiv({ cls: "llm-bridge-external-read-warning", text: "授权范围较大，请确认路径后再允许文件夹访问。" });
       }
 
       const btns = card.createDiv({ cls: "llm-bridge-external-read-actions" });
       if (req.grantRootSafety !== "deny") {
-        const allowDirText = req.grantRootSafety === "confirm" ? "Allow folder once confirmed" : "Allow folder";
+        const allowDirText = req.grantRootSafety === "confirm" ? "确认后允许文件夹" : "允许文件夹";
         const allowDirBtn = btns.createEl("button", { cls: "llm-bridge-external-read-allow-dir", text: allowDirText });
         allowDirBtn.addEventListener("click", () => this.approveExternalReadRequest(req.id, false, req.grantRootSafety === "confirm"));
-        const allowFileText = req.grantRootSafety === "confirm" ? "Allow file once confirmed" : "Allow file";
+        const allowFileText = req.grantRootSafety === "confirm" ? "确认后允许文件" : "允许文件";
         const allowFileBtn = btns.createEl("button", { cls: "llm-bridge-external-read-allow-file", text: allowFileText });
         allowFileBtn.addEventListener("click", () => this.approveExternalReadRequest(req.id, true, req.grantRootSafety === "confirm"));
       }
-      const denyBtn = btns.createEl("button", { cls: "llm-bridge-external-read-deny", text: "Deny" });
+      const denyBtn = btns.createEl("button", { cls: "llm-bridge-external-read-deny", text: "拒绝" });
       denyBtn.addEventListener("click", () => this.denyExternalReadRequest(req.id));
     }
   }
@@ -4547,7 +4533,7 @@ export class LLMBridgeView extends ItemView {
 
   private renderCodexApprovalGates(parent: HTMLElement, gates: ReadonlyArray<CodexRunApprovalGate>, developerMode: boolean): void {
     const section = parent.createDiv({ cls: "llm-bridge-codex-approval-gates" });
-    section.createDiv({ cls: "llm-bridge-codex-section-title", text: "Approval required" });
+    section.createDiv({ cls: "llm-bridge-codex-section-title", text: "需要确认" });
     for (const gate of gates) {
       const card = section.createDiv({ cls: `llm-bridge-codex-approval-gate is-risk-${gate.risk}` });
       card.setAttribute("data-request-id", gate.requestId);
@@ -4555,7 +4541,7 @@ export class LLMBridgeView extends ItemView {
       const icon = head.createEl("span", { cls: "llm-bridge-codex-approval-gate-icon" });
       setIcon(icon, gate.risk === "high" ? "shield-alert" : "shield");
       head.createEl("span", { cls: "llm-bridge-codex-approval-gate-action", text: gate.action, attr: { title: gate.action } });
-      head.createEl("span", { cls: `llm-bridge-codex-approval-gate-risk is-${gate.risk}`, text: gate.risk });
+      head.createEl("span", { cls: `llm-bridge-codex-approval-gate-risk is-${gate.risk}`, text: gate.risk === "high" ? "高风险" : gate.risk === "medium" ? "需确认" : "低风险" });
       if (gate.summary) card.createDiv({ cls: "llm-bridge-codex-approval-gate-summary", text: truncateText(gate.summary, 220), attr: { title: gate.summary } });
       if (gate.riskReason) card.createDiv({ cls: "llm-bridge-codex-approval-gate-reason", text: gate.riskReason });
       const actions = card.createDiv({ cls: "llm-bridge-codex-approval-gate-actions" });
@@ -4566,9 +4552,9 @@ export class LLMBridgeView extends ItemView {
           this.resolvePermissionRequests([gate.requestId], choice);
         });
       };
-      addButton("Allow once", "allow_once", "is-allow-once");
-      addButton("Allow session", "allow_session", "is-allow-session");
-      addButton("Deny", "deny_once", "is-deny");
+      addButton("允许一次", "allow_once", "is-allow-once");
+      addButton("本会话允许", "allow_session", "is-allow-session");
+      addButton("拒绝", "deny_once", "is-deny");
       this.renderCodexSourceRef(card, gate.sourceRef, developerMode);
     }
   }
@@ -4652,18 +4638,18 @@ export class LLMBridgeView extends ItemView {
 
     if (item.change) {
       const actions = row.createDiv({ cls: "llm-bridge-codex-change-actions" });
-      const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "Copy path" } });
+      const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "复制路径" } });
       setIcon(copyBtn, "copy");
       copyBtn.addEventListener("click", async (event) => {
         event.stopPropagation();
         try {
           await navigator.clipboard.writeText(item.change?.relativePath || item.change?.fullPath || "");
-          new Notice("Path copied");
+          new Notice("路径已复制");
         } catch {
-          new Notice("Copy failed");
+          new Notice("复制失败");
         }
       });
-      const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "Open file" } });
+      const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "打开文件" } });
       setIcon(openBtn, "external-link");
       openBtn.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -4760,18 +4746,18 @@ export class LLMBridgeView extends ItemView {
       const changeInfo = body.createDiv({ cls: "llm-bridge-codex-event-change-info" });
       changeInfo.createDiv({ cls: "llm-bridge-codex-change-path", text: item.change.relativePath, attr: { title: item.change.fullPath } });
       const actions = changeInfo.createDiv({ cls: "llm-bridge-codex-change-actions" });
-      const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "Copy path" } });
+      const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "复制路径" } });
       setIcon(copyBtn, "copy");
       copyBtn.addEventListener("click", async (event) => {
         event.stopPropagation();
         try {
           await navigator.clipboard.writeText(item.change?.relativePath || item.change?.fullPath || "");
-          new Notice("Path copied");
+          new Notice("路径已复制");
         } catch {
-          new Notice("Copy failed");
+          new Notice("复制失败");
         }
       });
-      const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "Open file" } });
+      const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "打开文件" } });
       setIcon(openBtn, "external-link");
       openBtn.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -4823,18 +4809,18 @@ export class LLMBridgeView extends ItemView {
       if (change.approvalStatus) meta.createEl("span", { cls: `llm-bridge-codex-change-approval is-${change.approvalStatus}`, text: change.approvalStatus });
       if (change.durationMs) meta.createEl("span", { cls: "llm-bridge-codex-change-duration", text: this.formatDurationMs(change.durationMs) });
       const actions = row.createDiv({ cls: "llm-bridge-codex-change-actions" });
-      const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "Copy path" } });
+      const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "复制路径" } });
       setIcon(copyBtn, "copy");
       copyBtn.addEventListener("click", async (event) => {
         event.stopPropagation();
         try {
           await navigator.clipboard.writeText(change.relativePath || change.fullPath);
-          new Notice("Path copied");
+          new Notice("路径已复制");
         } catch {
-          new Notice("Copy failed");
+          new Notice("复制失败");
         }
       });
-      const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "Open file" } });
+      const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "打开文件" } });
       setIcon(openBtn, "external-link");
       openBtn.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -5457,7 +5443,7 @@ export class LLMBridgeView extends ItemView {
       if (card.riskLevel !== "low") {
         row.createEl("span", {
           cls: `llm-bridge-turn-approval-risk is-${card.riskLevel}`,
-          text: card.riskLevel === "high" ? "High risk" : "Needs review",
+          text: card.riskLevel === "high" ? "高风险" : "需确认",
         });
       }
 
@@ -5473,14 +5459,14 @@ export class LLMBridgeView extends ItemView {
           this.resolvePermissionRequests([card.requestId], choice);
         });
       };
-      createActionButton("Allow once", "allow_once", "is-allow-once");
-      createActionButton("Allow session", "allow_session", "is-allow-session");
-      createActionButton("Deny", "deny_session", "is-deny");
+      createActionButton("允许一次", "allow_once", "is-allow-once");
+      createActionButton("本会话允许", "allow_session", "is-allow-session");
+      createActionButton("拒绝", "deny_session", "is-deny");
 
       const detailItems: string[] = [];
-      if (card.riskReason) detailItems.push(`Risk: ${card.riskReason}`);
+      if (card.riskReason) detailItems.push(`风险：${card.riskReason}`);
       if (card.highRiskFlags && card.highRiskFlags.length > 0) {
-        detailItems.push(`Flags: ${card.highRiskFlags.join(", ")}`);
+        detailItems.push(`标记：${card.highRiskFlags.join(", ")}`);
       }
       if (card.inputSummary) detailItems.push(card.inputSummary);
       if (card.subagentRisk) detailItems.push(card.subagentRisk);
@@ -5488,7 +5474,7 @@ export class LLMBridgeView extends ItemView {
         const details = approval.createDiv({ cls: "llm-bridge-turn-approval-details" });
         const toggle = details.createEl("button", {
           cls: "llm-bridge-turn-approval-details-toggle",
-          text: "Details",
+          text: "详情",
           attr: { type: "button" },
         });
         const detailBody = details.createDiv({
