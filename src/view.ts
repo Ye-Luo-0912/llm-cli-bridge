@@ -6512,14 +6512,15 @@ export class LLMBridgeView extends ItemView {
       return;
     }
 
-    const kind = turnStatus?.kind ?? "compressed";
-    const label = turnStatus?.label ?? compressionText ?? "";
+    const useTurnStatus = !!turnStatus && (turnStatus.isActive || turnStatus.isContextCompaction);
+    const kind = useTurnStatus ? turnStatus.kind : "compressed";
+    const label = useTurnStatus ? turnStatus.label : compressionText ?? "";
     this.composerStatusRailEl.removeAttribute("hidden");
     this.composerStatusRailEl.className = `llm-bridge-composer-status-rail is-${kind}`;
     this.composerStatusTextEl.textContent = label;
     this.composerStatusTextEl.setAttribute("title", label);
 
-    const stepText = turnStatus?.stepText || (compressionText ? "上下文已压缩" : "");
+    const stepText = useTurnStatus ? turnStatus.stepText : (compressionText ? "Context compressed" : "");
     this.composerStepPillEl.textContent = stepText;
     this.composerStepPillEl.toggleAttribute("hidden", !stepText);
   }
@@ -6555,9 +6556,7 @@ export class LLMBridgeView extends ItemView {
     const isActive = turn.status === "running" || current.status === "running" || current.status === "blocked";
     const isContextCompaction = current.kind === "contextCompaction";
     const label = this.getComposerStatusLabel(turn, current, isActive);
-    const stepText = isActive
-      ? `第 ${Math.max(1, currentIndex + 1)}/${nodes.length} 步`
-      : isContextCompaction ? `已完成 ${nodes.length} 步` : "";
+    const stepText = this.formatComposerStepText(currentIndex, nodes.length, label, isActive, isContextCompaction);
     const kind = current.status === "blocked"
       ? "blocked"
       : turn.status === "failed" || current.status === "failed"
@@ -6569,41 +6568,52 @@ export class LLMBridgeView extends ItemView {
     return { label, stepText, kind, isActive, isContextCompaction };
   }
 
+  private formatComposerStepText(
+    currentIndex: number,
+    total: number,
+    label: string,
+    active: boolean,
+    contextCompaction: boolean,
+  ): string {
+    if (active) return `Step ${Math.max(1, currentIndex + 1)}/${total} · ${label}`;
+    if (contextCompaction) return `Context compressed · ${total} steps`;
+    return "";
+  }
+
   private getComposerStatusLabel(turn: AssistantTurnView, node: TurnTimelineNode, active: boolean): string {
-    const donePrefix = active ? "正在" : "已";
     switch (node.kind) {
       case "contextCompaction":
-        return active ? "正在自动压缩上下文" : "上下文已自动压缩";
+        return active ? "Compressing context" : "Context compressed";
       case "reasoning":
       case "plan":
-        return active ? "正在思考" : "思考完成";
+        return active ? "Thinking" : "Thought";
       case "commandExecution":
-        return active ? "正在运行命令" : "已运行命令";
+        return active ? "Running command" : "Ran command";
       case "fileChange":
-        return active ? "正在编辑文件" : "已编辑文件";
+        return active ? "Editing file" : "Edited file";
       case "approval":
-        return node.status === "blocked" || active ? "等待授权" : "授权已处理";
+        return node.status === "blocked" || active ? "Waiting approval" : "Approval handled";
       case "userInput":
-        return node.status === "blocked" || active ? "等待用户输入" : "用户输入已处理";
+        return node.status === "blocked" || active ? "Waiting input" : "Input handled";
       case "mcpToolCall":
       case "dynamicToolCall":
-        return active ? "正在调用工具" : "工具调用完成";
+        return active ? "Calling tool" : "Tool completed";
       case "webSearch":
-        return active ? "正在搜索" : "搜索完成";
+        return active ? "Searching" : "Search complete";
       case "imageView":
-        return active ? "正在查看图片" : "图片查看完成";
+        return active ? "Viewing image" : "Viewed image";
       case "reviewMode":
-        return active ? "正在审查" : "审查完成";
+        return active ? "Reviewing" : "Review complete";
       default:
-        if (turn.status === "failed") return "运行失败";
-        return `${donePrefix}处理`;
+        if (turn.status === "failed") return "Run failed";
+        return active ? "Processing" : "Processed";
     }
   }
 
   private getContextCompressionStatusText(): string | null {
     const comp = this.lastContextMetrics?.compression;
     if (!comp) return null;
-    return `上下文已自动压缩 ${formatTokens(comp.beforeTokens)} → ${formatTokens(comp.afterTokens)}`;
+    return `Context compressed ${formatTokens(comp.beforeTokens)} → ${formatTokens(comp.afterTokens)}`;
   }
 
   // Agent Skills panel: runtime capabilities only; no composer insertion.
