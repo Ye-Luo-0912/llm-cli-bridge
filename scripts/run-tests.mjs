@@ -18689,7 +18689,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("Math.max(20, Math.floor(minDimension * 0.42))")
       && viewSrc.includes("? Math.max(innerSize / finalCropWidth, innerSize / finalCropHeight)")
       && viewSrc.includes('this.renderDocumentPreviewThumb(thumb, "llm-bridge-composer-file-doc-thumb", "llm-bridge-composer-file-doc-line", ref, 3, 14);')
-      && viewSrc.includes('this.renderDocumentPreviewThumb(chip, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);')
+      && (viewSrc.includes('this.renderDocumentPreviewThumb(chip, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);')
+        || viewSrc.includes('this.renderDocumentPreviewThumb(visual, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);'))
       && viewSrc.includes('is-primary')
       && viewSrc.includes('is-secondary')
       && viewSrc.includes('is-placeholder')
@@ -18864,7 +18865,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private renderCodexDiffPreview(")
       && viewSrc.includes('`Diff · ${truncateText(summaryText, 72)}`')
       && viewSrc.includes('text: ok ? "✓ 成功" : "失败"')
-      && (viewSrc.includes('item.status === "running" ? "Running command" : "Ran command"') || viewSrc.includes('? "Command"'))
+      && (viewSrc.includes('item.status === "running" ? "Running command" : "Ran command"') || viewSrc.includes('? "Command"') || viewSrc.includes('? "Shell"'))
       && viewSrc.includes("private renderCodexShellPanelHead(")
       && !viewSrc.includes('"已运行命令"')
       && !viewSrc.includes('"正在运行命令"')
@@ -19036,7 +19037,8 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes('chip.addClass("is-preview-only")')
       && viewSrc.includes('"aria-label": `预览 ${ref.displayName}`')
-      && viewSrc.includes('const preview = chip.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });')
+      && viewSrc.includes('const visual = chip.createEl("span", { cls: "llm-bridge-msg-attachment-visual" });')
+      && viewSrc.includes('const preview = visual.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });')
       && !viewSrc.includes('chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });')
       && stylesSrc.includes("V17-G40: thumbnail-only user attachments and lighter file preview")
       && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only")
@@ -19390,6 +19392,26 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments")
       && stylesSrc.includes(".llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only");
     addTest("V17-G53 UI: batch waterfall、Sessions 头部和右侧用户附件缩略继续靠近 Codex",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13af: V17-G54 topbar/composer/history shell surfaces continue converging to Codex ----
+  {
+    const ok = viewSrc.includes('const historyHead = historyPanel.createDiv({ cls: "llm-bridge-secondary-head llm-bridge-history-page-head" });')
+      && viewSrc.includes('const lineCount = normalized.split(/\\r?\\n/).length;')
+      && viewSrc.includes("const shouldCollapse = normalized.length > 1200 || lineCount > 12;")
+      && viewSrc.includes('? "Shell"')
+      && viewSrc.includes("private formatCodexShellCommandPreview(command?: string): string")
+      && viewSrc.includes("private renderCodexShellPanelContents(parent: HTMLElement, step: CodexRunStepGroup): void")
+      && viewSrc.includes("private buildCodexShellOutputText(step: CodexRunStepGroup): string")
+      && stylesSrc.includes("V17-G54: Codex-native topbar, composer meta row, lighter cards and session polish")
+      && stylesSrc.includes(".llm-bridge-history-page-head")
+      && stylesSrc.includes('grid-template-areas:')
+      && stylesSrc.includes('"meta meta meta"')
+      && stylesSrc.includes(".llm-bridge-context-tag-note .llm-bridge-context-tag")
+      && stylesSrc.includes(".llm-bridge-codex-shell-command")
+      && stylesSrc.includes(".llm-bridge-file-preview-modal .modal-title");
+    addTest("V17-G54 UI: 顶栏、History、composer meta row 与 Shell 块继续向 Codex 风格收口",
       ok ? "pass" : "fail", "");
   }
 

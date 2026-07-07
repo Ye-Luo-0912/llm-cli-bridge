@@ -600,6 +600,11 @@ export class LLMBridgeView extends ItemView {
     // ===== Agent Skills runtime capabilities：不插入 composer，不拼接 promptPackage =====
     this.renderAgentSkillsPanel(skillsPanel);
 
+    const historyHead = historyPanel.createDiv({ cls: "llm-bridge-secondary-head llm-bridge-history-page-head" });
+    historyHead.createEl("span", { cls: "llm-bridge-secondary-kicker", text: "History" });
+    historyHead.createEl("strong", { text: "会话与恢复" });
+    historyHead.createEl("small", { text: "最近运行、摘要和恢复入口保持在同一页。" });
+
     // ===== V2.5: 历史会话入口（可折叠，默认折叠） =====
     this.renderHistoryPanel(historyPanel);
 
@@ -4444,7 +4449,8 @@ export class LLMBridgeView extends ItemView {
 
   private renderUserMessageContent(content: HTMLElement, text: string): void {
     const normalized = text.trim();
-    const shouldCollapse = normalized.length > 360 || /\r?\n/.test(normalized);
+    const lineCount = normalized.split(/\r?\n/).length;
+    const shouldCollapse = normalized.length > 1200 || lineCount > 12;
     if (!shouldCollapse) {
       content.textContent = normalized;
       return;
@@ -4453,7 +4459,7 @@ export class LLMBridgeView extends ItemView {
     const summary = details.createEl("summary", { cls: "llm-bridge-user-prompt-summary" });
     summary.createEl("span", { cls: "llm-bridge-user-prompt-label", text: "Request" });
     summary.createEl("span", { cls: "llm-bridge-user-prompt-preview", text: this.compactPreviewText(normalized, 180) });
-    summary.createEl("span", { cls: "llm-bridge-user-prompt-count", text: `${normalized.length} chars` });
+    summary.createEl("span", { cls: "llm-bridge-user-prompt-count", text: `${lineCount} lines · ${normalized.length} chars` });
     details.createEl("div", { cls: "llm-bridge-user-prompt-body", text: normalized });
   }
 
@@ -4482,29 +4488,30 @@ export class LLMBridgeView extends ItemView {
           "aria-label": `预览 ${ref.displayName}`,
         },
       });
+      const visual = chip.createEl("span", { cls: "llm-bridge-msg-attachment-visual" });
       const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
       if (thumbnailUrl) {
         chip.addClass("has-preview");
         chip.addClass("is-preview-only");
-        const preview = chip.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });
+        const preview = visual.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });
         preview.addEventListener("load", () => {
           this.maybeApplySmartImageThumbnail(preview, this.getSmartImageThumbnailCacheKey(ref, thumbnailUrl));
         });
         preview.addEventListener("error", () => {
           chip.addClass("is-preview-missing");
           preview.remove();
-          const placeholder = chip.createEl("span", { cls: "llm-bridge-msg-attachment-image-placeholder" });
+          const placeholder = visual.createEl("span", { cls: "llm-bridge-msg-attachment-image-placeholder" });
           setIcon(placeholder, "image");
         });
       } else if (ref.fileType === "image") {
         chip.addClass("is-preview-only");
         chip.addClass("is-preview-missing");
-        const placeholder = chip.createEl("span", { cls: "llm-bridge-msg-attachment-image-placeholder" });
+        const placeholder = visual.createEl("span", { cls: "llm-bridge-msg-attachment-image-placeholder" });
         setIcon(placeholder, "image");
       } else {
         chip.addClass("is-preview-only");
         chip.addClass("has-document-preview");
-        this.renderDocumentPreviewThumb(chip, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);
+        this.renderDocumentPreviewThumb(visual, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);
       }
       chip.addEventListener("click", () => void this.openFileRefPreview(ref));
     }
@@ -5282,7 +5289,7 @@ export class LLMBridgeView extends ItemView {
     const label = item.change
       ? `${changeActionText} ${item.change.fileName}`
       : item.kind === "command"
-        ? "Command"
+        ? "Shell"
         : item.label;
     title.createEl("span", { cls: "llm-bridge-codex-feed-label llm-bridge-codex-step-label", text: label, attr: { title: label } });
     if (item.change?.approvalStatus) {
@@ -5294,9 +5301,9 @@ export class LLMBridgeView extends ItemView {
     const isCommandEvent = item.kind === "command" && !!item.step;
     const summaryText = item.change
       ? [item.change.relativePath, item.change.diffSummary].filter(Boolean).join(" · ")
-      : isCommandEvent && !developerMode
-        ? ""
-      : this.formatCodexFeedSummary(item, developerMode);
+      : isCommandEvent
+        ? this.formatCodexShellCommandPreview(item.step?.command)
+        : this.formatCodexFeedSummary(item, developerMode);
     if (summaryText) {
       main.createDiv({ cls: "llm-bridge-codex-event-hint", text: truncateText(summaryText, developerMode ? 260 : 150), attr: { title: summaryText } });
     }
@@ -5506,35 +5513,72 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
+  private formatCodexShellCommandPreview(command?: string): string {
+    if (!command?.trim()) return "";
+    return command
+      .replace(/\s+/g, " ")
+      .replace(/[A-Za-z]:\\[^\s·]+/g, (match) => path.basename(match))
+      .trim();
+  }
+
   private renderCodexShellDetails(parent: HTMLElement, step: CodexRunStepGroup): void {
-    const bodyText = this.buildCodexShellText(step);
-    if (!bodyText) return;
+    const commandText = this.formatCodexShellCommandPreview(step.command);
+    const outputText = this.buildCodexShellOutputText(step);
+    if (!commandText && !outputText) return;
     const details = parent.createEl("details", { cls: "llm-bridge-codex-detail llm-bridge-codex-detail-command llm-bridge-codex-detail-shell" });
-    const { lines, sizeText } = this.getCodexShellTextStats(bodyText);
-    details.createEl("summary", { text: `Shell · ${lines} line${lines === 1 ? "" : "s"} · ${sizeText}` });
+    const summaryText = commandText || outputText;
+    const { lines, sizeText } = this.getCodexShellTextStats(summaryText);
+    details.createEl("summary", {
+      text: commandText
+        ? `Shell · ${truncateText(commandText, 72)}`
+        : `Shell · ${lines} line${lines === 1 ? "" : "s"} · ${sizeText}`,
+      attr: { title: commandText || summaryText },
+    });
     const panel = details.createDiv({ cls: "llm-bridge-codex-detail-panel llm-bridge-codex-shell-panel" });
-    this.renderCodexShellPanelHead(panel, bodyText);
-    panel.createEl("pre", { cls: "llm-bridge-codex-detail-pre llm-bridge-codex-shell-pre", text: bodyText });
+    this.renderCodexShellPanelContents(panel, step);
   }
 
   private renderCodexShellPanel(parent: HTMLElement, step: CodexRunStepGroup): void {
-    const bodyText = this.buildCodexShellText(step);
-    if (!bodyText) return;
+    const commandText = this.formatCodexShellCommandPreview(step.command);
+    const outputText = this.buildCodexShellOutputText(step);
+    if (!commandText && !outputText) return;
     const panel = parent.createDiv({ cls: "llm-bridge-codex-shell-panel llm-bridge-codex-inline-shell-panel" });
-    this.renderCodexShellPanelHead(panel, bodyText);
-    panel.createEl("pre", { cls: "llm-bridge-codex-detail-pre llm-bridge-codex-shell-pre", text: bodyText });
+    this.renderCodexShellPanelContents(panel, step);
     const footer = panel.createDiv({ cls: "llm-bridge-codex-shell-footer" });
     const ok = step.status !== "failed" && (step.exitCode === undefined || step.exitCode === 0);
     footer.createEl("span", { cls: ok ? "is-success" : "is-failed", text: ok ? "✓ 成功" : "失败" });
   }
 
-  private renderCodexShellPanelHead(parent: HTMLElement, bodyText: string): void {
-    const { lines, sizeText } = this.getCodexShellTextStats(bodyText);
+  private renderCodexShellPanelContents(parent: HTMLElement, step: CodexRunStepGroup): void {
+    const commandText = this.formatCodexShellCommandPreview(step.command);
+    const outputText = this.buildCodexShellOutputText(step);
+    this.renderCodexShellPanelHead(parent, commandText, outputText);
+    if (commandText) {
+      parent.createDiv({
+        cls: "llm-bridge-codex-shell-command",
+        text: `$ ${truncateText(commandText, 240)}`,
+        attr: { title: `$ ${step.command ?? commandText}` },
+      });
+    }
+    if (!outputText) return;
+    const { lines, sizeText } = this.getCodexShellTextStats(outputText);
+    const outputDetails = parent.createEl("details", { cls: "llm-bridge-codex-detail llm-bridge-codex-detail-output llm-bridge-codex-shell-output-detail" });
+    outputDetails.createEl("summary", { text: `Output · ${lines} line${lines === 1 ? "" : "s"} · ${sizeText}` });
+    outputDetails.createEl("pre", { cls: "llm-bridge-codex-detail-pre llm-bridge-codex-shell-pre", text: outputText });
+  }
+
+  private renderCodexShellPanelHead(parent: HTMLElement, commandText: string, outputText: string): void {
+    const statsSource = outputText || commandText;
+    const { lines, sizeText } = this.getCodexShellTextStats(statsSource);
     const head = parent.createDiv({ cls: "llm-bridge-codex-shell-panel-head" });
     head.createDiv({ cls: "llm-bridge-codex-detail-panel-title", text: "Shell" });
     head.createDiv({
       cls: "llm-bridge-codex-shell-panel-meta",
-      text: `${lines} line${lines === 1 ? "" : "s"} · ${sizeText}`,
+      text: outputText
+        ? `${lines} line${lines === 1 ? "" : "s"} · ${sizeText}`
+        : commandText
+          ? "command only"
+          : "",
     });
   }
 
@@ -5545,9 +5589,8 @@ export class LLMBridgeView extends ItemView {
     return { lines, sizeText };
   }
 
-  private buildCodexShellText(step: CodexRunStepGroup): string {
+  private buildCodexShellOutputText(step: CodexRunStepGroup): string {
     const sections: string[] = [];
-    if (step.command?.trim()) sections.push(`$ ${step.command.trim()}`);
     if (step.stdout?.trim()) sections.push(step.stdout.trimEnd());
     if (step.stderr?.trim()) sections.push(step.stderr.trimEnd());
     return sections.join("\n\n").trim();
