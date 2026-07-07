@@ -18817,6 +18817,22 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13k: V17-G10 permission and files surfaces stay Codex-compact ----
+  {
+    const ok = viewSrc.includes('cls: "llm-bridge-context-ref-action is-pin"')
+      && viewSrc.includes('setIcon(pinActionBtn, "pin")')
+      && viewSrc.includes('cls: "llm-bridge-context-ref-action is-unpin"')
+      && viewSrc.includes('setIcon(unpinActionBtn, "pin-off")')
+      && viewSrc.includes('cls: "llm-bridge-context-ref-remove is-remove"')
+      && viewSrc.includes('setIcon(removeBtn, "x")')
+      && stylesSrc.includes("V17-G10: Codex-like permission and files surfaces")
+      && stylesSrc.includes(".llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon")
+      && stylesSrc.includes(".llm-bridge-approval-btn.is-proceed")
+      && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-action svg");
+    addTest("V17-G10 UI: 权限弹窗、approval/request 和 Files 行保持 Codex 紧凑表面",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----
   {
     const ok = viewSrc.includes("const vaultRef = this.addVaultFileRef")

@@ -3239,19 +3239,25 @@ export class LLMBridgeView extends ItemView {
     text.createEl("span", { cls: "llm-bridge-context-ref-meta", text: this.fileRefDisplayPath(ref), attr: { title: ref.resolvedPath } });
     chip.createEl("span", { cls: "llm-bridge-context-ref-mode", text: this.fileRefModeLabel(ref) });
     if (options.allowPin) {
-      chip.createEl("button", { cls: "llm-bridge-context-ref-action", text: "Pin" }).addEventListener("click", (event) => {
+      const pinActionBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-action is-pin", attr: { title: "Pin to future turns", "aria-label": "Pin to future turns" } });
+      setIcon(pinActionBtn, "pin");
+      pinActionBtn.addEventListener("click", (event) => {
         event.stopPropagation();
         this.pinFileRef(ref.id);
       });
     }
     if (options.allowUnpin) {
-      chip.createEl("button", { cls: "llm-bridge-context-ref-action", text: "Unpin" }).addEventListener("click", (event) => {
+      const unpinActionBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-action is-unpin", attr: { title: "Unpin from future turns", "aria-label": "Unpin from future turns" } });
+      setIcon(unpinActionBtn, "pin-off");
+      unpinActionBtn.addEventListener("click", (event) => {
         event.stopPropagation();
         this.unpinFileRef(ref.id);
       });
     }
     if (options.allowRemove) {
-      chip.createEl("button", { cls: "llm-bridge-context-ref-remove", text: "×", attr: { title: "移除" } }).addEventListener("click", (event) => {
+      const removeBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-remove is-remove", attr: { title: "Remove", "aria-label": "Remove" } });
+      setIcon(removeBtn, "x");
+      removeBtn.addEventListener("click", (event) => {
         event.stopPropagation();
         this.removeContextFileRef(ref.id);
       });
