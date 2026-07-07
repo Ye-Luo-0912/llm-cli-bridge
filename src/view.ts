@@ -1367,7 +1367,16 @@ export class LLMBridgeView extends ItemView {
       { value: "auto", icon: "zap", title: "Low-risk auto", desc: "低风险自动允许，敏感操作仍拦截" },
       { value: "bypassPermissions", icon: "shield-alert", title: "Full access", desc: "跳过权限确认，仅在可信任务中使用" },
     ];
-    const current = this.plugin.settings.claudePermissionMode;
+    const current = this.plugin.settings.claudePermissionMode ?? "default";
+    const currentMode = modes.find((mode) => mode.value === current) ?? modes[1];
+    const currentInfo = getPermissionModeInfo(current);
+    const head = this.permissionPopoverEl.createDiv({ cls: "llm-bridge-perm-popover-head" });
+    const headIcon = head.createEl("span", { cls: "llm-bridge-perm-popover-head-icon" });
+    setIcon(headIcon, currentMode.icon);
+    const headText = head.createDiv({ cls: "llm-bridge-perm-popover-head-text" });
+    headText.createEl("strong", { text: "Access" });
+    headText.createEl("span", { text: currentMode.title });
+    head.createEl("span", { cls: `llm-bridge-perm-popover-risk is-${currentInfo.level}`, text: currentInfo.level === "danger" ? "High risk" : currentInfo.level === "caution" ? "Review" : "Safe" });
     for (const mode of modes) {
       const opt = this.permissionPopoverEl.createEl("button", {
         cls: "llm-bridge-perm-option" + (current === mode.value ? " is-active" : ""),
