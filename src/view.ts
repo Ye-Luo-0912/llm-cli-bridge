@@ -1078,7 +1078,7 @@ export class LLMBridgeView extends ItemView {
       const on = this.plugin.settings.includeActiveNote;
       const noteWrap = this.includeNoteCheckEl.parentElement;
       const fname = this.activeFileLabelEl.dataset.value || "";
-      if (noteWrap) noteWrap.removeAttribute("hidden");
+      if (noteWrap) noteWrap.toggleAttribute("hidden", !fname);
       if (noteWrap) noteWrap.classList.toggle("is-empty", !fname);
       noteTag.classList.toggle("is-active", on && !!fname);
       noteTag.classList.toggle("is-off", !on && !!fname);
@@ -1086,7 +1086,7 @@ export class LLMBridgeView extends ItemView {
       noteTag.classList.toggle("is-path-only", on && this.activeNoteAttachState === "path-only");
       noteTag.setAttribute("aria-pressed", String(on));
       // V17-G2: 活动笔记 tag 只显示当前文件名；状态通过颜色/删除线表达。
-      const displayName = fname || "No active note";
+      const displayName = fname;
       noteTag.textContent = displayName;
       if (!fname) {
         noteTag.setAttribute("title", "No active note. Open a markdown file and it will appear here.");
@@ -6759,7 +6759,7 @@ export class LLMBridgeView extends ItemView {
     active: boolean,
     contextCompaction: boolean,
   ): string {
-    if (active) return `Step ${Math.max(1, currentIndex + 1)}/${total} · ${label}`;
+    if (active) return `${Math.max(1, currentIndex + 1)}/${total} · ${label}`;
     if (contextCompaction) return `Context compressed · ${total} steps`;
     return "";
   }

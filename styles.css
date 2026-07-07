@@ -10079,3 +10079,84 @@
   font-size: 10px;
   text-align: right;
 }
+
+/* ===== V17-G23: plain Codex-like context and step status text ===== */
+.llm-bridge-context-tag-note.is-empty,
+.llm-bridge-context-tag-note[hidden] {
+  display: none;
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag {
+  cursor: pointer;
+  color: color-mix(in srgb, var(--text-muted) 82%, transparent);
+  font-size: var(--font-smallest);
+  font-weight: 460;
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag.is-active:not(.is-empty) {
+  color: color-mix(in srgb, var(--text-normal) 68%, var(--text-muted));
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag.is-off:not(.is-empty) {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.llm-bridge-composer-status-rail {
+  gap: 3px;
+  padding: 0 18px 4px;
+}
+
+.llm-bridge-composer-status-line {
+  width: min(640px, 100%);
+  gap: 8px;
+}
+
+.llm-bridge-composer-status-rule {
+  background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+}
+
+.llm-bridge-composer-status-text {
+  color: color-mix(in srgb, var(--text-muted) 62%, transparent);
+  font-size: var(--font-smallest);
+  font-weight: 430;
+}
+
+.llm-bridge-composer-step-pill {
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: color-mix(in srgb, var(--text-muted) 76%, transparent);
+  font-size: var(--font-smallest);
+  font-weight: 450;
+}
+
+.llm-bridge-composer-step-pill::before {
+  width: 6px;
+  height: 6px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--interactive-accent) 56%, var(--text-muted));
+}
+
+.llm-bridge-composer-status-rail.is-running .llm-bridge-composer-step-pill::before {
+  animation: llm-bridge-status-pulse 1.4s ease-in-out infinite;
+}
+
+.llm-bridge-composer-status-rail.is-completed .llm-bridge-composer-step-pill::before,
+.llm-bridge-composer-status-rail.is-compressed .llm-bridge-composer-step-pill::before {
+  background: color-mix(in srgb, var(--text-success) 50%, var(--text-muted));
+}
+
+.llm-bridge-composer-status-rail.is-blocked .llm-bridge-composer-step-pill::before,
+.llm-bridge-composer-status-rail.is-failed .llm-bridge-composer-step-pill::before {
+  background: color-mix(in srgb, var(--text-warning) 58%, var(--text-muted));
+}
+
+@keyframes llm-bridge-status-pulse {
+  0%, 100% { opacity: 0.42; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.18); }
+}
