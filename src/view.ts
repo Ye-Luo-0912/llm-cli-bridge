@@ -3,6 +3,7 @@
 import { App, ItemView, MarkdownRenderer, MarkdownView, Modal, Notice, normalizePath, setIcon, TFile, WorkspaceLeaf } from "obsidian";
 import * as fs from "fs";
 import * as path from "path";
+import { pathToFileURL } from "url";
 import type LLMBridgePlugin from "../main";
 import { buildPrompt } from "./prompt";
 import { buildPromptPackage, StateSnapshot } from "./promptPackage";
@@ -355,6 +356,7 @@ export class LLMBridgeView extends ItemView {
   private sessionFileRefs: FileRef[] = [];
   private attachmentReadGrants: FileAccessReadGrant[] = [];
   private attachmentTextSnippets: AttachmentTextSnippet[] = [];
+  private fileThumbnailCache = new Map<string, string | null>();
   private attachmentFileInputEl!: HTMLInputElement;
   private pinnedContextEl!: HTMLElement;
   private composerFileRefsEl!: HTMLElement;
@@ -3146,8 +3148,35 @@ export class LLMBridgeView extends ItemView {
       if (file instanceof TFile) return this.app.vault.getResourcePath(file);
       return this.filePathToUrl(path.join(this.getVaultPath(), vaultRelPath));
     }
-    if (path.isAbsolute(ref.resolvedPath)) return this.filePathToUrl(ref.resolvedPath);
+    if (path.isAbsolute(ref.resolvedPath)) {
+      return this.imageFilePathToDataUrl(ref.resolvedPath) || this.filePathToUrl(ref.resolvedPath);
+    }
     return null;
+  }
+
+  private imageFilePathToDataUrl(filePath: string): string | null {
+    const normalized = path.resolve(filePath);
+    try {
+      const stat = fs.statSync(normalized);
+      if (!stat.isFile() || stat.size > 5 * 1024 * 1024) return null;
+      const cacheKey = `${normalized}:${stat.size}:${stat.mtimeMs}`;
+      if (this.fileThumbnailCache.has(cacheKey)) return this.fileThumbnailCache.get(cacheKey) || null;
+      const dataUrl = `data:${this.imageMimeTypeForPath(normalized)};base64,${fs.readFileSync(normalized).toString("base64")}`;
+      this.fileThumbnailCache.set(cacheKey, dataUrl);
+      return dataUrl;
+    } catch {
+      return null;
+    }
+  }
+
+  private imageMimeTypeForPath(filePath: string): string {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+    if (ext === ".gif") return "image/gif";
+    if (ext === ".webp") return "image/webp";
+    if (ext === ".svg") return "image/svg+xml";
+    if (ext === ".bmp") return "image/bmp";
+    return "image/png";
   }
 
   private fileRefMetaLabel(ref: FileRef): string {
@@ -3187,8 +3216,17 @@ export class LLMBridgeView extends ItemView {
   }
 
   private filePathToUrl(filePath: string): string {
-    const normalized = path.resolve(filePath).replace(/\\/g, "/");
-    return `file:///${normalized.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
+    const normalized = path.resolve(filePath);
+    try {
+      return pathToFileURL(normalized).href;
+    } catch {
+      const portablePath = normalized.replace(/\\/g, "/");
+      if (/^[A-Za-z]:\//.test(portablePath)) {
+        const [drive, ...rest] = portablePath.split("/");
+        return `file:///${drive}/${rest.map((part) => encodeURIComponent(part)).join("/")}`;
+      }
+      return `file://${portablePath.split("/").map((part) => encodeURIComponent(part)).join("/")}`;
+    }
   }
 
   private renderPinnedContext(): void {
@@ -3268,10 +3306,12 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderContextRefChip(container: HTMLElement, ref: FileRef, options: { allowPin?: boolean; allowUnpin?: boolean; allowRemove?: boolean }): void {
-    const chip = container.createDiv({ cls: `llm-bridge-context-ref-chip is-${ref.kind} is-${ref.status}` });
+    const chip = container.createDiv({
+      cls: `llm-bridge-context-ref-chip is-${ref.kind} is-${ref.status} is-${ref.fileType}`,
+      attr: { title: `${ref.displayName}\n${this.fileRefDisplayPath(ref)}\n${this.fileRefBadgeLabel(ref)}` },
+    });
     chip.addEventListener("click", () => void this.openFileRefPreview(ref));
-    const icon = chip.createEl("span", { cls: "llm-bridge-context-ref-icon" });
-    setIcon(icon, this.getFileRefIconName(ref));
+    this.renderContextRefVisual(chip, ref);
     const text = chip.createDiv({ cls: "llm-bridge-context-ref-text" });
     text.createEl("span", { cls: "llm-bridge-context-ref-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
     text.createEl("span", { cls: "llm-bridge-context-ref-meta", text: this.fileRefDisplayPath(ref), attr: { title: ref.resolvedPath } });
@@ -3300,6 +3340,30 @@ export class LLMBridgeView extends ItemView {
         this.removeContextFileRef(ref.id);
       });
     }
+  }
+
+  private renderContextRefVisual(parent: HTMLElement, ref: FileRef): void {
+    const visual = parent.createEl("span", { cls: "llm-bridge-context-ref-icon llm-bridge-context-ref-thumb" });
+    const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
+    if (thumbnailUrl) {
+      visual.addClass("has-image-preview");
+      visual.style.setProperty("background-image", `url("${thumbnailUrl.replace(/"/g, '\\"')}")`);
+      const fallback = visual.createEl("span", { cls: "llm-bridge-context-ref-visual-icon is-fallback" });
+      setIcon(fallback, this.getFileRefIconName(ref));
+      const preview = new Image();
+      preview.addEventListener("load", () => visual.addClass("is-preview-loaded"));
+      preview.addEventListener("error", () => {
+        visual.removeClass("has-image-preview");
+        visual.removeClass("is-preview-loaded");
+        visual.addClass("is-preview-missing");
+        visual.style.removeProperty("background-image");
+      });
+      preview.src = thumbnailUrl;
+      return;
+    }
+    const fileIcon = visual.createEl("span", { cls: "llm-bridge-context-ref-visual-icon" });
+    setIcon(fileIcon, this.getFileRefIconName(ref));
+    visual.createEl("span", { cls: "llm-bridge-context-ref-ext", text: this.getFileRefShortLabel(ref) });
   }
 
   private fileRefBadgeLabel(ref: FileRef): string {

@@ -18864,6 +18864,25 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13l: V17-G16 context file rows use real thumbnails/fallback labels ----
+  {
+    const ok = viewSrc.includes("private renderContextRefVisual(parent: HTMLElement, ref: FileRef): void")
+      && viewSrc.includes('import { pathToFileURL } from "url";')
+      && viewSrc.includes("return pathToFileURL(normalized).href;")
+      && viewSrc.includes("private fileThumbnailCache = new Map<string, string | null>()")
+      && viewSrc.includes("private imageFilePathToDataUrl(filePath: string): string | null")
+      && viewSrc.includes("stat.size > 5 * 1024 * 1024")
+      && viewSrc.includes('cls: `llm-bridge-context-ref-chip is-${ref.kind} is-${ref.status} is-${ref.fileType}`')
+      && viewSrc.includes('cls: "llm-bridge-context-ref-icon llm-bridge-context-ref-thumb"')
+      && viewSrc.includes('visual.style.setProperty("background-image"')
+      && viewSrc.includes('cls: "llm-bridge-context-ref-ext"')
+      && stylesSrc.includes("V17-G16: Codex-like context file thumbnails")
+      && stylesSrc.includes(".llm-bridge-context-ref-thumb.has-image-preview")
+      && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-chip.is-image .llm-bridge-context-ref-ext");
+    addTest("V17-G16 UI: Files/context rows use thumbnails and compact type labels",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----
   {
     const ok = viewSrc.includes("const vaultRef = this.addVaultFileRef")

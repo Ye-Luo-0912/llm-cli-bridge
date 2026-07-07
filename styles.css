@@ -9499,3 +9499,69 @@
 .llm-bridge-perm-popover-risk.is-caution {
   color: var(--text-warning);
 }
+
+/* ===== V17-G16: Codex-like context file thumbnails ===== */
+.llm-bridge-context-ref-thumb {
+  position: relative;
+  overflow: hidden;
+  background-position: center;
+  background-size: cover;
+}
+
+.llm-bridge-context-ref-visual-icon,
+.llm-bridge-context-ref-visual-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.llm-bridge-context-ref-visual-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.llm-bridge-context-ref-visual-icon.is-fallback {
+  color: color-mix(in srgb, var(--interactive-accent) 54%, var(--text-muted));
+}
+
+.llm-bridge-context-ref-thumb.has-image-preview .llm-bridge-context-ref-visual-icon.is-fallback {
+  opacity: 0;
+}
+
+.llm-bridge-context-ref-thumb.is-preview-missing .llm-bridge-context-ref-visual-icon.is-fallback {
+  opacity: 1;
+}
+
+.llm-bridge-context-ref-ext {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  max-width: 26px;
+  padding: 1px 3px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--background-primary) 88%, transparent);
+  color: var(--text-faint);
+  font-size: 7.5px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-chip {
+  min-height: 50px;
+  grid-template-columns: 32px minmax(0, 1fr) max-content 24px 24px;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-chip.is-image .llm-bridge-context-ref-ext {
+  display: none;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-chip.is-pending .llm-bridge-context-ref-thumb {
+  opacity: 0.62;
+}
