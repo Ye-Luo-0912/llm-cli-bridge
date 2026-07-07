@@ -17544,7 +17544,8 @@ if (!runV214BUnit) {
         && !stylesSrc.includes("grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto auto auto");
       const sessionDropdownOk = viewSrc.includes("llm-bridge-session-dropdown")
         && viewSrc.includes("toggleSessionDropdown")
-        && viewSrc.includes("查看全部历史")
+        && (viewSrc.includes("Open history") || viewSrc.includes("查看全部历史"))
+        && (viewSrc.includes("Recent sessions") || viewSrc.includes("最近会话"))
         && !viewSrc.includes("sessionPreview.addEventListener(\"click\", () => switchTab(\"history\"))");
       const composerOk = !viewSrc.includes("rightTools.appendChild(agentSelect)")
         && viewSrc.includes("llm-bridge-model-effort-picker")
@@ -18606,7 +18607,7 @@ if (!runNoteSummarizeSmoke) {
       && !viewSrc.includes("llm-bridge-session-dropdown-request")
       && !viewSrc.includes("llm-bridge-session-dropdown-reply")
       && viewSrc.includes("await this.restoreSession(item.id)")
-      && viewSrc.includes("查看全部历史");
+      && (viewSrc.includes("Open history") || viewSrc.includes("查看全部历史"));
     addTest("V2.16-D sessions/view.ts: 最近会话摘要下拉与恢复入口", ok ? "pass" : "fail", "");
   }
 
@@ -18640,7 +18641,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("getIndexedVaultFile")
       && viewSrc.includes("findLeafForFile")
       && viewSrc.includes("has-image-preview")
-      && !viewSrc.includes('const text = data.getData("text/plain")')
+      && viewSrc.includes('const plainText = data?.getData("text/plain") ?? ""')
+      && viewSrc.includes("shouldPersistLargeClipboardText(plainText)")
       && stylesSrc.includes(".llm-bridge-composer-file-chip");
     addTest("V2.16-D composer: 拖拽/粘贴文件入口存在，普通复制文本保持文本", ok ? "pass" : "fail", "");
   }
@@ -18648,14 +18650,19 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes("shouldPersistPathlessAttachmentBlob")
       && viewSrc.includes("isClipboardTextBlob")
+      && viewSrc.includes("persistClipboardTextToVault")
+      && viewSrc.includes("defaultClipboardTextAttachmentFileName")
+      && viewSrc.includes("CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS")
+      && viewSrc.includes("CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES")
       && viewSrc.includes('if (!/^paste$/i.test(source)) return true;')
-      && viewSrc.includes("return !this.isClipboardTextBlob(file);")
+      && viewSrc.includes("if (!this.isClipboardTextBlob(file)) return true;")
+      && viewSrc.includes("return this.shouldPersistLargeClipboardText(options.clipboardText);")
       && viewSrc.includes("options?: { allowRawAbsolutePaths?: boolean }")
       && viewSrc.includes("if (!isFileUri && !options?.allowRawAbsolutePaths) continue;")
       && viewSrc.includes('addText(text.replace(/\\0/g, "\\n"), { allowRawAbsolutePaths: format !== "text/uri-list" });')
       && !viewSrc.includes('candidate.startsWith("./")')
       && !viewSrc.includes('candidate.startsWith("../")');
-    addTest("V17-G41 composer: 普通复制文本不转附件，仅 clipboard file-list/uri-list 进入附件流", ok ? "pass" : "fail", "");
+    addTest("V17-G41 composer: 普通复制文本保持原文，仅真实文件或超大文本进入附件流", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 13b: V17-G3 Codex-style composer/files surface ----
@@ -18938,12 +18945,13 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes('chip.addClass("has-preview")')
       && viewSrc.includes('chip.addClass("is-preview-only")')
-      && viewSrc.includes('chip.removeClass("is-preview-only")')
+      && viewSrc.includes('chip.addClass("has-document-preview")')
+      && !viewSrc.includes('chip.removeClass("is-preview-only")')
       && stylesSrc.includes("V17-G25: composer attachments match Codex compact send tray")
       && stylesSrc.includes(".llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only")
       && stylesSrc.includes("max-width: 156px;")
-      && stylesSrc.includes("width: 44px;")
-      && stylesSrc.includes("max-width: 44px;")
+      && (stylesSrc.includes("width: 44px;") || stylesSrc.includes("width: 32px !important;"))
+      && (stylesSrc.includes("max-width: 44px;") || stylesSrc.includes("max-width: 32px !important;"))
       && stylesSrc.includes(".llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-text")
       && stylesSrc.includes("display: none;")
       && stylesSrc.includes(".llm-bridge-composer-file-meta")

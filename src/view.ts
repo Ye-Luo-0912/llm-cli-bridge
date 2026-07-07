@@ -84,6 +84,8 @@ interface UserInputDraft {
 }
 
 const USER_INPUT_OPTIONS_PER_PAGE = 6;
+const CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS = 12000;
+const CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES = 160;
 
 export class AgentSkillDocumentView extends ItemView {
   private state: AgentSkillDocumentState = {};
@@ -498,7 +500,7 @@ export class LLMBridgeView extends ItemView {
       } else if (tab === "history") {
         const hBody = historyPanel.querySelector(".llm-bridge-history-body") as HTMLElement | null;
         if (hBody && hBody.hasAttribute("hidden")) hBody.removeAttribute("hidden");
-        if (this.historyToggleEl) this.historyToggleEl.textContent = "\u25BC History";
+        if (this.historyToggleEl) this.historyToggleEl.textContent = "\u25BC Sessions";
         void this.refreshHistory();
       } else if (tab === "files") {
         this.refreshContextRefs();
@@ -519,8 +521,8 @@ export class LLMBridgeView extends ItemView {
     // ===== Files page: attachments / pinned context / FileRef index / approvals =====
     const filesHead = filesPanel.createDiv({ cls: "llm-bridge-secondary-head" });
     filesHead.createEl("span", { cls: "llm-bridge-secondary-kicker", text: "Files" });
-    filesHead.createEl("strong", { text: "文件、附件与授权" });
-    filesHead.createEl("small", { text: "管理下一条消息会携带的文件、跨轮保留的引用，以及外部读取授权。" });
+    filesHead.createEl("strong", { text: "文件与授权" });
+    filesHead.createEl("small", { text: "下一条消息附件、跨轮引用和外部读取授权。" });
     this.filesContextEl = filesPanel.createDiv({ cls: "llm-bridge-context-refs llm-bridge-context-refs-page" });
 
     // ===== Pending Actions 区域（在 Files 页默认折叠） =====
@@ -2667,13 +2669,17 @@ export class LLMBridgeView extends ItemView {
   }
 
   private async handleComposerPaste(event: ClipboardEvent): Promise<void> {
+    const data = event.clipboardData;
+    const plainText = data?.getData("text/plain") ?? "";
     const paths = this.collectFilePathsFromClipboardEvent(event);
-    const hasClipboardFiles = !!event.clipboardData?.files?.length || Array.from(event.clipboardData?.types ?? []).some((type) => /files|uri-list/i.test(type));
-    if (paths.length > 0 || hasClipboardFiles) event.preventDefault();
-    for (const cachedPath of await this.cachePathlessFilesFromFileList(event.clipboardData?.files, "paste")) {
+    for (const cachedPath of await this.cachePathlessFilesFromFileList(data?.files, "paste", { clipboardText: plainText })) {
       if (!paths.includes(cachedPath)) paths.push(cachedPath);
     }
-    if (paths.length === 0) {
+    if (paths.length === 0 && !data?.files?.length && this.shouldPersistLargeClipboardText(plainText)) {
+      const textPath = await this.persistClipboardTextToVault(plainText, "paste");
+      if (textPath) paths.push(textPath);
+    }
+    if (paths.length === 0 && !plainText.trim()) {
       const imagePath = await this.persistElectronClipboardImageToVault();
       if (imagePath) paths.push(imagePath);
     }
@@ -2742,22 +2748,31 @@ export class LLMBridgeView extends ItemView {
     return paths;
   }
 
-  private async cachePathlessFilesFromFileList(files: FileList | null | undefined, source: string): Promise<string[]> {
+  private async cachePathlessFilesFromFileList(
+    files: FileList | null | undefined,
+    source: string,
+    options: { clipboardText?: string } = {},
+  ): Promise<string[]> {
     if (!files?.length) return [];
     const paths: string[] = [];
     for (const file of Array.from(files)) {
       if (this.extractNativeFilePath(file)) continue;
-      if (!this.shouldPersistPathlessAttachmentBlob(file, source)) continue;
+      if (!this.shouldPersistPathlessAttachmentBlob(file, source, options)) continue;
       const cachedPath = await this.persistBlobAttachmentToVault(file, source);
       if (cachedPath) paths.push(cachedPath);
     }
     return paths;
   }
 
-  private shouldPersistPathlessAttachmentBlob(file: File, source: string): boolean {
+  private shouldPersistPathlessAttachmentBlob(
+    file: File,
+    source: string,
+    options: { clipboardText?: string } = {},
+  ): boolean {
     if (file.size <= 0) return false;
     if (!/^paste$/i.test(source)) return true;
-    return !this.isClipboardTextBlob(file);
+    if (!this.isClipboardTextBlob(file)) return true;
+    return this.shouldPersistLargeClipboardText(options.clipboardText);
   }
 
   private isClipboardTextBlob(file: File): boolean {
@@ -2767,6 +2782,45 @@ export class LLMBridgeView extends ItemView {
     if (/(json|xml|javascript|markdown|csv|rtf|html)/.test(mimeType)) return true;
     if (!mimeType && /\.(txt|md|markdown|json|csv|log|html?|xml|rtf)$/i.test(lowerName)) return true;
     return false;
+  }
+
+  private shouldPersistLargeClipboardText(text?: string): boolean {
+    const normalized = (text ?? "").replace(/\r\n?/g, "\n").trim();
+    if (!normalized) return false;
+    const lineCount = normalized.split("\n").length;
+    return normalized.length >= CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS || lineCount >= CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES;
+  }
+
+  private async persistClipboardTextToVault(text: string, source: string): Promise<string | null> {
+    const normalized = text.replace(/\r\n?/g, "\n").trim();
+    if (!normalized) return null;
+    try {
+      const folder = normalizePath("LLM-Bridge Attachments");
+      await this.ensureVaultFolder(folder);
+      const safeName = this.sanitizeAttachmentFileName(this.defaultClipboardTextAttachmentFileName(normalized));
+      const relPath = await this.allocateAttachmentPath(folder, safeName);
+      await this.app.vault.create(relPath, normalized);
+      new Notice(`已缓存 ${source} 文本附件：${safeName}`, 2500);
+      return relPath;
+    } catch (error) {
+      new Notice(`缓存文本附件失败：${error instanceof Error ? error.message : String(error)}`, 5000);
+      return null;
+    }
+  }
+
+  private defaultClipboardTextAttachmentFileName(text: string): string {
+    const trimmed = text.trim();
+    if (!trimmed) return "pasted-text.txt";
+    if ((trimmed.startsWith("{") && trimmed.endsWith("}")) || (trimmed.startsWith("[") && trimmed.endsWith("]"))) {
+      try {
+        JSON.parse(trimmed);
+        return "pasted-data.json";
+      } catch {
+        // Fallback below.
+      }
+    }
+    if (/```|^\s{0,3}(#|>|\* |- |\d+\.)/m.test(trimmed)) return "pasted-note.md";
+    return "pasted-text.txt";
   }
 
   private async persistBlobAttachmentToVault(file: File, source: string): Promise<string | null> {
@@ -3105,7 +3159,7 @@ export class LLMBridgeView extends ItemView {
     for (const ref of refs) {
       const chip = container.createEl("button", {
         cls: `llm-bridge-composer-file-chip is-${ref.kind} is-${ref.fileType}`,
-        attr: { title: `预览：${ref.displayName}\n${ref.resolvedPath}`, "aria-label": `预览 ${ref.displayName}` },
+        attr: { type: "button", title: `预览：${ref.displayName}\n${ref.resolvedPath}`, "aria-label": `预览 ${ref.displayName}` },
       });
       const thumb = chip.createEl("span", { cls: "llm-bridge-composer-file-thumb" });
       const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
@@ -3121,16 +3175,19 @@ export class LLMBridgeView extends ItemView {
           thumb.addClass("is-preview-loaded");
         });
         preview.addEventListener("error", () => {
+          thumb.empty();
           thumb.removeClass("has-image-preview");
           thumb.removeClass("is-preview-loaded");
           thumb.addClass("is-preview-missing");
           thumb.style.removeProperty("background-image");
           chip.addClass("is-thumbnail-fallback");
-          chip.removeClass("has-preview");
-          chip.removeClass("is-preview-only");
+          const placeholder = thumb.createEl("span", { cls: "llm-bridge-composer-file-icon is-fallback" });
+          setIcon(placeholder, "image");
         });
         preview.src = thumbnailUrl;
       } else {
+        chip.addClass("is-preview-only");
+        chip.addClass("has-document-preview");
         thumb.addClass("has-document-preview");
         this.renderDocumentPreviewThumb(thumb, "llm-bridge-composer-file-doc-thumb", "llm-bridge-composer-file-doc-line", ref, 4, 12);
       }
@@ -4179,6 +4236,7 @@ export class LLMBridgeView extends ItemView {
       const chip = wrap.createEl("button", {
         cls: `llm-bridge-msg-attachment-chip is-${ref.kind} is-${ref.fileType}`,
         attr: {
+          type: "button",
           title: `${ref.displayName}\n${ref.resolvedPath}`,
           "aria-label": `预览 ${ref.displayName}`,
         },
@@ -4650,7 +4708,8 @@ export class LLMBridgeView extends ItemView {
     const process = body.createDiv({ cls: "llm-bridge-codex-process" });
     if (hasProcessContent) {
       const processHead = process.createDiv({ cls: "llm-bridge-codex-section-head llm-bridge-codex-process-head" });
-      processHead.createDiv({ cls: "llm-bridge-codex-section-title", text: `Process · ${processFeedItems.length}` });
+      processHead.createDiv({ cls: "llm-bridge-codex-section-title", text: "Process" });
+      processHead.createDiv({ cls: "llm-bridge-codex-section-count", text: String(processFeedItems.length) });
       const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
       if (processCollapsedByDefault) processBody.setAttribute("hidden", "");
       if (processFeedItems.length > 0) this.renderCodexFeed(processBody, processFeedItems, developerMode);
@@ -4709,7 +4768,7 @@ export class LLMBridgeView extends ItemView {
     const normalized = text.trim();
     if (!normalized) return;
     const section = parent.createDiv({ cls: "llm-bridge-codex-final-answer" });
-    section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Answer" });
+    section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Final answer" });
     const body = section.createDiv({ cls: "llm-bridge-codex-final-answer-body llm-bridge-msg-markdown" });
     const fallback = () => {
       body.empty();
@@ -4724,7 +4783,7 @@ export class LLMBridgeView extends ItemView {
 
   private renderCodexApprovalGates(parent: HTMLElement, gates: ReadonlyArray<CodexRunApprovalGate>, developerMode: boolean): void {
     const section = parent.createDiv({ cls: "llm-bridge-codex-approval-gates" });
-    section.createDiv({ cls: "llm-bridge-codex-section-title", text: "需要确认" });
+    section.createDiv({ cls: "llm-bridge-codex-section-title", text: "Approvals" });
     for (const gate of gates) {
       const card = section.createDiv({ cls: `llm-bridge-codex-approval-gate is-risk-${gate.risk}` });
       card.setAttribute("data-request-id", gate.requestId);
@@ -4983,7 +5042,8 @@ export class LLMBridgeView extends ItemView {
   private renderCodexChangesPanel(parent: HTMLElement, changes: ReadonlyArray<CodexRunChangeGroup>, developerMode: boolean): void {
     const section = parent.createDiv({ cls: "llm-bridge-codex-changes-panel" });
     const head = section.createDiv({ cls: "llm-bridge-codex-section-head" });
-    head.createDiv({ cls: "llm-bridge-codex-section-title", text: `Changes · ${changes.length}` });
+    head.createDiv({ cls: "llm-bridge-codex-section-title", text: "Changes" });
+    head.createDiv({ cls: "llm-bridge-codex-section-count", text: String(changes.length) });
     const list = section.createDiv({ cls: "llm-bridge-codex-change-list" });
     for (const change of changes) {
       const row = list.createDiv({ cls: `llm-bridge-codex-change-row is-${change.action}` });
@@ -7034,7 +7094,7 @@ export class LLMBridgeView extends ItemView {
     const head = wrap.createDiv({ cls: "llm-bridge-history-head" });
     this.historyToggleEl = head.createEl("span", {
       cls: "llm-bridge-history-toggle",
-      text: "▶ History",
+      text: "▶ Sessions",
       attr: { title: "展开历史会话列表（从 .llm-bridge/sessions/ 读取）" },
     });
     const refreshHistBtn = head.createEl("button", {
@@ -7083,11 +7143,11 @@ export class LLMBridgeView extends ItemView {
       const hidden = body.hasAttribute("hidden");
       if (hidden) {
         body.removeAttribute("hidden");
-        this.historyToggleEl.textContent = "▼ History";
+        this.historyToggleEl.textContent = "▼ Sessions";
         void this.refreshHistory();
       } else {
         body.setAttribute("hidden", "");
-        this.historyToggleEl.textContent = "▶ History";
+        this.historyToggleEl.textContent = "▶ Sessions";
       }
     });
     // 初始空状态
@@ -7106,7 +7166,7 @@ export class LLMBridgeView extends ItemView {
 
   private renderRecentSessionDropdown(dropdown: HTMLElement, openHistory: () => void): void {
     dropdown.empty();
-    dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-title", text: "最近会话" });
+    dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-title", text: "Recent sessions" });
     const recent = this.historyItems.slice(0, 6);
     if (recent.length === 0) {
       dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-empty", text: "暂无历史会话" });
@@ -7128,7 +7188,7 @@ export class LLMBridgeView extends ItemView {
     }
     const historyBtn = dropdown.createEl("button", {
       cls: "llm-bridge-session-dropdown-history",
-      text: "查看全部历史",
+      text: "Open history",
     });
     historyBtn.addEventListener("click", () => {
       dropdown.setAttribute("hidden", "");
@@ -7166,12 +7226,12 @@ export class LLMBridgeView extends ItemView {
     const arrow = this.historyBodyEl.hasAttribute("hidden") ? "▶" : "▼";
     if (this.historyItems.length === 0) {
       this.historyListEl.createDiv({ cls: "llm-bridge-history-empty", text: "暂无历史会话" });
-      this.historyToggleEl.textContent = `${arrow} History (0)`;
+      this.historyToggleEl.textContent = `${arrow} Sessions (0)`;
       return;
     }
     if (filtered.length === 0) {
       this.historyListEl.createDiv({ cls: "llm-bridge-history-empty", text: `无匹配「${this.historySearchQuery.trim()}」的会话` });
-      this.historyToggleEl.textContent = `${arrow} History (0/${this.historyItems.length})`;
+      this.historyToggleEl.textContent = `${arrow} Sessions (0/${this.historyItems.length})`;
       return;
     }
     // V2.8: 按 sortMode 排序（filtered 已是新数组，直接排序不修改原 historyItems）
@@ -7185,18 +7245,23 @@ export class LLMBridgeView extends ItemView {
     for (const item of filtered) {
       const preview = this.sessionSummaryText(item);
       const row = list.createDiv({
-        cls: `llm-bridge-history-item is-${item.status}`,
+        cls: `llm-bridge-history-item is-${item.status}${item.id === this.currentSessionId ? " is-current" : ""}`,
         attr: { title: `${item.title} · ${item.messageCount} 条消息 · ${item.savedAt}` },
       });
       // 主信息（点击恢复）
       const main = row.createEl("button", { cls: "llm-bridge-history-main" });
-      main.createEl("span", { cls: "llm-bridge-history-title", text: item.title });
+      const titleRow = main.createDiv({ cls: "llm-bridge-history-title-row" });
+      titleRow.createEl("span", { cls: "llm-bridge-history-title", text: item.title });
+      if (item.id === this.currentSessionId) {
+        titleRow.createEl("span", { cls: "llm-bridge-history-current", text: "Current" });
+      }
       const meta = `${item.messageCount} 条 · ${item.agentType} · ${this.formatHistoryTime(item.savedAt)}`;
       main.createEl("span", { cls: "llm-bridge-history-meta", text: meta });
       main.createEl("span", { cls: "llm-bridge-history-preview", text: preview });
       main.addEventListener("click", () => void this.restoreSession(item.id));
+      const actions = row.createDiv({ cls: "llm-bridge-history-actions" });
       // V2.8: 编辑按钮（重命名标题）
-      const editBtn = row.createEl("button", {
+      const editBtn = actions.createEl("button", {
         cls: "llm-bridge-history-edit-btn",
         attr: { title: "重命名会话标题" },
       });
@@ -7206,7 +7271,7 @@ export class LLMBridgeView extends ItemView {
         void this.renameHistorySession(item.id, item.title);
       });
       // 删除按钮
-      const delBtn = row.createEl("button", {
+      const delBtn = actions.createEl("button", {
         cls: "llm-bridge-history-del-btn",
         attr: { title: "删除此历史会话" },
       });
@@ -7218,7 +7283,7 @@ export class LLMBridgeView extends ItemView {
     }
     // V2.9: 搜索时显示「匹配数/总数」，否则显示总数
     const countLabel = query ? `${filtered.length}/${this.historyItems.length}` : `${this.historyItems.length}`;
-    this.historyToggleEl.textContent = `${arrow} History (${countLabel})`;
+    this.historyToggleEl.textContent = `${arrow} Sessions (${countLabel})`;
     } catch (e) {
       this.renderListError(this.historyListEl, "history", e);
     }
