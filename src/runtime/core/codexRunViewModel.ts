@@ -130,6 +130,8 @@ export interface BuildCodexRunViewModelOptions {
   readonly developerMode?: boolean;
 }
 
+type TimelineCard = AgentRunDisplayModel["timelineCards"][number];
+
 function basename(filePath: string): string {
   const parts = filePath.replace(/\\/g, "/").split("/").filter(Boolean);
   return parts[parts.length - 1] ?? filePath;
@@ -268,6 +270,49 @@ function thinkingSummary(card: Extract<import("./agentRunDisplayModel").AgentRun
   return "";
 }
 
+function assistantNarrativeText(card: TimelineCard): string {
+  if (card.kind !== "final-answer") return "";
+  return (card.text || card.detail || card.summary || "").trim();
+}
+
+function assistantNarrativeDelta(currentText: string, previousText: string): string {
+  const current = currentText.trim();
+  const previous = previousText.trim();
+  if (!current) return "";
+  if (!previous || !current.startsWith(previous)) return current;
+  return current.slice(previous.length).trim();
+}
+
+function resolveCodexAssistantNarratives(
+  model: AgentRunDisplayModel,
+  status: AssistantTurnView["status"] | string,
+): { finalAnswer: string; terminalAssistantCardId?: string; narrativeByCardId: ReadonlyMap<string, string> } {
+  const assistantCards = model.timelineCards.filter((card): card is Extract<TimelineCard, { kind: "final-answer" }> =>
+    card.kind === "final-answer" && assistantNarrativeText(card).length > 0,
+  );
+  const narrativeByCardId = new Map<string, string>();
+  let previousNarrative = "";
+  for (const card of assistantCards) {
+    const fullText = assistantNarrativeText(card);
+    const delta = assistantNarrativeDelta(fullText, previousNarrative);
+    narrativeByCardId.set(card.id, delta);
+    previousNarrative = fullText;
+  }
+  if (assistantCards.length === 0) {
+    return { finalAnswer: model.finalAnswer.trim(), narrativeByCardId };
+  }
+  if (status !== "completed") {
+    return { finalAnswer: "", narrativeByCardId };
+  }
+  const terminal = assistantCards[assistantCards.length - 1];
+  const terminalDelta = (narrativeByCardId.get(terminal.id) || "").trim();
+  return {
+    finalAnswer: terminalDelta || model.finalAnswer.trim() || assistantNarrativeText(terminal),
+    terminalAssistantCardId: terminal.id,
+    narrativeByCardId,
+  };
+}
+
 function buildChangeGroups(model: AgentRunDisplayModel, turnView: AssistantTurnView, cwd?: string): CodexRunChangeGroup[] {
   const root = cwd ?? model.debugView?.effectiveRunPlan?.cwd;
   const groups: CodexRunChangeGroup[] = [];
@@ -383,6 +428,8 @@ function findMatchingChange(
 function buildFeedItems(
   model: AgentRunDisplayModel,
   changes: ReadonlyArray<CodexRunChangeGroup>,
+  terminalAssistantCardId?: string,
+  narrativeByCardId: ReadonlyMap<string, string> = new Map(),
 ): CodexRunFeedItem[] {
   const feed: CodexRunFeedItem[] = [];
   const usedChangeIds = new Set<string>();
@@ -426,6 +473,23 @@ function buildFeedItems(
 
   for (const card of model.timelineCards) {
     if (card.kind === "warning" || card.kind === "error" || card.kind === "debug-raw-event") continue;
+    if (card.kind === "final-answer") {
+      if (card.id === terminalAssistantCardId) continue;
+      const text = (narrativeByCardId.get(card.id) || assistantNarrativeText(card)).trim();
+      if (!text) continue;
+      feed.push({
+        id: `feed-${card.id}`,
+        kind: "assistant",
+        icon: "message-square",
+        label: "Thinking",
+        status: card.status,
+        summary: text,
+        detail: card.text,
+        timestamp: card.timestamp,
+        sourceRef: card.sourceRef,
+      });
+      continue;
+    }
     if (card.kind === "thinking") {
       feed.push({
         id: `feed-${card.id}`,
@@ -521,24 +585,12 @@ function buildFeedItems(
     usedChangeIds.add(change.id);
   }
 
-  if (feed.length > 0 && feed[0].kind !== "thinking") {
-    const lead = feed[0];
-    feed.unshift({
-      id: "feed-thinking-synthetic",
-      kind: "thinking",
-      icon: stepIcon("thinking"),
-      label: "Thinking",
-      status: lead.status === "running" || lead.status === "pending" || lead.status === "failed"
-        ? lead.status
-        : "completed",
-      summary: "Reasoning summary not provided by Codex.",
-      detail: "Provider did not expose a reasoning summary for this batch.",
-      timestamp: lead.timestamp,
-      sourceRef: lead.sourceRef,
-    });
-  }
-
-  return feed;
+  return feed.filter((item) => {
+    if (item.kind !== "thinking") return true;
+    if ((item.summary || "").trim().length > 0) return true;
+    if ((item.detail || "").trim().length > 0) return true;
+    return item.status === "running" || item.status === "pending";
+  });
 }
 
 function buildStepGroups(model: AgentRunDisplayModel): CodexRunStepGroup[] {
@@ -641,7 +693,8 @@ export function buildCodexRunViewModel(
 ): CodexRunViewModel {
   const stepGroups = buildStepGroups(model);
   const changeGroups = buildChangeGroups(model, turnView, options.cwd);
-  const feedItems = buildFeedItems(model, changeGroups);
+  const { finalAnswer, terminalAssistantCardId, narrativeByCardId } = resolveCodexAssistantNarratives(model, options.status);
+  const feedItems = buildFeedItems(model, changeGroups, terminalAssistantCardId, narrativeByCardId);
   const approvalGates = buildApprovalGates(model);
   const diagnosticsGroups = buildDiagnosticsGroups(model);
   const kind = statusKind(options.status, model);
@@ -671,7 +724,7 @@ export function buildCodexRunViewModel(
     feedItems,
     approvalGates,
     diagnosticsGroups,
-    finalAnswer: model.finalAnswer,
+    finalAnswer,
     debugPanel: options.developerMode ? model.debugView : undefined,
   };
 }

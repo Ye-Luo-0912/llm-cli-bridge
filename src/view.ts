@@ -5022,7 +5022,7 @@ export class LLMBridgeView extends ItemView {
       });
       const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
       if (processCollapsedByDefault) processBody.setAttribute("hidden", "");
-      if (processFeedItems.length > 0) this.renderCodexFeed(processBody, processFeedItems, developerMode);
+      if (processFeedItems.length > 0) this.renderCodexFeed(processBody, processFeedBatches, developerMode);
       if (diagnosticsForDisplay.length > 0) this.renderCodexDiagnosticsDrawer(processBody, diagnosticsForDisplay, developerMode);
       if (developerMode && run.debugPanel) this.renderAgentRunDebugView(processBody, run.debugPanel);
 
@@ -5131,10 +5131,14 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  private renderCodexFeed(parent: HTMLElement, items: ReadonlyArray<CodexRunFeedItem>, developerMode: boolean): void {
+  private renderCodexFeed(
+    parent: HTMLElement,
+    batches: ReadonlyArray<ReadonlyArray<CodexRunFeedItem>>,
+    developerMode: boolean,
+  ): void {
     const section = parent.createDiv({ cls: "llm-bridge-codex-feed llm-bridge-codex-changes-panel" });
     const list = section.createDiv({ cls: "llm-bridge-codex-feed-list llm-bridge-codex-step-list" });
-    for (const batch of this.groupCodexFeedBatches(items)) {
+    for (const batch of batches) {
       this.renderCodexFeedBatch(list, batch, developerMode);
     }
   }
@@ -5142,13 +5146,21 @@ export class LLMBridgeView extends ItemView {
   private groupCodexFeedBatches(items: ReadonlyArray<CodexRunFeedItem>): CodexRunFeedItem[][] {
     const batches: CodexRunFeedItem[][] = [];
     let current: CodexRunFeedItem[] = [];
+    let currentStartsWithNarrative = false;
     for (const item of items) {
-      const startsNewBatch = item.kind === "thinking";
-      if (current.length > 0 && startsNewBatch) {
+      const startsNewBatch = item.kind === "thinking" || item.kind === "assistant";
+      if (startsNewBatch) {
+        if (current.length > 0) batches.push(current);
+        current = [item];
+        currentStartsWithNarrative = true;
+        continue;
+      }
+      if (current.length > 0 && !currentStartsWithNarrative) {
         batches.push(current);
         current = [];
       }
       current.push(item);
+      if (current.length === 1) currentStartsWithNarrative = false;
     }
     if (current.length > 0) batches.push(current);
     return batches;
@@ -5165,7 +5177,8 @@ export class LLMBridgeView extends ItemView {
   ): void {
     if (batch.length === 0) return;
     const lead = batch[0];
-    const bodyItems = lead.kind === "thinking" ? batch.slice(1) : batch;
+    const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";
+    const bodyItems = leadIsNarrative ? batch.slice(1) : batch;
     const eventCount = bodyItems.filter((item) => this.isCodexFeedEvent(item)).length;
     const batchEl = parent.createDiv({
       cls: `llm-bridge-codex-feed-batch is-${lead.status}${bodyItems.length === 0 ? " is-summary-only" : ""}`,
@@ -5175,7 +5188,9 @@ export class LLMBridgeView extends ItemView {
     if (bodyItems.length === 0) return;
     const body = batchEl.createDiv({ cls: "llm-bridge-codex-feed-batch-body" });
     if (lead.kind === "thinking" && this.shouldRenderExpandedThinkingLine(lead, developerMode)) {
-      this.renderCodexFeedThinking(body, lead);
+      this.renderCodexFeedThinking(body, lead, batch);
+    } else if (lead.kind === "assistant" && developerMode) {
+      this.renderCodexFeedNarrative(body, lead);
     }
     bodyItems.forEach((item) => {
       this.renderCodexFeedItem(body, item, developerMode, this.isCodexFeedEvent(item));
@@ -5190,23 +5205,39 @@ export class LLMBridgeView extends ItemView {
   ): void {
     const lead = batch[0];
     const leadIsThinking = lead.kind === "thinking";
-    const bodyItems = leadIsThinking ? batch.slice(1) : batch;
+    const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";
+    const syntheticNarrative = !leadIsNarrative
+      && (lead.kind === "command" || lead.kind === "file" || lead.kind === "mcp" || lead.kind === "dynamic");
     const label = leadIsThinking
       ? "Thinking"
       : lead.kind === "assistant"
         ? "Thinking"
+        : syntheticNarrative
+          ? "Thinking"
         : lead.label || "Step";
     const batchSummary = leadIsThinking
-      ? this.formatCodexFeedSummary(lead, developerMode).trim()
+      ? this.formatCodexThinkingBatchSummary(batch, developerMode)
+      : lead.kind === "assistant"
+        ? this.formatCodexFeedSummary(lead, developerMode).trim() || this.formatCodexThinkingFallbackFromBatch(batch)
+      : syntheticNarrative
+        ? this.formatCodexThinkingFallbackFromBatch(batch) || this.formatCodexBatchSummary(batch, developerMode)
       : this.formatCodexBatchSummary(batch, developerMode);
 
     const textWrap = parent.createDiv({ cls: "llm-bridge-codex-feed-batch-summary-main" });
     textWrap.createEl("span", { cls: "llm-bridge-codex-feed-batch-label", text: label });
-    textWrap.createEl("span", {
-      cls: `llm-bridge-codex-feed-batch-text${batchSummary ? "" : " is-placeholder"}`,
-      text: batchSummary ? truncateText(batchSummary, 420) : "Reasoning summary not provided by Codex.",
-      attr: { title: batchSummary || "Provider did not expose a reasoning summary for this batch." },
-    });
+    if (batchSummary) {
+      textWrap.createEl("span", {
+        cls: "llm-bridge-codex-feed-batch-text",
+        text: truncateText(batchSummary, 420),
+        attr: { title: batchSummary },
+      });
+    } else if (!leadIsNarrative) {
+      textWrap.createEl("span", {
+        cls: "llm-bridge-codex-feed-batch-text",
+        text: truncateText(lead.label || "", 180),
+        attr: { title: lead.label || "" },
+      });
+    }
 
     const meta = parent.createDiv({ cls: "llm-bridge-codex-feed-batch-meta" });
     if (eventCount > 0) {
@@ -5230,6 +5261,52 @@ export class LLMBridgeView extends ItemView {
     return firstEvent?.label ?? batch[0]?.label ?? "";
   }
 
+  private formatCodexThinkingBatchSummary(
+    batch: ReadonlyArray<CodexRunFeedItem>,
+    developerMode: boolean,
+  ): string {
+    const lead = batch[0];
+    if (!lead) return "";
+    const summary = this.formatCodexFeedSummary(lead, developerMode).trim();
+    if (summary) return summary;
+    return this.formatCodexThinkingFallbackFromBatch(batch);
+  }
+
+  private formatCodexThinkingFallbackFromBatch(
+    batch: ReadonlyArray<CodexRunFeedItem>,
+  ): string {
+    const items = batch[0] && (batch[0].kind === "thinking" || batch[0].kind === "assistant")
+      ? batch.slice(1)
+      : batch;
+    const actions = items
+      .map((item) => this.formatCodexThinkingFallbackAction(item))
+      .filter(Boolean);
+    if (actions.length === 0) return "";
+    if (actions.length === 1) return actions[0];
+    if (actions.length === 2) return `${actions[0]}, then ${actions[1]}`;
+    return `${actions.slice(0, 2).join(", ")}, then ${actions.length - 2} more step${actions.length - 2 === 1 ? "" : "s"}`;
+  }
+
+  private formatCodexThinkingFallbackAction(item: CodexRunFeedItem): string {
+    if (item.kind === "assistant") {
+      const text = this.formatCodexFeedSummary(item, false).trim();
+      return text ? truncateText(text, 120) : "";
+    }
+    if (item.kind === "command") return "run a command";
+    if (item.change) {
+      const fileLabel = item.change.fileName || item.change.relativePath || "a file";
+      if (item.change.action === "create") return `create ${fileLabel}`;
+      if (item.change.action === "delete") return `delete ${fileLabel}`;
+      return `edit ${fileLabel}`;
+    }
+    if (item.kind === "approval") return "wait for approval";
+    if (item.kind === "user-input") return "wait for input";
+    if (item.kind === "mcp") return item.label ? `use ${item.label}` : "use an MCP tool";
+    if (item.kind === "dynamic") return item.label ? `use ${item.label}` : "use a tool";
+    if (item.label) return item.label.replace(/\.$/, "");
+    return "";
+  }
+
   private formatCodexProcessPreview(
     batches: ReadonlyArray<ReadonlyArray<CodexRunFeedItem>>,
     developerMode: boolean,
@@ -5244,7 +5321,7 @@ export class LLMBridgeView extends ItemView {
           ? "Thinking"
           : lead.label || "Step";
       const batchSummary = leadIsThinking
-        ? this.formatCodexFeedSummary(lead, developerMode).trim()
+        ? this.formatCodexThinkingBatchSummary(batch, developerMode)
         : this.formatCodexBatchSummary(batch, developerMode).trim();
       if (label === "Thinking") return batchSummary ? `Thinking · ${batchSummary}` : "Thinking";
       if (batchSummary) return batchSummary;
@@ -5332,17 +5409,20 @@ export class LLMBridgeView extends ItemView {
     this.renderCodexSourceRef(row, item.sourceRef, developerMode);
   }
 
-  private renderCodexFeedThinking(parent: HTMLElement, item: CodexRunFeedItem): void {
-    const summary = this.formatCodexFeedSummary(item, false).trim();
+  private renderCodexFeedThinking(parent: HTMLElement, item: CodexRunFeedItem, batch?: ReadonlyArray<CodexRunFeedItem>): void {
+    const summary = this.formatCodexFeedSummary(item, false).trim()
+      || (batch ? this.formatCodexThinkingFallbackFromBatch(batch) : "");
     const row = parent.createDiv({ cls: `llm-bridge-codex-thinking-line is-${item.status}` });
     row.setAttribute("data-step-kind", item.kind);
     if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
     row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: "Thinking" });
-    row.createEl("span", {
-      cls: `llm-bridge-codex-thinking-summary${summary ? "" : " is-placeholder"}`,
-      text: summary ? truncateText(summary, 360) : "Reasoning summary not provided by Codex.",
-      attr: { title: summary || "Provider did not expose a reasoning summary for this step." },
-    });
+    if (summary) {
+      row.createEl("span", {
+        cls: "llm-bridge-codex-thinking-summary",
+        text: truncateText(summary, 360),
+        attr: { title: summary },
+      });
+    }
   }
 
   private shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, developerMode: boolean): boolean {

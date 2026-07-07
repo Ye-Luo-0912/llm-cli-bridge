@@ -2492,6 +2492,39 @@ if (runMode !== "all" && runMode !== "unit") {
       addTest("V17-G CodexRunViewModel: final answer 不重复进入 process feed",
         finalSeparatedOk ? "pass" : "fail",
         `final=${JSON.stringify(finalOnlyRun.finalAnswer)} feedKinds=${finalOnlyRun.feedItems.map((item) => item.kind).join(">")}`);
+
+      const interleavedEvents = [
+        mkEvent({ kind: "thinking", text: "" }, 1),
+        mkEvent({ kind: "message", role: "assistant", text: "先读配置，再检查 runtime 状态。", partial: false }, 2),
+        mkEvent({ kind: "tool_start", toolName: "Bash", toolInput: JSON.stringify({ command: "Get-Content settings.json", cwd: "D:/repo" }), callId: "cmd-v17g-interleaved-1" }, 3),
+        mkEvent({ kind: "tool_result", callId: "cmd-v17g-interleaved-1", toolName: "Bash", output: "{\\\"ok\\\":true}\\n", isError: false }, 4),
+        mkEvent({ kind: "message", role: "assistant", text: "先读配置，再检查 runtime 状态。配置没问题，接着创建 smoke 文件。", partial: false }, 5),
+        mkEvent({ kind: "file_change", action: "create", path: "D:/repo/_llm_bridge_smoke/run.md", diff: "--- /dev/null\n+++ b/_llm_bridge_smoke/run.md\n@@\n+done" }, 6),
+        mkEvent({ kind: "message", role: "assistant", text: "先读配置，再检查 runtime 状态。配置没问题，接着创建 smoke 文件。done", partial: false }, 7),
+        mkEvent({ kind: "completed", text: "先读配置，再检查 runtime 状态。配置没问题，接着创建 smoke 文件。done", durationMs: 1400 }, 8),
+      ];
+      const interleavedView = buildAssistantTurnViewFromEvents("turn-v17g-interleaved", "codex-app-server", interleavedEvents, "2026-07-02T00:00:00.000Z");
+      const interleavedModel = buildAgentRunDisplayModel(interleavedView, { developerMode: false });
+      const interleavedRun = buildCodexRunViewModel(interleavedModel, interleavedView, {
+        status: "completed",
+        providerLabel: "codex-managed-app-server",
+        modelLabel: "gpt-codex",
+        cwd: "D:/repo",
+        developerMode: false,
+      });
+      const interleavedFeedKinds = interleavedRun.feedItems.map((item) => item.kind).join(">");
+      const assistantFeedTexts = interleavedRun.feedItems
+        .filter((item) => item.kind === "assistant")
+        .map((item) => item.summary || "")
+        .join(" | ");
+      const interleavedOk = interleavedRun.finalAnswer === "done"
+        && interleavedFeedKinds.startsWith("assistant>command>assistant>file")
+        && assistantFeedTexts.includes("先读配置，再检查 runtime 状态。")
+        && assistantFeedTexts.includes("配置没问题，接着创建 smoke 文件。")
+        && !assistantFeedTexts.includes("done");
+      addTest("V17-G CodexRunViewModel: 中间 assistant narrative 进入 process feed，仅末尾答复进入 final answer",
+        interleavedOk ? "pass" : "fail",
+        `final=${JSON.stringify(interleavedRun.finalAnswer)} feed=${interleavedFeedKinds} assistant=${assistantFeedTexts}`);
     }
 
     // ---------- 5c. P3-C: Developer mode / legacy 分层隔离 ----------
@@ -18878,16 +18911,20 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13h: V17-G7 normal run waterfall hides provider placeholders and warning diagnostics ----
   {
     const ok = codexRunViewModelSrc.includes("function thinkingSummary")
-      && codexRunViewModelSrc.includes('summary: "Reasoning summary not provided by Codex."')
+      && codexRunViewModelSrc.includes("function assistantNarrativeDelta(")
+      && !codexRunViewModelSrc.includes('summary: "Reasoning summary not provided by Codex."')
       && viewSrc.includes("private filterCodexDiagnosticsForDisplay(")
       && viewSrc.includes("if (developerMode) return diagnostics;")
       && viewSrc.includes('diagnostic.severity === "error"')
       && viewSrc.includes("const diagnosticsForDisplay = this.filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode);")
       && viewSrc.includes("if (diagnosticsForDisplay.length > 0) this.renderCodexDiagnosticsDrawer")
       && viewSrc.includes("const processFeedItems = run.feedItems;")
-      && viewSrc.includes('text: summary ? truncateText(summary, 360) : "Reasoning summary not provided by Codex."')
+      && viewSrc.includes("if (summary) {")
+      && !viewSrc.includes('text: summary ? truncateText(summary, 360) : "Reasoning summary not provided by Codex."')
       && uxSmokeSrc.includes("assistant-output-carrier")
-      && uxSmokeSrc.includes("thinkingSummary.length > 0 || inlineOutputTexts.length > 0");
+      && uxSmokeSrc.includes("batch-summary-carrier")
+      && uxSmokeSrc.includes("thinkingSummary.length > 0")
+      && uxSmokeSrc.includes("|| batchThinkingSummary.length > 0");
     addTest("V17-G7 UI: 普通态隐藏 reasoning 占位和 warning diagnostics，assistant 输出承载瀑布流",
       ok ? "pass" : "fail", "");
   }
@@ -18987,12 +19024,22 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13j3: V17-G61 process keeps thinking lead and command shell/output merged ----
   {
-    const ok = codexRunViewModelSrc.includes('if (feed.length > 0 && feed[0].kind !== "thinking") {')
-      && codexRunViewModelSrc.includes('label: "Thinking"')
-      && codexRunViewModelSrc.includes('detail: "Provider did not expose a reasoning summary for this batch."')
+    const ok = codexRunViewModelSrc.includes("function assistantNarrativeDelta(")
+      && codexRunViewModelSrc.includes("const terminalDelta = (narrativeByCardId.get(terminal.id) || \"\").trim();")
+      && codexRunViewModelSrc.includes("return item.status === \"running\" || item.status === \"pending\";")
+      && codexRunViewModelSrc.includes('kind: "assistant"')
       && viewSrc.includes("const processFeedItems = run.feedItems;")
+      && viewSrc.includes("if (processFeedItems.length > 0) this.renderCodexFeed(processBody, processFeedBatches, developerMode);")
       && viewSrc.includes('if (lead.kind === "thinking" && this.shouldRenderExpandedThinkingLine(lead, developerMode)) {')
-      && viewSrc.includes('text: batchSummary ? truncateText(batchSummary, 420) : "Reasoning summary not provided by Codex.",')
+      && viewSrc.includes("private formatCodexThinkingBatchSummary(")
+      && viewSrc.includes("private formatCodexThinkingFallbackFromBatch(")
+      && viewSrc.includes('if (actions.length === 1) return actions[0];')
+      && viewSrc.includes('if (item.kind === "command") return "run a command";')
+      && viewSrc.includes('if (item.change.action === "create") return `create ${fileLabel}`;')
+      && viewSrc.includes('const startsNewBatch = item.kind === "thinking" || item.kind === "assistant";')
+      && viewSrc.includes('} else if (lead.kind === "assistant" && developerMode) {')
+      && viewSrc.includes("if (batchSummary) {")
+      && !viewSrc.includes('text: batchSummary ? truncateText(batchSummary, 420) : "Reasoning summary not provided by Codex.",')
       && viewSrc.includes("private shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, developerMode: boolean): boolean {")
       && viewSrc.includes("private buildCodexShellPanelText(step: CodexRunStepGroup): string")
       && viewSrc.includes('text: panelText,')
@@ -19000,7 +19047,7 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes("V17-G61: stable thinking lead + merged shell/output waterfall blocks")
       && stylesSrc.includes(".llm-bridge-codex-shell-pre {")
       && uxSmokeSrc.includes("codexRunShellOutputMerged");
-    addTest("V17-G61 UI: thinking 占位稳定存在，shell/output 合并为单块瀑布事件",
+    addTest("V17-G61 UI: assistant narrative 增量化，去掉假 thinking 占位，shell/output 合并为单块瀑布事件",
       ok ? "pass" : "fail", "");
   }
 
@@ -19509,7 +19556,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('this.historyToggleChevronEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-chevron", text: "▶" });')
       && viewSrc.includes('this.historyToggleLabelEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-label", text: "Sessions" });')
       && viewSrc.includes('this.historyToggleCountEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-count", text: "0" });')
-      && viewSrc.includes('const bodyItems = lead.kind === "thinking" ? batch.slice(1) : batch;')
+      && viewSrc.includes('const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";')
+      && viewSrc.includes('const bodyItems = leadIsNarrative ? batch.slice(1) : batch;')
       && viewSrc.includes('text: `${eventCount} ${eventCount === 1 ? "step" : "steps"}`')
       && stylesSrc.includes("V17-G53: waterfall batches, calmer sessions, right-aligned user previews")
       && stylesSrc.includes(".llm-bridge-history-toggle-label")

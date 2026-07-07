@@ -593,10 +593,17 @@ const CDP_PROBE = `
     const feedItems = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-feed-item") ?? []);
     const thinkingLines = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-thinking-line") ?? []);
     const feedBatches = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-feed-batch") ?? []);
+    const feedBatchSummaries = feedBatches.map((batch) => ({
+      label: batch.querySelector?.(".llm-bridge-codex-feed-batch-label")?.textContent?.trim() || "",
+      text: batch.querySelector?.(".llm-bridge-codex-feed-batch-text")?.textContent?.trim() || "",
+    }));
     const nestedEvents = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-feed-item.is-batch-event") ?? []);
     const feedKinds = feedItems.map((el) => el.getAttribute("data-step-kind") || "unknown");
     const thinkingItem = thinkingLines[0] ?? feedItems.find((el) => (el.getAttribute("data-step-kind") || "") === "thinking");
     const thinkingSummary = thinkingItem?.querySelector?.(".llm-bridge-codex-thinking-summary, .llm-bridge-codex-feed-summary")?.textContent?.trim() || "";
+    const batchThinkingSummary = feedBatchSummaries
+      .find((batch) => batch.label === "Thinking" && batch.text.length > 0)
+      ?.text || "";
     const outputLabels = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-feed-item.is-assistant .llm-bridge-codex-feed-label") ?? [])
       .map((el) => el.textContent?.trim() || "");
     const inlineOutputTexts = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-feed-output-text") ?? [])
@@ -606,9 +613,13 @@ const CDP_PROBE = `
     codexRunFeedItemCount = feedItems.length;
     codexRunNestedEventCount = nestedEvents.length;
     codexRunFeedSequence = [...thinkingLines.map(() => "thinking"), ...feedKinds].join(">");
-    codexRunThinkingCarrierObserved = thinkingSummary.length > 0 || inlineOutputTexts.length > 0;
+    codexRunThinkingCarrierObserved = thinkingSummary.length > 0
+      || batchThinkingSummary.length > 0
+      || inlineOutputTexts.length > 0;
     codexRunThinkingCarrierStatus = thinkingSummary
       ? "summary-visible"
+      : batchThinkingSummary
+        ? "batch-summary-carrier"
       : inlineOutputTexts.length > 0
         ? "assistant-output-carrier"
         : "empty";
@@ -616,7 +627,12 @@ const CDP_PROBE = `
       && !/Assistant output/i.test(normalText)
       && outputLabels.every((label) => label === "Output");
     codexRunWaterfallFeedObserved = feedItems.length >= 2
-      && (thinkingLines.length > 0 || feedKinds.includes("thinking") || feedKinds.includes("assistant"))
+      && (
+        thinkingLines.length > 0
+        || feedKinds.includes("thinking")
+        || feedKinds.includes("assistant")
+        || feedBatchSummaries.some((batch) => batch.label === "Thinking" && batch.text.length > 0)
+      )
       && feedKinds.some((kind) => ["command", "file", "mcp", "dynamic"].includes(kind));
     codexRunFeedBatchObserved = feedBatches.length >= 1 && nestedEvents.length >= 1;
     changesPanelVisible = !!view.containerEl?.querySelector?.(".llm-bridge-codex-changes-panel .llm-bridge-codex-change-row");
