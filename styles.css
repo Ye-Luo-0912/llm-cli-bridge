@@ -10165,6 +10165,421 @@
   background: color-mix(in srgb, var(--text-warning) 58%, var(--text-muted));
 }
 
+/* ===== V17-G40: thumbnail-only user attachments and lighter file preview ===== */
+.llm-bridge-composer-file-refs {
+  gap: 5px;
+  max-width: min(240px, 100%);
+  padding: 0 2px 6px;
+}
+
+.llm-bridge-composer-file-chip,
+.llm-bridge-composer-file-chip:not(.is-preview-only),
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
+  flex: 0 0 34px;
+  width: 34px;
+  min-width: 34px;
+  max-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  max-height: 34px;
+  border-radius: 9px;
+}
+
+.llm-bridge-composer-file-thumb,
+.llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb,
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
+  width: 30px;
+  min-width: 30px;
+  max-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  max-height: 30px;
+  border-radius: 8px;
+}
+
+.llm-bridge-composer-file-remove,
+.llm-bridge-composer-file-pin {
+  top: -5px;
+  width: 16px;
+  min-width: 16px;
+  height: 16px;
+  min-height: 16px;
+}
+
+.llm-bridge-composer-file-remove {
+  right: -5px;
+}
+
+.llm-bridge-composer-file-pin {
+  left: -5px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
+  order: -1;
+  align-self: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: min(220px, 100%);
+  margin: 0 0 8px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
+  box-sizing: border-box;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 44px !important;
+  width: 44px !important;
+  min-width: 44px !important;
+  max-width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  max-height: 44px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--background-secondary) 42%, var(--background-primary));
+  box-shadow: none;
+  line-height: 0;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:hover {
+  border-color: color-mix(in srgb, var(--text-muted) 18%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 54%, var(--background-primary));
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
+  display: block !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  max-height: 100% !important;
+  margin: 0;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image-placeholder {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {
+  padding: 8px 7px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext {
+  display: none !important;
+}
+
+.llm-bridge-file-preview-modal {
+  gap: 10px;
+}
+
+.llm-bridge-file-preview {
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--background-secondary) 30%, var(--background-primary));
+}
+
+.llm-bridge-file-preview-path {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--text-muted) 82%, transparent);
+  font-size: var(--font-smallest);
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  user-select: text;
+  white-space: nowrap;
+}
+
+/* ===== V17-G39: codex run hierarchy + calmer topbar/history/composer ===== */
+.llm-bridge-topbar {
+  gap: 10px;
+  padding: 12px 18px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  background: color-mix(in srgb, var(--background-primary) 94%, transparent);
+  backdrop-filter: blur(14px);
+}
+
+.llm-bridge-topbar-brand {
+  gap: 8px;
+}
+
+.llm-bridge-topbar-logo,
+.llm-bridge-topbar-logo svg {
+  width: 16px;
+  height: 16px;
+}
+
+.llm-bridge-topbar-title {
+  font-size: 15px;
+  font-weight: 650;
+  color: var(--text-normal);
+}
+
+.llm-bridge-page-title {
+  color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 520;
+}
+
+.llm-bridge-session-selector {
+  min-width: 0;
+  max-width: min(380px, 42vw);
+  gap: 8px;
+  padding: 0 12px;
+  border-color: color-mix(in srgb, var(--text-muted) 10%, transparent);
+  background: color-mix(in srgb, var(--background-primary) 88%, var(--background-secondary));
+  box-shadow: none;
+}
+
+.llm-bridge-session-kicker {
+  display: none;
+}
+
+.llm-bridge-session-icon,
+.llm-bridge-session-icon svg,
+.llm-bridge-session-caret,
+.llm-bridge-session-caret svg {
+  width: 13px;
+  height: 13px;
+}
+
+.llm-bridge-sb-session-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.llm-bridge-header-right {
+  gap: 8px;
+}
+
+.llm-bridge-new-chat-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-color: color-mix(in srgb, var(--text-muted) 10%, transparent);
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
+}
+
+.llm-bridge-new-chat-btn .llm-bridge-icon,
+.llm-bridge-new-chat-btn .llm-bridge-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.llm-bridge-new-chat-label {
+  font-size: 12px;
+  font-weight: 560;
+}
+
+.llm-bridge-runtime-status {
+  min-height: 32px;
+  padding: 0 12px;
+  border-color: color-mix(in srgb, var(--text-muted) 10%, transparent);
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
+}
+
+.llm-bridge-composer-file-refs {
+  width: 100%;
+  max-width: none;
+  padding: 2px 0 8px;
+  justify-content: flex-start;
+}
+
+.llm-bridge-input-row {
+  align-items: flex-end;
+}
+
+.llm-bridge-history-head {
+  align-items: center;
+  gap: 8px;
+  padding: 2px 2px 10px;
+}
+
+.llm-bridge-history-toggle {
+  min-height: 28px;
+  padding: 0 4px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.llm-bridge-history-refresh-btn .llm-bridge-icon,
+.llm-bridge-history-refresh-btn .llm-bridge-icon svg,
+.llm-bridge-history-edit-btn .llm-bridge-icon,
+.llm-bridge-history-edit-btn .llm-bridge-icon svg,
+.llm-bridge-history-del-btn .llm-bridge-icon,
+.llm-bridge-history-del-btn .llm-bridge-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.llm-bridge-history-item {
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  border-left-width: 1px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--background-primary) 86%, var(--background-secondary));
+  box-shadow: none;
+}
+
+.llm-bridge-history-item.is-completed,
+.llm-bridge-history-item.is-failed,
+.llm-bridge-history-item.is-stopped {
+  border-left-width: 1px;
+}
+
+.llm-bridge-history-main {
+  gap: 5px;
+  padding: 10px 12px;
+}
+
+.llm-bridge-history-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.llm-bridge-history-meta {
+  font-size: 11px;
+}
+
+.llm-bridge-history-preview {
+  color: color-mix(in srgb, var(--text-muted) 82%, transparent);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.llm-bridge-codex-run-body {
+  display: grid;
+  gap: 12px;
+  padding-top: 10px;
+}
+
+.llm-bridge-codex-current-activity {
+  margin: 0;
+  padding: 0 2px;
+}
+
+.llm-bridge-codex-process {
+  display: grid;
+  gap: 8px;
+}
+
+.llm-bridge-codex-process-head {
+  padding: 0 2px;
+}
+
+.llm-bridge-codex-process-body {
+  display: grid;
+  gap: 10px;
+}
+
+.llm-bridge-codex-process-body[hidden] {
+  display: none;
+}
+
+.llm-bridge-codex-section-title,
+.llm-bridge-codex-final-answer-title {
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 620;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.llm-bridge-codex-feed-batch {
+  display: grid;
+  gap: 8px;
+  padding-left: 14px;
+  border-left: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
+}
+
+.llm-bridge-codex-thinking-line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 0 2px;
+}
+
+.llm-bridge-codex-thinking-label {
+  color: var(--text-normal);
+  font-size: 12px;
+  font-weight: 620;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-thinking-summary {
+  color: color-mix(in srgb, var(--text-muted) 88%, transparent);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.llm-bridge-codex-event-block,
+.llm-bridge-codex-change-row {
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--background-primary) 88%, var(--background-secondary));
+  box-shadow: none;
+}
+
+.llm-bridge-codex-event-summary {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.llm-bridge-codex-event-body {
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.llm-bridge-codex-feed-output {
+  padding: 0 2px 0 18px;
+}
+
+.llm-bridge-codex-feed-output-text {
+  color: var(--text-normal);
+  line-height: 1.6;
+}
+
+.llm-bridge-codex-final-answer {
+  display: grid;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 14%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
+}
+
+.llm-bridge-codex-final-answer-body {
+  color: var(--text-normal);
+}
+
+.llm-bridge-codex-final-answer-body > :first-child {
+  margin-top: 0;
+}
+
+.llm-bridge-codex-final-answer-body > :last-child {
+  margin-bottom: 0;
+}
+
 /* ===== V17-G38: text-aware file thumbnails and calmer session surfaces ===== */
 .llm-bridge-topbar-logo,
 .llm-bridge-session-icon,
@@ -11821,4 +12236,113 @@
 .llm-bridge-composer-status-rail.is-blocked .llm-bridge-composer-step-pill::before,
 .llm-bridge-composer-status-rail.is-failed .llm-bridge-composer-step-pill::before {
   background: color-mix(in srgb, var(--text-warning) 58%, var(--text-muted));
+}
+
+/* ===== V17-G40R3: actual end-of-file overrides ===== */
+.llm-bridge-composer-file-refs {
+  gap: 5px !important;
+  max-width: min(240px, 100%) !important;
+  padding: 0 2px 6px !important;
+}
+
+.llm-bridge-composer-file-chip,
+.llm-bridge-composer-file-chip:not(.is-preview-only),
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
+  flex: 0 0 34px !important;
+  width: 34px !important;
+  min-width: 34px !important;
+  max-width: 34px !important;
+  height: 34px !important;
+  min-height: 34px !important;
+  max-height: 34px !important;
+  border-radius: 9px !important;
+}
+
+.llm-bridge-composer-file-thumb,
+.llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb,
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
+  width: 30px !important;
+  min-width: 30px !important;
+  max-width: 30px !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  max-height: 30px !important;
+  border-radius: 8px !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
+  order: -1 !important;
+  align-self: flex-end !important;
+  justify-content: flex-end !important;
+  gap: 6px !important;
+  max-width: min(220px, 100%) !important;
+  margin: 0 0 8px !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 44px !important;
+  width: 44px !important;
+  min-width: 44px !important;
+  max-width: 44px !important;
+  height: 44px !important;
+  min-height: 44px !important;
+  max-height: 44px !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  border-radius: 11px !important;
+  line-height: 0 !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
+  display: block !important;
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  max-height: 100% !important;
+  margin: 0 !important;
+  border-radius: inherit !important;
+  object-fit: cover !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image-placeholder {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: inherit !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext {
+  display: none !important;
+}
+
+.llm-bridge-file-preview-path {
+  overflow: hidden !important;
+  color: color-mix(in srgb, var(--text-muted) 82%, transparent) !important;
+  font-size: var(--font-smallest) !important;
+  line-height: 1.35 !important;
+  text-overflow: ellipsis !important;
+  user-select: text !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-codex-process-body[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-codex-final-answer {
+  display: grid !important;
+  gap: 8px !important;
+  padding: 12px 14px !important;
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 14%, transparent) !important;
+  border-radius: 14px !important;
 }

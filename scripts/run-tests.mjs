@@ -13162,7 +13162,8 @@ if (!runV28Unit) {
 
     // ---- Test 15: view.ts 含编辑按钮（✎）----
     {
-      const ok = viewSrc.includes("llm-bridge-history-edit-btn") && viewSrc.includes("✎");
+      const ok = viewSrc.includes("llm-bridge-history-edit-btn")
+        && viewSrc.includes('setIcon(editBtn.createEl("span", { cls: "llm-bridge-icon" }), "pencil");');
       addTest("V2.8 view.ts: 历史列表项含编辑按钮", ok ? "pass" : "fail", "");
     }
 
@@ -17360,7 +17361,8 @@ if (!runV214BUnit) {
         && !/llm-bridge-nav-label", text: "Settings"/.test(viewSrc);
       const topBarOk = viewSrc.includes("llm-bridge-topbar")
         && viewSrc.includes("llm-bridge-session-selector")
-        && viewSrc.includes("+ 新聊天")
+        && viewSrc.includes('cls: "llm-bridge-new-chat-label", text: "新聊天"')
+        && viewSrc.includes('setIcon(this.clearBtn.createEl("span", { cls: "llm-bridge-icon" }), "plus");')
         && viewSrc.includes("llm-bridge-settings-btn")
         && viewSrc.includes("llm-bridge-runtime-status");
       const composerOk = viewSrc.includes("llm-bridge-composer-bar")
@@ -17420,7 +17422,8 @@ if (!runV214BUnit) {
       const topbarOk = !viewSrc.includes("const refreshBtn = headerRight.createEl")
         && viewSrc.includes("llm-bridge-runtime-status")
         && viewSrc.includes("llm-bridge-settings-btn")
-        && viewSrc.includes("+ 新聊天");
+        && viewSrc.includes('cls: "llm-bridge-new-chat-label", text: "新聊天"')
+        && viewSrc.includes('setIcon(this.clearBtn.createEl("span", { cls: "llm-bridge-icon" }), "plus");');
       const collapsedDetailsOk = viewSrc.includes("failed ? \"查看详情\" : \"stderr\"")
         && viewSrc.includes("const startOpen = false")
         && viewSrc.includes("this.createCollapsibleSection(details, \"debug log\"")
@@ -18642,6 +18645,19 @@ if (!runNoteSummarizeSmoke) {
     addTest("V2.16-D composer: 拖拽/粘贴文件入口存在，普通复制文本保持文本", ok ? "pass" : "fail", "");
   }
 
+  {
+    const ok = viewSrc.includes("shouldPersistPathlessAttachmentBlob")
+      && viewSrc.includes("isClipboardTextBlob")
+      && viewSrc.includes('if (!/^paste$/i.test(source)) return true;')
+      && viewSrc.includes("return !this.isClipboardTextBlob(file);")
+      && viewSrc.includes("options?: { allowRawAbsolutePaths?: boolean }")
+      && viewSrc.includes("if (!isFileUri && !options?.allowRawAbsolutePaths) continue;")
+      && viewSrc.includes('addText(text.replace(/\\0/g, "\\n"), { allowRawAbsolutePaths: format !== "text/uri-list" });')
+      && !viewSrc.includes('candidate.startsWith("./")')
+      && !viewSrc.includes('candidate.startsWith("../")');
+    addTest("V17-G41 composer: 普通复制文本不转附件，仅 clipboard file-list/uri-list 进入附件流", ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 13b: V17-G3 Codex-style composer/files surface ----
   {
     const ok = viewSrc.includes('composer.createDiv({ cls: "llm-bridge-composer-context" })')
@@ -18942,20 +18958,21 @@ if (!runNoteSummarizeSmoke) {
       && !viewSrc.includes("this.renderMessageFileRefs(block, msg.fileRefs)")
       && viewSrc.includes('chip.addClass("has-preview")')
       && viewSrc.includes('chip.addClass("is-preview-only")')
-      && viewSrc.includes('chip.setAttribute("aria-label", ref.displayName)')
+      && viewSrc.includes('"aria-label": `预览 ${ref.displayName}`')
       && viewSrc.includes("private async openFileRefExternally(ref: FileRef): Promise<void>")
       && viewSrc.includes("private async readFileRefPreviewText(ref: FileRef): Promise<string | null>")
       && viewSrc.includes('modal.contentEl.addClass("llm-bridge-file-preview-modal")')
       && viewSrc.includes('cls: "llm-bridge-file-preview-image"')
       && viewSrc.includes('cls: "llm-bridge-file-preview-text"')
+      && viewSrc.includes('cls: "llm-bridge-file-preview-path"')
       && !viewSrc.includes("llm-bridge-file-preview-actions")
-      && stylesSrc.includes("V17-G18: user bubble attachment previews")
-      && stylesSrc.includes("V17-G19: lightweight file preview modal")
+      && (stylesSrc.includes("V17-G18: user bubble attachment previews") || stylesSrc.includes("V17-G40: thumbnail-only user attachments and lighter file preview"))
+      && (stylesSrc.includes("V17-G19: lightweight file preview modal") || stylesSrc.includes(".llm-bridge-file-preview-path"))
       && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments")
-      && stylesSrc.includes(".llm-bridge-msg-attachment-chip.has-preview")
-      && stylesSrc.includes("grid-template-columns: 42px minmax(0, 1fr)")
-      && stylesSrc.includes("width: 42px;")
-      && stylesSrc.includes("height: 42px;")
+      && (stylesSrc.includes(".llm-bridge-msg-attachment-chip.has-preview") || stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview"))
+      && (stylesSrc.includes("grid-template-columns: 42px minmax(0, 1fr)") || stylesSrc.includes("width: 44px !important;"))
+      && (stylesSrc.includes("width: 42px;") || stylesSrc.includes("width: 44px !important;"))
+      && (stylesSrc.includes("height: 42px;") || stylesSrc.includes("height: 44px !important;"))
       && stylesSrc.includes("user-select: text")
       && !stylesSrc.includes(".llm-bridge-file-preview-actions")
       && stylesSrc.includes(".llm-bridge-file-preview-image");
@@ -18966,17 +18983,19 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13n2: V17-G24 image attachments are square preview-only tiles ----
   {
     const ok = viewSrc.includes('chip.addClass("is-preview-only")')
-      && viewSrc.includes('chip.setAttribute("aria-label", ref.displayName)')
-      && viewSrc.includes('chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });')
-      && stylesSrc.includes("V17-G24: Codex-like user attachment tiles and light preview")
-      && stylesSrc.includes(".llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only")
-      && stylesSrc.includes("width: 44px;")
-      && stylesSrc.includes("max-width: 44px;")
-      && stylesSrc.includes("height: 44px;")
+      && viewSrc.includes('"aria-label": `预览 ${ref.displayName}`')
+      && viewSrc.includes('const preview = chip.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });')
+      && !viewSrc.includes('chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });')
+      && stylesSrc.includes("V17-G40: thumbnail-only user attachments and lighter file preview")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only")
+      && stylesSrc.includes("width: 44px !important;")
+      && stylesSrc.includes("max-width: 44px !important;")
+      && stylesSrc.includes("height: 44px !important;")
       && stylesSrc.includes("object-fit: cover;")
-      && stylesSrc.includes(".llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-name")
-      && stylesSrc.includes("display: none;");
-    addTest("V17-G24 UI: user image attachments render as compact square tiles",
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name,")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext")
+      && stylesSrc.includes("display: none !important;");
+    addTest("V17-G24 UI: user image attachments render as compact thumbnail-only tiles",
       ok ? "pass" : "fail", "");
   }
 
@@ -19257,6 +19276,45 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-text")
       && stylesSrc.includes(".llm-bridge-composer-file-doc-line.is-text");
     addTest("V17-G38 UI: 文件缩略块承载真实文本预览，顶部会话/历史表层继续简化",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13ac: V17-G39 run hierarchy separates process from final answer ----
+  {
+    const ok = viewSrc.includes('const processFeedItems = run.feedItems.filter((item) => item.kind !== "assistant");')
+      && viewSrc.includes('if (run.changeGroups.length > 0) this.renderCodexChangesPanel(body, run.changeGroups, developerMode);')
+      && viewSrc.includes('const process = body.createDiv({ cls: "llm-bridge-codex-process" });')
+      && viewSrc.includes('const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });')
+      && viewSrc.includes('if (hasAnswer) this.renderCodexFinalAnswer(body, run.finalAnswer);')
+      && viewSrc.includes("private renderCodexFinalAnswer(parent: HTMLElement, text: string): void {")
+      && viewSrc.includes('setIcon(this.clearBtn.createEl("span", { cls: "llm-bridge-icon" }), "plus");')
+      && viewSrc.includes('setIcon(refreshHistBtn.createEl("span", { cls: "llm-bridge-icon" }), "refresh-cw");')
+      && viewSrc.includes('setIcon(editBtn.createEl("span", { cls: "llm-bridge-icon" }), "pencil");')
+      && viewSrc.includes('setIcon(delBtn.createEl("span", { cls: "llm-bridge-icon" }), "trash-2");')
+      && stylesSrc.includes("V17-G39: codex run hierarchy + calmer topbar/history/composer")
+      && stylesSrc.includes(".llm-bridge-codex-process-body[hidden]")
+      && stylesSrc.includes(".llm-bridge-codex-final-answer")
+      && stylesSrc.includes(".llm-bridge-new-chat-label");
+    addTest("V17-G39 UI: run 过程与最终答案分层，顶部/历史/输入区继续收口",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13ad: V17-G40 user attachments stay thumbnail-only and file preview is lighter ----
+  {
+    const ok = viewSrc.includes('chip.addClass("has-document-preview")')
+      && viewSrc.includes('cls: "llm-bridge-file-preview-path"')
+      && !viewSrc.includes('meta.createEl("span", { text: this.getFileRefShortLabel(ref).toLowerCase() });')
+      && !viewSrc.includes('const text = data.getData("text/plain")')
+      && stylesSrc.includes("V17-G40: thumbnail-only user attachments and lighter file preview")
+      && stylesSrc.includes(".llm-bridge-composer-file-refs")
+      && stylesSrc.includes("max-width: min(240px, 100%);")
+      && stylesSrc.includes(".llm-bridge-file-preview-path")
+      && stylesSrc.includes("user-select: text;")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview")
+      && stylesSrc.includes("display: inline-flex !important;")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name,");
+    addTest("V17-G40 UI: 用户附件保持缩略方块，预览弹窗回归轻量只读",
       ok ? "pass" : "fail", "");
   }
 
