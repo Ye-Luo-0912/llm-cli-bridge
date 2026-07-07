@@ -18719,7 +18719,9 @@ if (!runNoteSummarizeSmoke) {
     const ok = viewSrc.includes("private renderFileContextSection(")
       && viewSrc.includes("private fileRefDisplayPath(ref: FileRef): string")
       && viewSrc.includes("private fileRefModeLabel(ref: FileRef): string")
+      && viewSrc.includes("private fileRefBadgeLabel(ref: FileRef): string")
       && viewSrc.includes("text: this.fileRefDisplayPath(ref)")
+      && viewSrc.includes("text: this.fileRefBadgeLabel(ref)")
       && viewSrc.includes('"Allow once"')
       && viewSrc.includes('"Allow session"')
       && viewSrc.includes('"Deny once"')
@@ -18848,6 +18850,8 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon")
       && stylesSrc.includes(".llm-bridge-approval-btn.is-proceed")
       && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-action svg")
+      && stylesSrc.includes("V17-G14: Codex-like Files page rows")
+      && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-chip + .llm-bridge-context-ref-chip")
       && stylesSrc.includes(".llm-bridge-composer-file-icon svg")
       && stylesSrc.includes(".llm-bridge-composer-file-icon.is-fallback")
       && stylesSrc.includes(".llm-bridge-composer-file-thumb.has-image-preview");

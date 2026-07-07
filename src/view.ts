@@ -3266,7 +3266,7 @@ export class LLMBridgeView extends ItemView {
     const text = chip.createDiv({ cls: "llm-bridge-context-ref-text" });
     text.createEl("span", { cls: "llm-bridge-context-ref-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
     text.createEl("span", { cls: "llm-bridge-context-ref-meta", text: this.fileRefDisplayPath(ref), attr: { title: ref.resolvedPath } });
-    chip.createEl("span", { cls: "llm-bridge-context-ref-mode", text: this.fileRefModeLabel(ref) });
+    chip.createEl("span", { cls: "llm-bridge-context-ref-mode", text: this.fileRefBadgeLabel(ref) });
     if (options.allowPin) {
       const pinActionBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-action is-pin", attr: { title: "Pin to future turns", "aria-label": "Pin to future turns" } });
       setIcon(pinActionBtn, "pin");
@@ -3291,6 +3291,17 @@ export class LLMBridgeView extends ItemView {
         this.removeContextFileRef(ref.id);
       });
     }
+  }
+
+  private fileRefBadgeLabel(ref: FileRef): string {
+    const type = this.getFileRefShortLabel(ref).toLowerCase();
+    if (ref.scope === "pinned") return `pinned · ${type}`;
+    if (ref.scope === "session") return `session · ${type}`;
+    if (ref.kind === "external") return `external · ${type}`;
+    if (this.attachmentTextSnippets.some((item) => item.refId === ref.id || ref.id.startsWith(item.refId))) {
+      return `preview · ${type}`;
+    }
+    return `attached · ${type}`;
   }
 
   private removeMessageFileRef(refId: string): void {

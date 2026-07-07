@@ -9382,3 +9382,55 @@
 .llm-bridge-composer-context .llm-bridge-context-tags {
   min-height: 18px;
 }
+
+/* ===== V17-G14: Codex-like Files page rows ===== */
+.llm-bridge-files-page .llm-bridge-context-section-body {
+  gap: 0;
+  padding: 0 8px 8px;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-chip {
+  min-height: 42px;
+  grid-template-columns: 24px minmax(0, 1fr) max-content 24px 24px;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 9px;
+  box-shadow: none;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-chip + .llm-bridge-context-ref-chip {
+  border-top: 1px solid color-mix(in srgb, var(--text-muted) 7%, transparent);
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-mode {
+  max-width: 16ch;
+  padding: 1px 6px;
+  border: 0;
+  background: color-mix(in srgb, var(--background-secondary) 42%, transparent);
+  color: color-mix(in srgb, var(--text-muted) 86%, transparent);
+  font-size: var(--font-smallest);
+  white-space: nowrap;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-action,
+.llm-bridge-files-page .llm-bridge-context-ref-remove {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-faint);
+  opacity: 0.68;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-action:hover,
+.llm-bridge-files-page .llm-bridge-context-ref-remove:hover,
+.llm-bridge-files-page .llm-bridge-context-ref-action:focus-visible,
+.llm-bridge-files-page .llm-bridge-context-ref-remove:focus-visible {
+  background: color-mix(in srgb, var(--background-modifier-hover) 74%, transparent);
+  color: var(--text-normal);
+  opacity: 1;
+}
