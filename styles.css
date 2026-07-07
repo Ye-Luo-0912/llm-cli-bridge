@@ -11055,3 +11055,67 @@
 .llm-bridge-file-preview-modal .modal-button-container {
   display: none !important;
 }
+
+/* ===== V17-G31: user attachments sit above text and image tiles hide format labels ===== */
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
+  order: -1;
+  align-self: flex-end;
+  margin: 0 0 8px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image .llm-bridge-msg-attachment-ext,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image .llm-bridge-msg-attachment-name {
+  display: none !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image-placeholder {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--background-secondary) 58%, transparent);
+  color: color-mix(in srgb, var(--text-muted) 72%, transparent);
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image-placeholder svg {
+  width: 16px;
+  height: 16px;
+}
+
+/* ===== V17-G32: non-image user attachments use document thumbnails instead of format labels ===== */
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  padding: 9px 8px;
+  border-radius: inherit;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary)) 0%,
+    color-mix(in srgb, var(--background-secondary) 60%, transparent) 100%
+  );
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line {
+  display: block;
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 24%, transparent);
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line:nth-child(2) {
+  width: 78%;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line:nth-child(3) {
+  width: 88%;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line:nth-child(4) {
+  width: 56%;
+}

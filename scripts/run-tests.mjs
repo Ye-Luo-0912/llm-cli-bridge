@@ -19028,8 +19028,8 @@ if (!runNoteSummarizeSmoke) {
     const ok = viewSrc.includes('text: "▶ Skills"')
       && viewSrc.includes('cls: "llm-bridge-agent-skill-icon"')
       && viewSrc.includes('setIcon(icon, skill.enabled ? "sparkles" : "circle-dashed")')
-      && viewSrc.includes('cls: "llm-bridge-msg-attachment-ext is-fallback"')
       && viewSrc.includes('chip.addClass("is-preview-missing")')
+      && viewSrc.includes('cls: "llm-bridge-msg-attachment-image-placeholder"')
       && viewSrc.includes("preview.remove()")
       && viewSrc.includes("不会写入 composer")
       && viewSrc.includes("不会拼进 promptPackage")
@@ -19040,7 +19040,7 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes("align-items: flex-end;")
       && stylesSrc.includes("width: 42px !important;")
       && stylesSrc.includes("max-height: 42px !important;")
-      && stylesSrc.includes(".llm-bridge-msg-attachment-ext.is-fallback")
+      && stylesSrc.includes(".llm-bridge-msg-attachment-image-placeholder")
       && stylesSrc.includes(".llm-bridge-agent-skill-icon")
       && stylesSrc.includes(".llm-bridge-agent-skill-open {")
       && stylesSrc.includes("box-shadow: none !important;")
@@ -19098,6 +19098,35 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-file-preview-container .modal-button-container")
       && stylesSrc.includes(".llm-bridge-file-preview-modal .modal-button-container");
     addTest("V17-G30 UI: 用户输入右侧展示，消息附件为小方块，轻量预览无底部按钮",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13u: V17-G31 user attachments appear above text and image tiles do not expose format labels ----
+  {
+    const ok = viewSrc.includes("parent.prepend(wrap);")
+      && viewSrc.includes('cls: "llm-bridge-msg-attachment-image-placeholder"')
+      && viewSrc.includes('setIcon(placeholder, "image")')
+      && !viewSrc.includes('cls: "llm-bridge-msg-attachment-ext is-fallback"')
+      && stylesSrc.includes("V17-G31: user attachments sit above text and image tiles hide format labels")
+      && stylesSrc.includes("order: -1;")
+      && stylesSrc.includes("margin: 0 0 8px;")
+      && stylesSrc.includes(".llm-bridge-msg-attachment-chip.is-image .llm-bridge-msg-attachment-ext")
+      && stylesSrc.includes(".llm-bridge-msg-attachment-image-placeholder svg");
+    addTest("V17-G31 UI: 用户气泡附件置顶，图片 tile 不显示 PNG/JPG 格式标签",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13v: V17-G32 non-image user attachments render as thumbnail-like document tiles ----
+  {
+    const ok = viewSrc.includes("llm-bridge-msg-attachment-doc-thumb")
+      && viewSrc.includes("llm-bridge-msg-attachment-doc-line")
+      && !viewSrc.includes('chip.createEl("span", { cls: "llm-bridge-msg-attachment-ext", text: this.getFileRefShortLabel(ref) });')
+      && stylesSrc.includes("V17-G32: non-image user attachments use document thumbnails instead of format labels")
+      && stylesSrc.includes(".llm-bridge-msg-attachment-doc-thumb")
+      && stylesSrc.includes(".llm-bridge-msg-attachment-doc-line")
+      && stylesSrc.includes("align-content: center;")
+      && stylesSrc.includes("nth-child(4)");
+    addTest("V17-G32 UI: 非图片附件以文档缩略块展示，不用格式标签占主视觉",
       ok ? "pass" : "fail", "");
   }
 

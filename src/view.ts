@@ -4046,6 +4046,7 @@ export class LLMBridgeView extends ItemView {
 
   private renderMessageFileRefs(parent: HTMLElement, refs: ReadonlyArray<FileRef>): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-msg-attachments" });
+    parent.prepend(wrap);
     for (const ref of refs) {
       const chip = wrap.createEl("button", {
         cls: `llm-bridge-msg-attachment-chip is-${ref.kind} is-${ref.fileType}`,
@@ -4057,16 +4058,25 @@ export class LLMBridgeView extends ItemView {
         chip.addClass("is-preview-only");
         chip.setAttribute("aria-label", ref.displayName);
         const preview = chip.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });
-        chip.createEl("span", { cls: "llm-bridge-msg-attachment-ext is-fallback", text: this.getFileRefShortLabel(ref) });
         chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });
         preview.addEventListener("error", () => {
-          chip.removeClass("has-preview");
-          chip.removeClass("is-preview-only");
           chip.addClass("is-preview-missing");
           preview.remove();
+          const placeholder = chip.createEl("span", { cls: "llm-bridge-msg-attachment-image-placeholder" });
+          setIcon(placeholder, "image");
         });
+      } else if (ref.fileType === "image") {
+        chip.addClass("is-preview-only");
+        chip.addClass("is-preview-missing");
+        chip.setAttribute("aria-label", ref.displayName);
+        const placeholder = chip.createEl("span", { cls: "llm-bridge-msg-attachment-image-placeholder" });
+        setIcon(placeholder, "image");
+        chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });
       } else {
-        chip.createEl("span", { cls: "llm-bridge-msg-attachment-ext", text: this.getFileRefShortLabel(ref) });
+        const docThumb = chip.createEl("span", { cls: `llm-bridge-msg-attachment-doc-thumb is-${ref.fileType}` });
+        for (let i = 0; i < 4; i++) {
+          docThumb.createEl("span", { cls: "llm-bridge-msg-attachment-doc-line" });
+        }
         chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });
       }
       chip.addEventListener("click", () => void this.openFileRefPreview(ref));
