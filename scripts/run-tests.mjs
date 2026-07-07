@@ -19193,6 +19193,21 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13z: V17-G36 composer status is an integrated top row ----
+  {
+    const ok = stylesSrc.includes("V17-G36: composer status is an integrated top row")
+      && stylesSrc.includes(".llm-bridge-composer-status-rule")
+      && stylesSrc.includes("display: none;")
+      && stylesSrc.includes(".llm-bridge-composer-status-line")
+      && stylesSrc.includes("justify-content: flex-start;")
+      && stylesSrc.includes(".llm-bridge-composer-step-pill")
+      && stylesSrc.includes("border: 0;")
+      && stylesSrc.includes("box-shadow: none;")
+      && stylesSrc.includes(".llm-bridge-composer-status-rail.is-running .llm-bridge-composer-step-pill::before");
+    addTest("V17-G36 UI: composer 状态行集成进顶部轻量文本，不回退成按钮横线",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----
   {
     const ok = viewSrc.includes("const vaultRef = this.addVaultFileRef")
