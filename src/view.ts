@@ -3061,11 +3061,25 @@ export class LLMBridgeView extends ItemView {
       const thumb = chip.createEl("span", { cls: "llm-bridge-composer-file-thumb" });
       const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
       if (thumbnailUrl) {
-        thumb.createEl("img", {
-          cls: "llm-bridge-composer-file-image",
-          attr: { src: thumbnailUrl, alt: ref.displayName },
+        thumb.addClass("has-image-preview");
+        thumb.style.setProperty("background-image", `url("${thumbnailUrl.replace(/"/g, '\\"')}")`);
+        const fallback = thumb.createEl("span", { cls: "llm-bridge-composer-file-icon is-fallback" });
+        setIcon(fallback, this.getFileRefIconName(ref));
+        const preview = new Image();
+        preview.addEventListener("load", () => {
+          thumb.addClass("is-preview-loaded");
         });
+        preview.addEventListener("error", () => {
+          thumb.removeClass("has-image-preview");
+          thumb.removeClass("is-preview-loaded");
+          thumb.addClass("is-preview-missing");
+          thumb.style.removeProperty("background-image");
+          chip.addClass("is-thumbnail-fallback");
+        });
+        preview.src = thumbnailUrl;
       } else {
+        const fileIcon = thumb.createEl("span", { cls: "llm-bridge-composer-file-icon" });
+        setIcon(fileIcon, this.getFileRefIconName(ref));
         thumb.createEl("span", { cls: "llm-bridge-composer-file-ext", text: this.getFileRefShortLabel(ref) });
       }
       const fileText = chip.createEl("span", { cls: "llm-bridge-composer-file-text" });
@@ -3107,6 +3121,14 @@ export class LLMBridgeView extends ItemView {
     return "FILE";
   }
 
+  private getFileRefIconName(ref: FileRef): string {
+    if (ref.fileType === "image") return "image";
+    if (ref.fileType === "markdown" || ref.fileType === "text" || ref.fileType === "pdf") return "file-text";
+    if (ref.fileType === "json") return "braces";
+    if (ref.fileType === "binary") return "file";
+    return "file";
+  }
+
   private getFileRefThumbnailUrl(ref: FileRef): string | null {
     const vaultRelPath = this.resolveFileRefVaultPath(ref);
     if (vaultRelPath) {
@@ -3119,15 +3141,22 @@ export class LLMBridgeView extends ItemView {
   }
 
   private fileRefMetaLabel(ref: FileRef): string {
-    const source = ref.scope === "pinned" ? "pinned"
-      : ref.scope === "session" ? "session"
-      : ref.kind === "external" ? "external"
-      : ref.kind === "attachment" ? "attachment"
-      : "vault";
+    const source = this.fileRefSourceLabel(ref);
+    const mode = this.fileRefModeLabel(ref);
+    const type = ref.fileType === "binary" ? this.getFileRefShortLabel(ref).toLowerCase() : ref.fileType;
     const pathText = this.fileRefDisplayPath(ref);
     const parts = pathText.split("/").filter(Boolean);
     const folder = parts.length > 1 ? parts.slice(Math.max(0, parts.length - 3), -1).join("/") : "";
-    return folder ? `${source} · ${folder}` : `${source} · ${ref.fileType}`;
+    const attachmentLabel = mode === "attached" ? type : mode;
+    return folder ? `${source} · ${attachmentLabel} · ${folder}` : `${source} · ${attachmentLabel}`;
+  }
+
+  private fileRefSourceLabel(ref: FileRef): string {
+    if (ref.scope === "pinned") return "pinned";
+    if (ref.scope === "session") return "session";
+    if (ref.kind === "external") return "external";
+    if (ref.kind === "attachment") return "attachment";
+    return "vault";
   }
 
   private fileRefDisplayPath(ref: FileRef): string {
@@ -3232,7 +3261,7 @@ export class LLMBridgeView extends ItemView {
     const chip = container.createDiv({ cls: `llm-bridge-context-ref-chip is-${ref.kind} is-${ref.status}` });
     chip.addEventListener("click", () => void this.openFileRefPreview(ref));
     const icon = chip.createEl("span", { cls: "llm-bridge-context-ref-icon" });
-    setIcon(icon, ref.fileType === "image" ? "image" : ref.fileType === "markdown" ? "file-text" : "file");
+    setIcon(icon, this.getFileRefIconName(ref));
     const text = chip.createDiv({ cls: "llm-bridge-context-ref-text" });
     text.createEl("span", { cls: "llm-bridge-context-ref-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
     text.createEl("span", { cls: "llm-bridge-context-ref-meta", text: this.fileRefDisplayPath(ref), attr: { title: ref.resolvedPath } });
@@ -4547,7 +4576,7 @@ export class LLMBridgeView extends ItemView {
     const label = item.change
       ? `${changeActionText} ${item.change.fileName}`
       : item.kind === "command"
-        ? item.status === "running" ? "正在运行命令" : "已运行命令"
+        ? item.status === "running" ? "Running command" : "Ran command"
         : item.label;
     title.createEl("span", { cls: "llm-bridge-codex-feed-label llm-bridge-codex-step-label", text: label, attr: { title: label } });
     if (item.change?.approvalStatus) {
@@ -4773,12 +4802,10 @@ export class LLMBridgeView extends ItemView {
     const bodyText = this.buildCodexShellText(step);
     if (!bodyText) return;
     const details = parent.createEl("details", { cls: "llm-bridge-codex-detail llm-bridge-codex-detail-command llm-bridge-codex-detail-shell" });
-    const lines = bodyText.split(/\r?\n/).filter((line) => line.length > 0).length || 1;
-    const bytes = new TextEncoder().encode(bodyText).length;
-    const sizeText = bytes >= 1024 ? `${Math.round(bytes / 102.4) / 10} KB` : `${bytes} B`;
+    const { lines, sizeText } = this.getCodexShellTextStats(bodyText);
     details.createEl("summary", { text: `Shell · ${lines} line${lines === 1 ? "" : "s"} · ${sizeText}` });
     const panel = details.createDiv({ cls: "llm-bridge-codex-detail-panel llm-bridge-codex-shell-panel" });
-    panel.createDiv({ cls: "llm-bridge-codex-detail-panel-title", text: "Shell" });
+    this.renderCodexShellPanelHead(panel, bodyText);
     panel.createEl("pre", { cls: "llm-bridge-codex-detail-pre llm-bridge-codex-shell-pre", text: bodyText });
   }
 
@@ -4786,11 +4813,28 @@ export class LLMBridgeView extends ItemView {
     const bodyText = this.buildCodexShellText(step);
     if (!bodyText) return;
     const panel = parent.createDiv({ cls: "llm-bridge-codex-shell-panel llm-bridge-codex-inline-shell-panel" });
-    panel.createDiv({ cls: "llm-bridge-codex-detail-panel-title", text: "Shell" });
+    this.renderCodexShellPanelHead(panel, bodyText);
     panel.createEl("pre", { cls: "llm-bridge-codex-detail-pre llm-bridge-codex-shell-pre", text: bodyText });
     const footer = panel.createDiv({ cls: "llm-bridge-codex-shell-footer" });
     const ok = step.status !== "failed" && (step.exitCode === undefined || step.exitCode === 0);
     footer.createEl("span", { cls: ok ? "is-success" : "is-failed", text: ok ? "✓ 成功" : "失败" });
+  }
+
+  private renderCodexShellPanelHead(parent: HTMLElement, bodyText: string): void {
+    const { lines, sizeText } = this.getCodexShellTextStats(bodyText);
+    const head = parent.createDiv({ cls: "llm-bridge-codex-shell-panel-head" });
+    head.createDiv({ cls: "llm-bridge-codex-detail-panel-title", text: "Shell" });
+    head.createDiv({
+      cls: "llm-bridge-codex-shell-panel-meta",
+      text: `${lines} line${lines === 1 ? "" : "s"} · ${sizeText}`,
+    });
+  }
+
+  private getCodexShellTextStats(bodyText: string): { lines: number; sizeText: string } {
+    const lines = bodyText.split(/\r?\n/).filter((line) => line.length > 0).length || 1;
+    const bytes = new TextEncoder().encode(bodyText).length;
+    const sizeText = bytes >= 1024 ? `${Math.round(bytes / 102.4) / 10} KB` : `${bytes} B`;
+    return { lines, sizeText };
   }
 
   private buildCodexShellText(step: CodexRunStepGroup): string {
@@ -6520,7 +6564,7 @@ export class LLMBridgeView extends ItemView {
     this.composerStatusTextEl.textContent = label;
     this.composerStatusTextEl.setAttribute("title", label);
 
-    const stepText = useTurnStatus ? turnStatus.stepText : (compressionText ? "Context compressed" : "");
+    const stepText = useTurnStatus ? turnStatus.stepText : "";
     this.composerStepPillEl.textContent = stepText;
     this.composerStepPillEl.toggleAttribute("hidden", !stepText);
   }

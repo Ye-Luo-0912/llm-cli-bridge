@@ -18627,7 +18627,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("openFileRefPreview")
       && viewSrc.includes("getIndexedVaultFile")
       && viewSrc.includes("findLeafForFile")
-      && viewSrc.includes("llm-bridge-composer-file-image")
+      && viewSrc.includes("has-image-preview")
       && stylesSrc.includes(".llm-bridge-composer-file-chip");
     addTest("V2.16-D composer: 拖拽/粘贴文件和路径入口存在", ok ? "pass" : "fail", "");
   }
@@ -18784,6 +18784,10 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private renderCodexDiffPreview(")
       && viewSrc.includes('`Diff · ${truncateText(summaryText, 72)}`')
       && viewSrc.includes('text: ok ? "✓ 成功" : "失败"')
+      && viewSrc.includes('item.status === "running" ? "Running command" : "Ran command"')
+      && viewSrc.includes("private renderCodexShellPanelHead(")
+      && !viewSrc.includes('"已运行命令"')
+      && !viewSrc.includes('"正在运行命令"')
       && viewSrc.includes('text: kind === "note" ? "" : "Selection"')
       && viewSrc.includes('"data-context-kind": kind')
       && viewSrc.includes('if (noteWrap) noteWrap.toggleAttribute("hidden", !fname);')
@@ -18814,6 +18818,7 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-command-menu-label")
       && stylesSrc.includes(".llm-bridge-composer-step-pill")
       && stylesSrc.includes("V17-G11: Codex-like step and context compression status")
+      && stylesSrc.includes(".llm-bridge-codex-shell-panel-head")
       && stylesSrc.includes("V17-G9: Codex-like composer surface and active note text")
       && stylesSrc.includes(".llm-bridge-context-tag-note .llm-bridge-context-tag")
       && stylesSrc.includes(".llm-bridge-input::placeholder");
@@ -18829,10 +18834,19 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('setIcon(unpinActionBtn, "pin-off")')
       && viewSrc.includes('cls: "llm-bridge-context-ref-remove is-remove"')
       && viewSrc.includes('setIcon(removeBtn, "x")')
+      && viewSrc.includes("private getFileRefIconName(ref: FileRef): string")
+      && viewSrc.includes("private fileRefSourceLabel(ref: FileRef): string")
+      && viewSrc.includes('cls: "llm-bridge-composer-file-icon"')
+      && viewSrc.includes('thumb.style.setProperty("background-image"')
+      && viewSrc.includes('preview.addEventListener("error"')
       && stylesSrc.includes("V17-G10: Codex-like permission and files surfaces")
+      && stylesSrc.includes("V17-G12: Codex-like attachment, permission and dialog surfaces")
       && stylesSrc.includes(".llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon")
       && stylesSrc.includes(".llm-bridge-approval-btn.is-proceed")
-      && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-action svg");
+      && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-action svg")
+      && stylesSrc.includes(".llm-bridge-composer-file-icon svg")
+      && stylesSrc.includes(".llm-bridge-composer-file-icon.is-fallback")
+      && stylesSrc.includes(".llm-bridge-composer-file-thumb.has-image-preview");
     addTest("V17-G10 UI: 权限弹窗、approval/request 和 Files 行保持 Codex 紧凑表面",
       ok ? "pass" : "fail", "");
   }

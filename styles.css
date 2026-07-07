@@ -8254,6 +8254,24 @@
   padding: 9px 11px 24px;
 }
 
+.llm-bridge-codex-shell-panel-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 7px;
+}
+
+.llm-bridge-codex-shell-panel-head .llm-bridge-codex-detail-panel-title {
+  margin-bottom: 0;
+}
+
+.llm-bridge-codex-shell-panel-meta {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--text-muted) 72%, transparent);
+  font-size: var(--font-smallest);
+}
+
 .llm-bridge-codex-detail-panel-title {
   margin-bottom: 6px;
   color: var(--text-muted);
@@ -9209,4 +9227,138 @@
 .llm-bridge-files-page .llm-bridge-context-ref-remove svg {
   width: 14px;
   height: 14px;
+}
+
+/* ===== V17-G12: Codex-like attachment, permission and dialog surfaces ===== */
+.llm-bridge-composer-file-refs {
+  gap: 8px;
+  padding: 1px 5px 7px;
+}
+
+.llm-bridge-composer-file-chip {
+  min-height: 46px;
+  max-width: min(340px, 100%);
+  grid-template-columns: 38px minmax(0, 1fr) 26px 26px;
+  gap: 9px;
+  padding: 6px 7px 6px 6px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
+  box-shadow: none;
+}
+
+.llm-bridge-composer-file-chip:hover {
+  border-color: color-mix(in srgb, var(--interactive-accent) 20%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--background-modifier-hover) 64%, var(--background-primary));
+}
+
+.llm-bridge-composer-file-thumb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary));
+  background-position: center;
+  background-size: cover;
+  color: var(--text-muted);
+  overflow: hidden;
+}
+
+.llm-bridge-composer-file-icon,
+.llm-bridge-composer-file-icon svg {
+  width: 18px;
+  height: 18px;
+}
+
+.llm-bridge-composer-file-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.llm-bridge-composer-file-icon.is-fallback {
+  color: color-mix(in srgb, var(--interactive-accent) 54%, var(--text-muted));
+}
+
+.llm-bridge-composer-file-thumb.has-image-preview .llm-bridge-composer-file-icon.is-fallback {
+  opacity: 0;
+}
+
+.llm-bridge-composer-file-thumb.is-preview-missing .llm-bridge-composer-file-icon.is-fallback {
+  opacity: 1;
+}
+
+.llm-bridge-composer-file-ext {
+  position: absolute;
+  right: 3px;
+  bottom: 3px;
+  max-width: 30px;
+  padding: 1px 3px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--background-primary) 88%, transparent);
+  color: var(--text-faint);
+  font-size: 8px;
+  line-height: 1.1;
+}
+
+.llm-bridge-composer-file-chip.is-image .llm-bridge-composer-file-ext {
+  display: none;
+}
+
+.llm-bridge-composer-file-name {
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  font-weight: 540;
+}
+
+.llm-bridge-composer-file-meta {
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-composer-file-remove,
+.llm-bridge-composer-file-pin {
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  min-height: 26px;
+  border-radius: 999px;
+  color: var(--text-muted);
+  opacity: 0.72;
+}
+
+.llm-bridge-composer-file-remove:hover,
+.llm-bridge-composer-file-pin:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 82%, transparent);
+  color: var(--text-normal);
+  opacity: 1;
+}
+
+.llm-bridge-perm-popover,
+.llm-bridge-model-effort-popover {
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary));
+}
+
+.llm-bridge-perm-option {
+  min-height: 42px;
+  padding: 7px 8px;
+  border-radius: 11px;
+}
+
+.llm-bridge-approval-card,
+.llm-bridge-clarification-card,
+.llm-bridge-external-read-card {
+  border-radius: 16px;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.10);
+}
+
+.llm-bridge-approval-card-row-command,
+.llm-bridge-external-read-field-value {
+  max-height: 118px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--background-modifier-hover) 74%, var(--background-primary));
 }
