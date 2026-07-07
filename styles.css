@@ -14939,6 +14939,319 @@
   line-height: 1.55 !important;
 }
 
+/* ===== V17-G59: flatter top shell, denser sessions, lighter run header ===== */
+.llm-bridge-topbar {
+  min-height: 38px !important;
+  gap: 8px !important;
+  padding: 7px 12px 7px 10px !important;
+  background: color-mix(in srgb, var(--background-primary) 99%, transparent) !important;
+  backdrop-filter: none !important;
+}
+
+.llm-bridge-topbar-brand {
+  min-width: 0 !important;
+  gap: 5px !important;
+}
+
+.llm-bridge-topbar-title {
+  color: var(--text-faint) !important;
+  font-size: 10px !important;
+  font-weight: 560 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+}
+
+.llm-bridge-page-title {
+  padding-left: 5px !important;
+  border-left: 0 !important;
+  font-size: 12px !important;
+  font-weight: 620 !important;
+  color: var(--text-normal) !important;
+}
+
+.llm-bridge-session-selector,
+.llm-bridge-new-chat-btn,
+.llm-bridge-settings-btn {
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.llm-bridge-session-selector:hover,
+.llm-bridge-new-chat-btn:hover,
+.llm-bridge-settings-btn:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 44%, transparent) !important;
+}
+
+.llm-bridge-session-selector {
+  max-width: min(244px, 30vw) !important;
+  padding: 0 7px !important;
+  border-radius: 8px !important;
+}
+
+.llm-bridge-sb-session-title {
+  font-size: 10.5px !important;
+  font-weight: 560 !important;
+}
+
+.llm-bridge-new-chat-btn {
+  gap: 4px !important;
+  padding: 0 6px !important;
+}
+
+.llm-bridge-new-chat-label {
+  color: var(--text-muted) !important;
+  font-size: 10.5px !important;
+}
+
+.llm-bridge-settings-btn {
+  width: 28px !important;
+  min-width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  border-radius: 8px !important;
+}
+
+.llm-bridge-runtime-status {
+  min-height: 26px !important;
+  padding: 0 8px !important;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+}
+
+.llm-bridge-runtime-install-btn {
+  min-height: 26px !important;
+  padding: 0 8px !important;
+  border-radius: 999px !important;
+}
+
+.llm-bridge-history-page-head {
+  gap: 3px !important;
+  padding: 10px 14px 6px !important;
+}
+
+.llm-bridge-history-page-head strong {
+  font-size: 13px !important;
+}
+
+.llm-bridge-history-page-head small {
+  max-width: 52ch !important;
+}
+
+.llm-bridge-history-panel {
+  padding: 0 14px 14px !important;
+}
+
+.llm-bridge-history-head {
+  gap: 7px !important;
+  padding: 2px 0 8px !important;
+  background: color-mix(in srgb, var(--background-primary) 98%, transparent) !important;
+}
+
+.llm-bridge-history-toggle {
+  min-height: 24px !important;
+  padding: 0 2px !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-history-toggle:hover {
+  color: var(--text-normal) !important;
+}
+
+.llm-bridge-history-sort,
+.llm-bridge-history-search-input {
+  background: color-mix(in srgb, var(--background-modifier-hover) 14%, transparent) !important;
+}
+
+.llm-bridge-history-search-input {
+  min-height: 28px !important;
+  padding: 0 10px !important;
+}
+
+.llm-bridge-history-list {
+  gap: 4px !important;
+}
+
+.llm-bridge-history-item {
+  position: relative !important;
+  overflow: hidden !important;
+  border: 0 !important;
+  border-radius: 11px !important;
+  background: transparent !important;
+}
+
+.llm-bridge-history-item::before {
+  left: 6px !important;
+  top: 8px !important;
+  bottom: 8px !important;
+  width: 1px !important;
+  opacity: 0.55 !important;
+}
+
+.llm-bridge-history-item.is-current {
+  background: color-mix(in srgb, var(--interactive-accent) 6%, transparent) !important;
+}
+
+.llm-bridge-history-main {
+  gap: 3px !important;
+  padding: 8px 10px 8px 14px !important;
+  background: transparent !important;
+}
+
+.llm-bridge-history-title-row,
+.llm-bridge-session-dropdown-title-row {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 6px !important;
+  min-width: 0 !important;
+}
+
+.llm-bridge-history-title,
+.llm-bridge-session-dropdown-name {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-history-inline-meta,
+.llm-bridge-session-dropdown-inline-meta {
+  margin-left: auto !important;
+  color: var(--text-faint) !important;
+  font-size: 10px !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-history-current,
+.llm-bridge-session-dropdown-current {
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  color: color-mix(in srgb, var(--interactive-accent) 74%, var(--text-muted)) !important;
+  font-size: 9px !important;
+  font-weight: 650 !important;
+}
+
+.llm-bridge-history-preview,
+.llm-bridge-session-dropdown-summary {
+  display: -webkit-box !important;
+  overflow: hidden !important;
+  -webkit-box-orient: vertical !important;
+  -webkit-line-clamp: 2 !important;
+  line-clamp: 2 !important;
+}
+
+.llm-bridge-history-preview {
+  color: var(--text-muted) !important;
+}
+
+.llm-bridge-session-dropdown {
+  width: min(264px, calc(100% - 184px)) !important;
+  padding: 4px !important;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
+  border-radius: 12px !important;
+  background: color-mix(in srgb, var(--background-primary) 99%, var(--background-secondary)) !important;
+}
+
+.llm-bridge-session-dropdown-item,
+.llm-bridge-session-dropdown-history {
+  gap: 3px !important;
+  padding: 7px 8px !important;
+  border-radius: 9px !important;
+}
+
+.llm-bridge-session-dropdown-meta,
+.llm-bridge-history-meta {
+  display: none !important;
+}
+
+.llm-bridge-history-actions {
+  padding-right: 0 !important;
+}
+
+.llm-bridge-codex-run-header {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  align-items: start !important;
+  gap: 8px 14px !important;
+  padding-bottom: 1px !important;
+}
+
+.llm-bridge-codex-run-summary {
+  gap: 1px !important;
+}
+
+.llm-bridge-codex-run-provider {
+  font-size: 10.5px !important;
+  line-height: 1.35 !important;
+}
+
+.llm-bridge-codex-run-metrics {
+  gap: 10px !important;
+  align-items: center !important;
+}
+
+.llm-bridge-codex-run-metric {
+  gap: 4px !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--text-faint) !important;
+}
+
+.llm-bridge-codex-run-metric-icon,
+.llm-bridge-codex-run-metric-icon svg {
+  width: 11px !important;
+  height: 11px !important;
+}
+
+.llm-bridge-codex-run-metric-value {
+  font-size: 10px !important;
+  font-weight: 560 !important;
+}
+
+.llm-bridge-codex-current-activity {
+  padding: 0 1px 2px !important;
+}
+
+.llm-bridge-codex-process-head {
+  padding: 0 1px !important;
+}
+
+.llm-bridge-codex-section-count {
+  min-width: 0 !important;
+  height: auto !important;
+  padding: 0 !important;
+  background: transparent !important;
+  font-variant-numeric: tabular-nums !important;
+}
+
+.llm-bridge-codex-process-toggle {
+  letter-spacing: 0 !important;
+  text-transform: none !important;
+}
+
+.llm-bridge-codex-final-answer {
+  gap: 7px !important;
+  padding: 12px 0 0 !important;
+  border: 0 !important;
+  border-top: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.llm-bridge-codex-final-answer-title {
+  letter-spacing: 0.03em !important;
+}
+
+.llm-bridge-codex-final-answer-body {
+  font-size: 12.5px !important;
+  line-height: 1.62 !important;
+}
+
 .llm-bridge-prompt-modal .llm-bridge-prompt-input {
   min-height: 36px !important;
   padding: 0 10px !important;
@@ -15255,4 +15568,422 @@
 .llm-bridge-clarification-supplement-textarea {
   border-radius: 10px !important;
   background: color-mix(in srgb, var(--background-modifier-hover) 16%, transparent) !important;
+}
+
+/* ===== V17-G60: simpler tools entry + strict square attachment tiles ===== */
+.llm-bridge-command-menu-summary {
+  gap: 5px !important;
+}
+
+.llm-bridge-command-menu-summary-icon,
+.llm-bridge-command-menu-summary-icon svg {
+  width: 13px !important;
+  height: 13px !important;
+}
+
+.llm-bridge-command-menu-label {
+  letter-spacing: 0 !important;
+}
+
+.llm-bridge-composer-file-chip,
+.llm-bridge-composer-file-chip:not(.is-preview-only),
+.llm-bridge-composer-file-chip.is-preview-only,
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
+  position: relative !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+}
+
+.llm-bridge-composer-file-thumb,
+.llm-bridge-composer-file-chip .llm-bridge-composer-file-thumb,
+.llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb,
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
+  display: block !important;
+  overflow: hidden !important;
+  background: color-mix(in srgb, var(--background-secondary) 48%, var(--background-primary)) !important;
+}
+
+.llm-bridge-composer-file-chip .llm-bridge-composer-file-text,
+.llm-bridge-composer-file-chip .llm-bridge-composer-file-name,
+.llm-bridge-composer-file-chip .llm-bridge-composer-file-meta,
+.llm-bridge-composer-file-chip .llm-bridge-composer-file-ext {
+  display: none !important;
+}
+
+.llm-bridge-composer-file-image {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
+  order: -1 !important;
+  align-self: flex-end !important;
+  align-items: flex-start !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only),
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
+  overflow: hidden !important;
+  padding: 0 !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.has-image-preview,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.has-document-preview,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.is-image-placeholder {
+  display: flex !important;
+  width: 100% !important;
+  height: 100% !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
+  display: block !important;
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  object-position: center !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image-placeholder {
+  width: 100% !important;
+  height: 100% !important;
+  border-radius: inherit !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {
+  padding: 4px !important;
+}
+
+/* ===== V17-G61: stable thinking lead + merged shell/output waterfall blocks ===== */
+.llm-bridge-codex-feed-output {
+  margin: 0 0 0 19px !important;
+  padding: 1px 0 0 !important;
+}
+
+.llm-bridge-codex-feed-output-text,
+.llm-bridge-codex-thinking-summary {
+  font-size: 11.5px !important;
+  line-height: 1.58 !important;
+}
+
+.llm-bridge-codex-shell-panel {
+  gap: 7px !important;
+}
+
+.llm-bridge-codex-shell-pre {
+  margin: 0 !important;
+  padding: 9px 10px !important;
+  border-radius: 10px !important;
+  background: color-mix(in srgb, var(--background-secondary) 58%, var(--background-primary)) !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+}
+
+/* ===== V17-G62: managed Codex plugins surface + plan-mode quick entry ===== */
+.llm-bridge-codex-plugins-panel {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.llm-bridge-codex-plugins-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.llm-bridge-codex-plugins-title {
+  font-size: var(--font-small);
+  font-weight: 600;
+  color: var(--text-normal);
+}
+
+.llm-bridge-codex-plugins-count {
+  font-size: var(--font-smallest);
+  color: var(--text-faint);
+}
+
+.llm-bridge-codex-plugins-hint {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  line-height: 1.45;
+}
+
+.llm-bridge-codex-plugins-hint.is-error {
+  color: var(--text-error);
+}
+
+.llm-bridge-codex-plugin-item {
+  grid-template-columns: 28px minmax(0, 1fr);
+}
+
+.llm-bridge-codex-plugin-desc {
+  color: var(--text-muted);
+}
+
+.llm-bridge-codex-plugin-meta {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+/* ===== V17-G63: capabilities naming + compact permission/request surfaces ===== */
+.llm-bridge-agent-skills-boundary {
+  margin-bottom: 8px !important;
+  padding: 6px 8px !important;
+  border-left-width: 1px !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, var(--background-secondary) 48%, transparent) !important;
+}
+
+.llm-bridge-codex-plugins-title {
+  font-size: var(--font-smallest) !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.04em !important;
+  color: var(--text-muted) !important;
+}
+
+.llm-bridge-codex-plugins-hint {
+  margin-top: -2px !important;
+}
+
+.llm-bridge-perm-popover {
+  width: min(320px, calc(100vw - 24px)) !important;
+  padding: 8px !important;
+  border-radius: 14px !important;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent) !important;
+  background: color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary)) !important;
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.12) !important;
+}
+
+.llm-bridge-perm-popover-head {
+  margin-bottom: 6px !important;
+  padding: 4px 4px 7px !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 42%, transparent) !important;
+}
+
+.llm-bridge-perm-popover-head-icon {
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 38%, transparent) !important;
+}
+
+.llm-bridge-perm-popover-head-text strong {
+  font-size: var(--font-smallest) !important;
+  letter-spacing: 0.02em !important;
+}
+
+.llm-bridge-perm-popover-head-text span {
+  font-size: 11px !important;
+  line-height: 1.45 !important;
+}
+
+.llm-bridge-perm-popover-risk {
+  align-self: flex-start !important;
+  font-size: 10px !important;
+  padding: 2px 6px !important;
+  border-radius: 999px !important;
+}
+
+.llm-bridge-perm-option {
+  min-height: 0 !important;
+  padding: 8px 9px !important;
+  border-radius: 10px !important;
+  border: 1px solid transparent !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 22%, transparent) !important;
+}
+
+.llm-bridge-perm-option + .llm-bridge-perm-option {
+  margin-top: 4px !important;
+}
+
+.llm-bridge-perm-option:hover {
+  border-color: color-mix(in srgb, var(--interactive-accent) 32%, var(--background-modifier-border)) !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 34%, transparent) !important;
+}
+
+.llm-bridge-perm-option-text {
+  gap: 1px !important;
+}
+
+.llm-bridge-perm-option-title {
+  font-size: 12px !important;
+}
+
+.llm-bridge-perm-option-desc {
+  font-size: 10.5px !important;
+  line-height: 1.45 !important;
+}
+
+.llm-bridge-external-read-panel {
+  gap: 8px !important;
+}
+
+.llm-bridge-external-read-card {
+  padding: 10px 11px !important;
+  border-radius: 12px !important;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 68%, transparent) !important;
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary)) !important;
+}
+
+.llm-bridge-external-read-card-title {
+  margin-bottom: 6px !important;
+}
+
+.llm-bridge-external-read-target {
+  display: grid !important;
+  grid-template-columns: 56px minmax(0, 1fr) auto !important;
+  gap: 9px !important;
+  align-items: center !important;
+  padding: 8px !important;
+}
+
+.llm-bridge-external-read-target-thumb {
+  display: flex !important;
+  width: 56px !important;
+  height: 56px !important;
+  align-items: center !important;
+  justify-content: center !important;
+  border-radius: 12px !important;
+  background: color-mix(in srgb, var(--background-secondary) 54%, var(--background-primary)) !important;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 54%, transparent) !important;
+}
+
+.llm-bridge-external-read-target-icon,
+.llm-bridge-external-read-target-icon svg {
+  width: 18px !important;
+  height: 18px !important;
+}
+
+.llm-bridge-external-read-target-ext {
+  display: none !important;
+}
+
+.llm-bridge-external-read-target-text {
+  display: grid !important;
+  gap: 2px !important;
+  min-width: 0 !important;
+}
+
+.llm-bridge-external-read-target-name {
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  color: var(--text-normal) !important;
+}
+
+.llm-bridge-external-read-target-path {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  color: var(--text-muted) !important;
+}
+
+.llm-bridge-external-read-target-badges {
+  display: grid !important;
+  gap: 4px !important;
+  justify-items: end !important;
+}
+
+.llm-bridge-external-read-target-risk,
+.llm-bridge-external-read-target-scope {
+  padding: 2px 6px !important;
+  border-radius: 999px !important;
+  font-size: 10px !important;
+  line-height: 1.3 !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 32%, transparent) !important;
+}
+
+.llm-bridge-external-read-fields {
+  margin-top: 6px !important;
+}
+
+.llm-bridge-external-read-actions {
+  margin-top: 8px !important;
+  gap: 6px !important;
+}
+
+.llm-bridge-external-read-actions button {
+  min-height: 30px !important;
+  padding: 0 10px !important;
+  border-radius: 999px !important;
+}
+
+/* ===== V17-G64: one collapsible process block + static waterfall batches ===== */
+.llm-bridge-codex-process-head {
+  gap: 8px !important;
+}
+
+.llm-bridge-codex-process-head .llm-bridge-codex-section-title-row {
+  align-items: center !important;
+}
+
+.llm-bridge-codex-process-toggle {
+  min-width: 14px !important;
+  color: var(--text-faint) !important;
+  font-size: 11px !important;
+  text-align: right !important;
+}
+
+.llm-bridge-codex-feed-list {
+  gap: 10px !important;
+}
+
+.llm-bridge-codex-feed-batch {
+  display: grid !important;
+  gap: 6px !important;
+  padding: 0 0 0 13px !important;
+  border-left: 1px solid color-mix(in srgb, var(--interactive-accent) 22%, var(--background-modifier-border)) !important;
+}
+
+.llm-bridge-codex-feed-batch-summary {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  gap: 8px !important;
+  align-items: start !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  cursor: default !important;
+  list-style: none !important;
+}
+
+.llm-bridge-codex-feed-batch-summary::before,
+.llm-bridge-codex-feed-batch:not([open]) > .llm-bridge-codex-feed-batch-summary::before {
+  display: none !important;
+  content: none !important;
+}
+
+.llm-bridge-codex-feed-batch-body {
+  display: grid !important;
+  gap: 4px !important;
+  padding: 0 0 0 12px !important;
+}
+
+.llm-bridge-codex-feed-batch.is-summary-only .llm-bridge-codex-feed-batch-summary {
+  padding-bottom: 1px !important;
+}
+
+.llm-bridge-codex-thinking-line.is-narrative {
+  align-items: start !important;
+}
+
+.llm-bridge-codex-thinking-summary.is-multiline {
+  white-space: pre-wrap !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
 }

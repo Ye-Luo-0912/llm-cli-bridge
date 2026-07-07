@@ -502,19 +502,6 @@ function buildFeedItems(
       });
       continue;
     }
-    if (card.kind === "final-answer" && card.text.trim().length > 0) {
-      feed.push({
-        id: `feed-${card.id}`,
-        kind: "assistant",
-        icon: "message-square",
-        label: "Output",
-        status: card.status,
-        summary: card.text,
-        detail: card.detail,
-        timestamp: card.timestamp,
-        sourceRef: card.sourceRef,
-      });
-    }
   }
 
   for (const change of changes) {
@@ -532,6 +519,23 @@ function buildFeedItems(
       sourceRef: change.sourceRef,
     });
     usedChangeIds.add(change.id);
+  }
+
+  if (feed.length > 0 && feed[0].kind !== "thinking") {
+    const lead = feed[0];
+    feed.unshift({
+      id: "feed-thinking-synthetic",
+      kind: "thinking",
+      icon: stepIcon("thinking"),
+      label: "Thinking",
+      status: lead.status === "running" || lead.status === "pending" || lead.status === "failed"
+        ? lead.status
+        : "completed",
+      summary: "Reasoning summary not provided by Codex.",
+      detail: "Provider did not expose a reasoning summary for this batch.",
+      timestamp: lead.timestamp,
+      sourceRef: lead.sourceRef,
+    });
   }
 
   return feed;

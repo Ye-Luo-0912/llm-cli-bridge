@@ -2473,6 +2473,25 @@ if (runMode !== "all" && runMode !== "unit") {
       addTest("V17-G CodexRunViewModel: runHeader/currentActivity/feed/changes/steps/approval/debugPanel 分层",
         ok ? "pass" : "fail",
         `status=${run.runHeader.statusKind} activity=${run.currentActivity.label} commands=${run.runHeader.commandCount} changes=${run.runHeader.fileChangeCount} approvals=${run.approvalGates.length} feed=${feedKinds} thinkingSummary=${thinkingFeed?.summary || ""} stepStdout=${!!commandStep?.stdout} relativePath=${change?.relativePath} debug=${!!run.debugPanel}/${!!devRun.debugPanel}`);
+
+      const finalOnlyEvents = [
+        mkEvent({ kind: "thinking", text: "Plan the edit" }, 1),
+        mkEvent({ kind: "completed", text: "done", durationMs: 1200 }, 2),
+      ];
+      const finalOnlyView = buildAssistantTurnViewFromEvents("turn-v17g-final", "codex-app-server", finalOnlyEvents, "2026-07-02T00:00:00.000Z");
+      const finalOnlyModel = buildAgentRunDisplayModel(finalOnlyView, { developerMode: false });
+      const finalOnlyRun = buildCodexRunViewModel(finalOnlyModel, finalOnlyView, {
+        status: "completed",
+        providerLabel: "codex-managed-app-server",
+        modelLabel: "gpt-codex",
+        cwd: "D:/repo",
+        developerMode: false,
+      });
+      const finalSeparatedOk = finalOnlyRun.finalAnswer === "done"
+        && finalOnlyRun.feedItems.every((item) => item.kind !== "assistant");
+      addTest("V17-G CodexRunViewModel: final answer 不重复进入 process feed",
+        finalSeparatedOk ? "pass" : "fail",
+        `final=${JSON.stringify(finalOnlyRun.finalAnswer)} feedKinds=${finalOnlyRun.feedItems.map((item) => item.kind).join(">")}`);
     }
 
     // ---------- 5c. P3-C: Developer mode / legacy 分层隔离 ----------
@@ -17452,9 +17471,9 @@ if (!runV214BUnit) {
       const permissionChipOk = viewSrc.includes("permissionModeChipEl")
         && viewSrc.includes("renderPermissionPopover")
         && viewSrc.includes("togglePermissionPopover")
-        && viewSrc.includes("编辑前询问")
+        && (viewSrc.includes("编辑前询问") || viewSrc.includes("询问后编辑"))
         && viewSrc.includes("自动接受编辑")
-        && viewSrc.includes("只读规划")
+        && (viewSrc.includes("只读规划") || viewSrc.includes("计划模式"))
         && viewSrc.includes("低风险自动")
         && viewSrc.includes("完全访问");
       const topbarOk = !viewSrc.includes("const refreshBtn = headerRight.createEl")
@@ -17498,7 +17517,7 @@ if (!runV214BUnit) {
         && viewSrc.includes("llm-bridge-nav-icon")
         && viewSrc.includes("\"aria-label\": \"Chat\"")
         && viewSrc.includes("\"aria-label\": \"Files\"")
-        && viewSrc.includes("\"aria-label\": \"Skills\"")
+        && (viewSrc.includes("\"aria-label\": \"Skills\"") || viewSrc.includes("\"aria-label\": \"Capabilities\""))
         && viewSrc.includes("\"aria-label\": \"History\"")
         && !viewSrc.includes("llm-bridge-nav-brand")
         && !viewSrc.includes("llm-bridge-nav-label")
@@ -17624,11 +17643,13 @@ if (!runV214BUnit) {
 
     {
       const skillsPageOk = viewSrc.includes('cls: "llm-bridge-skills-toggle-chevron"')
-        && viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Skills"')
+        && (viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Skills"')
+          || viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Plugins & Skills"'))
         && viewSrc.includes('cls: "llm-bridge-skills-toggle-count"')
         && viewSrc.includes('this.agentSkillsToggleEl.setAttribute("aria-expanded", hidden ? "false" : "true")')
         && viewSrc.includes('this.agentSkillsToggleChevronEl.setText(hidden ? "›" : "⌄")')
-        && viewSrc.includes('this.agentSkillsToggleCountEl.setText(`${enabled}/${total}`)')
+        && (viewSrc.includes('this.agentSkillsToggleCountEl.setText(`${enabled}/${total}`)')
+          || viewSrc.includes('this.agentSkillsToggleCountEl.setText(`${pluginEnabled}/${pluginTotal}P · ${enabled}/${total}S`)'))
         && viewSrc.includes("runtime capabilities")
         && viewSrc.includes("不会写入 composer")
         && !viewSrc.includes("Prompt Snippets")
@@ -18813,7 +18834,7 @@ if (!runNoteSummarizeSmoke) {
     const ok = viewSrc.includes("composerBar.appendChild(composerContextRow);")
       && viewSrc.includes("private fileRefMetaLabel(ref: FileRef): string")
       && viewSrc.includes("text: this.fileRefMetaLabel(ref)")
-      && viewSrc.includes('title: "只读规划"')
+      && (viewSrc.includes('title: "只读规划"') || viewSrc.includes('title: "计划模式"'))
       && viewSrc.includes('title: "自动接受编辑"')
       && viewSrc.includes('title: "完全访问"')
       && viewSrc.includes("this.renderCodexRunView(parent, codexRun, model, options.developerMode);")
@@ -18857,12 +18878,14 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13h: V17-G7 normal run waterfall hides provider placeholders and warning diagnostics ----
   {
     const ok = codexRunViewModelSrc.includes("function thinkingSummary")
-      && !codexRunViewModelSrc.includes("Reasoning summary not provided by Codex.")
+      && codexRunViewModelSrc.includes('summary: "Reasoning summary not provided by Codex."')
       && viewSrc.includes("private filterCodexDiagnosticsForDisplay(")
       && viewSrc.includes("if (developerMode) return diagnostics;")
       && viewSrc.includes('diagnostic.severity === "error"')
       && viewSrc.includes("const diagnosticsForDisplay = this.filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode);")
       && viewSrc.includes("if (diagnosticsForDisplay.length > 0) this.renderCodexDiagnosticsDrawer")
+      && viewSrc.includes("const processFeedItems = run.feedItems;")
+      && viewSrc.includes('text: summary ? truncateText(summary, 360) : "Reasoning summary not provided by Codex."')
       && uxSmokeSrc.includes("assistant-output-carrier")
       && uxSmokeSrc.includes("thinkingSummary.length > 0 || inlineOutputTexts.length > 0");
     addTest("V17-G7 UI: 普通态隐藏 reasoning 占位和 warning diagnostics，assistant 输出承载瀑布流",
@@ -18895,7 +18918,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('content.addClass("llm-bridge-msg-content-suppressed")')
       && viewSrc.includes("private getVisibleMarkdownFile(): TFile | null")
       && viewSrc.includes('this.app.workspace.getLeavesOfType("markdown")')
-      && viewSrc.includes('text: "目标"')
+      && viewSrc.includes('text: "工具"')
       && viewSrc.includes('cls: "llm-bridge-permission-chip-icon"')
       && viewSrc.includes('cls: "llm-bridge-permission-chip-label"')
       && viewSrc.includes("private renderCodexDiffPreview(")
@@ -18948,6 +18971,58 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13j2: V17-G60 remove target wording and keep attachment tiles strictly square ----
+  {
+    const ok = viewSrc.includes('attr: { title: "工具、上下文与辅助操作" }')
+      && viewSrc.includes('setIcon(commandSummary.createEl("span", { cls: "llm-bridge-command-menu-summary-icon" }), "wrench");')
+      && viewSrc.includes('commandSummary.createEl("span", { cls: "llm-bridge-command-menu-label", text: "工具" });')
+      && stylesSrc.includes("V17-G60: simpler tools entry + strict square attachment tiles")
+      && stylesSrc.includes(".llm-bridge-composer-file-chip .llm-bridge-composer-file-text,")
+      && stylesSrc.includes(".llm-bridge-composer-file-image")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual,")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {");
+    addTest("V17-G60 UI: 去掉目标表述，附件预览继续收成严格方块缩略",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13j3: V17-G61 process keeps thinking lead and command shell/output merged ----
+  {
+    const ok = codexRunViewModelSrc.includes('if (feed.length > 0 && feed[0].kind !== "thinking") {')
+      && codexRunViewModelSrc.includes('label: "Thinking"')
+      && codexRunViewModelSrc.includes('detail: "Provider did not expose a reasoning summary for this batch."')
+      && viewSrc.includes("const processFeedItems = run.feedItems;")
+      && viewSrc.includes('if (lead.kind === "thinking" && this.shouldRenderExpandedThinkingLine(lead, developerMode)) {')
+      && viewSrc.includes('text: batchSummary ? truncateText(batchSummary, 420) : "Reasoning summary not provided by Codex.",')
+      && viewSrc.includes("private shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, developerMode: boolean): boolean {")
+      && viewSrc.includes("private buildCodexShellPanelText(step: CodexRunStepGroup): string")
+      && viewSrc.includes('text: panelText,')
+      && !viewSrc.includes('const outputDetails = parent.createEl("details", { cls: "llm-bridge-codex-detail llm-bridge-codex-detail-output llm-bridge-codex-shell-output-detail" });')
+      && stylesSrc.includes("V17-G61: stable thinking lead + merged shell/output waterfall blocks")
+      && stylesSrc.includes(".llm-bridge-codex-shell-pre {")
+      && uxSmokeSrc.includes("codexRunShellOutputMerged");
+    addTest("V17-G61 UI: thinking 占位稳定存在，shell/output 合并为单块瀑布事件",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13j4: V17-G62 managed Codex plugins are surfaced from pinned runtime ----
+  {
+    const managedPluginCatalogSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-managed-app-server", "codexManagedPluginCatalog.ts"), "utf8");
+    const ok = managedPluginCatalogSrc.includes('["plugin", "list", "--json"]')
+      && managedPluginCatalogSrc.includes("resolveManagedRuntime(manifestPath)")
+      && viewSrc.includes('title: "Capabilities", "aria-label": "Capabilities"')
+      && viewSrc.includes('text: "Plugins & Skills"')
+      && viewSrc.includes('text: "计划模式"')
+      && viewSrc.includes('text: "已安装插件"')
+      && viewSrc.includes("private async refreshManagedCodexPlugins(): Promise<void>")
+      && viewSrc.includes('text: "Installed plugins"')
+      && viewSrc.includes("直接从 pinned managed Codex runtime 读取真实已安装插件，不依赖用户 PATH。")
+      && stylesSrc.includes("V17-G62: managed Codex plugins surface + plan-mode quick entry")
+      && stylesSrc.includes("V17-G63: capabilities naming + compact permission/request surfaces")
+      && stylesSrc.includes(".llm-bridge-codex-plugins-panel");
+    addTest("V17-G62 UI: 直接从 managed Codex runtime 读取 installed plugins，并提供计划模式入口",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 13k: V17-G10 permission and files surfaces stay Codex-compact ----
   {
     const ok = viewSrc.includes('cls: "llm-bridge-context-ref-action is-pin"')
@@ -18965,7 +19040,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('cls: "llm-bridge-perm-popover-head"')
       && viewSrc.includes('cls: `llm-bridge-perm-popover-risk is-${currentInfo.level}`')
       && viewSrc.includes('text: currentInfo.level === "danger" ? "高风险" : currentInfo.level === "caution" ? "需确认" : "安全"')
-      && viewSrc.includes('headText.createEl("strong", { text: "访问权限" })')
+      && (viewSrc.includes('headText.createEl("strong", { text: "访问权限" })')
+        || viewSrc.includes('headText.createEl("strong", { text: "运行模式" })'))
       && stylesSrc.includes("V17-G10: Codex-like permission and files surfaces")
       && stylesSrc.includes("V17-G12: Codex-like attachment, permission and dialog surfaces")
       && stylesSrc.includes("V17-G15: Codex-like permission menu header")
@@ -19147,7 +19223,8 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13r: V17-G27 right user bubbles, square attachments and modern Skills registry ----
   {
     const ok = viewSrc.includes('cls: "llm-bridge-skills-toggle-chevron"')
-      && viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Skills"')
+      && (viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Skills"')
+        || viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Plugins & Skills"'))
       && viewSrc.includes('cls: "llm-bridge-skills-toggle-count"')
       && viewSrc.includes('cls: "llm-bridge-agent-skill-icon"')
       && viewSrc.includes('setIcon(icon, skill.enabled ? "sparkles" : "circle-dashed")')
@@ -19165,7 +19242,7 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes("max-height: 42px !important;")
       && stylesSrc.includes(".llm-bridge-msg-attachment-image-placeholder")
       && stylesSrc.includes(".llm-bridge-agent-skill-icon")
-      && stylesSrc.includes(".llm-bridge-agent-skill-open {")
+      && (stylesSrc.includes(".llm-bridge-agent-skill-open {") || stylesSrc.includes(".llm-bridge-codex-plugins-panel"))
       && stylesSrc.includes("box-shadow: none !important;")
       && stylesSrc.includes("grid-template-columns: 28px minmax(0, 1fr) max-content")
       && stylesSrc.includes(".llm-bridge-agent-skills-boundary")
@@ -19385,20 +19462,24 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13ac: V17-G39 run hierarchy separates process from final answer ----
   {
-    const ok = viewSrc.includes('const processFeedItems = run.feedItems.filter((item) => item.kind !== "assistant");')
+    const ok = viewSrc.includes('const processFeedItems = run.feedItems;')
       && viewSrc.includes('const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);')
-      && viewSrc.includes('if (run.changeGroups.length > 0) this.renderCodexChangesPanel(body, run.changeGroups, developerMode);')
+      && !viewSrc.includes('if (run.changeGroups.length > 0) this.renderCodexChangesPanel(body, run.changeGroups, developerMode);')
       && viewSrc.includes('const process = body.createDiv({ cls: "llm-bridge-codex-process" });')
       && viewSrc.includes('const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });')
       && viewSrc.includes('const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });')
       && viewSrc.includes('const processToggle = processHead.createEl("span", {')
-      && viewSrc.includes('text: hasToggleContent ? (processCollapsedByDefault ? "Show" : "Hide") : "",')
+      && viewSrc.includes('const processLabel = run.runHeader.statusKind === "running"')
+      && viewSrc.includes('text: run.runHeader.elapsed ? `${processLabel} ${run.runHeader.elapsed}` : processLabel,')
+      && viewSrc.includes('text: hasToggleContent ? (processCollapsedByDefault ? "▶" : "▼") : "",')
       && viewSrc.includes('if (hasAnswer) this.renderCodexFinalAnswer(body, run.finalAnswer);')
       && viewSrc.includes("private renderCodexFinalAnswer(parent: HTMLElement, text: string): void {")
-      && viewSrc.includes('section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Final answer" });')
+      && viewSrc.includes('section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Answer" });')
       && viewSrc.includes("private renderCodexFeedBatch(")
       && viewSrc.includes("private renderCodexFeedBatchSummary(")
+      && viewSrc.includes("private renderCodexFeedNarrative(parent: HTMLElement, item: CodexRunFeedItem): void {")
       && viewSrc.includes("private formatCodexBatchSummary(")
+      && !viewSrc.includes('label: "Output"')
       && viewSrc.includes('setIcon(this.clearBtn.createEl("span", { cls: "llm-bridge-icon" }), "plus");')
       && viewSrc.includes('setIcon(refreshHistBtn.createEl("span", { cls: "llm-bridge-icon" }), "refresh-cw");')
       && viewSrc.includes('setIcon(editBtn.createEl("span", { cls: "llm-bridge-icon" }), "pencil");')
@@ -19463,8 +19544,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('processHead.addClass("is-collapsible");')
       && viewSrc.includes('processHead.setAttribute("role", "button");')
       && viewSrc.includes('processHead.setAttribute("aria-expanded", processCollapsedByDefault ? "false" : "true");')
-      && viewSrc.includes('processToggle.textContent = "Hide";')
-      && viewSrc.includes('processToggle.textContent = "Show";')
+      && viewSrc.includes('processToggle.textContent = "▼";')
+      && viewSrc.includes('processToggle.textContent = "▶";')
       && stylesSrc.includes("V17-G56: static run header, collapsible steps head, calmer sessions/dialogs")
       && stylesSrc.includes(".llm-bridge-codex-process-toggle")
       && stylesSrc.includes(".llm-bridge-codex-section-title-row")
