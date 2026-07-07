@@ -1028,7 +1028,7 @@ export class LLMBridgeView extends ItemView {
     check.checked = getCurrent();
     const tag = wrap.createEl("span", {
       cls: `llm-bridge-context-tag ${kind === "note" ? "is-active-file" : "is-selection-ref"}`,
-      text: kind === "note" ? "No active note" : "Selection",
+      text: kind === "note" ? "" : "Selection",
       attr: { "aria-pressed": String(check.checked), "data-context-kind": kind, tabindex: "0" },
     });
     const toggle = async (e: Event) => {
@@ -1076,7 +1076,7 @@ export class LLMBridgeView extends ItemView {
       const on = this.plugin.settings.includeActiveNote;
       const noteWrap = this.includeNoteCheckEl.parentElement;
       const fname = this.activeFileLabelEl.dataset.value || "";
-      if (noteWrap) noteWrap.toggleAttribute("hidden", false);
+      if (noteWrap) noteWrap.toggleAttribute("hidden", !fname);
       if (noteWrap) noteWrap.classList.toggle("is-empty", !fname);
       noteTag.classList.toggle("is-active", on);
       noteTag.classList.toggle("is-off", !on);
@@ -1084,18 +1084,17 @@ export class LLMBridgeView extends ItemView {
       noteTag.classList.toggle("is-path-only", on && this.activeNoteAttachState === "path-only");
       noteTag.setAttribute("aria-pressed", String(on));
       // V17-G2: 活动笔记 tag 只显示当前文件名；状态通过颜色/删除线表达。
-      const fnameOrFallback = fname || "No active note";
-      noteTag.textContent = fnameOrFallback;
+      noteTag.textContent = fname;
       if (!fname) {
         noteTag.setAttribute("title", "No active note. Open a markdown file and it will appear here.");
       } else if (!on) {
-        noteTag.setAttribute("title", `${fnameOrFallback}：当前未引用，点击开启`);
+        noteTag.setAttribute("title", `${fname}：当前未引用，点击开启`);
       } else if (this.activeNoteAttachState === "full") {
-        noteTag.setAttribute("title", `${fnameOrFallback}：路径 + 内容已引用，点击关闭`);
+        noteTag.setAttribute("title", `${fname}：路径 + 内容已引用，点击关闭`);
       } else if (this.activeNoteAttachState === "path-only") {
-        noteTag.setAttribute("title", `${fnameOrFallback}：仅路径已引用，内容读取失败，点击关闭`);
+        noteTag.setAttribute("title", `${fname}：仅路径已引用，内容读取失败，点击关闭`);
       } else {
-        noteTag.setAttribute("title", `${fnameOrFallback}：已开启自动引用，点击关闭`);
+        noteTag.setAttribute("title", `${fname}：已开启自动引用，点击关闭`);
       }
     }
     const selTag = this.includeSelectionCheckEl.parentElement?.querySelector(".llm-bridge-context-tag");
