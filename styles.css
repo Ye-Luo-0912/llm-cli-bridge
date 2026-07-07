@@ -14743,3 +14743,265 @@
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name {
   display: none !important;
 }
+
+/* ===== V17-G56: static run header, collapsible steps head, calmer sessions/dialogs ===== */
+.llm-bridge-codex-run-header {
+  align-items: flex-start !important;
+  cursor: default !important;
+}
+
+.llm-bridge-codex-run-summary {
+  display: grid !important;
+  gap: 2px !important;
+}
+
+.llm-bridge-codex-run-provider {
+  color: var(--text-faint) !important;
+}
+
+.llm-bridge-codex-process {
+  gap: 6px !important;
+}
+
+.llm-bridge-codex-section-title-row {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-width: 0 !important;
+}
+
+.llm-bridge-codex-process-head {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  padding: 0 2px !important;
+}
+
+.llm-bridge-codex-process-head.is-collapsible {
+  cursor: pointer !important;
+}
+
+.llm-bridge-codex-process-head.is-collapsible:hover .llm-bridge-codex-process-toggle,
+.llm-bridge-codex-process-head.is-collapsible:hover .llm-bridge-codex-section-title {
+  color: var(--text-normal) !important;
+}
+
+.llm-bridge-codex-process-head:focus-visible {
+  outline: 0 !important;
+}
+
+.llm-bridge-codex-process-head:focus-visible .llm-bridge-codex-section-title-row,
+.llm-bridge-codex-process-head:focus-visible .llm-bridge-codex-process-toggle {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent) !important;
+}
+
+.llm-bridge-codex-process-toggle {
+  flex: 0 0 auto !important;
+  color: var(--text-faint) !important;
+  font-size: 10px !important;
+  font-weight: 620 !important;
+  letter-spacing: 0.03em !important;
+  text-transform: uppercase !important;
+}
+
+.llm-bridge-codex-section-count {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  min-width: 18px !important;
+  height: 18px !important;
+  padding: 0 6px !important;
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 48%, transparent) !important;
+  color: var(--text-faint) !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+}
+
+.llm-bridge-codex-process-body {
+  gap: 8px !important;
+}
+
+.llm-bridge-codex-final-answer {
+  gap: 9px !important;
+  padding: 14px 15px !important;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 8%, transparent) !important;
+  border-radius: 16px !important;
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--background-primary) 99%, transparent) 0%,
+      color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary)) 100%
+    ) !important;
+}
+
+.llm-bridge-codex-final-answer-title {
+  color: var(--text-faint) !important;
+  font-size: 10px !important;
+  font-weight: 650 !important;
+  letter-spacing: 0.04em !important;
+  text-transform: uppercase !important;
+}
+
+.llm-bridge-codex-final-answer-body {
+  color: var(--text-normal) !important;
+  font-size: 13px !important;
+  line-height: 1.6 !important;
+}
+
+.llm-bridge-codex-current-activity {
+  padding: 0 2px 3px !important;
+}
+
+.llm-bridge-session-selector,
+.llm-bridge-new-chat-btn,
+.llm-bridge-runtime-status,
+.llm-bridge-settings-btn,
+.llm-bridge-runtime-install-btn {
+  background: color-mix(in srgb, var(--background-primary) 99%, var(--background-secondary)) !important;
+}
+
+.llm-bridge-settings-btn,
+.llm-bridge-new-chat-btn {
+  min-height: 28px !important;
+}
+
+.llm-bridge-session-dropdown {
+  width: min(292px, calc(100% - 188px)) !important;
+  padding: 5px !important;
+  border-radius: 13px !important;
+}
+
+.llm-bridge-session-dropdown-title {
+  padding: 4px 8px 5px !important;
+  font-size: 9px !important;
+}
+
+.llm-bridge-session-dropdown-item,
+.llm-bridge-session-dropdown-history {
+  gap: 4px !important;
+  padding: 8px 8px !important;
+}
+
+.llm-bridge-session-dropdown-current {
+  padding: 0 5px !important;
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent) !important;
+  font-size: 9px !important;
+  font-weight: 650 !important;
+}
+
+.llm-bridge-history-item {
+  border-radius: 13px !important;
+}
+
+.llm-bridge-history-main {
+  gap: 4px !important;
+}
+
+.llm-bridge-history-title-row {
+  align-items: center !important;
+}
+
+.llm-bridge-history-current {
+  padding: 0 5px !important;
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent) !important;
+  color: color-mix(in srgb, var(--interactive-accent) 70%, var(--text-muted)) !important;
+  font-size: 9px !important;
+  font-weight: 650 !important;
+}
+
+.llm-bridge-history-actions {
+  padding-right: 2px !important;
+}
+
+.llm-bridge-context-strip {
+  gap: 4px !important;
+}
+
+.llm-bridge-context-label {
+  font-size: 10px !important;
+  font-weight: 560 !important;
+}
+
+.llm-bridge-confirm-modal,
+.llm-bridge-prompt-modal,
+.llm-bridge-file-not-found-modal {
+  gap: 12px !important;
+}
+
+.llm-bridge-confirm-modal .llm-bridge-confirm-msg,
+.llm-bridge-prompt-modal .llm-bridge-confirm-msg,
+.llm-bridge-file-not-found-modal .llm-bridge-confirm-msg {
+  color: color-mix(in srgb, var(--text-muted) 90%, transparent) !important;
+  font-size: 12px !important;
+  line-height: 1.55 !important;
+}
+
+.llm-bridge-prompt-modal .llm-bridge-prompt-input {
+  min-height: 36px !important;
+  padding: 0 10px !important;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
+  border-radius: 12px !important;
+  background: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary)) !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-confirm-modal .modal-button-container button,
+.llm-bridge-prompt-modal .modal-button-container button,
+.llm-bridge-file-not-found-modal .modal-button-container button {
+  min-height: 30px !important;
+  padding: 0 12px !important;
+  border-radius: 10px !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-confirm-modal .modal-button-container .mod-warning,
+.llm-bridge-prompt-modal .modal-button-container .mod-warning,
+.llm-bridge-file-not-found-modal .modal-button-container .mod-warning {
+  background: color-mix(in srgb, var(--interactive-accent) 88%, var(--background-primary)) !important;
+  color: var(--text-on-accent) !important;
+}
+
+/* ===== V17-G57: stricter paste policy and steadier user attachment previews ===== */
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
+  align-items: flex-start !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
+  position: relative !important;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 8%, transparent) !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual {
+  display: flex !important;
+  align-items: stretch !important;
+  justify-content: stretch !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.has-image-preview,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.has-document-preview,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.is-image-placeholder {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {
+  display: grid !important;
+  grid-template-rows: repeat(3, minmax(0, 1fr)) !important;
+  align-content: stretch !important;
+  justify-items: stretch !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line {
+  overflow: hidden !important;
+}
+
+.llm-bridge-file-preview-path {
+  user-select: text !important;
+}

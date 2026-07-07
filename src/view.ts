@@ -84,8 +84,9 @@ interface UserInputDraft {
 }
 
 const USER_INPUT_OPTIONS_PER_PAGE = 6;
-const CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS = 12000;
-const CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES = 160;
+// 普通粘贴文本应保持原文输入；只有“特别大”的文本才退化为临时 txt/json/md 附件。
+const CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS = 20000;
+const CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES = 240;
 
 export class AgentSkillDocumentView extends ItemView {
   private state: AgentSkillDocumentState = {};
@@ -2700,6 +2701,7 @@ export class LLMBridgeView extends ItemView {
       const imagePath = await this.persistElectronClipboardImageToVault();
       if (imagePath) paths.push(imagePath);
     }
+    // 普通复制文本保持 textarea 默认粘贴行为；只有真实文件 / 图片 / 超大文本才接管为附件。
     if (paths.length === 0) return;
     event.preventDefault();
     const refs = await this.addUserFilePathsToContext(paths, "paste");
@@ -4493,12 +4495,15 @@ export class LLMBridgeView extends ItemView {
       if (thumbnailUrl) {
         chip.addClass("has-preview");
         chip.addClass("is-preview-only");
+        visual.addClass("has-image-preview");
         const preview = visual.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });
         preview.addEventListener("load", () => {
           this.maybeApplySmartImageThumbnail(preview, this.getSmartImageThumbnailCacheKey(ref, thumbnailUrl));
         });
         preview.addEventListener("error", () => {
           chip.addClass("is-preview-missing");
+          visual.removeClass("has-image-preview");
+          visual.addClass("is-image-placeholder");
           preview.remove();
           const placeholder = visual.createEl("span", { cls: "llm-bridge-msg-attachment-image-placeholder" });
           setIcon(placeholder, "image");
@@ -4506,11 +4511,13 @@ export class LLMBridgeView extends ItemView {
       } else if (ref.fileType === "image") {
         chip.addClass("is-preview-only");
         chip.addClass("is-preview-missing");
+        visual.addClass("is-image-placeholder");
         const placeholder = visual.createEl("span", { cls: "llm-bridge-msg-attachment-image-placeholder" });
         setIcon(placeholder, "image");
       } else {
         chip.addClass("is-preview-only");
         chip.addClass("has-document-preview");
+        visual.addClass("has-document-preview");
         this.renderDocumentPreviewThumb(visual, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);
       }
       chip.addEventListener("click", () => void this.openFileRefPreview(ref));
@@ -4933,10 +4940,6 @@ export class LLMBridgeView extends ItemView {
     wrap.addClass(`is-disposition-${sourceModel.finalAnswerDisposition}`);
 
     const head = wrap.createDiv({ cls: "llm-bridge-timeline-head llm-bridge-codex-run-header" });
-    const toggle = head.createEl("span", {
-      cls: "llm-bridge-timeline-toggle llm-bridge-codex-run-toggle",
-      text: hasToggleContent ? (processCollapsedByDefault ? "▶ " : "▼ ") : "",
-    });
     const summary = head.createDiv({ cls: "llm-bridge-codex-run-summary" });
     const statusEl = summary.createEl("span", {
       cls: `llm-bridge-codex-run-status llm-bridge-timeline-summary is-${run.runHeader.statusKind}`,
@@ -4960,8 +4963,13 @@ export class LLMBridgeView extends ItemView {
     const process = body.createDiv({ cls: "llm-bridge-codex-process" });
     if (hasProcessContent) {
       const processHead = process.createDiv({ cls: "llm-bridge-codex-section-head llm-bridge-codex-process-head" });
-      processHead.createDiv({ cls: "llm-bridge-codex-section-title", text: "Steps" });
-      processHead.createDiv({ cls: "llm-bridge-codex-section-count", text: String(processFeedBatches.length) });
+      const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
+      processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: "Steps" });
+      processTitle.createDiv({ cls: "llm-bridge-codex-section-count", text: String(processFeedBatches.length) });
+      const processToggle = processHead.createEl("span", {
+        cls: "llm-bridge-codex-process-toggle",
+        text: hasToggleContent ? (processCollapsedByDefault ? "Show" : "Hide") : "",
+      });
       const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
       if (processCollapsedByDefault) processBody.setAttribute("hidden", "");
       if (processFeedItems.length > 0) this.renderCodexFeed(processBody, processFeedItems, developerMode);
@@ -4969,16 +4977,30 @@ export class LLMBridgeView extends ItemView {
       if (developerMode && run.debugPanel) this.renderAgentRunDebugView(processBody, run.debugPanel);
 
       if (hasToggleContent) {
-        head.addEventListener("click", (event) => {
-          if ((event.target as HTMLElement | null)?.closest?.("button")) return;
+        processHead.addClass("is-collapsible");
+        processHead.setAttribute("role", "button");
+        processHead.setAttribute("tabindex", "0");
+        processHead.setAttribute("aria-expanded", processCollapsedByDefault ? "false" : "true");
+        const toggleProcessBody = () => {
           const hidden = processBody.hasAttribute("hidden");
           if (hidden) {
             processBody.removeAttribute("hidden");
-            toggle.textContent = "▼ ";
+            processHead.setAttribute("aria-expanded", "true");
+            processToggle.textContent = "Hide";
           } else {
             processBody.setAttribute("hidden", "");
-            toggle.textContent = "▶ ";
+            processHead.setAttribute("aria-expanded", "false");
+            processToggle.textContent = "Show";
           }
+        };
+        processHead.addEventListener("click", (event) => {
+          if ((event.target as HTMLElement | null)?.closest?.("button")) return;
+          toggleProcessBody();
+        });
+        processHead.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          toggleProcessBody();
         });
       }
     } else {
@@ -4987,7 +5009,7 @@ export class LLMBridgeView extends ItemView {
 
     if (hasAnswer) this.renderCodexFinalAnswer(body, run.finalAnswer);
 
-    if (!hasBodyContent || !hasToggleContent) {
+    if (!hasBodyContent) {
       head.removeClass("llm-bridge-timeline-head");
       head.addClass("llm-bridge-timeline-head-noclick");
     }
@@ -5018,7 +5040,7 @@ export class LLMBridgeView extends ItemView {
     const normalized = text.trim();
     if (!normalized) return;
     const section = parent.createDiv({ cls: "llm-bridge-codex-final-answer" });
-    section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Output" });
+    section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Final answer" });
     const body = section.createDiv({ cls: "llm-bridge-codex-final-answer-body llm-bridge-msg-markdown" });
     const fallback = () => {
       body.empty();
@@ -7247,7 +7269,7 @@ export class LLMBridgeView extends ItemView {
       }
       this.contextLabelEl.setAttribute("title", `Exact runtime usage: ${metrics.precision === "exact" ? "available" : "unavailable"}\nLocal estimate: ${metrics.total.tokens} tokens (${metrics.total.chars} chars)\nWindow: ${formatTokens(win)}\nPrecision: ${metrics.precision}`);
     } else {
-      this.contextLabelEl.textContent = `Context ${pct > 0 && pct < 0.1 ? "<0.1" : Math.round(pct * 10) / 10}%`;
+      this.contextLabelEl.textContent = `${pct > 0 && pct < 0.1 ? "<0.1" : Math.round(pct * 10) / 10}%`;
       this.contextLabelEl.setAttribute("title", `Context used: ${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`);
     }
     // V16.3 Round 3: 普通用户态不填充明细；developerMode 保留完整明细
@@ -7550,7 +7572,7 @@ export class LLMBridgeView extends ItemView {
 
   private renderRecentSessionDropdown(dropdown: HTMLElement, openHistory: () => void): void {
     dropdown.empty();
-    dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-title", text: "Recent sessions" });
+    dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-title", text: "Sessions" });
     const recent = this.historyItems.slice(0, 6);
     if (recent.length === 0) {
       dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-empty", text: "暂无历史会话" });
@@ -7564,7 +7586,7 @@ export class LLMBridgeView extends ItemView {
         const titleRow = row.createDiv({ cls: "llm-bridge-session-dropdown-title-row" });
         titleRow.createEl("span", { cls: "llm-bridge-session-dropdown-name", text: item.title });
         if (item.id === this.currentSessionId) {
-          titleRow.createEl("span", { cls: "llm-bridge-session-dropdown-current", text: "Current" });
+          titleRow.createEl("span", { cls: "llm-bridge-session-dropdown-current", text: "当前" });
         }
         row.createEl("span", { cls: "llm-bridge-session-dropdown-summary", text: summary });
         row.createEl("span", { cls: "llm-bridge-session-dropdown-meta", text: `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条` });
@@ -7577,7 +7599,7 @@ export class LLMBridgeView extends ItemView {
     const historyBtn = dropdown.createEl("button", { cls: "llm-bridge-session-dropdown-history" });
     const historyIcon = historyBtn.createEl("span", { cls: "llm-bridge-session-dropdown-history-icon" });
     setIcon(historyIcon, "history");
-    historyBtn.createEl("span", { text: "Open history" });
+    historyBtn.createEl("span", { text: "查看全部会话" });
     historyBtn.addEventListener("click", () => {
       dropdown.setAttribute("hidden", "");
       openHistory();
@@ -7642,7 +7664,7 @@ export class LLMBridgeView extends ItemView {
       if (item.id === this.currentSessionId) {
         titleRow.createEl("span", { cls: "llm-bridge-history-current", text: "Current" });
       }
-      const meta = `${item.messageCount} 条 · ${item.agentType} · ${this.formatHistoryTime(item.savedAt)}`;
+      const meta = `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条`;
       main.createEl("span", { cls: "llm-bridge-history-meta", text: meta });
       main.createEl("span", { cls: "llm-bridge-history-preview", text: preview });
       main.addEventListener("click", () => void this.restoreSession(item.id));

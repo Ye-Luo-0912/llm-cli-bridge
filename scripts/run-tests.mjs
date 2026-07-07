@@ -17553,8 +17553,8 @@ if (!runV214BUnit) {
         && !stylesSrc.includes("grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto auto auto");
       const sessionDropdownOk = viewSrc.includes("llm-bridge-session-dropdown")
         && viewSrc.includes("toggleSessionDropdown")
-        && (viewSrc.includes("Open history") || viewSrc.includes("查看全部历史"))
-        && (viewSrc.includes("Recent sessions") || viewSrc.includes("最近会话"))
+        && (viewSrc.includes("查看全部会话") || viewSrc.includes("查看全部历史") || viewSrc.includes("Open history"))
+        && (viewSrc.includes('text: "Sessions"') || viewSrc.includes("Recent sessions") || viewSrc.includes("最近会话"))
         && !viewSrc.includes("sessionPreview.addEventListener(\"click\", () => switchTab(\"history\"))");
       const composerOk = !viewSrc.includes("rightTools.appendChild(agentSelect)")
         && viewSrc.includes("llm-bridge-model-effort-picker")
@@ -18616,7 +18616,7 @@ if (!runNoteSummarizeSmoke) {
       && !viewSrc.includes("llm-bridge-session-dropdown-request")
       && !viewSrc.includes("llm-bridge-session-dropdown-reply")
       && viewSrc.includes("await this.restoreSession(item.id)")
-      && (viewSrc.includes("Open history") || viewSrc.includes("查看全部历史"));
+      && (viewSrc.includes("查看全部会话") || viewSrc.includes("查看全部历史") || viewSrc.includes("Open history"));
     addTest("V2.16-D sessions/view.ts: 最近会话摘要下拉与恢复入口", ok ? "pass" : "fail", "");
   }
 
@@ -18625,7 +18625,8 @@ if (!runNoteSummarizeSmoke) {
     // V2.17-A: 不再强制覆盖 precision 为 unavailable；让 computeContextMetrics 的 estimated 自然显示
     // - 非 exact 精度时主标签显示 "Context estimate"，不冒充 exact
     // - 拆分 message attachments / pinned context 两段（不再合并为单一 workingSet）
-    const ok = viewSrc.includes('this.contextLabelEl.textContent = "Context estimate"')
+    const ok = (viewSrc.includes('this.contextLabelEl.textContent = "Context estimate"')
+        || viewSrc.includes('this.contextLabelEl.textContent = `${pct > 0 && pct < 0.1 ? "<0.1" : Math.round(pct * 10) / 10}%`;'))
       && viewSrc.includes('text: "Source"')
       && viewSrc.includes("is-exact")
       && viewSrc.includes("is-estimated")
@@ -19354,10 +19355,12 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('if (run.changeGroups.length > 0) this.renderCodexChangesPanel(body, run.changeGroups, developerMode);')
       && viewSrc.includes('const process = body.createDiv({ cls: "llm-bridge-codex-process" });')
       && viewSrc.includes('const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });')
-      && viewSrc.includes('processHead.createDiv({ cls: "llm-bridge-codex-section-title", text: "Steps" });')
+      && viewSrc.includes('const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });')
+      && viewSrc.includes('const processToggle = processHead.createEl("span", {')
+      && viewSrc.includes('text: hasToggleContent ? (processCollapsedByDefault ? "Show" : "Hide") : "",')
       && viewSrc.includes('if (hasAnswer) this.renderCodexFinalAnswer(body, run.finalAnswer);')
       && viewSrc.includes("private renderCodexFinalAnswer(parent: HTMLElement, text: string): void {")
-      && viewSrc.includes('section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Output" });')
+      && viewSrc.includes('section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Final answer" });')
       && viewSrc.includes("private renderCodexFeedBatch(")
       && viewSrc.includes("private renderCodexFeedBatchSummary(")
       && viewSrc.includes("private formatCodexBatchSummary(")
@@ -19412,6 +19415,45 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-codex-shell-command")
       && stylesSrc.includes(".llm-bridge-file-preview-modal .modal-title");
     addTest("V17-G54 UI: 顶栏、History、composer meta row 与 Shell 块继续向 Codex 风格收口",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13ag: V17-G56 process toggle/final answer/session/modal polish ----
+  {
+    const ok = viewSrc.includes('this.contextLabelEl.textContent = `${pct > 0 && pct < 0.1 ? "<0.1" : Math.round(pct * 10) / 10}%`;')
+      && viewSrc.includes('dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-title", text: "Sessions" });')
+      && viewSrc.includes('titleRow.createEl("span", { cls: "llm-bridge-session-dropdown-current", text: "当前" });')
+      && viewSrc.includes('historyBtn.createEl("span", { text: "查看全部会话" });')
+      && viewSrc.includes('const meta = `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条`;')
+      && viewSrc.includes('processHead.addClass("is-collapsible");')
+      && viewSrc.includes('processHead.setAttribute("role", "button");')
+      && viewSrc.includes('processHead.setAttribute("aria-expanded", processCollapsedByDefault ? "false" : "true");')
+      && viewSrc.includes('processToggle.textContent = "Hide";')
+      && viewSrc.includes('processToggle.textContent = "Show";')
+      && stylesSrc.includes("V17-G56: static run header, collapsible steps head, calmer sessions/dialogs")
+      && stylesSrc.includes(".llm-bridge-codex-process-toggle")
+      && stylesSrc.includes(".llm-bridge-codex-section-title-row")
+      && stylesSrc.includes(".llm-bridge-codex-final-answer-title")
+      && stylesSrc.includes(".llm-bridge-session-dropdown-current")
+      && stylesSrc.includes(".llm-bridge-history-current")
+      && stylesSrc.includes(".llm-bridge-confirm-modal .modal-button-container .mod-warning");
+    addTest("V17-G56 UI: Steps 折叠、Final answer、sessions 与 modal 表面继续收口",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13ag2: V17-G57 plain paste stays text; user attachment tiles keep preview surface ----
+  {
+    const ok = viewSrc.includes("const CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS = 20000;")
+      && viewSrc.includes("const CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES = 240;")
+      && viewSrc.includes("普通复制文本保持 textarea 默认粘贴行为；只有真实文件 / 图片 / 超大文本才接管为附件。")
+      && viewSrc.includes('visual.addClass("has-image-preview");')
+      && viewSrc.includes('visual.addClass("is-image-placeholder");')
+      && viewSrc.includes('visual.addClass("has-document-preview");')
+      && stylesSrc.includes("V17-G57: stricter paste policy and steadier user attachment previews")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.has-image-preview")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb")
+      && stylesSrc.includes(".llm-bridge-file-preview-path");
+    addTest("V17-G57 UI: 普通粘贴文本保持原文，用户附件 tile 继续稳定为轻量预览",
       ok ? "pass" : "fail", "");
   }
 
