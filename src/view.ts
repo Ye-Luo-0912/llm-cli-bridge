@@ -1438,7 +1438,7 @@ export class LLMBridgeView extends ItemView {
     const headIcon = head.createEl("span", { cls: "llm-bridge-perm-popover-head-icon" });
     setIcon(headIcon, currentMode.icon);
     const headText = head.createDiv({ cls: "llm-bridge-perm-popover-head-text" });
-    headText.createEl("strong", { text: "运行模式" });
+    headText.createEl("strong", { text: "Codex 模式" });
     headText.createEl("span", { text: `${currentMode.title} · ${currentMode.desc}` });
     head.createEl("span", { cls: `llm-bridge-perm-popover-risk is-${currentInfo.level}`, text: currentInfo.level === "danger" ? "高风险" : currentInfo.level === "caution" ? "需确认" : "安全" });
     for (const mode of modes) {
@@ -4005,13 +4005,13 @@ export class LLMBridgeView extends ItemView {
 
     panel.style.display = "block";
     const header = panel.createDiv({ cls: "llm-bridge-external-read-header" });
-    header.createEl("span", { cls: "llm-bridge-external-read-title", text: "文件访问请求" });
+    header.createEl("span", { cls: "llm-bridge-external-read-title", text: "外部文件访问" });
     header.createEl("span", { cls: "llm-bridge-external-read-count", text: `${pending.length} 个待确认` });
 
     for (const req of pending) {
       const card = panel.createDiv({ cls: `llm-bridge-external-read-card is-risk-${req.risk} is-safety-${req.grantRootSafety}` });
       const title = card.createDiv({ cls: "llm-bridge-external-read-card-title" });
-      title.createEl("span", { text: "读取外部文件" });
+      title.createEl("span", { text: "Read external file" });
       title.createEl("span", { cls: "llm-bridge-external-read-source", text: req.source });
 
       this.renderExternalReadTarget(card, req);
@@ -4948,6 +4948,7 @@ export class LLMBridgeView extends ItemView {
     const processFeedItems = run.feedItems;
     const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);
     const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;
+    const processPreview = this.formatCodexProcessPreview(processFeedBatches, developerMode);
     const hasProcessContent = processFeedItems.length > 0
       || diagnosticsForDisplay.length > 0
       || !!run.debugPanel;
@@ -5006,6 +5007,13 @@ export class LLMBridgeView extends ItemView {
         processMeta.createEl("span", {
           cls: "llm-bridge-codex-process-head-meta-item",
           text: `${processEventCount} ${processEventCount === 1 ? "step" : "steps"}`,
+        });
+      }
+      if (processPreview) {
+        processTitle.createEl("span", {
+          cls: "llm-bridge-codex-process-head-preview",
+          text: truncateText(processPreview, 180),
+          attr: { title: processPreview },
         });
       }
       const processToggle = processHead.createEl("span", {
@@ -5220,6 +5228,28 @@ export class LLMBridgeView extends ItemView {
     }
     const firstEvent = batch.find((item) => this.isCodexFeedEvent(item));
     return firstEvent?.label ?? batch[0]?.label ?? "";
+  }
+
+  private formatCodexProcessPreview(
+    batches: ReadonlyArray<ReadonlyArray<CodexRunFeedItem>>,
+    developerMode: boolean,
+  ): string {
+    for (const batch of batches) {
+      if (!batch.length) continue;
+      const lead = batch[0];
+      const leadIsThinking = lead.kind === "thinking";
+      const label = leadIsThinking
+        ? "Thinking"
+        : lead.kind === "assistant"
+          ? "Thinking"
+          : lead.label || "Step";
+      const batchSummary = leadIsThinking
+        ? this.formatCodexFeedSummary(lead, developerMode).trim()
+        : this.formatCodexBatchSummary(batch, developerMode).trim();
+      if (label === "Thinking") return batchSummary ? `Thinking · ${batchSummary}` : "Thinking";
+      if (batchSummary) return batchSummary;
+    }
+    return "";
   }
 
   private renderCodexFeedItem(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean, nestedEvent: boolean): void {
@@ -5583,8 +5613,20 @@ export class LLMBridgeView extends ItemView {
 
   private formatCodexShellCommandPreview(command?: string): string {
     if (!command?.trim()) return "";
-    return command
+    let preview = command
       .replace(/\s+/g, " ")
+      .trim();
+    const isWrappedShell = /^(?:"[^"]*(?:powershell|pwsh)(?:\.exe)?"|(?:powershell|pwsh)(?:\.exe)?)(?:\s|$)/i.test(preview);
+    if (isWrappedShell) {
+      const commandArgMatch = preview.match(/\s-(?:Command|c)\s+([\s\S]+)$/i);
+      if (commandArgMatch?.[1]) {
+        preview = commandArgMatch[1].trim();
+      }
+    }
+    if ((preview.startsWith("'") && preview.endsWith("'")) || (preview.startsWith("\"") && preview.endsWith("\""))) {
+      preview = preview.slice(1, -1).trim();
+    }
+    return preview
       .replace(/[A-Za-z]:\\[^\s·]+/g, (match) => path.basename(match))
       .trim();
   }

@@ -15764,17 +15764,17 @@
 
 .llm-bridge-perm-popover {
   width: min(320px, calc(100vw - 24px)) !important;
-  padding: 8px !important;
-  border-radius: 14px !important;
-  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent) !important;
-  background: color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary)) !important;
-  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.12) !important;
+  padding: 7px !important;
+  border-radius: 12px !important;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 58%, transparent) !important;
+  background: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary)) !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08) !important;
 }
 
 .llm-bridge-perm-popover-head {
-  margin-bottom: 6px !important;
-  padding: 4px 4px 7px !important;
-  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 42%, transparent) !important;
+  margin-bottom: 4px !important;
+  padding: 3px 4px 6px !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 30%, transparent) !important;
 }
 
 .llm-bridge-perm-popover-head-icon {
@@ -15806,7 +15806,7 @@
   padding: 8px 9px !important;
   border-radius: 10px !important;
   border: 1px solid transparent !important;
-  background: color-mix(in srgb, var(--background-modifier-hover) 22%, transparent) !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 16%, transparent) !important;
 }
 
 .llm-bridge-perm-option + .llm-bridge-perm-option {
@@ -15814,8 +15814,18 @@
 }
 
 .llm-bridge-perm-option:hover {
-  border-color: color-mix(in srgb, var(--interactive-accent) 32%, var(--background-modifier-border)) !important;
-  background: color-mix(in srgb, var(--background-modifier-hover) 34%, transparent) !important;
+  border-color: color-mix(in srgb, var(--interactive-accent) 24%, var(--background-modifier-border)) !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 26%, transparent) !important;
+}
+
+.llm-bridge-perm-option.is-active {
+  border-color: color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border)) !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 28%, transparent) !important;
+}
+
+.llm-bridge-perm-option-check {
+  color: color-mix(in srgb, var(--interactive-accent) 76%, var(--text-muted)) !important;
+  font-size: 11px !important;
 }
 
 .llm-bridge-perm-option-text {
@@ -15836,14 +15846,20 @@
 }
 
 .llm-bridge-external-read-card {
-  padding: 10px 11px !important;
+  padding: 9px 10px !important;
   border-radius: 12px !important;
   border: 1px solid color-mix(in srgb, var(--background-modifier-border) 68%, transparent) !important;
-  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary)) !important;
+  background: color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary)) !important;
 }
 
 .llm-bridge-external-read-card-title {
-  margin-bottom: 6px !important;
+  margin-bottom: 5px !important;
+  align-items: center !important;
+}
+
+.llm-bridge-external-read-source {
+  color: var(--text-faint) !important;
+  font-size: 10px !important;
 }
 
 .llm-bridge-external-read-target {
@@ -15913,6 +15929,14 @@
   margin-top: 6px !important;
 }
 
+.llm-bridge-external-read-field {
+  gap: 6px !important;
+}
+
+.llm-bridge-external-read-field-label {
+  color: var(--text-faint) !important;
+}
+
 .llm-bridge-external-read-actions {
   margin-top: 8px !important;
   gap: 6px !important;
@@ -15946,6 +15970,16 @@
   font-size: 10px !important;
   font-weight: 500 !important;
   line-height: 1.3 !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-codex-process-head-preview {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  color: color-mix(in srgb, var(--text-muted) 86%, transparent) !important;
+  font-size: 10.5px !important;
+  line-height: 1.35 !important;
+  text-overflow: ellipsis !important;
   white-space: nowrap !important;
 }
 
@@ -16007,4 +16041,83 @@
 .llm-bridge-codex-process-head .llm-bridge-codex-section-title {
   font-size: 11px !important;
   font-weight: 620 !important;
+}
+
+.llm-bridge-codex-run-header {
+  padding-bottom: 6px !important;
+}
+
+.llm-bridge-codex-run-status {
+  font-size: 11px !important;
+  font-weight: 620 !important;
+}
+
+.llm-bridge-codex-run-provider {
+  font-size: 10.5px !important;
+  color: color-mix(in srgb, var(--text-muted) 82%, transparent) !important;
+}
+
+.llm-bridge-codex-run-metrics {
+  gap: 8px !important;
+}
+
+.llm-bridge-codex-run-metric {
+  gap: 3px !important;
+  font-size: 10px !important;
+  color: var(--text-faint) !important;
+}
+
+.llm-bridge-composer-status-rail {
+  padding: 0 2px 5px !important;
+}
+
+.llm-bridge-composer-bar {
+  border-radius: 18px !important;
+}
+
+.llm-bridge-context-strip {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.llm-bridge-command-menu-summary,
+.llm-bridge-permission-chip {
+  border-color: color-mix(in srgb, var(--text-muted) 8%, transparent) !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 18%, transparent) !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-approval-card,
+.llm-bridge-clarification-card,
+.llm-bridge-file-preview-modal {
+  border-radius: 12px !important;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.08) !important;
+}
+
+.llm-bridge-approval-card-cancel,
+.llm-bridge-clarification-icon-btn,
+.llm-bridge-clarification-close {
+  width: 24px !important;
+  min-width: 24px !important;
+  height: 24px !important;
+  min-height: 24px !important;
+  border-radius: 8px !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 26%, transparent) !important;
+}
+
+.llm-bridge-clarification-card {
+  padding: 9px 10px !important;
+}
+
+.llm-bridge-clarification-question {
+  color: var(--text-normal) !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
+.llm-bridge-clarification-option,
+.llm-bridge-clarification-other-row,
+.llm-bridge-clarification-supplement-textarea {
+  background: color-mix(in srgb, var(--background-modifier-hover) 14%, transparent) !important;
 }
