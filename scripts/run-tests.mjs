@@ -18905,6 +18905,24 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13m2: V17-G25 composer attachments match Codex compact send tray ----
+  {
+    const ok = viewSrc.includes('chip.addClass("has-preview")')
+      && viewSrc.includes('chip.addClass("is-preview-only")')
+      && viewSrc.includes('chip.removeClass("is-preview-only")')
+      && stylesSrc.includes("V17-G25: composer attachments match Codex compact send tray")
+      && stylesSrc.includes(".llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only")
+      && stylesSrc.includes("max-width: 156px;")
+      && stylesSrc.includes("width: 44px;")
+      && stylesSrc.includes("max-width: 44px;")
+      && stylesSrc.includes(".llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-text")
+      && stylesSrc.includes("display: none;")
+      && stylesSrc.includes(".llm-bridge-composer-file-meta")
+      && stylesSrc.includes(".llm-bridge-composer-file-pin svg");
+    addTest("V17-G25 UI: composer attachment tray uses compact square image tiles",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 13n: V17-G18/G19 user bubble attachments use inline previews and lightbox ----
   {
     const ok = viewSrc.includes("this.renderMessageFileRefs(content, msg.fileRefs)")

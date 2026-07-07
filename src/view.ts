@@ -3071,6 +3071,8 @@ export class LLMBridgeView extends ItemView {
       const thumb = chip.createEl("span", { cls: "llm-bridge-composer-file-thumb" });
       const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
       if (thumbnailUrl) {
+        chip.addClass("has-preview");
+        chip.addClass("is-preview-only");
         thumb.addClass("has-image-preview");
         thumb.style.setProperty("background-image", `url("${thumbnailUrl.replace(/"/g, '\\"')}")`);
         const fallback = thumb.createEl("span", { cls: "llm-bridge-composer-file-icon is-fallback" });
@@ -3085,6 +3087,8 @@ export class LLMBridgeView extends ItemView {
           thumb.addClass("is-preview-missing");
           thumb.style.removeProperty("background-image");
           chip.addClass("is-thumbnail-fallback");
+          chip.removeClass("has-preview");
+          chip.removeClass("is-preview-only");
         });
         preview.src = thumbnailUrl;
       } else {
