@@ -3376,9 +3376,16 @@ export class LLMBridgeView extends ItemView {
       preview.src = thumbnailUrl;
       return;
     }
+    if (ref.fileType !== "image") {
+      visual.addClass("has-document-preview");
+      const docThumb = visual.createEl("span", { cls: `llm-bridge-context-ref-doc-thumb is-${ref.fileType}` });
+      for (let i = 0; i < 4; i += 1) {
+        docThumb.createEl("span", { cls: "llm-bridge-context-ref-doc-line" });
+      }
+      return;
+    }
     const fileIcon = visual.createEl("span", { cls: "llm-bridge-context-ref-visual-icon" });
     setIcon(fileIcon, this.getFileRefIconName(ref));
-    visual.createEl("span", { cls: "llm-bridge-context-ref-ext", text: this.getFileRefShortLabel(ref) });
   }
 
   private fileRefBadgeLabel(ref: FileRef): string {

@@ -18888,10 +18888,12 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('cls: `llm-bridge-context-ref-chip is-${ref.kind} is-${ref.status} is-${ref.fileType}`')
       && viewSrc.includes('cls: "llm-bridge-context-ref-icon llm-bridge-context-ref-thumb"')
       && viewSrc.includes('visual.style.setProperty("background-image"')
-      && viewSrc.includes('cls: "llm-bridge-context-ref-ext"')
+      && viewSrc.includes('visual.addClass("has-document-preview")')
+      && viewSrc.includes("llm-bridge-context-ref-doc-thumb")
       && stylesSrc.includes("V17-G16: Codex-like context file thumbnails")
       && stylesSrc.includes(".llm-bridge-context-ref-thumb.has-image-preview")
-      && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-chip.is-image .llm-bridge-context-ref-ext");
+      && stylesSrc.includes(".llm-bridge-context-ref-thumb.has-document-preview")
+      && stylesSrc.includes(".llm-bridge-context-ref-doc-thumb");
     addTest("V17-G16 UI: Files/context rows use thumbnails and compact type labels",
       ok ? "pass" : "fail", "");
   }
@@ -19205,6 +19207,22 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes("box-shadow: none;")
       && stylesSrc.includes(".llm-bridge-composer-status-rail.is-running .llm-bridge-composer-step-pill::before");
     addTest("V17-G36 UI: composer 状态行集成进顶部轻量文本，不回退成按钮横线",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13aa: V17-G37 context and Files refs use document thumbnails for non-images ----
+  {
+    const ok = viewSrc.includes('visual.addClass("has-document-preview")')
+      && viewSrc.includes("llm-bridge-context-ref-doc-thumb")
+      && viewSrc.includes("llm-bridge-context-ref-doc-line")
+      && !viewSrc.includes('visual.createEl("span", { cls: "llm-bridge-context-ref-ext", text: this.getFileRefShortLabel(ref) });')
+      && stylesSrc.includes("V17-G37: context and Files refs use document thumbnails for non-images")
+      && stylesSrc.includes(".llm-bridge-context-ref-thumb.has-document-preview")
+      && stylesSrc.includes(".llm-bridge-context-ref-doc-thumb")
+      && stylesSrc.includes(".llm-bridge-context-ref-doc-line")
+      && stylesSrc.includes(".llm-bridge-context-ref-thumb.has-document-preview .llm-bridge-context-ref-ext")
+      && stylesSrc.includes("display: none;");
+    addTest("V17-G37 UI: Files/Context 非图片文件使用文档缩略块，不用扩展名角标作主视觉",
       ok ? "pass" : "fail", "");
   }
 
