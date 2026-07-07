@@ -18849,7 +18849,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('setIcon(removeBtn, "x")')
       && viewSrc.includes("private getFileRefIconName(ref: FileRef): string")
       && viewSrc.includes("private fileRefSourceLabel(ref: FileRef): string")
-      && viewSrc.includes('cls: "llm-bridge-composer-file-icon"')
+      && viewSrc.includes('cls: "llm-bridge-composer-file-icon is-fallback"')
+      && viewSrc.includes("llm-bridge-composer-file-doc-thumb")
       && viewSrc.includes('thumb.style.setProperty("background-image"')
       && viewSrc.includes('preview.addEventListener("error"')
       && viewSrc.includes('cls: "llm-bridge-perm-popover-head"')
@@ -19171,6 +19172,24 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-external-read-target-risk.is-high")
       && stylesSrc.includes("grid-template-columns: 36px minmax(0, 1fr) max-content");
     addTest("V17-G34 UI: 外部文件访问请求以缩略目标文件块展示",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13y: V17-G35 composer attachments stay thumbnail-only tiles ----
+  {
+    const ok = viewSrc.includes("llm-bridge-composer-file-doc-thumb")
+      && viewSrc.includes("llm-bridge-composer-file-doc-line")
+      && viewSrc.includes("thumb.addClass(\"has-document-preview\")")
+      && !viewSrc.includes('thumb.createEl("span", { cls: "llm-bridge-composer-file-ext", text: this.getFileRefShortLabel(ref) });')
+      && stylesSrc.includes("V17-G35: composer attachments stay thumbnail-only tiles")
+      && stylesSrc.includes(".llm-bridge-composer-file-chip,")
+      && stylesSrc.includes(".llm-bridge-composer-file-chip:not(.is-preview-only),")
+      && stylesSrc.includes(".llm-bridge-composer-file-doc-thumb")
+      && stylesSrc.includes(".llm-bridge-composer-file-doc-line")
+      && stylesSrc.includes("flex: 0 0 38px;")
+      && stylesSrc.includes(".llm-bridge-composer-file-text")
+      && stylesSrc.includes("display: none !important;");
+    addTest("V17-G35 UI: composer 附件保持缩略小方块，不回退成长条",
       ok ? "pass" : "fail", "");
   }
 

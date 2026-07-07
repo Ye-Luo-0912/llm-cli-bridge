@@ -3095,9 +3095,11 @@ export class LLMBridgeView extends ItemView {
         });
         preview.src = thumbnailUrl;
       } else {
-        const fileIcon = thumb.createEl("span", { cls: "llm-bridge-composer-file-icon" });
-        setIcon(fileIcon, this.getFileRefIconName(ref));
-        thumb.createEl("span", { cls: "llm-bridge-composer-file-ext", text: this.getFileRefShortLabel(ref) });
+        thumb.addClass("has-document-preview");
+        const docThumb = thumb.createEl("span", { cls: `llm-bridge-composer-file-doc-thumb is-${ref.fileType}` });
+        for (let i = 0; i < 4; i += 1) {
+          docThumb.createEl("span", { cls: "llm-bridge-composer-file-doc-line" });
+        }
       }
       const fileText = chip.createEl("span", { cls: "llm-bridge-composer-file-text" });
       fileText.createEl("span", { cls: "llm-bridge-composer-file-name", text: ref.displayName });
