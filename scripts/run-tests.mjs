@@ -19154,6 +19154,26 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13x: V17-G34 external read requests use file target blocks ----
+  {
+    const ok = viewSrc.includes("private renderExternalReadTarget")
+      && viewSrc.includes("llm-bridge-external-read-target")
+      && viewSrc.includes("llm-bridge-external-read-target-thumb")
+      && viewSrc.includes("llm-bridge-external-read-target-badges")
+      && viewSrc.includes("classifyFileTypeByPath(req.requestedPath)")
+      && viewSrc.includes("externalReadReasonLabel(req.reason)")
+      && viewSrc.includes("需要确认后读取外部文件。")
+      && !viewSrc.includes('this.renderExternalReadField(fields, "路径", req.requestedPath)')
+      && stylesSrc.includes("V17-G34: external read requests use compact file target blocks")
+      && stylesSrc.includes(".llm-bridge-external-read-target")
+      && stylesSrc.includes(".llm-bridge-external-read-target-thumb")
+      && stylesSrc.includes(".llm-bridge-external-read-target-badges")
+      && stylesSrc.includes(".llm-bridge-external-read-target-risk.is-high")
+      && stylesSrc.includes("grid-template-columns: 36px minmax(0, 1fr) max-content");
+    addTest("V17-G34 UI: 外部文件访问请求以缩略目标文件块展示",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----
   {
     const ok = viewSrc.includes("const vaultRef = this.addVaultFileRef")

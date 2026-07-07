@@ -3128,21 +3128,29 @@ export class LLMBridgeView extends ItemView {
   }
 
   private getFileRefShortLabel(ref: FileRef): string {
-    const ext = path.extname(ref.displayName).replace(".", "").trim();
+    return this.shortLabelForPath(ref.displayName, ref.fileType);
+  }
+
+  private shortLabelForPath(displayPath: string, fileType: string): string {
+    const ext = path.extname(displayPath).replace(".", "").trim();
     if (ext) return ext.slice(0, 4).toUpperCase();
-    if (ref.fileType === "markdown") return "MD";
-    if (ref.fileType === "text") return "TXT";
-    if (ref.fileType === "json") return "JSON";
-    if (ref.fileType === "pdf") return "PDF";
-    if (ref.fileType === "binary") return "BIN";
+    if (fileType === "markdown") return "MD";
+    if (fileType === "text") return "TXT";
+    if (fileType === "json") return "JSON";
+    if (fileType === "pdf") return "PDF";
+    if (fileType === "binary") return "BIN";
     return "FILE";
   }
 
   private getFileRefIconName(ref: FileRef): string {
-    if (ref.fileType === "image") return "image";
-    if (ref.fileType === "markdown" || ref.fileType === "text" || ref.fileType === "pdf") return "file-text";
-    if (ref.fileType === "json") return "braces";
-    if (ref.fileType === "binary") return "file";
+    return this.fileTypeIconName(ref.fileType);
+  }
+
+  private fileTypeIconName(fileType: string): string {
+    if (fileType === "image") return "image";
+    if (fileType === "markdown" || fileType === "text" || fileType === "pdf") return "file-text";
+    if (fileType === "json") return "braces";
+    if (fileType === "binary") return "file";
     return "file";
   }
 
@@ -3584,11 +3592,10 @@ export class LLMBridgeView extends ItemView {
       title.createEl("span", { text: "读取外部文件" });
       title.createEl("span", { cls: "llm-bridge-external-read-source", text: req.source });
 
+      this.renderExternalReadTarget(card, req);
+
       const fields = card.createDiv({ cls: "llm-bridge-external-read-fields" });
-      this.renderExternalReadField(fields, "路径", req.requestedPath);
-      this.renderExternalReadField(fields, "范围", req.proposedGrantRoot || "无");
-      this.renderExternalReadField(fields, "风险", req.risk === "high" ? "高" : req.risk === "medium" ? "中" : "低");
-      this.renderExternalReadField(fields, "原因", req.reason);
+      this.renderExternalReadField(fields, "原因", this.externalReadReasonLabel(req.reason));
 
       if (req.grantRootSafety === "deny") {
         card.createDiv({ cls: "llm-bridge-external-read-warning", text: "范围过大，已禁用文件夹授权。" });
@@ -3610,10 +3617,38 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
+  private renderExternalReadTarget(parent: HTMLElement, req: PendingExternalReadRequest): void {
+    const fileType = classifyFileTypeByPath(req.requestedPath);
+    const displayName = path.basename(req.requestedPath.replace(/\\/g, "/")) || req.requestedPath;
+    const target = parent.createDiv({
+      cls: `llm-bridge-external-read-target is-${fileType} is-risk-${req.risk}`,
+      attr: { title: `${req.requestedPath}\n${req.proposedGrantRoot || ""}`.trim() },
+    });
+    const thumb = target.createEl("span", { cls: "llm-bridge-external-read-target-thumb" });
+    setIcon(thumb.createEl("span", { cls: "llm-bridge-external-read-target-icon" }), this.fileTypeIconName(fileType));
+    thumb.createEl("span", { cls: "llm-bridge-external-read-target-ext", text: this.shortLabelForPath(displayName, fileType) });
+
+    const text = target.createDiv({ cls: "llm-bridge-external-read-target-text" });
+    text.createEl("span", { cls: "llm-bridge-external-read-target-name", text: displayName });
+    text.createEl("span", { cls: "llm-bridge-external-read-target-path", text: req.requestedPath, attr: { title: req.requestedPath } });
+
+    const badges = target.createDiv({ cls: "llm-bridge-external-read-target-badges" });
+    badges.createEl("span", { cls: `llm-bridge-external-read-target-risk is-${req.risk}`, text: req.risk === "high" ? "high risk" : req.risk === "medium" ? "medium risk" : "low risk" });
+    badges.createEl("span", { cls: "llm-bridge-external-read-target-scope", text: req.grantRootSafety === "deny" ? "file only" : req.proposedGrantRoot ? "file or folder" : "file" });
+  }
+
   private renderExternalReadField(parent: HTMLElement, label: string, value: string): void {
     const row = parent.createDiv({ cls: "llm-bridge-external-read-field" });
     row.createEl("span", { cls: "llm-bridge-external-read-field-label", text: label });
     row.createEl("span", { cls: "llm-bridge-external-read-field-value", text: value, attr: { title: value } });
+  }
+
+  private externalReadReasonLabel(reason: string): string {
+    if (reason === "pending_read_request") return "需要确认后读取外部文件。";
+    if (reason === "outside_read_roots") return "该路径不在当前允许读取范围内。";
+    if (reason === "high_risk_path") return "路径风险较高，请确认后继续。";
+    if (reason === "sensitive_path") return "路径可能包含敏感配置或凭据。";
+    return reason.replace(/[_-]+/g, " ");
   }
 
   private approveExternalReadRequest(requestId: string, forceFileScope: boolean, strongConfirm = false): void {

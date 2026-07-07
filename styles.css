@@ -11250,3 +11250,130 @@
 .llm-bridge-approval-btn.is-decline-session {
   background: transparent;
 }
+
+/* ===== V17-G34: external read requests use compact file target blocks ===== */
+.llm-bridge-external-read-card {
+  display: grid;
+  gap: 8px;
+}
+
+.llm-bridge-external-read-target {
+  display: grid;
+  align-items: center;
+  grid-template-columns: 36px minmax(0, 1fr) max-content;
+  gap: 8px;
+  min-height: 44px;
+  padding: 5px 6px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-secondary) 34%, transparent);
+}
+
+.llm-bridge-external-read-target-thumb {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--background-primary) 82%, var(--background-secondary));
+  color: color-mix(in srgb, var(--text-muted) 76%, transparent);
+}
+
+.llm-bridge-external-read-target-icon,
+.llm-bridge-external-read-target-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.llm-bridge-external-read-target-ext {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  max-width: 25px;
+  overflow: hidden;
+  padding: 1px 2px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--background-primary) 86%, transparent);
+  color: var(--text-faint);
+  font-size: 7px;
+  font-weight: 620;
+  line-height: 1.05;
+  text-overflow: ellipsis;
+}
+
+.llm-bridge-external-read-target.is-image .llm-bridge-external-read-target-ext {
+  display: none;
+}
+
+.llm-bridge-external-read-target-text {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.llm-bridge-external-read-target-name {
+  overflow: hidden;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  font-weight: 560;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-external-read-target-path {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+.llm-bridge-external-read-target-badges {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.llm-bridge-external-read-target-risk,
+.llm-bridge-external-read-target-scope {
+  max-width: 92px;
+  overflow: hidden;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-primary) 60%, transparent);
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-external-read-target-risk.is-high {
+  color: var(--text-error);
+  background: color-mix(in srgb, var(--text-error) 8%, transparent);
+}
+
+.llm-bridge-external-read-target-risk.is-medium {
+  color: var(--text-warning);
+  background: color-mix(in srgb, var(--text-warning) 8%, transparent);
+}
+
+.llm-bridge-external-read-fields {
+  gap: 3px;
+}
+
+.llm-bridge-external-read-field {
+  grid-template-columns: auto minmax(0, 1fr);
+}
+
+.llm-bridge-external-read-field-label {
+  color: var(--text-faint);
+}
