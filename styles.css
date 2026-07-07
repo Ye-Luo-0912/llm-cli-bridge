@@ -10160,3 +10160,99 @@
   0%, 100% { opacity: 0.42; transform: scale(0.9); }
   50% { opacity: 1; transform: scale(1.18); }
 }
+
+/* ===== V17-G24: Codex-like user attachment tiles and light preview ===== */
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: min(360px, 100%);
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip {
+  min-width: 0;
+  min-height: 36px;
+  max-width: 168px;
+  padding: 3px 7px 3px 3px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-secondary) 36%, transparent);
+  box-shadow: none;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
+  display: inline-flex;
+  width: 44px;
+  min-width: 44px;
+  max-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  padding: 0;
+  overflow: hidden;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--background-secondary) 48%, var(--background-primary));
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only:hover,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only):hover {
+  border-color: color-mix(in srgb, var(--text-muted) 18%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 54%, transparent);
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
+  display: block;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-name {
+  display: none;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only) {
+  display: inline-grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 6px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only) .llm-bridge-msg-attachment-ext {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  font-size: 7.5px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name {
+  font-size: var(--font-smallest);
+  line-height: 1.2;
+}
+
+.llm-bridge-file-preview-modal .modal-title {
+  font-size: var(--font-ui-large);
+  font-weight: 650;
+}
+
+.llm-bridge-file-preview {
+  border-radius: 12px;
+}
+
+.llm-bridge-file-preview-image {
+  max-height: min(58vh, 520px);
+  border-radius: 11px;
+}
+
+.llm-bridge-file-preview-meta {
+  gap: 4px;
+  opacity: 0.76;
+}
+
+.llm-bridge-file-preview-meta span {
+  padding: 1px 6px;
+  background: color-mix(in srgb, var(--background-secondary) 30%, transparent);
+}

@@ -18910,6 +18910,8 @@ if (!runNoteSummarizeSmoke) {
     const ok = viewSrc.includes("this.renderMessageFileRefs(content, msg.fileRefs)")
       && !viewSrc.includes("this.renderMessageFileRefs(block, msg.fileRefs)")
       && viewSrc.includes('chip.addClass("has-preview")')
+      && viewSrc.includes('chip.addClass("is-preview-only")')
+      && viewSrc.includes('chip.setAttribute("aria-label", ref.displayName)')
       && viewSrc.includes("private async openFileRefExternally(ref: FileRef): Promise<void>")
       && viewSrc.includes("private async readFileRefPreviewText(ref: FileRef): Promise<string | null>")
       && viewSrc.includes('modal.contentEl.addClass("llm-bridge-file-preview-modal")')
@@ -18927,6 +18929,23 @@ if (!runNoteSummarizeSmoke) {
       && !stylesSrc.includes(".llm-bridge-file-preview-actions")
       && stylesSrc.includes(".llm-bridge-file-preview-image");
     addTest("V17-G18 UI: user bubble attachments preview inline with lightweight modal",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13n2: V17-G24 image attachments are square preview-only tiles ----
+  {
+    const ok = viewSrc.includes('chip.addClass("is-preview-only")')
+      && viewSrc.includes('chip.setAttribute("aria-label", ref.displayName)')
+      && viewSrc.includes('chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });')
+      && stylesSrc.includes("V17-G24: Codex-like user attachment tiles and light preview")
+      && stylesSrc.includes(".llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only")
+      && stylesSrc.includes("width: 44px;")
+      && stylesSrc.includes("max-width: 44px;")
+      && stylesSrc.includes("height: 44px;")
+      && stylesSrc.includes("object-fit: cover;")
+      && stylesSrc.includes(".llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-name")
+      && stylesSrc.includes("display: none;");
+    addTest("V17-G24 UI: user image attachments render as compact square tiles",
       ok ? "pass" : "fail", "");
   }
 

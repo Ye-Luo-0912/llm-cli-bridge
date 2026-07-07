@@ -4048,11 +4048,13 @@ export class LLMBridgeView extends ItemView {
       const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
       if (thumbnailUrl) {
         chip.addClass("has-preview");
+        chip.addClass("is-preview-only");
+        chip.setAttribute("aria-label", ref.displayName);
         chip.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });
       } else {
         chip.createEl("span", { cls: "llm-bridge-msg-attachment-ext", text: this.getFileRefShortLabel(ref) });
+        chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });
       }
-      chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });
       chip.addEventListener("click", () => void this.openFileRefPreview(ref));
     }
   }
