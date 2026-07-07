@@ -18928,6 +18928,22 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13o: V17-G22 request/approval surfaces stay Codex-compact ----
+  {
+    const ok = stylesSrc.includes("V17-G22: compact Codex-like request and approval surfaces")
+      && stylesSrc.includes("width: min(700px, calc(100% - 32px))")
+      && stylesSrc.includes(".llm-bridge-approval-card-row-command,")
+      && stylesSrc.includes("max-height: 72px")
+      && stylesSrc.includes(".llm-bridge-approval-btn.is-proceed,")
+      && stylesSrc.includes("min-height: 28px")
+      && stylesSrc.includes(".llm-bridge-clarification-card")
+      && stylesSrc.includes("min-height: 34px")
+      && stylesSrc.includes(".llm-bridge-external-read-panel")
+      && stylesSrc.includes("grid-template-columns: 58px minmax(0, 1fr)");
+    addTest("V17-G22 UI: approval、user input 和 external-read 请求表面保持 Codex 紧凑",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----
   {
     const ok = viewSrc.includes("const vaultRef = this.addVaultFileRef")
