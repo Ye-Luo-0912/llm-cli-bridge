@@ -18883,6 +18883,40 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13m: V17-G17 composer file chips stay compact ----
+  {
+    const ok = stylesSrc.includes("V17-G17: compact composer file chips")
+      && stylesSrc.includes("max-width: min(220px, 100%)")
+      && stylesSrc.includes("grid-template-columns: 26px minmax(0, 1fr) 20px 20px")
+      && stylesSrc.includes(".llm-bridge-composer-file-thumb")
+      && stylesSrc.includes("width: 26px;")
+      && stylesSrc.includes("height: 26px;")
+      && stylesSrc.includes(".llm-bridge-composer-file-remove,")
+      && stylesSrc.includes("min-width: 20px;")
+      && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-chip");
+    addTest("V17-G17 UI: composer file chips stay compact",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13n: V17-G18/G19 user bubble attachments use inline previews and lightbox ----
+  {
+    const ok = viewSrc.includes("this.renderMessageFileRefs(content, msg.fileRefs)")
+      && !viewSrc.includes("this.renderMessageFileRefs(block, msg.fileRefs)")
+      && viewSrc.includes('chip.addClass("has-preview")')
+      && viewSrc.includes("private async openFileRefExternally(ref: FileRef): Promise<void>")
+      && viewSrc.includes("private async readFileRefPreviewText(ref: FileRef): Promise<string | null>")
+      && viewSrc.includes('modal.contentEl.addClass("llm-bridge-file-preview-modal")')
+      && viewSrc.includes('cls: "llm-bridge-file-preview-image"')
+      && viewSrc.includes('cls: "llm-bridge-file-preview-text"')
+      && stylesSrc.includes("V17-G18: user bubble attachment previews")
+      && stylesSrc.includes("V17-G19: lightweight file preview modal")
+      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments")
+      && stylesSrc.includes(".llm-bridge-msg-attachment-chip.has-preview")
+      && stylesSrc.includes(".llm-bridge-file-preview-image");
+    addTest("V17-G18 UI: user bubble attachments preview inline with lightweight modal",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 14: Vault 文件直接 ref，外部用户文件走 attachment file-scope grant ----
   {
     const ok = viewSrc.includes("const vaultRef = this.addVaultFileRef")

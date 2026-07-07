@@ -3415,6 +3415,51 @@ export class LLMBridgeView extends ItemView {
   }
 
   private async openFileRefPreview(ref: FileRef): Promise<void> {
+    const modal = new Modal(this.app);
+    modal.titleEl.setText(ref.displayName);
+    modal.contentEl.empty();
+    modal.contentEl.addClass("llm-bridge-file-preview-modal");
+
+    const preview = modal.contentEl.createDiv({ cls: `llm-bridge-file-preview is-${ref.fileType}` });
+    const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
+    if (thumbnailUrl) {
+      preview.createEl("img", {
+        cls: "llm-bridge-file-preview-image",
+        attr: { src: thumbnailUrl, alt: ref.displayName },
+      });
+    } else {
+      const previewText = await this.readFileRefPreviewText(ref);
+      if (previewText) {
+        preview.createEl("pre", { cls: "llm-bridge-file-preview-text", text: previewText });
+      } else {
+        const empty = preview.createDiv({ cls: "llm-bridge-file-preview-empty" });
+        const icon = empty.createSpan({ cls: "llm-bridge-file-preview-icon" });
+        setIcon(icon, this.getFileRefIconName(ref));
+        empty.createEl("span", { text: "Light preview is not available for this file type." });
+      }
+    }
+
+    const meta = modal.contentEl.createDiv({ cls: "llm-bridge-file-preview-meta" });
+    meta.createEl("span", { text: this.getFileRefShortLabel(ref).toLowerCase() });
+    meta.createEl("span", { text: this.fileRefSourceLabel(ref) });
+    meta.createEl("span", { text: this.fileRefDisplayPath(ref), attr: { title: ref.resolvedPath } });
+
+    const actions = modal.contentEl.createDiv({ cls: "llm-bridge-file-preview-actions" });
+    actions.createEl("button", { text: "Close" }).addEventListener("click", () => modal.close());
+    actions.createEl("button", { text: "Copy path" }).addEventListener("click", async () => {
+      await navigator.clipboard?.writeText(ref.resolvedPath);
+      new Notice("Path copied");
+    });
+    actions.createEl("button", { text: this.resolveFileRefVaultPath(ref) ? "Open in Obsidian" : "Open file" })
+      .addEventListener("click", () => {
+        modal.close();
+        void this.openFileRefExternally(ref);
+      });
+
+    modal.open();
+  }
+
+  private async openFileRefExternally(ref: FileRef): Promise<void> {
     const vaultRelPath = this.resolveFileRefVaultPath(ref);
     if (!vaultRelPath) {
       await this.openPathWithSystemDefault(ref.resolvedPath);
@@ -3439,6 +3484,29 @@ export class LLMBridgeView extends ItemView {
       if (!opened) {
         new Notice(`Obsidian 预览失败：${error instanceof Error ? error.message : String(error)}`, 5000);
       }
+    }
+  }
+
+  private async readFileRefPreviewText(ref: FileRef): Promise<string | null> {
+    if (!isBoundedTextAttachmentType(ref.fileType)) return null;
+    const maxBytes = 256 * 1024;
+    const maxChars = 12000;
+    const vaultRelPath = this.resolveFileRefVaultPath(ref);
+    try {
+      if (vaultRelPath) {
+        const file = await this.getIndexedVaultFile(vaultRelPath);
+        if (!(file instanceof TFile) || file.stat.size > maxBytes) return null;
+        const text = await this.app.vault.read(file);
+        return text.length > maxChars ? `${text.slice(0, maxChars).trimEnd()}\n...` : text;
+      }
+      const filePath = this.resolveFileRefAbsolutePath(ref);
+      if (!filePath) return null;
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile() || stat.size > maxBytes) return null;
+      const text = fs.readFileSync(filePath, "utf8");
+      return text.length > maxChars ? `${text.slice(0, maxChars).trimEnd()}\n...` : text;
+    } catch {
+      return null;
     }
   }
 
@@ -3908,7 +3976,7 @@ export class LLMBridgeView extends ItemView {
       const content = block.createEl("div", { cls: "llm-bridge-msg-content" });
       this.renderMessageContent(content, msg);
       if (msg.role === "user" && msg.fileRefs && msg.fileRefs.length > 0) {
-        this.renderMessageFileRefs(block, msg.fileRefs);
+        this.renderMessageFileRefs(content, msg.fileRefs);
       }
 
       if (msg.role === "assistant") {
@@ -3984,8 +4052,8 @@ export class LLMBridgeView extends ItemView {
     content.createEl("span", { cls: "llm-bridge-msg-stream-text", text });
   }
 
-  private renderMessageFileRefs(block: HTMLElement, refs: ReadonlyArray<FileRef>): void {
-    const wrap = block.createDiv({ cls: "llm-bridge-msg-attachments" });
+  private renderMessageFileRefs(parent: HTMLElement, refs: ReadonlyArray<FileRef>): void {
+    const wrap = parent.createDiv({ cls: "llm-bridge-msg-attachments" });
     for (const ref of refs) {
       const chip = wrap.createEl("button", {
         cls: `llm-bridge-msg-attachment-chip is-${ref.kind} is-${ref.fileType}`,
@@ -3993,6 +4061,7 @@ export class LLMBridgeView extends ItemView {
       });
       const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
       if (thumbnailUrl) {
+        chip.addClass("has-preview");
         chip.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });
       } else {
         chip.createEl("span", { cls: "llm-bridge-msg-attachment-ext", text: this.getFileRefShortLabel(ref) });

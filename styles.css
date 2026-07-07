@@ -9565,3 +9565,194 @@
 .llm-bridge-files-page .llm-bridge-context-ref-chip.is-pending .llm-bridge-context-ref-thumb {
   opacity: 0.62;
 }
+
+/* ===== V17-G17: compact composer file chips ===== */
+.llm-bridge-composer-file-refs {
+  gap: 6px;
+  padding: 0 3px 5px;
+}
+
+.llm-bridge-composer-file-chip {
+  display: grid;
+  align-items: center;
+  min-height: 32px;
+  max-width: min(220px, 100%);
+  grid-template-columns: 26px minmax(0, 1fr) 20px 20px;
+  gap: 5px;
+  padding: 3px 4px;
+  border-radius: 9px;
+}
+
+.llm-bridge-composer-file-thumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+}
+
+.llm-bridge-composer-file-icon,
+.llm-bridge-composer-file-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.llm-bridge-composer-file-ext {
+  right: 2px;
+  bottom: 2px;
+  max-width: 24px;
+  padding: 1px 2px;
+  border-radius: 4px;
+  font-size: 7px;
+  letter-spacing: 0;
+}
+
+.llm-bridge-composer-file-name {
+  font-size: var(--font-smallest);
+  font-weight: 520;
+}
+
+.llm-bridge-composer-file-meta {
+  font-size: 9px;
+}
+
+.llm-bridge-composer-file-remove,
+.llm-bridge-composer-file-pin {
+  width: 20px;
+  min-width: 20px;
+  height: 20px;
+  min-height: 20px;
+  border-radius: 6px;
+}
+
+/* ===== V17-G18: user bubble attachment previews ===== */
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
+  max-width: min(520px, 100%);
+  margin-top: 8px;
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip {
+  min-height: 32px;
+  max-width: 220px;
+  padding: 4px 7px;
+  border-color: color-mix(in srgb, var(--text-muted) 12%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-secondary) 44%, transparent);
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-preview {
+  display: grid;
+  grid-template-rows: 72px auto;
+  align-items: stretch;
+  width: 128px;
+  max-width: 128px;
+  gap: 5px;
+  padding: 4px;
+  text-align: left;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image {
+  display: block;
+  width: 100%;
+  height: 72px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background-secondary) 72%, var(--background-primary));
+  object-fit: cover;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext {
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  font-size: 8px;
+  letter-spacing: 0;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name {
+  min-width: 0;
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-preview .llm-bridge-msg-attachment-name {
+  padding: 0 2px 1px;
+}
+
+/* ===== V17-G19: lightweight file preview modal ===== */
+.llm-bridge-file-preview-modal {
+  display: grid;
+  gap: 10px;
+}
+
+.llm-bridge-file-preview {
+  max-height: min(62vh, 560px);
+  overflow: auto;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--background-secondary) 54%, var(--background-primary));
+}
+
+.llm-bridge-file-preview-image {
+  display: block;
+  width: 100%;
+  max-height: min(62vh, 560px);
+  border-radius: 13px;
+  object-fit: contain;
+  background: var(--background-primary);
+}
+
+.llm-bridge-file-preview-text {
+  margin: 0;
+  padding: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-monospace);
+  font-size: var(--font-smallest);
+  line-height: 1.48;
+  white-space: pre-wrap;
+}
+
+.llm-bridge-file-preview-empty {
+  min-height: 140px;
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  padding: 18px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.llm-bridge-file-preview-icon,
+.llm-bridge-file-preview-icon svg {
+  width: 22px;
+  height: 22px;
+}
+
+.llm-bridge-file-preview-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-file-preview-meta span {
+  max-width: 100%;
+  overflow: hidden;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 48%, transparent);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-file-preview-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.llm-bridge-file-preview-actions button {
+  min-height: 30px;
+  border-radius: 999px;
+}
