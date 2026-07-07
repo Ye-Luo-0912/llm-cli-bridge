@@ -1940,24 +1940,37 @@ export class LLMBridgeView extends ItemView {
     const body = card.createDiv({ cls: "llm-bridge-approval-card-body" });
     const inputSummary = this.sanitizeUserFacingSummaryText(first.inputSummary);
     const label = approvalDisplayLabel(first.toolName, inputSummary, first.description);
-    body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-label", text: label });
+    if (!inputSummary || label.trim().toLowerCase() !== inputSummary.trim().toLowerCase()) {
+      body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-label", text: label });
+    }
     if (inputSummary) {
       body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-command", text: inputSummary, attr: { title: inputSummary } });
     }
-    if (first.riskReason) {
-      const riskRow = body.createDiv({ cls: `llm-bridge-approval-card-row llm-bridge-approval-card-row-risk is-risk-${riskLevel}` });
-      const riskIcon = riskRow.createEl("span", { cls: "llm-bridge-approval-card-risk-icon" });
-      setIcon(riskIcon, riskLevel === "high" ? "alert-triangle" : "info");
-      riskRow.createEl("span", { text: first.riskReason });
+    const badges = body.createDiv({ cls: "llm-bridge-approval-card-badges" });
+    badges.createEl("span", {
+      cls: `llm-bridge-approval-card-badge is-risk-${riskLevel}`,
+      text: riskLevel === "high" ? "高风险" : riskLevel === "medium" ? "需确认" : "低风险",
+    });
+    for (const flag of first.highRiskFlags ?? []) {
+      badges.createEl("span", {
+        cls: "llm-bridge-approval-card-badge is-flag",
+        text: flag.replace(/[_-]+/g, " "),
+      });
     }
-    if (first.highRiskFlags && first.highRiskFlags.length > 0) {
-      body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-highrisk", text: `高风险：${first.highRiskFlags.join(", ")}` });
+    if (first.parentToolUseId) {
+      badges.createEl("span", { cls: "llm-bridge-approval-card-badge is-subagent", text: "subagent" });
+    }
+    if (first.riskReason) {
+      body.createDiv({
+        cls: `llm-bridge-approval-card-row llm-bridge-approval-card-row-risk is-risk-${riskLevel}`,
+        text: first.riskReason,
+      });
     }
     if (first.subagentRisk) {
       body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-subagent", text: first.subagentRisk });
     }
     if (first.parentToolUseId) {
-      body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-subagent", text: `Subagent (parent: ${first.parentToolUseId})` });
+      body.createDiv({ cls: "llm-bridge-approval-card-row llm-bridge-approval-card-row-subagent", text: `Parent tool: ${first.parentToolUseId}` });
     }
 
     // ---- Developer mode: raw/provider details ----

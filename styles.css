@@ -15005,3 +15005,254 @@
 .llm-bridge-file-preview-path {
   user-select: text !important;
 }
+
+/* ===== V17-G58: compact approval/request surfaces and steadier thumbnail chips ===== */
+.llm-bridge-context-tag-note .llm-bridge-context-tag {
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-composer-file-refs {
+  gap: 4px !important;
+  max-width: min(192px, 100%) !important;
+  padding-bottom: 4px !important;
+}
+
+.llm-bridge-composer-file-chip,
+.llm-bridge-composer-file-chip:not(.is-preview-only),
+.llm-bridge-composer-file-chip.is-preview-only,
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
+  flex: 0 0 28px !important;
+  width: 28px !important;
+  min-width: 28px !important;
+  max-width: 28px !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  max-height: 28px !important;
+  border-radius: 8px !important;
+}
+
+.llm-bridge-composer-file-thumb,
+.llm-bridge-composer-file-chip .llm-bridge-composer-file-thumb,
+.llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb,
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
+  width: 100% !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  height: 100% !important;
+  min-height: 100% !important;
+  max-height: 100% !important;
+  border-radius: inherit !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
+  gap: 5px !important;
+  max-width: min(184px, 100%) !important;
+  margin: 0 0 4px auto !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only),
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
+  flex: 0 0 40px !important;
+  width: 40px !important;
+  min-width: 40px !important;
+  max-width: 40px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  max-height: 40px !important;
+  border-radius: 10px !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {
+  padding: 4px !important;
+  gap: 2px !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line {
+  font-size: 7px !important;
+}
+
+.llm-bridge-file-preview-container .modal-button-container,
+.llm-bridge-file-preview-modal .modal-button-container {
+  display: none !important;
+}
+
+.llm-bridge-approval-dock,
+.llm-bridge-user-input-dock,
+.llm-bridge-external-read-panel {
+  padding: 0 2px 8px !important;
+}
+
+.llm-bridge-approval-card,
+.llm-bridge-clarification-card,
+.llm-bridge-external-read-card {
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
+  border-radius: 14px !important;
+  background: color-mix(in srgb, var(--background-primary) 99%, var(--background-secondary)) !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-approval-card-header,
+.llm-bridge-clarification-head,
+.llm-bridge-external-read-card-title {
+  align-items: flex-start !important;
+  gap: 8px !important;
+}
+
+.llm-bridge-approval-card-title,
+.llm-bridge-clarification-title,
+.llm-bridge-external-read-card-title {
+  font-size: 12px !important;
+  font-weight: 620 !important;
+}
+
+.llm-bridge-approval-card-body {
+  gap: 6px !important;
+}
+
+.llm-bridge-approval-card-row-label {
+  color: var(--text-faint) !important;
+  font-size: 10px !important;
+  font-weight: 560 !important;
+}
+
+.llm-bridge-approval-card-row-command {
+  padding: 8px 9px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 20%, transparent) !important;
+  color: color-mix(in srgb, var(--text-muted) 92%, transparent) !important;
+  font-family: var(--font-monospace) !important;
+  font-size: 11px !important;
+  line-height: 1.45 !important;
+}
+
+.llm-bridge-approval-card-badges {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+}
+
+.llm-bridge-approval-card-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  min-height: 20px !important;
+  padding: 0 8px !important;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 16%, transparent) !important;
+  color: var(--text-faint) !important;
+  font-size: 10px !important;
+  font-weight: 560 !important;
+}
+
+.llm-bridge-approval-card-badge.is-risk-high {
+  color: var(--text-error) !important;
+}
+
+.llm-bridge-approval-card-badge.is-risk-medium {
+  color: var(--text-warning) !important;
+}
+
+.llm-bridge-approval-card-badge.is-risk-low,
+.llm-bridge-approval-card-badge.is-flag,
+.llm-bridge-approval-card-badge.is-subagent {
+  color: var(--text-muted) !important;
+}
+
+.llm-bridge-approval-card-row-risk,
+.llm-bridge-approval-card-row-highrisk,
+.llm-bridge-approval-card-row-subagent {
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  color: var(--text-faint) !important;
+  font-size: 11px !important;
+  line-height: 1.45 !important;
+}
+
+.llm-bridge-approval-card-btns,
+.llm-bridge-clarification-footer,
+.llm-bridge-external-read-actions {
+  display: flex !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+}
+
+.llm-bridge-approval-btn,
+.llm-bridge-clarification-btn,
+.llm-bridge-external-read-allow-dir,
+.llm-bridge-external-read-allow-file,
+.llm-bridge-external-read-deny {
+  min-height: 28px !important;
+  padding: 0 10px !important;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
+  border-radius: 999px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  font-size: 11px !important;
+  font-weight: 560 !important;
+}
+
+.llm-bridge-approval-btn.is-proceed,
+.llm-bridge-clarification-btn.is-primary,
+.llm-bridge-external-read-allow-dir,
+.llm-bridge-external-read-allow-file {
+  color: color-mix(in srgb, var(--text-normal) 88%, var(--interactive-accent)) !important;
+}
+
+.llm-bridge-approval-btn.is-decline,
+.llm-bridge-approval-btn.is-decline-session,
+.llm-bridge-external-read-deny {
+  color: color-mix(in srgb, var(--text-error) 88%, var(--text-muted)) !important;
+}
+
+.llm-bridge-approval-btn:hover,
+.llm-bridge-clarification-btn:hover,
+.llm-bridge-external-read-allow-dir:hover,
+.llm-bridge-external-read-allow-file:hover,
+.llm-bridge-external-read-deny:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 48%, transparent) !important;
+}
+
+.llm-bridge-external-read-header {
+  margin-bottom: 4px !important;
+  padding: 0 2px !important;
+}
+
+.llm-bridge-external-read-title,
+.llm-bridge-external-read-count,
+.llm-bridge-external-read-source,
+.llm-bridge-external-read-target-path,
+.llm-bridge-external-read-field-label,
+.llm-bridge-external-read-field-value,
+.llm-bridge-external-read-warning {
+  font-size: 11px !important;
+}
+
+.llm-bridge-external-read-target {
+  border-radius: 10px !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 18%, transparent) !important;
+}
+
+.llm-bridge-clarification-card {
+  padding: 10px 11px !important;
+}
+
+.llm-bridge-clarification-choice-body,
+.llm-bridge-clarification-supplement-body {
+  gap: 8px !important;
+}
+
+.llm-bridge-clarification-option,
+.llm-bridge-clarification-other-row,
+.llm-bridge-clarification-supplement-textarea {
+  border-radius: 10px !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 16%, transparent) !important;
+}
