@@ -4947,6 +4947,7 @@ export class LLMBridgeView extends ItemView {
     const diagnosticsForDisplay = this.filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode);
     const processFeedItems = run.feedItems;
     const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);
+    const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;
     const hasProcessContent = processFeedItems.length > 0
       || diagnosticsForDisplay.length > 0
       || !!run.debugPanel;
@@ -4988,20 +4989,25 @@ export class LLMBridgeView extends ItemView {
 
     const process = body.createDiv({ cls: "llm-bridge-codex-process" });
     if (hasProcessContent) {
-      const processLabel = run.runHeader.statusKind === "running"
-        ? "Processing"
-        : run.runHeader.statusKind === "blocked"
-          ? "In progress"
-          : run.runHeader.statusKind === "failed"
-            ? "Failed process"
-            : "Processed";
       const processHead = process.createDiv({ cls: "llm-bridge-codex-section-head llm-bridge-codex-process-head" });
       const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
-      processTitle.createDiv({
-        cls: "llm-bridge-codex-section-title",
-        text: run.runHeader.elapsed ? `${processLabel} ${run.runHeader.elapsed}` : processLabel,
-      });
-      processTitle.createDiv({ cls: "llm-bridge-codex-section-count", text: `${processFeedBatches.length} groups` });
+      processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: "Process" });
+      const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });
+      if (run.runHeader.elapsed) {
+        processMeta.createEl("span", { cls: "llm-bridge-codex-process-head-meta-item", text: run.runHeader.elapsed });
+      }
+      if (processFeedBatches.length > 1) {
+        processMeta.createEl("span", {
+          cls: "llm-bridge-codex-process-head-meta-item",
+          text: `${processFeedBatches.length} batches`,
+        });
+      }
+      if (processEventCount > 0) {
+        processMeta.createEl("span", {
+          cls: "llm-bridge-codex-process-head-meta-item",
+          text: `${processEventCount} ${processEventCount === 1 ? "step" : "steps"}`,
+        });
+      }
       const processToggle = processHead.createEl("span", {
         cls: "llm-bridge-codex-process-toggle",
         text: hasToggleContent ? (processCollapsedByDefault ? "▶" : "▼") : "",

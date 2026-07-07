@@ -15931,6 +15931,22 @@
 
 .llm-bridge-codex-process-head .llm-bridge-codex-section-title-row {
   align-items: center !important;
+  gap: 9px !important;
+}
+
+.llm-bridge-codex-process-head-meta {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 5px !important;
+  min-width: 0 !important;
+}
+
+.llm-bridge-codex-process-head-meta-item {
+  color: color-mix(in srgb, var(--text-muted) 82%, transparent) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  line-height: 1.3 !important;
+  white-space: nowrap !important;
 }
 
 .llm-bridge-codex-process-toggle {
@@ -15986,4 +16002,9 @@
   white-space: pre-wrap !important;
   overflow: visible !important;
   text-overflow: clip !important;
+}
+
+.llm-bridge-codex-process-head .llm-bridge-codex-section-title {
+  font-size: 11px !important;
+  font-weight: 620 !important;
 }
