@@ -9362,3 +9362,23 @@
   border-radius: 11px;
   background: color-mix(in srgb, var(--background-modifier-hover) 74%, var(--background-primary));
 }
+
+/* ===== V17-G13: stable Codex-like composer context row ===== */
+.llm-bridge-context-tag-note.is-empty {
+  display: inline-flex;
+}
+
+.llm-bridge-context-tag-note.is-empty .llm-bridge-context-tag {
+  color: color-mix(in srgb, var(--text-faint) 86%, transparent);
+  font-style: normal;
+  opacity: 1;
+  text-decoration: none;
+}
+
+.llm-bridge-context-tag-note.is-empty .llm-bridge-context-tag:hover {
+  color: var(--text-muted);
+}
+
+.llm-bridge-composer-context .llm-bridge-context-tags {
+  min-height: 18px;
+}

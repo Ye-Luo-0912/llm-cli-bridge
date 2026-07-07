@@ -18759,8 +18759,9 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("llm-bridge-message-render-error-detail")
       && viewSrc.includes('{ value: "default", icon: "shield-question"')
       && viewSrc.includes("setIcon(optIcon, mode.icon)")
-      && viewSrc.includes('if (noteWrap) noteWrap.toggleAttribute("hidden", !fname);')
-      && viewSrc.includes('noteTag.textContent = fname')
+      && viewSrc.includes('if (noteWrap) noteWrap.removeAttribute("hidden");')
+      && viewSrc.includes('const displayName = fname || "No active note";')
+      && viewSrc.includes("noteTag.textContent = displayName")
       && stylesSrc.includes("V17-G7: Codex-like run waterfall, composer, files and request polish")
       && stylesSrc.includes(".llm-bridge-context-tag.is-empty")
       && stylesSrc.includes(".llm-bridge-codex-current-activity-icon")
@@ -18790,8 +18791,9 @@ if (!runNoteSummarizeSmoke) {
       && !viewSrc.includes('"正在运行命令"')
       && viewSrc.includes('text: kind === "note" ? "" : "Selection"')
       && viewSrc.includes('"data-context-kind": kind')
-      && viewSrc.includes('if (noteWrap) noteWrap.toggleAttribute("hidden", !fname);')
-      && viewSrc.includes('noteTag.textContent = fname')
+      && viewSrc.includes('if (noteWrap) noteWrap.removeAttribute("hidden");')
+      && viewSrc.includes('const displayName = fname || "No active note";')
+      && viewSrc.includes("noteTag.textContent = displayName")
       && viewSrc.includes('cls: `llm-bridge-context-tag ${kind === "note" ? "is-active-file" : "is-selection-ref"}`')
       && viewSrc.includes("this.activeFileLabelEl.dataset.value = activeFileName")
       && viewSrc.includes('if (selWrap) selWrap.toggleAttribute("hidden", !selectionText);')
@@ -18821,6 +18823,8 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-codex-shell-panel-head")
       && stylesSrc.includes("V17-G9: Codex-like composer surface and active note text")
       && stylesSrc.includes(".llm-bridge-context-tag-note .llm-bridge-context-tag")
+      && stylesSrc.includes("V17-G13: stable Codex-like composer context row")
+      && stylesSrc.includes(".llm-bridge-context-tag-note.is-empty")
       && stylesSrc.includes(".llm-bridge-input::placeholder");
     addTest("V17-G8 UI: Codex 瀑布流去重、活动笔记兜底和输入/文件表面继续收口",
       ok ? "pass" : "fail", "");
