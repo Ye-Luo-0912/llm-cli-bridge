@@ -17579,7 +17579,8 @@ if (!runV214BUnit) {
     }
 
     {
-      const skillsPageOk = viewSrc.includes("Agent Skills Registry")
+      const skillsPageOk = viewSrc.includes('text: "▶ Skills"')
+        && viewSrc.includes('`${hidden ? "▶" : "▼"} Skills (${enabled}/${total})`')
         && viewSrc.includes("runtime capabilities")
         && viewSrc.includes("不会写入 composer")
         && !viewSrc.includes("Prompt Snippets")
@@ -18995,6 +18996,52 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes("background: transparent;")
       && stylesSrc.includes("@keyframes llm-bridge-status-pulse");
     addTest("V17-G23 UI: 活动笔记空态隐藏，步骤状态改为 Codex 纯文本",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13q: V17-G26 permission/context status is compact Codex-like text ----
+  {
+    const ok = viewSrc.includes('if (mode === "auto") return "自动";')
+      && !viewSrc.includes('if (mode === "auto") return "低风险自动";')
+      && viewSrc.includes("private permissionModeIconName(mode: string): string")
+      && viewSrc.includes('if (mode === "acceptEdits") return "file-check-2";')
+      && viewSrc.includes('if (mode === "auto") return "zap";')
+      && viewSrc.includes("const iconName = this.permissionModeIconName(mode);")
+      && stylesSrc.includes("V17-G26: Codex-like compact permission and context status bar")
+      && stylesSrc.includes(".llm-bridge-permission-chip {")
+      && stylesSrc.includes("max-width: 132px;")
+      && stylesSrc.includes("border: 0 !important;")
+      && stylesSrc.includes(".llm-bridge-context-ring")
+      && stylesSrc.includes("width: 9px;");
+    addTest("V17-G26 UI: permission/context bottom status stays compact",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13r: V17-G27 right user bubbles, square attachments and modern Skills registry ----
+  {
+    const ok = viewSrc.includes('text: "▶ Skills"')
+      && viewSrc.includes('cls: "llm-bridge-agent-skill-icon"')
+      && viewSrc.includes('setIcon(icon, skill.enabled ? "sparkles" : "circle-dashed")')
+      && viewSrc.includes('cls: "llm-bridge-msg-attachment-ext is-fallback"')
+      && viewSrc.includes('chip.addClass("is-preview-missing")')
+      && viewSrc.includes("preview.remove()")
+      && viewSrc.includes("不会写入 composer")
+      && viewSrc.includes("不会拼进 promptPackage")
+      && !viewSrc.includes("llm-bridge-file-preview-actions")
+      && stylesSrc.includes("V17-G27: Codex-like right user bubbles, square attachments and Skills registry")
+      && stylesSrc.includes(".llm-bridge-msg-user {")
+      && stylesSrc.includes("margin-left: auto;")
+      && stylesSrc.includes("align-items: flex-end;")
+      && stylesSrc.includes("width: 42px !important;")
+      && stylesSrc.includes("max-height: 42px !important;")
+      && stylesSrc.includes(".llm-bridge-msg-attachment-ext.is-fallback")
+      && stylesSrc.includes(".llm-bridge-agent-skill-icon")
+      && stylesSrc.includes(".llm-bridge-agent-skill-open {")
+      && stylesSrc.includes("box-shadow: none !important;")
+      && stylesSrc.includes("grid-template-columns: 28px minmax(0, 1fr) max-content")
+      && stylesSrc.includes(".llm-bridge-agent-skills-boundary")
+      && stylesSrc.includes("background: transparent;");
+    addTest("V17-G27 UI: user attachments and Skills registry stay Codex-like compact",
       ok ? "pass" : "fail", "");
   }
 

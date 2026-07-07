@@ -1342,10 +1342,18 @@ export class LLMBridgeView extends ItemView {
     if (mode === "plan") return "只读";
     if (mode === "default") return "询问";
     if (mode === "acceptEdits") return "自动编辑";
-    if (mode === "auto") return "低风险自动";
+    if (mode === "auto") return "自动";
     if (mode === "bypassPermissions") return "完全访问";
     if (mode === "dontAsk") return "不询问";
     return mode;
+  }
+
+  private permissionModeIconName(mode: string): string {
+    if (mode === "plan") return "lock";
+    if (mode === "acceptEdits") return "file-check-2";
+    if (mode === "auto") return "zap";
+    if (mode === "bypassPermissions" || mode === "dontAsk") return "shield-alert";
+    return "shield-question";
   }
 
   /**
@@ -1442,9 +1450,7 @@ export class LLMBridgeView extends ItemView {
     const mode = this.plugin.settings.claudePermissionMode ?? "default";
     const info = getPermissionModeInfo(mode);
     const claudeLabel = this.permissionModeShortLabel();
-    const iconName = mode === "bypassPermissions" || mode === "dontAsk" ? "shield-alert"
-      : mode === "plan" ? "shield-check"
-      : "shield-question";
+    const iconName = this.permissionModeIconName(mode);
     this.permissionModeChipEl.empty();
     setIcon(this.permissionModeChipEl.createEl("span", { cls: "llm-bridge-permission-chip-icon" }), iconName);
     this.permissionModeChipEl.createEl("span", { cls: "llm-bridge-permission-chip-label", text: claudeLabel });
@@ -4054,7 +4060,15 @@ export class LLMBridgeView extends ItemView {
         chip.addClass("has-preview");
         chip.addClass("is-preview-only");
         chip.setAttribute("aria-label", ref.displayName);
-        chip.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });
+        const preview = chip.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });
+        chip.createEl("span", { cls: "llm-bridge-msg-attachment-ext is-fallback", text: this.getFileRefShortLabel(ref) });
+        chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });
+        preview.addEventListener("error", () => {
+          chip.removeClass("has-preview");
+          chip.removeClass("is-preview-only");
+          chip.addClass("is-preview-missing");
+          preview.remove();
+        });
       } else {
         chip.createEl("span", { cls: "llm-bridge-msg-attachment-ext", text: this.getFileRefShortLabel(ref) });
         chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });
@@ -6812,7 +6826,7 @@ export class LLMBridgeView extends ItemView {
     const head = wrap.createDiv({ cls: "llm-bridge-skills-head" });
     this.agentSkillsToggleEl = head.createEl("span", {
       cls: "llm-bridge-skills-toggle",
-      text: "▶ Agent Skills Registry",
+      text: "▶ Skills",
       attr: { title: "Agent 可发现/可调用的 runtime capabilities；不会插入输入框" },
     });
     const refreshBtn = head.createEl("button", {
@@ -6826,7 +6840,7 @@ export class LLMBridgeView extends ItemView {
     body.setAttribute("hidden", "");
     this.agentSkillsBodyEl = body;
     const help = body.createDiv({ cls: "llm-bridge-agent-skills-boundary" });
-    help.createEl("span", { text: "Agent Skills 是 runtime capabilities，会物化到 .claude/skills/<slug>/SKILL.md，由 Claude Code/SDK 发现；不会写入 composer，也不会拼进 promptPackage。" });
+    help.createEl("span", { text: "Skills 会物化到 .claude/skills/<slug>/SKILL.md 供 agent 发现；不会写入 composer，也不会拼进 promptPackage。" });
     this.agentSkillsListEl = body.createDiv({ cls: "llm-bridge-agent-skills-list-container" });
 
     this.agentSkillsToggleEl.addEventListener("click", () => {
@@ -7394,7 +7408,7 @@ export class LLMBridgeView extends ItemView {
     const enabled = this.agentSkills.filter((skill) => skill.enabled).length;
     const total = this.agentSkills.length;
     const hidden = this.agentSkillsBodyEl.hasAttribute("hidden");
-    this.agentSkillsToggleEl.textContent = `${hidden ? "▶" : "▼"} Agent Skills Registry (${enabled}/${total})`;
+    this.agentSkillsToggleEl.textContent = `${hidden ? "▶" : "▼"} Skills (${enabled}/${total})`;
   }
 
   private renderAgentSkillsList(): void {
@@ -7417,6 +7431,8 @@ export class LLMBridgeView extends ItemView {
           cls: `llm-bridge-agent-skill-registry-item${skill.enabled ? "" : " is-disabled"}`,
           attr: { title: skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md` },
         });
+        const icon = item.createEl("span", { cls: "llm-bridge-agent-skill-icon" });
+        setIcon(icon, skill.enabled ? "sparkles" : "circle-dashed");
         const main = item.createEl("button", {
           cls: "llm-bridge-agent-skill-open",
           attr: { title: `在 Obsidian 中打开 ${skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md`}` },

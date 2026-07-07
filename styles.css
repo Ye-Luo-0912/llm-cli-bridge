@@ -10369,3 +10369,317 @@
   width: 11px;
   height: 11px;
 }
+
+/* ===== V17-G26: Codex-like compact permission and context status bar ===== */
+.llm-bridge-permission-chip {
+  min-height: 24px;
+  max-width: 132px;
+  gap: 5px;
+  padding: 0 4px;
+  border: 0 !important;
+  border-radius: 6px;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: color-mix(in srgb, var(--text-muted) 82%, transparent);
+  font-size: var(--font-small);
+  font-weight: 450;
+}
+
+.llm-bridge-permission-chip:hover:not(:disabled),
+.llm-bridge-permission-chip[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--background-modifier-hover) 46%, transparent) !important;
+  color: var(--text-normal);
+}
+
+.llm-bridge-permission-chip-icon,
+.llm-bridge-permission-chip-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.llm-bridge-permission-chip.is-safe {
+  color: color-mix(in srgb, var(--text-muted) 82%, transparent);
+}
+
+.llm-bridge-permission-chip.is-caution {
+  color: color-mix(in srgb, var(--text-warning) 72%, var(--text-muted));
+}
+
+.llm-bridge-permission-chip.is-danger {
+  color: color-mix(in srgb, var(--text-error) 76%, var(--text-warning));
+}
+
+.llm-bridge-permission-chip-label {
+  max-width: 8.5em;
+  letter-spacing: 0;
+}
+
+.llm-bridge-context-strip {
+  gap: 5px;
+  margin-right: 21px;
+  padding: 0;
+  opacity: 0.82;
+}
+
+.llm-bridge-context-strip:hover {
+  opacity: 1;
+}
+
+.llm-bridge-context-ring {
+  width: 9px;
+  height: 9px;
+}
+
+.llm-bridge-context-label {
+  font-size: var(--font-smallest);
+  line-height: 1;
+}
+
+/* ===== V17-G27: Codex-like right user bubbles, square attachments and Skills registry ===== */
+.llm-bridge-msg-user {
+  align-self: flex-end;
+  width: fit-content;
+  max-width: min(680px, 86%);
+  margin-left: auto;
+  margin-right: 18px;
+  text-align: right;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-head {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: fit-content;
+  max-width: min(620px, 100%);
+  margin-left: auto;
+  padding: 9px 11px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--background-secondary) 34%, transparent);
+  text-align: left;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content > :not(.llm-bridge-msg-attachments) {
+  max-width: 100%;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
+  align-self: flex-end;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: min(260px, 100%);
+  margin-top: 8px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 34px;
+  max-width: 136px;
+  padding: 3px 7px 3px 3px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-secondary) 44%, transparent);
+  box-shadow: none;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: 42px !important;
+  min-width: 42px !important;
+  max-width: 42px !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  max-height: 42px !important;
+  padding: 0 !important;
+  overflow: hidden;
+  border-radius: 11px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
+  display: block;
+  width: 42px !important;
+  min-width: 42px !important;
+  max-width: 42px !important;
+  height: 42px !important;
+  min-height: 42px !important;
+  max-height: 42px !important;
+  border-radius: 10px;
+  object-fit: cover;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-ext.is-fallback,
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-name {
+  display: none;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only) {
+  display: inline-grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only) .llm-bridge-msg-attachment-ext {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  font-size: 7px;
+  letter-spacing: 0;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name {
+  max-width: 88px;
+  color: color-mix(in srgb, var(--text-normal) 76%, var(--text-muted));
+  font-family: var(--font-ui);
+  font-size: var(--font-smallest);
+  line-height: 1.15;
+}
+
+.llm-bridge-file-preview-modal {
+  gap: 8px;
+}
+
+.llm-bridge-file-preview-modal .modal-title {
+  font-size: var(--font-ui-large);
+  font-weight: 650;
+}
+
+.llm-bridge-file-preview {
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--background-secondary) 36%, var(--background-primary));
+}
+
+.llm-bridge-file-preview-image {
+  width: 100%;
+  max-height: min(58vh, 520px);
+  border-radius: 11px;
+  object-fit: contain;
+}
+
+.llm-bridge-file-preview-meta {
+  gap: 4px;
+  opacity: 0.72;
+}
+
+.llm-bridge-agent-skills-panel {
+  border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 8%, transparent);
+  background: transparent;
+}
+
+.llm-bridge-agent-skills-boundary {
+  margin: 4px 0 9px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--text-muted) 76%, transparent);
+  font-size: var(--font-smallest);
+}
+
+.llm-bridge-agent-skills-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.llm-bridge-agent-skill-registry-item {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) max-content;
+  align-items: center;
+  gap: 8px;
+  min-height: 46px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+}
+
+.llm-bridge-agent-skill-registry-item:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 66%, transparent);
+}
+
+.llm-bridge-agent-skill-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background-secondary) 55%, transparent);
+  color: color-mix(in srgb, var(--interactive-accent) 62%, var(--text-muted));
+}
+
+.llm-bridge-agent-skill-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.llm-bridge-agent-skill-registry-item.is-disabled .llm-bridge-agent-skill-icon {
+  color: var(--text-faint);
+}
+
+.llm-bridge-agent-skill-title-row {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 6px;
+}
+
+.llm-bridge-agent-skill-open {
+  align-items: flex-start !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  text-align: left;
+}
+
+.llm-bridge-agent-skill-open:hover {
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-agent-skill-name {
+  font-size: var(--font-ui-small);
+  font-weight: 590;
+}
+
+.llm-bridge-agent-skill-badge {
+  padding: 1px 6px;
+  border: 0;
+  background: transparent;
+  font-size: 10px;
+}
+
+.llm-bridge-agent-skill-desc {
+  -webkit-line-clamp: 1;
+  color: color-mix(in srgb, var(--text-muted) 78%, transparent);
+}
+
+.llm-bridge-agent-skill-meta {
+  gap: 6px;
+  font-size: 10px;
+  opacity: 0.72;
+}
+
+.llm-bridge-agent-skill-toggle {
+  width: auto;
+  min-width: 44px;
+  min-height: 24px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 50%, transparent);
+  color: var(--text-muted);
+}
