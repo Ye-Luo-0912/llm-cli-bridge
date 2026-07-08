@@ -16719,6 +16719,161 @@
   align-items: center !important;
 }
 
+/* ===== V17-G70: agent-aligned models, usable skills and smaller Codex-like tool menu ===== */
+.llm-bridge-command-menu-body {
+  width: min(276px, calc(100vw - 28px)) !important;
+  max-height: min(390px, calc(100vh - 116px)) !important;
+  overflow-y: auto !important;
+  z-index: 120 !important;
+}
+
+.llm-bridge-command-menu-plugins {
+  min-width: 0 !important;
+  gap: 6px !important;
+}
+
+.llm-bridge-command-menu-plugins-head {
+  padding: 0 4px !important;
+}
+
+.llm-bridge-command-menu-plugins-list {
+  max-height: 270px !important;
+  gap: 5px !important;
+}
+
+.llm-bridge-command-menu-runtime-section {
+  display: grid !important;
+  gap: 2px !important;
+  min-width: 0 !important;
+}
+
+.llm-bridge-command-menu-runtime-section + .llm-bridge-command-menu-runtime-section {
+  padding-top: 5px !important;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 58%, transparent) !important;
+}
+
+.llm-bridge-command-menu-subtitle {
+  padding: 2px 7px !important;
+  color: var(--text-faint) !important;
+  font-size: 9.5px !important;
+  font-weight: 650 !important;
+  letter-spacing: 0 !important;
+  text-transform: uppercase !important;
+}
+
+.llm-bridge-command-menu-plugin {
+  grid-template-columns: 20px minmax(0, 1fr) !important;
+  min-height: 28px !important;
+  padding: 3px 7px !important;
+  border-radius: 7px !important;
+  gap: 7px !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-command-menu-plugin-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 18px !important;
+  height: 18px !important;
+  border-radius: 5px !important;
+  background: color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
+  color: var(--text-muted) !important;
+}
+
+.llm-bridge-command-menu-plugin-icon svg {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.llm-bridge-command-menu-plugin-name {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+}
+
+.llm-bridge-command-menu-plugin-desc {
+  font-size: 9px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="chrome"] .llm-bridge-command-menu-plugin-icon { background: #4285f4 !important; color: white !important; }
+.llm-bridge-command-menu-plugin[data-plugin-key="documents"] .llm-bridge-command-menu-plugin-icon { background: #2f80ed !important; color: white !important; }
+.llm-bridge-command-menu-plugin[data-plugin-key="pdf"] .llm-bridge-command-menu-plugin-icon { background: #ef4444 !important; color: white !important; }
+.llm-bridge-command-menu-plugin[data-plugin-key="spreadsheets"] .llm-bridge-command-menu-plugin-icon { background: #2e9f5b !important; color: white !important; }
+.llm-bridge-command-menu-plugin[data-plugin-key="presentations"] .llm-bridge-command-menu-plugin-icon { background: #d99a2b !important; color: white !important; }
+.llm-bridge-command-menu-plugin[data-plugin-key="template"] .llm-bridge-command-menu-plugin-icon { background: #8b5cf6 !important; color: white !important; }
+.llm-bridge-command-menu-plugin[data-plugin-key="computer"] .llm-bridge-command-menu-plugin-icon { background: #60a5fa !important; color: white !important; }
+.llm-bridge-command-menu-plugin[data-plugin-key="github"] .llm-bridge-command-menu-plugin-icon { background: #24292f !important; color: white !important; }
+.llm-bridge-command-menu-plugin[data-plugin-key="gmail"] .llm-bridge-command-menu-plugin-icon { background: #ea4335 !important; color: white !important; }
+.llm-bridge-command-menu-plugin[data-plugin-key="google-drive"] .llm-bridge-command-menu-plugin-icon { background: #0f9d58 !important; color: white !important; }
+.llm-bridge-command-menu-plugin[data-plugin-key="imagegen"] .llm-bridge-command-menu-plugin-icon { background: #ec4899 !important; color: white !important; }
+.llm-bridge-command-menu-plugin[data-plugin-key="skill"] .llm-bridge-command-menu-plugin-icon,
+.llm-bridge-command-menu-plugin.is-skill .llm-bridge-command-menu-plugin-icon { background: var(--interactive-accent) !important; color: var(--text-on-accent) !important; }
+
+.llm-bridge-codex-process-head-meta,
+.llm-bridge-codex-feed-batch-count,
+.llm-bridge-codex-tool-group-count {
+  display: none !important;
+}
+
+.llm-bridge-codex-feed-batch-summary-main {
+  display: block !important;
+}
+
+.llm-bridge-codex-thinking-line {
+  display: block !important;
+  width: 100% !important;
+}
+
+.llm-bridge-codex-thinking-label {
+  margin-right: 8px !important;
+}
+
+.llm-bridge-codex-thinking-summary {
+  display: inline !important;
+  white-space: pre-wrap !important;
+}
+
+.llm-bridge-codex-tool-group {
+  margin: 5px 0 6px 12px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-codex-tool-group-summary {
+  grid-template-columns: 18px minmax(0, 1fr) auto !important;
+  min-height: 30px !important;
+  padding: 2px 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+}
+
+.llm-bridge-codex-tool-group-main {
+  gap: 6px !important;
+}
+
+.llm-bridge-codex-tool-group-title {
+  font-size: 12px !important;
+  color: var(--text-muted) !important;
+}
+
+.llm-bridge-codex-tool-group-preview {
+  font-size: 11.5px !important;
+}
+
+.llm-bridge-codex-tool-group-meta {
+  font-size: 9.5px !important;
+}
+
+.llm-bridge-codex-tool-group-body {
+  padding: 0 0 3px 20px !important;
+  gap: 0 !important;
+}
+
 .llm-bridge-composer-tools-right {
   gap: 12px !important;
 }

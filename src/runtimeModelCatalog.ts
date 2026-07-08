@@ -39,6 +39,8 @@ export interface RuntimeModelCatalog {
   readonly source: "runtime" | "static";
 }
 
+export type RuntimeModelCatalogAgent = "claude" | "codex" | "custom";
+
 /**
  * 静态 fallback 模型列表（与中转支持的模型对齐）
  * source=static 时使用
@@ -48,6 +50,11 @@ const STATIC_MODELS: ReadonlyArray<ModelCatalogEntry> = [
   { value: "gpt-5.4", label: "gpt-5.4" },
   { value: "glm-5.2", label: "glm-5.2" },
   { value: "deepseek-v4", label: "deepseek-v4" },
+];
+
+const CODEX_MODELS: ReadonlyArray<ModelCatalogEntry> = [
+  { value: "gpt-5.5", label: "gpt-5.5" },
+  { value: "gpt-5.4", label: "gpt-5.4" },
 ];
 
 /**
@@ -89,6 +96,19 @@ export function getRuntimeModelCatalog(): RuntimeModelCatalog {
     efforts: STATIC_EFFORTS,
     source: "static",
   };
+}
+
+export function getRuntimeModelCatalogForAgent(agent: RuntimeModelCatalogAgent | string): RuntimeModelCatalog {
+  if (agent === "codex") {
+    return {
+      models: CODEX_MODELS,
+      efforts: STATIC_EFFORTS,
+      source: "static",
+    };
+  }
+  const runtime = tryReadRuntimeCatalog();
+  if (runtime) return runtime;
+  return getRuntimeModelCatalog();
 }
 
 /**

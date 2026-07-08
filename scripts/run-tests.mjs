@@ -19063,7 +19063,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('title: "Capabilities", "aria-label": "Capabilities"')
       && viewSrc.includes('text: "Plugins & Skills"')
       && viewSrc.includes('text: "计划模式"')
-      && viewSrc.includes('text: "已安装插件"')
+      && viewSrc.includes('text: "插件"')
       && viewSrc.includes("private async refreshManagedCodexPlugins(): Promise<void>")
       && viewSrc.includes('text: "Installed plugins"')
       && viewSrc.includes("直接从 pinned managed Codex runtime 读取真实已安装插件，不依赖用户 PATH。")
@@ -19155,7 +19155,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("使用 ${presentation.label} 插件处理这个请求。")
       && viewSrc.includes("llm-bridge-command-menu-plugins-list")
       && viewSrc.includes("llm-bridge-command-menu-plugin")
-      && viewSrc.includes('parent.createEl("button"')
+      && viewSrc.includes('section.createEl("button"')
       && !viewSrc.includes('this.decorateCommandMenuItem(this.preflightBtn, "scan-line"')
       && !viewSrc.includes('this.decorateCommandMenuItem(refreshContextBtn, "refresh-cw"')
       && !viewSrc.includes('this.decorateCommandMenuItem(pathAttachBtn, "folder-plus"')
@@ -19171,6 +19171,31 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-model-effort-picker")
       && stylesSrc.includes(".llm-bridge-composer-tools-right");
     addTest("V17-G69 UI: 工具子步骤改为紧凑可展开行，插件内联显示，发送与模型控件对齐",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13j10: V17-G70 agent-aligned model catalog and usable Skills in tool menu ----
+  {
+    const runtimeCatalogSrc = readFileSync(join(PROJECT_ROOT, "src", "runtimeModelCatalog.ts"), "utf8");
+    const ok = runtimeCatalogSrc.includes("export function getRuntimeModelCatalogForAgent")
+      && runtimeCatalogSrc.includes("const CODEX_MODELS")
+      && !/const CODEX_MODELS[\s\S]{0,260}deepseek-v4/.test(runtimeCatalogSrc)
+      && viewSrc.includes("getRuntimeModelCatalogForAgent")
+      && viewSrc.includes("private syncModelCatalogForCurrentAgent(")
+      && viewSrc.includes("private getEffectiveModelCatalogAgent()")
+      && viewSrc.includes("this.session?.providerId")
+      && viewSrc.includes("private renderModelEffortOptions(): void")
+      && viewSrc.includes("private renderComposerRuntimeToolsList(parent: HTMLElement): void")
+      && viewSrc.includes("private renderComposerAgentSkillsList(parent: HTMLElement): void")
+      && viewSrc.includes("private async refreshAgentSkillsManifestOnly(): Promise<void>")
+      && viewSrc.includes("使用 ${label} Skill 处理这个请求。")
+      && viewSrc.includes('"data-plugin-key": this.composerToolVisualKey')
+      && stylesSrc.includes("V17-G70: agent-aligned models, usable skills and smaller Codex-like tool menu")
+      && stylesSrc.includes(".llm-bridge-command-menu-runtime-section")
+      && stylesSrc.includes('.llm-bridge-command-menu-plugin[data-plugin-key="chrome"]')
+      && stylesSrc.includes(".llm-bridge-codex-tool-group-count")
+      && stylesSrc.includes("display: none !important");
+    addTest("V17-G70 UI: 模型按 agent 对齐，工具菜单支持 Skills 并压缩为 Codex 风格",
       ok ? "pass" : "fail", "");
   }
 

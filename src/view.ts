@@ -31,7 +31,7 @@ import type { ManagedRuntimeInstallStatus } from "./runtime/providers/codex-mana
 import { listManagedCodexPlugins, type CodexManagedPluginCatalog, type CodexManagedPluginEntry } from "./runtime/providers/codex-managed-app-server/codexManagedPluginCatalog";
 import { AssistantTurnViewBuilder } from "./runtime/core/assistantTurnView";
 import { mapNormalizedToWorkflowEvent } from "./runtime/providers/workflowEventMapper";
-import { getRuntimeModelCatalog, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
+import { getRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
 import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
 import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, truncatePath, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
 import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscript";
@@ -297,8 +297,10 @@ export class LLMBridgeView extends ItemView {
   private modelEffortButtonEl!: HTMLButtonElement;
   private effortChipEl!: HTMLButtonElement;
   private modelEffortPopoverEl!: HTMLElement;
+  private modelOptionsEl!: HTMLElement;
+  private effortOptionsEl!: HTMLElement;
   /** V2.16-C: 运行时模型目录（不再硬编码） */
-  private modelCatalog: RuntimeModelCatalog = getRuntimeModelCatalog();
+  private modelCatalog: RuntimeModelCatalog = getRuntimeModelCatalogForAgent("claude");
   private permissionModePickerEl!: HTMLElement;
   private permissionModeChipEl!: HTMLButtonElement;
   /** V2.16-C: permission mode popover 容器 */
@@ -472,6 +474,7 @@ export class LLMBridgeView extends ItemView {
     agentSelect.addEventListener("change", async () => {
       if (this.runHandle) return;
       this.plugin.settings.agentType = agentSelect.value as AgentType;
+      this.syncModelCatalogForCurrentAgent(true);
       await this.plugin.saveSettings();
       this.lastPreflightResult = null; // V2.4: 切换 agent 后失效 preflight 缓存
       this.refreshModeOptions();
@@ -717,18 +720,19 @@ export class LLMBridgeView extends ItemView {
     });
     const commandPlugins = commandMenuBody.createDiv({ cls: "llm-bridge-command-menu-plugins" });
     const commandPluginsHead = commandPlugins.createDiv({ cls: "llm-bridge-command-menu-plugins-head" });
-    commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-title", text: "已安装插件" });
-    commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-hint", text: "managed Codex" });
+    commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-title", text: "插件" });
+    commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-hint", text: "可插入使用指令" });
     const commandPluginsList = commandPlugins.createDiv({ cls: "llm-bridge-command-menu-plugins-list" });
-    commandPluginsList.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "打开菜单后读取 runtime 插件。" });
+    commandPluginsList.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "打开菜单后读取插件与 Skills。" });
     let commandPluginsRequest = 0;
     const refreshCommandPlugins = async () => {
       const request = ++commandPluginsRequest;
       commandPluginsList.empty();
       commandPluginsList.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "正在读取..." });
       await this.refreshManagedCodexPlugins();
+      await this.refreshAgentSkillsManifestOnly();
       if (request !== commandPluginsRequest) return;
-      this.renderComposerManagedCodexPluginsList(commandPluginsList);
+      this.renderComposerRuntimeToolsList(commandPluginsList);
       this.renderAgentSkillsList();
     };
     commandMenu.addEventListener("toggle", () => {
@@ -1084,24 +1088,32 @@ export class LLMBridgeView extends ItemView {
     text.createEl("span", { cls: "llm-bridge-command-menu-item-desc", text: description });
   }
 
-  private renderComposerManagedCodexPluginsList(parent: HTMLElement): void {
+  private renderComposerRuntimeToolsList(parent: HTMLElement): void {
     parent.empty();
+    this.renderComposerManagedCodexPluginsList(parent);
+    this.renderComposerAgentSkillsList(parent);
+  }
+
+  private renderComposerManagedCodexPluginsList(parent: HTMLElement): void {
+    const section = parent.createDiv({ cls: "llm-bridge-command-menu-runtime-section" });
+    section.createDiv({ cls: "llm-bridge-command-menu-subtitle", text: "Installed plugins" });
     if (!this.managedCodexPluginCatalog?.available) {
-      parent.createDiv({
+      section.createDiv({
         cls: "llm-bridge-command-menu-plugin-empty is-error",
         text: this.managedCodexPluginCatalog?.error || "managed runtime unavailable",
       });
       return;
     }
     if (this.managedCodexPlugins.length === 0) {
-      parent.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "当前 runtime 没有已安装插件。" });
+      section.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "当前 runtime 没有已安装插件。" });
       return;
     }
     for (const plugin of this.managedCodexPlugins) {
       const presentation = this.describeComposerManagedCodexPlugin(plugin);
-      const item = parent.createEl("button", {
+      const item = section.createEl("button", {
         cls: `llm-bridge-command-menu-plugin${plugin.enabled ? "" : " is-disabled"}`,
         attr: {
+          "data-plugin-key": this.composerToolVisualKey(presentation.label, plugin.pluginId),
           title: plugin.enabled
             ? `使用 ${presentation.label} 插件`
             : `${presentation.label} 已安装但当前未启用`,
@@ -1121,6 +1133,56 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
+  private renderComposerAgentSkillsList(parent: HTMLElement): void {
+    const section = parent.createDiv({ cls: "llm-bridge-command-menu-runtime-section" });
+    section.createDiv({ cls: "llm-bridge-command-menu-subtitle", text: "Agent Skills" });
+    const sorted = this.agentSkills
+      .filter((skill) => skill.enabled)
+      .slice()
+      .sort((a, b) => (a.name || a.slug).localeCompare(b.name || b.slug));
+    if (sorted.length === 0) {
+      section.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "当前 Vault 没有启用 Agent Skills。" });
+      return;
+    }
+    for (const skill of sorted) {
+      const label = skill.name || skill.slug;
+      const item = section.createEl("button", {
+        cls: "llm-bridge-command-menu-plugin is-skill",
+        attr: {
+          "data-plugin-key": this.composerToolVisualKey(label, skill.slug),
+          title: `使用 ${label} Skill`,
+        },
+      });
+      item.addEventListener("click", () => this.useComposerAgentSkill(skill));
+      const icon = item.createEl("span", { cls: "llm-bridge-command-menu-plugin-icon" });
+      setIcon(icon, "sparkles");
+      const main = item.createDiv({ cls: "llm-bridge-command-menu-plugin-main" });
+      const title = main.createDiv({ cls: "llm-bridge-command-menu-plugin-title" });
+      title.createEl("span", { cls: "llm-bridge-command-menu-plugin-name", text: label });
+      main.createDiv({
+        cls: "llm-bridge-command-menu-plugin-desc",
+        text: skill.description || skill.slug,
+      });
+    }
+  }
+
+  private composerToolVisualKey(label: string, id: string): string {
+    const key = `${label} ${id}`.toLowerCase();
+    if (key.includes("chrome")) return "chrome";
+    if (key.includes("document")) return "documents";
+    if (key.includes("pdf")) return "pdf";
+    if (key.includes("spreadsheet") || key.includes("sheet")) return "spreadsheets";
+    if (key.includes("presentation") || key.includes("slide")) return "presentations";
+    if (key.includes("template")) return "template";
+    if (key.includes("computer")) return "computer";
+    if (key.includes("github")) return "github";
+    if (key.includes("gmail")) return "gmail";
+    if (key.includes("google-drive") || key.includes("drive")) return "google-drive";
+    if (key.includes("imagegen") || key.includes("image")) return "imagegen";
+    if (key.includes("skill")) return "skill";
+    return "plugin";
+  }
+
   private describeComposerManagedCodexPlugin(plugin: CodexManagedPluginEntry): { label: string; description: string; icon: string } {
     const key = `${plugin.pluginId} ${plugin.name} ${plugin.marketplaceName}`.toLowerCase();
     if (key.includes("document")) return { label: "Documents", description: "Create and edit document artifacts", icon: "file-text" };
@@ -1131,6 +1193,10 @@ export class LLMBridgeView extends ItemView {
     if (key.includes("computer")) return { label: "电脑", description: "Control Windows apps from Codex", icon: "monitor" };
     if (key.includes("github")) return { label: "GitHub", description: "Triage PRs, issues, CI, and publish flows", icon: "github" };
     if (key.includes("gmail")) return { label: "Gmail", description: "Read and manage Gmail", icon: "mail" };
+    if (key.includes("google-drive")) return { label: "Google Drive", description: "Search and work with Drive files", icon: "folder-sync" };
+    if (key.includes("google-doc")) return { label: "Google Docs", description: "Create and edit Google Docs", icon: "file-text" };
+    if (key.includes("google-sheet")) return { label: "Google Sheets", description: "Analyze and edit Google Sheets", icon: "table-2" };
+    if (key.includes("google-slide")) return { label: "Google Slides", description: "Create and edit Google Slides", icon: "presentation" };
     if (key.includes("chrome")) return { label: "Chrome", description: "Use the local browser session", icon: "globe" };
     const label = plugin.name || plugin.marketplaceName || plugin.pluginId;
     return {
@@ -1150,6 +1216,18 @@ export class LLMBridgeView extends ItemView {
     const presentation = this.describeComposerManagedCodexPlugin(plugin);
     const directive = `使用 ${presentation.label} 插件处理这个请求。`;
     this.insertComposerText(directive);
+    const menu = this.inputEl.closest(".llm-bridge-composer-bar")?.querySelector(".llm-bridge-command-menu") as HTMLDetailsElement | null;
+    menu?.removeAttribute("open");
+    this.inputEl.focus();
+  }
+
+  private useComposerAgentSkill(skill: AgentSkillRecord): void {
+    if (!skill.enabled) {
+      new Notice(`${skill.name || skill.slug} 当前未启用`);
+      return;
+    }
+    const label = skill.name || skill.slug;
+    this.insertComposerText(`使用 ${label} Skill 处理这个请求。`);
     const menu = this.inputEl.closest(".llm-bridge-composer-bar")?.querySelector(".llm-bridge-command-menu") as HTMLDetailsElement | null;
     menu?.removeAttribute("open");
     this.inputEl.focus();
@@ -1354,33 +1432,13 @@ export class LLMBridgeView extends ItemView {
     // 上半部分：模型
     const modelSection = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-model-list" });
     modelSection.createEl("div", { cls: "llm-bridge-model-effort-section-title", text: "Model" });
-    for (const model of this.modelCatalog.models) {
-      const option = modelSection.createEl("button", {
-        cls: "llm-bridge-model-option",
-        text: model.label,
-        attr: { "data-model": model.value },
-      });
-      option.addEventListener("click", (event) => {
-        event.stopPropagation();
-        this.closeModelEffortPopover();
-        void this.setModelEffort(model.value, this.plugin.settings.effortLevel);
-      });
-    }
+    this.modelOptionsEl = modelSection.createDiv({ cls: "llm-bridge-model-options" });
     // 下半部分：推理等级（使用原始名称，不中文化）
     const effortSection = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-effort-list" });
     effortSection.createEl("div", { cls: "llm-bridge-model-effort-section-title", text: "Effort" });
-    for (const effort of this.modelCatalog.efforts) {
-      const option = effortSection.createEl("button", {
-        cls: "llm-bridge-effort-option",
-        text: effort.label,
-        attr: { "data-effort": effort.value },
-      });
-      option.addEventListener("click", (event) => {
-        event.stopPropagation();
-        this.closeModelEffortPopover();
-        void this.setModelEffort(this.plugin.settings.model, effort.value);
-      });
-    }
+    this.effortOptionsEl = effortSection.createDiv({ cls: "llm-bridge-effort-options" });
+    this.syncModelCatalogForCurrentAgent(false);
+    this.renderModelEffortOptions();
     this.modelEffortPickerEl.addEventListener("keydown", (event) => {
       if (event.key === "Escape") this.closeModelEffortPopover();
     });
@@ -1401,6 +1459,7 @@ export class LLMBridgeView extends ItemView {
 
   private async setModelEffort(model: string, effort: string): Promise<void> {
     if (this.runHandle) return;
+    this.syncModelCatalogForCurrentAgent(false);
     // V2.16-C: 使用 catalog 归一化，不再依赖硬编码 MODEL_OPTIONS/EFFORT_OPTIONS
     const nextModel = normalizeModelValue(this.modelCatalog, model);
     const nextEffort = normalizeEffortValue(this.modelCatalog, effort);
@@ -1408,6 +1467,59 @@ export class LLMBridgeView extends ItemView {
     this.plugin.settings.effortLevel = nextEffort;
     await this.plugin.saveSettings();
     this.refreshAllChips();
+  }
+
+  private syncModelCatalogForCurrentAgent(normalizeSettings: boolean): boolean {
+    this.modelCatalog = getRuntimeModelCatalogForAgent(this.getEffectiveModelCatalogAgent());
+    if (!normalizeSettings) return false;
+    const nextModel = normalizeModelValue(this.modelCatalog, this.plugin.settings.model);
+    const nextEffort = normalizeEffortValue(this.modelCatalog, this.plugin.settings.effortLevel);
+    const changed = nextModel !== this.plugin.settings.model || nextEffort !== this.plugin.settings.effortLevel;
+    if (changed) {
+      this.plugin.settings.model = nextModel;
+      this.plugin.settings.effortLevel = nextEffort;
+    }
+    this.renderModelEffortOptions();
+    return changed;
+  }
+
+  private getEffectiveModelCatalogAgent(): "claude" | "codex" | "custom" {
+    const providerId = this.session?.providerId;
+    if (providerId && /codex/.test(providerId)) return "codex";
+    const mode = this.plugin.settings.backendMode;
+    if (mode === "codex-managed-app-server" || mode === "codex-app-server-external" || mode === "codex-sdk") return "codex";
+    if (mode === "auto" && /codex/i.test(this.actualRuntimeLabel)) return "codex";
+    return this.plugin.settings.agentType;
+  }
+
+  private renderModelEffortOptions(): void {
+    if (!this.modelOptionsEl || !this.effortOptionsEl) return;
+    this.modelOptionsEl.empty();
+    this.effortOptionsEl.empty();
+    for (const model of this.modelCatalog.models) {
+      const option = this.modelOptionsEl.createEl("button", {
+        cls: "llm-bridge-model-option",
+        text: model.label,
+        attr: { "data-model": model.value },
+      });
+      option.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.closeModelEffortPopover();
+        void this.setModelEffort(model.value, this.plugin.settings.effortLevel);
+      });
+    }
+    for (const effort of this.modelCatalog.efforts) {
+      const option = this.effortOptionsEl.createEl("button", {
+        cls: "llm-bridge-effort-option",
+        text: effort.label,
+        attr: { "data-effort": effort.value },
+      });
+      option.addEventListener("click", (event) => {
+        event.stopPropagation();
+        this.closeModelEffortPopover();
+        void this.setModelEffort(this.plugin.settings.model, effort.value);
+      });
+    }
   }
 
   private toggleModelEffortPopover(): void {
@@ -1432,6 +1544,8 @@ export class LLMBridgeView extends ItemView {
 
   private refreshModelEffortPicker(): void {
     if (!this.modelEffortButtonEl) return;
+    this.syncModelCatalogForCurrentAgent(false);
+    this.renderModelEffortOptions();
     // V2.16-C: 从 catalog 读取 label，不再依赖硬编码列表
     const model = findModelEntry(this.modelCatalog, this.plugin.settings.model);
     const effort = findEffortEntry(this.modelCatalog, this.plugin.settings.effortLevel);
@@ -8436,6 +8550,12 @@ export class LLMBridgeView extends ItemView {
   }
 
   private async refreshAgentSkills(): Promise<void> {
+    await this.refreshAgentSkillsManifestOnly();
+    await this.refreshManagedCodexPlugins();
+    this.renderAgentSkillsList();
+  }
+
+  private async refreshAgentSkillsManifestOnly(): Promise<void> {
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     try {
       const manifest = await loadAgentSkillsManifest(vaultPath);
@@ -8443,8 +8563,6 @@ export class LLMBridgeView extends ItemView {
     } catch {
       this.agentSkills = [];
     }
-    await this.refreshManagedCodexPlugins();
-    this.renderAgentSkillsList();
   }
 
   private updateAgentSkillsToggle(): void {
