@@ -1097,6 +1097,7 @@ if (runMode !== "all" && runMode !== "unit") {
     const tempSdkPermissionBundle = join(PROJECT_ROOT, ".test-sdk-permission-temp.mjs");
     // V16.5-C: bridgePromptContract bundle 供 capability/autonomy/safety contract 测试
     const tempBridgeContractBundle = join(PROJECT_ROOT, ".test-bridge-contract-temp.mjs");
+    const tempManagedPluginCatalogBundle = join(PROJECT_ROOT, ".test-managed-plugin-catalog-temp.mjs");
     // V16.5-E: agentRuntimeWorkspace bundle 供 workspace/skill/facts 测试
     const tempAgentRuntimeWorkspaceBundle = join(PROJECT_ROOT, ".test-agent-runtime-workspace-temp.mjs");
     // V17-A: piRpcProvider bundle 供 Pi probe/provider/JSONL 测试
@@ -1125,6 +1126,7 @@ if (runMode !== "all" && runMode !== "unit") {
     await esbuild.build({ ...bundleOpts("sdkPermission.ts"), outfile: tempSdkPermissionBundle });
     // V16.5-C: bridgePromptContract bundle
     await esbuild.build({ ...bundleOpts("runtime/core/bridgePromptContract.ts"), outfile: tempBridgeContractBundle });
+    await esbuild.build({ ...bundleOpts("runtime/providers/codex-managed-app-server/codexManagedPluginCatalog.ts"), outfile: tempManagedPluginCatalogBundle });
     // V16.5-E: agentRuntimeWorkspace bundle
     await esbuild.build({ ...bundleOpts("agentRuntimeWorkspace.ts"), outfile: tempAgentRuntimeWorkspaceBundle });
     // V17-A: piRpcProvider bundle
@@ -1147,6 +1149,7 @@ if (runMode !== "all" && runMode !== "unit") {
     const { normalizeToolName, assessToolRisk } = sdkPermissionMod;
     // V16.5-C: bridgePromptContract 模块（buildCapabilityManifest / buildAutonomyContract / buildSafetyBoundaryContract）
     const bridgeContractMod = await import(pathToFileURL(tempBridgeContractBundle).href);
+    const managedPluginCatalogMod = await import(pathToFileURL(tempManagedPluginCatalogBundle).href);
     // V16.5-E: agentRuntimeWorkspace 模块
     const agentRuntimeWsMod = await import(pathToFileURL(tempAgentRuntimeWorkspaceBundle).href);
     // V17-A: piRpcProvider 模块
@@ -3980,17 +3983,46 @@ if (runMode !== "all" && runMode !== "unit") {
         askUserQuestionAvailable: true,
         runtimeSkills: {
           managedCodexPlugins: [{ id: "pdf", name: "PDF", description: "Read PDF files", enabled: true }],
+          managedCodexPluginSkills: [{ id: "pdf@openai-primary-runtime:pdf", name: "pdf", description: "Read, create, inspect, render, and verify PDF files", source: "pdf · openai-primary-runtime", enabled: true }],
           agentSkills: [{ id: "defuddle", name: "defuddle", description: "Extract clean content", instructions: "Use defuddle for readability extraction.", enabled: true }],
           evidence: "test catalog",
         },
       });
       const append = pkg.bridgeSystemAppend;
       const ok = append.includes("Runtime Skills / Plugins")
+        && append.includes("不是 Vault 的 AGENTS.md")
         && append.includes("PDF (pdf)")
+        && append.includes("Plugin-contained Skills")
+        && append.includes("pdf (pdf@openai-primary-runtime:pdf)")
         && append.includes("defuddle (defuddle)")
         && append.includes("不要因为它不是 shell 命令就回答不可用");
-      addTest("V17-G71 runtime capability context: Skills/plugins enter provider instructions",
+      addTest("V17-G71 runtime capability context: plugin-contained Skills enter provider instructions",
         ok ? "pass" : "fail", "");
+    }
+
+    {
+      const tmpRoot = mkdtempSync(join(PROJECT_ROOT, ".test-managed-plugin-skills-"));
+      try {
+        const skillDir = join(tmpRoot, "skills", "pdf");
+        mkdirSync(skillDir, { recursive: true });
+        writeFileSync(join(skillDir, "SKILL.md"), [
+          "---",
+          'name: "pdf"',
+          'description: "Read and verify PDF files."',
+          "---",
+          "",
+          "# PDF Skill",
+        ].join("\r\n"), "utf8");
+        const skills = managedPluginCatalogMod.listPluginSkills(tmpRoot, "pdf@openai-primary-runtime");
+        const ok = skills.length === 1
+          && skills[0].id === "pdf@openai-primary-runtime:pdf"
+          && skills[0].name === "pdf"
+          && skills[0].description === "Read and verify PDF files.";
+        addTest("V17-G72 managed plugin catalog: reads plugin skills/SKILL.md",
+          ok ? "pass" : "fail", `skills=${JSON.stringify(skills)}`);
+      } finally {
+        rmSync(tmpRoot, { recursive: true, force: true });
+      }
     }
 
     // Test D-f: view.ts 主路径会向 buildBridgePromptPackage 传入 capabilities
@@ -7047,6 +7079,7 @@ if (runMode !== "all" && runMode !== "unit") {
       tempClipboardPastePolicyBundle,
       tempSdkPermissionBundle,
       tempBridgeContractBundle,
+      tempManagedPluginCatalogBundle,
       tempAgentRuntimeWorkspaceBundle,
       tempPiRpcProviderBundle,
       tempPiSdkProviderBundle,

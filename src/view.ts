@@ -2357,17 +2357,29 @@ export class LLMBridgeView extends ItemView {
         enabled: skill.enabled,
       }))
       : [];
+    const managedCodexPluginSkills: ProviderRuntimeSkillEntry[] = providerId === "codex-managed-app-server"
+      ? this.managedCodexPlugins.flatMap((plugin) =>
+        plugin.skills.map((skill) => ({
+          id: skill.id,
+          name: skill.name,
+          description: skill.description,
+          source: `${plugin.name} · ${plugin.marketplaceName}`,
+          enabled: plugin.enabled,
+        }))
+      )
+      : [];
     return {
       providerNativeFileTools,
       bridgeRuntimeFileTools,
       shellAvailable,
       obsidianCliAvailable,
       askUserQuestionAvailable,
-      runtimeSkills: managedCodexPlugins.length > 0 || agentSkills.length > 0
+      runtimeSkills: managedCodexPlugins.length > 0 || managedCodexPluginSkills.length > 0 || agentSkills.length > 0
         ? {
           managedCodexPlugins,
+          managedCodexPluginSkills,
           agentSkills,
-          evidence: "managed Codex runtime plugin list + Vault Agent Skills manifest",
+          evidence: "managed Codex runtime plugin list + plugin skills/SKILL.md + Vault Agent Skills manifest",
         }
         : undefined,
       evidence: {

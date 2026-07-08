@@ -1,5 +1,14 @@
 import { execFileSync } from "child_process";
+import { existsSync, readdirSync, readFileSync, statSync } from "fs";
+import { join } from "path";
 import { resolveManifestPath, resolveManagedRuntime } from "./codexManagedRuntimeResolver";
+
+export interface CodexManagedPluginSkillEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly description: string;
+  readonly skillPath: string;
+}
 
 export interface CodexManagedPluginEntry {
   readonly pluginId: string;
@@ -9,6 +18,8 @@ export interface CodexManagedPluginEntry {
   readonly enabled: boolean;
   readonly authPolicy: string;
   readonly sourceLabel: string;
+  readonly sourcePath: string | null;
+  readonly skills: ReadonlyArray<CodexManagedPluginSkillEntry>;
 }
 
 export interface CodexManagedPluginCatalog {
@@ -44,6 +55,7 @@ function normalizePluginEntry(raw: RawPluginEntry): CodexManagedPluginEntry | nu
   const version = asString(raw.version, "unknown").trim() || "unknown";
   const sourceKind = asString(raw.source?.source, "local").trim() || "local";
   const sourcePath = asString(raw.source?.path).trim();
+  const skills = listPluginSkills(sourcePath, pluginId);
   return {
     pluginId,
     name,
@@ -52,7 +64,70 @@ function normalizePluginEntry(raw: RawPluginEntry): CodexManagedPluginEntry | nu
     enabled: raw.enabled !== false,
     authPolicy: asString(raw.authPolicy, "unknown").trim() || "unknown",
     sourceLabel: sourcePath ? `${sourceKind} · ${sourcePath}` : sourceKind,
+    sourcePath: sourcePath || null,
+    skills,
   };
+}
+
+export function listPluginSkills(pluginPath: string, pluginId = "plugin"): ReadonlyArray<CodexManagedPluginSkillEntry> {
+  if (!pluginPath) return [];
+  const skillsRoot = join(pluginPath, "skills");
+  try {
+    if (!existsSync(skillsRoot) || !statSync(skillsRoot).isDirectory()) return [];
+    return readdirSync(skillsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => {
+        const skillPath = join(skillsRoot, entry.name, "SKILL.md");
+        if (!existsSync(skillPath)) return null;
+        const raw = readFileSync(skillPath, "utf8");
+        return normalizePluginSkillEntry(raw, skillPath, pluginId, entry.name);
+      })
+      .filter((entry): entry is CodexManagedPluginSkillEntry => !!entry)
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    return [];
+  }
+}
+
+function normalizePluginSkillEntry(raw: string, skillPath: string, pluginId: string, fallbackName: string): CodexManagedPluginSkillEntry {
+  const frontmatter = parseSkillFrontmatter(raw);
+  const name = cleanSkillScalar(frontmatter.name) || fallbackName;
+  const description = cleanSkillScalar(frontmatter.description) || firstNonEmptyMarkdownLine(raw) || "No description";
+  return {
+    id: `${pluginId}:${fallbackName}`,
+    name,
+    description,
+    skillPath,
+  };
+}
+
+function parseSkillFrontmatter(raw: string): Record<string, string> {
+  const normalized = raw.replace(/^\uFEFF/, "");
+  if (!normalized.startsWith("---")) return {};
+  const end = normalized.indexOf("\n---", 3);
+  if (end < 0) return {};
+  const block = normalized.slice(3, end).split(/\r?\n/);
+  const values: Record<string, string> = {};
+  for (const line of block) {
+    const match = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line.trim());
+    if (!match) continue;
+    values[match[1]] = match[2];
+  }
+  return values;
+}
+
+function cleanSkillScalar(value: string | undefined): string {
+  if (!value) return "";
+  return value.trim().replace(/^['"]|['"]$/g, "").replace(/\s+/g, " ").trim();
+}
+
+function firstNonEmptyMarkdownLine(raw: string): string {
+  const withoutFrontmatter = raw.replace(/^\uFEFF?---[\s\S]*?\r?\n---\r?\n?/, "");
+  for (const line of withoutFrontmatter.split(/\r?\n/)) {
+    const text = line.replace(/^#+\s*/, "").trim();
+    if (text && !text.startsWith("```")) return text;
+  }
+  return "";
 }
 
 export function listManagedCodexPlugins(pluginDir: string): CodexManagedPluginCatalog {

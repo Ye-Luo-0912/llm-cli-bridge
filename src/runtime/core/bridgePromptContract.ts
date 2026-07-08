@@ -68,6 +68,7 @@ export interface ProviderCapabilityEvidence {
 
 export interface ProviderRuntimeSkillContext {
   readonly managedCodexPlugins: readonly ProviderRuntimeSkillEntry[];
+  readonly managedCodexPluginSkills?: readonly ProviderRuntimeSkillEntry[];
   readonly agentSkills: readonly ProviderRuntimeSkillEntry[];
   readonly evidence?: string;
 }
@@ -155,11 +156,12 @@ export function buildCapabilityManifest(
 function buildRuntimeSkillCapabilityLines(context?: ProviderRuntimeSkillContext): string[] {
   if (!context) return [];
   const enabledPlugins = context.managedCodexPlugins.filter((entry) => entry.enabled !== false);
+  const enabledPluginSkills = (context.managedCodexPluginSkills || []).filter((entry) => entry.enabled !== false);
   const enabledSkills = context.agentSkills.filter((entry) => entry.enabled !== false);
-  if (enabledPlugins.length === 0 && enabledSkills.length === 0) return [];
+  if (enabledPlugins.length === 0 && enabledPluginSkills.length === 0 && enabledSkills.length === 0) return [];
 
   const lines: string[] = [
-    "- Runtime Skills / Plugins：以下能力在当前 managed Codex runtime 会话中可用；用户点名要求使用时，应视为可用能力，不要因为它不是 shell 命令就回答不可用。",
+    "- Runtime Skills / Plugins：以下能力来自当前 managed Codex runtime 会话，而不是 Vault 的 AGENTS.md；用户点名要求使用时，应视为可用能力，不要因为它不是 shell 命令就回答不可用。",
   ];
   if (enabledPlugins.length > 0) {
     lines.push("  Managed Codex plugins:");
@@ -172,8 +174,19 @@ function buildRuntimeSkillCapabilityLines(context?: ProviderRuntimeSkillContext)
       lines.push(`  - ... ${enabledPlugins.length - 24} more plugin(s) omitted from prompt for size.`);
     }
   }
+  if (enabledPluginSkills.length > 0) {
+    lines.push("  Plugin-contained Skills:");
+    for (const skill of enabledPluginSkills.slice(0, 40)) {
+      const desc = skill.description ? ` — ${capabilityText(skill.description, 260)}` : "";
+      const source = skill.source ? ` [${capabilityText(skill.source, 100)}]` : "";
+      lines.push(`  - ${skill.name} (${skill.id})${desc}${source}`);
+    }
+    if (enabledPluginSkills.length > 40) {
+      lines.push(`  - ... ${enabledPluginSkills.length - 40} more plugin skill(s) omitted from prompt for size.`);
+    }
+  }
   if (enabledSkills.length > 0) {
-    lines.push("  Agent Skills:");
+    lines.push("  Vault Agent Skills:");
     for (const skill of enabledSkills.slice(0, 16)) {
       const desc = skill.description ? ` — ${capabilityText(skill.description, 220)}` : "";
       lines.push(`  - ${skill.name} (${skill.id})${desc}`);
