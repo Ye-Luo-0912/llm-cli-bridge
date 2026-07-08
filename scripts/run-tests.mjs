@@ -15819,7 +15819,9 @@ if (!runV213FUnit) {
     }
 
     {
-      const hasRefresh = /private async refreshAgentSkills\(\)[\s\S]{0,600}loadAgentSkillsManifest/.test(viewSrc)
+      const hasRefresh = viewSrc.includes("private async refreshAgentSkills(): Promise<void>")
+        && viewSrc.includes("private async refreshAgentSkillsManifestOnly(): Promise<void>")
+        && viewSrc.includes("loadAgentSkillsManifest(vaultPath)")
         && viewSrc.includes("void this.refreshAgentSkills()");
       const hasToggle = /private async toggleAgentSkillEnabled[\s\S]{0,600}saveAgentSkillsManifest/.test(viewSrc)
         && /skill\.id === skillId[\s\S]{0,120}enabled/.test(viewSrc)
@@ -19398,6 +19400,26 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-session-dropdown-clear")
       && stylesSrc.includes(".llm-bridge-history-clear-btn");
     addTest("V17-G72 UI/session: 顶栏瘦身、左栏折叠、上箭头发送与关联清空会话",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13j13: V17-G73 history multi-select deletes linked native Codex sessions ----
+  {
+    const ok = viewSrc.includes("private selectedHistorySessionIds = new Set<string>()")
+      && viewSrc.includes('cls: "llm-bridge-history-bulkbar"')
+      && viewSrc.includes('cls: "llm-bridge-history-select-all"')
+      && viewSrc.includes("private async deleteSelectedHistorySessions(): Promise<void>")
+      && viewSrc.includes("deleteSessionWithProviderArtifacts(vaultPath, item.id)")
+      && viewSrc.includes("codexSessionFilesDeleted + result.codexSessionIndexEntriesDeleted")
+      && viewSrc.includes('cls: "llm-bridge-history-row-icon"')
+      && viewSrc.includes('cls: "llm-bridge-history-status"')
+      && stylesSrc.includes("V17-G73: native-linked history selection and plugin-list visual style")
+      && stylesSrc.includes(".llm-bridge-history-bulkbar")
+      && stylesSrc.includes(".llm-bridge-history-delete-selected-btn")
+      && stylesSrc.includes(".llm-bridge-history-row-icon")
+      && stylesSrc.includes(".llm-bridge-history-status-text.is-completed")
+      && stylesSrc.includes(".llm-bridge-topbar-title");
+    addTest("V17-G73 History: 多选/全选删除会同步清理原生 Codex session，列表改为插件式行",
       ok ? "pass" : "fail", "");
   }
 

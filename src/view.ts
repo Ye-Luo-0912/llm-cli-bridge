@@ -307,6 +307,10 @@ export class LLMBridgeView extends ItemView {
   private historySearchQuery = "";
   private historySearchDebounceTimer: number | null = null;
   private historyLastLoadAt = 0;
+  private historyBulkbarEl!: HTMLElement;
+  private historySelectAllEl!: HTMLInputElement;
+  private historyDeleteSelectedBtn!: HTMLButtonElement;
+  private selectedHistorySessionIds = new Set<string>();
   // V2.5: 当前活动会话 id（保存后赋值；用于后续运行更新同一会话文件）
   private currentSessionId: string | null = null;
 
@@ -8179,6 +8183,30 @@ export class LLMBridgeView extends ItemView {
         this.historySearchDebounceTimer = null;
       }, 300);
     });
+    this.historyBulkbarEl = body.createDiv({ cls: "llm-bridge-history-bulkbar" });
+    const selectLabel = this.historyBulkbarEl.createEl("label", { cls: "llm-bridge-history-select-all" });
+    this.historySelectAllEl = selectLabel.createEl("input", {
+      type: "checkbox",
+      cls: "llm-bridge-history-select-all-input",
+      attr: { title: "选择当前筛选结果中的全部会话" },
+    }) as HTMLInputElement;
+    selectLabel.createEl("span", { cls: "llm-bridge-history-select-all-text", text: "选择本页" });
+    this.historySelectAllEl.addEventListener("change", () => {
+      const visible = this.getFilteredHistoryItems();
+      if (this.historySelectAllEl.checked) {
+        visible.forEach((item) => this.selectedHistorySessionIds.add(item.id));
+      } else {
+        visible.forEach((item) => this.selectedHistorySessionIds.delete(item.id));
+      }
+      this.renderHistoryList();
+    });
+    this.historyDeleteSelectedBtn = this.historyBulkbarEl.createEl("button", {
+      cls: "llm-bridge-history-delete-selected-btn",
+      attr: { type: "button", title: "删除选中的 Bridge 会话及其映射的 Codex 原生 session" },
+    }) as HTMLButtonElement;
+    setIcon(this.historyDeleteSelectedBtn.createEl("span", { cls: "llm-bridge-icon" }), "trash-2");
+    this.historyDeleteSelectedBtn.createEl("span", { cls: "llm-bridge-history-delete-selected-label", text: "删除所选" });
+    this.historyDeleteSelectedBtn.addEventListener("click", () => void this.deleteSelectedHistorySessions());
     // 列表容器独立于搜索框，renderHistoryList 的 empty() 只清空列表，不影响搜索框
     const listContainer = body.createDiv({ cls: "llm-bridge-history-list-container" });
     this.historyListEl = listContainer;
@@ -8294,9 +8322,9 @@ export class LLMBridgeView extends ItemView {
     if (!this.historyListEl) return;
     try {
     this.historyListEl.empty();
-    // V2.9: 按搜索词过滤（标题子串，大小写不敏感）；filter 返回新数组，可直接排序不修改原 historyItems
-    const query = this.historySearchQuery.trim().toLowerCase();
-    const filtered = this.historyItems.filter((it) => !query || it.title.toLowerCase().includes(query));
+    const filtered = this.getFilteredHistoryItems();
+    this.reconcileSelectedHistorySessions();
+    this.updateHistoryBulkControls(filtered);
     if (this.historyItems.length === 0) {
       this.historyListEl.createDiv({ cls: "llm-bridge-history-empty", text: "暂无历史会话" });
       this.updateHistoryCountLabel(0, 0);
@@ -8307,13 +8335,6 @@ export class LLMBridgeView extends ItemView {
       this.updateHistoryCountLabel(0, this.historyItems.length);
       return;
     }
-    // V2.8: 按 sortMode 排序（filtered 已是新数组，直接排序不修改原 historyItems）
-    if (this.historySortMode === "messages") {
-      filtered.sort((a, b) => b.messageCount - a.messageCount);
-    } else {
-      // time: 按 savedAt 降序（最新在前，listSessions 已排但副本后稳定排序）
-      filtered.sort((a, b) => (a.savedAt < b.savedAt ? 1 : a.savedAt > b.savedAt ? -1 : 0));
-    }
     const list = this.historyListEl.createDiv({ cls: "llm-bridge-history-list" });
     for (const item of filtered) {
       const preview = this.sessionSummaryText(item);
@@ -8321,17 +8342,33 @@ export class LLMBridgeView extends ItemView {
         cls: `llm-bridge-history-item is-${item.status}${item.id === this.currentSessionId ? " is-current" : ""}`,
         attr: { title: `${item.title} · ${item.messageCount} 条消息 · ${item.savedAt}` },
       });
+      const selectWrap = row.createEl("label", { cls: "llm-bridge-history-select" });
+      const checkbox = selectWrap.createEl("input", {
+        type: "checkbox",
+        cls: "llm-bridge-history-select-input",
+        attr: { title: `选择 ${item.title}` },
+      }) as HTMLInputElement;
+      checkbox.checked = this.selectedHistorySessionIds.has(item.id);
+      checkbox.addEventListener("change", () => {
+        if (checkbox.checked) this.selectedHistorySessionIds.add(item.id);
+        else this.selectedHistorySessionIds.delete(item.id);
+        this.updateHistoryBulkControls(filtered);
+      });
+      const icon = row.createDiv({ cls: "llm-bridge-history-row-icon" });
+      setIcon(icon.createEl("span", { cls: "llm-bridge-icon" }), item.id === this.currentSessionId ? "circle-dot" : "history");
       // 主信息（点击恢复）
       const main = row.createEl("button", { cls: "llm-bridge-history-main" });
       const titleRow = main.createDiv({ cls: "llm-bridge-history-title-row" });
       titleRow.createEl("span", { cls: "llm-bridge-history-title", text: item.title });
-      if (item.id === this.currentSessionId) {
-        titleRow.createEl("span", { cls: "llm-bridge-history-current", text: "Current" });
-      }
       const meta = `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条`;
       titleRow.createEl("span", { cls: "llm-bridge-history-inline-meta", text: meta });
       main.createEl("span", { cls: "llm-bridge-history-preview", text: preview });
       main.addEventListener("click", () => void this.restoreSession(item.id));
+      const status = row.createDiv({ cls: "llm-bridge-history-status" });
+      status.createEl("span", {
+        cls: `llm-bridge-history-status-text is-${item.id === this.currentSessionId ? "current" : item.status}`,
+        text: item.id === this.currentSessionId ? "current" : this.historyStatusText(item.status),
+      });
       const actions = row.createDiv({ cls: "llm-bridge-history-actions" });
       // V2.8: 编辑按钮（重命名标题）
       const editBtn = actions.createEl("button", {
@@ -8358,6 +8395,52 @@ export class LLMBridgeView extends ItemView {
     this.updateHistoryCountLabel(filtered.length, this.historyItems.length);
     } catch (e) {
       this.renderListError(this.historyListEl, "history", e);
+    }
+  }
+
+  private getFilteredHistoryItems(): SessionListItem[] {
+    // V2.9: 按搜索词过滤（标题子串，大小写不敏感）；filter 返回新数组，可直接排序不修改原 historyItems
+    const query = this.historySearchQuery.trim().toLowerCase();
+    const filtered = this.historyItems.filter((it) => !query || it.title.toLowerCase().includes(query));
+    if (this.historySortMode === "messages") {
+      filtered.sort((a, b) => b.messageCount - a.messageCount);
+    } else {
+      filtered.sort((a, b) => (a.savedAt < b.savedAt ? 1 : a.savedAt > b.savedAt ? -1 : 0));
+    }
+    return filtered;
+  }
+
+  private reconcileSelectedHistorySessions(): void {
+    const existing = new Set(this.historyItems.map((item) => item.id));
+    for (const id of Array.from(this.selectedHistorySessionIds)) {
+      if (!existing.has(id)) this.selectedHistorySessionIds.delete(id);
+    }
+  }
+
+  private updateHistoryBulkControls(visibleItems: SessionListItem[]): void {
+    if (!this.historyBulkbarEl || !this.historySelectAllEl || !this.historyDeleteSelectedBtn) return;
+    const selected = this.selectedHistorySessionIds.size;
+    const visibleSelected = visibleItems.filter((item) => this.selectedHistorySessionIds.has(item.id)).length;
+    this.historyBulkbarEl.toggleAttribute("hidden", this.historyItems.length === 0);
+    this.historySelectAllEl.checked = visibleItems.length > 0 && visibleSelected === visibleItems.length;
+    this.historySelectAllEl.indeterminate = visibleSelected > 0 && visibleSelected < visibleItems.length;
+    this.historyDeleteSelectedBtn.disabled = selected === 0;
+    const label = this.historyDeleteSelectedBtn.querySelector(".llm-bridge-history-delete-selected-label");
+    if (label) label.textContent = selected > 0 ? `删除 ${selected} 个` : "删除所选";
+  }
+
+  private historyStatusText(status: SessionListItem["status"]): string {
+    switch (status) {
+      case "completed":
+        return "completed";
+      case "failed":
+        return "failed";
+      case "stopped":
+        return "stopped";
+      case "running":
+        return "running";
+      default:
+        return status;
     }
   }
 
@@ -8639,6 +8722,7 @@ export class LLMBridgeView extends ItemView {
       }
       // V2.8: 原地移除该项并重渲染（不重新 listSessions）
       this.historyItems = this.historyItems.filter((it) => it.id !== sessionId);
+      this.selectedHistorySessionIds.delete(sessionId);
       this.renderHistoryList();
     } else {
       new Notice("删除失败：会话文件不存在");
@@ -8723,6 +8807,43 @@ export class LLMBridgeView extends ItemView {
     this.renderAgentSkillsList();
   }
 
+  private async deleteSelectedHistorySessions(): Promise<void> {
+    if (this.runHandle) {
+      new Notice("运行中无法删除历史会话");
+      return;
+    }
+    const selectedIds = Array.from(this.selectedHistorySessionIds);
+    if (selectedIds.length === 0) return;
+    const selectedItems = this.historyItems.filter((item) => this.selectedHistorySessionIds.has(item.id));
+    const confirmed = await this.confirmDialog(
+      "删除所选会话",
+      `确认删除 ${selectedItems.length} 个 Bridge 会话？会同步删除这些会话映射的 ~/.codex/sessions 原生 Codex session 文件和索引；未被 Bridge 映射的 Codex 历史不会删除。`,
+    );
+    if (!confirmed) return;
+
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    let bridgeDeleted = 0;
+    let codexNativeDeleted = 0;
+    let deletedCurrent = false;
+    for (const item of selectedItems) {
+      const result = await deleteSessionWithProviderArtifacts(vaultPath, item.id);
+      if (!result.bridgeSessionDeleted) continue;
+      bridgeDeleted += 1;
+      codexNativeDeleted += result.codexSessionFilesDeleted + result.codexSessionIndexEntriesDeleted;
+      if (this.currentSessionId === item.id) deletedCurrent = true;
+    }
+
+    const deletedIds = new Set(selectedItems.map((item) => item.id));
+    this.historyItems = this.historyItems.filter((item) => !deletedIds.has(item.id));
+    this.selectedHistorySessionIds.clear();
+    if (deletedCurrent) {
+      this.currentSessionId = null;
+      this.doNewSession();
+    }
+    this.renderHistoryList();
+    new Notice(`已删除 ${bridgeDeleted} 个 Bridge 会话；同步删除 ${codexNativeDeleted} 条 Codex 原生记录`);
+  }
+
   private async refreshAgentSkillsManifestOnly(): Promise<void> {
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     try {
@@ -8747,6 +8868,7 @@ export class LLMBridgeView extends ItemView {
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     const result = await clearSessionsWithProviderArtifacts(vaultPath);
     this.historyItems = [];
+    this.selectedHistorySessionIds.clear();
     this.historyLastLoadAt = 0;
     this.renderHistoryList();
     this.doNewSession();

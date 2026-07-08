@@ -17173,3 +17173,244 @@
   height: 19px !important;
   stroke-width: 2.65 !important;
 }
+
+/* ===== V17-G73: native-linked history selection and plugin-list visual style ===== */
+.llm-bridge-topbar-title {
+  display: none !important;
+}
+
+.llm-bridge-history-page-head {
+  display: none !important;
+}
+
+.llm-bridge-tab-panel[data-panel="history"] .llm-bridge-history-panel {
+  max-width: min(760px, 100%) !important;
+  margin: 0 auto !important;
+  padding: 14px 16px 18px !important;
+}
+
+.llm-bridge-tab-panel[data-panel="history"] .llm-bridge-history-head {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto auto auto !important;
+  gap: 8px !important;
+  align-items: center !important;
+  padding: 0 0 12px !important;
+  background: transparent !important;
+  border: 0 !important;
+}
+
+.llm-bridge-history-toggle {
+  justify-content: flex-start !important;
+  min-width: 0 !important;
+}
+
+.llm-bridge-history-toggle-label {
+  color: var(--text-normal) !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0 !important;
+  text-transform: uppercase !important;
+}
+
+.llm-bridge-history-toggle-count {
+  min-width: 0 !important;
+  height: 20px !important;
+  padding: 0 7px !important;
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 70%, transparent) !important;
+  color: var(--text-muted) !important;
+  font-size: 11px !important;
+}
+
+.llm-bridge-history-refresh-btn,
+.llm-bridge-history-clear-btn {
+  color: var(--text-muted) !important;
+}
+
+.llm-bridge-history-body {
+  gap: 10px !important;
+}
+
+.llm-bridge-history-search {
+  margin: 0 !important;
+}
+
+.llm-bridge-history-search-input {
+  min-height: 34px !important;
+  border-radius: 12px !important;
+}
+
+.llm-bridge-history-bulkbar {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 10px !important;
+  min-height: 28px !important;
+  padding: 0 2px !important;
+}
+
+.llm-bridge-history-bulkbar[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-history-select-all {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  color: var(--text-muted) !important;
+  font-size: 12px !important;
+  cursor: pointer !important;
+}
+
+.llm-bridge-history-select-all-input,
+.llm-bridge-history-select-input {
+  width: 14px !important;
+  height: 14px !important;
+  margin: 0 !important;
+  accent-color: var(--interactive-accent) !important;
+}
+
+.llm-bridge-history-delete-selected-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  min-height: 28px !important;
+  padding: 0 9px !important;
+  border: 0 !important;
+  border-radius: 9px !important;
+  background: transparent !important;
+  color: color-mix(in srgb, #e53935 64%, var(--text-muted)) !important;
+  box-shadow: none !important;
+  font-size: 12px !important;
+}
+
+.llm-bridge-history-delete-selected-btn:disabled {
+  opacity: 0.42 !important;
+}
+
+.llm-bridge-history-list {
+  gap: 0 !important;
+}
+
+.llm-bridge-history-item {
+  display: grid !important;
+  grid-template-columns: 18px 34px minmax(0, 1fr) auto auto !important;
+  align-items: center !important;
+  gap: 10px !important;
+  min-height: 58px !important;
+  padding: 6px 6px !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-history-item::before {
+  display: none !important;
+}
+
+.llm-bridge-history-item:hover,
+.llm-bridge-history-item.is-current {
+  background: color-mix(in srgb, var(--background-modifier-hover) 42%, transparent) !important;
+  outline: none !important;
+}
+
+.llm-bridge-history-select {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.llm-bridge-history-row-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 30px !important;
+  height: 30px !important;
+  border-radius: 9px !important;
+  background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-modifier-hover)) !important;
+  color: color-mix(in srgb, var(--interactive-accent) 74%, var(--text-muted)) !important;
+}
+
+.llm-bridge-history-row-icon .llm-bridge-icon,
+.llm-bridge-history-row-icon svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.llm-bridge-history-main {
+  display: grid !important;
+  min-width: 0 !important;
+  gap: 2px !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  text-align: left !important;
+}
+
+.llm-bridge-history-title-row {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 7px !important;
+  min-width: 0 !important;
+}
+
+.llm-bridge-history-title {
+  color: var(--text-normal) !important;
+  font-size: 13.5px !important;
+  font-weight: 700 !important;
+}
+
+.llm-bridge-history-inline-meta {
+  margin-left: 0 !important;
+  color: var(--text-faint) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+}
+
+.llm-bridge-history-preview {
+  color: color-mix(in srgb, var(--text-muted) 80%, transparent) !important;
+  font-size: 11.5px !important;
+  line-height: 1.35 !important;
+  -webkit-line-clamp: 1 !important;
+  line-clamp: 1 !important;
+}
+
+.llm-bridge-history-status {
+  min-width: 58px !important;
+  text-align: right !important;
+}
+
+.llm-bridge-history-status-text {
+  color: var(--text-faint) !important;
+  font-size: 11px !important;
+  font-weight: 560 !important;
+}
+
+.llm-bridge-history-status-text.is-current,
+.llm-bridge-history-status-text.is-running {
+  color: color-mix(in srgb, var(--interactive-accent) 78%, var(--text-muted)) !important;
+}
+
+.llm-bridge-history-status-text.is-completed {
+  color: color-mix(in srgb, #2ca64d 84%, var(--text-muted)) !important;
+}
+
+.llm-bridge-history-status-text.is-failed,
+.llm-bridge-history-status-text.is-stopped {
+  color: color-mix(in srgb, #e53935 72%, var(--text-muted)) !important;
+}
+
+.llm-bridge-history-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 2px !important;
+  opacity: 0 !important;
+  transform: none !important;
+}
+
+.llm-bridge-history-item:hover .llm-bridge-history-actions,
+.llm-bridge-history-item:focus-within .llm-bridge-history-actions {
+  opacity: 1 !important;
+}
