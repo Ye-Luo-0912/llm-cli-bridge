@@ -1,14 +1,14 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-08T20:00:47.116Z
+- **测试时间**: 2026-07-08T20:38:27.720Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 1080.0 KB
+- **main.js 大小**: 1072.3 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 57711
-- **commit sha**: eea99d9c6550dd7ac358363a2e47609bdf598d49
-- **commit 短 sha**: eea99d9c6550
+- **commit sha**: 956082b9a40ac977e6166e3e3b011e487eaec419
+- **commit 短 sha**: 956082b9a40a
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
@@ -686,7 +686,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-EBcYbn\\skills\\pdf\\SKILL.md"}] |
+| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-RK7uV9\\skills\\pdf\\SKILL.md"}] |
 
 ### V16.5-D view.ts 主路径注入真实 capabilities
 
@@ -722,7 +722,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=431662 capLine=432260 orderOk=true |
+| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=432151 capLine=432749 orderOk=true |
 | ✅ | buildBridgePromptPackage 主路径接收 runtimeCapabilities | hasRuntimeCapabilities=true hasPassedToBuilder=true |
 
 ### V16.5-E workspace
@@ -969,7 +969,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783540848686-0 update=pi-sdk-read-1783540848686-0 end=pi-sdk-read-1783540848686-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783543109240-0 update=pi-sdk-read-1783543109240-0 end=pi-sdk-read-1783543109240-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -2316,7 +2316,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-08T20-01-16-223Z-cz9qvt |
+| ✅ | 返回非空 id | id=s-2026-07-08T20-38-56-738Z-w6r4t6 |
 
 ### V2.5 Session 版本
 
@@ -2335,7 +2335,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-08T20-01-16-301Z-buj401 second=s-2026-07-08T20-01-16-235Z-qg1gzd |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-08T20-38-56-817Z-8tb9h4 second=s-2026-07-08T20-38-56-755Z-ms8swc |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2374,7 +2374,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-08T20-01-16-350Z-ysvg78 id2=s-2026-07-08T20-01-16-350Z-dkx9q5 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-08T20-38-56-868Z-gaj7ty id2=s-2026-07-08T20-38-56-868Z-iiv00c |
 
 ### V2.5 Session 上限
 
@@ -2472,7 +2472,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-08T20:01:16.416Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-08T20:38:56.934Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2560,7 +2560,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-08T20:01:16.485Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-08T20:38:56.996Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2674,7 +2674,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-08T20:01:16.562Z after=2026-07-08T20:01:16.626Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-08T20:38:57.072Z after=2026-07-08T20:38:57.128Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -3045,13 +3045,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-08T20:01:17.341Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-08T20:38:57.825Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-08T20:01:17.349Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-08T20:38:57.833Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3167,7 +3167,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-j4dVWe\skills\llm-bridge-review-skill\SKILL.md |
+| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-4BaH6c\skills\llm-bridge-review-skill\SKILL.md |
 | ✅ | run 前从 Bridge manifest 物化 enabled Skills | ok=true count=1 |
 
 ### V2.13.0-C materializeEnabled
@@ -3369,7 +3369,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-2VdoAU\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-eMr50u\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-y846o7\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-eA3AIN\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3381,7 +3381,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-X4m1ir\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-Sg8aAV\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-G15Oib\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-8owUVB\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3393,7 +3393,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-hKls98\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-pbu5Bu\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-eFkEuJ\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-pMFyGW\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -4049,8 +4049,8 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | run1 thread/start 注册 threadId（provider 全路径） | sessionStarted=true text=thread-provider-1 mappedTid=thread-provider-1 eventsCount=3 |
-| ✅ | run2 thread/resume + turn/start 使用 resumed threadId（P2 主线闭环） | threadResume=true threadStartOnRun2=false resumeTidOk=true turnStartTidOk=true turnStartContextOk=true resumedEv=true eventsCount=3 |
+| ✅ | run1 thread/start 注册 threadId（provider 全路径） | sessionStarted=true text=thread-provider-1 mappedTid=thread-provider-1 eventsCount=4 |
+| ✅ | run2 thread/resume + turn/start 使用 resumed threadId（P2 主线闭环） | threadResume=true threadStartOnRun2=false resumeTidOk=true turnStartTidOk=true turnStartContextOk=true resumedEv=true eventsCount=4 |
 
 ### 任务5a
 
@@ -4062,31 +4062,31 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | only initialized + turn/completed(empty) → provider 输出 failed（no-op guard） | kinds=progress,session_started,failed hasFailed=true hasCompleted=false msgOk=true |
+| ✅ | only initialized + turn/completed(empty) → provider 输出 failed（no-op guard） | kinds=progress,session_started,native_session_bound,failed hasFailed=true hasCompleted=false msgOk=true |
 
 ### 任务5b-extra
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | turn with agentMessage → completed（no-op guard 不误触发） | kinds=progress,session_started,message,completed hasCompleted=true hasFailed=false |
+| ✅ | turn with agentMessage → completed（no-op guard 不误触发） | kinds=progress,session_started,native_session_bound,message,completed hasCompleted=true hasFailed=false |
 
 ### 任务5c-1
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | JSON-RPC invalid line before turn → stderr_delta + terminal failed | kinds=stderr_delta,failed,progress,session_started,completed hasStderrDelta=true hasTerminalFailed=true |
+| ✅ | JSON-RPC invalid line before turn → stderr_delta + terminal failed | kinds=stderr_delta,failed,progress,session_started,native_session_bound,completed hasStderrDelta=true hasTerminalFailed=true |
 
 ### 任务5c-2
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | JSON-RPC invalid line during turn → stderr_delta + no-op failed（stderr_delta 不算 meaningful） | kinds=progress,session_started,stderr_delta,failed hasStderrDelta=true hasFailed=true hasCompleted=false |
+| ✅ | JSON-RPC invalid line during turn → stderr_delta + no-op failed（stderr_delta 不算 meaningful） | kinds=progress,session_started,native_session_bound,stderr_delta,failed hasStderrDelta=true hasFailed=true hasCompleted=false |
 
 ### 任务5d
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | approval request/resolved requestId 闭环（requestId 一致 + server 收到 matching response） | hasApprovalReq=true hasApprovalResolved=true responseOk=true requestId=codex-req-300 kinds=progress,session_started,approval_request,approval_resolved,completed |
+| ✅ | approval request/resolved requestId 闭环（requestId 一致 + server 收到 matching response） | hasApprovalReq=true hasApprovalResolved=true responseOk=true requestId=codex-req-300 kinds=progress,session_started,native_session_bound,approval_request,approval_resolved,completed |
 
 ### 任务5e
 
