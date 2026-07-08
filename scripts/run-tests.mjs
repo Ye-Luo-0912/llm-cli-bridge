@@ -21750,6 +21750,267 @@ if (!runCodexSchemaAlignment) {
     }
 
     // ============================================================
+    // 任务5: 行为级测试 — no-op guard / transport error / attachment contract / approval 闭环
+    // ============================================================
+    {
+      const { CodexAppServerProvider, isMeaningfulCodexRuntimeEvent } = await import(pathToFileURL(codexAppServerProviderBundle).href);
+
+      // FakeAppServerProcess（与 Test 21c 同构）
+      class FakeAppServerProcess5 {
+        constructor() {
+          this._stdoutHandlers = new Set();
+          this._stderrHandlers = new Set();
+          this._exitHandlers = new Set();
+          this._exited = false;
+          this.writtenLines = [];
+          this.methodHandlers = new Map();
+        }
+        onMethod(method, handler) { this.methodHandlers.set(method, handler); }
+        emitLine(line) {
+          for (const h of this._stdoutHandlers) { try { h(line); } catch { /* swallow */ } }
+        }
+        writeLine(line) {
+          if (this._exited) return;
+          this.writtenLines.push(line);
+          let msg;
+          try { msg = JSON.parse(line); } catch { return; }
+          if (msg && typeof msg === "object" && "id" in msg && "method" in msg) {
+            const handler = this.methodHandlers.get(msg.method);
+            if (handler) {
+              const ret = handler(msg.params, msg.id) || {};
+              if (ret.result !== undefined) {
+                this.emitLine(JSON.stringify({ id: msg.id, result: ret.result }));
+                if (ret.emitAfter) {
+                  for (const notif of ret.emitAfter) this.emitLine(JSON.stringify(notif));
+                }
+              }
+            }
+          }
+        }
+        onStdoutLine(handler) { this._stdoutHandlers.add(handler); return () => this._stdoutHandlers.delete(handler); }
+        onStderrLine(handler) { this._stderrHandlers.add(handler); return () => this._stderrHandlers.delete(handler); }
+        onExit(handler) { this._exitHandlers.add(handler); return () => this._exitHandlers.delete(handler); }
+        get running() { return !this._exited; }
+        kill() { if (this._exited) return; this._exited = true; for (const h of this._exitHandlers) { try { h(0, null); } catch { /* swallow */ } } }
+      }
+      class FakeProvider5 extends CodexAppServerProvider {
+        constructor(fakeProcess) { super(false); this._fakeProcess = fakeProcess; }
+        createProcess(_options) { return this._fakeProcess; }
+      }
+
+      const makeCtx5 = (runId) => ({
+        plan: {
+          backend: "codex-app-server", cwd: "/vault", model: "gpt-5.5", effort: "high",
+          session: { continueSession: false }, settingSources: [], skills: [],
+          promptPackageHash: "h1", attachmentPlan: { entries: [] }, createdAt: TS(),
+          instructionsSource: "instructions",
+        },
+        promptPackage: { userPrompt: "hello", bridgeSystemAppend: "sys", attachmentEntries: [], auditHash: "h1" },
+        permission: {
+          mode: "default", policy: { rules: [] }, pending: new Map(),
+          sessionAllows: [], sessionDenies: [],
+          requestApproval: () => "auto-allow",
+          resolveApproval: () => true,
+          cancelAllPending: () => [],
+          waitForApproval: () => Promise.resolve({ response: { type: "accept" }, source: "mode" }),
+        },
+        runId,
+        bridgeSessionId: `sess-${runId}`,
+      });
+      const settings5 = { developerMode: false };
+
+      // ---- 5a: isMeaningfulCodexRuntimeEvent 单元 ----
+      {
+        const meaningful = ["message", "tool_start", "tool_result", "file_change",
+          "approval_request", "approval_resolved", "user_input_request", "user_input_resolved", "failed"];
+        const nonMeaningful = ["session_started", "thinking", "progress", "stderr_delta", "completed", "stdout_delta"];
+        const allMeaningful = meaningful.every((k) => isMeaningfulCodexRuntimeEvent({ payload: { kind: k } }));
+        const noneNonMeaningful = nonMeaningful.every((k) => !isMeaningfulCodexRuntimeEvent({ payload: { kind: k } }));
+        addTest("任务5a: isMeaningfulCodexRuntimeEvent — message/tool/file/approval/failed 有效，progress/session/thinking/stderr/completed 无效",
+          allMeaningful && noneNonMeaningful ? "pass" : "fail",
+          `meaningful=${allMeaningful} nonMeaningfulExcluded=${noneNonMeaningful}`);
+      }
+
+      // ---- 5b: only initialized/turn/completed(empty) → provider 必须 failed ----
+      {
+        const fake = new FakeAppServerProcess5();
+        const provider = new FakeProvider5(fake);
+        fake.onMethod("initialize", () => ({ result: { protocolVersion: "1" } }));
+        fake.onMethod("thread/start", () => ({ result: { thread: { id: "t-empty", sessionId: "s-empty" } } }));
+        // turn/start 只 emit turn/completed with empty finalText（无 message/tool/file/approval）
+        fake.onMethod("turn/start", () => ({
+          result: {},
+          emitAfter: [{ method: "turn/completed", params: { finalText: "" } }],
+        }));
+        const ctx = makeCtx5("run-empty");
+        const events = [];
+        for await (const ev of provider.run(ctx, settings5)) { events.push(ev); }
+        const kinds = events.map((e) => e.payload?.kind);
+        const hasFailed = kinds.includes("failed");
+        const hasCompleted = kinds.includes("completed");
+        const failedEv = events.find((e) => e.payload?.kind === "failed");
+        const msgOk = !!failedEv && /ended without output|without output/i.test(failedEv.payload.message);
+        addTest("任务5b: only initialized + turn/completed(empty) → provider 输出 failed（no-op guard）",
+          hasFailed && !hasCompleted && msgOk ? "pass" : "fail",
+          `kinds=${kinds.join(",")} hasFailed=${hasFailed} hasCompleted=${hasCompleted} msgOk=${msgOk}`);
+      }
+
+      // ---- 5b-extra: turn with message → completed（no-op guard 不误触发）----
+      {
+        const fake = new FakeAppServerProcess5();
+        const provider = new FakeProvider5(fake);
+        fake.onMethod("initialize", () => ({ result: { protocolVersion: "1" } }));
+        fake.onMethod("thread/start", () => ({ result: { thread: { id: "t-msg", sessionId: "s-msg" } } }));
+        // turn/start 先 emit item/agentMessage/delta（meaningful），再 emit turn/completed
+        fake.onMethod("turn/start", () => ({
+          result: {},
+          emitAfter: [
+            { method: "item/agentMessage/delta", params: { threadId: "t-msg", itemId: "m1", delta: "Hello" } },
+            { method: "turn/completed", params: { finalText: "Hello" } },
+          ],
+        }));
+        const ctx = makeCtx5("run-msg");
+        const events = [];
+        for await (const ev of provider.run(ctx, settings5)) { events.push(ev); }
+        const kinds = events.map((e) => e.payload?.kind);
+        const hasCompleted = kinds.includes("completed");
+        const hasFailed = kinds.includes("failed");
+        addTest("任务5b-extra: turn with agentMessage → completed（no-op guard 不误触发）",
+          hasCompleted && !hasFailed ? "pass" : "fail",
+          `kinds=${kinds.join(",")} hasCompleted=${hasCompleted} hasFailed=${hasFailed}`);
+      }
+
+      // ---- 5c-1: JSON-RPC invalid line before turn → transport error + terminal failed ----
+      {
+        const fake = new FakeAppServerProcess5();
+        const provider = new FakeProvider5(fake);
+        // initialize handler 先 emit 一行 invalid JSON（触发 transport error），再返回 result
+        fake.onMethod("initialize", () => {
+          fake.emitLine("this is not valid json{{{");
+          return { result: { protocolVersion: "1" } };
+        });
+        fake.onMethod("thread/start", () => ({ result: { thread: { id: "t-terr", sessionId: "s-terr" } } }));
+        fake.onMethod("turn/start", () => ({
+          result: {},
+          emitAfter: [{ method: "turn/completed", params: { finalText: "done" } }],
+        }));
+        const ctx = makeCtx5("run-terr");
+        const events = [];
+        for await (const ev of provider.run(ctx, settings5)) { events.push(ev); }
+        const kinds = events.map((e) => e.payload?.kind);
+        const hasStderrDelta = events.some(
+          (e) => e.payload?.kind === "stderr_delta" && typeof e.payload.data === "string" && e.payload.data.includes("[transport error]"));
+        const hasTerminalFailed = events.some(
+          (e) => e.payload?.kind === "failed" && typeof e.payload.message === "string" && /transport error before turn/i.test(e.payload.message));
+        addTest("任务5c-1: JSON-RPC invalid line before turn → stderr_delta + terminal failed",
+          hasStderrDelta && hasTerminalFailed ? "pass" : "fail",
+          `kinds=${kinds.join(",")} hasStderrDelta=${hasStderrDelta} hasTerminalFailed=${hasTerminalFailed}`);
+      }
+
+      // ---- 5c-2: JSON-RPC invalid line during turn → stderr_delta timeline + no-op failed ----
+      {
+        const fake = new FakeAppServerProcess5();
+        const provider = new FakeProvider5(fake);
+        fake.onMethod("initialize", () => ({ result: { protocolVersion: "1" } }));
+        fake.onMethod("thread/start", () => ({ result: { thread: { id: "t-terr2", sessionId: "s-terr2" } } }));
+        // turn/start 期间 emit invalid JSON（turnSubmitted=true），然后 turn/completed(empty)
+        // stderr_delta 不算 meaningful，所以 no-op guard 仍触发 → failed
+        fake.onMethod("turn/start", () => {
+          fake.emitLine("another invalid json line {{{ during turn");
+          return {
+            result: {},
+            emitAfter: [{ method: "turn/completed", params: { finalText: "" } }],
+          };
+        });
+        const ctx = makeCtx5("run-terr2");
+        const events = [];
+        for await (const ev of provider.run(ctx, settings5)) { events.push(ev); }
+        const kinds = events.map((e) => e.payload?.kind);
+        const hasStderrDelta = events.some(
+          (e) => e.payload?.kind === "stderr_delta" && typeof e.payload.data === "string" && e.payload.data.includes("[transport error]"));
+        const hasFailed = kinds.includes("failed");
+        const hasCompleted = kinds.includes("completed");
+        addTest("任务5c-2: JSON-RPC invalid line during turn → stderr_delta + no-op failed（stderr_delta 不算 meaningful）",
+          hasStderrDelta && hasFailed && !hasCompleted ? "pass" : "fail",
+          `kinds=${kinds.join(",")} hasStderrDelta=${hasStderrDelta} hasFailed=${hasFailed} hasCompleted=${hasCompleted}`);
+      }
+
+      // ---- 5d: approval request/resolved requestId 闭环 ----
+      {
+        const fake = new FakeAppServerProcess5();
+        const provider = new FakeProvider5(fake);
+        fake.onMethod("initialize", () => ({ result: { protocolVersion: "1" } }));
+        fake.onMethod("thread/start", () => ({ result: { thread: { id: "t-appr", sessionId: "s-appr" } } }));
+        // turn/start 期间 emit approval server request（id=300），再 emit turn/completed
+        const approvalServerRequestId = 300;
+        fake.onMethod("turn/start", () => {
+          // server 发起 approval request（server-initiated request，带 id）
+          fake.emitLine(JSON.stringify({
+            id: approvalServerRequestId,
+            method: "item/commandExecution/requestApproval",
+            params: { threadId: "t-appr", turnId: "turn-1", itemId: "item-1", command: ["echo", "hello"] },
+          }));
+          return {
+            result: {},
+            emitAfter: [{ method: "turn/completed", params: { finalText: "approval done" } }],
+          };
+        });
+        const ctx = makeCtx5("run-appr");
+        const events = [];
+        for await (const ev of provider.run(ctx, settings5)) { events.push(ev); }
+
+        // 1) provider 发出 approval_request 事件，含 requestId
+        const approvalReqEv = events.find((e) => e.payload?.kind === "approval_request");
+        const hasApprovalReq = !!approvalReqEv && typeof approvalReqEv.payload.requestId === "string" && approvalReqEv.payload.requestId.length > 0;
+
+        // 2) provider 发出 approval_resolved 事件，requestId 与 approval_request 一致
+        const approvalResolvedEv = events.find(
+          (e) => e.payload?.kind === "approval_resolved" && e.payload.requestId === approvalReqEv?.payload?.requestId);
+        const hasApprovalResolved = !!approvalResolvedEv;
+
+        // 3) client 向 server 回复了 result，含 matching id=300 + decision
+        const responseLine = fake.writtenLines.find((l) => {
+          try { const m = JSON.parse(l); return m.id === approvalServerRequestId && m.result !== undefined; } catch { return false; }
+        });
+        const responseOk = !!responseLine && responseLine.includes('"decision"');
+
+        addTest("任务5d: approval request/resolved requestId 闭环（requestId 一致 + server 收到 matching response）",
+          hasApprovalReq && hasApprovalResolved && responseOk ? "pass" : "fail",
+          `hasApprovalReq=${hasApprovalReq} hasApprovalResolved=${hasApprovalResolved} responseOk=${responseOk} requestId=${approvalReqEv?.payload?.requestId} kinds=${events.map((e) => e.payload?.kind).join(",")}`);
+      }
+
+      // ---- 5e: attachment contract — turnStart.attachments 必须 undefined ----
+      // 复用 codexEffectiveRunPlanBundle 已导入的 buildCodexAppServerRunOptions + computeCodexRunOptionsAuditHash
+      {
+        const pkg = {
+          bridgeSystemAppend: "sys-append",
+          userPrompt: "hello world",
+          attachmentEntries: [
+            { refId: "r1", displayName: "a.md", resolvedPath: "D:\\vault\\a.md", kind: "vault", scope: "message", fileType: "markdown", packing: "inline-snippet" },
+            { refId: "r2", displayName: "i.png", resolvedPath: "D:\\vault\\attachments\\i.png", kind: "attachment", scope: "message", fileType: "image", packing: "sdk-streaming-block" },
+            { refId: "r3", displayName: "x.pdf", resolvedPath: "D:\\docs\\x.pdf", kind: "external", scope: "session", fileType: "pdf", packing: "native-ref-only" },
+          ],
+          auditHash: "h",
+        };
+        const plan = { cwd: "/v", model: "gpt-5.5", effort: "high", backend: "codex-app-server" };
+        const opts = buildCodexAppServerRunOptions(plan, pkg);
+        const attachmentsUndefined = opts.turnStart.attachments === undefined;
+        const input = opts.turnStart.input;
+        const hasText = Array.isArray(input) && input[0]?.type === "text";
+        const hasLocalImage = Array.isArray(input) && input.some((it) => it.type === "localImage");
+        const hasFileVariant = Array.isArray(input) && input.some((it) => it.type === "file");
+        // audit hash 不抛错 + 稳定（两次调用相同）
+        const hash1 = computeCodexRunOptionsAuditHash(opts);
+        const hash2 = computeCodexRunOptionsAuditHash(opts);
+        const hashStable = hash1 === hash2 && typeof hash1 === "string" && hash1.length > 0;
+        const ok = attachmentsUndefined && hasText && hasLocalImage && !hasFileVariant && hashStable;
+        addTest("任务5e: attachment contract — turnStart.attachments===undefined + input 只含 text+localImage + audit hash 稳定",
+          ok ? "pass" : "fail",
+          `attachmentsUndefined=${attachmentsUndefined} hasText=${hasText} hasLocalImage=${hasLocalImage} hasFileVariant=${hasFileVariant} hashStable=${hashStable}`);
+      }
+    }
+
+    // ============================================================
     // V2.17-A Completion: Test report integrity
     // summary 由报告文件解析生成 + commit sha + 运行命令 + 过期/不匹配 fail
     // ============================================================

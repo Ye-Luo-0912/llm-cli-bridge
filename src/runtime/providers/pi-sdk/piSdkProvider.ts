@@ -1341,10 +1341,15 @@ export class PiSdkProvider implements RuntimeProvider {
   cancel(_runId: string): void {
     // 任务 A：cancel(runId) 调用 session.abort()
     if (this.currentSession) {
-      try {
-        void this.currentSession.abort();
-      } catch { /* ignore */ }
+      const session = this.currentSession;
       this.currentSession = null;
+      try {
+        const ret = session.abort();
+        // H-2: abort() 可能返回 Promise，丢弃 rejection 会导致 unhandled rejection。
+        if (ret && typeof (ret as Promise<unknown>).then === "function") {
+          void (ret as Promise<unknown>).catch(() => { /* abort 失败不影响 cancel 语义 */ });
+        }
+      } catch { /* ignore */ }
     }
   }
 

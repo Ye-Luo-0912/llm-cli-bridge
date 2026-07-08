@@ -71,6 +71,76 @@ import { execFileSync } from "child_process";
 import { buildEnhancedPath } from "../../../claudeCliBackend";
 
 /**
+ * 任务1: 判断 NormalizedRuntimeEvent 是否为"有效输出"。
+ *
+ * no-op 判定核心：只有以下事件类型算作有效 turn 输出：
+ * - message: assistant 文本回复
+ * - tool_start / tool_result: 工具调用与结果
+ * - file_change: 文件变更
+ * - approval_request / approval_resolved: 审批流程
+ * - user_input_request / user_input_resolved: 用户输入流程
+ * - failed: 错误
+ *
+ * 以下不算有效输出（即使收到也不阻止 empty-completed → failed 转换）：
+ * - progress (initialized / turn/started / turnDiff / status 类)
+ * - session_started
+ * - thinking（纯推理，无实际输出）
+ * - stderr_delta（诊断信息，不是有效 turn 输出）
+ * - completed（终态，由 no-op guard 单独处理）
+ *
+ * 这样 turn/completed(empty) 在仅收到 initialized + turn/started + turnDiff 时
+ * 仍会被判定为 no-op 并转为 failed，避免"协议通但无输出"的假完成。
+ */
+export function isMeaningfulCodexRuntimeEvent(ev: NormalizedRuntimeEvent): boolean {
+  const kind = (ev.payload as { kind: string }).kind;
+  switch (kind) {
+    case "message":
+    case "tool_start":
+    case "tool_result":
+    case "file_change":
+    case "approval_request":
+    case "approval_resolved":
+    case "user_input_request":
+    case "user_input_resolved":
+    case "failed":
+      return true;
+    default:
+      return false;
+  }
+}
+
+/**
+ * 任务1: 构建 no-op completed → failed 的转换事件。
+ *
+ * 当 turn/completed 在 turnSubmitted 后到达，且期间未收到任何 meaningful 事件，
+ * 且 completed.text 为空时，转换为 failed 事件。
+ */
+function buildNoOpFailedEvent(
+  ev: NormalizedRuntimeEvent,
+  providerId: ProviderId,
+  developerMode: boolean,
+): NormalizedRuntimeEvent {
+  const payload = ev.payload as { kind: string; text?: unknown; sessionId?: string };
+  return {
+    providerId,
+    timestamp: new Date().toISOString(),
+    sourceRef: ev.sourceRef,
+    rawProviderEvent: developerMode
+      ? {
+        ...(ev.rawProviderEvent && typeof ev.rawProviderEvent === "object" ? ev.rawProviderEvent : {}),
+        emptyCompleted: true,
+      }
+      : undefined,
+    payload: {
+      kind: "failed",
+      message: "Codex runtime ended without output. The app-server returned turn/completed before any response, tool, or diagnostic event.",
+      recoverable: false,
+      sessionId: payload.sessionId,
+    },
+  };
+}
+
+/**
  * CodexAppServerProvider：通过 codex app-server JSON-RPC 接入 Bridge Core。
  *
  * V17-F0 任务 B：定性为 external app-server provider（高级/开发者 fallback）。
@@ -204,29 +274,16 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       if (!ev) return;
       let next = ev;
       const payload = ev.payload as { kind: string; text?: unknown; sessionId?: string };
-      if (turnSubmitted && payload.kind !== "completed" && payload.kind !== "failed") {
+      // 任务1: 只对 meaningful 事件计数（assistant/tool/file/approval/user-input/error），
+      // initialized/session_started/turn/started/turnDiff/progress 不算有效输出。
+      if (turnSubmitted && isMeaningfulCodexRuntimeEvent(ev)) {
         turnRuntimeEventCount += 1;
       }
+      // 任务1: 无 meaningful 事件时，turn/completed(empty) 必须转 failed
       if (turnSubmitted && payload.kind === "completed" && turnRuntimeEventCount === 0) {
         const text = typeof payload.text === "string" ? payload.text.trim() : "";
         if (!text) {
-          next = {
-            providerId: this.providerId,
-            timestamp: new Date().toISOString(),
-            sourceRef: ev.sourceRef,
-            rawProviderEvent: developerMode
-              ? {
-                ...(ev.rawProviderEvent && typeof ev.rawProviderEvent === "object" ? ev.rawProviderEvent : {}),
-                emptyCompleted: true,
-              }
-              : undefined,
-            payload: {
-              kind: "failed",
-              message: "Codex runtime ended without output. The app-server returned turn/completed before any response, tool, or diagnostic event.",
-              recoverable: false,
-              sessionId: payload.sessionId,
-            },
-          };
+          next = buildNoOpFailedEvent(ev, this.providerId, developerMode);
         }
       }
       queue.push(next);
@@ -250,7 +307,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     // V2.17-A Completion 主线闭环：注册 6 个官方 delta method + turn/started + nested item/* 事件。
     // 旧 item/text/delta / item/thinking/delta / item/argument/delta 仅作为 fixture legacy alias。
     const unreg: Array<() => void> = [];
-    const handlerUnregs = this.registerEventHandlers(client, eventMapper, push, signalDone, ctx, developerMode);
+    const handlerUnregs = this.registerEventHandlers(client, eventMapper, push, signalDone, ctx, developerMode, () => turnSubmitted);
     unreg.push(...handlerUnregs);
 
     // 进程退出 → 兜底 signalDone
@@ -390,29 +447,15 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       if (!ev) return;
       let next = ev;
       const payload = ev.payload as { kind: string; text?: unknown; sessionId?: string };
-      if (turnSubmitted && payload.kind !== "completed" && payload.kind !== "failed") {
+      // 任务1: 只对 meaningful 事件计数（与 run() 一致）
+      if (turnSubmitted && isMeaningfulCodexRuntimeEvent(ev)) {
         turnRuntimeEventCount += 1;
       }
+      // 任务1: 无 meaningful 事件时，turn/completed(empty) 必须转 failed
       if (turnSubmitted && payload.kind === "completed" && turnRuntimeEventCount === 0) {
         const text = typeof payload.text === "string" ? payload.text.trim() : "";
         if (!text) {
-          next = {
-            providerId: this.providerId,
-            timestamp: new Date().toISOString(),
-            sourceRef: ev.sourceRef,
-            rawProviderEvent: developerMode
-              ? {
-                ...(ev.rawProviderEvent && typeof ev.rawProviderEvent === "object" ? ev.rawProviderEvent : {}),
-                emptyCompleted: true,
-              }
-              : undefined,
-            payload: {
-              kind: "failed",
-              message: "Codex runtime ended without output. The app-server returned turn/completed before any response, tool, or diagnostic event.",
-              recoverable: false,
-              sessionId: payload.sessionId,
-            },
-          };
+          next = buildNoOpFailedEvent(ev, this.providerId, developerMode);
         }
       }
       queue.push(next);
@@ -433,7 +476,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     };
 
     const unreg: Array<() => void> = [];
-    const handlerUnregs = this.registerEventHandlers(client, eventMapper, push, signalDone, ctx, developerMode);
+    const handlerUnregs = this.registerEventHandlers(client, eventMapper, push, signalDone, ctx, developerMode, () => turnSubmitted);
     unreg.push(...handlerUnregs);
 
     unreg.push(process.onExit((_code, _signal) => {
@@ -544,8 +587,36 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     signalDone: () => void,
     ctx: RunContext,
     developerMode: boolean,
+    isTurnSubmitted: () => boolean,
   ): Array<() => void> {
     const unreg: Array<() => void> = [];
+
+    // 任务2: transport 错误处理（invalid JSON / unrecognized JSON-RPC message）
+    // - turn 前（turnSubmitted=false）错误：直接 failed + signalDone（run 无法启动）
+    // - turn 中错误：push stderr_delta（进入 error timeline，用户可见），不立即终止；
+    //   若后续 turn/completed(empty)，no-op guard 会转 failed（stderr_delta 不算 meaningful）
+    unreg.push(client.onError((err) => {
+      push({
+        providerId: this.providerId,
+        timestamp: new Date().toISOString(),
+        rawProviderEvent: developerMode ? { method: "transport-error", error: err.message } : undefined,
+        payload: { kind: "stderr_delta", data: `[transport error] ${err.message}` },
+      });
+      if (!isTurnSubmitted()) {
+        // turn 前 transport 错误：run 无法继续
+        push({
+          providerId: this.providerId,
+          timestamp: new Date().toISOString(),
+          rawProviderEvent: developerMode ? { method: "transport-error-terminal", error: err.message } : undefined,
+          payload: {
+            kind: "failed",
+            message: `Codex app-server transport error before turn: ${err.message}`,
+            recoverable: false,
+          },
+        });
+        signalDone();
+      }
+    }));
 
     // item/started（官方 nested params.item）
     unreg.push(client.onNotification("item/started", (params) => {

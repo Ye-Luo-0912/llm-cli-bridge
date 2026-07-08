@@ -174,6 +174,9 @@ export function computeCodexRunOptionsAuditHash(options: CodexAppServerRunOption
     .join("|");
   const capabilitiesStr = JSON.stringify(options.initialize.capabilities ?? {});
   const configStr = JSON.stringify(options.threadStart.config ?? {});
+  // 任务3: attachments 收敛 —— managed path 不发送 turnStart.attachments，
+  // 审计哈希明确写入 "attachments=disabled" 而非读取空 attachments 字段。
+  const attachmentsAudit = "attachments=disabled";
   const input = [
     options.bridgeSystemAppendSource,
     options.experimentalApi ? "experimentalApi=true" : "experimentalApi=false",
@@ -184,7 +187,7 @@ export function computeCodexRunOptionsAuditHash(options: CodexAppServerRunOption
     configStr,
     inputItemsStr,
     options.turnStart.effort ?? "",
-    (options.turnStart.attachments ?? []).map((a) => `${a.type}:${a.refId ?? ""}`).join("|"),
+    attachmentsAudit,
   ].join("\n---\n");
   return computePromptPackageHash(input);
 }

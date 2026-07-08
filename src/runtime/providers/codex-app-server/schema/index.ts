@@ -264,7 +264,14 @@ export interface CodexTurnStartParams {
   input: CodexTurnInputItem[];
   /** 已存在的 thread id（resume 场景由 provider 在 thread/start 或 thread/resume 后注入） */
   threadId: string;
-  /** 附件条目（codex 原生 attachment block；与 input 数组互补，用于 image/file ref） */
+  /**
+   * 附件条目（codex 原生 attachment block；与 input 数组互补，用于 image/file ref）。
+   *
+   * @deprecated 任务3: Codex managed path 明确不发送 turnStart.attachments。
+   * Bridge 把所有有效附件（text/localImage）打包进 input 数组，不再走 attachments 字段。
+   * 保留字段仅为 forward-compatible 读取；审计哈希写入 "attachments=disabled"。
+   * 真实 app-server 若未来强制 attachments，需重新评估此收敛决策。
+   */
   attachments?: Array<CodexAttachmentBlock>;
   /** effort 等级（codex 自有字段；映射自 plan.effort） */
   effort?: string;

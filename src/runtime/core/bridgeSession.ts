@@ -241,11 +241,11 @@ export class BridgeSessionImpl implements BridgeSession {
   }
 
   cancel(runId: string): void {
-    this.provider.cancel(runId);
+    // H-1: 先 cancel pending approvals/userInput，再 cancel provider（避免 client closed 后 approval 丢失）
     this.permission.cancelAllPending();
     this.userInput.cancelAllPending();
-    // P5: 清理 session 侧 currentRunId（provider.cancel 已清理 provider 侧）
-    this.currentRunId = null;
+    this.provider.cancel(runId);
+    this.currentRunId = null; // P5: 清理 session 侧 currentRunId
   }
 
   /**

@@ -55,6 +55,8 @@ export class AppServerProcessManager implements AppServerProcessLike {
   private readonly stderrLineHandlers = new Set<(line: string) => void>();
   private readonly exitHandlers = new Set<(code: number | null, signal: NodeJS.Signals | null) => void>();
   private exited = false;
+  /** H-3: SIGKILL 兜底 timer，进程正常退出时需 clear 避免泄漏 */
+  private killTimer: NodeJS.Timeout | null = null;
 
   constructor(options: AppServerSpawnOptions) {
     const args = options.args ?? ["app-server"];
@@ -94,6 +96,11 @@ export class AppServerProcessManager implements AppServerProcessLike {
 
     this.child.on("exit", (code, signal) => {
       this.exited = true;
+      // H-3: 进程已退出，清理 SIGKILL 兜底 timer
+      if (this.killTimer !== null) {
+        clearTimeout(this.killTimer);
+        this.killTimer = null;
+      }
       // flush 剩余 buffer（无换行结尾的部分）
       if (this.stdoutBuffer.length > 0) {
         for (const h of this.stdoutLineHandlers) {
@@ -148,8 +155,8 @@ export class AppServerProcessManager implements AppServerProcessLike {
     if (this.exited) return;
     try {
       this.child.kill("SIGTERM");
-      // 2s 后强杀
-      setTimeout(() => {
+      // H-3: 跟踪 SIGKILL 兜底 timer，进程正常退出时由 exit handler 清理
+      this.killTimer = setTimeout(() => {
         if (!this.exited) {
           try { this.child.kill("SIGKILL"); } catch { /* already gone */ }
         }

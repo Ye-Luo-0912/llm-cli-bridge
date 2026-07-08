@@ -67,6 +67,10 @@ const report = {
   threadStartStatus: "unknown",
   turnStartStatus: "unknown",
   turnCompletedStatus: "unknown",
+  // 任务4: 区分 binary verified / protocol ready / turn smoke ready
+  // initialized + turn/started + completed(empty) 必须显示为 turn smoke failed
+  turnSmokeReady: "unknown",
+  turnSmokeFailureReason: null,
   stopCancelStatus: "unknown",
   noVaultRootPollution: "unknown",
   selectedModel: null,
@@ -272,14 +276,41 @@ async function runProtocolSmoke(runtimePath, appServerArgs) {
     if (!threadId) throw new Error("thread/start returned no thread id");
 
     let turnError = null;
+    // 任务4: 收集 turn 期间的有效输出事件，用于 turn smoke readiness 判定
+    // initialized + turn/started + completed(empty) 不算 turn smoke ready
+    const meaningfulEvents = [];
+    const isMeaningful = (method) => {
+      // 与 provider 的 isMeaningfulCodexRuntimeEvent 对齐：
+      // message / tool / fileChange / approval / user-input / error 算有效
+      return method === "item/agentMessage/delta"
+        || method === "item/completed"
+        || method === "item/commandExecution/requestApproval"
+        || method === "item/fileChange/requestApproval"
+        || method === "item/tool/requestUserInput"
+        || method === "turn/failed";
+    };
     const turnWait = new Promise((resolvePromise) => {
       const timer = setTimeout(() => resolvePromise("timeout"), 90000);
       client.on("turn/completed", (params) => {
         clearTimeout(timer);
-        resolvePromise(params);
+        resolvePromise({ status: "completed", params });
+      });
+      client.on("turn/failed", (params) => {
+        clearTimeout(timer);
+        resolvePromise({ status: "failed", params });
       });
       client.on("error", (params) => {
         turnError = params?.error?.message || params?.message || JSON.stringify(params);
+      });
+      // 任务4: 收集有效事件（item/completed 含 agentMessage/tool_result/file_change）
+      client.on("item/agentMessage/delta", () => meaningfulEvents.push("message"));
+      client.on("item/completed", (params) => {
+        const itemType = params?.item?.type ?? params?.type;
+        if (itemType === "agentMessage" || itemType === "commandExecution"
+          || itemType === "fileChange" || itemType === "mcpToolCall"
+          || itemType === "dynamicToolCall") {
+          meaningfulEvents.push(`item:${itemType}`);
+        }
       });
     });
     await client.request("turn/start", {
@@ -291,8 +322,18 @@ async function runProtocolSmoke(runtimePath, appServerArgs) {
 
     const turnResult = await turnWait;
     if (turnResult === "timeout") throw new Error(`turn/completed timeout${turnError ? `; last error: ${turnError}` : ""}`);
-    report.turnCompletedStatus = "pass";
-    step("turn/completed", true);
+    report.turnCompletedStatus = turnResult.status === "completed" ? "pass" : "fail";
+    step("turn/completed", turnResult.status === "completed", `status=${turnResult.status}`);
+
+    // 任务4: turn smoke readiness —— 必须收到有效输出（message/tool/file/approval/error）
+    // initialized + turn/started + completed(empty) 不算 turn smoke ready
+    const hasMeaningfulOutput = meaningfulEvents.length > 0;
+    report.turnSmokeReady = hasMeaningfulOutput ? "pass" : "fail";
+    report.turnSmokeFailureReason = hasMeaningfulOutput ? null
+      : (turnResult.status === "failed"
+        ? "turn/failed reached without any assistant message, tool, file, approval, or error event"
+        : "turn/completed reached without any assistant message, tool, file, approval, or error event");
+    step("turn smoke (meaningful output)", hasMeaningfulOutput, report.turnSmokeFailureReason || `${meaningfulEvents.length} meaningful event(s)`);
   } finally {
     try { proc.stdin.end(); } catch {}
     let exited = await waitForExit(proc, 3000);
@@ -324,6 +365,8 @@ async function runProtocolSmoke(runtimePath, appServerArgs) {
 }
 
 function deriveCodexUserReady() {
+  // 任务4: UI ready 只能在 turn smoke 通过后显示。
+  // binary verified != protocol ready != turn smoke ready
   return report.resolverSmokeStatus === "pass"
     && report.runtimeSmokeStatus === "pass"
     && report.managedAppServerProtocolStatus === "pass"
@@ -333,6 +376,7 @@ function deriveCodexUserReady() {
     && report.threadStartStatus === "pass"
     && report.turnStartStatus === "pass"
     && report.turnCompletedStatus === "pass"
+    && report.turnSmokeReady === "pass"
     && report.stopCancelStatus === "pass"
     && report.noVaultRootPollution === "true";
 }
@@ -371,6 +415,8 @@ function writeReport() {
     `- **threadStartStatus**: ${report.threadStartStatus}`,
     `- **turnStartStatus**: ${report.turnStartStatus}`,
     `- **turnCompletedStatus**: ${report.turnCompletedStatus}`,
+    `- **turnSmokeReady**: ${report.turnSmokeReady}`,
+    `- **turnSmokeFailureReason**: ${report.turnSmokeFailureReason || "null"}`,
     `- **stopCancelStatus**: ${report.stopCancelStatus}`,
     `- **noVaultRootPollution**: ${report.noVaultRootPollution}`,
     `- **selectedModel**: ${report.selectedModel || "null"}`,
@@ -389,7 +435,9 @@ function writeReport() {
     "",
     "## codexUserReady gate",
     "",
-    "- `codexUserReady=true` 只允许 resolver/runtime/protocol 三层均 pass。",
+    "- `codexUserReady=true` 只允许 resolver/runtime/protocol/turnSmoke 四层均 pass。",
+    "- binary verified != protocol ready != turn smoke ready。",
+    "- initialized + turn/started + completed(empty) 必须显示为 turn smoke failed。",
     "- production manifest 下 `skip-fixture` 不允许通过。",
     "- external codex CLI/app-server 不参与本报告 gate。",
     "- 当前 production manifest 仅声明本机已验证平台；`crossPlatformReady=false`，不得表述为 all-platform release-ready。",
@@ -413,7 +461,10 @@ async function main() {
     const resolvedRuntime = verifyResolverChain(manifest);
     if (manifest.fixture) {
       report.managedAppServerProtocolStatus = "skip-fixture";
+      report.turnSmokeReady = "skip-fixture";
+      report.turnSmokeFailureReason = "fixture manifest skips protocol/turn smoke";
       step("protocol smoke", true, "skip-fixture");
+      step("turn smoke (meaningful output)", true, "skip-fixture");
     } else {
       await runProtocolSmoke(resolvedRuntime.runtimePath, resolvedRuntime.appServerArgs);
     }
@@ -430,6 +481,7 @@ async function main() {
   console.log(`resolverSmokeStatus=${report.resolverSmokeStatus}`);
   console.log(`runtimeSmokeStatus=${report.runtimeSmokeStatus}`);
   console.log(`managedAppServerProtocolStatus=${report.managedAppServerProtocolStatus}`);
+  console.log(`turnSmokeReady=${report.turnSmokeReady}`);
   console.log(`codexUserReady=${report.codexUserReady ? "true" : "false"}`);
 
   if (report.manifestFixture) {

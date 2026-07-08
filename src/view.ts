@@ -7854,6 +7854,11 @@ export class LLMBridgeView extends ItemView {
 
   // V2.5: 实际执行新建会话（剥离确认逻辑）
   private doNewSession(): void {
+    // C-2: 若有 run 进行，先 stop 释放旧 session 资源（避免泄漏）
+    if (this.runHandle) {
+      this.runHandle.stop();
+      this.runHandle = null;
+    }
     // P4: 置空 session，使下一次 getSession() 创建新 BridgeSession + 新 PermissionBoundary，
     // 避免上一会话的 sessionAllows/sessionDenies 跨会话泄漏（auto-allow/auto-deny 误作用到新会话）。
     this.session = null;
