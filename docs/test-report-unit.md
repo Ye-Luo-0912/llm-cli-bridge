@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-08T12:33:06.070Z
+- **测试时间**: 2026-07-08T13:06:25.411Z
 - **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.16.0
-- **main.js 大小**: 1063.4 KB
+- **main.js 大小**: 1069.6 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 54455
-- **commit sha**: a435971043344f76e455f66ec77f3fd87087d825
-- **commit 短 sha**: a43597104334
+- **HTTP 端口**: 57975
+- **commit sha**: 6b5a0c4be31d5e6341c8e06642c5c21e5a5e9371
+- **commit 短 sha**: 6b5a0c4be31d
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 1094
+- ✅ **通过**: 1095
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 1119
+- **总计**: 1120
 
 ### 审计模式说明
 
@@ -103,7 +103,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成运行前快照 | 文件数: 48 |
+| ✅ | 生成运行前快照 | 文件数: 21 |
 
 ### diff
 
@@ -686,7 +686,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-AimyVK\\skills\\pdf\\SKILL.md"}] |
+| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-tAEdg1\\skills\\pdf\\SKILL.md"}] |
 
 ### V16.5-D view.ts 主路径注入真实 capabilities
 
@@ -722,7 +722,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=425218 capLine=425816 orderOk=true |
+| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=431143 capLine=431741 orderOk=true |
 | ✅ | buildBridgePromptPackage 主路径接收 runtimeCapabilities | hasRuntimeCapabilities=true hasPassedToBuilder=true |
 
 ### V16.5-E workspace
@@ -974,7 +974,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783513987953-0 update=pi-sdk-read-1783513987953-0 end=pi-sdk-read-1783513987953-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783515987199-0 update=pi-sdk-read-1783515987199-0 end=pi-sdk-read-1783515987199-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -2321,7 +2321,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-08T12-33-35-666Z-qeqgtf |
+| ✅ | 返回非空 id | id=s-2026-07-08T13-06-54-935Z-4tck36 |
 
 ### V2.5 Session 版本
 
@@ -2340,7 +2340,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-08T12-33-35-770Z-9pel52 second=s-2026-07-08T12-33-35-701Z-7fesdw |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-08T13-06-55-039Z-bkj9q3 second=s-2026-07-08T13-06-54-972Z-l1g25z |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2379,7 +2379,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-08T12-33-35-871Z-a01b64 id2=s-2026-07-08T12-33-35-871Z-rhgzj7 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-08T13-06-55-143Z-3jbrx4 id2=s-2026-07-08T13-06-55-143Z-wlnd68 |
 
 ### V2.5 Session 上限
 
@@ -2477,7 +2477,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-08T12:33:35.970Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-08T13:06:55.242Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2565,7 +2565,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-08T12:33:36.043Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-08T13:06:55.316Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2679,7 +2679,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-08T12:33:36.195Z after=2026-07-08T12:33:36.267Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-08T13:06:55.457Z after=2026-07-08T13:06:55.523Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -3050,13 +3050,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-08T12:33:37.097Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-08T13:06:56.348Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-08T12:33:37.111Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-08T13:06:56.363Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3172,7 +3172,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-X1GlvN\skills\llm-bridge-review-skill\SKILL.md |
+| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-Hk5PMR\skills\llm-bridge-review-skill\SKILL.md |
 | ✅ | run 前从 Bridge manifest 物化 enabled Skills | ok=true count=1 |
 
 ### V2.13.0-C materializeEnabled
@@ -3374,7 +3374,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-1GLzrl\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-h2JNSw\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-6lUu3p\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-53S4qh\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3386,7 +3386,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-BH8yGN\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-9FY4n9\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-gJa0z7\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-BeYbFT\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3398,7 +3398,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-t58WkC\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-VgzESF\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-KidJoQ\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-dojL9s\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -3670,6 +3670,12 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | 顶栏瘦身、左栏折叠、上箭头发送与关联清空会话 | - |
+
+### V17-G73 History
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 多选/全选删除会同步清理原生 Codex session，列表改为插件式行 | - |
 
 ### V17-G10 UI
 
