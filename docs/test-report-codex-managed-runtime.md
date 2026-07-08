@@ -3,7 +3,7 @@
 > 本报告由 `scripts/codex-managed-runtime-smoke.mjs` 自动生成。
 > 验证 production manifest + pinned binary + app-server protocol proof。
 
-- **测试时间**: 2026-07-08T14:50:04.955Z
+- **测试时间**: 2026-07-08T18:03:55.707Z
 - **resolverSmokeStatus**: pass
 - **runtimeSmokeStatus**: pass
 - **managedAppServerProtocolStatus**: pass
@@ -29,6 +29,12 @@
 - **threadStartStatus**: pass
 - **turnStartStatus**: pass
 - **turnCompletedStatus**: pass
+- **turnSmokeReady**: pass
+- **turnSmokeFailureReason**: null
+- **observedFinalAnswer**: "SMOKE_OK"
+- **providerWireSmokeStatus**: pass
+- **providerWireSmokeFailureReason**: null
+- **providerWireObservedFinalAnswer**: "SMOKE_OK"
 - **stopCancelStatus**: pass
 - **noVaultRootPollution**: true
 - **selectedModel**: gpt-5.5
@@ -49,19 +55,32 @@
 | PASS | size valid | 323143472 |
 | PASS | sha256 valid | 645f5a1a0347abb2b31fae4e594c198ad00e3a4b4a999dcfa3a66c0d0f8cd43b |
 | PASS | executable valid | - |
-| PASS | spawn managed runtime | pid=15460 |
-| PASS | initialize | Codex Desktop/0.142.5 (Windows 10.0.26300; x86_64) unknown (llm-cli-bridge-managed-smoke; 17-f2) |
+| PASS | spawn managed runtime | pid=32300 |
+| PASS | initialize | llm-cli-bridge-managed-smoke/0.142.5 (Windows 10.0.26300; x86_64) dumb (llm-cli-bridge-managed-smoke; 17-f2) |
 | PASS | initialized | - |
 | PASS | model/list | selected=gpt-5.5 |
-| PASS | thread/start | threadId=019f4235-2059-77d1-a8d8-541c38274daf |
+| PASS | thread/start | threadId=019f42e6-98af-7723-bfdf-7167811d04d5 |
 | PASS | turn/start | - |
-| PASS | turn/completed | - |
-| PASS | clean shutdown / cancel | {"timestamp":"2026-07-08T14:50:05.865804Z","level":"WARN","fields":{"message":"ignoring interface.defaultPrompt: maximum of 3 prompts is supported","path":"C:\\Users\\Ye_Luo\\.codex\\plugins\\cache\\o |
+| PASS | turn/completed | status=completed |
+| PASS | turn smoke (meaningful output + SMOKE_OK) | 4 event(s), final="SMOKE_OK" |
+| PASS | clean shutdown / cancel | [2m2026-07-08T18:03:56.445085Z[0m [32m INFO[0m [2mcodex_client::custom_ca[0m[2m:[0m using system root certificates because no CA override environment variable was selected [3mcodex_ca_certifi |
 | PASS | no vault root pollution | - |
+| PASS | provider-wire smoke: wire shape (text item 无 text_elements, turnStart 无 attachments, threadStart 含 config/instructions + 顶层 wire 字段) | - |
+| PASS | provider-wire smoke: spawn | pid=10016 |
+| PASS | provider-wire smoke: initialize | llm-cli-bridge/0.142.5 (Windows 10.0.26300; x86_64) dumb (llm-cli-bridge; 2.17-A) |
+| PASS | provider-wire smoke: thread/start | threadId=019f42e6-a7f5-77a2-bb5d-8644d2e190eb |
+| PASS | provider-wire smoke: turn/start | - |
+| PASS | provider-wire smoke: turn/completed | status=completed |
+| PASS | provider-wire smoke: final answer 含 SMOKE_OK | final="SMOKE_OK" |
+| PASS | provider-wire smoke: clean shutdown | - |
 
 ## codexUserReady gate
 
-- `codexUserReady=true` 只允许 resolver/runtime/protocol 三层均 pass。
+- `codexUserReady=true` 只允许 resolver/runtime/protocol/turnSmoke/providerWire 五层均 pass。
+- binary verified != protocol ready != turn smoke ready != provider-wire ready。
+- initialized + turn/started + completed(empty) 必须显示为 turn smoke failed。
+- turn smoke 必须收到目标 token SMOKE_OK；仅有 item/completed 但无目标文本不得 pass。
+- provider-wire smoke 用 buildCodexAppServerRunOptions() 生成真实 payload 验证 wire 兼容性。
 - production manifest 下 `skip-fixture` 不允许通过。
 - external codex CLI/app-server 不参与本报告 gate。
 - 当前 production manifest 仅声明本机已验证平台；`crossPlatformReady=false`，不得表述为 all-platform release-ready。

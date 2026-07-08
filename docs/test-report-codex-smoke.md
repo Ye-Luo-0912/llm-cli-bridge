@@ -1,6 +1,6 @@
 # Codex real app-server smoke 报告
 
-- **测试时间**: 2026-07-06T01:36:38.185Z
+- **测试时间**: 2026-07-08T17:49:12.575Z
 - **codex 可用**: 否
 - **codexVersion**: null
 - **schemaSource**: fixture
@@ -19,16 +19,16 @@
 ### V17-F1.1 新增 Managed runtime 分层字段（主 gate）
 
 - **codexManagedResolverSmokeStatus**: pass
-- **codexManagedRuntimeSmokeStatus**: fixture-only
-- **codexManagedAppServerProtocolStatus**: skip-fixture
+- **codexManagedRuntimeSmokeStatus**: pass
+- **codexManagedAppServerProtocolStatus**: pass
 
 ### V17-F1 Managed runtime 主线字段
 
 - **codexManagedRuntimeAvailable**: true
-- **codexManagedRuntimeVersion**: 0.1.0-fixture
+- **codexManagedRuntimeVersion**: 0.142.5
 - **codexManagedRuntimeSha256Valid**: true
 - **codexManagedRuntimeExecutable**: true
-- **codexManagedAppServerSpawnStatus**: fixture-only
+- **codexManagedAppServerSpawnStatus**: pass
 
 ### V17-F0 SDK 字段（保留，非主 gate；本轮占位 false）
 
