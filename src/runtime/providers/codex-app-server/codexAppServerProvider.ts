@@ -64,6 +64,7 @@ import type {
   CodexTurnCompletedParams,
   CodexTurnDiffUpdatedParams,
   CodexTurnFailedParams,
+  CodexTurnInputItem,
   CodexTurnStartedParams,
 } from "./schema";
 import { execFileSync } from "child_process";
@@ -435,6 +436,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       // 3. turn/start（input 为 content item array）
       await client.send("turn/start", {
         ...options.turnStart,
+        input: buildResumeTurnInput(options.turnStart.input, options.threadStart.instructions),
         threadId: resumedThreadId,
       });
 
@@ -779,6 +781,87 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       (handler) => process.onStdoutLine(handler),
     );
   }
+}
+
+export function buildResumeTurnInput(
+  input: readonly CodexTurnInputItem[] | undefined,
+  bridgeSystemAppend: string | undefined,
+): CodexTurnInputItem[] {
+  const items = Array.isArray(input) ? input.slice() : [];
+  const context = buildCompactResumeRuntimeContext(bridgeSystemAppend);
+  if (!context) return items;
+  return [
+    {
+      type: "text",
+      text: context,
+    },
+    ...items,
+  ];
+}
+
+export function buildCompactResumeRuntimeContext(bridgeSystemAppend: string | undefined): string {
+  const capabilityLines = extractRuntimeSkillCapabilityLines(bridgeSystemAppend || "");
+  if (capabilityLines.length === 0) return "";
+  const compactLines = limitRuntimeCapabilityLines(capabilityLines, 52, 4200);
+  return [
+    "Bridge runtime capabilities for this resumed turn (compact):",
+    "Use these enabled managed Codex plugins/Skills when the user asks for them or when they match the task.",
+    ...compactLines,
+  ].join("\n");
+}
+
+function extractRuntimeSkillCapabilityLines(text: string): string[] {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((line) => {
+    const trimmed = line.trim();
+    return trimmed.includes("Runtime Skills / Plugins")
+      || trimmed === "Managed Codex plugins:"
+      || trimmed === "Plugin-contained Skills:"
+      || trimmed === "Vault Agent Skills:";
+  });
+  if (start < 0) return [];
+
+  const result: string[] = [];
+  for (let i = start; i < lines.length; i++) {
+    const rawLine = lines[i] || "";
+    const trimmed = rawLine.trim();
+    if (i > start && (
+      trimmed.startsWith("==========")
+      || trimmed.startsWith("- Host approval")
+      || trimmed.startsWith("- Agent workspace:")
+      || trimmed.startsWith("- Vault Skill source:")
+      || trimmed.startsWith("- Runtime Skill target:")
+      || trimmed.startsWith("- Runtime facts:")
+    )) {
+      break;
+    }
+    if (!trimmed || trimmed.startsWith("Evidence:") || trimmed.startsWith("Instructions summary:")) {
+      continue;
+    }
+    result.push(trimCapabilityLine(rawLine));
+  }
+  return result;
+}
+
+function limitRuntimeCapabilityLines(lines: readonly string[], maxLines: number, maxChars: number): string[] {
+  const result: string[] = [];
+  let chars = 0;
+  for (const line of lines) {
+    const nextChars = chars + line.length + 1;
+    if (result.length >= maxLines || nextChars > maxChars) {
+      result.push(`- ... ${Math.max(0, lines.length - result.length)} more capability line(s) omitted for compact resume context.`);
+      break;
+    }
+    result.push(line);
+    chars = nextChars;
+  }
+  return result;
+}
+
+function trimCapabilityLine(line: string): string {
+  const normalized = line.replace(/\s+/g, " ").trim();
+  if (normalized.length <= 240) return normalized;
+  return `${normalized.slice(0, 225).trim()}...[truncated]`;
 }
 
 /**

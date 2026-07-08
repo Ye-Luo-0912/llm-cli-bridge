@@ -38,7 +38,7 @@ import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscri
 import { computeContextMetrics, formatTokens, formatCompressionRatio, type ContextMetrics, type CompressionInfo } from "./contextMetrics";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
 import { PersistedSession, SessionListItem, SessionExtras, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
-import { AgentSkillRecord, loadAgentSkillsManifest, saveAgentSkillsManifest } from "./agentSkills";
+import { AgentSkillRecord, loadAgentSkillsManifest, loadAgentSkillsManifestSync, saveAgentSkillsManifest } from "./agentSkills";
 import { getPermissionModeInfo, normalizeToolName, type PermissionChoice } from "./sdkPermission";
 import {
   approvePendingExternalReadRequest,
@@ -2347,8 +2347,11 @@ export class LLMBridgeView extends ItemView {
         };
       })
       : [];
+    const runtimeAgentSkills = providerId === "codex-managed-app-server"
+      ? this.getAgentSkillsForRuntimeCapabilities()
+      : [];
     const agentSkills: ProviderRuntimeSkillEntry[] = providerId === "codex-managed-app-server"
-      ? this.agentSkills.map((skill) => ({
+      ? runtimeAgentSkills.map((skill) => ({
         id: skill.slug,
         name: skill.name || skill.slug,
         description: skill.description,
@@ -2389,6 +2392,20 @@ export class LLMBridgeView extends ItemView {
         obsidianCliProbe: "not-probed",
       },
     };
+  }
+
+  private getAgentSkillsForRuntimeCapabilities(): AgentSkillRecord[] {
+    try {
+      const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      const manifest = loadAgentSkillsManifestSync(vaultPath);
+      if (manifest.skills.length > 0) {
+        this.agentSkills = manifest.skills.slice();
+        return this.agentSkills;
+      }
+    } catch {
+      // Keep the in-memory cache as a fallback; prompt construction should not fail on manifest IO.
+    }
+    return this.agentSkills.slice();
   }
 
   /** V16.4-F: 按工具类型生成语义化 card title（V16.5-C: 复用 normalizeToolName 归一 command execution） */

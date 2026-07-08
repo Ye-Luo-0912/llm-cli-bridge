@@ -190,9 +190,6 @@ function buildRuntimeSkillCapabilityLines(context?: ProviderRuntimeSkillContext)
     for (const skill of enabledSkills.slice(0, 16)) {
       const desc = skill.description ? ` — ${capabilityText(skill.description, 220)}` : "";
       lines.push(`  - ${skill.name} (${skill.id})${desc}`);
-      if (skill.instructions) {
-        lines.push(`    Instructions summary: ${capabilityText(skill.instructions, 900)}`);
-      }
     }
     if (enabledSkills.length > 16) {
       lines.push(`  - ... ${enabledSkills.length - 16} more skill(s) omitted from prompt for size.`);

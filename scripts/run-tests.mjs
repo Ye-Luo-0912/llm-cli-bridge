@@ -1280,6 +1280,34 @@ if (runMode !== "all" && runMode !== "unit") {
         && opts.bridgeSystemAppendSource === "instructions";
       addTest("Plan snapshot: bridgeSystemAppend → instructions, userPrompt → turn/start input[0].text", optsOk ? "pass" : "fail",
         optsOk ? "" : `source=${opts.bridgeSystemAppendSource}, input=${JSON.stringify(opts.turnStart.input)?.slice(0, 60)}, instructions_len=${opts.threadStart.instructions?.length}`);
+
+      const noSkillResumeInput = codexProviderMod.buildResumeTurnInput(opts.turnStart.input, opts.threadStart.instructions);
+      const noSkillResumeOk = noSkillResumeInput[0]?.type === "text"
+        && noSkillResumeInput[0].text === pkg.userPrompt
+        && noSkillResumeInput.length === opts.turnStart.input.length;
+      const resumeSkillAppend = [
+        "========== Capability Manifest ==========",
+        "- Runtime Skills / Plugins：以下能力来自当前 managed Codex runtime 会话，而不是 Vault 的 AGENTS.md；用户点名要求使用时，应视为可用能力。",
+        "  Managed Codex plugins:",
+        "  - defuddle (defuddle) — Extract clean markdown content from web pages [imported]",
+        "  Plugin-contained Skills:",
+        "  - pdf (pdf@openai-primary-runtime:pdf) — Read, create, inspect, render, and verify PDF files",
+        "- Host approval 是 write/delete/command 的最终安全边界；权限系统会拦截未授权操作。",
+        "========== Autonomy Contract ==========",
+        "- 用户意图明确时直接行动。",
+      ].join("\n");
+      const resumeInput = codexProviderMod.buildResumeTurnInput(opts.turnStart.input, resumeSkillAppend);
+      const resumeOk = resumeInput[0]?.type === "text"
+        && resumeInput[0].text.includes("Bridge runtime capabilities for this resumed turn")
+        && resumeInput[0].text.includes("defuddle (defuddle)")
+        && resumeInput[0].text.includes("pdf (pdf@openai-primary-runtime:pdf)")
+        && !resumeInput[0].text.includes("Autonomy Contract")
+        && !resumeInput[0].text.includes("Host approval")
+        && resumeInput[1]?.type === "text"
+        && resumeInput[1].text === pkg.userPrompt;
+      addTest("Plan snapshot: resume turn/start input only injects compact runtime Skills context when present",
+        noSkillResumeOk && resumeOk ? "pass" : "fail",
+        `noSkill=${noSkillResumeOk} first=${JSON.stringify(resumeInput[0])?.slice(0, 140)} second=${JSON.stringify(resumeInput[1])?.slice(0, 80)}`);
     }
 
     // ---------- 3. prompt split snapshot + attachment entry-level audit ----------
@@ -19256,6 +19284,17 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13j11: V17-G71 provider context reads Agent Skills manifest, not only UI cache ----
+  {
+    const ok = viewSrc.includes("loadAgentSkillsManifestSync")
+      && viewSrc.includes("private getAgentSkillsForRuntimeCapabilities()")
+      && viewSrc.includes("const runtimeAgentSkills = providerId === \"codex-managed-app-server\"")
+      && viewSrc.includes("this.agentSkills = manifest.skills.slice()")
+      && viewSrc.includes("runtimeAgentSkills.map((skill)");
+    addTest("V17-G71 runtime capability context: Agent Skills manifest is read for provider context",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 13k: V17-G10 permission and files surfaces stay Codex-compact ----
   {
     const ok = viewSrc.includes('cls: "llm-bridge-context-ref-action is-pin"')
@@ -21348,7 +21387,16 @@ if (!runCodexSchemaAlignment) {
           instructionsSource: "instructions",
         },
         promptPackage: {
-          userPrompt: "hello", bridgeSystemAppend: "system rules",
+          userPrompt: "hello",
+          bridgeSystemAppend: [
+            "system rules",
+            "- Runtime Skills / Plugins：以下能力来自当前 managed Codex runtime 会话，而不是 Vault 的 AGENTS.md；用户点名要求使用时，应视为可用能力。",
+            "  Managed Codex plugins:",
+            "  - defuddle (defuddle) — Extract clean markdown content from web pages [imported]",
+            "  Plugin-contained Skills:",
+            "  - pdf (pdf@openai-primary-runtime:pdf) — Read and verify PDF files",
+            "- Host approval 是 write/delete/command 的最终安全边界；权限系统会拦截未授权操作。",
+          ].join("\n"),
           attachmentEntries: [], auditHash: "h1",
         },
         permission: {
@@ -21444,13 +21492,23 @@ if (!runCodexSchemaAlignment) {
       });
       const resumeTidOk = resumeRequestParams && resumeRequestParams.threadId === run1ThreadId;
       const turnStartTidOk = turnStartRequestParams && turnStartRequestParams.threadId === resumedThreadId;
+      const turnStartContextOk = turnStartRequestParams
+        && Array.isArray(turnStartRequestParams.input)
+        && turnStartRequestParams.input[0]?.type === "text"
+        && turnStartRequestParams.input[0].text.includes("Bridge runtime capabilities for this resumed turn")
+        && turnStartRequestParams.input[0].text.includes("defuddle (defuddle)")
+        && turnStartRequestParams.input[0].text.includes("pdf (pdf@openai-primary-runtime:pdf)")
+        && !turnStartRequestParams.input[0].text.includes("system rules")
+        && !turnStartRequestParams.input[0].text.includes("Host approval")
+        && turnStartRequestParams.input[1]?.type === "text"
+        && turnStartRequestParams.input[1].text === "hello";
       const sessionResumedEv = events2.find(
         (e) => e.payload && e.payload.kind === "session_started" && e.payload.text === resumedThreadId,
       );
-      const run2Ok = threadResumeCalled && !threadStartCalledOnRun2 && resumeTidOk && turnStartTidOk && !!sessionResumedEv;
+      const run2Ok = threadResumeCalled && !threadStartCalledOnRun2 && resumeTidOk && turnStartTidOk && turnStartContextOk && !!sessionResumedEv;
       addTest("Codex provider-level resume: run2 thread/resume + turn/start 使用 resumed threadId（P2 主线闭环）",
         run2Ok ? "pass" : "fail",
-        `threadResume=${threadResumeCalled} threadStartOnRun2=${threadStartCalledOnRun2} resumeTidOk=${resumeTidOk} turnStartTidOk=${turnStartTidOk} resumedEv=${!!sessionResumedEv} eventsCount=${events2.length}`);
+        `threadResume=${threadResumeCalled} threadStartOnRun2=${threadStartCalledOnRun2} resumeTidOk=${resumeTidOk} turnStartTidOk=${turnStartTidOk} turnStartContextOk=${turnStartContextOk} resumedEv=${!!sessionResumedEv} eventsCount=${events2.length}`);
     }
 
     // ============================================================
