@@ -1,13 +1,16 @@
 // LLM CLI Bridge — Agent Skills Manifest / Materialization (V2.13.0-C)
-// Agent Skill 是 runtime capability：物化到 .claude/skills/<slug>/SKILL.md，不写入 composer。
+// Agent Skill 是 runtime capability：Claude 物化到 .claude/skills/<slug>/SKILL.md；
+// Codex managed runtime 物化到 Codex home 的 personal skills 目录，不写入 composer。
 
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import { createHash, randomUUID } from "crypto";
 
 export const AGENT_SKILLS_MANIFEST_VERSION = 1;
 export const AGENT_SKILLS_FILE_REL = ".llm-bridge/agent-skills.json";
 export const CLAUDE_SKILLS_DIR_REL = ".claude/skills";
+export const CODEX_BRIDGE_SKILL_PREFIX = "llm-bridge-";
 export const AGENT_SKILL_FILE_NAME = "SKILL.md";
 export const AGENT_SKILL_GENERATED_BY = "llm-cli-bridge";
 
@@ -214,6 +217,20 @@ export function materializedSkillPathForSlug(slug: string): string {
   return path.posix.join(CLAUDE_SKILLS_DIR_REL, normalizeSlug(slug), AGENT_SKILL_FILE_NAME);
 }
 
+export function resolveCodexHome(): string {
+  const configured = process.env.CODEX_HOME?.trim();
+  if (configured) return configured;
+  return path.join(os.homedir(), ".codex");
+}
+
+export function codexBridgeSkillDirName(slug: string): string {
+  return `${CODEX_BRIDGE_SKILL_PREFIX}${normalizeSlug(slug)}`;
+}
+
+export function codexBridgeSkillPathForSlug(slug: string, codexHome: string = resolveCodexHome()): string {
+  return path.join(codexHome, "skills", codexBridgeSkillDirName(slug), AGENT_SKILL_FILE_NAME);
+}
+
 export function computeAgentSkillSourceHash(record: Pick<AgentSkillRecord, "name" | "description" | "instructions">): string {
   return sha256(JSON.stringify({
     name: record.name,
@@ -319,6 +336,49 @@ export function materializeAgentSkillSync(vaultPath: string, record: AgentSkillR
   }
 }
 
+export function materializeAgentSkillToCodexHomeSync(
+  record: AgentSkillRecord,
+  codexHome: string = resolveCodexHome(),
+): AgentSkillMaterializeResult {
+  const normalized = normalizeAgentSkillRecord(record);
+  const filePath = codexBridgeSkillPathForSlug(normalized.slug, codexHome);
+  const nextContent = serializeAgentSkillToMarkdown({
+    ...normalized,
+    name: `${CODEX_BRIDGE_SKILL_PREFIX}${normalized.name}`,
+    description: `${normalized.description} (Bridge plugin Skill)`,
+  });
+  const nextHash = sha256(nextContent);
+  const nextRecord = normalizeAgentSkillRecord({ ...normalized, materializedHash: nextHash });
+
+  try {
+    let existing: string | null = null;
+    try {
+      existing = fs.readFileSync(filePath, "utf8");
+    } catch {
+      existing = null;
+    }
+
+    if (existing !== null) {
+      const marker = parseGeneratedMarker(existing);
+      if (!marker || marker.generatedBy !== AGENT_SKILL_GENERATED_BY) {
+        return conflict(nextRecord, filePath, "target Codex SKILL.md is not plugin-generated");
+      }
+      if (marker.sourceId !== normalized.id) {
+        return conflict(nextRecord, filePath, "target Codex SKILL.md belongs to another Bridge Skill record");
+      }
+      if (existing === nextContent) {
+        return { ok: true, status: "skipped", record: nextRecord, filePath };
+      }
+    }
+
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, nextContent, "utf8");
+    return { ok: true, status: existing === null ? "created" : "updated", record: nextRecord, filePath };
+  } catch (e) {
+    return { ok: false, status: "error", record: nextRecord, filePath, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 export async function materializeEnabledAgentSkills(
   vaultPath: string,
   manifest: AgentSkillsManifest,
@@ -398,6 +458,34 @@ export function prepareAgentSkillsForClaudeRuntimeSync(vaultPath: string): Agent
   }
 
   return { ok: true, enabledCount, results: materialized.results, manifest: materialized.manifest, saved };
+}
+
+export function prepareAgentSkillsForCodexRuntimeSync(
+  vaultPath: string,
+  codexHome: string = resolveCodexHome(),
+): AgentSkillsRuntimePreparationResult {
+  const manifest = loadAgentSkillsManifestSync(vaultPath);
+  const enabledCount = manifest.skills.filter((record) => record.enabled).length;
+  if (enabledCount === 0) {
+    return { ok: true, enabledCount, results: [], manifest, saved: false };
+  }
+
+  const results = manifest.skills
+    .filter((record) => record.enabled)
+    .map((record) => materializeAgentSkillToCodexHomeSync(record, codexHome));
+  const failed = results.filter((result) => !result.ok);
+  if (failed.length > 0) {
+    return {
+      ok: false,
+      enabledCount,
+      results,
+      manifest,
+      saved: false,
+      reason: failed.map((result) => `${result.record.slug}: ${result.reason || result.status}`).join("; "),
+    };
+  }
+
+  return { ok: true, enabledCount, results, manifest, saved: false };
 }
 
 function sanitizeAgentSkillRecord(raw: unknown): AgentSkillRecord | null {

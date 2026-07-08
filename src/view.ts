@@ -38,7 +38,13 @@ import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscri
 import { computeContextMetrics, formatTokens, formatCompressionRatio, type ContextMetrics, type CompressionInfo } from "./contextMetrics";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
 import { PersistedSession, SessionListItem, SessionExtras, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
-import { AgentSkillRecord, loadAgentSkillsManifest, loadAgentSkillsManifestSync, saveAgentSkillsManifest } from "./agentSkills";
+import {
+  AgentSkillRecord,
+  loadAgentSkillsManifest,
+  loadAgentSkillsManifestSync,
+  prepareAgentSkillsForCodexRuntimeSync,
+  saveAgentSkillsManifest,
+} from "./agentSkills";
 import { getPermissionModeInfo, normalizeToolName, type PermissionChoice } from "./sdkPermission";
 import {
   approvePendingExternalReadRequest,
@@ -2347,21 +2353,6 @@ export class LLMBridgeView extends ItemView {
         };
       })
       : [];
-    const runtimeAgentSkills = providerId === "codex-managed-app-server"
-      ? this.getAgentSkillsForRuntimeCapabilities()
-      : [];
-    const agentSkills: ProviderRuntimeSkillEntry[] = providerId === "codex-managed-app-server"
-      ? runtimeAgentSkills.map((skill) => ({
-        id: skill.slug,
-        name: skill.name || skill.slug,
-        description: skill.description,
-        instructions: skill.instructions,
-        registryPath: `.llm-bridge/agent-skills.json#${skill.slug}`,
-        sourcePath: skill.sourcePath,
-        source: skill.source,
-        enabled: skill.enabled,
-      }))
-      : [];
     const managedCodexPluginSkills: ProviderRuntimeSkillEntry[] = providerId === "codex-managed-app-server"
       ? this.managedCodexPlugins.flatMap((plugin) =>
         plugin.skills.map((skill) => ({
@@ -2373,18 +2364,19 @@ export class LLMBridgeView extends ItemView {
         }))
       )
       : [];
+    const exposeRuntimeSkillsInPrompt = providerId !== "codex-managed-app-server";
     return {
       providerNativeFileTools,
       bridgeRuntimeFileTools,
       shellAvailable,
       obsidianCliAvailable,
       askUserQuestionAvailable,
-      runtimeSkills: managedCodexPlugins.length > 0 || managedCodexPluginSkills.length > 0 || agentSkills.length > 0
+      runtimeSkills: exposeRuntimeSkillsInPrompt && (managedCodexPlugins.length > 0 || managedCodexPluginSkills.length > 0)
         ? {
           managedCodexPlugins,
           managedCodexPluginSkills,
-          agentSkills,
-          evidence: "managed Codex runtime plugin list + plugin skills/SKILL.md + Bridge plugin Skills manifest",
+          agentSkills: [],
+          evidence: "managed runtime plugin list + plugin skills/SKILL.md",
         }
         : undefined,
       evidence: {
@@ -9091,6 +9083,10 @@ export class LLMBridgeView extends ItemView {
     if (session.providerId === "codex-managed-app-server") {
       await this.refreshManagedCodexPlugins();
       await this.refreshAgentSkillsManifestOnly();
+      const codexSkillPrep = prepareAgentSkillsForCodexRuntimeSync(vaultPath);
+      if (!codexSkillPrep.ok) {
+        new Notice(`Codex Skills 物化失败：${codexSkillPrep.reason || "unknown error"}`);
+      }
     }
     const promptUserInput = this.buildUserInputWithRuntimeCapabilityHints(userInput);
     // V16.5-D: 注入真实 runtime capabilities（从 session.providerId 派生），不再只用默认值。

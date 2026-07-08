@@ -3,7 +3,7 @@
 // 输出：docs/test-report.md
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync, rmSync, statSync, readdirSync, mkdtempSync, symlinkSync, accessSync, constants, chmodSync } from "node:fs";
-import { join, resolve, relative, dirname } from "node:path";
+import { join, resolve, relative, dirname, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
@@ -1287,25 +1287,23 @@ if (runMode !== "all" && runMode !== "unit") {
         && noSkillResumeInput.length === opts.turnStart.input.length;
       const resumeSkillAppend = [
         "========== Capability Manifest ==========",
-        "- Bridge Plugin Skills and managed runtime plugins：以下条目是当前 Bridge 插件会话已启用能力，不是外部示例、传闻或某个单独 agent 的私有目录；用户询问“当前可用 Skills”时必须包含这些条目，用户点名要求使用时应按任务匹配使用。",
+        "- Runtime Skills / Plugins：以下条目来自 provider-native runtime discovery 或本地 plugin catalog；Bridge Plugin Skills 不通过 prompt 注入。",
         "  Managed Codex plugins:",
         "  - defuddle (defuddle) — Extract clean markdown content from web pages [imported]",
         "  Plugin-contained Skills:",
         "  - pdf (pdf@openai-primary-runtime:pdf) — Read, create, inspect, render, and verify PDF files",
-        "  Bridge Plugin Skills:",
-        "  - obsidian-markdown (obsidian-markdown) — Create and edit Obsidian Flavored Markdown | bridge skill: .llm-bridge/agent-skills.json#obsidian-markdown | source: https://example.test/obsidian-markdown",
         "- Host approval 是 write/delete/command 的最终安全边界；权限系统会拦截未授权操作。",
         "========== Autonomy Contract ==========",
         "- 用户意图明确时直接行动。",
       ].join("\n");
       const resumeInput = codexProviderMod.buildResumeTurnInput(opts.turnStart.input, resumeSkillAppend);
       const resumeOk = resumeInput[0]?.type === "text"
-        && resumeInput[0].text.includes("Available Bridge Plugin Skills")
-        && resumeInput[0].text.includes("当前可用 Skills")
+        && resumeInput[0].text.includes("Available managed Codex plugins")
+        && resumeInput[0].text.includes("Bridge Plugin Skills are resolved through Codex native Skill discovery")
         && resumeInput[0].text.includes("defuddle (defuddle)")
         && resumeInput[0].text.includes("pdf (pdf@openai-primary-runtime:pdf)")
-        && resumeInput[0].text.includes("obsidian-markdown (obsidian-markdown)")
-        && resumeInput[0].text.includes(".llm-bridge/agent-skills.json#obsidian-markdown")
+        && !resumeInput[0].text.includes("obsidian-markdown (obsidian-markdown)")
+        && !resumeInput[0].text.includes(".llm-bridge/agent-skills.json#obsidian-markdown")
         && !resumeInput[0].text.includes("Autonomy Contract")
         && !resumeInput[0].text.includes("Host approval")
         && resumeInput[1]?.type === "text"
@@ -4005,44 +4003,6 @@ if (runMode !== "all" && runMode !== "unit") {
       addTest("V16.5-D buildBridgePromptPackage: capabilities 参数传递到 bridgeSystemAppend",
         hasUnavailable && notUnknown ? "pass" : "fail",
         `hasUnavailable=${hasUnavailable} notUnknown=${notUnknown}`);
-    }
-
-    {
-      const pkg = promptPkgMod.buildBridgePromptPackage("用户请求", v165cSnapshot, baseBridgeSettings, {
-        providerNativeFileTools: true,
-        bridgeRuntimeFileTools: true,
-        shellAvailable: true,
-        obsidianCliAvailable: "unknown",
-        askUserQuestionAvailable: true,
-        evidence: {
-          provider: "codex-managed-app-server",
-          runtimeFileToolAdapter: "available",
-          shellApprovalSupported: true,
-          obsidianCliProbe: "not-probed",
-        },
-        runtimeSkills: {
-          managedCodexPlugins: [{ id: "pdf", name: "PDF", description: "Read PDF files", enabled: true }],
-          managedCodexPluginSkills: [{ id: "pdf@openai-primary-runtime:pdf", name: "pdf", description: "Read, create, inspect, render, and verify PDF files", source: "pdf · openai-primary-runtime", enabled: true }],
-          agentSkills: [{ id: "defuddle", name: "defuddle", description: "Extract clean content", instructions: "Use defuddle for readability extraction.", registryPath: ".llm-bridge/agent-skills.json#defuddle", sourcePath: "https://example.test/defuddle", enabled: true }],
-          evidence: "test catalog",
-        },
-      });
-      const append = pkg.bridgeSystemAppend;
-      const ok = append.includes("Bridge Plugin Skills and managed runtime plugins")
-        && append.includes("当前 Bridge 插件会话已启用能力")
-        && append.includes("不是外部示例、传闻或某个单独 agent 的私有目录")
-        && append.includes("当前可用 Skills")
-        && append.includes("PDF (pdf)")
-        && append.includes("Plugin-contained Skills")
-        && append.includes("pdf (pdf@openai-primary-runtime:pdf)")
-        && append.includes("defuddle (defuddle)")
-        && append.includes(".llm-bridge/agent-skills.json#defuddle")
-        && append.includes("https://example.test/defuddle")
-        && append.includes("用户点名要求使用时应按任务匹配使用")
-        && append.includes("Bridge Skill registry: .llm-bridge/agent-skills.json")
-        && !append.includes("Runtime Skill target: .claude/skills");
-      addTest("V17-G71 runtime capability context: plugin-contained Skills enter provider instructions",
-        ok ? "pass" : "fail", "");
     }
 
     {
@@ -15204,12 +15164,16 @@ if (!runV213CUnit) {
       createEmptyAgentSkillsManifest,
       loadAgentSkillsManifest,
       saveAgentSkillsManifest,
+      saveAgentSkillsManifestSync,
       slugifyAgentSkillName,
       materializedSkillPathForSlug,
+      codexBridgeSkillPathForSlug,
       serializeAgentSkillToMarkdown,
       computeAgentSkillSourceHash,
       materializeAgentSkill,
+      materializeAgentSkillToCodexHomeSync,
       materializeEnabledAgentSkills,
+      prepareAgentSkillsForCodexRuntimeSync,
     } = await import(pathToFileURL(agentSkillsBundleV213C).href);
 
     tempAgentSkillVault = mkdtempSync(join(tmpdir(), "llm-bridge-agent-skills-v213c-"));
@@ -15301,6 +15265,34 @@ if (!runV213CUnit) {
       const skipped = await materializeAgentSkill(tempAgentSkillVault, materialized.record);
       const ok = skipped.ok && skipped.status === "skipped";
       addTest("V2.13.0-C materialize: 内容一致时 skipped", ok ? "pass" : "fail", `status=${skipped.status}`);
+    }
+
+    {
+      const codexHome = mkdtempSync(join(tmpdir(), "llm-bridge-codex-home-"));
+      const result = materializeAgentSkillToCodexHomeSync(record, codexHome);
+      const expectedPath = codexBridgeSkillPathForSlug(record.slug, codexHome);
+      const content = readFileSync(expectedPath, "utf8");
+      const ok = result.ok
+        && result.status === "created"
+        && result.filePath === expectedPath
+        && expectedPath.includes(`${sep}skills${sep}llm-bridge-review-skill${sep}SKILL.md`)
+        && content.includes("name: \"llm-bridge-Review Skill\"")
+        && content.includes("Bridge plugin Skill")
+        && !expectedPath.includes(`${sep}.claude${sep}`);
+      addTest("V17-G72 Codex Skills: 物化到 Codex home personal skills 而非 .claude", ok ? "pass" : "fail", `path=${expectedPath}`);
+    }
+
+    {
+      const codexHome = mkdtempSync(join(tmpdir(), "llm-bridge-codex-home-prep-"));
+      saveAgentSkillsManifestSync(tempAgentSkillVault, { version: 1, skills: [record] });
+      const result = prepareAgentSkillsForCodexRuntimeSync(tempAgentSkillVault, codexHome);
+      const expectedPath = codexBridgeSkillPathForSlug(record.slug, codexHome);
+      const ok = result.ok
+        && result.enabledCount === 1
+        && result.results.length === 1
+        && existsSync(expectedPath)
+        && !existsSync(join(tempAgentSkillVault, ".claude", "skills", "review-skill", "SKILL.md.tmp"));
+      addTest("V17-G72 Codex Skills: run 前从 Bridge manifest 物化 enabled Skills", ok ? "pass" : "fail", `ok=${result.ok} count=${result.enabledCount}`);
     }
 
     let updated = null;
@@ -19301,14 +19293,14 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 13j11: V17-G71 provider context reads Agent Skills manifest, not only UI cache ----
+  // ---- Test 13j11: V17-G71 Codex managed uses native Skill materialization, not prompt context ----
   {
-    const ok = viewSrc.includes("loadAgentSkillsManifestSync")
-      && viewSrc.includes("private getAgentSkillsForRuntimeCapabilities()")
-      && viewSrc.includes("const runtimeAgentSkills = providerId === \"codex-managed-app-server\"")
-      && viewSrc.includes("this.agentSkills = manifest.skills.slice()")
-      && viewSrc.includes("runtimeAgentSkills.map((skill)");
-    addTest("V17-G71 runtime capability context: Agent Skills manifest is read for provider context",
+    const ok = viewSrc.includes("prepareAgentSkillsForCodexRuntimeSync")
+      && viewSrc.includes("const codexSkillPrep = prepareAgentSkillsForCodexRuntimeSync(vaultPath)")
+      && viewSrc.includes("Codex Skills 物化失败")
+      && !viewSrc.includes("runtimeAgentSkills.map((skill)")
+      && !viewSrc.includes(".llm-bridge/agent-skills.json#");
+    addTest("V17-G71 Codex Skills: managed provider materializes Bridge Skills instead of prompt-injecting them",
       ok ? "pass" : "fail", "");
   }
 
@@ -21407,13 +21399,11 @@ if (!runCodexSchemaAlignment) {
           userPrompt: "hello",
           bridgeSystemAppend: [
             "system rules",
-            "- Bridge Plugin Skills and managed runtime plugins：以下条目是当前 Bridge 插件会话已启用能力，不是外部示例、传闻或某个单独 agent 的私有目录；用户询问“当前可用 Skills”时必须包含这些条目，用户点名要求使用时应按任务匹配使用。",
+            "- Runtime Skills / Plugins：以下条目来自 provider-native runtime discovery 或本地 plugin catalog；Bridge Plugin Skills 不通过 prompt 注入。",
             "  Managed Codex plugins:",
             "  - defuddle (defuddle) — Extract clean markdown content from web pages [imported]",
             "  Plugin-contained Skills:",
             "  - pdf (pdf@openai-primary-runtime:pdf) — Read and verify PDF files",
-            "  Bridge Plugin Skills:",
-            "  - obsidian-markdown (obsidian-markdown) — Create and edit Obsidian Flavored Markdown | bridge skill: .llm-bridge/agent-skills.json#obsidian-markdown | source: https://example.test/obsidian-markdown",
             "- Host approval 是 write/delete/command 的最终安全边界；权限系统会拦截未授权操作。",
           ].join("\n"),
           attachmentEntries: [], auditHash: "h1",
@@ -21514,12 +21504,12 @@ if (!runCodexSchemaAlignment) {
       const turnStartContextOk = turnStartRequestParams
         && Array.isArray(turnStartRequestParams.input)
         && turnStartRequestParams.input[0]?.type === "text"
-        && turnStartRequestParams.input[0].text.includes("Available Bridge Plugin Skills")
-        && turnStartRequestParams.input[0].text.includes("当前可用 Skills")
+        && turnStartRequestParams.input[0].text.includes("Available managed Codex plugins")
+        && turnStartRequestParams.input[0].text.includes("Bridge Plugin Skills are resolved through Codex native Skill discovery")
         && turnStartRequestParams.input[0].text.includes("defuddle (defuddle)")
         && turnStartRequestParams.input[0].text.includes("pdf (pdf@openai-primary-runtime:pdf)")
-        && turnStartRequestParams.input[0].text.includes("obsidian-markdown (obsidian-markdown)")
-        && turnStartRequestParams.input[0].text.includes(".llm-bridge/agent-skills.json#obsidian-markdown")
+        && !turnStartRequestParams.input[0].text.includes("obsidian-markdown (obsidian-markdown)")
+        && !turnStartRequestParams.input[0].text.includes(".llm-bridge/agent-skills.json#obsidian-markdown")
         && !turnStartRequestParams.input[0].text.includes("system rules")
         && !turnStartRequestParams.input[0].text.includes("Host approval")
         && turnStartRequestParams.input[1]?.type === "text"
