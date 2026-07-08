@@ -7905,10 +7905,14 @@ export class LLMBridgeView extends ItemView {
     // 避免把旧会话的 native session 带到新 BridgeSession 导致误 resume。
     this.restoredActiveNativeSessionRef = undefined;
     this.sessionResumed = false; // P3: 新会话是 fresh
-    // V2.16-D: 新聊天清除 lastActiveSessionId + lastNativeSessionRef（新会话不自动恢复）
+    // latest native session only: 新聊天必须清空 lastNativeSessionRef（无论 keepLastSession 是否开启），
+    // 否则下一轮仍会 resume 旧 native session，违反"新聊天 = 下一轮 thread/start"语义。
+    this.plugin.settings.lastNativeSessionRef = undefined;
+    // V2.16-D: 新聊天清除 lastActiveSessionId（仅 keepLastSession 时持久化）
     if (this.plugin.settings.keepLastSession) {
       this.plugin.settings.lastActiveSessionId = "";
-      this.plugin.settings.lastNativeSessionRef = undefined;
+      void this.plugin.saveSettings();
+    } else {
       void this.plugin.saveSettings();
     }
     this.renderEmptyState();
@@ -8753,7 +8757,17 @@ export class LLMBridgeView extends ItemView {
   // - 还原消息 + pinned context + 模式 + 模型/effort + backend + 权限模式
   private async restoreLastActiveSessionIfNeeded(): Promise<void> {
     const s = this.plugin.settings;
-    if (!s.keepLastSession || !s.lastActiveSessionId) return;
+    // latest native session only: 无论 keepLastSession 是否开启，都尝试恢复 lastNativeSessionRef
+    // 以便下一轮 run() 命中 thread/resume 路径（避免 LLM 上下文失忆）。
+    // keepLastSession 只控制是否恢复 transcript（messages 列表）。
+    if (!s.keepLastSession) {
+      // 未开启会话保持：仍回填 native session ref，让下一轮 resume latest native session
+      if (s.lastNativeSessionRef) {
+        this.restoredActiveNativeSessionRef = s.lastNativeSessionRef;
+      }
+      return;
+    }
+    if (!s.lastActiveSessionId) return;
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     const session = await loadSession(vaultPath, s.lastActiveSessionId);
     if (!session) {
@@ -9894,15 +9908,23 @@ export class LLMBridgeView extends ItemView {
       if (savedId) {
         this.currentSessionId = savedId;
         // latest native session only: 更新 lastNativeSessionRef（带 sessionFileId 用于 continuation 判定）
+        // 无论 keepLastSession 是否开启，都必须持久化 lastNativeSessionRef 到磁盘，
+        // 否则重载插件后该字段丢失，下一轮会 fallback 到 thread/start 而非 thread/resume，
+        // 导致 LLM 丢失上下文记忆（"会话中断"现象）。
+        let needSaveSettings = false;
         if (this.session?.activeNativeSessionRef) {
           s.lastNativeSessionRef = {
             ...this.session.activeNativeSessionRef,
             sessionFileId: savedId,
           };
+          needSaveSettings = true;
         }
         // V2.16-D: 更新 lastActiveSessionId 用于会话保持
         if (s.keepLastSession) {
           s.lastActiveSessionId = savedId;
+          needSaveSettings = true;
+        }
+        if (needSaveSettings) {
           await this.plugin.saveSettings();
         }
         // V2.9: 强制重载（force=true），确保新保存的会话立即出现，不被 5s 缓存拦截
