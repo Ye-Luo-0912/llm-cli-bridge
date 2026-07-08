@@ -1,15 +1,15 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-08T17:48:32.593Z
+- **测试时间**: 2026-07-08T20:00:47.116Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 1075.7 KB
+- **main.js 大小**: 1080.0 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 64758
-- **commit sha**: f5769e3aff4e077ecc2cf8f8ddd7330f2c48d10e
-- **commit 短 sha**: f5769e3aff4e
-- **运行命令**: node scripts/run-tests.mjs --unit --process
+- **HTTP 端口**: 57711
+- **commit sha**: eea99d9c6550dd7ac358363a2e47609bdf598d49
+- **commit 短 sha**: eea99d9c6550
+- **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
@@ -606,7 +606,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 最小三类 section，不堆砌细则 | allPresent=true hasHeaders=true reasonableLen=true capLen=820 autoLen=195 safetyLen=326 |
+| ✅ | 最小三类 section，不堆砌细则 | allPresent=true hasHeaders=true reasonableLen=true capLen=846 autoLen=195 safetyLen=326 |
 
 ### V16.5-C contract
 
@@ -686,7 +686,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-gFMXqv\\skills\\pdf\\SKILL.md"}] |
+| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-EBcYbn\\skills\\pdf\\SKILL.md"}] |
 
 ### V16.5-D view.ts 主路径注入真实 capabilities
 
@@ -742,7 +742,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 包含 Overview/Directory/Agent Workspace facts | header=true vaultRoot=true agentWs=true source=true target=true stableFacts=true |
+| ✅ | 轻量四 section + 默认边界规则 | header=true vaultRules=true stableConventions=true userPreferences=true directorySemantics=true defaultRules=true agentRuntimeDir=true |
 
 ### V16.5-E VAULT_SKILL
 
@@ -774,7 +774,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 超限时 compact，不 append-only 膨胀 | length=7588 max=12000 compacted=false |
+| ✅ | 超限时 compact，不 append-only 膨胀 | length=7625 max=8000 compacted=false |
 
 ### V16.5-E prompt
 
@@ -799,55 +799,50 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 大 skill compact 后低于阈值时不拆分 | action=compacted beforeLen=15532 afterLen=6442 max=12000 noSplit=true noManifest=true |
+| ✅ | 大 skill compact 后低于阈值（轻量版无 split） | action=compacted beforeLen=15569 afterLen=4964 max=8000 noSplit=true structureDirExists=false |
 
-### V16.5-K split
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ✅ | compact 后仍超限时按职责拆分 | action=split splitSlugs=["vault-structure","file-operations","user-preferences"] structureExists=true indexExists=true manifestEntries=5 manifestHasSplits=true |
-
-### V16.5-K vault-index
+### V16.5-K 轻量版
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 拆分后索引引用正确 | header=true routing=true allReferenced=true splitSlugs=["vault-structure","file-operations","user-preferences"] |
+| ✅ | 超大 skill 也只 compact 不 split | action=compacted afterLen=7948 max=8000 noSplit=true structureExists=false |
+| ✅ | 无 vault-index 与 split 文件 | vaultIndexDir=false vaultStructureDir=false splitEntries=[] |
 
 ### V16.5-K 去噪
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 拆分不写入 sessions/work/runtime facts | leaked=false leakedIn=[] vcLeaked=false |
+| ✅ | vault-context 不含 runtime/session JSON | leakedRuntimeFacts=false leakedSession=false vcLen=7948 underMax=true |
 
 ### V16.5-K 碎片化
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 单次临时任务不生成新 skill | rejectedShort=true rejectedTemp=true rejectedCmd=true acceptedStable=true |
+| ✅ | 临时内容被 isVaultSkillWritableContent 拒绝 | rejectedEmpty=true rejectedTemp=true rejectedCmd=true acceptedStable=true |
 
 ### V16.5-K1 runtime format
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 物化后含 frontmatter + # Instructions | vcOk=true vcFrontmatter=true vcInstructions=true vcMarker=true vcSourceHash=true indexFrontmatter=true indexInstructions=true splitRuntime=[{"slug":"vault-structure","hasFrontmatter":true,"hasInstructions":true},{"slug":"file-operations","hasFrontmatter":true,"hasInstructions":true},{"slug":"user-preferences","hasFrontmatter":true,"hasInstructions":true}] |
+| ✅ | 物化后含 frontmatter + # Instructions | vcOk=true status=created frontmatter=true instructions=true marker=true sourceHash=true sourceSlug=true |
 
-### V16.5-K1 index-only
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ✅ | split 后 vault-context 不含已拆入 facts | vcLen=646 underMax=true splitNotice=true indexPointer=true notRetain=true charCountMatch=true manifestCharCount=646 |
-
-### V16.5-K1 materializeAll
+### V16.5-K1 单文件
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 单个 conflict 不影响其他 skill | isConflict=true othersOk=true othersCount=4 structureStatus=conflict |
+| ✅ | vault-context 无 split notice / index pointer | vcLen=7948 underMax=true splitNotice=false indexPointer=false runtimeHeader=true firstSection=true |
+
+### V16.5-K1 materializeToAllTargets
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 单个 conflict 不影响其他 target | firstAllOk=true firstCount=3 isConflict=true othersOk=true othersCount=2 piStatus=conflict |
 
 ### V16.5-K1 manifest 一致性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | entries 与源文件一致 | allConsistent=true indexReferencesAll=true mismatches=[] |
+| ✅ | vault-context entry hash/charCount 一致 | saved=true hashMatch=true charCountMatch=true onlyVaultContext=true entries=1 |
 
 ### V17-A probe
 
@@ -895,7 +890,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 所有 skill 物化到所有 target + manifest providerTargets | entriesWithTargets=5/5 allTargetsMaterialized=true resultCount=15/15 |
+| ✅ | vault-context 物化到所有 target（轻量版） | allTargetsMaterialized=true resultCount=3/3 targetsCovered=true |
 
 ### V17-A settings
 
@@ -974,7 +969,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783532914246-0 update=pi-sdk-read-1783532914246-0 end=pi-sdk-read-1783532914246-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783540848686-0 update=pi-sdk-read-1783540848686-0 end=pi-sdk-read-1783540848686-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -1109,7 +1104,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | split vault-context 保持 index-only | compactOrSplit=true indexOnly=true |
+| ✅ | 轻量版 vault-runtime skill 格式 | compactOrSplit=true lightweightSkill=true |
 
 ### V17-C2 enable/disable Friend Preview
 
@@ -1206,7 +1201,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | V16.5-K1 skill format + split vault-context index-only + Claude/Codex provider 不受影响 + PiSdkProvider 导出完整 + types 新字段 | k1Convert=true k1Materialize=true k1Instructions=true k1IndexOnly=true tryAsync=true preload=true setProbe=true authOverride=true probeOverride=true newSettings=true defaults=true claudeSdk=true claudeCli=true codex=true |
+| ✅ | V16.5-K1 轻量版 skill format + Claude/Codex provider 不受影响 + PiSdkProvider 导出完整 + types 新字段 | k1Convert=true k1Materialize=true k1Instructions=true k1Lightweight=true tryAsync=true preload=true setProbe=true authOverride=true probeOverride=true newSettings=true defaults=true claudeSdk=true claudeCli=true codex=true |
 
 ### V17-E A
 
@@ -2321,7 +2316,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-08T17-49-01-808Z-qy5pgu |
+| ✅ | 返回非空 id | id=s-2026-07-08T20-01-16-223Z-cz9qvt |
 
 ### V2.5 Session 版本
 
@@ -2340,7 +2335,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-08T17-49-01-874Z-czs9wl second=s-2026-07-08T17-49-01-819Z-2xap8u |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-08T20-01-16-301Z-buj401 second=s-2026-07-08T20-01-16-235Z-qg1gzd |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2379,7 +2374,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-08T17-49-01-925Z-ib1tte id2=s-2026-07-08T17-49-01-925Z-i1mm9v |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-08T20-01-16-350Z-ysvg78 id2=s-2026-07-08T20-01-16-350Z-dkx9q5 |
 
 ### V2.5 Session 上限
 
@@ -2477,7 +2472,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-08T17:49:01.987Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-08T20:01:16.416Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2565,7 +2560,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-08T17:49:02.051Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-08T20:01:16.485Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2679,7 +2674,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-08T17:49:02.130Z after=2026-07-08T17:49:02.197Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-08T20:01:16.562Z after=2026-07-08T20:01:16.626Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -3050,13 +3045,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-08T17:49:02.898Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-08T20:01:17.341Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-08T17:49:02.906Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-08T20:01:17.349Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3172,7 +3167,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-QctA5o\skills\llm-bridge-review-skill\SKILL.md |
+| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-j4dVWe\skills\llm-bridge-review-skill\SKILL.md |
 | ✅ | run 前从 Bridge manifest 物化 enabled Skills | ok=true count=1 |
 
 ### V2.13.0-C materializeEnabled
@@ -3374,7 +3369,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-MpsOVg\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-eexg1j\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-2VdoAU\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-eMr50u\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3386,7 +3381,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-BFtSLy\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-JEiS22\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-X4m1ir\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-Sg8aAV\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3398,7 +3393,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-YrDtgK\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-9nypZK\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-hKls98\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-pbu5Bu\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
