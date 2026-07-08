@@ -587,6 +587,10 @@ export function generateInitialVaultApiSkill(): string {
     "| command_list   | {}                                  | 否   | 列出所有可执行 Obsidian 命令（app.commands.listCommands，含命令 id/name） |",
     "| workspace_get  | {}                                  | 否   | 读当前工作区状态（活动文件 + 打开的标签页清单；.obsidian/workspace.json 被拒绝且非实时） |",
     "| clipboard_write | {\"text\":\"...\"}                    | 否   | 写入系统剪贴板（navigator.clipboard.writeText，含 execCommand fallback） |",
+    "| tag_files      | {\"tag\":\"...\"}                     | 否   | 列出某 tag 下的所有文件（metadataCache 反向查询；内联 #tag + frontmatter tags；tag 不带 #） |",
+    "| link_resolve   | {\"link\":\"...\",\"sourcePath?\":\"...\"}  | 否   | 解析 wikilink [[x]] / markdown [x](x.md) 到实际路径（getFirstLinkpathDest；支持 #heading / |alias 去除） |",
+    "| attachment_list | {\"path\":\"...\"}                    | 否   | 列出笔记嵌入的所有附件（getFileCache().embeds：图片/PDF/audio；含解析后 resolvedPath） |",
+    "| view_mode_set  | {\"mode\":\"source\"|\"reading\"}        | 否   | 切换当前视图编辑/预览模式（MarkdownView.setState；接受 source/edit/reading/preview） |",
     "",
     "### 危险操作类（走 Obsidian 回收站 + 审批）",
     "",
@@ -607,9 +611,10 @@ export function generateInitialVaultApiSkill(): string {
     "- daily note → 用本 Skill（自动解析 daily-notes 插件配置的日期格式与目录）。",
     "- 删除/重命名/恢复/标签改名 → 用本 Skill（走回收站、更新 metadataCache、原子改 frontmatter；不要直接 fs.unlink/rename 或手动改 YAML）。",
     "- 工作区状态/命令清单/剪贴板写入 → 用本 Skill（.obsidian/workspace.json 被拒绝且非实时；命令执行与剪贴板是运行时 UI 操作，文件系统做不到）。",
+    "- 按 tag 反查文件 / 解析 link 到路径 / 列附件 / 切视图模式 → 用本 Skill（metadataCache 反向查询与 link 解析、embeds 聚合、视图状态切换，文件系统做不到或做不准）。",
     "- path 参数必须是 vault 相对路径（如 `inbox/note.md`），禁止绝对路径与 `..` 遍历。",
     "- 修改类 action（property_set/daily_append/vault_delete/vault_rename/vault_restore/rename_tag/command_run）会弹审批框，用户拒绝则不执行。",
-    "- 25 个 action 之外的 Obsidian 能力暂未暴露；如需扩展请在 LLM-AgentRuntime/skills/vault-api/SKILL.md 记录需求。",
+    "- 29 个 action 之外的 Obsidian 能力暂未暴露；如需扩展请在 LLM-AgentRuntime/skills/vault-api/SKILL.md 记录需求。",
     "",
   ].join("\n");
 }

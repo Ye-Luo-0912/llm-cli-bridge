@@ -50,7 +50,12 @@ export type ActionType =
   | "command_list"       // 列出所有可执行 Obsidian 命令（app.commands.listCommands）
   | "command_run"        // 执行 Obsidian 命令（app.commands.executeCommandById；走审批）
   | "workspace_get"      // 读当前工作区状态（打开的标签页/活动文件；.obsidian/workspace.json 被拒绝且非实时）
-  | "clipboard_write";   // 写入剪贴板（navigator.clipboard.writeText）
+  | "clipboard_write"   // 写入剪贴板（navigator.clipboard.writeText）
+  // V2.18 vault-api 第五批：反向查询/链接解析/附件/视图模式（metadataCache 解析能力 + UI 操作）
+  | "tag_files"          // 列出某 tag 下的所有文件（metadataCache 反向查询，tags_list 的逆向）
+  | "link_resolve"       // 解析 wikilink/markdown link 到实际路径（metadataCache.getFirstLinkpathDest）
+  | "attachment_list"    // 列出笔记嵌入的所有附件（getFileCache().embeds，区分纯文本引用）
+  | "view_mode_set";      // 切换当前视图编辑/预览模式（MarkdownView.setState，UI 运行时操作）
 
 export interface OutboxAction {
   id: string;
@@ -107,6 +112,11 @@ const ACTION_SCHEMAS: Record<ActionType, ParamSchema> = {
   command_run: { required: ["commandId"], optional: [], extraForbidden: false },
   workspace_get: { required: [], optional: [], extraForbidden: false },
   clipboard_write: { required: ["text"], optional: [], extraForbidden: false },
+  // V2.18 vault-api 第五批 schemas（反向查询/链接解析/附件/视图模式）
+  tag_files: { required: ["tag"], optional: [], extraForbidden: false },
+  link_resolve: { required: ["link"], optional: ["sourcePath"], extraForbidden: false },
+  attachment_list: { required: ["path"], optional: [], extraForbidden: false },
+  view_mode_set: { required: ["mode"], optional: [], extraForbidden: false },
 };
 
 // ─── 路径安全校验 ─────────────────────────────────────────────────────────
@@ -954,6 +964,120 @@ export async function executeAction(
         return { length: text.length, written: true };
       }
       throw new Error("clipboard_write: 当前环境无剪贴板访问能力");
+    }
+    // ─── V2.18 vault-api 第五批：反向查询/链接解析/附件/视图模式 ──────────
+    case "tag_files": {
+      // 列出某 tag 下的所有文件（metadataCache 反向查询，tags_list 的逆向）
+      const tagInput = String(p.tag ?? "").trim();
+      if (!tagInput) throw new Error("tag_files: 缺少 tag");
+      // 规范化：去掉前导 #，统一小写比较（Obsidian tag 大小写不敏感）
+      const tagNorm = tagInput.startsWith("#") ? tagInput.slice(1) : tagInput;
+      const tagLower = tagNorm.toLowerCase();
+      const files: { path: string }[] = [];
+      const seen = new Set<string>();
+      const mdFiles = app.vault.getMarkdownFiles();
+      for (const f of mdFiles) {
+        const cache = app.metadataCache.getFileCache(f);
+        if (!cache) continue;
+        let matched = false;
+        // 内联 #tag（cache.tags）
+        if (cache.tags) {
+          for (const t of cache.tags) {
+            const tName = t.tag.startsWith("#") ? t.tag.slice(1) : t.tag;
+            if (tName.toLowerCase() === tagLower) { matched = true; break; }
+          }
+        }
+        // frontmatter tags（cache.frontmatter.tags：数组或逗号分隔字符串）
+        if (!matched && cache.frontmatter) {
+          const fmTags = cache.frontmatter.tags;
+          if (Array.isArray(fmTags)) {
+            for (const t of fmTags) {
+              if (typeof t === "string") {
+                const tName = t.startsWith("#") ? t.slice(1) : t;
+                if (tName.toLowerCase() === tagLower) { matched = true; break; }
+              }
+            }
+          } else if (typeof fmTags === "string") {
+            const tName = fmTags.startsWith("#") ? fmTags.slice(1) : fmTags;
+            if (tName.toLowerCase() === tagLower) matched = true;
+          }
+        }
+        if (matched && !seen.has(f.path)) {
+          seen.add(f.path);
+          files.push({ path: f.path });
+        }
+      }
+      files.sort((a, b) => a.path.localeCompare(b.path));
+      return { tag: tagNorm, files, total: files.length };
+    }
+    case "link_resolve": {
+      // 解析 wikilink/markdown link 到实际路径（metadataCache.getFirstLinkpathDest）
+      const linkRaw = String(p.link ?? "").trim();
+      if (!linkRaw) throw new Error("link_resolve: 缺少 link");
+      const sourcePath = typeof p.sourcePath === "string" ? String(p.sourcePath).trim() : "";
+      // 从 link 提取 linkpath：去掉 [[ ]] / [text]() / #heading / #^blockref / |alias
+      let linkpath = linkRaw;
+      const wikilinkMatch = linkRaw.match(/^\[\[([^\]]+)\]\]$/);
+      if (wikilinkMatch) {
+        // [[note]]、[[note|alias]]、[[note#heading]]、[[note#^blockref]]
+        linkpath = wikilinkMatch[1].split("|")[0].split("#")[0];
+      } else {
+        const mdlinkMatch = linkRaw.match(/^\[[^\]]*\]\(([^)]+)\)$/);
+        if (mdlinkMatch) {
+          // [text](note.md)、[text](note.md#heading)
+          linkpath = mdlinkMatch[1].split("#")[0];
+        }
+      }
+      linkpath = linkpath.trim();
+      if (!linkpath) throw new Error("link_resolve: 无法从 link 提取 linkpath");
+      // getFirstLinkpathDest(linkpath, sourcePath) 返回 TFile | null
+      const resolved = app.metadataCache.getFirstLinkpathDest(linkpath, sourcePath);
+      return {
+        link: linkRaw,
+        linkpath,
+        sourcePath: sourcePath || null,
+        resolvedPath: resolved ? resolved.path : null,
+        exists: !!resolved,
+      };
+    }
+    case "attachment_list": {
+      // 列出笔记嵌入的所有附件（getFileCache().embeds，区分纯文本引用）
+      const targetPath = String(p.path ?? "").trim();
+      if (!targetPath) throw new Error("attachment_list: 缺少 path");
+      const f = app.vault.getAbstractFileByPath(targetPath);
+      if (!(f instanceof TFile)) throw new Error(`attachment_list: 文件不存在 ${targetPath}`);
+      const cache = app.metadataCache.getFileCache(f);
+      const embeds = cache?.embeds ?? [];
+      const result: { link: string; startLine: number; endLine: number; resolvedPath: string | null }[] = [];
+      for (const e of embeds) {
+        const resolved = app.metadataCache.getFirstLinkpathDest(e.link, targetPath);
+        result.push({
+          link: e.link,
+          startLine: e.position?.start?.line ?? -1,
+          endLine: e.position?.end?.line ?? -1,
+          resolvedPath: resolved ? resolved.path : null,
+        });
+      }
+      return { path: targetPath, embeds: result, total: result.length };
+    }
+    case "view_mode_set": {
+      // 切换当前视图编辑/预览模式（MarkdownView.setState，UI 运行时操作）
+      const modeInput = String(p.mode ?? "").trim().toLowerCase();
+      if (!modeInput) throw new Error("view_mode_set: 缺少 mode");
+      // 接受 source/edit/reading/preview，统一映射到 Obsidian 内部 mode
+      let mode: string;
+      if (modeInput === "source" || modeInput === "edit") {
+        mode = "source";
+      } else if (modeInput === "reading" || modeInput === "preview") {
+        mode = "preview";
+      } else {
+        throw new Error(`view_mode_set: 不支持的 mode（仅 source/reading）: ${modeInput}`);
+      }
+      const view = app.workspace.getActiveViewOfType(MarkdownView);
+      if (!view) throw new Error("view_mode_set: 当前没有活动的 Markdown 视图");
+      const state = view.getState() as Record<string, unknown>;
+      await view.setState({ ...state, mode }, { history: true });
+      return { mode: modeInput, appliedMode: mode, applied: true };
     }
     default:
       throw new Error(`未知 action 类型: ${type}`);

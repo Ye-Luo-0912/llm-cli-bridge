@@ -203,6 +203,11 @@ const ACTION_SCHEMAS = {
   command_run: { required: ["commandId"], optional: [], extraForbidden: false },
   workspace_get: { required: [], optional: [], extraForbidden: false },
   clipboard_write: { required: ["text"], optional: [], extraForbidden: false },
+  // V2.18 vault-api 第五批 schemas（反向查询/链接解析/附件/视图模式）
+  tag_files: { required: ["tag"], optional: [], extraForbidden: false },
+  link_resolve: { required: ["link"], optional: ["sourcePath"], extraForbidden: false },
+  attachment_list: { required: ["path"], optional: [], extraForbidden: false },
+  view_mode_set: { required: ["mode"], optional: [], extraForbidden: false },
 };
 
 function validateActionSchema(action) {
@@ -317,6 +322,18 @@ const schemaTests = [
   { action: { type: "workspace_get", params: {} }, expect: null, desc: "workspace_get 无参正常" },
   { action: { type: "clipboard_write", params: {} }, expect: /缺少必填字段.*text/, desc: "clipboard_write 缺 text" },
   { action: { type: "clipboard_write", params: { text: "hello" } }, expect: null, desc: "clipboard_write 正常" },
+  // V2.18 vault-api 第五批 schema 测试（反向查询/链接解析/附件/视图模式）
+  { action: { type: "tag_files", params: {} }, expect: /缺少必填字段.*tag/, desc: "tag_files 缺 tag" },
+  { action: { type: "tag_files", params: { tag: "project" } }, expect: null, desc: "tag_files 正常（不带 #）" },
+  { action: { type: "tag_files", params: { tag: "#project" } }, expect: null, desc: "tag_files 正常（带 #）" },
+  { action: { type: "link_resolve", params: {} }, expect: /缺少必填字段.*link/, desc: "link_resolve 缺 link" },
+  { action: { type: "link_resolve", params: { link: "[[note]]" } }, expect: null, desc: "link_resolve wikilink 正常" },
+  { action: { type: "link_resolve", params: { link: "[[note]]", sourcePath: "inbox/a.md" } }, expect: null, desc: "link_resolve 带 sourcePath 正常" },
+  { action: { type: "attachment_list", params: {} }, expect: /缺少必填字段.*path/, desc: "attachment_list 缺 path" },
+  { action: { type: "attachment_list", params: { path: "a.md" } }, expect: null, desc: "attachment_list 正常" },
+  { action: { type: "view_mode_set", params: {} }, expect: /缺少必填字段.*mode/, desc: "view_mode_set 缺 mode" },
+  { action: { type: "view_mode_set", params: { mode: "reading" } }, expect: null, desc: "view_mode_set reading 正常" },
+  { action: { type: "view_mode_set", params: { mode: "source" } }, expect: null, desc: "view_mode_set source 正常" },
 ];
 
 for (const t of schemaTests) {
@@ -4636,6 +4653,11 @@ if (runMode !== "all" && runMode !== "unit") {
         const hasCommandRun = content.includes("command_run");
         const hasWorkspaceGet = content.includes("workspace_get");
         const hasClipboardWrite = content.includes("clipboard_write");
+        // V2.18 第五批 4 个 action（反向查询/链接解析/附件/视图模式）
+        const hasTagFiles = content.includes("tag_files");
+        const hasLinkResolve = content.includes("link_resolve");
+        const hasAttachmentList = content.includes("attachment_list");
+        const hasViewModeSet = content.includes("view_mode_set");
         const hasHttpBridge = content.includes("bridge.json") && content.includes("/action");
         const hasFileSystemCaveat = content.includes("native Read/Write/Edit");
         const allActions = hasPropertyGet && hasPropertySet && hasTagsList && hasBacklinks
@@ -4643,19 +4665,20 @@ if (runMode !== "all" && runMode !== "unit") {
           && hasOutlinksGet && hasBrokenLinksList && hasHeadingsGet && hasVaultRestore
           && hasSearch && hasRenameTag && hasBookmarksList && hasMetadatacacheGet
           && hasResolvedLinksMap && hasPluginList && hasOpenUrl && hasSettingGet
-          && hasCommandList && hasCommandRun && hasWorkspaceGet && hasClipboardWrite;
+          && hasCommandList && hasCommandRun && hasWorkspaceGet && hasClipboardWrite
+          && hasTagFiles && hasLinkResolve && hasAttachmentList && hasViewModeSet;
 
         // 单独验证 generateInitialVaultApiSkill 纯函数（不依赖文件系统）
         const generated = agentRuntimeWsMod.generateInitialVaultApiSkill();
         const generatedHasH1 = generated.startsWith("# vault-api");
         const generatedHasActionTable = generated.includes("### 结构化类") && generated.includes("### 危险操作类");
-        // V2.18 第四批：25 个 action 计数 + command_list 行
-        const generatedHas25Count = generated.includes("25 个 action");
-        const generatedHasCommandList = generated.includes("command_list");
+        // V2.18 第五批：29 个 action 计数 + tag_files 行
+        const generatedHas29Count = generated.includes("29 个 action");
+        const generatedHasTagFiles = generated.includes("tag_files");
 
-        addTest("V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 25 actions + HTTP 通道",
-          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable && generatedHas25Count && generatedHasCommandList ? "pass" : "fail",
-          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable} gen25Count=${generatedHas25Count} genCommandList=${generatedHasCommandList}`);
+        addTest("V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 29 actions + HTTP 通道",
+          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable && generatedHas29Count && generatedHasTagFiles ? "pass" : "fail",
+          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable} gen29Count=${generatedHas29Count} genTagFiles=${generatedHasTagFiles}`);
       }
 
       // Test K1-C: 轻量版 materializeToAllTargets — 单个 conflict 不影响其他 target
