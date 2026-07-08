@@ -156,7 +156,7 @@ export function buildCapabilityManifest(
     lines.push("- Runtime Skill target: .claude/skills/vault-context/SKILL.md（物化后 provider 按需识别）。");
   }
   // V2.18 vault-api：声明 Obsidian Plugin API 能力 Skill（HTTP bridge / outbox action 调用）
-  lines.push("- vault-api Skill: .claude/skills/vault-api/SKILL.md（物化后）。只暴露文件系统做不到的能力：property_get/set（frontmatter）、tags_list、backlinks_get、tasks_list、daily_read/append、outlinks_get、broken_links_list、headings_get（metadataCache 解析）、search（markdown-aware 全文搜索）、metadatacache_get（单文件完整 cache 聚合）、resolved_links_map（全局链接图）、bookmarks_list、plugin_list、setting_get（读 .obsidian 配置）、open_url（开浏览器）、vault_delete/rename/restore + rename_tag（走回收站/原子改 frontmatter）。调用通道：HTTP bridge（读 .llm-bridge/bridge.json 取 port/token）→ helper mjs → outbox actions.jsonl 兜底。普通文件读写仍用 native file tools。");
+  lines.push("- vault-api Skill: .claude/skills/vault-api/SKILL.md（物化后）。只暴露文件系统做不到的能力：property_get/set（frontmatter）、tags_list、backlinks_get、tasks_list、daily_read/append、outlinks_get、broken_links_list、headings_get（metadataCache 解析）、search（markdown-aware 全文搜索）、metadatacache_get（单文件完整 cache 聚合）、resolved_links_map（全局链接图）、bookmarks_list、plugin_list、setting_get（读 .obsidian 配置）、open_url（开浏览器）、vault_delete/rename/restore + rename_tag（走回收站/原子改 frontmatter）、command_list/run（命令清单与执行）、workspace_get（实时工作区状态）、clipboard_write（写剪贴板）。调用通道：HTTP bridge（读 .llm-bridge/bridge.json 取 port/token）→ helper mjs → outbox actions.jsonl 兜底。普通文件读写仍用 native file tools。");
   lines.push("- Runtime facts: LLM-AgentRuntime/runtime/RUNTIME_FACTS.json（机器事实，不进 prompt）。");
   return lines.join("\n");
 }

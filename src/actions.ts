@@ -45,7 +45,12 @@ export type ActionType =
   | "resolved_links_map" // 全 vault 解析后链接图（resolvedLinks 全量，全局拓扑）
   | "plugin_list"        // 列出启用的插件（.obsidian/ 被路径校验拒绝）
   | "open_url"           // 在默认浏览器打开 URL（UI 操作）
-  | "setting_get";       // 读 Obsidian 设置项（.obsidian/app.json 被拒绝）
+  | "setting_get"        // 读 Obsidian 设置项（.obsidian/app.json 被拒绝）
+  // V2.18 vault-api 第四批：命令/工作区/剪贴板（文件系统做不到的 UI 与运行时状态）
+  | "command_list"       // 列出所有可执行 Obsidian 命令（app.commands.listCommands）
+  | "command_run"        // 执行 Obsidian 命令（app.commands.executeCommandById；走审批）
+  | "workspace_get"      // 读当前工作区状态（打开的标签页/活动文件；.obsidian/workspace.json 被拒绝且非实时）
+  | "clipboard_write";   // 写入剪贴板（navigator.clipboard.writeText）
 
 export interface OutboxAction {
   id: string;
@@ -97,6 +102,11 @@ const ACTION_SCHEMAS: Record<ActionType, ParamSchema> = {
   plugin_list: { required: [], optional: [], extraForbidden: false },
   open_url: { required: ["url"], optional: [], extraForbidden: false },
   setting_get: { required: ["key"], optional: [], extraForbidden: false },
+  // V2.18 vault-api 第四批 schemas（命令/工作区/剪贴板）
+  command_list: { required: [], optional: [], extraForbidden: false },
+  command_run: { required: ["commandId"], optional: [], extraForbidden: false },
+  workspace_get: { required: [], optional: [], extraForbidden: false },
+  clipboard_write: { required: ["text"], optional: [], extraForbidden: false },
 };
 
 // ─── 路径安全校验 ─────────────────────────────────────────────────────────
@@ -214,6 +224,8 @@ const MODIFYING_ACTIONS: ActionType[] = [
   "vault_restore",
   // V2.18 vault-api 第二批写入类
   "rename_tag",
+  // V2.18 vault-api 第四批：命令执行可能有副作用/破坏性
+  "command_run",
 ];
 
 export function isModifying(type: string): boolean {
@@ -863,6 +875,86 @@ export async function executeAction(
       }
       return { key, value: key in settings ? settings[key] : null };
     }
+    // ─── V2.18 vault-api 第四批：命令/工作区/剪贴板 ─────────────────────────
+    case "command_list": {
+      // 列出所有可执行 Obsidian 命令（app.commands.listCommands，文件系统做不到）
+      const commandsApi = app as unknown as {
+        commands?: {
+          listCommands?: () => Array<{ id: string; name: string; icon?: string }>;
+          commands?: Record<string, { id: string; name: string }>;
+        };
+      };
+      let cmds: Array<{ id: string; name: string }> = [];
+      if (typeof commandsApi.commands?.listCommands === "function") {
+        cmds = commandsApi.commands.listCommands().map((c) => ({ id: c.id, name: c.name }));
+      } else if (commandsApi.commands?.commands) {
+        cmds = Object.values(commandsApi.commands.commands).map((c) => ({ id: c.id, name: c.name }));
+      }
+      cmds.sort((a, b) => a.id.localeCompare(b.id));
+      return { commands: cmds, total: cmds.length };
+    }
+    case "command_run": {
+      // 执行 Obsidian 命令（app.commands.executeCommandById；走审批因可能有副作用）
+      const commandId = String(p.commandId ?? "").trim();
+      if (!commandId) throw new Error("command_run: 缺少 commandId");
+      const commandsApi = app as unknown as {
+        commands?: { executeCommandById?: (id: string) => unknown };
+      };
+      if (typeof commandsApi.commands?.executeCommandById !== "function") {
+        throw new Error("command_run: 当前环境不支持 commands.executeCommandById");
+      }
+      const result = commandsApi.commands.executeCommandById(commandId);
+      return { commandId, executed: true, result: result ?? null };
+    }
+    case "workspace_get": {
+      // 读当前工作区状态（.obsidian/workspace.json 被拒绝且非实时）
+      const activeFile = app.workspace.getActiveFile();
+      const leaves = app.workspace.getLeavesOfType("markdown");
+      const openFiles: { path: string }[] = [];
+      for (const leaf of leaves) {
+        const view = (leaf as { view?: unknown }).view;
+        if (view instanceof MarkdownView && view.file) {
+          openFiles.push({ path: view.file.path });
+        }
+      }
+      return {
+        activeFilePath: activeFile ? activeFile.path : null,
+        openFiles,
+        totalTabs: openFiles.length,
+      };
+    }
+    case "clipboard_write": {
+      // 写入剪贴板（navigator.clipboard.writeText，文件系统做不到）
+      const text = String(p.text ?? "");
+      const nav = navigator as unknown as { clipboard?: { writeText?: (t: string) => Promise<void> } };
+      if (nav.clipboard && typeof nav.clipboard.writeText === "function") {
+        try {
+          await nav.clipboard.writeText(text);
+          return { length: text.length, written: true };
+        } catch {
+          // fallback 到 execCommand
+        }
+      }
+      // fallback：临时 textarea + document.execCommand('copy')
+      const doc = document as unknown as {
+        createElement: (tag: string) => HTMLTextAreaElement;
+        body?: { appendChild: (el: HTMLTextAreaElement) => void; removeChild: (el: HTMLTextAreaElement) => void };
+        execCommand?: (cmd: string) => boolean;
+      };
+      const ta = doc.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      if (doc.body) {
+        doc.body.appendChild(ta);
+        ta.select();
+        const ok = typeof doc.execCommand === "function" ? doc.execCommand("copy") : false;
+        doc.body.removeChild(ta);
+        if (!ok) throw new Error("clipboard_write: 剪贴板写入失败（execCommand fallback 也失败）");
+        return { length: text.length, written: true };
+      }
+      throw new Error("clipboard_write: 当前环境无剪贴板访问能力");
+    }
     default:
       throw new Error(`未知 action 类型: ${type}`);
   }
@@ -894,6 +986,8 @@ export function describeAction(action: OutboxAction): string {
       return `将从回收站恢复文件: ${p.path}`;
     case "rename_tag":
       return `将全 vault 重命名标签: #${p.oldTag} → #${p.newTag}${p.path ? `\n范围: ${p.path}` : ""}`;
+    case "command_run":
+      return `将执行 Obsidian 命令: ${p.commandId}`;
     default:
       return JSON.stringify(p, null, 2);
   }

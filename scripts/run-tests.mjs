@@ -198,6 +198,11 @@ const ACTION_SCHEMAS = {
   plugin_list: { required: [], optional: [], extraForbidden: false },
   open_url: { required: ["url"], optional: [], extraForbidden: false },
   setting_get: { required: ["key"], optional: [], extraForbidden: false },
+  // V2.18 vault-api 第四批 schemas（命令/工作区/剪贴板）
+  command_list: { required: [], optional: [], extraForbidden: false },
+  command_run: { required: ["commandId"], optional: [], extraForbidden: false },
+  workspace_get: { required: [], optional: [], extraForbidden: false },
+  clipboard_write: { required: ["text"], optional: [], extraForbidden: false },
 };
 
 function validateActionSchema(action) {
@@ -305,6 +310,13 @@ const schemaTests = [
   { action: { type: "open_url", params: { url: "https://example.com" } }, expect: null, desc: "open_url 正常" },
   { action: { type: "setting_get", params: {} }, expect: /缺少必填字段.*key/, desc: "setting_get 缺 key" },
   { action: { type: "setting_get", params: { key: "attachmentFolderPath" } }, expect: null, desc: "setting_get 正常" },
+  // V2.18 vault-api 第四批 schema 测试（命令/工作区/剪贴板）
+  { action: { type: "command_list", params: {} }, expect: null, desc: "command_list 无参正常" },
+  { action: { type: "command_run", params: {} }, expect: /缺少必填字段.*commandId/, desc: "command_run 缺 commandId" },
+  { action: { type: "command_run", params: { commandId: "editor:insert-tag" } }, expect: null, desc: "command_run 正常" },
+  { action: { type: "workspace_get", params: {} }, expect: null, desc: "workspace_get 无参正常" },
+  { action: { type: "clipboard_write", params: {} }, expect: /缺少必填字段.*text/, desc: "clipboard_write 缺 text" },
+  { action: { type: "clipboard_write", params: { text: "hello" } }, expect: null, desc: "clipboard_write 正常" },
 ];
 
 for (const t of schemaTests) {
@@ -4619,25 +4631,31 @@ if (runMode !== "all" && runMode !== "unit") {
         const hasPluginList = content.includes("plugin_list");
         const hasOpenUrl = content.includes("open_url");
         const hasSettingGet = content.includes("setting_get");
+        // V2.18 第四批 4 个 action（命令/工作区/剪贴板）
+        const hasCommandList = content.includes("command_list");
+        const hasCommandRun = content.includes("command_run");
+        const hasWorkspaceGet = content.includes("workspace_get");
+        const hasClipboardWrite = content.includes("clipboard_write");
         const hasHttpBridge = content.includes("bridge.json") && content.includes("/action");
         const hasFileSystemCaveat = content.includes("native Read/Write/Edit");
         const allActions = hasPropertyGet && hasPropertySet && hasTagsList && hasBacklinks
           && hasTasks && hasDailyRead && hasDailyAppend && hasVaultDelete && hasVaultRename
           && hasOutlinksGet && hasBrokenLinksList && hasHeadingsGet && hasVaultRestore
           && hasSearch && hasRenameTag && hasBookmarksList && hasMetadatacacheGet
-          && hasResolvedLinksMap && hasPluginList && hasOpenUrl && hasSettingGet;
+          && hasResolvedLinksMap && hasPluginList && hasOpenUrl && hasSettingGet
+          && hasCommandList && hasCommandRun && hasWorkspaceGet && hasClipboardWrite;
 
         // 单独验证 generateInitialVaultApiSkill 纯函数（不依赖文件系统）
         const generated = agentRuntimeWsMod.generateInitialVaultApiSkill();
         const generatedHasH1 = generated.startsWith("# vault-api");
         const generatedHasActionTable = generated.includes("### 结构化类") && generated.includes("### 危险操作类");
-        // V2.18 第三批：21 个 action 计数 + resolved_links_map 行
-        const generatedHas21Count = generated.includes("21 个 action");
-        const generatedHasResolvedLinksMap = generated.includes("resolved_links_map");
+        // V2.18 第四批：25 个 action 计数 + command_list 行
+        const generatedHas25Count = generated.includes("25 个 action");
+        const generatedHasCommandList = generated.includes("command_list");
 
-        addTest("V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 21 actions + HTTP 通道",
-          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable && generatedHas21Count && generatedHasResolvedLinksMap ? "pass" : "fail",
-          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable} gen21Count=${generatedHas21Count} genResolvedLinksMap=${generatedHasResolvedLinksMap}`);
+        addTest("V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 25 actions + HTTP 通道",
+          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable && generatedHas25Count && generatedHasCommandList ? "pass" : "fail",
+          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable} gen25Count=${generatedHas25Count} genCommandList=${generatedHasCommandList}`);
       }
 
       // Test K1-C: 轻量版 materializeToAllTargets — 单个 conflict 不影响其他 target
