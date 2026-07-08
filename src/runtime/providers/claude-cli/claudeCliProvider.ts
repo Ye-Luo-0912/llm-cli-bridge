@@ -13,6 +13,7 @@ import { ClaudeCliBackend } from "../../../claudeCliBackend";
 import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
 import type {
   EffectiveRunPlan,
+  NativeSessionRef,
   NormalizedRuntimeEvent,
   RunContext,
   RunInput,
@@ -82,7 +83,7 @@ export class ClaudeCliProvider implements RuntimeProvider {
     }
   }
 
-  async *resume(sessionId: string, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
+  async *resume(ref: NativeSessionRef, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     // CLI resume 通过 --resume <sessionId> 参数（commandProfile 已支持 claudeResumeSessionId）
     yield* this.run(ctx, settings);
   }

@@ -14,6 +14,7 @@ import * as path from "path";
 import type { ChatMessage, RunStatus } from "./types";
 import { redactSecrets } from "./workflowEvent";
 import { SessionState } from "./session";
+import type { NativeSessionRef } from "./runtime/core/types";
 
 /** sessions 目录相对 Vault 根的路径 */
 export const SESSIONS_DIR_REL = ".llm-bridge/sessions";
@@ -56,12 +57,13 @@ export interface PersistedSession {
   backendMode?: string;
   /** SDK 权限模式 */
   permissionMode?: string;
-  // V2.17-A Completion: provider session persistence
-  // codex app-server threadId/sessionId（keepLastSession resume 时回填给 provider，
-  // 让 thread/resume 恢复已有 thread 而不是隐式开新 thread）
-  /** provider 侧 thread id（codex app-server threadId） */
+  // latest native session only: 该会话绑定的 native session 引用
+  // 用于判断历史恢复是否允许 native continuation
+  nativeSessionRef?: NativeSessionRef;
+  // Legacy: provider session persistence（旧格式，读取兼容，不再用于 resume）
+  /** provider 侧 thread id（codex app-server threadId；legacy，不再用于 resume） */
   providerThreadId?: string;
-  /** provider 侧 session id（codex app-server sessionId） */
+  /** provider 侧 session id（codex app-server sessionId；legacy，不再用于 resume） */
   providerSessionId?: string;
 }
 
@@ -110,11 +112,8 @@ export interface SessionExtras {
   effortLevel?: string;
   backendMode?: string;
   permissionMode?: string;
-  // V2.17-A Completion: provider session persistence
-  /** provider 侧 thread id（codex app-server threadId；keepLastSession resume 时回填） */
-  providerThreadId?: string;
-  /** provider 侧 session id（codex app-server sessionId；keepLastSession resume 时回填） */
-  providerSessionId?: string;
+  // latest native session only: 该会话绑定的 native session 引用
+  nativeSessionRef?: NativeSessionRef;
 }
 
 /**
@@ -240,9 +239,8 @@ export async function saveSession(
       ...(extras?.effortLevel ? { effortLevel: extras.effortLevel } : {}),
       ...(extras?.backendMode ? { backendMode: extras.backendMode } : {}),
       ...(extras?.permissionMode ? { permissionMode: extras.permissionMode } : {}),
-      // V2.17-A Completion: provider session persistence（codex threadId/sessionId）
-      ...(extras?.providerThreadId ? { providerThreadId: extras.providerThreadId } : {}),
-      ...(extras?.providerSessionId ? { providerSessionId: extras.providerSessionId } : {}),
+      // latest native session only: native session 引用（用于判断历史恢复是否允许 continuation）
+      ...(extras?.nativeSessionRef ? { nativeSessionRef: extras.nativeSessionRef } : {}),
     };
 
     // 原子写：tmp + rename
@@ -357,9 +355,11 @@ export function migrateSession(parsed: unknown): PersistedSession | null {
     ...(typeof p.effortLevel === "string" ? { effortLevel: p.effortLevel } : {}),
     ...(typeof p.backendMode === "string" ? { backendMode: p.backendMode } : {}),
     ...(typeof p.permissionMode === "string" ? { permissionMode: p.permissionMode } : {}),
-    // V2.17-A Completion: provider session persistence（codex threadId/sessionId）
+    // Legacy: provider session persistence（旧格式兼容读取）
     ...(typeof p.providerThreadId === "string" ? { providerThreadId: p.providerThreadId } : {}),
     ...(typeof p.providerSessionId === "string" ? { providerSessionId: p.providerSessionId } : {}),
+    // latest native session only: native session 引用
+    ...(p.nativeSessionRef ? { nativeSessionRef: p.nativeSessionRef as NativeSessionRef } : {}),
   };
 }
 
@@ -466,8 +466,13 @@ async function pruneOldSessions(vaultPath: string): Promise<void> {
 
 function providerIdsFromSession(session: PersistedSession | null): string[] {
   if (!session) return [];
-  const ids = [session.providerThreadId, session.providerSessionId]
-    .filter((value): value is string => typeof value === "string" && isSafeProviderSessionId(value));
+  // 优先用 nativeSessionRef（新格式），兼容旧 providerThreadId/providerSessionId
+  const ids = [
+    session.nativeSessionRef?.threadId,
+    session.nativeSessionRef?.sessionId,
+    session.providerThreadId,
+    session.providerSessionId,
+  ].filter((value): value is string => typeof value === "string" && isSafeProviderSessionId(value));
   return Array.from(new Set(ids));
 }
 

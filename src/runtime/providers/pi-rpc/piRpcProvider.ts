@@ -20,6 +20,7 @@ import type { LLMBridgeSettings } from "../../../types";
 import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
 import type {
   EffectiveRunPlan,
+  NativeSessionRef,
   NormalizedRuntimeEvent,
   RunContext,
   RunInput,
@@ -379,7 +380,7 @@ export class PiRpcProvider implements RuntimeProvider {
     }
   }
 
-  async *resume(_sessionId: string, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
+  async *resume(_ref: NativeSessionRef, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     // Pi spike 不支持 resume，直接复用 run 路径
     yield* this.run(ctx, settings);
   }

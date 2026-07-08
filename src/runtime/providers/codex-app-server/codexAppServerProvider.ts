@@ -33,6 +33,7 @@ import type {
   RunInput,
   RuntimeProvider,
   ProviderId,
+  NativeSessionRef,
 } from "../../core/types";
 import { CodexAppServerEventMapper } from "./codexAppServerEventMapper";
 import { CodexAppServerApprovalMapper } from "./codexAppServerApprovalMapper";
@@ -377,6 +378,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
         this.sessionMapper.register(ctx.bridgeSessionId, threadId, sessionId);
       }
       push(eventMapper.mapThreadStarted(threadId, sessionId));
+      // latest native session only: 发 native_session_bound 让 UI 绑定 activeNativeSessionRef
+      push(eventMapper.mapNativeSessionBound(this.providerId, threadId, sessionId));
 
       // 3. turn/start（input 为 content item array）
       turnSubmitted = true;
@@ -423,14 +426,11 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     this.currentRunId = null;
   }
 
-  async *resume(sessionId: string, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
-    // V2.17-A Completion 主线闭环：resume 走 thread/resume，不再塞 resumeSessionId 进 thread/start。
-    // 决策：sessionMapper.hasCodexThread(sessionId|bridgeSessionId) → thread/resume 路径；否则退化为 thread/start。
-    // 优先用 bridgeSessionId 查找（会话生命周期内稳定）；其次用 sessionId（兼容旧调用）。
-    const lookupKey = ctx.bridgeSessionId ?? sessionId;
-    const codexThread = this.sessionMapper.getCodexThread(lookupKey);
+  async *resume(ref: NativeSessionRef, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
+    // latest native session only: 直接使用 ref.threadId 进行 thread/resume。
+    // 如果 ref 无 threadId（非 codex ref），退化为 thread/start。
+    const codexThread = ref.threadId;
     if (!codexThread) {
-      // 无映射：退化为新 thread（保持向后兼容；记录为 provider 行为，不作为主路径）
       yield* this.run(ctx, settings);
       return;
     }
@@ -539,16 +539,14 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       );
       const resumedThreadId = resumeResult.thread.id;
       const resumedSessionId = resumeResult.thread.sessionId;
-      // V2.17-A Completion: 同步更新 sessionMapper（runId + bridgeSessionId + 原始 lookupKey），
-      // 保证后续 resume 仍能找到最新的 threadId。
+      // 同步更新 sessionMapper（runId + bridgeSessionId）
       this.sessionMapper.register(ctx.runId, resumedThreadId, resumedSessionId);
       if (ctx.bridgeSessionId && ctx.bridgeSessionId !== ctx.runId) {
         this.sessionMapper.register(ctx.bridgeSessionId, resumedThreadId, resumedSessionId);
       }
-      if (lookupKey !== ctx.runId && lookupKey !== ctx.bridgeSessionId) {
-        this.sessionMapper.register(lookupKey, resumedThreadId, resumedSessionId);
-      }
       push(eventMapper.mapThreadResumed(resumedThreadId, resumedSessionId));
+      // latest native session only: 发 native_session_bound 让 UI 更新 activeNativeSessionRef
+      push(eventMapper.mapNativeSessionBound(this.providerId, resumedThreadId, resumedSessionId));
 
       // 3. turn/start（input 为 content item array）
       turnSubmitted = true;
@@ -927,18 +925,14 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
   }
 
   /**
-   * V2.17-A Completion: 从持久化的 providerThreadId/providerSessionId 回填 sessionMapper。
+   * latest native session only: 从持久化的 lastNativeSessionRef 回填 provider 状态。
    *
-   * keepLastSession 恢复时由 BridgeSessionImpl 调用，使后续 resume() 能在 sessionMapper
-   * 命中 thread/resume 路径，而不是退化为新 thread。
-   *
-   * 仅在 threadId 非空且 sessionMapper 尚无该 bridgeSessionId 映射时注册，
-   * 避免覆盖正在运行的真实映射。
+   * keepLastSession 恢复时由 BridgeSessionImpl 调用。
+   * resume() 直接使用 ref.threadId，不再依赖 sessionMapper 查找，
+   * 因此此方法无需注册映射（保持为 no-op，仅满足接口契约）。
    */
-  restoreProviderSession(bridgeSessionId: string, providerThreadId?: string, providerSessionId?: string): void {
-    if (!providerThreadId) return;
-    if (this.sessionMapper.hasCodexThread(bridgeSessionId)) return;
-    this.sessionMapper.register(bridgeSessionId, providerThreadId, providerSessionId);
+  restoreActiveNativeSessionRef(_ref?: NativeSessionRef): void {
+    // no-op: resume() uses ref.threadId directly; sessionMapper is internal bookkeeping only
   }
 
   // ---------- 进程/客户端工厂（注入缝） ----------

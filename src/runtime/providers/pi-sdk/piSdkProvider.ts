@@ -41,6 +41,7 @@ import type { LLMBridgeSettings, PiToolMode } from "../../../types";
 import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
 import type {
   EffectiveRunPlan,
+  NativeSessionRef,
   NormalizedRuntimeEvent,
   RunContext,
   RunInput,
@@ -1353,7 +1354,7 @@ export class PiSdkProvider implements RuntimeProvider {
     }
   }
 
-  async *resume(_sessionId: string, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
+  async *resume(_ref: NativeSessionRef, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     // Pi SDK spike：resume 复用 run 路径（SDK 内部通过 sessionManager 处理持久化）
     yield* this.run(ctx, settings);
   }

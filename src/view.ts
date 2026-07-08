@@ -21,7 +21,7 @@ import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, pre
 import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
 import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
-import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment, AssistantTurnView, TurnTimelineNode } from "./runtime/core/types";
+import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment, AssistantTurnView, TurnTimelineNode, NativeSessionRef } from "./runtime/core/types";
 import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
 import { buildCodexRunViewModel, formatCodexRunValue, type CodexRunApprovalGate, type CodexRunChangeGroup, type CodexRunDiagnosticsGroup, type CodexRunFeedItem, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
@@ -238,15 +238,11 @@ export class LLMBridgeView extends ItemView {
   private session: BridgeSessionImpl | null = null;
   private sessionMode: BackendMode | null = null;
   /**
-   * V2.17-A Completion: provider session persistence
-   *
-   * 从持久化 session 文件恢复出来的 providerThreadId/providerSessionId。
-   * getSession() 重建 BridgeSession 时调用 restoreProviderSession(...) 回填到 provider sessionMapper，
-   * 使下一次 resume() 命中 thread/resume 路径而不是隐式新开 thread。
+   * latest native session only: 从持久化 session 恢复出来的 activeNativeSessionRef。
+   * getSession() 重建 BridgeSession 时调用 restoreActiveNativeSessionRef(ref) 回填。
    * 新会话 / doNewSession 时清空。
    */
-  private restoredProviderThreadId: string | undefined = undefined;
-  private restoredProviderSessionId: string | undefined = undefined;
+  private restoredActiveNativeSessionRef: NativeSessionRef | undefined = undefined;
   /** P3: 当前会话是否为恢复的历史会话（true=恢复，false=fresh）。用于 UI 标注"恢复的会话"。 */
   private sessionResumed: boolean = false;
   /** V2.16-B: 实际 runtime 标签（供 UI 显示，区分 auto→SDK / auto→CLI fallback） */
@@ -2013,11 +2009,10 @@ export class LLMBridgeView extends ItemView {
       // V17-F1.1 任务 C：注入 pluginDir（main.ts onload 时从 manifest.dir 获取）
       this.plugin.pluginDir,
     );
-    // V2.17-A Completion: provider session persistence
-    // 重建 BridgeSession 时把持久化的 providerThreadId/SessionId 回填到 provider sessionMapper，
-    // 使下一次 resume() 命中 thread/resume 路径而不是隐式新开 thread。
-    if (this.restoredProviderThreadId || this.restoredProviderSessionId) {
-      sess.restoreProviderSession(this.restoredProviderThreadId, this.restoredProviderSessionId);
+    // latest native session only: 重建 BridgeSession 时回填 activeNativeSessionRef
+    // 使下一次 run() 命中 thread/resume 路径而不是隐式新开 thread。
+    if (this.restoredActiveNativeSessionRef) {
+      sess.restoreActiveNativeSessionRef(this.restoredActiveNativeSessionRef);
     }
     this.session = sess;
     this.sessionMode = mode;
@@ -5135,12 +5130,11 @@ export class LLMBridgeView extends ItemView {
       // P3-C: debugView 是 developer mode 的唯一调试入口。
       // 汇总 rawProviderEvents / effectiveRunPlan / provider session / attachmentPlan /
       // commandPreview / workflowTrace / sdkEvents，不散落在 appendMsgDetails。
-      // 普通用户态不显示 providerThreadId / providerSessionId / raw events / effectiveRunPlan。
+      // 普通用户态不显示 nativeSessionRef / raw events / effectiveRunPlan。
       const debug: AgentRunDebugView | undefined = developerMode ? {
         commandPreview: msg.commandPreview,
         effectiveRunPlan: msg.effectiveRunPlan,
-        providerThreadId: this.session?.providerThreadId,
-        providerSessionId: this.session?.providerSessionId,
+        nativeSessionRef: this.session?.activeNativeSessionRef,
         sessionResumed: this.sessionResumed,
         attachmentPlan: msg.attachmentPlan,
         rawProviderEvents: msg.assistantTurnView.rawProviderEvents,
@@ -6959,14 +6953,19 @@ export class LLMBridgeView extends ItemView {
     if (debug.effectiveRunPlan) {
       this.appendEffectiveRunPlan(parent, debug.effectiveRunPlan);
     }
-    // provider session audit
-    if (debug.providerThreadId || debug.providerSessionId) {
-      const auditBody = this.createCollapsibleSection(parent, "provider session", "llm-bridge-provider-session-audit", false);
+    // native session audit
+    if (debug.nativeSessionRef) {
+      const auditBody = this.createCollapsibleSection(parent, "native session", "llm-bridge-native-session-audit", false);
       const lines: string[] = [];
-      if (debug.providerThreadId) lines.push(`providerThreadId: ${debug.providerThreadId}`);
-      if (debug.providerSessionId) lines.push(`providerSessionId: ${debug.providerSessionId}`);
+      const ref = debug.nativeSessionRef;
+      lines.push(`providerId: ${ref.providerId}`);
+      lines.push(`kind: ${ref.kind}`);
+      if (ref.threadId) lines.push(`threadId: ${ref.threadId}`);
+      if (ref.sessionId) lines.push(`sessionId: ${ref.sessionId}`);
+      lines.push(`updatedAt: ${ref.updatedAt}`);
+      if (ref.sessionFileId) lines.push(`sessionFileId: ${ref.sessionFileId}`);
       if (debug.sessionResumed) lines.push("sessionResumed: true（恢复的会话）");
-      auditBody.createEl("pre", { cls: "llm-bridge-provider-session-audit-text", text: lines.join("\n") });
+      auditBody.createEl("pre", { cls: "llm-bridge-native-session-audit-text", text: lines.join("\n") });
     }
     // attachment audit
     if (debug.attachmentPlan) {
@@ -7902,14 +7901,14 @@ export class LLMBridgeView extends ItemView {
     this.currentSessionId = null; // 新会话不绑定旧 id，下次运行将生成新 id
     this.messagesFoldExpanded = false; // V2.7: 重置折叠状态
     this.sessionState = createNewSession();
-    // V2.17-A Completion: provider session persistence — 新会话清空回填缓存，
-    // 避免把旧会话的 codex threadId 带到新 BridgeSession 导致误 resume。
-    this.restoredProviderThreadId = undefined;
-    this.restoredProviderSessionId = undefined;
+    // latest native session only: 新会话清空 activeNativeSessionRef 回填缓存，
+    // 避免把旧会话的 native session 带到新 BridgeSession 导致误 resume。
+    this.restoredActiveNativeSessionRef = undefined;
     this.sessionResumed = false; // P3: 新会话是 fresh
-    // V2.16-D: 新聊天清除 lastActiveSessionId（新会话不自动恢复）
+    // V2.16-D: 新聊天清除 lastActiveSessionId + lastNativeSessionRef（新会话不自动恢复）
     if (this.plugin.settings.keepLastSession) {
       this.plugin.settings.lastActiveSessionId = "";
+      this.plugin.settings.lastNativeSessionRef = undefined;
       void this.plugin.saveSettings();
     }
     this.renderEmptyState();
@@ -8637,13 +8636,19 @@ export class LLMBridgeView extends ItemView {
     await this.restoreContextAndSnippets(session);
     this.session = null;
     this.sessionMode = null;
-    // V2.17-A Completion: provider session persistence
-    // P3: 标记为恢复的会话
+    // latest native session only: restoreSession 只恢复 transcript。
+    // 只有当 restored session.id === lastNativeSessionRef.sessionFileId 时才允许 native continuation。
+    // 其他历史记录标记为 transcript-only（activeNativeSessionRef = undefined）。
     this.sessionResumed = true;
-    // 重置 session 后立即把持久化的 providerThreadId/SessionId 回填到新 BridgeSession，
-    // 使下一次 resume() 命中 thread/resume 路径而不是隐式新开 thread。
-    this.restoredProviderThreadId = session.providerThreadId;
-    this.restoredProviderSessionId = session.providerSessionId;
+    const lastRef = this.plugin.settings.lastNativeSessionRef;
+    if (lastRef && lastRef.sessionFileId === session.id) {
+      // 恢复的是最后一次活动的 native session → 允许 continuation
+      // providerId 匹配检查在 run() 中执行（session.providerId vs ref.providerId）
+      this.restoredActiveNativeSessionRef = lastRef;
+    } else {
+      // 历史会话 → transcript-only，下一轮 thread/start 新 native session
+      this.restoredActiveNativeSessionRef = undefined;
+    }
     this.refreshAllChips();
     if (s.keepLastSession) {
       s.lastActiveSessionId = session.id;
@@ -8781,10 +8786,16 @@ export class LLMBridgeView extends ItemView {
     this.sessionMode = null;
     // P3: 标记为恢复的会话（静默恢复也需要标注）
     this.sessionResumed = true;
-    // V2.17-A Completion: provider session persistence
-    // keepLastSession 静默恢复也回填 providerThreadId/SessionId。
-    this.restoredProviderThreadId = session.providerThreadId;
-    this.restoredProviderSessionId = session.providerSessionId;
+    // latest native session only: keepLastSession 静默恢复。
+    // 只有当 restored session.id === lastNativeSessionRef.sessionFileId 时才允许 native continuation。
+    const lastRef = this.plugin.settings.lastNativeSessionRef;
+    if (lastRef && lastRef.sessionFileId === session.id) {
+      // 恢复的是最后一次活动的 native session → 允许 continuation
+      this.restoredActiveNativeSessionRef = lastRef;
+    } else {
+      // lastNativeSessionRef 不匹配或不存在 → transcript-only
+      this.restoredActiveNativeSessionRef = undefined;
+    }
     this.refreshAllChips();
     this.renderMessagesFromHistory();
     this.refreshSessionState();
@@ -9508,7 +9519,13 @@ export class LLMBridgeView extends ItemView {
     // - WorkflowEvent 映射仅保留为 legacy log（sdkEvents/timelineEvents），不作主 UI 数据源
     let terminalStatus: RunStatus | null = null;
     let terminalResult: RunResult | null = null;
-    const runIter = session.start(runInput, settings);
+    // latest native session only: 如果 activeNativeSessionRef 存在且 providerId 匹配 → resume（thread/resume）；否则 start（thread/start）
+    // 不同 agent 的 native session 不互通（providerId 不匹配时 transcript-only）
+    const activeRef = session.activeNativeSessionRef;
+    const canResume = activeRef && activeRef.providerId === session.providerId;
+    const runIter = canResume
+      ? session.resume(activeRef, runInput, settings)
+      : session.start(runInput, settings);
     const turnBuilder = new AssistantTurnViewBuilder(assistantId, session.providerId, startedAt);
 
     // runHandle：把 cancel 透传给 BridgeSession（stop 按钮用）
@@ -9600,6 +9617,16 @@ export class LLMBridgeView extends ItemView {
     },
   ): void {
     const p = ev.payload;
+
+    // latest native session only: native_session_bound → 绑定 activeNativeSessionRef
+    // 在 turnBuilder.ingest 之前处理，确保后续 saveSession 能拿到最新 ref。
+    if (p.kind === "native_session_bound") {
+      const ref = p.ref;
+      // 更新 BridgeSession 的 activeNativeSessionRef（provider 同步已在 BridgeSessionImpl.resume/start 中完成）
+      if (this.session) {
+        this.session.restoreActiveNativeSessionRef(ref);
+      }
+    }
 
     // 1. 首次 stdout/stderr 记录到 timeline/workflow log（legacy 兼容）
     if (p.kind === "stdout_delta" && !ctx.sawStdoutRef()) {
@@ -9853,9 +9880,8 @@ export class LLMBridgeView extends ItemView {
         effortLevel: s.effortLevel,
         backendMode: s.backendMode,
         permissionMode: s.claudePermissionMode,
-        // V2.17-A Completion: provider session persistence（codex threadId/sessionId）
-        providerThreadId: this.session?.providerThreadId,
-        providerSessionId: this.session?.providerSessionId,
+        // latest native session only: 保存 nativeSessionRef 到 session 文件
+        nativeSessionRef: this.session?.activeNativeSessionRef,
       };
       const savedId = await saveSession(
         vaultPath,
@@ -9867,6 +9893,13 @@ export class LLMBridgeView extends ItemView {
       );
       if (savedId) {
         this.currentSessionId = savedId;
+        // latest native session only: 更新 lastNativeSessionRef（带 sessionFileId 用于 continuation 判定）
+        if (this.session?.activeNativeSessionRef) {
+          s.lastNativeSessionRef = {
+            ...this.session.activeNativeSessionRef,
+            sessionFileId: savedId,
+          };
+        }
         // V2.16-D: 更新 lastActiveSessionId 用于会话保持
         if (s.keepLastSession) {
           s.lastActiveSessionId = savedId;

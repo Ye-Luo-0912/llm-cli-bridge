@@ -572,6 +572,10 @@ export class AssistantTurnViewBuilder {
         });
         break;
       }
+
+      case "native_session_bound":
+        // native_session_bound 不直接展示在 turn view；由 view.ts 处理 ref 绑定
+        break;
     }
 
     // V16.4-D: thinking 聚合基于稳定 key (messageId)，无需 lastThinkingTick 维护。

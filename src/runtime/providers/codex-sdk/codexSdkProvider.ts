@@ -15,6 +15,7 @@
 
 import type {
   EffectiveRunPlan,
+  NativeSessionRef,
   NormalizedRuntimeEvent,
   RunContext,
   RunInput,
@@ -80,7 +81,7 @@ export class CodexSdkProvider implements RuntimeProvider {
     // 占位 — 无操作
   }
 
-  async *resume(_sessionId: string, _ctx: RunContext, _settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
+  async *resume(_ref: NativeSessionRef, _ctx: RunContext, _settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     yield {
       providerId: "codex-sdk",
       timestamp: new Date().toISOString(),
@@ -88,7 +89,7 @@ export class CodexSdkProvider implements RuntimeProvider {
     };
   }
 
-  restoreProviderSession?(_bridgeSessionId: string, _providerThreadId?: string, _providerSessionId?: string): void {
+  restoreActiveNativeSessionRef?(_ref?: NativeSessionRef): void {
     // 占位 — 无操作
   }
 }

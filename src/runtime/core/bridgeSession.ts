@@ -29,6 +29,8 @@ import type {
   RunInput,
   RuntimeProvider,
   ProviderId,
+  NativeSessionRef,
+  RunContext,
 } from "./types";
 import type { PermissionBoundary } from "./types";
 import { createPermissionBoundary, PermissionBoundaryImpl } from "./permissionBoundary";
@@ -186,15 +188,10 @@ export class BridgeSessionImpl implements BridgeSession {
   readonly displayLabel: string;
 
   /**
-   * provider 侧 thread id（codex app-server threadId）。
-   * run/resume 完成后由 syncProviderThreadFromMapper() 同步。
+   * 当前活动的 native session 引用（latest native session only 模型）。
+   * thread/start 或 thread/resume 成功后由 native_session_bound 事件绑定。
    */
-  private _providerThreadId: string | undefined;
-  /**
-   * provider 侧 session id（codex app-server sessionId）。
-   * run/resume 完成后由 syncProviderThreadFromMapper() 同步。
-   */
-  private _providerSessionId: string | undefined;
+  private _activeNativeSessionRef: NativeSessionRef | undefined;
 
   private currentRunId: string | null = null;
 
@@ -207,73 +204,61 @@ export class BridgeSessionImpl implements BridgeSession {
     this.userInput = createUserInputBoundary();
   }
 
-  get providerThreadId(): string | undefined {
-    return this._providerThreadId;
-  }
-
-  get providerSessionId(): string | undefined {
-    return this._providerSessionId;
+  get activeNativeSessionRef(): NativeSessionRef | undefined {
+    return this._activeNativeSessionRef;
   }
 
   async *start(input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.currentRunId = runId;
+    // 新 run：清除旧 ref（start = 新 thread）
+    this._activeNativeSessionRef = undefined;
     try {
       const plan = this.provider.buildPlan(input, settings);
-      const ctx = {
+      const ctx: RunContext = {
         plan,
         promptPackage: input.promptPackage,
         permission: this.permission,
         userInput: this.userInput,
         runId,
         bridgeSessionId: this.sessionId,
-        resumeSessionId: undefined as string | undefined,
+        activeNativeSessionRef: undefined,
         sdkStreamingInput: input.sdkStreamingInput,
         runtimeFileToolAdapter: input.runtimeFileToolAdapter,
       };
       yield* this.provider.run(ctx, settings);
     } finally {
-      // V2.17-A Completion: run 完成后同步 provider thread/session（供 keepLastSession resume 用）
-      this.syncProviderThreadFromMapper();
-      // P5: currentRunId 清理移进 finally，确保 buildPlan/run 抛错时也清理（避免泄漏）
       this.currentRunId = null;
     }
   }
 
   cancel(runId: string): void {
-    // H-1: 先 cancel pending approvals/userInput，再 cancel provider（避免 client closed 后 approval 丢失）
     this.permission.cancelAllPending();
     this.userInput.cancelAllPending();
     this.provider.cancel(runId);
-    this.currentRunId = null; // P5: 清理 session 侧 currentRunId
+    this.currentRunId = null;
   }
 
   /**
-   * V2.17-A Completion: 从持久化的 providerThreadId/providerSessionId 回填 provider session 状态。
+   * 从持久化的 lastNativeSessionRef 回填 activeNativeSessionRef。
    *
-   * keepLastSession 恢复时由 UI 调用：把 session 文件中保存的 codex threadId/sessionId
-   * 注入 provider 的 sessionMapper（若 provider 支持），使后续 resume() 命中 thread/resume 路径。
-   * 同时更新本会话的 _providerThreadId/_providerSessionId 缓存。
-   * 非 codex provider 无 restoreProviderSession 方法时静默跳过。
+   * keepLastSession 恢复时由 UI 调用。
+   * 传入 undefined 时清空（transcript-only 恢复）。
    */
-  restoreProviderSession(providerThreadId?: string, providerSessionId?: string): void {
-    if (providerThreadId) this._providerThreadId = providerThreadId;
-    if (providerSessionId) this._providerSessionId = providerSessionId;
-    const providerWithRestore = this.provider as RuntimeProvider & {
-      restoreProviderSession?(bridgeSessionId: string, threadId?: string, sessionId?: string): void;
-    };
-    if (typeof providerWithRestore.restoreProviderSession === "function") {
-      providerWithRestore.restoreProviderSession(this.sessionId, providerThreadId, providerSessionId);
+  restoreActiveNativeSessionRef(ref?: NativeSessionRef): void {
+    this._activeNativeSessionRef = ref;
+    if (ref) {
+      const providerWithRestore = this.provider as RuntimeProvider & {
+        restoreActiveNativeSessionRef?(r?: NativeSessionRef): void;
+      };
+      if (typeof providerWithRestore.restoreActiveNativeSessionRef === "function") {
+        providerWithRestore.restoreActiveNativeSessionRef(ref);
+      }
     }
   }
 
   /**
    * V16.4-F2: 用最新 settings 重建 PermissionBoundary。
-   *
-   * 仅在无 run 进行时（currentRunId === null）且 mode 变化时才重建：
-   * - 当前 run 已持有 ctx.permission（旧 boundary 引用），不受影响；
-   * - 下一次 run 调用 start/resume 时读取 this.permission（新 boundary），使用新 mode；
-   * - session allow/deny 缓存随重建丢失（mode 切换意味着权限策略改变）。
    */
   rebuildPermissionBoundary(settings: LLMBridgeSettings): void {
     if (this.currentRunId !== null) return;
@@ -281,49 +266,27 @@ export class BridgeSessionImpl implements BridgeSession {
     this.permission = createPermissionBoundary(settings.claudePermissionMode, settings.permissionPolicy);
   }
 
-  async *resume(sessionId: string, input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
+  async *resume(ref: NativeSessionRef, input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     const runId = `resume-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     this.currentRunId = runId;
+    this._activeNativeSessionRef = ref;
     try {
       const plan = this.provider.buildPlan(input, settings);
-      const ctx = {
+      const ctx: RunContext = {
         plan,
         promptPackage: input.promptPackage,
         permission: this.permission,
         userInput: this.userInput,
         runId,
         bridgeSessionId: this.sessionId,
-        resumeSessionId: sessionId,
+        activeNativeSessionRef: ref,
         sdkStreamingInput: input.sdkStreamingInput,
         runtimeFileToolAdapter: input.runtimeFileToolAdapter,
       };
-      yield* this.provider.resume(sessionId, ctx, settings);
+      yield* this.provider.resume(ref, ctx, settings);
     } finally {
-      // V2.17-A Completion: resume 完成后同步 provider thread/session（thread/resume 返回的新 threadId）
-      this.syncProviderThreadFromMapper();
-      // P5: currentRunId 清理移进 finally，确保 buildPlan/resume 抛错时也清理（避免泄漏）
       this.currentRunId = null;
     }
-  }
-
-  /**
-   * 从 provider 的 sessionMapper 同步 providerThreadId/providerSessionId。
-   *
-   * codex-app-server provider 暴露 getSessionMapper()；非 codex provider 无此方法时跳过。
-   * 同步后 BridgeSession.providerThreadId / providerSessionId 可供 UI 持久化与 keepLastSession resume 用。
-   */
-  private syncProviderThreadFromMapper(): void {
-    const providerWithMapper = this.provider as RuntimeProvider & {
-      getSessionMapper?: () => {
-        getProviderThreadId?(bridgeSessionId: string): string | undefined;
-        getProviderSessionId?(bridgeSessionId: string): string | undefined;
-      };
-    };
-    if (typeof providerWithMapper.getSessionMapper !== "function") return;
-    const mapper = providerWithMapper.getSessionMapper();
-    if (!mapper) return;
-    this._providerThreadId = mapper.getProviderThreadId?.(this.sessionId);
-    this._providerSessionId = mapper.getProviderSessionId?.(this.sessionId);
   }
 }
 

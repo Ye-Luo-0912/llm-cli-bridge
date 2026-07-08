@@ -310,6 +310,7 @@ export function mapNormalizedToWorkflowEvent(
     case "stdout_delta":
     case "stderr_delta":
     case "session_started":
+    case "native_session_bound":
       return null;
   }
 }

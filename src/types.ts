@@ -1,5 +1,7 @@
 // LLM CLI Bridge — 类型与默认设置
 
+import type { NativeSessionRef } from "./runtime/core/types";
+
 export type AgentType = "claude" | "codex" | "custom";
 
 // 会话模式：fresh=新会话；continue=继续最近会话；resume=恢复指定会话
@@ -308,6 +310,9 @@ export interface LLMBridgeSettings {
   keepLastSession: boolean;
   // V2.16-D: 上次活动会话 id（运行/保存时更新；onOpen 时据此恢复）
   lastActiveSessionId: string;
+  // latest native session only: 最后一次成功的 native session 引用（跨进程恢复用）
+  // keepLastSession 恢复时：如果 restored session.id === lastNativeSessionRef.sessionFileId → 允许 continuation
+  lastNativeSessionRef?: NativeSessionRef;
   // V2.16-D: 开发者模式。默认关闭；开启后才展示 raw command/workflow/log。
   developerMode: boolean;
 }

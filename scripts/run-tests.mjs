@@ -2734,10 +2734,11 @@ if (runMode !== "all" && runMode !== "unit") {
 
       // Bug 3: BridgeSession currentRunId 清理移进 finally
       const sessionSrc = readFileSync(join(PROJECT_ROOT, "src/runtime/core/bridgeSession.ts"), "utf8");
-      // P5: currentRunId 清理在 syncProviderThreadFromMapper 之后（finally 块内），不在 try-finally 之外
-      const syncIdx = sessionSrc.indexOf("this.syncProviderThreadFromMapper();");
-      const nullAfterSync = sessionSrc.indexOf("this.currentRunId = null;", syncIdx);
-      const startFinallyOk = nullAfterSync > syncIdx && syncIdx > 0;
+      // latest native session only: syncProviderThreadFromMapper 已删除；
+      // 改为验证 currentRunId = null 出现在 } finally { 之后（start 与 resume 两处）
+      const finallyIdx = sessionSrc.indexOf("} finally {");
+      const nullAfterFinally = finallyIdx > 0 ? sessionSrc.indexOf("this.currentRunId = null;", finallyIdx) : -1;
+      const startFinallyOk = nullAfterFinally > finallyIdx && finallyIdx > 0;
       // cancel 方法包含 currentRunId = null
       const cancelIdx = sessionSrc.indexOf("cancel(runId: string)");
       const cancelRegion = sessionSrc.slice(cancelIdx, cancelIdx + 300);
@@ -12080,8 +12081,7 @@ if (!runV25Unit) {
         writeFileSync(nativeIndex, `${JSON.stringify({ id: providerId, thread_name: "mapped" })}\n${JSON.stringify({ id: "019f9999-keep-7222-8333-abcdefabcdef", thread_name: "keep" })}\n`, "utf8");
         const state = { title: "Codex provider cleanup", status: "completed", messageCount: 0, startedAt: null };
         const id = await saveSession(tempSessionsV25Dir, state, [], "codex", undefined, {
-          providerThreadId: providerId,
-          providerSessionId: providerId,
+          nativeSessionRef: { providerId: "codex-app-server", kind: "codex-thread", threadId: providerId, sessionId: providerId, updatedAt: new Date().toISOString() },
         });
         const result = await deleteSessionWithProviderArtifacts(tempSessionsV25Dir, id);
         const bridgeGone = (await loadSession(tempSessionsV25Dir, id)) === null;
@@ -12112,7 +12112,7 @@ if (!runV25Unit) {
         const nativeIndex = join(tempCodexHome, "session_index.jsonl");
         writeFileSync(nativeIndex, `${JSON.stringify({ id: providerId, thread_name: "mapped" })}\n${JSON.stringify({ id: "019f9999-keep-7333-8444-fedcbafedcba", thread_name: "keep" })}\n`, "utf8");
         const state = { title: "Codex provider clear", status: "completed", messageCount: 0, startedAt: null };
-        await saveSession(tempVault, state, [], "codex", undefined, { providerThreadId: providerId });
+        await saveSession(tempVault, state, [], "codex", undefined, { nativeSessionRef: { providerId: "codex-app-server", kind: "codex-thread", threadId: providerId, sessionId: providerId, updatedAt: new Date().toISOString() } });
         await saveSession(tempVault, { ...state, title: "plain local" }, [], "claude");
         const result = await clearSessionsWithProviderArtifacts(tempVault);
         const localList = await listSessions(tempVault);
@@ -21638,7 +21638,9 @@ if (!runCodexSchemaAlignment) {
 
       const fake2 = new FakeAppServerProcess();
       const provider2 = new FakeProvider(fake2);
-      provider2.restoreProviderSession(bridgeSessionId, persistedThreadId, persistedSessionId);
+      // latest native session only: resume 直接使用 ref.threadId，restoreActiveNativeSessionRef 为 no-op（保留调用以验证 API 存在）
+      const restoredRef = { providerId: "codex-app-server", kind: "codex-thread", threadId: persistedThreadId, sessionId: persistedSessionId, updatedAt: new Date().toISOString() };
+      provider2.restoreActiveNativeSessionRef(restoredRef);
 
       // ===== Run 2: provider.resume() 全路径 =====
       // fake2 记录 thread/resume + turn/start 请求参数以断言
@@ -21661,7 +21663,7 @@ if (!runCodexSchemaAlignment) {
 
       const ctx2 = makeCtx("run-2", bridgeSessionId);
       const events2 = [];
-      for await (const ev of provider2.resume(bridgeSessionId, ctx2, settings)) {
+      for await (const ev of provider2.resume(restoredRef, ctx2, settings)) {
         events2.push(ev);
       }
 

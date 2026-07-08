@@ -20,6 +20,7 @@ import type { LLMBridgeSettings } from "../../../types";
 import { SdkBackend, isSdkAvailable, buildSdkAgentSkillsOptions } from "../../../sdkBackend";
 import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
 import type {
+  NativeSessionRef,
   NormalizedRuntimeEvent,
   RunContext,
   RunInput,
@@ -93,7 +94,7 @@ export class ClaudeSdkProvider implements RuntimeProvider {
     }
   }
 
-  async *resume(sessionId: string, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
+  async *resume(ref: NativeSessionRef, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     // SDK 通过 settings.claudeResumeSessionId / claudeContinueSession 处理 resume
     // 这里复用 run 路径（plan.session 已含 resume 语义）
     yield* this.run(ctx, settings);

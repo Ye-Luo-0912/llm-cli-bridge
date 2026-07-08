@@ -55,7 +55,7 @@ import type {
   CodexTurnFailedParams,
   CodexTurnStartedParams,
 } from "./schema";
-import type { NormalizedRuntimeEvent, ProviderId } from "../../core/types";
+import type { NormalizedRuntimeEvent, ProviderId, NativeSessionRef } from "../../core/types";
 
 function mapPatchChangeKind(kind: unknown): "create" | "modify" | "delete" {
   if (kind === "create" || kind === "add") return "create";
@@ -834,6 +834,32 @@ export class CodexAppServerEventMapper {
         kind: "session_started",
         text: threadId,
         sessionId,
+      },
+    };
+  }
+
+  /**
+   * thread/start 或 thread/resume 成功后 → native_session_bound。
+   *
+   * 让 UI 绑定 activeNativeSessionRef + lastNativeSessionRef。
+   */
+  mapNativeSessionBound(providerId: ProviderId, threadId: string, sessionId?: string): NormalizedRuntimeEvent {
+    const ts = new Date().toISOString();
+    const ref: NativeSessionRef = {
+      providerId,
+      kind: "codex-thread",
+      threadId,
+      sessionId,
+      updatedAt: ts,
+    };
+    return {
+      providerId: this.providerId,
+      timestamp: ts,
+      sourceRef: this.sourceRef("native_session_bound", { threadId }),
+      rawProviderEvent: this.developerMode ? { method: "native_session_bound", ref } : undefined,
+      payload: {
+        kind: "native_session_bound",
+        ref,
       },
     };
   }

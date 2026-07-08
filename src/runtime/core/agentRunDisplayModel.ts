@@ -9,7 +9,7 @@
 //    fileChangeCards/diagnosticCards/debugView。
 // 3. developer mode 信息汇总到 debugView，不散落在业务字段。
 
-import type { AssistantTurnView, ApprovalResponse, RuntimeSourceRef, TurnTimelineNode, UserInputQuestion, UserInputResponse } from "./types";
+import type { AssistantTurnView, ApprovalResponse, RuntimeSourceRef, TurnTimelineNode, UserInputQuestion, UserInputResponse, NativeSessionRef } from "./types";
 import type { AttachmentPlan, EffectiveRunPlan } from "../../types";
 import { redactSecrets } from "../../workflowEvent";
 import { buildLifecycleEventsFromTurnView, type ProviderLifecycleEvent } from "./providerLifecycleEvent";
@@ -175,8 +175,7 @@ export interface PermissionSnapshot {
 export interface AgentRunDebugView {
   commandPreview?: ReadonlyArray<{ label: string; value: string }>;
   effectiveRunPlan?: EffectiveRunPlan;
-  providerThreadId?: string;
-  providerSessionId?: string;
+  nativeSessionRef?: NativeSessionRef;
   sessionResumed?: boolean;
   attachmentPlan?: AttachmentPlan;
   rawProviderEvents: ReadonlyArray<unknown>;
@@ -582,7 +581,7 @@ export function explainAutoApprovalSource(
  * debugView 是 developer mode 唯一调试入口，其中 rawProviderEvents / commandPreview /
  * effectiveRunPlan / attachmentPlan 可能包含敏感信息（命令行 env、API key、文件路径等）。
  * 本函数对字符串字段走 redactSecrets，对对象字段走 JSON.stringify → redactSecrets → JSON.parse。
- * providerThreadId / providerSessionId / sessionResumed 敏感度低，保留原值。
+ * nativeSessionRef / sessionResumed 敏感度低，保留原值。
  */
 export function redactDebugView(debug: AgentRunDebugView): AgentRunDebugView {
   const redactObject = <T>(obj: T): T => {

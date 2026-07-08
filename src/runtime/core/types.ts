@@ -55,6 +55,33 @@ export type ProviderId =
   | "pi-sdk"
   | "mock";
 
+// ---------- NativeSessionRef ----------
+
+/**
+ * Native session 引用：指向 provider 侧的 native session/thread。
+ *
+ * 简化会话模型为 "latest native session only"：
+ * - activeNativeSessionRef：当前运行中绑定的 native session（内存，随 BridgeSession 生命周期）
+ * - lastNativeSessionRef：最后一次成功的 native session（持久化到 settings，用于重启后恢复）
+ * - 历史会话 = transcript only；只有 lastNativeSessionRef 对应的会话才允许 native continuation
+ *
+ * 不同 agent 的 native session 不互通（providerId 不同即视为 transcript-only）。
+ */
+export interface NativeSessionRef {
+  /** provider 标识（与 ProviderId 一致） */
+  readonly providerId: ProviderId;
+  /** native session 种类（codex-thread / claude-sdk-session / pi-session / cli-session） */
+  readonly kind: string;
+  /** Codex threadId（thread/start 或 thread/resume 返回） */
+  readonly threadId?: string;
+  /** provider 侧 session id（Codex sessionId / Claude SDK sessionId / Pi sessionId） */
+  readonly sessionId?: string;
+  /** 绑定时间（ISO timestamp） */
+  readonly updatedAt: string;
+  /** 对应的持久化 session 文件 id（s-... 格式；用于判断历史恢复是否允许 continuation） */
+  readonly sessionFileId?: string;
+}
+
 // ---------- RunInput ----------
 
 /**
@@ -166,6 +193,7 @@ export interface RuntimeSourceRef {
 
 export type NormalizedRuntimeEventPayload =
   | { kind: "session_started"; text: string; sessionId?: string }
+  | { kind: "native_session_bound"; ref: NativeSessionRef }
   | { kind: "thinking"; text: string }
   | {
       kind: "message";
@@ -630,15 +658,12 @@ export interface RunContext {
   /** run 唯一 id（用于 cancel 配对） */
   readonly runId: string;
   /**
-   * BridgeSession.sessionId（V2.17-A Completion 主线闭环）。
-   *
-   * provider 据此在 sessionMapper 中注册 codex threadId/sessionId 映射，
-   * 供后续 resume(sessionId) 查找。与 runId 解耦：runId 每次 run 变化，
-   * bridgeSessionId 在会话生命周期内稳定。
+   * BridgeSession.sessionId（会话生命周期内稳定）。
+   * provider 据此在 sessionMapper 中注册 codex threadId/sessionId 映射。
    */
   readonly bridgeSessionId?: string;
-  /** 要 resume 的会话 id（undefined=新会话） */
-  readonly resumeSessionId?: string;
+  /** 要 resume 的 native session ref（undefined=新会话 thread/start） */
+  readonly activeNativeSessionRef?: NativeSessionRef;
   /** V2.16-E: SDK streaming input（image blocks）；CLI/Codex provider 忽略 */
   readonly sdkStreamingInput?: SdkStreamingInput;
   /** V2.14.0-K: runtime read-only file tool adapter */
@@ -666,40 +691,33 @@ export interface BridgeSession {
   /** 会话级 UserInputBoundary（UI 观察 pending 澄清请求） */
   readonly userInput: UserInputBoundary;
   /**
-   * provider 侧 thread id（V2.17-A Completion 主线闭环）。
+   * 当前活动的 native session 引用（latest native session only 模型）。
    *
-   * codex app-server 的 threadId（thread/start 或 thread/resume 返回）。
-   * keepLastSession 恢复时据此同步 provider thread/session。
-   * 非 codex provider 时为 undefined。
+   * - thread/start 或 thread/resume 成功后由 native_session_bound 事件绑定。
+   * - undefined 表示当前会话未绑定 native session（新会话或 transcript-only 恢复）。
+   * - 切换 agent 时 invalidated（providerId 不匹配）。
    */
-  readonly providerThreadId?: string;
-  /**
-   * provider 侧 session id（V2.17-A Completion 主线闭环）。
-   *
-   * codex app-server 的 sessionId（thread/start 或 thread/resume 返回）。
-   * keepLastSession 恢复时据此同步 provider thread/session。
-   * 非 codex provider 时为 undefined。
-   */
-  readonly providerSessionId?: string;
+  readonly activeNativeSessionRef?: NativeSessionRef;
   /** 启动一次 run（settings 由 view 传入，保证实时读取用户最新设置） */
   start(input: RunInput, settings: import("../../types").LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent>;
   /** 取消当前 run */
   cancel(runId: string): void;
-  /** 恢复会话 */
-  resume(sessionId: string, input: RunInput, settings: import("../../types").LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent>;
   /**
-   * V2.17-A Completion: 从持久化的 providerThreadId/providerSessionId 回填 provider session 状态。
+   * 恢复 native session（thread/resume）。
    *
-   * keepLastSession 恢复时由 UI 调用：把 session 文件中保存的 codex threadId/sessionId
-   * 注入 provider 的 sessionMapper，使后续 resume() 命中 thread/resume 路径。
+   * 使用 ref.threadId / ref.sessionId 直接 resume，不再通过 bridgeSessionId 查 mapper。
    */
-  restoreProviderSession(providerThreadId?: string, providerSessionId?: string): void;
+  resume(ref: NativeSessionRef, input: RunInput, settings: import("../../types").LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent>;
+  /**
+   * 从持久化的 lastNativeSessionRef 回填 activeNativeSessionRef。
+   *
+   * keepLastSession 恢复时由 UI 调用：把 lastNativeSessionRef 注入 BridgeSession，
+   * 使下一次 run() 命中 thread/resume 路径。
+   * 传入 undefined 时清空（transcript-only 恢复）。
+   */
+  restoreActiveNativeSessionRef(ref?: NativeSessionRef): void;
   /**
    * V16.4-F2: 用最新 settings 重建 PermissionBoundary（permissionMode 切换后下一次 run 生效）。
-   *
-   * 当前 run 不受影响（ctx.permission 已持有旧 boundary 引用）；
-   * 仅在无 run 进行时（currentRunId === null）才重建，下一次 run 使用新 mode。
-   * session allow/deny 缓存会随重建丢失（mode 切换意味着权限策略改变）。
    */
   rebuildPermissionBoundary(settings: import("../../types").LLMBridgeSettings): void;
 }
@@ -724,13 +742,18 @@ export interface RuntimeProvider {
   run(ctx: RunContext, settings: import("../../types").LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent>;
   /** 取消 run */
   cancel(runId: string): void;
-  /** 恢复会话 */
-  resume(sessionId: string, ctx: RunContext, settings: import("../../types").LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent>;
   /**
-   * V2.17-A Completion: 从持久化的 providerThreadId/providerSessionId 回填 provider session 状态。
+   * 恢复 native session（thread/resume）。
    *
-   * keepLastSession 恢复时由 BridgeSession 调用，使后续 resume() 命中 thread/resume 路径。
-   * 非 codex provider 无此方法时静默跳过（可选方法）。
+   * 使用 ref.threadId / ref.sessionId 直接 resume。
+   * 非 codex provider 可忽略 ref 并退化为 run()。
    */
-  restoreProviderSession?(bridgeSessionId: string, providerThreadId?: string, providerSessionId?: string): void;
+  resume(ref: NativeSessionRef, ctx: RunContext, settings: import("../../types").LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent>;
+  /**
+   * 从持久化的 lastNativeSessionRef 回填 provider session 状态（可选）。
+   *
+   * keepLastSession 恢复时由 BridgeSession 调用。
+   * 非 codex provider 无此方法时静默跳过。
+   */
+  restoreActiveNativeSessionRef?(ref?: NativeSessionRef): void;
 }
