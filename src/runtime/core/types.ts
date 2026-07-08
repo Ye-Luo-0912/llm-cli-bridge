@@ -116,6 +116,8 @@ export interface BridgePromptPackage {
 export interface AttachmentEntry {
   refId: string;
   displayName: string;
+  /** Absolute resolved local path used by native providers for file:// URL/path input items. */
+  resolvedPath: string;
   kind: "vault" | "external" | "attachment";
   scope: "message" | "pinned" | "session";
   fileType: "image" | "text" | "markdown" | "json" | "pdf" | "binary" | "unknown";

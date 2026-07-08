@@ -3595,13 +3595,6 @@ export class LLMBridgeView extends ItemView {
         event.stopPropagation();
         this.removeMessageFileRef(ref.id);
       });
-      const pin = chip.createEl("span", { cls: "llm-bridge-composer-file-pin", attr: { title: "Pin 到后续对话" } });
-      setIcon(pin, "pin");
-      pin.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        this.pinFileRef(ref.id);
-      });
     }
   }
 
@@ -4000,7 +3993,7 @@ export class LLMBridgeView extends ItemView {
       description: "Files attached to the next request.",
       refs: this.messageFileRefs,
       emptyText: "Drop files, paste files, or type @ to attach a file.",
-      actions: { allowPin: true, allowRemove: true },
+      actions: { allowRemove: true },
     });
     this.renderFileContextSection(container, {
       variant: "pinned",
@@ -4018,7 +4011,7 @@ export class LLMBridgeView extends ItemView {
       description: "External file access allowed for this session.",
       refs: this.sessionFileRefs,
       emptyText: "External read grants appear here after approval.",
-      actions: { allowPin: true, allowRemove: true },
+      actions: { allowRemove: true },
     });
   }
 
@@ -4755,9 +4748,6 @@ export class LLMBridgeView extends ItemView {
 
       const content = block.createEl("div", { cls: "llm-bridge-msg-content" });
       this.renderMessageContent(content, msg);
-      if (msg.role === "user" && msg.fileRefs && msg.fileRefs.length > 0) {
-        this.renderMessageFileRefs(content, msg.fileRefs);
-      }
 
       if (msg.role === "assistant") {
         this.appendMsgDetails(block, msg, content);
@@ -4778,6 +4768,9 @@ export class LLMBridgeView extends ItemView {
       content.addClass("llm-bridge-msg-content-suppressed");
       content.setAttribute("hidden", "");
       return;
+    }
+    if (msg.role === "user" && msg.fileRefs && msg.fileRefs.length > 0) {
+      this.renderMessageFileRefs(content, msg.fileRefs);
     }
     if (!text) {
       // P4-D: 不显示 "正在等待首次输出..."，spinner + currentActivity 已提供反馈
@@ -4889,7 +4882,7 @@ export class LLMBridgeView extends ItemView {
     const lineCount = normalized.split(/\r?\n/).length;
     const shouldCollapse = normalized.length > 1200 || lineCount > 12;
     if (!shouldCollapse) {
-      content.textContent = normalized;
+      content.createEl("span", { cls: "llm-bridge-user-message-text", text: normalized });
       return;
     }
     const details = content.createEl("details", { cls: "llm-bridge-user-prompt-collapse" });
@@ -5627,25 +5620,19 @@ export class LLMBridgeView extends ItemView {
     const icon = summary.createEl("span", { cls: "llm-bridge-codex-tool-group-icon" });
     setIcon(icon, "terminal");
     const main = summary.createDiv({ cls: "llm-bridge-codex-tool-group-main" });
+    const groupTitle = this.formatCodexToolGroupTitle(events);
     main.createEl("span", {
       cls: "llm-bridge-codex-tool-group-title",
-      text: this.formatCodexToolGroupTitle(events),
-      attr: { title: this.formatCodexToolGroupTitle(events) },
+      text: groupTitle,
+      attr: { title: groupTitle },
     });
-    const firstCommand = events.find((item) => item.kind === "command" && item.step?.command);
-    const commandPreview = firstCommand?.step?.command ? this.formatCodexShellCommandPreview(firstCommand.step.command) : "";
-    if (commandPreview) {
-      main.createEl("span", {
-        cls: "llm-bridge-codex-tool-group-preview",
-        text: truncateText(commandPreview, developerMode ? 180 : 120),
-        attr: { title: commandPreview },
-      });
-    }
     const meta = summary.createDiv({ cls: "llm-bridge-codex-tool-group-meta" });
     meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${groupStatus}`, text: groupStatus });
+    const totalDuration = this.sumCodexEventDuration(events);
+    if (totalDuration) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(totalDuration) });
     meta.createEl("span", {
       cls: "llm-bridge-codex-tool-group-count",
-      text: `${events.length} ${events.length === 1 ? "step" : "steps"}`,
+      text: this.formatCodexToolGroupCount(events),
     });
 
     let bodyRendered = false;
@@ -5665,12 +5652,30 @@ export class LLMBridgeView extends ItemView {
     const fileCount = items.filter((item) => item.kind === "file" || !!item.change).length;
     const approvalCount = items.filter((item) => item.kind === "approval").length;
     const toolCount = items.length - commandCount - fileCount - approvalCount;
+    if (commandCount > 0 && fileCount === 0 && approvalCount === 0 && toolCount === 0) {
+      return `已运行 ${commandCount} 条命令`;
+    }
+    if (fileCount > 0 && commandCount === 0 && approvalCount === 0 && toolCount === 0) {
+      return `已编辑 ${fileCount} 个文件`;
+    }
     const parts: string[] = [];
-    if (commandCount) parts.push(`${commandCount} command${commandCount === 1 ? "" : "s"}`);
-    if (fileCount) parts.push(`${fileCount} file change${fileCount === 1 ? "" : "s"}`);
-    if (approvalCount) parts.push(`${approvalCount} approval${approvalCount === 1 ? "" : "s"}`);
-    if (toolCount) parts.push(`${toolCount} tool${toolCount === 1 ? "" : "s"}`);
-    return parts.length > 0 ? parts.join(" · ") : `${items.length} steps`;
+    if (commandCount) parts.push(`${commandCount} 条命令`);
+    if (fileCount) parts.push(`${fileCount} 个文件`);
+    if (approvalCount) parts.push(`${approvalCount} 个确认`);
+    if (toolCount) parts.push(`${toolCount} 个工具`);
+    return parts.length > 0 ? `已处理 ${parts.join(" · ")}` : `已处理 ${items.length} 个操作`;
+  }
+
+  private formatCodexToolGroupCount(items: ReadonlyArray<CodexRunFeedItem>): string {
+    const commandCount = items.filter((item) => item.kind === "command").length;
+    const fileCount = items.filter((item) => item.kind === "file" || !!item.change).length;
+    if (commandCount > 0 && fileCount === 0) return `${commandCount} commands`;
+    if (fileCount > 0 && commandCount === 0) return `${fileCount} files`;
+    return `${items.length} events`;
+  }
+
+  private sumCodexEventDuration(items: ReadonlyArray<CodexRunFeedItem>): number {
+    return items.reduce((total, item) => total + (item.durationMs || item.step?.durationMs || 0), 0);
   }
 
   private renderCodexFeedBatchSummary(
@@ -5937,16 +5942,10 @@ export class LLMBridgeView extends ItemView {
     setIcon(icon, item.icon);
     const main = summary.createDiv({ cls: "llm-bridge-codex-event-main" });
     const title = main.createDiv({ cls: "llm-bridge-codex-event-title" });
-    const changeActionText = item.change?.action === "create" ? "Created"
-      : item.change?.action === "delete" ? "Deleted"
-      : item.change ? "Modified" : "";
-    const commandPreview = isCommandEvent ? this.formatCodexShellCommandPreview(item.step?.command) : "";
     const label = item.change
-      ? `File · ${changeActionText} ${item.change.fileName}`
+      ? "已编辑 1 个文件"
       : item.kind === "command"
-        ? commandPreview
-          ? `Shell · ${truncateText(commandPreview, developerMode ? 150 : 110)}`
-          : "Shell"
+        ? "已运行 1 条命令"
         : item.label;
     title.createEl("span", { cls: "llm-bridge-codex-feed-label llm-bridge-codex-step-label", text: label, attr: { title: label } });
     if (item.change?.approvalStatus) {
@@ -8272,7 +8271,7 @@ export class LLMBridgeView extends ItemView {
         if (item.id === this.currentSessionId) {
           titleRow.createEl("span", { cls: "llm-bridge-session-dropdown-current", text: "当前" });
         }
-        titleRow.createEl("span", { cls: "llm-bridge-session-dropdown-inline-meta", text: meta });
+        row.createEl("span", { cls: "llm-bridge-session-dropdown-inline-meta", text: meta });
         row.createEl("span", { cls: "llm-bridge-session-dropdown-summary", text: summary });
         row.addEventListener("click", async () => {
           dropdown.setAttribute("hidden", "");

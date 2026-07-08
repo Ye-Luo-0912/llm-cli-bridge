@@ -12577,6 +12577,132 @@
   opacity: 1 !important;
 }
 
+/* ===== V17-G76: attachment tray is current-message only, no pin affordance ===== */
+.llm-bridge-composer-file-pin {
+  display: none !important;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content.has-attachments {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 7px;
+}
+
+.llm-bridge-user-message-text {
+  display: block;
+  max-width: 100%;
+  white-space: pre-wrap;
+}
+
+/* ===== V17-G75: command/file events render as compact process rows, not bubbles ===== */
+.llm-bridge-codex-event-block.llm-bridge-codex-feed-item,
+.llm-bridge-codex-event-block.is-command,
+.llm-bridge-codex-event-block.is-file,
+.llm-bridge-codex-change-row.llm-bridge-codex-event-block,
+.llm-bridge-codex-change-row.llm-bridge-codex-feed-item {
+  margin: 2px 0 2px 18px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  overflow: visible !important;
+}
+
+.llm-bridge-codex-event-block.llm-bridge-codex-feed-item[open],
+.llm-bridge-codex-event-block.is-command[open],
+.llm-bridge-codex-event-block.is-file[open],
+.llm-bridge-codex-change-row.llm-bridge-codex-event-block[open] {
+  border: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-codex-event-block > .llm-bridge-codex-event-summary,
+.llm-bridge-codex-change-row.llm-bridge-codex-event-block > .llm-bridge-codex-event-summary {
+  min-height: 28px !important;
+  padding: 2px 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-codex-event-block > .llm-bridge-codex-event-summary::before {
+  margin-left: -4px !important;
+  color: var(--text-faint) !important;
+}
+
+.llm-bridge-codex-event-block .llm-bridge-codex-feed-label,
+.llm-bridge-codex-change-row.llm-bridge-codex-event-block .llm-bridge-codex-feed-label {
+  color: var(--text-muted) !important;
+  font-weight: 560 !important;
+}
+
+/* ===== V17-G74: compact session dropdown overflow guard ===== */
+.llm-bridge-session-dropdown {
+  width: min(340px, calc(100vw - 32px)) !important;
+  max-width: calc(100vw - 32px) !important;
+  overflow-x: hidden !important;
+}
+
+.llm-bridge-session-dropdown-item {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  grid-template-areas:
+    "title badge"
+    "meta meta"
+    "summary summary" !important;
+  align-items: center !important;
+  gap: 2px 8px !important;
+  min-width: 0 !important;
+  text-align: left !important;
+}
+
+.llm-bridge-session-dropdown-title-row {
+  grid-area: title !important;
+  display: flex !important;
+  align-items: baseline !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+.llm-bridge-session-dropdown-name {
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-session-dropdown-current {
+  grid-area: badge !important;
+  align-self: center !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-session-dropdown-inline-meta {
+  grid-area: meta !important;
+  display: block !important;
+  min-width: 0 !important;
+  margin-left: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  color: var(--text-faint) !important;
+  font-size: 10px !important;
+  font-weight: 500 !important;
+}
+
+.llm-bridge-session-dropdown-summary {
+  grid-area: summary !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
 .llm-bridge-history-refresh-btn,
 .llm-bridge-history-edit-btn,
 .llm-bridge-history-del-btn {

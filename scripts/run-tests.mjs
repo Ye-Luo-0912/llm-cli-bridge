@@ -1496,9 +1496,9 @@ if (runMode !== "all" && runMode !== "unit") {
         bridgeSystemAppend: "sys-append",
         userPrompt: "hello world",
         attachmentEntries: [
-          { refId: "r1", displayName: "a.md", kind: "vault", scope: "message", fileType: "markdown", packing: "inline-snippet" },
-          { refId: "r2", displayName: "i.png", kind: "attachment", scope: "message", fileType: "image", packing: "sdk-streaming-block" },
-          { refId: "r3", displayName: "x.pdf", kind: "external", scope: "session", fileType: "pdf", packing: "native-ref-only" },
+          { refId: "r1", displayName: "a.md", resolvedPath: "D:\\vault\\a.md", kind: "vault", scope: "message", fileType: "markdown", packing: "inline-snippet" },
+          { refId: "r2", displayName: "i.png", resolvedPath: "D:\\vault\\attachments\\i.png", kind: "attachment", scope: "message", fileType: "image", packing: "sdk-streaming-block" },
+          { refId: "r3", displayName: "x.pdf", resolvedPath: "D:\\docs\\x.pdf", kind: "external", scope: "session", fileType: "pdf", packing: "native-ref-only" },
         ],
         auditHash: "h",
       };
@@ -1507,11 +1507,13 @@ if (runMode !== "all" && runMode !== "unit") {
       const input = opts.turnStart.input;
       const isArray = Array.isArray(input);
       const firstText = isArray && input[0]?.type === "text" && input[0]?.text === "hello world";
-      const hasImage = isArray && input.some((it) => it.type === "image" && it.refId === "r2");
-      const hasFile = isArray && input.some((it) => it.type === "file" && it.refId === "r3");
-      const ok = isArray && firstText && hasImage && hasFile;
-      addTest("Wire turn/start.input: content item array (text + image + file)", ok ? "pass" : "fail",
-        ok ? "" : `isArray=${isArray}, firstText=${firstText}, hasImage=${hasImage}, hasFile=${hasFile}, input=${JSON.stringify(input)}`);
+      const imageItem = isArray ? input.find((it) => it.type === "image" && it.refId === "r2") : null;
+      const fileItem = isArray ? input.find((it) => it.type === "file" && it.refId === "r3") : null;
+      const hasImage = !!imageItem && typeof imageItem.url === "string" && imageItem.url.startsWith("file:///");
+      const noFileVariant = !fileItem && !JSON.stringify(opts.turnStart.attachments || []).includes('"type":"file"');
+      const ok = isArray && firstText && hasImage && noFileVariant;
+      addTest("Wire turn/start.input: content item array (text + image url; no unsupported file variant)", ok ? "pass" : "fail",
+        ok ? "" : `isArray=${isArray}, firstText=${firstText}, hasImage=${hasImage}, noFileVariant=${noFileVariant}, input=${JSON.stringify(input)}, attachments=${JSON.stringify(opts.turnStart.attachments)}`);
     }
 
     // ---------- 4e. approval server-request: client 按原 id 返回 result ----------
@@ -15147,12 +15149,12 @@ if (!runV2121Unit) {
   }
 
   {
-    const ok = viewSrc.includes("private pinFileRef")
-      && viewSrc.includes("private unpinFileRef")
-      && viewSrc.includes("llm-bridge-pinned-context")
+    const ok = viewSrc.includes("llm-bridge-pinned-context")
       && sessionsSrc.includes("pinnedContextRefs")
-      && viewSrc.includes("pinnedContextRefs: this.pinnedFileRefs.map");
-    addTest("V2.16-E pinned context: Pin 后跨轮保留，Unpin 后移除", ok ? "pass" : "fail", "");
+      && viewSrc.includes("pinnedContextRefs: this.pinnedFileRefs.map")
+      && !viewSrc.includes("actions: { allowPin: true")
+      && !viewSrc.includes('createEl("span", { cls: "llm-bridge-composer-file-pin"');
+    addTest("V2.16-E pinned context: legacy pinned 数据可恢复，但普通 UI 不再提供新 pin 入口", ok ? "pass" : "fail", "");
   }
 
   {
@@ -15200,7 +15202,8 @@ if (!runV2121Unit) {
       && !viewSrc.includes('text: "工作集"')
       && stylesSrc.includes("llm-bridge-context-toggles")
       && stylesSrc.includes("llm-bridge-msg-attachments")
-      && stylesSrc.includes("llm-bridge-composer-file-pin");
+      && stylesSrc.includes(".llm-bridge-composer-file-pin")
+      && stylesSrc.includes("attachment tray is current-message only");
     addTest("V2.16-E UI: 不再常驻空工作集，附件显示在 composer/user message", ok ? "pass" : "fail", "");
   }
 }
@@ -19251,7 +19254,9 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('if (group.open) renderBody();')
       && viewSrc.includes('block.querySelector(":scope > .llm-bridge-codex-event-body")')
       && viewSrc.includes('item.kind === "command"')
-      && viewSrc.includes('`Shell · ${truncateText(commandPreview')
+      && viewSrc.includes("return `已运行 ${commandCount} 条命令`;")
+      && viewSrc.includes("return `已编辑 ${fileCount} 个文件`;")
+      && viewSrc.includes("private sumCodexEventDuration(")
       && stylesSrc.includes("V17-G65: grouped lazy tool events and full-width composer input")
       && stylesSrc.includes(".llm-bridge-codex-tool-group-summary")
       && stylesSrc.includes('"input input input"')
@@ -19271,7 +19276,9 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private renderCodexFinalAnswer(")
       && viewSrc.includes(".then(() => this.bindAssistantMarkdownVaultLinks(body))")
       && viewSrc.includes("未在 Vault 中找到可打开的文件")
-      && viewSrc.includes('`File · ${changeActionText} ${item.change.fileName}`')
+      && viewSrc.includes('item.change')
+      && viewSrc.includes('? "已编辑 1 个文件"')
+      && viewSrc.includes('? "已运行 1 条命令"')
       && viewSrc.includes('const summaryText = item.change')
       && !viewSrc.includes("if (item.change) renderBody();")
       && stylesSrc.includes("V17-G66: file events match shell rows, composer text stays above controls")
@@ -19420,6 +19427,56 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-history-status-text.is-completed")
       && stylesSrc.includes(".llm-bridge-topbar-title");
     addTest("V17-G73 History: 多选/全选删除会同步清理原生 Codex session，列表改为插件式行",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13j14: V17-G74 codex image URL input and session dropdown overflow guard ----
+  {
+    const schemaSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "schema", "index.ts"), "utf8");
+    const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "promptPackage.ts"), "utf8");
+    const codexRunOptionsSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerEffectiveRunPlan.ts"), "utf8");
+    const ok = schemaSrc.includes('| { type: "image"; refId?: string; url: string;')
+      && schemaSrc.includes("url?: string;")
+      && promptPackageSrc.includes("resolvedPath: ref.path")
+      && codexRunOptionsSrc.includes('import { pathToFileURL } from "url";')
+      && codexRunOptionsSrc.includes("function localFileUrl(")
+      && codexRunOptionsSrc.includes('inputItems.push({ type: "image", refId: entry.refId, url, path: entry.resolvedPath });')
+      && codexRunOptionsSrc.includes('attachments.push({')
+      && viewSrc.includes('row.createEl("span", { cls: "llm-bridge-session-dropdown-inline-meta", text: meta });')
+      && stylesSrc.includes("V17-G74: compact session dropdown overflow guard")
+      && stylesSrc.includes('grid-template-areas:')
+      && stylesSrc.includes('"title badge"')
+      && stylesSrc.includes('"meta meta"')
+      && stylesSrc.includes(".llm-bridge-session-dropdown-inline-meta")
+      && stylesSrc.includes("overflow-x: hidden !important");
+    addTest("V17-G74 UI/protocol: Codex 图片 input 使用 file URL，会话下拉标题时间分行防溢出",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13j15: V17-G75 command/file process rows avoid bubble chrome ----
+  {
+    const ok = viewSrc.includes('? "已编辑 1 个文件"')
+      && viewSrc.includes('? "已运行 1 条命令"')
+      && !viewSrc.includes('已编辑 1 个文件 ·')
+      && !viewSrc.includes('已运行 1 条命令 ·')
+      && stylesSrc.includes("V17-G75: command/file events render as compact process rows, not bubbles")
+      && stylesSrc.includes(".llm-bridge-codex-event-block.is-command")
+      && stylesSrc.includes(".llm-bridge-codex-event-block.is-file")
+      && stylesSrc.includes("border-radius: 0 !important")
+      && stylesSrc.includes("background: transparent !important");
+    addTest("V17-G75 UI: 命令/文件事件标题纯计数，普通态不回退成气泡卡片",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13j16: V17-G76 empty Codex completion is surfaced as failed output ----
+  {
+    const providerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerProvider.ts"), "utf8");
+    const ok = providerSrc.includes("turnRuntimeEventCount")
+      && providerSrc.includes('payload.kind === "completed"')
+      && providerSrc.includes("emptyCompleted: true")
+      && providerSrc.includes("Codex runtime ended without output")
+      && providerSrc.includes('kind: "failed"');
+    addTest("V17-G76 Provider: 空 turn/completed 不再渲染为空白 Completed",
       ok ? "pass" : "fail", "");
   }
 
@@ -20542,11 +20599,11 @@ if (!runV217A) {
     {
       const entries = [
         { refId: "msg-1", scope: "message", fileType: "markdown", packing: "inline-snippet",
-          displayName: "msg.md", bytesRead: 128, truncated: false },
+          displayName: "msg.md", resolvedPath: "D:\\vault\\msg.md", bytesRead: 128, truncated: false },
         { refId: "pin-1", scope: "pinned", fileType: "image", packing: "sdk-streaming-block",
-          displayName: "screenshot.png", bytesRead: 0, truncated: false },
+          displayName: "screenshot.png", resolvedPath: "D:\\vault\\screenshot.png", bytesRead: 0, truncated: false },
         { refId: "msg-2", scope: "message", fileType: "pdf", packing: "native-ref-only",
-          displayName: "doc.pdf", bytesRead: 0, truncated: false },
+          displayName: "doc.pdf", resolvedPath: "D:\\docs\\doc.pdf", bytesRead: 0, truncated: false },
       ];
       const plan = buildAttachmentPlan(entries);
       const countsOk = plan.messageScopedRefs === 2

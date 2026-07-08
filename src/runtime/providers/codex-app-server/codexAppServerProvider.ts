@@ -197,10 +197,39 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     const queue = new Array<NormalizedRuntimeEvent>();
     let resolveWait: (() => void) | null = null;
     let done = false;
+    let turnSubmitted = false;
+    let turnRuntimeEventCount = 0;
 
     const push = (ev: NormalizedRuntimeEvent | null): void => {
       if (!ev) return;
-      queue.push(ev);
+      let next = ev;
+      const payload = ev.payload as { kind: string; text?: unknown; sessionId?: string };
+      if (turnSubmitted && payload.kind !== "completed" && payload.kind !== "failed") {
+        turnRuntimeEventCount += 1;
+      }
+      if (turnSubmitted && payload.kind === "completed" && turnRuntimeEventCount === 0) {
+        const text = typeof payload.text === "string" ? payload.text.trim() : "";
+        if (!text) {
+          next = {
+            providerId: this.providerId,
+            timestamp: new Date().toISOString(),
+            sourceRef: ev.sourceRef,
+            rawProviderEvent: developerMode
+              ? {
+                ...(ev.rawProviderEvent && typeof ev.rawProviderEvent === "object" ? ev.rawProviderEvent : {}),
+                emptyCompleted: true,
+              }
+              : undefined,
+            payload: {
+              kind: "failed",
+              message: "Codex runtime ended without output. The app-server returned turn/completed before any response, tool, or diagnostic event.",
+              recoverable: false,
+              sessionId: payload.sessionId,
+            },
+          };
+        }
+      }
+      queue.push(next);
       if (resolveWait) {
         const r = resolveWait;
         resolveWait = null;
@@ -278,6 +307,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       push(eventMapper.mapThreadStarted(threadId, sessionId));
 
       // 3. turn/start（input 为 content item array）
+      turnSubmitted = true;
       await client.send("turn/start", {
         ...options.turnStart,
         threadId,
@@ -353,10 +383,39 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     const queue = new Array<NormalizedRuntimeEvent>();
     let resolveWait: (() => void) | null = null;
     let done = false;
+    let turnSubmitted = false;
+    let turnRuntimeEventCount = 0;
 
     const push = (ev: NormalizedRuntimeEvent | null): void => {
       if (!ev) return;
-      queue.push(ev);
+      let next = ev;
+      const payload = ev.payload as { kind: string; text?: unknown; sessionId?: string };
+      if (turnSubmitted && payload.kind !== "completed" && payload.kind !== "failed") {
+        turnRuntimeEventCount += 1;
+      }
+      if (turnSubmitted && payload.kind === "completed" && turnRuntimeEventCount === 0) {
+        const text = typeof payload.text === "string" ? payload.text.trim() : "";
+        if (!text) {
+          next = {
+            providerId: this.providerId,
+            timestamp: new Date().toISOString(),
+            sourceRef: ev.sourceRef,
+            rawProviderEvent: developerMode
+              ? {
+                ...(ev.rawProviderEvent && typeof ev.rawProviderEvent === "object" ? ev.rawProviderEvent : {}),
+                emptyCompleted: true,
+              }
+              : undefined,
+            payload: {
+              kind: "failed",
+              message: "Codex runtime ended without output. The app-server returned turn/completed before any response, tool, or diagnostic event.",
+              recoverable: false,
+              sessionId: payload.sessionId,
+            },
+          };
+        }
+      }
+      queue.push(next);
       if (resolveWait) {
         const r = resolveWait;
         resolveWait = null;
@@ -434,6 +493,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       push(eventMapper.mapThreadResumed(resumedThreadId, resumedSessionId));
 
       // 3. turn/start（input 为 content item array）
+      turnSubmitted = true;
       await client.send("turn/start", {
         ...options.turnStart,
         input: buildResumeTurnInput(options.turnStart.input, options.threadStart.instructions),

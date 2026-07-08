@@ -15,6 +15,7 @@
 // - experimentalApi 默认 false；若启用必须在 CodexRunOptions audit 记录
 
 import type { EffectiveRunPlan, LLMBridgeSettings } from "../../../types";
+import { pathToFileURL } from "url";
 import type { BridgePromptPackage } from "../../core/types";
 import type { RunInput } from "../../core/types";
 import { buildAttachmentPlan, buildEffectiveRunPlan, computePromptPackageHash } from "../../../effectiveRunPlan";
@@ -48,6 +49,15 @@ export interface CodexAppServerRunOptions {
 const CLIENT_NAME = "llm-cli-bridge";
 const CLIENT_TITLE = "LLM CLI Bridge";
 const CLIENT_VERSION = "2.17-A";
+
+function localFileUrl(resolvedPath: string | undefined): string | null {
+  if (!resolvedPath) return null;
+  try {
+    return pathToFileURL(resolvedPath).href;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * 构造 EffectiveRunPlan（codex-app-server backend）。
@@ -108,7 +118,9 @@ export function buildCodexAppServerRunOptions(
     cwd: plan.cwd,
   };
 
-  // 附件 → codex attachment blocks
+  // 附件 → codex attachment blocks.
+  // 真实 managed app-server 不接受 turn/start.input 的 `file` variant；
+  // 非图片附件已经在 userPrompt 的 FileRef index / bounded inline snippet 中承载。
   const attachments: CodexAttachmentBlock[] = [];
   for (const entry of promptPackage.attachmentEntries) {
     if (entry.packing === "inline-snippet") {
@@ -116,14 +128,13 @@ export function buildCodexAppServerRunOptions(
       continue;
     }
     if (entry.packing === "sdk-streaming-block") {
+      const url = localFileUrl(entry.resolvedPath);
+      if (!url) continue;
       attachments.push({
         type: "image",
         refId: entry.refId,
-      });
-    } else if (entry.packing === "native-ref-only") {
-      attachments.push({
-        type: "file",
-        refId: entry.refId,
+        url,
+        path: entry.resolvedPath,
       });
     }
   }
@@ -144,12 +155,15 @@ export function buildCodexAppServerRunOptions(
   const inputItems: CodexTurnInputItem[] = [
     { type: "text", text: promptPackage.userPrompt },
   ];
-  // image/file 附件可作为 input item 一并送入（与 attachments 字段互补）
+  // image 附件可作为 input item 一并送入（与 attachments 字段互补）。
+  // native-ref-only 文件不进入 input item；否则真实 app-server 会返回
+  // unknown variant `file`, expected text/image/localImage/skill/mention。
   for (const entry of promptPackage.attachmentEntries) {
     if (entry.packing === "sdk-streaming-block" && entry.fileType === "image") {
-      inputItems.push({ type: "image", refId: entry.refId });
-    } else if (entry.packing === "native-ref-only") {
-      inputItems.push({ type: "file", refId: entry.refId });
+      const url = localFileUrl(entry.resolvedPath);
+      if (url) {
+        inputItems.push({ type: "image", refId: entry.refId, url, path: entry.resolvedPath });
+      }
     }
   }
 
@@ -175,7 +189,11 @@ export function buildCodexAppServerRunOptions(
  */
 export function computeCodexRunOptionsAuditHash(options: CodexAppServerRunOptions): string {
   const inputItemsStr = (options.turnStart.input ?? [])
-    .map((it) => `${it.type}:${"text" in it ? it.text : it.refId ?? ""}`)
+    .map((it) => {
+      if (it.type === "text") return `${it.type}:${it.text}`;
+      if (it.type === "skill") return `${it.type}:${it.name}`;
+      return `${it.type}:${it.refId ?? it.path ?? ""}`;
+    })
     .join("|");
   const capabilitiesStr = JSON.stringify(options.initialize.capabilities ?? {});
   const configStr = JSON.stringify(options.threadStart.config ?? {});

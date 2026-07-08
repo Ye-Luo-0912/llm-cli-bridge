@@ -213,6 +213,7 @@ export function buildAttachmentEntries(snapshot: StateSnapshot): AttachmentEntry
     entries.push({
       refId: ref.id,
       displayName: ref.displayName,
+      resolvedPath: ref.path,
       kind: ref.kind,
       scope: (ref.scope || "message") as AttachmentEntry["scope"],
       fileType: ref.fileType,

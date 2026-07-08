@@ -248,12 +248,16 @@ export interface CodexThreadResumeResult {
  * turn/start 输入 content item（数组元素）。
  *
  * codex app-server 的 turn/start.input 为 content item array，而非裸字符串。
- * 当前支持 text / image / file 三种 type。
+ * 当前真实 managed app-server 支持 text / image / localImage / skill / mention。
+ * Bridge 不把普通文件作为 input item 发送；文本附件已内联进 userPrompt，
+ * 大文件/PDF/二进制只保留在 FileRef metadata index，避免触发 unknown variant `file`。
  */
 export type CodexTurnInputItem =
   | { type: "text"; text: string }
-  | { type: "image"; refId?: string; path?: string; mediaType?: string; data?: string }
-  | { type: "file"; refId?: string; path?: string; mediaType?: string };
+  | { type: "image"; refId?: string; url: string; path?: string; mediaType?: string; data?: string }
+  | { type: "localImage"; refId?: string; url?: string; path: string; mediaType?: string }
+  | { type: "skill"; name: string; slug?: string; description?: string }
+  | { type: "mention"; refId?: string; path?: string; label?: string; kind?: string };
 
 export interface CodexTurnStartParams {
   /** 用户输入（content item array；对应 BridgePromptPackage.userPrompt 打包为 text item） */
@@ -267,8 +271,9 @@ export interface CodexTurnStartParams {
 }
 
 export interface CodexAttachmentBlock {
-  type: "text" | "image" | "file";
+  type: "text" | "image";
   refId?: string;
+  url?: string;
   path?: string;
   content?: string;
   mediaType?: string;

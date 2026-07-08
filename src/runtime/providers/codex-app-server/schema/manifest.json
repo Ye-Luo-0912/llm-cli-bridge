@@ -40,7 +40,7 @@
     "threadStartResultShape": "{ thread: { id, sessionId? } }",
     "threadStartParamsShape": "params: { config: { model, sandboxPolicy, personality }, instructions, cwd }（config 容器）",
     "threadResumeForResume": "thread/resume 用于恢复已有 threadId（不再把 resumeSessionId 塞进 thread/start）",
-    "turnStartInputShape": "content item array [{ type:'text', text }, { type:'image' }, { type:'file' }]",
+    "turnStartInputShape": "content item array [{ type:'text', text }, { type:'image', url }, { type:'localImage', path }, { type:'skill', name }, { type:'mention' }]; Bridge does not send unsupported file items",
     "turnStartedNotification": "turn/started 通知：{ threadId, turn: { id } }",
     "itemNestedShape": "item/started 与 item/completed 使用 nested params.item 结构（不再用 flat type/itemId 顶层）",
     "itemTypes": "userMessage/agentMessage/plan/reasoning/commandExecution/fileChange/mcpToolCall/dynamicToolCall/webSearch/imageView/enteredReviewMode/exitedReviewMode/contextCompaction",

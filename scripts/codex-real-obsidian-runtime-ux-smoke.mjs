@@ -21,6 +21,7 @@ const MANIFEST_PATH = join(RUNTIME_DIR, "runtime-manifest.json");
 const CDP_HOST = process.env.CDP_HOST || "127.0.0.1";
 const CDP_PORT = process.env.CDP_PORT || "9223";
 const CDP_BASE = process.env.CDP_BASE || `http://${CDP_HOST}:${CDP_PORT}`;
+const OBSIDIAN_VAULT_PATH = process.env.OBSIDIAN_VAULT_PATH || "";
 const CDP_TIMEOUT_MS = Number(process.env.CDP_TIMEOUT_MS || 5000);
 const CDP_EVAL_TIMEOUT_MS = Number(process.env.CDP_EVAL_TIMEOUT_MS || 240000);
 const VIEW_TYPE = "llm-cli-bridge-view";
@@ -359,7 +360,8 @@ class CDP {
       error.cdpReason = "no-obsidian-target";
       throw error;
     }
-    const page = pages.find((p) => p.type === "page" && isObsidianTarget(p));
+    const pageTargets = pages.filter((p) => p.type === "page" && isObsidianTarget(p));
+    const page = await selectObsidianTarget(pageTargets);
     if (!page?.webSocketDebuggerUrl) {
       const targetSummary = pages
         .map((p) => `${p.type || "unknown"}:${p.title || ""}:${p.url || ""}`)
@@ -428,6 +430,65 @@ class CDP {
   close() {
     this.ws.close();
   }
+}
+
+function normalizePathForCompare(value) {
+  return String(value || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
+async function selectObsidianTarget(pageTargets) {
+  if (pageTargets.length <= 1 || !OBSIDIAN_VAULT_PATH) return pageTargets[0];
+  const expected = normalizePathForCompare(OBSIDIAN_VAULT_PATH);
+  for (const page of pageTargets) {
+    try {
+      const ws = new WebSocket(page.webSocketDebuggerUrl);
+      await new Promise((resolveOpen, rejectOpen) => {
+        const timer = setTimeout(() => rejectOpen(new Error("CDP target probe websocket timeout")), 3000);
+        ws.addEventListener("open", () => {
+          clearTimeout(timer);
+          resolveOpen();
+        });
+        ws.addEventListener("error", (event) => {
+          clearTimeout(timer);
+          rejectOpen(new Error(event.message || "CDP target probe websocket error"));
+        });
+      });
+      const basePath = await probeTargetVaultPath(ws);
+      ws.close();
+      if (normalizePathForCompare(basePath) === expected) return page;
+    } catch {
+      // Ignore a stale target and continue probing other Obsidian pages.
+    }
+  }
+  return pageTargets[0];
+}
+
+function probeTargetVaultPath(ws) {
+  let id = 0;
+  const send = (method, params = {}) => {
+    const requestId = ++id;
+    return new Promise((resolveSend, rejectSend) => {
+      const timer = setTimeout(() => {
+        ws.removeEventListener("message", onMessage);
+        rejectSend(new Error(`${method} target probe timeout`));
+      }, 3000);
+      const onMessage = (event) => {
+        const msg = JSON.parse(event.data);
+        if (msg.id !== requestId) return;
+        clearTimeout(timer);
+        ws.removeEventListener("message", onMessage);
+        if (msg.error) rejectSend(new Error(msg.error.message || JSON.stringify(msg.error)));
+        else resolveSend(msg.result);
+      };
+      ws.addEventListener("message", onMessage);
+      ws.send(JSON.stringify({ id: requestId, method, params }));
+    });
+  };
+  return send("Runtime.evaluate", {
+    expression: "globalThis.app?.vault?.adapter?.getBasePath?.() || ''",
+    returnByValue: true,
+    awaitPromise: true,
+  }).then((result) => result?.result?.value || "");
 }
 
 const CDP_PROBE = `
@@ -659,7 +720,14 @@ const CDP_PROBE = `
     const shellPanelText = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-inline-shell-panel .llm-bridge-codex-detail-pre, .llm-bridge-codex-detail-shell .llm-bridge-codex-detail-pre") ?? [])
       .map((el) => el.textContent || "")
       .join(String.fromCharCode(10));
-    const collapsedShellSummaryAvailable = /Shell\\s*·/.test(commandEventLabelText);
+    const toolGroupTitleText = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-tool-group-title") ?? [])
+      .map((el) => el.textContent || "")
+      .join(" ");
+    const compactCommandSummaryAvailable = /已运行\\s*\\d+\\s*条命令/.test(toolGroupTitleText)
+      || /已运行\\s*1\\s*条命令/.test(commandEventLabelText);
+    const compactFileSummaryAvailable = /已编辑\\s*\\d+\\s*个文件/.test(toolGroupTitleText)
+      || /已编辑\\s*1\\s*个文件/.test(commandEventLabelText);
+    const collapsedShellSummaryAvailable = /Shell\\s*·/.test(commandEventLabelText) || compactCommandSummaryAvailable;
     codexRunCommandShellPanelAvailable = inlineShellPanels > 0
       || /Shell\\s*·/.test(commandDetailSummaryText)
       || collapsedShellSummaryAvailable;
@@ -670,7 +738,9 @@ const CDP_PROBE = `
       && (
         (inlineShellPanels > 0 && shellPanelText.includes("$") && shellPanelText.includes(uiSmokeCommandToken))
         || (commandOutputCollapsedInNormalMode && commandEventLabelText.includes(uiSmokeCommandToken))
+        || (commandOutputCollapsedInNormalMode && compactCommandSummaryAvailable)
       );
+    if (compactFileSummaryAvailable) changesPanelVisible = true;
     normalModeCommandSummaryPathRedacted = commandSummaryText.length === 0 || (!/\\bcwd\\s*=/.test(commandSummaryText) && !/[A-Za-z]:\\\\/.test(commandSummaryText));
     messageRenderFailureAbsent = !/消息渲染失败|Cannot use .?in.? operator/i.test(normalText);
     finalAnswerVisuallySeparated = !view.containerEl?.querySelector?.(".llm-bridge-codex-final-answer-marker")
