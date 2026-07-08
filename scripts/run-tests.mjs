@@ -193,6 +193,11 @@ const ACTION_SCHEMAS = {
   rename_tag: { required: ["oldTag", "newTag"], optional: ["path"], extraForbidden: false },
   bookmarks_list: { required: [], optional: [], extraForbidden: false },
   metadatacache_get: { required: ["path"], optional: [], extraForbidden: false },
+  // V2.18 vault-api 第三批 schemas（全局图/插件/外部操作/设置）
+  resolved_links_map: { required: [], optional: ["path"], extraForbidden: false },
+  plugin_list: { required: [], optional: [], extraForbidden: false },
+  open_url: { required: ["url"], optional: [], extraForbidden: false },
+  setting_get: { required: ["key"], optional: [], extraForbidden: false },
 };
 
 function validateActionSchema(action) {
@@ -292,6 +297,14 @@ const schemaTests = [
   { action: { type: "bookmarks_list", params: {} }, expect: null, desc: "bookmarks_list 无参正常" },
   { action: { type: "metadatacache_get", params: {} }, expect: /缺少必填字段.*path/, desc: "metadatacache_get 缺 path" },
   { action: { type: "metadatacache_get", params: { path: "a.md" } }, expect: null, desc: "metadatacache_get 正常" },
+  // V2.18 vault-api 第三批 schema 测试（全局图/插件/外部操作/设置）
+  { action: { type: "resolved_links_map", params: {} }, expect: null, desc: "resolved_links_map 无参正常" },
+  { action: { type: "resolved_links_map", params: { path: "inbox/" } }, expect: null, desc: "resolved_links_map 带 path 过滤正常" },
+  { action: { type: "plugin_list", params: {} }, expect: null, desc: "plugin_list 无参正常" },
+  { action: { type: "open_url", params: {} }, expect: /缺少必填字段.*url/, desc: "open_url 缺 url" },
+  { action: { type: "open_url", params: { url: "https://example.com" } }, expect: null, desc: "open_url 正常" },
+  { action: { type: "setting_get", params: {} }, expect: /缺少必填字段.*key/, desc: "setting_get 缺 key" },
+  { action: { type: "setting_get", params: { key: "attachmentFolderPath" } }, expect: null, desc: "setting_get 正常" },
 ];
 
 for (const t of schemaTests) {
@@ -4601,24 +4614,30 @@ if (runMode !== "all" && runMode !== "unit") {
         const hasRenameTag = content.includes("rename_tag");
         const hasBookmarksList = content.includes("bookmarks_list");
         const hasMetadatacacheGet = content.includes("metadatacache_get");
+        // V2.18 第三批 4 个 action（全局图/插件/外部操作/设置）
+        const hasResolvedLinksMap = content.includes("resolved_links_map");
+        const hasPluginList = content.includes("plugin_list");
+        const hasOpenUrl = content.includes("open_url");
+        const hasSettingGet = content.includes("setting_get");
         const hasHttpBridge = content.includes("bridge.json") && content.includes("/action");
         const hasFileSystemCaveat = content.includes("native Read/Write/Edit");
         const allActions = hasPropertyGet && hasPropertySet && hasTagsList && hasBacklinks
           && hasTasks && hasDailyRead && hasDailyAppend && hasVaultDelete && hasVaultRename
           && hasOutlinksGet && hasBrokenLinksList && hasHeadingsGet && hasVaultRestore
-          && hasSearch && hasRenameTag && hasBookmarksList && hasMetadatacacheGet;
+          && hasSearch && hasRenameTag && hasBookmarksList && hasMetadatacacheGet
+          && hasResolvedLinksMap && hasPluginList && hasOpenUrl && hasSettingGet;
 
         // 单独验证 generateInitialVaultApiSkill 纯函数（不依赖文件系统）
         const generated = agentRuntimeWsMod.generateInitialVaultApiSkill();
         const generatedHasH1 = generated.startsWith("# vault-api");
         const generatedHasActionTable = generated.includes("### 结构化类") && generated.includes("### 危险操作类");
-        // V2.18 第二批：17 个 action 计数 + search 行
-        const generatedHas17Count = generated.includes("17 个 action");
-        const generatedHasSearch = generated.includes("search");
+        // V2.18 第三批：21 个 action 计数 + resolved_links_map 行
+        const generatedHas21Count = generated.includes("21 个 action");
+        const generatedHasResolvedLinksMap = generated.includes("resolved_links_map");
 
-        addTest("V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 17 actions + HTTP 通道",
-          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable && generatedHas17Count && generatedHasSearch ? "pass" : "fail",
-          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable} gen17Count=${generatedHas17Count} genSearch=${generatedHasSearch}`);
+        addTest("V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 21 actions + HTTP 通道",
+          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable && generatedHas21Count && generatedHasResolvedLinksMap ? "pass" : "fail",
+          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable} gen21Count=${generatedHas21Count} genResolvedLinksMap=${generatedHasResolvedLinksMap}`);
       }
 
       // Test K1-C: 轻量版 materializeToAllTargets — 单个 conflict 不影响其他 target

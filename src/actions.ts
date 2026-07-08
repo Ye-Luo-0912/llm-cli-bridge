@@ -40,7 +40,12 @@ export type ActionType =
   | "search"             // 全文搜索（markdown-aware：跳过 frontmatter/代码块）
   | "rename_tag"         // 全 vault 标签重命名（frontmatter + 内联 #tag 原子更新）
   | "bookmarks_list"     // 读 Obsidian 书签（.obsidian/ 已被路径校验拒绝，必须走 API）
-  | "metadatacache_get"; // 单文件完整 metadataCache 快照（headings+links+tags+frontmatter+embeds 聚合）
+  | "metadatacache_get"  // 单文件完整 metadataCache 快照（headings+links+tags+frontmatter+embeds 聚合）
+  // V2.18 vault-api 第三批：全局图/插件/外部操作/设置（文件系统做不准/做不到）
+  | "resolved_links_map" // 全 vault 解析后链接图（resolvedLinks 全量，全局拓扑）
+  | "plugin_list"        // 列出启用的插件（.obsidian/ 被路径校验拒绝）
+  | "open_url"           // 在默认浏览器打开 URL（UI 操作）
+  | "setting_get";       // 读 Obsidian 设置项（.obsidian/app.json 被拒绝）
 
 export interface OutboxAction {
   id: string;
@@ -87,6 +92,11 @@ const ACTION_SCHEMAS: Record<ActionType, ParamSchema> = {
   rename_tag: { required: ["oldTag", "newTag"], optional: ["path"], extraForbidden: false },
   bookmarks_list: { required: [], optional: [], extraForbidden: false },
   metadatacache_get: { required: ["path"], optional: [], extraForbidden: false },
+  // V2.18 vault-api 第三批 schemas（全局图/插件/外部操作/设置）
+  resolved_links_map: { required: [], optional: ["path"], extraForbidden: false },
+  plugin_list: { required: [], optional: [], extraForbidden: false },
+  open_url: { required: ["url"], optional: [], extraForbidden: false },
+  setting_get: { required: ["key"], optional: [], extraForbidden: false },
 };
 
 // ─── 路径安全校验 ─────────────────────────────────────────────────────────
@@ -751,6 +761,107 @@ export async function executeAction(
           type: s.type, line: (s.position?.start?.line ?? 0) + 1,
         })),
       };
+    }
+    // ─── V2.18 vault-api 第三批：全局图/插件/外部操作/设置 ───────────────────
+    case "resolved_links_map": {
+      // 全 vault 解析后链接图（metadataCache.resolvedLinks 全量，全局拓扑）
+      const pathFilter = typeof p.path === "string" ? String(p.path).trim() : undefined;
+      const resolvedLinks = (app.metadataCache as unknown as { resolvedLinks: Record<string, Record<string, number>> }).resolvedLinks;
+      const links: Record<string, Record<string, number>> = {};
+      let totalFiles = 0;
+      let totalLinks = 0;
+      for (const [sourcePath, targets] of Object.entries(resolvedLinks)) {
+        if (pathFilter && !sourcePath.startsWith(pathFilter)) continue;
+        const filtered: Record<string, number> = {};
+        for (const [target, count] of Object.entries(targets)) {
+          if (pathFilter && !target.startsWith(pathFilter)) continue;
+          filtered[target] = count;
+          totalLinks++;
+        }
+        if (Object.keys(filtered).length > 0) {
+          links[sourcePath] = filtered;
+          totalFiles++;
+        }
+      }
+      return { links, totalFiles, totalLinks };
+    }
+    case "plugin_list": {
+      // 列出启用的插件（.obsidian/ 被路径校验拒绝，必须走 API）
+      const pluginsApi = app as unknown as {
+        plugins?: {
+          manifests?: Record<string, { id: string; name: string; version: string; description?: string }>;
+          enabledPlugins?: { has?: (id: string) => boolean } | Set<string>;
+        };
+        internalPlugins?: {
+          getPluginById?: (id: string) => { instance?: { id: string; name: string }; _loaded?: boolean } | undefined;
+          plugins?: Record<string, { id: string; name: string; enabled?: boolean }>;
+        };
+      };
+      // 社区插件
+      const manifests = pluginsApi.plugins?.manifests ?? {};
+      const enabledSet = pluginsApi.plugins?.enabledPlugins;
+      const isEnabled = (id: string): boolean => {
+        if (!enabledSet) return false;
+        if (enabledSet instanceof Set) return enabledSet.has(id);
+        if (typeof (enabledSet as { has?: (id: string) => boolean }).has === "function") return (enabledSet as { has: (id: string) => boolean }).has(id);
+        return false;
+      };
+      const community = Object.values(manifests).map((m) => ({
+        id: m.id, name: m.name, version: m.version,
+        description: m.description ?? null, enabled: isEnabled(m.id),
+      }));
+      // 核心插件：读 .obsidian/core-plugins.json
+      let core: { id: string; enabled: boolean }[] = [];
+      try {
+        const coreRaw = await app.vault.adapter.read(".obsidian/core-plugins.json");
+        const coreData = JSON.parse(coreRaw);
+        // 兼容两种格式：数组 [...ids] 或对象 {enabled:[...], disabled:[...]}
+        let enabledIds: string[] = [];
+        if (Array.isArray(coreData)) {
+          enabledIds = coreData.filter((x: unknown): x is string => typeof x === "string");
+        } else if (coreData && typeof coreData === "object") {
+          const e = (coreData as { enabled?: unknown[] }).enabled;
+          if (Array.isArray(e)) enabledIds = e.filter((x: unknown): x is string => typeof x === "string");
+        }
+        core = enabledIds.map((id) => ({ id, enabled: true }));
+      } catch {
+        core = [];
+      }
+      return { core, community, totalCore: core.length, totalCommunity: community.length };
+    }
+    case "open_url": {
+      // 在默认浏览器打开 URL（UI 操作，文件系统做不到）
+      const url = String(p.url ?? "").trim();
+      if (!url) throw new Error("open_url: 缺少 url");
+      // 安全校验：只允许 http/https/obsidian:// scheme，拒绝 javascript:/file:/data:
+      if (!/^(https?:|obsidian:)/i.test(url)) {
+        throw new Error(`open_url: 不支持的 URL scheme（仅允许 http/https/obsidian://）: ${url}`);
+      }
+      const obsidianWindow = window as unknown as { open?: (url: string, target?: string) => Window | null };
+      if (typeof obsidianWindow.open === "function") {
+        obsidianWindow.open(url, "_blank");
+      } else {
+        throw new Error("open_url: 当前环境不支持 window.open");
+      }
+      return { url, opened: true };
+    }
+    case "setting_get": {
+      // 读 Obsidian 设置项（.obsidian/app.json 被路径校验拒绝，必须走 API）
+      const key = String(p.key ?? "").trim();
+      if (!key) throw new Error("setting_get: 缺少 key");
+      let settingsRaw: string;
+      try {
+        settingsRaw = await app.vault.adapter.read(".obsidian/app.json");
+      } catch {
+        return { key, value: null, note: "未找到 .obsidian/app.json" };
+      }
+      let settings: Record<string, unknown>;
+      try {
+        settings = JSON.parse(settingsRaw);
+      } catch {
+        return { key, value: null, note: "app.json 解析失败" };
+      }
+      return { key, value: key in settings ? settings[key] : null };
     }
     default:
       throw new Error(`未知 action 类型: ${type}`);

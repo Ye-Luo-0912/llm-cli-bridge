@@ -187,7 +187,8 @@ if (isMain) {
     }
     const outputJson = () => console.log(JSON.stringify(r, null, 2));
     // 非修改类 action 或 --json：直接输出
-    const modifying = ["create_note","append_to_note","insert_at_cursor","replace_selection"].includes(type);
+    // 修改类 action（与 actions.ts MODIFYING_ACTIONS 同步，否则 --wait 失效）
+    const modifying = ["create_note","append_to_note","insert_at_cursor","replace_selection","property_set","daily_append","vault_delete","vault_rename","vault_restore","rename_tag"].includes(type);
     if (!modifying || flags.json) {
       if (r && r.ok === false) { if (!flags.json) console.error("Action 失败:", r.data?.error || r.data); outputJson(); process.exit(1); }
       outputJson();

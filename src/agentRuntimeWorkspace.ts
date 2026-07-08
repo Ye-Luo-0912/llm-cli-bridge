@@ -580,6 +580,10 @@ export function generateInitialVaultApiSkill(): string {
     "| search         | {\"query\":\"...\",\"path?\":\"...\",\"limit?\":N} | 否 | 全文搜索（markdown-aware：跳过 frontmatter/代码块；query 可为正则；默认 limit=50，上限 200） |",
     "| bookmarks_list | {}                                  | 否   | 读 Obsidian 书签（.obsidian/bookmarks.json 已被路径校验拒绝，必须走 API） |",
     "| metadatacache_get | {\"path\":\"...\"}                   | 否   | 单文件完整 metadataCache 快照（frontmatter+tags+links+embeds+headings+sections 聚合，比多次调用高效） |",
+    "| resolved_links_map | {\"path?\":\"...\"}                | 否   | 全 vault 解析后链接图（resolvedLinks 全量，全局拓扑；可按目录前缀过滤） |",
+    "| plugin_list    | {}                                  | 否   | 列出启用的核心+社区插件（.obsidian/ 被路径校验拒绝，必须走 API） |",
+    "| open_url       | {\"url\":\"...\"}                     | 否   | 在默认浏览器打开 URL（仅允许 http/https/obsidian:// scheme） |",
+    "| setting_get    | {\"key\":\"...\"}                     | 否   | 读 Obsidian 设置项（如 attachmentFolderPath/newFileLocation；.obsidian/app.json 被拒绝） |",
     "",
     "### 危险操作类（走 Obsidian 回收站 + 审批）",
     "",
@@ -600,7 +604,7 @@ export function generateInitialVaultApiSkill(): string {
     "- 删除/重命名/恢复/标签改名 → 用本 Skill（走回收站、更新 metadataCache、原子改 frontmatter；不要直接 fs.unlink/rename 或手动改 YAML）。",
     "- path 参数必须是 vault 相对路径（如 `inbox/note.md`），禁止绝对路径与 `..` 遍历。",
     "- 修改类 action（property_set/daily_append/vault_delete/vault_rename/vault_restore/rename_tag）会弹审批框，用户拒绝则不执行。",
-    "- 17 个 action 之外的 Obsidian 能力暂未暴露；如需扩展请在 LLM-AgentRuntime/skills/vault-api/SKILL.md 记录需求。",
+    "- 21 个 action 之外的 Obsidian 能力暂未暴露；如需扩展请在 LLM-AgentRuntime/skills/vault-api/SKILL.md 记录需求。",
     "",
   ].join("\n");
 }
