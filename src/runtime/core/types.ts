@@ -62,8 +62,9 @@ export type ProviderId =
  *
  * 简化会话模型为 "latest native session only"：
  * - activeNativeSessionRef：当前运行中绑定的 native session（内存，随 BridgeSession 生命周期）
- * - lastNativeSessionRef：最后一次成功的 native session（持久化到 settings，用于重启后恢复）
- * - 历史会话 = transcript only；只有 lastNativeSessionRef 对应的会话才允许 native continuation
+ * - nativeSessionRef 持久化在 session 文件中（1:1 绑定 Bridge session id），
+ *   恢复会话时从 session 文件读回 restoredActiveNativeSessionRef
+ * - 不在 settings 维护独立 lastNativeSessionRef（避免双源导致 session 和 native ref 错位）
  *
  * 不同 agent 的 native session 不互通（providerId 不同即视为 transcript-only）。
  */
