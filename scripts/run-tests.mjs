@@ -19480,6 +19480,21 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13j17: V17-G77 Codex debug does not pollute Process waterfall ----
+  {
+    const processDebugLeak = viewSrc.includes("const hasProcessContent = processFeedItems.length > 0\n      || diagnosticsForDisplay.length > 0\n      || !!run.debugPanel");
+    const ok = viewSrc.includes("const hasDeveloperDebug = developerMode && !!run.debugPanel")
+      && viewSrc.includes("if (hasDeveloperDebug) this.renderAgentRunDebugDrawer(body, run.debugPanel!)")
+      && viewSrc.includes("private renderAgentRunDebugDrawer")
+      && viewSrc.includes("private assistantTurnHasVisibleRunContent")
+      && viewSrc.includes("completedWithoutVisibleCodexOutput")
+      && viewSrc.includes("Codex runtime completed without visible output")
+      && stylesSrc.includes("V17-G77: debug stays behind one drawer")
+      && !processDebugLeak;
+    addTest("V17-G77 UI: Codex debug 抽屉不污染 Process，空白 completed 降级为可读失败",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 13k: V17-G10 permission and files surfaces stay Codex-compact ----
   {
     const ok = viewSrc.includes('cls: "llm-bridge-context-ref-action is-pin"')

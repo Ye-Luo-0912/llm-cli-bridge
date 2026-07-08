@@ -12577,6 +12577,39 @@
   opacity: 1 !important;
 }
 
+/* ===== V17-G77: debug stays behind one drawer, not in the run waterfall ===== */
+.llm-bridge-codex-debug-drawer {
+  margin: 8px 0 0 !important;
+  padding: 0 !important;
+  border-top: 1px solid var(--background-modifier-border) !important;
+  color: var(--text-muted) !important;
+}
+
+.llm-bridge-codex-debug-drawer-summary {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 7px 0 !important;
+  cursor: pointer !important;
+  color: var(--text-faint) !important;
+  font-size: var(--font-ui-smaller) !important;
+  font-weight: 600 !important;
+}
+
+.llm-bridge-codex-debug-drawer-summary::marker {
+  color: var(--text-faint) !important;
+}
+
+.llm-bridge-codex-debug-drawer-meta {
+  color: var(--text-faint) !important;
+  font-weight: 500 !important;
+}
+
+.llm-bridge-codex-debug-drawer-body {
+  padding: 2px 0 4px 12px !important;
+  border-left: 1px solid var(--background-modifier-border) !important;
+}
+
 /* ===== V17-G76: attachment tray is current-message only, no pin affordance ===== */
 .llm-bridge-composer-file-pin {
   display: none !important;

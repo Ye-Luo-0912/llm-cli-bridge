@@ -5002,6 +5002,15 @@ export class LLMBridgeView extends ItemView {
     );
   }
 
+  private assistantTurnHasVisibleRunContent(turnView: AssistantTurnView): boolean {
+    if (turnView.finalAnswer.trim().length > 0) return true;
+    if (turnView.approvals.some((approval) => approval.pending || approval.resolutionSource)) return true;
+    if (turnView.userInputRequests.some((request) => request.pending)) return true;
+    return this.flattenTurnTimeline(turnView.turnTimeline).some((node) => {
+      return [node.text, node.summary, node.detail].some((value) => (value ?? "").trim().length > 0);
+    });
+  }
+
   // stderr / log / 生成文件，默认折叠；失败或有新文件时显著
   private appendMsgDetails(block: HTMLElement, msg: ChatMessage, beforeEl?: Element | null): void {
     const failed = msg.status === "failed";
@@ -5349,16 +5358,16 @@ export class LLMBridgeView extends ItemView {
     const processFeedItems = run.feedItems;
     const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);
     const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;
+    const hasDeveloperDebug = developerMode && !!run.debugPanel;
     const hasProcessContent = processFeedItems.length > 0
-      || diagnosticsForDisplay.length > 0
-      || !!run.debugPanel;
+      || diagnosticsForDisplay.length > 0;
     const hasAnswer = !!run.finalAnswer.trim();
     const processCollapsedByDefault = !developerMode && run.runHeader.statusKind === "completed" && hasAnswer;
     const hasToggleContent = hasProcessContent;
     const hasBodyContent = run.approvalGates.length > 0
       || processFeedItems.length > 0
       || diagnosticsForDisplay.length > 0
-      || !!run.debugPanel
+      || hasDeveloperDebug
       || hasAnswer;
     const wrap = parent.createDiv({
       cls: `llm-bridge-timeline-wrap llm-bridge-turn-view llm-bridge-codex-run-view is-${run.runHeader.statusKind}${developerMode ? " is-developer" : ""}`,
@@ -5417,7 +5426,6 @@ export class LLMBridgeView extends ItemView {
       if (processCollapsedByDefault) processBody.setAttribute("hidden", "");
       if (processFeedItems.length > 0) this.renderCodexFeed(processBody, processFeedBatches, developerMode);
       if (diagnosticsForDisplay.length > 0) this.renderCodexDiagnosticsDrawer(processBody, diagnosticsForDisplay, developerMode);
-      if (developerMode && run.debugPanel) this.renderAgentRunDebugView(processBody, run.debugPanel);
 
       if (hasToggleContent) {
         processHead.addClass("is-collapsible");
@@ -5451,6 +5459,7 @@ export class LLMBridgeView extends ItemView {
     }
 
     if (hasAnswer) this.renderCodexFinalAnswer(body, run.finalAnswer);
+    if (hasDeveloperDebug) this.renderAgentRunDebugDrawer(body, run.debugPanel!);
 
     if (!hasBodyContent) {
       head.removeClass("llm-bridge-timeline-head");
@@ -7888,6 +7897,18 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
+  private renderAgentRunDebugDrawer(parent: HTMLElement, debug: AgentRunDebugView): void {
+    const drawer = parent.createEl("details", { cls: "llm-bridge-codex-debug-drawer" });
+    const summary = drawer.createEl("summary", { cls: "llm-bridge-codex-debug-drawer-summary" });
+    summary.createEl("span", { cls: "llm-bridge-codex-debug-drawer-title", text: "Debug" });
+    const count = debug.rawProviderEvents?.length ?? 0;
+    if (count > 0) {
+      summary.createEl("span", { cls: "llm-bridge-codex-debug-drawer-meta", text: `${count} raw events` });
+    }
+    const body = drawer.createDiv({ cls: "llm-bridge-codex-debug-drawer-body" });
+    this.renderAgentRunDebugView(body, debug);
+  }
+
   // V2.16-D: 渲染 context metrics 到 UI
   // V16.3 Round 3: 普通用户态只显示 ring + 简短标签；developerMode=true 才填充明细
   private renderContextMetrics(metrics: ContextMetrics): void {
@@ -9622,22 +9643,36 @@ export class LLMBridgeView extends ItemView {
     const msg = this.messages.find((m) => m.id === assistantId);
     const newLog = (msg?.log || "") +
       `\nexit code: ${result.exitCode ?? "null"}  signal: ${result.signal ?? "-"}\nduration: ${result.durationMs} ms`;
+    let finalStatus = status;
+    let finalResult = result;
+    const completedWithoutVisibleCodexOutput = status === "completed"
+      && msg?.assistantTurnView
+      && /codex/i.test(msg.assistantTurnView.providerId)
+      && !this.assistantTurnHasVisibleRunContent(msg.assistantTurnView);
+    if (completedWithoutVisibleCodexOutput) {
+      finalStatus = "failed";
+      finalResult = {
+        ...result,
+        exitCode: 1,
+        stderr: "Codex runtime completed without visible output. The app-server ended the turn without an assistant answer, tool step, file change, approval, or user-input request.",
+      };
+    }
     // V0.3: backend 终态 stderr 已是用户可见摘要，直接覆盖（不再增量拼接）
     // 详细诊断日志已写入 .llm-bridge/logs/debug-*.log
     // V2.4: 先保存日志，拿到具体文件路径用于 debug log 提示（而非目录）
     let debugLogPath = "";
     if (this.plugin.settings.saveLogs) {
       try {
-        debugLogPath = await this.saveLogFile(result, vaultPath);
+        debugLogPath = await this.saveLogFile(finalResult, vaultPath);
       } catch {
         /* 忽略 */
       }
     }
 
-    let newStderr = this.plugin.settings.showStderr ? (result.stderr || "") : "";
+    let newStderr = this.plugin.settings.showStderr ? (finalResult.stderr || "") : "";
     // V1.1: 失败时构造简短错误摘要（脱敏，不含 secret），并在 stderr 末尾追加 debug log 路径
-    const errorSummary = status === "failed" ? buildErrorSummary(result.stderr, result.exitCode) : "";
-    if (status === "failed") {
+    const errorSummary = finalStatus === "failed" ? buildErrorSummary(finalResult.stderr, finalResult.exitCode) : "";
+    if (finalStatus === "failed") {
       if (errorSummary) {
         newStderr = newStderr ? `${newStderr}\n---\n摘要: ${errorSummary}` : `摘要: ${errorSummary}`;
       }
@@ -9647,20 +9682,20 @@ export class LLMBridgeView extends ItemView {
     }
 
     // V1.2: 构造运行过程时间线（started / stdout / stderr / 终态）
-    const finalDetail = status === "failed"
-      ? (errorSummary || `exit ${result.exitCode ?? "null"}`)
-      : status === "stopped"
+    const finalDetail = finalStatus === "failed"
+      ? (errorSummary || `exit ${finalResult.exitCode ?? "null"}`)
+      : finalStatus === "stopped"
         ? "stopped by user"
-        : `exit ${result.exitCode ?? 0} · ${result.durationMs}ms`;
-    const timeline = buildTimeline(startedAt, timelineEvents, status, finalDetail);
+        : `exit ${finalResult.exitCode ?? 0} · ${finalResult.durationMs}ms`;
+    const timeline = buildTimeline(startedAt, timelineEvents, finalStatus, finalDetail);
 
-    this.setGlobalStatus(status);
+    this.setGlobalStatus(finalStatus);
     this.updateAssistantMessage(assistantId, {
-      status,
+      status: finalStatus,
       stderr: newStderr,
       log: newLog,
-      exitCode: result.exitCode,
-      durationMs: result.durationMs,
+      exitCode: finalResult.exitCode,
+      durationMs: finalResult.durationMs,
       timeline,
       sdkEvents: sdkEvents.length > 0 ? sdkEvents : undefined,
     });
@@ -9682,12 +9717,12 @@ export class LLMBridgeView extends ItemView {
       promptLength,
       workflowEvents,
       newFiles.length,
-      status,
+      finalStatus,
       workflowFinalDetail,
     );
     this.updateAssistantMessage(assistantId, { workflowTrace });
     // V2.0: 运行流程区展示完整 6 步流程
-    this.showRunFlowTrace(workflowTrace, status);
+    this.showRunFlowTrace(workflowTrace, finalStatus);
 
     // V2.5: 运行结束后保存会话到历史（失败不阻断；同一会话 id 复用）
     try {
