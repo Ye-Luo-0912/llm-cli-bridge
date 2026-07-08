@@ -3971,12 +3971,34 @@ if (runMode !== "all" && runMode !== "unit") {
         `hasUnavailable=${hasUnavailable} notUnknown=${notUnknown}`);
     }
 
+    {
+      const pkg = promptPkgMod.buildBridgePromptPackage("用户请求", v165cSnapshot, baseBridgeSettings, {
+        providerNativeFileTools: true,
+        bridgeRuntimeFileTools: true,
+        shellAvailable: true,
+        obsidianCliAvailable: "unknown",
+        askUserQuestionAvailable: true,
+        runtimeSkills: {
+          managedCodexPlugins: [{ id: "pdf", name: "PDF", description: "Read PDF files", enabled: true }],
+          agentSkills: [{ id: "defuddle", name: "defuddle", description: "Extract clean content", instructions: "Use defuddle for readability extraction.", enabled: true }],
+          evidence: "test catalog",
+        },
+      });
+      const append = pkg.bridgeSystemAppend;
+      const ok = append.includes("Runtime Skills / Plugins")
+        && append.includes("PDF (pdf)")
+        && append.includes("defuddle (defuddle)")
+        && append.includes("不要因为它不是 shell 命令就回答不可用");
+      addTest("V17-G71 runtime capability context: Skills/plugins enter provider instructions",
+        ok ? "pass" : "fail", "");
+    }
+
     // Test D-f: view.ts 主路径会向 buildBridgePromptPackage 传入 capabilities
     {
       const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
       // 验证 view.ts 调用 buildRuntimeCapabilities 并传入 buildBridgePromptPackage
       const hasBuilder = viewSrc.includes("buildRuntimeCapabilities(session.providerId, settings)");
-      const hasPass = viewSrc.includes("buildBridgePromptPackage(userInput, snapshot, settings, runtimeCapabilities)");
+      const hasPass = viewSrc.includes("buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities)");
       // 验证 view.ts 导入了 ProviderCapabilityInfo 类型
       const hasImport = viewSrc.includes("from \"./runtime/core/bridgePromptContract\"");
       addTest("V16.5-D view.ts 主路径注入真实 capabilities",
@@ -4062,7 +4084,7 @@ if (runMode !== "all" && runMode !== "unit") {
       {
         const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
         const hasRuntimeCapabilities = viewSrc.includes("const runtimeCapabilities = this.buildRuntimeCapabilities(session.providerId, settings)");
-        const hasPassedToBuilder = viewSrc.includes("buildBridgePromptPackage(userInput, snapshot, settings, runtimeCapabilities)");
+        const hasPassedToBuilder = viewSrc.includes("buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities)");
         addTest("V16.5-E blocker: buildBridgePromptPackage 主路径接收 runtimeCapabilities",
           hasRuntimeCapabilities && hasPassedToBuilder ? "pass" : "fail",
           `hasRuntimeCapabilities=${hasRuntimeCapabilities} hasPassedToBuilder=${hasPassedToBuilder}`);
@@ -17688,7 +17710,8 @@ if (!runV214BUnit) {
         && (viewSrc.includes('this.agentSkillsToggleCountEl.setText(`${enabled}/${total}`)')
           || viewSrc.includes('this.agentSkillsToggleCountEl.setText(`${pluginEnabled}/${pluginTotal}P · ${enabled}/${total}S`)'))
         && viewSrc.includes("runtime capabilities")
-        && viewSrc.includes("不会写入 composer")
+        && viewSrc.includes("provider instructions")
+        && viewSrc.includes("composer 内轻量 chip")
         && !viewSrc.includes("Prompt Snippets")
         && !viewSrc.includes("Insert prompt")
         && !viewSrc.includes("Insert selected")
@@ -19151,8 +19174,8 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes("private renderComposerManagedCodexPluginsList(parent: HTMLElement): void")
       && viewSrc.includes("private useComposerManagedCodexPlugin(plugin: CodexManagedPluginEntry): void")
-      && viewSrc.includes("private insertComposerText(text: string): void")
-      && viewSrc.includes("使用 ${presentation.label} 插件处理这个请求。")
+      && viewSrc.includes("private toggleComposerRuntimeCapability(selection: ComposerRuntimeCapabilitySelection): void")
+      && viewSrc.includes("private buildUserInputWithRuntimeCapabilityHints(userInput: string): string")
       && viewSrc.includes("llm-bridge-command-menu-plugins-list")
       && viewSrc.includes("llm-bridge-command-menu-plugin")
       && viewSrc.includes('section.createEl("button"')
@@ -19188,7 +19211,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private renderComposerRuntimeToolsList(parent: HTMLElement): void")
       && viewSrc.includes("private renderComposerAgentSkillsList(parent: HTMLElement): void")
       && viewSrc.includes("private async refreshAgentSkillsManifestOnly(): Promise<void>")
-      && viewSrc.includes("使用 ${label} Skill 处理这个请求。")
+      && viewSrc.includes("kind: \"skill\"")
+      && viewSrc.includes("buildUserInputWithRuntimeCapabilityHints")
       && viewSrc.includes('"data-plugin-key": this.composerToolVisualKey')
       && stylesSrc.includes("V17-G70: agent-aligned models, usable skills and smaller Codex-like tool menu")
       && stylesSrc.includes(".llm-bridge-command-menu-runtime-section")
@@ -19408,8 +19432,9 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('chip.addClass("is-preview-missing")')
       && viewSrc.includes('cls: "llm-bridge-msg-attachment-image-placeholder"')
       && viewSrc.includes("preview.remove()")
-      && viewSrc.includes("不会写入 composer")
-      && viewSrc.includes("不会拼进 promptPackage")
+      && viewSrc.includes("provider instructions")
+      && viewSrc.includes("llm-bridge-composer-runtime-chip")
+      && viewSrc.includes("buildUserInputWithRuntimeCapabilityHints")
       && !viewSrc.includes("llm-bridge-file-preview-actions")
       && stylesSrc.includes("V17-G27: Codex-like right user bubbles, square attachments and Skills registry")
       && stylesSrc.includes(".llm-bridge-msg-user {")
@@ -19423,7 +19448,9 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes("box-shadow: none !important;")
       && stylesSrc.includes("grid-template-columns: 28px minmax(0, 1fr) max-content")
       && stylesSrc.includes(".llm-bridge-agent-skills-boundary")
-      && stylesSrc.includes("background: transparent;");
+      && stylesSrc.includes("background: transparent;")
+      && stylesSrc.includes("V17-G71: selected runtime capabilities are Codex-like composer chips")
+      && stylesSrc.includes(".llm-bridge-composer-runtime-chip[data-plugin-key=\"pdf\"]");
     addTest("V17-G27 UI: user attachments and Skills registry stay Codex-like compact",
       ok ? "pass" : "fail", "");
   }

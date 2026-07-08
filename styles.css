@@ -16924,6 +16924,78 @@
   opacity: 0.42 !important;
 }
 
+/* ===== V17-G71: selected runtime capabilities are Codex-like composer chips ===== */
+.llm-bridge-composer-runtime-capabilities {
+  display: flex !important;
+  align-items: center !important;
+  flex-wrap: wrap !important;
+  gap: 6px !important;
+  min-width: 0 !important;
+  padding: 0 6px 2px !important;
+  grid-column: 1 / -1 !important;
+}
+
+.llm-bridge-composer-runtime-capabilities[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-composer-runtime-chip {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  min-height: 24px !important;
+  max-width: min(220px, 100%) !important;
+  padding: 2px 8px !important;
+  border: 0 !important;
+  border-radius: 7px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-normal) !important;
+  font-size: 13px !important;
+  line-height: 1.2 !important;
+}
+
+.llm-bridge-composer-runtime-chip:hover {
+  background: var(--background-modifier-hover) !important;
+}
+
+.llm-bridge-composer-runtime-chip-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 16px !important;
+  height: 16px !important;
+  min-width: 16px !important;
+  border-radius: 4px !important;
+  color: white !important;
+  background: var(--interactive-accent) !important;
+}
+
+.llm-bridge-composer-runtime-chip-icon svg {
+  width: 11px !important;
+  height: 11px !important;
+}
+
+.llm-bridge-composer-runtime-chip-label {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  font-weight: 560 !important;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="chrome"] .llm-bridge-composer-runtime-chip-icon { background: #4285f4 !important; }
+.llm-bridge-composer-runtime-chip[data-plugin-key="documents"] .llm-bridge-composer-runtime-chip-icon { background: #2f80ed !important; }
+.llm-bridge-composer-runtime-chip[data-plugin-key="pdf"] .llm-bridge-composer-runtime-chip-icon { background: #ef4444 !important; }
+.llm-bridge-composer-runtime-chip[data-plugin-key="spreadsheets"] .llm-bridge-composer-runtime-chip-icon { background: #2e9f5b !important; }
+.llm-bridge-composer-runtime-chip[data-plugin-key="presentations"] .llm-bridge-composer-runtime-chip-icon { background: #d99a2b !important; }
+.llm-bridge-composer-runtime-chip[data-plugin-key="template"] .llm-bridge-composer-runtime-chip-icon { background: #8b5cf6 !important; }
+.llm-bridge-composer-runtime-chip[data-plugin-key="computer"] .llm-bridge-composer-runtime-chip-icon { background: #60a5fa !important; }
+.llm-bridge-composer-runtime-chip[data-plugin-key="github"] .llm-bridge-composer-runtime-chip-icon { background: #24292f !important; }
+.llm-bridge-composer-runtime-chip[data-plugin-key="gmail"] .llm-bridge-composer-runtime-chip-icon { background: #ea4335 !important; }
+.llm-bridge-composer-runtime-chip[data-plugin-key="google-drive"] .llm-bridge-composer-runtime-chip-icon { background: #0f9d58 !important; }
+.llm-bridge-composer-runtime-chip[data-plugin-key="imagegen"] .llm-bridge-composer-runtime-chip-icon { background: #ec4899 !important; }
+.llm-bridge-composer-runtime-chip[data-plugin-key="skill"] .llm-bridge-composer-runtime-chip-icon { background: var(--interactive-accent) !important; }
+
 .llm-bridge-send-btn svg {
   width: 18px !important;
   height: 18px !important;

@@ -26,7 +26,7 @@ import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, expla
 import { buildCodexRunViewModel, formatCodexRunValue, type CodexRunApprovalGate, type CodexRunChangeGroup, type CodexRunDiagnosticsGroup, type CodexRunFeedItem, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
-import { DEFAULT_PROVIDER_CAPABILITIES, type ProviderCapabilityInfo, type ObsidianCliAvailability } from "./runtime/core/bridgePromptContract";
+import { DEFAULT_PROVIDER_CAPABILITIES, type ProviderCapabilityInfo, type ObsidianCliAvailability, type ProviderRuntimeSkillEntry } from "./runtime/core/bridgePromptContract";
 import type { ManagedRuntimeInstallStatus } from "./runtime/providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge";
 import { listManagedCodexPlugins, type CodexManagedPluginCatalog, type CodexManagedPluginEntry } from "./runtime/providers/codex-managed-app-server/codexManagedPluginCatalog";
 import { AssistantTurnViewBuilder } from "./runtime/core/assistantTurnView";
@@ -205,6 +205,15 @@ function nextMsgId(): string {
   return `m${Date.now()}_${msgIdSeq}`;
 }
 
+type ComposerRuntimeCapabilitySelection = {
+  readonly kind: "plugin" | "skill";
+  readonly id: string;
+  readonly label: string;
+  readonly description: string;
+  readonly icon: string;
+  readonly visualKey: string;
+};
+
 export class LLMBridgeView extends ItemView {
   private plugin: LLMBridgePlugin;
   // V2.17-A Completion: BridgeSession 替代 cachedBackend。
@@ -251,7 +260,7 @@ export class LLMBridgeView extends ItemView {
   private runFlowToggle: HTMLElement | null = null;
   // V2.0: 会话标题展示
   private sessionTitleEl!: HTMLElement;
-  // V2.13.0-F: Agent Skills 是 runtime capability，不插入 composer。
+  // V2.13.0-F / V17-G71: Agent Skills 是 runtime capability；composer 只显示轻量选择 chip。
   private agentSkills: AgentSkillRecord[] = [];
   private agentSkillsToggleEl!: HTMLElement;
   private agentSkillsToggleChevronEl!: HTMLElement;
@@ -261,6 +270,8 @@ export class LLMBridgeView extends ItemView {
   private managedCodexPlugins: ReadonlyArray<CodexManagedPluginEntry> = [];
   private managedCodexPluginCatalog: CodexManagedPluginCatalog | null = null;
   private managedCodexPluginsListEl!: HTMLElement;
+  private selectedRuntimeCapabilities: ComposerRuntimeCapabilitySelection[] = [];
+  private composerRuntimeCapabilitiesEl!: HTMLElement;
   // V2.9: scrollToBottom rAF 批处理定时器（合并同帧多次调用，避免每个 delta 触发 reflow）
   private scrollRafId: number | null = null;
   private streamContentRafId: number | null = null;
@@ -721,7 +732,7 @@ export class LLMBridgeView extends ItemView {
     const commandPlugins = commandMenuBody.createDiv({ cls: "llm-bridge-command-menu-plugins" });
     const commandPluginsHead = commandPlugins.createDiv({ cls: "llm-bridge-command-menu-plugins-head" });
     commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-title", text: "插件" });
-    commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-hint", text: "可插入使用指令" });
+    commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-hint", text: "选择本轮能力" });
     const commandPluginsList = commandPlugins.createDiv({ cls: "llm-bridge-command-menu-plugins-list" });
     commandPluginsList.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "打开菜单后读取插件与 Skills。" });
     let commandPluginsRequest = 0;
@@ -750,6 +761,8 @@ export class LLMBridgeView extends ItemView {
       void this.togglePermissionPopover();
     });
 
+    this.composerRuntimeCapabilitiesEl = composerBar.createDiv({ cls: "llm-bridge-composer-runtime-capabilities" });
+    this.composerRuntimeCapabilitiesEl.setAttribute("hidden", "");
     this.composerFileRefsEl = composerBar.createDiv({ cls: "llm-bridge-composer-file-refs" });
     const inputRow = composerBar.createDiv({ cls: "llm-bridge-input-row" });
     this.inputEl = inputRow.createEl("textarea", {
@@ -1094,6 +1107,46 @@ export class LLMBridgeView extends ItemView {
     this.renderComposerAgentSkillsList(parent);
   }
 
+  private renderComposerRuntimeCapabilityChips(): void {
+    const container = this.composerRuntimeCapabilitiesEl;
+    if (!container) return;
+    container.empty();
+    if (this.selectedRuntimeCapabilities.length === 0) {
+      container.setAttribute("hidden", "");
+      return;
+    }
+    container.removeAttribute("hidden");
+    for (const selection of this.selectedRuntimeCapabilities) {
+      const chip = container.createEl("button", {
+        cls: "llm-bridge-composer-runtime-chip",
+        attr: {
+          title: `${selection.kind === "plugin" ? "Plugin" : "Skill"} · ${selection.description || selection.id}。点击移除。`,
+          "data-plugin-key": selection.visualKey,
+        },
+      });
+      const icon = chip.createEl("span", { cls: "llm-bridge-composer-runtime-chip-icon" });
+      setIcon(icon, selection.icon);
+      chip.createEl("span", { cls: "llm-bridge-composer-runtime-chip-label", text: selection.label });
+      chip.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.selectedRuntimeCapabilities = this.selectedRuntimeCapabilities.filter((item) =>
+          !(item.kind === selection.kind && item.id === selection.id)
+        );
+        this.renderComposerRuntimeCapabilityChips();
+        this.inputEl.focus();
+      });
+    }
+  }
+
+  private toggleComposerRuntimeCapability(selection: ComposerRuntimeCapabilitySelection): void {
+    const exists = this.selectedRuntimeCapabilities.some((item) => item.kind === selection.kind && item.id === selection.id);
+    this.selectedRuntimeCapabilities = exists
+      ? this.selectedRuntimeCapabilities.filter((item) => !(item.kind === selection.kind && item.id === selection.id))
+      : [...this.selectedRuntimeCapabilities.filter((item) => item.kind !== selection.kind || item.id !== selection.id), selection];
+    this.renderComposerRuntimeCapabilityChips();
+  }
+
   private renderComposerManagedCodexPluginsList(parent: HTMLElement): void {
     const section = parent.createDiv({ cls: "llm-bridge-command-menu-runtime-section" });
     section.createDiv({ cls: "llm-bridge-command-menu-subtitle", text: "Installed plugins" });
@@ -1214,8 +1267,14 @@ export class LLMBridgeView extends ItemView {
       return;
     }
     const presentation = this.describeComposerManagedCodexPlugin(plugin);
-    const directive = `使用 ${presentation.label} 插件处理这个请求。`;
-    this.insertComposerText(directive);
+    this.toggleComposerRuntimeCapability({
+      kind: "plugin",
+      id: plugin.pluginId,
+      label: presentation.label,
+      description: presentation.description,
+      icon: presentation.icon,
+      visualKey: this.composerToolVisualKey(presentation.label, plugin.pluginId),
+    });
     const menu = this.inputEl.closest(".llm-bridge-composer-bar")?.querySelector(".llm-bridge-command-menu") as HTMLDetailsElement | null;
     menu?.removeAttribute("open");
     this.inputEl.focus();
@@ -1227,10 +1286,25 @@ export class LLMBridgeView extends ItemView {
       return;
     }
     const label = skill.name || skill.slug;
-    this.insertComposerText(`使用 ${label} Skill 处理这个请求。`);
+    this.toggleComposerRuntimeCapability({
+      kind: "skill",
+      id: skill.slug,
+      label,
+      description: skill.description || skill.slug,
+      icon: "sparkles",
+      visualKey: this.composerToolVisualKey(label, skill.slug),
+    });
     const menu = this.inputEl.closest(".llm-bridge-composer-bar")?.querySelector(".llm-bridge-command-menu") as HTMLDetailsElement | null;
     menu?.removeAttribute("open");
     this.inputEl.focus();
+  }
+
+  private buildUserInputWithRuntimeCapabilityHints(userInput: string): string {
+    if (this.selectedRuntimeCapabilities.length === 0) return userInput;
+    const hints = this.selectedRuntimeCapabilities.map((selection) =>
+      `- ${selection.kind === "plugin" ? "Plugin" : "Skill"}: ${selection.label} (${selection.id}) — ${selection.description}`
+    ).join("\n");
+    return `Preferred runtime capabilities for this turn:\n${hints}\n\nUser request:\n${userInput}`;
   }
 
   private insertComposerText(text: string): void {
@@ -2261,12 +2335,41 @@ export class LLMBridgeView extends ItemView {
     const obsidianCliAvailable: ObsidianCliAvailability = "unknown";
     // AskUserQuestion: UserInputBoundary 始终可用
     const askUserQuestionAvailable = true;
+    const managedCodexPlugins: ProviderRuntimeSkillEntry[] = providerId === "codex-managed-app-server"
+      ? this.managedCodexPlugins.map((plugin) => {
+        const presentation = this.describeComposerManagedCodexPlugin(plugin);
+        return {
+          id: plugin.pluginId,
+          name: presentation.label,
+          description: presentation.description,
+          source: `${plugin.marketplaceName} · ${plugin.version}`,
+          enabled: plugin.enabled,
+        };
+      })
+      : [];
+    const agentSkills: ProviderRuntimeSkillEntry[] = providerId === "codex-managed-app-server"
+      ? this.agentSkills.map((skill) => ({
+        id: skill.slug,
+        name: skill.name || skill.slug,
+        description: skill.description,
+        instructions: skill.instructions,
+        source: skill.source,
+        enabled: skill.enabled,
+      }))
+      : [];
     return {
       providerNativeFileTools,
       bridgeRuntimeFileTools,
       shellAvailable,
       obsidianCliAvailable,
       askUserQuestionAvailable,
+      runtimeSkills: managedCodexPlugins.length > 0 || agentSkills.length > 0
+        ? {
+          managedCodexPlugins,
+          agentSkills,
+          evidence: "managed Codex runtime plugin list + Vault Agent Skills manifest",
+        }
+        : undefined,
       evidence: {
         provider: providerId,
         runtimeFileToolAdapter: bridgeRuntimeFileTools ? "available" : "unavailable",
@@ -7954,7 +8057,7 @@ export class LLMBridgeView extends ItemView {
     body.setAttribute("hidden", "");
     this.agentSkillsBodyEl = body;
     const help = body.createDiv({ cls: "llm-bridge-agent-skills-boundary" });
-    help.createEl("span", { text: "Plugins 来自 managed Codex runtime 的已安装能力；Skills 来自本地 Agent Skills manifest。两者都不会写入 composer，也不会拼进 promptPackage。" });
+    help.createEl("span", { text: "Plugins 来自 managed Codex runtime；Skills 来自本地 Agent Skills manifest。启用项会作为 runtime capability 进入 provider instructions，菜单选择只生成 composer 内轻量 chip。" });
     this.managedCodexPluginsListEl = body.createDiv({ cls: "llm-bridge-agent-skills-list-container llm-bridge-codex-plugins-list-container" });
     this.agentSkillsListEl = body.createDiv({ cls: "llm-bridge-agent-skills-list-container" });
 
@@ -8954,13 +9057,18 @@ export class LLMBridgeView extends ItemView {
     // 不混入 SDK streaming text block。
     // V16.5-E Task 0: session 必须在 buildRuntimeCapabilities 之前声明（修复 TDZ blocker）。
     const session = this.getSession();
+    if (session.providerId === "codex-managed-app-server") {
+      await this.refreshManagedCodexPlugins();
+      await this.refreshAgentSkillsManifestOnly();
+    }
+    const promptUserInput = this.buildUserInputWithRuntimeCapabilityHints(userInput);
     // V16.5-D: 注入真实 runtime capabilities（从 session.providerId 派生），不再只用默认值。
     const runtimeCapabilities = this.buildRuntimeCapabilities(session.providerId, settings);
-    const promptPackage = buildBridgePromptPackage(userInput, snapshot, settings, runtimeCapabilities);
+    const promptPackage = buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities);
     const sdkStreamingInput = await this.buildSdkStreamingInput(promptPackage.userPrompt, promptFileRefsForRun);
 
     // 旧 buildPromptPackage 仅作为 legacy CLI preview/log fallback（不进入 SDK streaming）
-    const prompt = buildPromptPackage(userInput, snapshot, settings);
+    const prompt = buildPromptPackage(promptUserInput, snapshot, settings);
 
     // V2.17-A Completion: 通过 BridgeSession 选择 provider 并构造 EffectiveRunPlan。
     // UI 不再直接接触 SdkBackend/ClaudeCliBackend/MockAgentBackend；plan 由
@@ -8996,6 +9104,8 @@ export class LLMBridgeView extends ItemView {
     this.inputEl.value = "";
     this.closeMentionPicker();
     this.clearMessageContext();
+    this.selectedRuntimeCapabilities = [];
+    this.renderComposerRuntimeCapabilityChips();
 
     // V2.0: 首条用户消息生成会话标题 + 更新消息数
     if (this.sessionState.messageCount === 0) {

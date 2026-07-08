@@ -51,6 +51,8 @@ export interface ProviderCapabilityInfo {
   readonly askUserQuestionAvailable: boolean;
   /** 能力来源证据（provider id / runtimeFileToolAdapter / shell approval / obsidian CLI probe 结果） */
   readonly evidence?: ProviderCapabilityEvidence;
+  /** Runtime-discovered Codex plugins / Agent Skills that should be visible to the provider. */
+  readonly runtimeSkills?: ProviderRuntimeSkillContext;
 }
 
 export interface ProviderCapabilityEvidence {
@@ -62,6 +64,21 @@ export interface ProviderCapabilityEvidence {
   readonly shellApprovalSupported?: boolean;
   /** Obsidian CLI 探测结果（not-probed / probed-ok / probed-failed） */
   readonly obsidianCliProbe?: "not-probed" | "probed-ok" | "probed-failed";
+}
+
+export interface ProviderRuntimeSkillContext {
+  readonly managedCodexPlugins: readonly ProviderRuntimeSkillEntry[];
+  readonly agentSkills: readonly ProviderRuntimeSkillEntry[];
+  readonly evidence?: string;
+}
+
+export interface ProviderRuntimeSkillEntry {
+  readonly id: string;
+  readonly name: string;
+  readonly description?: string;
+  readonly instructions?: string;
+  readonly source?: string;
+  readonly enabled?: boolean;
 }
 
 /**
@@ -122,6 +139,10 @@ export function buildCapabilityManifest(
   if (capabilities.askUserQuestionAvailable) {
     lines.push("- AskUserQuestion：可用于真实歧义（target/scope/operation 不明确时）。");
   }
+  const runtimeSkillLines = buildRuntimeSkillCapabilityLines(capabilities.runtimeSkills);
+  if (runtimeSkillLines.length > 0) {
+    lines.push(...runtimeSkillLines);
+  }
   lines.push("- Host approval 是 write/delete/command 的最终安全边界；权限系统会拦截未授权操作。");
   // V16.5-E: Agent Runtime Workspace 事实（简短路径，不堆规则）
   lines.push("- Agent workspace: LLM-AgentRuntime/（sessions/ work/ runtime/ skills/；agent 维护，用户默认不需要编辑）。");
@@ -129,6 +150,51 @@ export function buildCapabilityManifest(
   lines.push("- Runtime Skill target: .claude/skills/vault-context/SKILL.md（物化后 provider 按需识别）。");
   lines.push("- Runtime facts: LLM-AgentRuntime/runtime/RUNTIME_FACTS.json（机器事实，不进 prompt）。");
   return lines.join("\n");
+}
+
+function buildRuntimeSkillCapabilityLines(context?: ProviderRuntimeSkillContext): string[] {
+  if (!context) return [];
+  const enabledPlugins = context.managedCodexPlugins.filter((entry) => entry.enabled !== false);
+  const enabledSkills = context.agentSkills.filter((entry) => entry.enabled !== false);
+  if (enabledPlugins.length === 0 && enabledSkills.length === 0) return [];
+
+  const lines: string[] = [
+    "- Runtime Skills / Plugins：以下能力在当前 managed Codex runtime 会话中可用；用户点名要求使用时，应视为可用能力，不要因为它不是 shell 命令就回答不可用。",
+  ];
+  if (enabledPlugins.length > 0) {
+    lines.push("  Managed Codex plugins:");
+    for (const plugin of enabledPlugins.slice(0, 24)) {
+      const desc = plugin.description ? ` — ${capabilityText(plugin.description, 180)}` : "";
+      const source = plugin.source ? ` [${capabilityText(plugin.source, 80)}]` : "";
+      lines.push(`  - ${plugin.name} (${plugin.id})${desc}${source}`);
+    }
+    if (enabledPlugins.length > 24) {
+      lines.push(`  - ... ${enabledPlugins.length - 24} more plugin(s) omitted from prompt for size.`);
+    }
+  }
+  if (enabledSkills.length > 0) {
+    lines.push("  Agent Skills:");
+    for (const skill of enabledSkills.slice(0, 16)) {
+      const desc = skill.description ? ` — ${capabilityText(skill.description, 220)}` : "";
+      lines.push(`  - ${skill.name} (${skill.id})${desc}`);
+      if (skill.instructions) {
+        lines.push(`    Instructions summary: ${capabilityText(skill.instructions, 900)}`);
+      }
+    }
+    if (enabledSkills.length > 16) {
+      lines.push(`  - ... ${enabledSkills.length - 16} more skill(s) omitted from prompt for size.`);
+    }
+  }
+  if (context.evidence) {
+    lines.push(`  Evidence: ${capabilityText(context.evidence, 160)}`);
+  }
+  return lines;
+}
+
+function capabilityText(value: string, maxChars: number): string {
+  const text = value.replace(/\s+/g, " ").trim();
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, Math.max(0, maxChars - 15)).trim()}...[truncated]`;
 }
 
 /**
