@@ -152,7 +152,7 @@ export function buildCapabilityManifest(
   if (isCodexManagedProvider) {
     lines.push("- Codex Skills: Bridge-managed Skills are materialized into Codex home personal skills before run; they are not injected as prompt capability text.");
   } else {
-    lines.push("- Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md（agent 长期认知缓存）。");
+    lines.push("- Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md（轻量 vault-runtime 包：边界规则/稳定约定/用户偏好/目录语义）。");
     lines.push("- Runtime Skill target: .claude/skills/vault-context/SKILL.md（物化后 provider 按需识别）。");
   }
   lines.push("- Runtime facts: LLM-AgentRuntime/runtime/RUNTIME_FACTS.json（机器事实，不进 prompt）。");

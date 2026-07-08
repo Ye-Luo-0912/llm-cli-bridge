@@ -34,33 +34,35 @@ export const AGENT_RUNTIME_RUNTIME_DIR_REL = "LLM-AgentRuntime/runtime";
 export const AGENT_RUNTIME_FACTS_REL = "LLM-AgentRuntime/runtime/RUNTIME_FACTS.json";
 export const AGENT_RUNTIME_SKILLS_DIR_REL = "LLM-AgentRuntime/skills";
 export const VAULT_CONTEXT_SLUG = "vault-context";
-export const VAULT_INDEX_SLUG = "vault-index";
 export const VAULT_SKILL_SOURCE_DIR_REL = "LLM-AgentRuntime/skills/vault-context";
 export const VAULT_SKILL_SOURCE_REL = "LLM-AgentRuntime/skills/vault-context/SKILL.md";
 export const VAULT_SKILL_UPDATE_LOG_REL = "LLM-AgentRuntime/skills/vault-context/update-log.md";
 export const VAULT_SKILLS_MANIFEST_REL = "LLM-AgentRuntime/skills/manifest.json";
-export const VAULT_INDEX_SOURCE_REL = "LLM-AgentRuntime/skills/vault-index/SKILL.md";
 export const AGENT_RUNTIME_SESSIONS_DIR_REL = "LLM-AgentRuntime/sessions";
 export const AGENT_RUNTIME_WORK_DIR_REL = "LLM-AgentRuntime/work";
 export const AGENT_RUNTIME_PI_SESSIONS_DIR_REL = "LLM-AgentRuntime/pi-sessions";
 
 export const RUNTIME_FACTS_SCHEMA_VERSION = 1;
-export const VAULT_SKILL_MAX_CHARS = 12000;
-export const VAULT_SKILL_TARGET_CHARS_MIN = 3000;
-export const VAULT_SKILL_TARGET_CHARS_MAX = 8000;
+/** 轻量 vault-runtime skill 总上限：远小于 12k，聚焦规则而非内容 */
+export const VAULT_SKILL_MAX_CHARS = 8000;
+/** 每个 section 的条数上限（轻量约束） */
+export const VAULT_SKILL_SECTION_MAX_ITEMS = 15;
+/** 每条规则的最大长度 */
+export const VAULT_SKILL_ITEM_MAX_CHARS = 300;
 
 /**
- * V16.5-K 任务 K：Vault Skill 拆分时的职责分类。
+ * 轻量 vault-runtime Skill Package 的四个 section。
  *
- * 当 vault-context skill compact 后仍超过 12k chars，按职责拆分为多个 skill。
+ * 只存必要偏好、稳定约定、边界规则、少量目录语义；
+ * 不做完整 vault 索引/内容摘要（那些太重且不稳定）。
  */
-export const VAULT_SKILL_SPLIT_SLUGS = [
-  "vault-structure",
-  "file-operations",
-  "user-preferences",
-  "project-context",
+export const VAULT_SKILL_SECTIONS = [
+  "vaultRules",        // 边界规则（agent 必须遵守的禁区/审批边界）
+  "stableConventions", // 稳定约定（命名/输出位置/格式）
+  "userPreferences",   // 必要偏好（用户明确的少量偏好）
+  "directorySemantics", // 少量目录语义（关键目录含义，非完整索引）
 ] as const;
-export type VaultSkillSplitSlug = (typeof VAULT_SKILL_SPLIT_SLUGS)[number];
+export type VaultSkillSection = (typeof VAULT_SKILL_SECTIONS)[number];
 
 // ---------- RUNTIME_FACTS.json ----------
 
@@ -174,16 +176,21 @@ export function isVaultSkillWritableContent(content: string): { ok: boolean; rea
   if (trimmed.length === 0) {
     return { ok: false, reason: "empty content" };
   }
-  // 禁止写入明显的一次性内容（简单启发式）
-  const forbiddenPatterns = [
-    /\btemp\b/i,
-    /\btmp\b/i,
-    /\bdebug\b/i,
-    /\blog\b(?!ging)/i, // log 但不匹配 logging
-  ];
   // 启发式：如果内容像单次命令日志（以 $ 开头或包含 exit code），拒绝
   if (/^\s*\$\s/.test(trimmed) || /exit\s+\d+/i.test(trimmed)) {
     return { ok: false, reason: "looks like command log" };
+  }
+  // 禁止写入明显的一次性内容（temp/tmp/debug/log 关键词启发式）
+  const forbiddenPatterns = [
+    { re: /\btemp\b/i, label: "temp" },
+    { re: /\btmp\b/i, label: "tmp" },
+    { re: /\bdebug\b/i, label: "debug" },
+    { re: /\blog\b(?!ging)/i, label: "log" },
+  ];
+  for (const { re, label } of forbiddenPatterns) {
+    if (re.test(trimmed)) {
+      return { ok: false, reason: `contains forbidden keyword: ${label}` };
+    }
   }
   return { ok: true };
 }
@@ -197,10 +204,14 @@ export function isVaultSkillWritableContent(content: string): { ok: boolean; rea
  * 目标长度：3k～8k chars，最大 12k chars，超过必须压缩合并。
  */
 export interface VaultSkillUpdateInput {
-  /** 新增的稳定事实段落（已通过 isVaultSkillWritableContent 判定） */
-  readonly additions?: ReadonlyArray<string>;
-  /** 用户纠正段落 */
-  readonly userCorrections?: ReadonlyArray<string>;
+  /** 边界规则（agent 必须遵守的禁区/审批边界） */
+  readonly vaultRules?: ReadonlyArray<string>;
+  /** 稳定约定（命名/输出位置/格式） */
+  readonly stableConventions?: ReadonlyArray<string>;
+  /** 用户偏好（用户明确要求的少量偏好；agent 不自动覆盖） */
+  readonly userPreferences?: ReadonlyArray<string>;
+  /** 目录语义（关键目录含义，非完整索引） */
+  readonly directorySemantics?: ReadonlyArray<string>;
   /** 是否强制覆盖 agent-managed 区（默认 false，尊重人工修改） */
   readonly overwriteAgentSection?: boolean;
 }
@@ -229,10 +240,9 @@ export async function readVaultSkillSource(vaultPath: string): Promise<string | 
 /**
  * 合并 VAULT_SKILL 内容：read → merge → rewrite compact version。
  *
- * 分区策略：
- * - Stable Vault Facts: agent 维护，agent-managed 区
- * - Agent Observations: agent 维护，agent-managed 区
- * - User Corrections: user-correctable 区，agent 不自动覆盖
+ * 四 section 分区策略：
+ * - Vault Rules / Stable Conventions / Directory Semantics: agent-managed 区（去重合并）
+ * - User Preferences: user-correctable 区（agent 不自动覆盖，只追加）
  *
  * 如果 existing 内容超过 VAULT_SKILL_MAX_CHARS，触发 compact merge。
  */
@@ -240,47 +250,51 @@ export function mergeVaultSkillContent(
   existing: string | null,
   input: VaultSkillUpdateInput,
 ): VaultSkillUpdateResult {
-  const additions = input.additions ?? [];
-  const userCorrections = input.userCorrections ?? [];
-
   if (!existing) {
-    // 初次生成：只用 additions + userCorrections
+    // 初次生成：用 input 四 section 直接构建
     const content = buildVaultSkillMarkdown({
-      stableFacts: additions,
-      observations: [],
-      userCorrections,
+      vaultRules: input.vaultRules ?? [],
+      stableConventions: input.stableConventions ?? [],
+      userPreferences: input.userPreferences ?? [],
+      directorySemantics: input.directorySemantics ?? [],
     });
     return finalizeContent(content);
   }
 
-  // 解析现有分区
+  // 解析现有 section
   const sections = parseVaultSkillSections(existing);
-  let stableFacts = sections.stableFacts;
-  let observations = sections.observations;
-  // userCorrections 区：不自动覆盖；新增 corrections 追加（但整体仍要 compact）
-  const mergedUserCorrections = [...sections.userCorrections, ...userCorrections];
+  let vaultRules = sections.vaultRules;
+  let stableConventions = sections.stableConventions;
+  let userPreferences = sections.userPreferences;  // user-correctable 区
+  let directorySemantics = sections.directorySemantics;
 
-  // agent-managed 区：additions 合并去重（按行指纹）
-  for (const add of additions) {
-    if (!stableFacts.includes(add) && !observations.includes(add)) {
-      // 简单策略：短事实进 stableFacts，长观察进 observations
-      if (add.length < 200) {
-        stableFacts = [...stableFacts, add];
-      } else {
-        observations = [...observations, add];
-      }
+  // agent-managed 区（vaultRules/stableConventions/directorySemantics）：按行指纹去重合并
+  const mergeSection = (arr: string[], additions: ReadonlyArray<string> | undefined): string[] => {
+    if (!additions) return arr;
+    const result = [...arr];
+    for (const add of additions) {
+      if (!result.includes(add)) result.push(add);
     }
+    return result;
+  };
+  vaultRules = mergeSection(vaultRules, input.vaultRules);
+  stableConventions = mergeSection(stableConventions, input.stableConventions);
+  directorySemantics = mergeSection(directorySemantics, input.directorySemantics);
+
+  // userPreferences 区：不自动覆盖；新增 preferences 追加（但整体仍要 compact）
+  if (input.userPreferences) {
+    userPreferences = [...userPreferences, ...input.userPreferences];
   }
 
   let content = buildVaultSkillMarkdown({
-    stableFacts,
-    observations,
-    userCorrections: mergedUserCorrections,
+    vaultRules,
+    stableConventions,
+    userPreferences,
+    directorySemantics,
   });
 
   const compacted = content.length > VAULT_SKILL_MAX_CHARS;
   if (compacted) {
-    // compact merge：保留每个分区的前 N 条，截断过长的条目
     content = compactVaultSkillContent(content);
   }
 
@@ -288,30 +302,38 @@ export function mergeVaultSkillContent(
 }
 
 function finalizeContent(content: string, compacted = false): VaultSkillUpdateResult {
-  if (content.length > VAULT_SKILL_MAX_CHARS) {
-    // compact 后仍超限，硬截断到 max（保住 header + 前部）
-    const header = content.indexOf("\n---\n");
-    const headerEnd = header > 0 ? header + 5 : 0;
-    const tail = content.slice(headerEnd, VAULT_SKILL_MAX_CHARS - 100);
-    content = content.slice(0, headerEnd) + tail + "\n\n> [compacted] exceeded max length, truncated.\n";
-  }
+  content = enforceVaultSkillMaxChars(content);
   return { ok: true, content, length: content.length, compacted };
 }
 
+/**
+ * 硬截断 vault-runtime skill 到 VAULT_SKILL_MAX_CHARS。
+ *
+ * 保留 H1 标题 + blockquote header + 前部内容；尾部追加截断标记。
+ */
+function enforceVaultSkillMaxChars(content: string): string {
+  if (content.length <= VAULT_SKILL_MAX_CHARS) return content;
+  const firstSection = content.indexOf("\n## ");
+  const headerEnd = firstSection > 0 ? firstSection : 0;
+  const tail = content.slice(headerEnd, VAULT_SKILL_MAX_CHARS - 100);
+  return content.slice(0, headerEnd) + tail + "\n\n> [compacted] exceeded max length, truncated.\n";
+}
+
 interface VaultSkillSections {
-  readonly stableFacts: string[];
-  readonly observations: string[];
-  readonly userCorrections: string[];
+  readonly vaultRules: string[];
+  readonly stableConventions: string[];
+  readonly userPreferences: string[];
+  readonly directorySemantics: string[];
 }
 
 /**
- * 解析 VAULT_SKILL 的三个分区。
+ * 解析轻量 vault-runtime Skill 的四个 section。
  *
- * 不依赖复杂 marker；使用 `## Stable Vault Facts` / `## Agent Observations` /
- * `## User Corrections` 作为 section header。
+ * 使用 `## Vault Rules` / `## Stable Conventions` / `## User Preferences` /
+ * `## Directory Semantics` 作为 section header。
  */
 export function parseVaultSkillSections(content: string): VaultSkillSections {
-  const sections: { stableFacts: string[]; observations: string[]; userCorrections: string[] } = { stableFacts: [], observations: [], userCorrections: [] };
+  const sections: { vaultRules: string[]; stableConventions: string[]; userPreferences: string[]; directorySemantics: string[] } = { vaultRules: [], stableConventions: [], userPreferences: [], directorySemantics: [] };
   const lines = content.split("\n");
   let current: keyof typeof sections | null = null;
   let buffer: string[] = [];
@@ -319,8 +341,6 @@ export function parseVaultSkillSections(content: string): VaultSkillSections {
     if (current && buffer.length > 0) {
       const text = buffer.join("\n").trim();
       if (text) {
-        // 按列表项（- 前缀）拆分为单独 fact，便于 compact/classify/merge 精细操作。
-        // 去掉 "- " 前缀，使 fact 为纯文本（buildVaultSkillMarkdown 会重新加前缀）。
         const items = text.split("\n")
           .filter((l) => l.startsWith("- "))
           .map((l) => l.slice(2).trim())
@@ -335,9 +355,10 @@ export function parseVaultSkillSections(content: string): VaultSkillSections {
     buffer = [];
   };
   for (const line of lines) {
-    if (line.startsWith("## Stable Vault Facts")) { flush(); current = "stableFacts"; continue; }
-    if (line.startsWith("## Agent Observations")) { flush(); current = "observations"; continue; }
-    if (line.startsWith("## User Corrections")) { flush(); current = "userCorrections"; continue; }
+    if (line.startsWith("## Vault Rules")) { flush(); current = "vaultRules"; continue; }
+    if (line.startsWith("## Stable Conventions")) { flush(); current = "stableConventions"; continue; }
+    if (line.startsWith("## User Preferences")) { flush(); current = "userPreferences"; continue; }
+    if (line.startsWith("## Directory Semantics")) { flush(); current = "directorySemantics"; continue; }
     if (current && line.startsWith("## ")) { flush(); current = null; continue; }
     if (current) buffer.push(line);
   }
@@ -346,49 +367,58 @@ export function parseVaultSkillSections(content: string): VaultSkillSections {
 }
 
 /**
- * 构建 VAULT_SKILL markdown 内容。
+ * 构建轻量 vault-runtime Skill markdown 内容。
  *
- * 不写成长规则库；聚焦：Vault Overview / Directory Map / Agent Workspace /
- * File Operation Preferences / Tool Preferences / User Preferences / Last Updated。
+ * 四个 section：Vault Rules / Stable Conventions / User Preferences / Directory Semantics。
+ * 只存必要偏好、稳定约定、边界规则、少量目录语义；不做完整索引/内容摘要。
  */
 export function buildVaultSkillMarkdown(params: {
-  readonly stableFacts: ReadonlyArray<string>;
-  readonly observations: ReadonlyArray<string>;
-  readonly userCorrections: ReadonlyArray<string>;
+  readonly vaultRules: ReadonlyArray<string>;
+  readonly stableConventions: ReadonlyArray<string>;
+  readonly userPreferences: ReadonlyArray<string>;
+  readonly directorySemantics: ReadonlyArray<string>;
   readonly updatedAt?: string;
 }): string {
   const updatedAt = params.updatedAt ?? new Date().toISOString();
   const lines: string[] = [
-    "# VAULT_SKILL",
+    "# VAULT_RUNTIME_SKILL",
     "",
-    `> Agent-maintained long-term vault context cache. Generated by llm-cli-bridge.`,
-    `> Source-of-truth: ${VAULT_SKILL_SOURCE_REL}`,
-    `> Materialized to: .claude/skills/${VAULT_CONTEXT_SLUG}/SKILL.md`,
+    "> Agent-maintained lightweight vault runtime package.",
+    "> Only stable rules + minimal preferences + directory semantics.",
+    `> Source: ${VAULT_SKILL_SOURCE_REL}`,
     "",
-    "## Stable Vault Facts",
+    "## Vault Rules",
     "",
   ];
-  if (params.stableFacts.length === 0) {
-    lines.push("- (待 agent 发现稳定事实后填充)");
+  if (params.vaultRules.length === 0) {
+    lines.push("- (agent 必须遵守的边界规则；初始化时由 bridge 写入默认禁区)");
   } else {
-    for (const fact of params.stableFacts) {
-      lines.push(`- ${fact}`);
+    for (const rule of params.vaultRules) {
+      lines.push(`- ${rule}`);
     }
   }
-  lines.push("", "## Agent Observations", "");
-  if (params.observations.length === 0) {
-    lines.push("- (待 agent 观察到稳定模式后填充)");
+  lines.push("", "## Stable Conventions", "");
+  if (params.stableConventions.length === 0) {
+    lines.push("- (命名/输出位置/格式约定；待 agent 发现稳定模式后填充)");
   } else {
-    for (const obs of params.observations) {
-      lines.push(`- ${obs}`);
+    for (const conv of params.stableConventions) {
+      lines.push(`- ${conv}`);
     }
   }
-  lines.push("", "## User Corrections", "");
-  if (params.userCorrections.length === 0) {
-    lines.push("- (用户可在此区纠错；agent 不自动覆盖)");
+  lines.push("", "## User Preferences", "");
+  if (params.userPreferences.length === 0) {
+    lines.push("- (用户明确的少量偏好；agent 不自动覆盖)");
   } else {
-    for (const corr of params.userCorrections) {
-      lines.push(`- ${corr}`);
+    for (const pref of params.userPreferences) {
+      lines.push(`- ${pref}`);
+    }
+  }
+  lines.push("", "## Directory Semantics", "");
+  if (params.directorySemantics.length === 0) {
+    lines.push("- (关键目录含义；非完整索引，只记少量语义)");
+  } else {
+    for (const sem of params.directorySemantics) {
+      lines.push(`- ${sem}`);
     }
   }
   lines.push("", `---`, "", `_Last Updated: ${updatedAt}_`, "");
@@ -398,76 +428,73 @@ export function buildVaultSkillMarkdown(params: {
 /**
  * compact merge：超过 VAULT_SKILL_MAX_CHARS 时压缩合并。
  *
- * 策略：每个分区保留前 20 条，每条截断到 300 chars。
+ * 策略：每个 section 保留前 VAULT_SKILL_SECTION_MAX_ITEMS 条，
+ * 每条截断到 VAULT_SKILL_ITEM_MAX_CHARS chars。
  */
 export function compactVaultSkillContent(content: string): string {
   const sections = parseVaultSkillSections(content);
-  const trimList = (arr: ReadonlyArray<string>, max = 20, maxItemLen = 300): string[] => {
-    return arr.slice(0, max).map((s) => s.length > maxItemLen ? s.slice(0, maxItemLen) + "..." : s);
+  const trimList = (arr: ReadonlyArray<string>): string[] => {
+    return arr.slice(0, VAULT_SKILL_SECTION_MAX_ITEMS).map((s) =>
+      s.length > VAULT_SKILL_ITEM_MAX_CHARS ? s.slice(0, VAULT_SKILL_ITEM_MAX_CHARS) + "..." : s
+    );
   };
   return buildVaultSkillMarkdown({
-    stableFacts: trimList(sections.stableFacts),
-    observations: trimList(sections.observations),
-    userCorrections: trimList(sections.userCorrections),
+    vaultRules: trimList(sections.vaultRules),
+    stableConventions: trimList(sections.stableConventions),
+    userPreferences: trimList(sections.userPreferences),
+    directorySemantics: trimList(sections.directorySemantics),
   });
 }
 
 // ---------- VAULT_SKILL 初版生成 ----------
 
 /**
- * V16.5-E 任务 B：生成 VAULT_SKILL 初版。
+ * 生成轻量 vault-runtime Skill 初版。
  *
- * 不做深度全库扫描；只扫描 Vault 顶层目录 + 可读取少量关键文件
- *（AGENTS.md / README.md / 根目录索引）。
+ * 写入 bridge 默认已知的边界规则（禁区）+ 目录语义；
+ * 不做深度全库扫描（轻量原则）。
  */
 export async function generateInitialVaultSkill(
   vaultPath: string,
-  options: {
+  _options: {
     readonly scanTopLevelDirs?: boolean;
     readonly readKeyFiles?: boolean;
   } = {},
 ): Promise<string> {
-  const scanTopLevelDirs = options.scanTopLevelDirs ?? true;
-  const readKeyFiles = options.readKeyFiles ?? true;
-  const stableFacts: string[] = [];
+  const vaultRules: string[] = [
+    "不修改 .obsidian/ 目录（Obsidian 配置区）",
+    "不修改 .llm-bridge/ 目录（Bridge 主控区，含 bridge.json/credentials）",
+    "不修改 .git/ 目录（版本控制）",
+    "写操作走 PermissionBoundary（需审批的路径不绕过）",
+    "agent 自维护区在 LLM-AgentRuntime/（sessions/work/runtime/skills）",
+  ];
 
-  stableFacts.push(`Vault root: ${vaultPath}`);
+  const directorySemantics: string[] = [
+    `${AGENT_RUNTIME_DIR_REL}/ : agent 自维护工作区（sessions/work/runtime/skills）`,
+    `.llm-bridge/ : Bridge 主控区（bridge.json/state/logs/sessions）`,
+    `.obsidian/ : Obsidian 配置区（禁写）`,
+    `.claude/skills/ : Claude skill 物化目标`,
+    `.agents/skills/ : generic-agent skill 物化目标`,
+    `.pi/skills/ : Pi skill 物化目标`,
+  ];
 
-  if (scanTopLevelDirs) {
-    try {
-      const entries = await fs.promises.readdir(vaultPath, { withFileTypes: true });
-      const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name).filter((d) => !d.startsWith("."));
-      if (dirs.length > 0) {
-        stableFacts.push(`Top-level directories: ${dirs.slice(0, 15).join(", ")}`);
-      }
-    } catch {
-      // 读取失败不阻断初版生成
+  // 轻量扫描：读顶层目录名（前 8 个）作为 directory semantics 补充
+  try {
+    const entries = await fs.promises.readdir(vaultPath, { withFileTypes: true });
+    const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name)
+      .filter((d) => !d.startsWith(".") && d !== AGENT_RUNTIME_DIR_REL);
+    if (dirs.length > 0) {
+      directorySemantics.push(`Vault top-level dirs: ${dirs.slice(0, 8).join(", ")}`);
     }
+  } catch {
+    // 读取失败不阻断初版生成
   }
-
-  if (readKeyFiles) {
-    for (const keyFile of ["AGENTS.md", "README.md"]) {
-      try {
-        const content = await fs.promises.readFile(path.join(vaultPath, keyFile), "utf8");
-        // 只提取首段非空行作为概述（不全文注入）
-        const firstLine = content.split("\n").find((l) => l.trim().length > 0 && !l.startsWith("#"))?.trim();
-        if (firstLine) {
-          stableFacts.push(`${keyFile} overview: ${firstLine.slice(0, 200)}`);
-        }
-      } catch {
-        // 文件不存在跳过
-      }
-    }
-  }
-
-  stableFacts.push(`Agent workspace: ${AGENT_RUNTIME_DIR_REL}/ (sessions/ work/ runtime/ skills/)`);
-  stableFacts.push(`Vault Skill source: ${VAULT_SKILL_SOURCE_REL}`);
-  stableFacts.push(`Runtime Skill target: .claude/skills/${VAULT_CONTEXT_SLUG}/SKILL.md`);
 
   return buildVaultSkillMarkdown({
-    stableFacts,
-    observations: [],
-    userCorrections: [],
+    vaultRules,
+    stableConventions: [],
+    userPreferences: [],
+    directorySemantics,
   });
 }
 
@@ -652,12 +679,7 @@ export interface VaultSkillRuntimeMeta {
 }
 
 const VAULT_SKILL_RUNTIME_META: Readonly<Record<string, VaultSkillRuntimeMeta>> = {
-  [VAULT_CONTEXT_SLUG]: { slug: VAULT_CONTEXT_SLUG, name: "vault-context", description: "Agent-maintained long-term vault context cache." },
-  [VAULT_INDEX_SLUG]: { slug: VAULT_INDEX_SLUG, name: "vault-index", description: "Vault Skill index and routing." },
-  "vault-structure": { slug: "vault-structure", name: "Vault Structure", description: "Vault directory layout and structure facts." },
-  "file-operations": { slug: "file-operations", name: "File Operations", description: "File operation preferences and naming rules." },
-  "user-preferences": { slug: "user-preferences", name: "User Preferences", description: "User long-term preferences and corrections." },
-  "project-context": { slug: "project-context", name: "Project Context", description: "Project conventions and AGENTS.md context." },
+  [VAULT_CONTEXT_SLUG]: { slug: VAULT_CONTEXT_SLUG, name: "vault-context", description: "Agent-maintained lightweight vault runtime package (rules + conventions + preferences + directory semantics)." },
 };
 
 export function getVaultSkillRuntimeMeta(slug: string): VaultSkillRuntimeMeta {
@@ -869,14 +891,14 @@ function sha256(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
-// ---------- V16.5-K: Vault Skill 自动拆分与索引 ----------
+// ---------- V16.5-K: Vault Skill manifest（轻量版，单 skill） ----------
 
 /**
- * V16.5-K: Vault Skills manifest 记录所有拆分后的 skill 元数据。
+ * V16.5-K: Vault Skills manifest 记录 skill 元数据。
  *
- * vault-index 只做索引和路由，不存大量事实。
- * vault-context 是默认主 skill；超限时拆分为 vault-structure / file-operations /
- * user-preferences / project-context。
+ * 轻量版只维护 vault-context 一个 skill（不拆分、不索引）。
+ * vault-context 含 4 个 section：Vault Rules / Stable Conventions /
+ * User Preferences / Directory Semantics。
  */
 export interface VaultSkillManifestEntry {
   readonly slug: string;
@@ -951,206 +973,25 @@ export async function saveVaultSkillsManifest(vaultPath: string, manifest: Vault
 }
 
 /**
- * V16.5-K: 判定是否应该为某内容创建新 skill。
+ * 轻量 vault-runtime Skill 的 compact 决策。
  *
- * 禁止无意义碎片化：
- * - 不为一次性任务创建长期 skill。
- * - 不为单个临时文件创建 skill。
- * - 不为普通日志创建 skill。
+ * 当 source 超过 VAULT_SKILL_MAX_CHARS 时，执行 compact rewrite（分区内截断）。
+ * 不再拆分多文件（轻量原则：单文件多 section）。
  */
-export function shouldCreateSplitSkill(content: string, reason: string): { ok: boolean; reason?: string } {
-  const trimmed = content.trim();
-  if (trimmed.length < 100) {
-    return { ok: false, reason: "content too short for a dedicated skill" };
-  }
-  // 一次性任务/临时文件/日志不创建 skill
-  if (/一次性|临时|temp|tmp|debug|log/i.test(reason)) {
-    return { ok: false, reason: "one-time/temporary content should not become a skill" };
-  }
-  // 命令日志不创建 skill
-  if (/^\s*\$\s/.test(trimmed) || /exit\s+\d+/i.test(trimmed)) {
-    return { ok: false, reason: "command log should not become a skill" };
-  }
-  return { ok: true };
-}
-
-/**
- * V16.5-K: 将 vault-context skill 内容按职责分类到拆分 skill。
- *
- * 简单分类策略（按关键词匹配）：
- * - vault-structure: 目录结构、vault 布局、顶层目录
- * - file-operations: 文件操作偏好、输出目录、命名规则
- * - user-preferences: 用户长期偏好、纠正
- * - project-context: 项目约定、AGENTS.md、README
- * - 其他剩余内容保留在 vault-context
- */
-export function classifyVaultSkillContent(content: string): {
-  readonly vaultStructure: string[];
-  readonly fileOperations: string[];
-  readonly userPreferences: string[];
-  readonly projectContext: string[];
-  readonly remaining: string[];
-} {
-  const sections = parseVaultSkillSections(content);
-  const allFacts = [...sections.stableFacts, ...sections.observations, ...sections.userCorrections];
-  const result = {
-    vaultStructure: [] as string[],
-    fileOperations: [] as string[],
-    userPreferences: [] as string[],
-    projectContext: [] as string[],
-    remaining: [] as string[],
-  };
-
-  for (const fact of allFacts) {
-    const lower = fact.toLowerCase();
-    if (/director|目录|structure|layout|top-level|顶层/.test(lower)) {
-      result.vaultStructure.push(fact);
-    } else if (/file operation|文件操作|output|输出|命名|naming|write|edit/.test(lower)) {
-      result.fileOperations.push(fact);
-    } else if (/user|偏好|preference|纠正|correction|用户/.test(lower)) {
-      result.userPreferences.push(fact);
-    } else if (/agents\.md|readme|project|项目|convention|约定/.test(lower)) {
-      result.projectContext.push(fact);
-    } else {
-      result.remaining.push(fact);
-    }
-  }
-  return result;
-}
-
-/**
- * V16.5-K: 拆分 vault-context skill 到多个职责 skill。
- *
- * 每个 skill 目标长度 3k～8k chars；超过 12k 的 skill 不允许（compact 后再拆）。
- * 拆分后更新 vault-index 引用所有拆分 skill。
- */
-export interface VaultSkillSplitResult {
-  readonly ok: boolean;
-  readonly splitSkills: ReadonlyArray<{ readonly slug: string; readonly content: string; readonly charCount: number }>;
-  readonly vaultIndexContent: string;
-  /**
-   * V16.5-K1 任务 B：split 后 vault-context 改为 index-only（指向 vault-index），不再保留 compacted 全文。
-   * 这样拆出的 facts 只存在于 split skill 中，不会与 vault-context 重复。
-   */
-  readonly vaultContextRemainingContent: string;
-  readonly reason?: string;
-}
-
-export function splitVaultSkillByResponsibility(vaultContextContent: string): VaultSkillSplitResult {
-  const classified = classifyVaultSkillContent(vaultContextContent);
-  const splitSkills: Array<{ readonly slug: string; readonly content: string; readonly charCount: number }> = [];
-
-  const buildSplitSkill = (slug: string, name: string, description: string, facts: ReadonlyArray<string>): { slug: string; content: string; charCount: number } | null => {
-    if (facts.length === 0) return null;
-    const content = buildVaultSkillMarkdown({
-      stableFacts: facts,
-      observations: [],
-      userCorrections: [],
-    }).replace("# VAULT_SKILL", `# ${name}`).replace("Agent-maintained long-term vault context cache.", description);
-    // compact 单个 skill
-    const compacted = content.length > VAULT_SKILL_MAX_CHARS ? compactVaultSkillContent(content) : content;
-    return { slug, content: compacted, charCount: compacted.length };
-  };
-
-  const splits = [
-    { slug: "vault-structure", name: "Vault Structure", description: "Vault directory layout and structure facts.", facts: classified.vaultStructure },
-    { slug: "file-operations", name: "File Operations", description: "File operation preferences and naming rules.", facts: classified.fileOperations },
-    { slug: "user-preferences", name: "User Preferences", description: "User long-term preferences and corrections.", facts: classified.userPreferences },
-    { slug: "project-context", name: "Project Context", description: "Project conventions and AGENTS.md context.", facts: classified.projectContext },
-  ];
-
-  for (const split of splits) {
-    const skill = buildSplitSkill(split.slug, split.name, split.description, split.facts);
-    if (skill) splitSkills.push(skill);
-  }
-
-  // vault-index 只做索引和路由
-  const indexLines: string[] = [
-    "# vault-index",
-    "",
-    "> Vault Skill 索引和路由。只记录 skill slug 与职责，不存大量事实。",
-    "",
-    "## Skills Index",
-    "",
-  ];
-  for (const skill of splitSkills) {
-    const desc = splits.find((s) => s.slug === skill.slug)?.description ?? "";
-    indexLines.push(`- \`${skill.slug}\` (${skill.charCount} chars): ${desc}`);
-  }
-  if (splitSkills.length === 0) {
-    indexLines.push("- (no split skills; vault-context 保留所有事实)");
-  }
-  indexLines.push("", `---`, "", `_Last Updated: ${new Date().toISOString()}_`, "");
-
-  // V16.5-K1 任务 B：split 后 vault-context 改为 index-only，指向 vault-index，不保留 compacted 全文。
-  // 拆出的 facts 只存在于 split skill 中，不会与 vault-context 重复。
-  const vaultContextRemainingLines: string[] = [
-    "# VAULT_SKILL",
-    "",
-    `> Agent-maintained long-term vault context cache. Generated by llm-cli-bridge.`,
-    `> Source-of-truth: ${VAULT_SKILL_SOURCE_REL}`,
-    `> Materialized to: .claude/skills/${VAULT_CONTEXT_SLUG}/SKILL.md`,
-    "",
-    "> **Split notice**: 本 vault-context 已按职责拆分为多个子 skill。",
-    "> 长期事实已分散到 vault-structure / file-operations / user-preferences / project-context。",
-    "> 完整索引见 `vault-index` skill（LLM-AgentRuntime/skills/vault-index/SKILL.md）。",
-    "",
-    "## Stable Vault Facts",
-    "",
-    "- (vault-context 已拆分；稳定事实已迁移到子 skill)",
-    "",
-    "## Agent Observations",
-    "",
-    "- (vault-context 已拆分；观察已迁移到子 skill)",
-    "",
-    "## User Corrections",
-    "",
-    "- (用户可在此区纠错；agent 不自动覆盖)",
-    "",
-    `---`,
-    "",
-    `_Last Updated: ${new Date().toISOString()}_`,
-    "",
-  ];
-
-  return {
-    ok: true,
-    splitSkills,
-    vaultIndexContent: indexLines.join("\n"),
-    vaultContextRemainingContent: vaultContextRemainingLines.join("\n"),
-  };
-}
-
-/**
- * V16.5-K: compact-or-split 决策。
- *
- * 1. 当单个 skill 超过 12k chars，agent 先尝试 compact rewrite。
- * 2. compact 后仍超过 12k chars，按职责拆分。
- *
- * 返回 "compact" / "split" / "keep"。
- */
-export function decideCompactOrSplit(charCount: number): "compact" | "split" | "keep" {
+export function decideCompact(charCount: number): "compact" | "keep" {
   if (charCount <= VAULT_SKILL_MAX_CHARS) return "keep";
-  // 超过 max，先 compact
   return "compact";
 }
 
 /**
- * V16.5-K: compact 后仍超过 max 时，决定是否拆分。
- */
-export function shouldSplitAfterCompact(compactedCharCount: number): boolean {
-  return compactedCharCount > VAULT_SKILL_MAX_CHARS;
-}
-
-/**
- * V16.5-K: 执行 vault-context skill 的 compact-or-split 流程。
+ * 执行 vault-context skill 的 compact 流程（轻量版，无 split）。
  *
- * 返回更新后的 vault-context content（如果 compact 或保留）或拆分结果。
+ * 当 source 超过 VAULT_SKILL_MAX_CHARS 时，compact rewrite 并写回。
+ * 保留 main.ts 命令引用的函数名（向后兼容）。
  */
 export interface CompactOrSplitResult {
-  readonly action: "keep" | "compacted" | "split";
+  readonly action: "keep" | "compacted";
   readonly vaultContextContent: string;
-  readonly splitResult?: VaultSkillSplitResult;
   readonly reason?: string;
 }
 
@@ -1164,8 +1005,7 @@ export async function compactOrSplitVaultSkill(vaultPath: string): Promise<Compa
     };
   }
 
-  // 步骤 1: compact
-  const decision = decideCompactOrSplit(existing.length);
+  const decision = decideCompact(existing.length);
   if (decision === "keep") {
     return {
       action: "keep",
@@ -1173,98 +1013,17 @@ export async function compactOrSplitVaultSkill(vaultPath: string): Promise<Compa
     };
   }
 
-  // 执行 compact
-  const compacted = compactVaultSkillContent(existing);
-  if (!shouldSplitAfterCompact(compacted.length)) {
-    // compact 后低于阈值，写回 vault-context，不拆分
-    await fs.promises.writeFile(path.join(vaultPath, VAULT_SKILL_SOURCE_REL), compacted, "utf8");
-    return {
-      action: "compacted",
-      vaultContextContent: compacted,
-    };
-  }
-
-  // 步骤 2: compact 后仍超限，按职责拆分
-  const splitResult = splitVaultSkillByResponsibility(compacted);
-
-  // 写入拆分 skill 源文件
-  for (const skill of splitResult.splitSkills) {
-    const skillSourcePath = path.join(vaultPath, "LLM-AgentRuntime/skills", skill.slug, "SKILL.md");
-    await fs.promises.mkdir(path.dirname(skillSourcePath), { recursive: true });
-    await fs.promises.writeFile(skillSourcePath, skill.content, "utf8");
-  }
-
-  // V16.5-K1 任务 B：vault-context 改为 index-only（指向 vault-index），不再保留 compacted 全文。
-  // 拆出的 facts 只存在于 split skill 中，不会与 vault-context 重复。
-  const vaultContextRemaining = splitResult.vaultContextRemainingContent;
-  await fs.promises.writeFile(path.join(vaultPath, VAULT_SKILL_SOURCE_REL), vaultContextRemaining, "utf8");
-
-  // 写入 vault-index
-  const indexPath = path.join(vaultPath, VAULT_INDEX_SOURCE_REL);
-  await fs.promises.mkdir(path.dirname(indexPath), { recursive: true });
-  await fs.promises.writeFile(indexPath, splitResult.vaultIndexContent, "utf8");
-
-  // 更新 manifest（sourceHash/charCount 与实际 source 文件一致）
-  const nowIso = new Date().toISOString();
-  // V17-A 任务 C.4：每个 entry 记录 providerTargets 路径映射
-  const buildProviderTargets = (slug: string): Record<ProviderSkillTarget, string> => ({
-    claude: providerTargetPathForSlug("claude", slug),
-    "generic-agent": providerTargetPathForSlug("generic-agent", slug),
-    pi: providerTargetPathForSlug("pi", slug),
-  });
-  const entries: VaultSkillManifestEntry[] = [
-    {
-      slug: VAULT_CONTEXT_SLUG,
-      name: "vault-context",
-      description: "Main vault context (index-only after split).",
-      sourcePath: VAULT_SKILL_SOURCE_REL,
-      materializedPath: `.claude/skills/${VAULT_CONTEXT_SLUG}/SKILL.md`,
-      sourceHash: sha256(vaultContextRemaining),
-      charCount: vaultContextRemaining.length,
-      updatedAt: nowIso,
-      providerTargets: buildProviderTargets(VAULT_CONTEXT_SLUG),
-    },
-    {
-      slug: VAULT_INDEX_SLUG,
-      name: "vault-index",
-      description: "Vault Skill index and routing.",
-      sourcePath: VAULT_INDEX_SOURCE_REL,
-      materializedPath: `.claude/skills/${VAULT_INDEX_SLUG}/SKILL.md`,
-      sourceHash: sha256(splitResult.vaultIndexContent),
-      charCount: splitResult.vaultIndexContent.length,
-      updatedAt: nowIso,
-      providerTargets: buildProviderTargets(VAULT_INDEX_SLUG),
-    },
-  ];
-  for (const skill of splitResult.splitSkills) {
-    entries.push({
-      slug: skill.slug,
-      name: skill.slug,
-      description: `Split skill: ${skill.slug}`,
-      sourcePath: `LLM-AgentRuntime/skills/${skill.slug}/SKILL.md`,
-      materializedPath: `.claude/skills/${skill.slug}/SKILL.md`,
-      sourceHash: sha256(skill.content),
-      charCount: skill.charCount,
-      updatedAt: nowIso,
-      providerTargets: buildProviderTargets(skill.slug),
-    });
-  }
-  const manifest: VaultSkillsManifest = {
-    schemaVersion: VAULT_SKILLS_MANIFEST_SCHEMA_VERSION,
-    updatedAt: nowIso,
-    entries,
-  };
-  await saveVaultSkillsManifest(vaultPath, manifest);
-
+  // 执行 compact（分区内截断，不拆分多文件）
+  const compacted = enforceVaultSkillMaxChars(compactVaultSkillContent(existing));
+  await fs.promises.writeFile(path.join(vaultPath, VAULT_SKILL_SOURCE_REL), compacted, "utf8");
   return {
-    action: "split",
-    vaultContextContent: vaultContextRemaining,
-    splitResult,
+    action: "compacted",
+    vaultContextContent: compacted,
   };
 }
 
 /**
- * V16.5-K: 物化所有 vault skills（vault-context + vault-index + split skills）。
+ * V16.5-K: 物化所有 vault skills（轻量版：仅 vault-context，不遍历 split entries）。
  *
  * runtime skill hash conflict 时不强制覆盖。
  */
@@ -1275,25 +1034,15 @@ export interface MaterializeAllVaultSkillsResult {
   readonly reason?: string;
 }
 
+/**
+ * 轻量版：只物化 vault-context（不遍历 manifest split entries）。
+ */
 export async function materializeAllVaultSkills(vaultPath: string): Promise<MaterializeAllVaultSkillsResult> {
+  // 轻量版：只物化 vault-context（不遍历 manifest split entries）
   const manifest = await loadVaultSkillsManifest(vaultPath);
   const results: VaultSkillMaterializeResult[] = [];
-
-  // 总是先物化 vault-context（即使 manifest 为空）
   const vaultContextResult = await materializeVaultSkill(vaultPath);
   results.push(vaultContextResult);
-
-  // 物化 manifest 中的所有 split skills（复用 materializeVaultSkill 的转换 + conflict 检测）
-  for (const entry of manifest.entries) {
-    if (entry.slug === VAULT_CONTEXT_SLUG) continue; // 已物化
-    const result = await materializeVaultSkill(vaultPath, {
-      slug: entry.slug,
-      sourcePath: entry.sourcePath,
-      materializedPath: entry.materializedPath,
-    });
-    results.push(result);
-  }
-
   return {
     ok: results.every((r) => r.ok || r.status === "skipped"),
     results,
@@ -1301,14 +1050,6 @@ export async function materializeAllVaultSkills(vaultPath: string): Promise<Mate
   };
 }
 
-/**
- * V17-A 任务 C.4：物化单个 skill 到指定 provider target。
- *
- * 复用 materializeVaultSkill 的转换 + conflict 检测，仅改 materializedPath。
- * - claude → .claude/skills/<slug>/SKILL.md
- * - generic-agent → .agents/skills/<slug>/SKILL.md
- * - pi → .pi/skills/<slug>/SKILL.md
- */
 export async function materializeToProviderTarget(
   vaultPath: string,
   slug: string,
@@ -1332,28 +1073,18 @@ export interface MaterializeAllToAllTargetsResult {
 }
 
 /**
- * V17-A 任务 C.4：物化所有 vault skills 到所有 provider targets。
+ * V17-A 任务 C.4：物化 vault-context 到所有 provider targets（轻量版，不遍历 split entries）。
  *
- * 遍历 manifest entries × PROVIDER_SKILL_TARGETS，逐一物化。
- * 单个 conflict 不影响其他安全 skill（同 materializeAllVaultSkills 语义）。
+ * 单个 conflict 不影响其他 target。
  */
 export async function materializeAllVaultSkillsToAllTargets(vaultPath: string): Promise<MaterializeAllToAllTargetsResult> {
   const manifest = await loadVaultSkillsManifest(vaultPath);
   const results: Array<VaultSkillMaterializeResult & { readonly target: ProviderSkillTarget }> = [];
 
-  // vault-context 总是物化（即使 manifest 为空）
+  // 轻量版：只物化 vault-context × 3 targets（不再遍历 manifest split entries）
   for (const target of PROVIDER_SKILL_TARGETS) {
     const result = await materializeToProviderTarget(vaultPath, VAULT_CONTEXT_SLUG, target);
     results.push({ ...result, target });
-  }
-
-  // manifest 中的所有 split skills × 所有 targets
-  for (const entry of manifest.entries) {
-    if (entry.slug === VAULT_CONTEXT_SLUG) continue;
-    for (const target of PROVIDER_SKILL_TARGETS) {
-      const result = await materializeToProviderTarget(vaultPath, entry.slug, target, { sourcePath: entry.sourcePath });
-      results.push({ ...result, target });
-    }
   }
 
   return {
