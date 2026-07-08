@@ -4,7 +4,7 @@
 > 验证 dist/user-package 发行包的完整性、CJS 加载安全性与 managed runtime 分发边界。
 > V17-F3：默认 download-on-first-run 不打包大 binary；offline package 才 bundling 当前平台 runtime。
 
-- **测试时间**: 2026-07-08T13:07:25.913Z
+- **测试时间**: 2026-07-08T14:44:30.210Z
 - **userPackageStatus**: pass
 - **containsPiSdk**: true
 - **canRequirePiSdk**: true
@@ -12,7 +12,7 @@
 - **noRootPackageJson**: true（V17-E1 任务 C：根目录无 package.json 或无 type=module）
 - **userNeedsNpmInstall**: false
 - **sdkVersion**: 0.80.3
-- **totalSizeMB**: 98.3
+- **totalSizeMB**: 98.4
 - **containsCodexManagedRuntime**: true（V17-F1 任务 E）
 - **codexRuntimeSha256Valid**: false（V17-F1 任务 E）
 - **codexRuntimeExecutable**: false（V17-F1 任务 E）
@@ -26,7 +26,7 @@
 - **runtimeInstallRequiresSystemNpm**: false
 - **runtimeInstallRequiresSystemTar**: false
 - **releasePackageContainsCodexRuntime**: true
-- **releasePackageSizeMB**: 98.3
+- **releasePackageSizeMB**: 98.4
 - **runtimeBinarySha256Verified**: false
 - **offlinePackageSizeMB**: 0
 - **runtimeInstallerPresent**: true
