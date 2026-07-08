@@ -1,6 +1,6 @@
 # Codex real app-server smoke 报告
 
-- **测试时间**: 2026-07-08T17:49:12.575Z
+- **测试时间**: 2026-07-08T22:14:50.297Z
 - **codex 可用**: 否
 - **codexVersion**: null
 - **schemaSource**: fixture

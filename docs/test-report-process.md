@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-08T14:43:25.078Z
-- **测试环境**: win32 / Node.js v22.22.2
+- **测试时间**: 2026-07-08T22:14:38.726Z
+- **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 1071.9 KB
+- **main.js 大小**: 1090.5 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 65440
-- **commit sha**: c9689cf37a274594ff6afd01e52be7080117ac64
-- **commit 短 sha**: c9689cf37a27
+- **HTTP 端口**: 51838
+- **commit sha**: ab52714558138c252e71d9ff8dc45c10a7e52af0
+- **commit 短 sha**: ab5271455813
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
 
-- ✅ **通过**: 151
+- ✅ **通过**: 171
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 56
 - ⚪ **需人工验证**: 0
-- **总计**: 207
+- **总计**: 227
 
 ### 审计模式说明
 
@@ -63,6 +63,24 @@
 | ✅ | get_state 禁止额外字段 | - |
 | ✅ | get_state 正常 | - |
 | ✅ | 未知 action 类型 | - |
+| ✅ | property_get 缺 path | - |
+| ✅ | property_get 仅 path 正常 | - |
+| ✅ | property_get path+key 正常 | - |
+| ✅ | property_set 缺 value | - |
+| ✅ | property_set 完整正常 | - |
+| ✅ | tags_list 无参正常 | - |
+| ✅ | tags_list 带 path 过滤正常 | - |
+| ✅ | backlinks_get 缺 path | - |
+| ✅ | backlinks_get 正常 | - |
+| ✅ | tasks_list 无参正常 | - |
+| ✅ | daily_read 禁止额外字段 | - |
+| ✅ | daily_read 正常 | - |
+| ✅ | daily_append 缺 content | - |
+| ✅ | daily_append 正常 | - |
+| ✅ | vault_delete 缺 path | - |
+| ✅ | vault_delete 正常 | - |
+| ✅ | vault_rename 缺 newPath | - |
+| ✅ | vault_rename 正常 | - |
 
 ### validateAction
 
@@ -103,7 +121,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成运行前快照 | 文件数: 30 |
+| ✅ | 生成运行前快照 | 文件数: 31 |
 
 ### diff
 
@@ -508,7 +526,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 普通复制文本保持原文，仅真实文件或超大文本进入附件流 | - |
+| ✅ | 普通复制文本保持原文，损坏路径/文件名不进入附件流 | - |
 
 ### V17-G47 UI
 
@@ -577,7 +595,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 直接从 managed Codex runtime 读取 installed plugins，并提供计划模式入口 | - |
+| ✅ | 直接从 managed Codex runtime 读取 installed plugins（工具列表已移除计划模式入口，plan 仍由 permission popover 提供） | - |
 
 ### V17-G65 UI
 
@@ -637,7 +655,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | Codex 图片 input 使用 file URL，会话下拉标题时间分行防溢出 | - |
+| ✅ | Codex 图片 input 使用 localImage，会话下拉标题时间分行防溢出 | - |
 
 ### V17-G75 UI
 
@@ -650,6 +668,18 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | 空 turn/completed 不再渲染为空白 Completed | - |
+
+### V17-G77 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Codex debug 抽屉不污染 Process，空白 completed 降级为可读失败 | - |
+
+### V17-G78 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 权限和会话下拉复用紧凑菜单结构，会话不再渲染明细摘要 | - |
 
 ### V17-G10 UI
 
