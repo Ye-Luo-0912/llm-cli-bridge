@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-06T17:59:41.203Z
+- **测试时间**: 2026-07-08T12:33:06.070Z
 - **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.16.0
-- **main.js 大小**: 952.4 KB
+- **main.js 大小**: 1063.4 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 53574
-- **commit sha**: 1c2d7681c6078f62f6b5337d64659404c699e3d9
-- **commit 短 sha**: 1c2d7681c607
+- **HTTP 端口**: 54455
+- **commit sha**: a435971043344f76e455f66ec77f3fd87087d825
+- **commit 短 sha**: a43597104334
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 1035
+- ✅ **通过**: 1094
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 1060
+- **总计**: 1119
 
 ### 审计模式说明
 
@@ -103,7 +103,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成运行前快照 | 文件数: 40 |
+| ✅ | 生成运行前快照 | 文件数: 48 |
 
 ### diff
 
@@ -169,6 +169,12 @@
 | ⏭️ | --wait --timeout | Obsidian 未运行，跳过 integration 测试 |
 | ⏭️ | bridge.json 缺失错误提示 | Obsidian 未运行，跳过 integration 测试 |
 
+### Clipboard paste policy
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 普通复制文本保持原文，仅超大文本退化为附件 | short=false huge=true lines=true whitespace=false json=pasted-data.json markdown=pasted-note.md plain=pasted-text.txt textBlob=true htmlBlob=true imageBlob=false |
+
 ### Contract
 
 | 状态 | 测试项 | 详情 |
@@ -190,6 +196,7 @@
 |------|--------|------|
 | ✅ | codex-app-server plan.backend=codex-app-server | - |
 | ✅ | bridgeSystemAppend → instructions, userPrompt → turn/start input[0].text | - |
+| ✅ | resume turn/start input only injects compact runtime Skills context when present | noSkill=true first={"type":"text","text":"Available managed Codex plugins for this resumed turn (compact):\nBridge Plugin Skills are resolved through Codex nat second={"type":"text","text":"\n========== 当前活动笔记 ==========\n路径：note.md\n内容：\n# Hello\ |
 
 ### Attachment audit
 
@@ -390,7 +397,7 @@
 | ✅ | phase label 重算 — checking tool → 'Running tests' | - |
 | ✅ | phase 内 tool 不重复（toolUseId 绑定唯一性） | - |
 | ✅ | 普通用户态 thoughts 合并为单个 Reasoning 块（不逐词灰块） | - |
-| ✅ | 权限 popover 含 5 模式（含 Bypass）+ 外部挂载 + pointerdown close | - |
+| ✅ | 权限 popover 含 5 模式（含完全访问）+ 外部挂载 + pointerdown close | - |
 | ✅ | setPermissionMode 不被 runHandle 阻塞（修复点击无反应） | - |
 
 ### V17-G CodexRunViewModel
@@ -398,6 +405,8 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | runHeader/currentActivity/feed/changes/steps/approval/debugPanel 分层 | status=blocked activity=Waiting approval commands=1 changes=1 approvals=1 feed=thinking>command>file>approval thinkingSummary=Plan the edit stepStdout=true relativePath=notes/run.md debug=false/true |
+| ✅ | final answer 不重复进入 process feed | final="done" feedKinds=thinking |
+| ✅ | 中间 assistant narrative 进入 process feed，仅末尾答复进入 final answer | final="done" feed=assistant>command>assistant>file assistant=先读配置，再检查 runtime 状态。 | 配置没问题，接着创建 smoke 文件。 |
 
 ### P3-C
 
@@ -673,6 +682,12 @@
 |------|--------|------|
 | ✅ | capabilities 参数传递到 bridgeSystemAppend | hasUnavailable=true notUnknown=true |
 
+### V17-G72 managed plugin catalog
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-AimyVK\\skills\\pdf\\SKILL.md"}] |
+
 ### V16.5-D view.ts 主路径注入真实 capabilities
 
 | 状态 | 测试项 | 详情 |
@@ -707,7 +722,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=335963 capLine=336108 orderOk=true |
+| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=425218 capLine=425816 orderOk=true |
 | ✅ | buildBridgePromptPackage 主路径接收 runtimeCapabilities | hasRuntimeCapabilities=true hasPassedToBuilder=true |
 
 ### V16.5-E workspace
@@ -959,7 +974,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783360782916-0 update=pi-sdk-read-1783360782916-0 end=pi-sdk-read-1783360782916-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783513987953-0 update=pi-sdk-read-1783513987953-0 end=pi-sdk-read-1783513987953-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -2238,7 +2253,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | agent 切换 + 手动刷新均重置 | agentChange=true refresh=true |
+| ✅ | agent 切换重置，composer 不再暴露手动刷新 | agentChange=true refreshMenuRemoved=true |
 
 ### V2.4 Mode chip 移除
 
@@ -2306,7 +2321,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-06T18-00-10-393Z-pgkx5u |
+| ✅ | 返回非空 id | id=s-2026-07-08T12-33-35-666Z-qeqgtf |
 
 ### V2.5 Session 版本
 
@@ -2325,7 +2340,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-06T18-00-10-500Z-0vcxn0 second=s-2026-07-06T18-00-10-425Z-ubm8bu |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-08T12-33-35-770Z-9pel52 second=s-2026-07-08T12-33-35-701Z-7fesdw |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2334,6 +2349,18 @@
 |------|--------|------|
 | ✅ | 删除后 loadSession 返回 null | ok=true session=null |
 | ✅ | 不存在返回 false | ok=false |
+
+### V17-G72 Session 删除
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Bridge 会话关联清理 Codex 原生 session | bridge=true nativeDeleted=1 indexDeleted=1 bridgeGone=true nativeGone=true indexClean=true |
+
+### V17-G72 Session 清空
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 清空 Bridge store 并删除关联 Codex session | bridgeDeleted=2 nativeDeleted=1 indexDeleted=1 remaining=0 indexClean=true |
 
 ### V2.5 Session 安全写入
 
@@ -2352,7 +2379,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-06T18-00-10-536Z-la5zi6 id2=s-2026-07-06T18-00-10-536Z-5k6ctb |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-08T12-33-35-871Z-a01b64 id2=s-2026-07-08T12-33-35-871Z-rhgzj7 |
 
 ### V2.5 Session 上限
 
@@ -2450,7 +2477,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-06T18:00:10.624Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-08T12:33:35.970Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2538,7 +2565,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-06T18:00:10.681Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-08T12:33:36.043Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2652,7 +2679,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-06T18:00:10.796Z after=2026-07-06T18:00:10.870Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-08T12:33:36.195Z after=2026-07-08T12:33:36.267Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -3023,13 +3050,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-06T18:00:11.619Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-08T12:33:37.097Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-06T18:00:11.635Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-08T12:33:37.111Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3140,6 +3167,13 @@
 | ✅ | tracked generated file 可安全更新 | status=updated |
 | ✅ | 不覆盖非插件生成 SKILL.md | target SKILL.md is not plugin-generated |
 | ✅ | 检测插件生成文件被手工修改 | target SKILL.md changed after last materialization |
+
+### V17-G72 Codex Skills
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-X1GlvN\skills\llm-bridge-review-skill\SKILL.md |
+| ✅ | run 前从 Bridge manifest 物化 enabled Skills | ok=true count=1 |
 
 ### V2.13.0-C materializeEnabled
 
@@ -3340,7 +3374,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-VPjD9y\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-GJ0yK0\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-1GLzrl\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-h2JNSw\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3352,7 +3386,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-9s4gzi\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-mk1CiT\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-BH8yGN\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-9FY4n9\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3364,7 +3398,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-uEfxOp\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-cJ4rxn\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-t58WkC\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-VgzESF\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -3512,7 +3546,292 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 拖拽/粘贴文件和路径入口存在 | - |
+| ✅ | 拖拽/粘贴文件入口存在，普通复制文本保持文本 | - |
+
+### V17-G41 composer
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 普通复制文本保持原文，仅真实文件或超大文本进入附件流 | - |
+
+### V17-G47 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 图片缩略会裁掉大白边，文档缩略改为更平静的三行卡片 | - |
+
+### V17-G48 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 轻量文件预览弹窗保持单实例 | - |
+
+### V17-G3 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | composer/context/files surface 靠近 Codex native 风格 | - |
+
+### V17-G4 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 普通模式移除 legacy Run Flow，composer 状态随设置刷新 | - |
+| ✅ | 普通态消息渲染兜底不暴露内部异常横幅 | - |
+| ✅ | 活动笔记在 Bridge/composer 聚焦后仍保留最近文件 | - |
+
+### V17-G5 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | composer 内嵌活动笔记/context，文件和权限标签统一收口 | - |
+
+### V17-G6 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Files 清单、请求弹窗和 composer 继续靠近 Codex 风格 | - |
+
+### V17-G7 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 普通态隐藏 reasoning 占位和 warning diagnostics，assistant 输出承载瀑布流 | - |
+| ✅ | composer、活动笔记、权限弹窗和文件/request 表面收口 | - |
+
+### V17-G8 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Codex 瀑布流去重、活动笔记兜底和输入/文件表面继续收口 | - |
+
+### V17-G60 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 去掉目标表述，附件预览继续收成严格方块缩略 | - |
+
+### V17-G61 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | assistant narrative 增量化，去掉假 thinking 占位，shell/output 合并为单块瀑布事件 | - |
+
+### V17-G62 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 直接从 managed Codex runtime 读取 installed plugins，并提供计划模式入口 | - |
+
+### V17-G65 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 多工具批次折叠为懒渲染工具组，命令一行摘要，composer 输入跨满宽度 | - |
+
+### V17-G66 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | file change 折叠态与 Shell 同风格，assistant Vault 链接可打开，composer 长文本不压工具栏 | - |
+
+### V17-G67 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Process/Answer 响应式收缩，header 不重复首个 Thinking 文本 | - |
+
+### V17-G68 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | composer 文本区不被底部控件遮挡，Thinking 铺满且输出可选择复制 | - |
+
+### V17-G69 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 工具子步骤改为紧凑可展开行，插件内联显示，发送与模型控件对齐 | - |
+
+### V17-G70 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 模型按 agent 对齐，工具菜单支持 Skills 并压缩为 Codex 风格 | - |
+
+### V17-G71 Codex Skills
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | managed provider materializes Bridge Skills instead of prompt-injecting them | - |
+
+### V17-G72 UI/session
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 顶栏瘦身、左栏折叠、上箭头发送与关联清空会话 | - |
+
+### V17-G10 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 权限弹窗、approval/request 和 Files 行保持 Codex 紧凑表面 | - |
+
+### V17-G16 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Files/context rows use thumbnails and compact type labels | - |
+
+### V17-G17 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | composer file chips stay compact | - |
+
+### V17-G25 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | composer attachment tray uses compact square image tiles | - |
+
+### V17-G18 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | user bubble attachments preview inline with lightweight modal | - |
+
+### V17-G24 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | user image attachments render as compact thumbnail-only tiles | - |
+
+### V17-G22 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | approval、user input 和 external-read 请求表面保持 Codex 紧凑 | - |
+
+### V17-G23 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 活动笔记空态保留 No active note，步骤状态改为 Codex 纯文本 | - |
+
+### V17-G26 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | permission/context bottom status stays compact | - |
+
+### V17-G27 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | user attachments and Skills registry stay Codex-like compact | - |
+
+### V17-G28 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | previews, dialogs and attachment tiles stay lightweight | - |
+
+### V17-G30 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 用户输入右侧展示，消息附件为小方块，轻量预览无底部按钮 | - |
+
+### V17-G31 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 用户气泡附件置顶，图片 tile 不显示 PNG/JPG 格式标签 | - |
+
+### V17-G32 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 非图片附件以文档缩略块展示，不用格式标签占主视觉 | - |
+
+### V17-G45 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 文档缩略块无文本时退化为轻量图标，不出现空白 tile | - |
+
+### V17-G33 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Skills、权限弹窗和审批卡片保持扁平紧凑 | - |
+
+### V17-G34 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 外部文件访问请求以缩略目标文件块展示 | - |
+
+### V17-G35 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | composer 附件保持缩略小方块，不回退成长条 | - |
+
+### V17-G36 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | composer 状态行集成进顶部轻量文本，不回退成按钮横线 | - |
+
+### V17-G37 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Files/Context 非图片文件使用文档缩略块，不用扩展名角标作主视觉 | - |
+
+### V17-G38 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 文件缩略块承载真实文本预览，顶部会话/历史表层继续简化 | - |
+
+### V17-G39 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | run 过程与最终答案分层，顶部/历史/输入区继续收口 | - |
+
+### V17-G53 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | batch waterfall、Sessions 头部和右侧用户附件缩略继续靠近 Codex | - |
+
+### V17-G54 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 顶栏、History、composer meta row 与 Shell 块继续向 Codex 风格收口 | - |
+
+### V17-G56 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Steps 折叠、Final answer、sessions 与 modal 表面继续收口 | - |
+
+### V17-G57 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 普通粘贴文本保持原文，用户附件 tile 继续稳定为轻量预览 | - |
+
+### V17-G40 UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 用户附件保持缩略方块，预览弹窗回归轻量只读 | - |
 
 ### V2.16-D file input
 
@@ -3700,7 +4019,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | run1 thread/start 注册 threadId（provider 全路径） | sessionStarted=true text=thread-provider-1 mappedTid=thread-provider-1 eventsCount=3 |
-| ✅ | run2 thread/resume + turn/start 使用 resumed threadId（P2 主线闭环） | threadResume=true threadStartOnRun2=false resumeTidOk=true turnStartTidOk=true resumedEv=true eventsCount=3 |
+| ✅ | run2 thread/resume + turn/start 使用 resumed threadId（P2 主线闭环） | threadResume=true threadStartOnRun2=false resumeTidOk=true turnStartTidOk=true turnStartContextOk=true resumedEv=true eventsCount=3 |
 
 ### Test report integrity
 
@@ -3708,7 +4027,7 @@
 |------|--------|------|
 | ✅ | unit/process 报告含 commit sha + 运行命令字段 | unitExists=true processExists=true unitSha=true processSha=true unitCmd=true processCmd=true |
 | ✅ | summary 由 generate-test-summary.mjs 解析生成（含审计结果 + commit sha 表） | exists=true parsed=true audit=true shaTable=true |
-| ✅ | summary 含 Managed Codex Runtime 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/managed gate） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true managedGate=true capturedTestedSha=31d6dd5dd1af |
+| ✅ | summary 含 Managed Codex Runtime 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/managed gate） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true managedGate=true capturedTestedSha=1c2d7681c607 |
 | ✅ | 审计模式 testedCodeCommitSha 不匹配 + managed runtime gate 异常 → exit 1 | scriptExists=true auditFailExit=true testedCodeShaCheck=true managedGateCheck=true docsOnlyLogic=true |
 
 ## 失败项详情
