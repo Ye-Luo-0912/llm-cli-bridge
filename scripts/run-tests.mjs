@@ -11708,14 +11708,15 @@ if (!runV24Unit) {
 
     // ===== Preflight 缓存失效（源码字符串检查）=====
 
-    // ---- Test 12: agent 切换 + 手动刷新时重置 lastPreflightResult ----
+    // ---- Test 12: agent 切换重置 lastPreflightResult；composer 工具菜单不再暴露手动刷新入口 ----
     {
       const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
       const agentChangeResets = /agentSelect\.addEventListener\([\s\S]*?lastPreflightResult = null/.test(viewSrc);
-      const refreshResets = /refreshContextBtn\.addEventListener\([\s\S]*?lastPreflightResult = null/.test(viewSrc);
-      addTest("V2.4 Preflight 缓存失效: agent 切换 + 手动刷新均重置",
-        agentChangeResets && refreshResets ? "pass" : "fail",
-        `agentChange=${agentChangeResets} refresh=${refreshResets}`);
+      const refreshMenuRemoved = !viewSrc.includes("refreshContextBtn")
+        && !viewSrc.includes('this.decorateCommandMenuItem(refreshContextBtn, "refresh-cw"');
+      addTest("V2.4 Preflight 缓存失效: agent 切换重置，composer 不再暴露手动刷新",
+        agentChangeResets && refreshMenuRemoved ? "pass" : "fail",
+        `agentChange=${agentChangeResets} refreshMenuRemoved=${refreshMenuRemoved}`);
     }
 
     // ===== Mode chip 移除 + New 按钮去重（源码字符串检查）=====
@@ -17497,8 +17498,11 @@ if (!runV214BUnit) {
     {
       const commandMenuOk = viewSrc.includes("llm-bridge-command-menu")
         && viewSrc.includes("llm-bridge-command-menu-body")
-        && viewSrc.includes("检测 runtime")
-        && viewSrc.includes("添加路径附件")
+        && viewSrc.includes("llm-bridge-command-menu-plugins-list")
+        && viewSrc.includes("renderComposerManagedCodexPluginsList")
+        && !viewSrc.includes('this.decorateCommandMenuItem(this.preflightBtn, "scan-line"')
+        && !viewSrc.includes('this.decorateCommandMenuItem(refreshContextBtn, "refresh-cw"')
+        && !viewSrc.includes('this.decorateCommandMenuItem(pathAttachBtn, "folder-plus"')
         && !viewSrc.includes("this.presetBtnsEl = commandMenuBody.createDiv")
         && !viewSrc.includes("llm-bridge-preset-btn");
       const permissionChipOk = viewSrc.includes("permissionModeChipEl")
@@ -19140,6 +19144,33 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-codex-final-answer-body")
       && stylesSrc.includes("user-select: text !important");
     addTest("V17-G68 UI: composer 文本区不被底部控件遮挡，Thinking 铺满且输出可选择复制",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13j9: V17-G69 compact substeps and inline composer plugins ----
+  {
+    const ok = viewSrc.includes("private renderComposerManagedCodexPluginsList(parent: HTMLElement): void")
+      && viewSrc.includes("private useComposerManagedCodexPlugin(plugin: CodexManagedPluginEntry): void")
+      && viewSrc.includes("private insertComposerText(text: string): void")
+      && viewSrc.includes("使用 ${presentation.label} 插件处理这个请求。")
+      && viewSrc.includes("llm-bridge-command-menu-plugins-list")
+      && viewSrc.includes("llm-bridge-command-menu-plugin")
+      && viewSrc.includes('parent.createEl("button"')
+      && !viewSrc.includes('this.decorateCommandMenuItem(this.preflightBtn, "scan-line"')
+      && !viewSrc.includes('this.decorateCommandMenuItem(refreshContextBtn, "refresh-cw"')
+      && !viewSrc.includes('this.decorateCommandMenuItem(pathAttachBtn, "folder-plus"')
+      && stylesSrc.includes("V17-G69: compact tool substeps, inline installed plugins and Codex-like send row")
+      && stylesSrc.includes(".llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block")
+      && stylesSrc.includes("border: 0 !important")
+      && stylesSrc.includes("background: transparent !important")
+      && stylesSrc.includes(".llm-bridge-command-menu-plugins-list")
+      && stylesSrc.includes("appearance: none !important")
+      && stylesSrc.includes(".llm-bridge-command-menu-plugin:hover:not(:disabled)")
+      && stylesSrc.includes(".llm-bridge-send-btn")
+      && stylesSrc.includes("border-radius: 999px !important")
+      && stylesSrc.includes(".llm-bridge-model-effort-picker")
+      && stylesSrc.includes(".llm-bridge-composer-tools-right");
+    addTest("V17-G69 UI: 工具子步骤改为紧凑可展开行，插件内联显示，发送与模型控件对齐",
       ok ? "pass" : "fail", "");
   }
 

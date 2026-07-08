@@ -715,52 +715,27 @@ export class LLMBridgeView extends ItemView {
       commandMenu.removeAttribute("open");
       await this.setPermissionMode("plan");
     });
-    const pluginsBtn = commandMenuBody.createEl("button", {
-      cls: "llm-bridge-command-menu-item",
-      text: "已安装插件",
-      attr: { title: "读取 managed Codex runtime 中当前可用的已安装插件" },
-    });
-    this.decorateCommandMenuItem(pluginsBtn, "plug", "已安装插件", "从 managed Codex runtime 读取当前插件能力");
-    pluginsBtn.addEventListener("click", async () => {
-      commandMenu.removeAttribute("open");
+    const commandPlugins = commandMenuBody.createDiv({ cls: "llm-bridge-command-menu-plugins" });
+    const commandPluginsHead = commandPlugins.createDiv({ cls: "llm-bridge-command-menu-plugins-head" });
+    commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-title", text: "已安装插件" });
+    commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-hint", text: "managed Codex" });
+    const commandPluginsList = commandPlugins.createDiv({ cls: "llm-bridge-command-menu-plugins-list" });
+    commandPluginsList.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "打开菜单后读取 runtime 插件。" });
+    let commandPluginsRequest = 0;
+    const refreshCommandPlugins = async () => {
+      const request = ++commandPluginsRequest;
+      commandPluginsList.empty();
+      commandPluginsList.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "正在读取..." });
       await this.refreshManagedCodexPlugins();
+      if (request !== commandPluginsRequest) return;
+      this.renderComposerManagedCodexPluginsList(commandPluginsList);
       this.renderAgentSkillsList();
-      new Notice(this.managedCodexPluginCatalog?.available
-        ? `已读取 ${this.managedCodexPlugins.length} 个 Codex 插件`
-        : `读取 Codex 插件失败：${this.managedCodexPluginCatalog?.error || "runtime unavailable"}`);
+    };
+    commandMenu.addEventListener("toggle", () => {
+      if (!commandMenu.hasAttribute("open")) return;
+      void refreshCommandPlugins();
     });
-    this.preflightBtn = commandMenuBody.createEl("button", {
-      cls: "llm-bridge-command-menu-item",
-      text: "检测 runtime",
-      attr: { title: "检测 agent 命令是否可用（不调用真实模型）" },
-    });
-    this.decorateCommandMenuItem(this.preflightBtn, "scan-line", "检测 runtime", "确认 managed provider 与本地桥接状态");
-    this.preflightBtn.addEventListener("click", () => {
-      commandMenu.removeAttribute("open");
-      void this.runPreflightCheck();
-    });
-    const refreshContextBtn = commandMenuBody.createEl("button", {
-      cls: "llm-bridge-command-menu-item",
-      text: "刷新上下文",
-      attr: { title: "刷新当前笔记、选区和状态显示" },
-    });
-    this.decorateCommandMenuItem(refreshContextBtn, "refresh-cw", "刷新上下文", "同步当前笔记、选区和状态显示");
-    refreshContextBtn.addEventListener("click", () => {
-      commandMenu.removeAttribute("open");
-      this.lastPreflightResult = null;
-      this.updateContextDisplay();
-      this.syncControlsFromSettings();
-    });
-    const pathAttachBtn = commandMenuBody.createEl("button", {
-      cls: "llm-bridge-command-menu-item llm-bridge-attach-path-btn",
-      text: "添加路径附件",
-      attr: { title: "通过路径添加附件（fallback/debug）" },
-    });
-    this.decorateCommandMenuItem(pathAttachBtn, "folder-plus", "添加路径附件", "通过文件路径添加附件或外部引用");
-    pathAttachBtn.addEventListener("click", () => {
-      commandMenu.removeAttribute("open");
-      void this.promptAndAddAttachmentFile();
-    });
+    this.preflightBtn = document.createElement("button");
     this.permissionModePickerEl = leftTools.createDiv({ cls: "llm-bridge-permission-picker" });
     this.permissionModeChipEl = this.permissionModePickerEl.createEl("button", {
       cls: "llm-bridge-permission-chip",
@@ -1107,6 +1082,93 @@ export class LLMBridgeView extends ItemView {
     const text = button.createDiv({ cls: "llm-bridge-command-menu-item-text" });
     text.createEl("span", { cls: "llm-bridge-command-menu-item-title", text: title });
     text.createEl("span", { cls: "llm-bridge-command-menu-item-desc", text: description });
+  }
+
+  private renderComposerManagedCodexPluginsList(parent: HTMLElement): void {
+    parent.empty();
+    if (!this.managedCodexPluginCatalog?.available) {
+      parent.createDiv({
+        cls: "llm-bridge-command-menu-plugin-empty is-error",
+        text: this.managedCodexPluginCatalog?.error || "managed runtime unavailable",
+      });
+      return;
+    }
+    if (this.managedCodexPlugins.length === 0) {
+      parent.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "当前 runtime 没有已安装插件。" });
+      return;
+    }
+    for (const plugin of this.managedCodexPlugins) {
+      const presentation = this.describeComposerManagedCodexPlugin(plugin);
+      const item = parent.createEl("button", {
+        cls: `llm-bridge-command-menu-plugin${plugin.enabled ? "" : " is-disabled"}`,
+        attr: {
+          title: plugin.enabled
+            ? `使用 ${presentation.label} 插件`
+            : `${presentation.label} 已安装但当前未启用`,
+        },
+      });
+      item.disabled = !plugin.enabled;
+      item.addEventListener("click", () => this.useComposerManagedCodexPlugin(plugin));
+      const icon = item.createEl("span", { cls: "llm-bridge-command-menu-plugin-icon" });
+      setIcon(icon, presentation.icon);
+      const main = item.createDiv({ cls: "llm-bridge-command-menu-plugin-main" });
+      const title = main.createDiv({ cls: "llm-bridge-command-menu-plugin-title" });
+      title.createEl("span", { cls: "llm-bridge-command-menu-plugin-name", text: presentation.label });
+      main.createDiv({
+        cls: "llm-bridge-command-menu-plugin-desc",
+        text: presentation.description,
+      });
+    }
+  }
+
+  private describeComposerManagedCodexPlugin(plugin: CodexManagedPluginEntry): { label: string; description: string; icon: string } {
+    const key = `${plugin.pluginId} ${plugin.name} ${plugin.marketplaceName}`.toLowerCase();
+    if (key.includes("document")) return { label: "Documents", description: "Create and edit document artifacts", icon: "file-text" };
+    if (key.includes("pdf")) return { label: "PDF", description: "Read, create, and verify PDF files", icon: "file-type" };
+    if (key.includes("spreadsheet") || key.includes("sheet")) return { label: "Spreadsheets", description: "Create and edit spreadsheet files", icon: "table-2" };
+    if (key.includes("presentation") || key.includes("slide")) return { label: "Presentations", description: "Create and edit presentations", icon: "presentation" };
+    if (key.includes("template")) return { label: "Template Creator", description: "Create or update personal artifact templates", icon: "blocks" };
+    if (key.includes("computer")) return { label: "电脑", description: "Control Windows apps from Codex", icon: "monitor" };
+    if (key.includes("github")) return { label: "GitHub", description: "Triage PRs, issues, CI, and publish flows", icon: "github" };
+    if (key.includes("gmail")) return { label: "Gmail", description: "Read and manage Gmail", icon: "mail" };
+    if (key.includes("chrome")) return { label: "Chrome", description: "Use the local browser session", icon: "globe" };
+    const label = plugin.name || plugin.marketplaceName || plugin.pluginId;
+    return {
+      label,
+      description: plugin.marketplaceName && plugin.marketplaceName !== "unknown"
+        ? plugin.marketplaceName
+        : `Installed Codex plugin · ${plugin.version}`,
+      icon: plugin.enabled ? "plug" : "plug-zap",
+    };
+  }
+
+  private useComposerManagedCodexPlugin(plugin: CodexManagedPluginEntry): void {
+    if (!plugin.enabled) {
+      new Notice(`${plugin.name} 已安装但当前未启用`);
+      return;
+    }
+    const presentation = this.describeComposerManagedCodexPlugin(plugin);
+    const directive = `使用 ${presentation.label} 插件处理这个请求。`;
+    this.insertComposerText(directive);
+    const menu = this.inputEl.closest(".llm-bridge-composer-bar")?.querySelector(".llm-bridge-command-menu") as HTMLDetailsElement | null;
+    menu?.removeAttribute("open");
+    this.inputEl.focus();
+  }
+
+  private insertComposerText(text: string): void {
+    const input = this.inputEl;
+    const value = input.value;
+    const start = input.selectionStart ?? value.length;
+    const end = input.selectionEnd ?? start;
+    const prefix = value.slice(0, start);
+    const suffix = value.slice(end);
+    const spacerBefore = prefix.length === 0 || /\s$/.test(prefix) ? "" : "\n";
+    const spacerAfter = suffix.length === 0 || /^\s/.test(suffix) ? "" : "\n";
+    const next = `${prefix}${spacerBefore}${text}${spacerAfter}${suffix}`;
+    const cursor = prefix.length + spacerBefore.length + text.length;
+    input.value = next;
+    input.setSelectionRange(cursor, cursor);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
   }
 
   private labelForValue(options: { value: string; label: string }[], v: string): string {
