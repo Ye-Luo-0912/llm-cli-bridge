@@ -28,9 +28,14 @@ export type ActionType =
   | "tasks_list"     // 待办清单（扫所有 markdown 文件）
   | "daily_read"     // 读今天 daily note（按 daily-notes 约定路径）
   | "daily_append"   // 追加到今天 daily note
+  // V2.18 vault-api：结构化类补充（metadataCache 解析能力，文件系统做不准）
+  | "outlinks_get"      // 出链清单（getFileCache().links，区分代码块假链接 + 解析目标）
+  | "broken_links_list" // 断链清单（unresolvedLinks，文件系统无法检测）
+  | "headings_get"      // 标题大纲（getFileCache().headings，区分代码块内 # 误判）
   // V2.18 vault-api：危险操作类（走 Obsidian trash + 审批）
   | "vault_delete"    // 删除文件（走回收站，比 fs.delete 安全）
-  | "vault_rename";   // 重命名/移动（更新 metadataCache）
+  | "vault_rename"   // 重命名/移动（更新 metadataCache）
+  | "vault_restore";  // 从回收站恢复（vault.restore，vault_delete 的逆操作）
 
 export interface OutboxAction {
   id: string;
@@ -67,6 +72,11 @@ const ACTION_SCHEMAS: Record<ActionType, ParamSchema> = {
   daily_append: { required: ["content"], optional: [], extraForbidden: false },
   vault_delete: { required: ["path"], optional: [], extraForbidden: false },
   vault_rename: { required: ["path", "newPath"], optional: [], extraForbidden: false },
+  // V2.18 vault-api schemas 补充（metadataCache 解析能力 + 回收站恢复）
+  outlinks_get: { required: ["path"], optional: [], extraForbidden: false },
+  broken_links_list: { required: [], optional: ["path"], extraForbidden: false },
+  headings_get: { required: ["path"], optional: [], extraForbidden: false },
+  vault_restore: { required: ["path"], optional: [], extraForbidden: false },
 };
 
 // ─── 路径安全校验 ─────────────────────────────────────────────────────────
@@ -181,6 +191,7 @@ const MODIFYING_ACTIONS: ActionType[] = [
   "daily_append",
   "vault_delete",
   "vault_rename",
+  "vault_restore",
 ];
 
 export function isModifying(type: string): boolean {
@@ -444,6 +455,110 @@ export async function executeAction(
       await app.vault.rename(f, newPath);
       return { oldPath, newPath };
     }
+    // ─── V2.18 vault-api 补充：metadataCache 解析能力 ──────────────────────
+    case "outlinks_get": {
+      // 出链清单（getFileCache().links，区分代码块假链接 + 解析目标）
+      const targetPath = String(p.path ?? "").trim();
+      if (!targetPath) throw new Error("outlinks_get: 缺少 path");
+      const f = app.vault.getAbstractFileByPath(targetPath);
+      if (!(f instanceof TFile)) throw new Error(`outlinks_get: 文件不存在 ${targetPath}`);
+      const cache = app.metadataCache.getFileCache(f);
+      const links = cache?.links ?? [];
+      // 交叉引用 resolvedLinks 拿解析后的目标 path
+      const resolvedLinks = (app.metadataCache as unknown as { resolvedLinks: Record<string, Record<string, number>> }).resolvedLinks;
+      const targetMap = resolvedLinks[targetPath] ?? {};
+      const result = links.map((l) => {
+        // 在 targetMap 中找匹配（按 link text 或 original 匹配）
+        const target = targetMap[l.link] ? l.link : (targetMap[l.original] ? l.original : null);
+        return {
+          link: l.link,
+          original: l.original,
+          target,
+          position: { line: (l.position?.start?.line ?? 0) + 1, col: l.position?.start?.col ?? 0 },
+          resolved: target !== null,
+        };
+      });
+      const brokenCount = result.filter((r) => !r.resolved).length;
+      return { path: targetPath, links: result, total: result.length, brokenCount };
+    }
+    case "broken_links_list": {
+      // 断链清单（unresolvedLinks，文件系统无法检测）
+      const pathFilter = typeof p.path === "string" ? String(p.path).trim() : undefined;
+      const unresolvedLinks = (app.metadataCache as unknown as { unresolvedLinks: Record<string, Record<string, number>> }).unresolvedLinks;
+      const brokenLinks: { source: string; link: string; count: number }[] = [];
+      for (const [sourcePath, links] of Object.entries(unresolvedLinks)) {
+        if (pathFilter && !sourcePath.startsWith(pathFilter)) continue;
+        for (const [linkText, count] of Object.entries(links)) {
+          if (count > 0) brokenLinks.push({ source: sourcePath, link: linkText, count });
+        }
+      }
+      brokenLinks.sort((a, b) => b.count - a.count);
+      return { brokenLinks, total: brokenLinks.length };
+    }
+    case "headings_get": {
+      // 标题大纲（getFileCache().headings，区分代码块内 # 误判为 H1）
+      const targetPath = String(p.path ?? "").trim();
+      if (!targetPath) throw new Error("headings_get: 缺少 path");
+      const f = app.vault.getAbstractFileByPath(targetPath);
+      if (!(f instanceof TFile)) throw new Error(`headings_get: 文件不存在 ${targetPath}`);
+      const cache = app.metadataCache.getFileCache(f);
+      const headings = cache?.headings ?? [];
+      const result = headings.map((h) => ({
+        heading: h.heading,
+        level: h.level,
+        line: (h.position?.start?.line ?? 0) + 1,
+      }));
+      return { path: targetPath, headings: result, total: result.length };
+    }
+    case "vault_restore": {
+      // 从回收站恢复（vault.restore，vault_delete 的逆操作）
+      const originalPath = String(p.path ?? "").trim();
+      if (!originalPath) throw new Error("vault_restore: 缺少 path");
+      // 路径安全校验（originalPath 必须在 vault 内、非敏感路径）
+      const pathUnsafe = isPathUnsafe(vaultPath, originalPath);
+      if (pathUnsafe) throw new Error(pathUnsafe);
+      // 在 .trash/ 中按 basename 匹配（Obsidian 删除时可能加 " (1)" 后缀）
+      const trashBase = ".trash";
+      const originalBasename = originalPath.split("/").pop() ?? originalPath;
+      const originalNameNoExt = originalBasename.replace(/\.[^.]+$/, "");
+      let trashFile: TFile | null = null;
+      const trashFolder = app.vault.getAbstractFileByPath(trashBase);
+      if (trashFolder instanceof TFolder) {
+        // 遍历 .trash/ 子项找匹配（basename 或去后缀名匹配）
+        const filesInTrash: TFile[] = [];
+        const collect = (folder: TFolder) => {
+          for (const child of folder.children) {
+            if (child instanceof TFile) {
+              filesInTrash.push(child);
+            } else if (child instanceof TFolder) {
+              collect(child);
+            }
+          }
+        };
+        collect(trashFolder);
+        // 优先精确 basename 匹配，其次去后缀名 + 后缀容忍
+        trashFile = filesInTrash.find((tf) => tf.name === originalBasename) ?? null;
+        if (!trashFile) {
+          trashFile = filesInTrash.find((tf) => {
+            const tfNameNoExt = tf.name.replace(/\.[^.]+$/, "");
+            return tfNameNoExt === originalNameNoExt || tfNameNoExt.startsWith(`${originalNameNoExt} `);
+          }) ?? null;
+        }
+      }
+      if (!trashFile) {
+        throw new Error(`vault_restore: 在 ${trashBase}/ 中未找到匹配 ${originalBasename} 的文件`);
+      }
+      // 优先用 vault.restore（若 API 可用），否则 fallback 到 rename
+      const vaultWithRestore = app.vault as unknown as { restore?: (f: TFile) => Promise<void> };
+      if (typeof vaultWithRestore.restore === "function") {
+        await vaultWithRestore.restore(trashFile);
+      } else {
+        // fallback：rename 到原路径（等效，但不走回收站元数据）
+        await ensureParentDir(app.vault, originalPath);
+        await app.vault.rename(trashFile, originalPath);
+      }
+      return { path: originalPath, restored: true, trashPath: trashFile.path };
+    }
     default:
       throw new Error(`未知 action 类型: ${type}`);
   }
@@ -471,6 +586,8 @@ export function describeAction(action: OutboxAction): string {
       return `将删除文件（进回收站）: ${p.path}`;
     case "vault_rename":
       return `将重命名: ${p.path} → ${p.newPath}`;
+    case "vault_restore":
+      return `将从回收站恢复文件: ${p.path}`;
     default:
       return JSON.stringify(p, null, 2);
   }

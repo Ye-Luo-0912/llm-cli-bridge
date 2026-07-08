@@ -183,6 +183,11 @@ const ACTION_SCHEMAS = {
   daily_append: { required: ["content"], optional: [], extraForbidden: false },
   vault_delete: { required: ["path"], optional: [], extraForbidden: false },
   vault_rename: { required: ["path", "newPath"], optional: [], extraForbidden: false },
+  // V2.18 vault-api schemas 补充（metadataCache 解析能力 + 回收站恢复）
+  outlinks_get: { required: ["path"], optional: [], extraForbidden: false },
+  broken_links_list: { required: [], optional: ["path"], extraForbidden: false },
+  headings_get: { required: ["path"], optional: [], extraForbidden: false },
+  vault_restore: { required: ["path"], optional: [], extraForbidden: false },
 };
 
 function validateActionSchema(action) {
@@ -263,6 +268,15 @@ const schemaTests = [
   { action: { type: "vault_delete", params: { path: "a.md" } }, expect: null, desc: "vault_delete 正常" },
   { action: { type: "vault_rename", params: { path: "a.md" } }, expect: /缺少必填字段.*newPath/, desc: "vault_rename 缺 newPath" },
   { action: { type: "vault_rename", params: { path: "a.md", newPath: "b.md" } }, expect: null, desc: "vault_rename 正常" },
+  // V2.18 vault-api schema 补充测试（metadataCache 解析能力 + 回收站恢复）
+  { action: { type: "outlinks_get", params: {} }, expect: /缺少必填字段.*path/, desc: "outlinks_get 缺 path" },
+  { action: { type: "outlinks_get", params: { path: "a.md" } }, expect: null, desc: "outlinks_get 正常" },
+  { action: { type: "broken_links_list", params: {} }, expect: null, desc: "broken_links_list 无参正常" },
+  { action: { type: "broken_links_list", params: { path: "inbox/" } }, expect: null, desc: "broken_links_list 带 path 过滤正常" },
+  { action: { type: "headings_get", params: {} }, expect: /缺少必填字段.*path/, desc: "headings_get 缺 path" },
+  { action: { type: "headings_get", params: { path: "a.md" } }, expect: null, desc: "headings_get 正常" },
+  { action: { type: "vault_restore", params: {} }, expect: /缺少必填字段.*path/, desc: "vault_restore 缺 path" },
+  { action: { type: "vault_restore", params: { path: "a.md" } }, expect: null, desc: "vault_restore 正常" },
 ];
 
 for (const t of schemaTests) {
@@ -4552,7 +4566,7 @@ if (runMode !== "all" && runMode !== "unit") {
         const vaSourceAbs = pathMod.join(taskKTmpRoot, agentRuntimeWsMod.VAULT_API_SKILL_SOURCE_REL);
         const exists = fsMod.existsSync(vaSourceAbs);
         const content = exists ? await fsMod.promises.readFile(vaSourceAbs, "utf8") : "";
-        // 初版应包含：9 个 action 类型 + HTTP bridge 调用通道 + 文件系统做不到的能力说明
+        // 初版应包含：13 个 action 类型 + HTTP bridge 调用通道 + 文件系统做不到的能力说明
         const hasPropertyGet = content.includes("property_get");
         const hasPropertySet = content.includes("property_set");
         const hasTagsList = content.includes("tags_list");
@@ -4562,19 +4576,28 @@ if (runMode !== "all" && runMode !== "unit") {
         const hasDailyAppend = content.includes("daily_append");
         const hasVaultDelete = content.includes("vault_delete");
         const hasVaultRename = content.includes("vault_rename");
+        // V2.18 补充 4 个 action（metadataCache 解析能力 + 回收站恢复）
+        const hasOutlinksGet = content.includes("outlinks_get");
+        const hasBrokenLinksList = content.includes("broken_links_list");
+        const hasHeadingsGet = content.includes("headings_get");
+        const hasVaultRestore = content.includes("vault_restore");
         const hasHttpBridge = content.includes("bridge.json") && content.includes("/action");
         const hasFileSystemCaveat = content.includes("native Read/Write/Edit");
         const allActions = hasPropertyGet && hasPropertySet && hasTagsList && hasBacklinks
-          && hasTasks && hasDailyRead && hasDailyAppend && hasVaultDelete && hasVaultRename;
+          && hasTasks && hasDailyRead && hasDailyAppend && hasVaultDelete && hasVaultRename
+          && hasOutlinksGet && hasBrokenLinksList && hasHeadingsGet && hasVaultRestore;
 
         // 单独验证 generateInitialVaultApiSkill 纯函数（不依赖文件系统）
         const generated = agentRuntimeWsMod.generateInitialVaultApiSkill();
         const generatedHasH1 = generated.startsWith("# vault-api");
         const generatedHasActionTable = generated.includes("### 结构化类") && generated.includes("### 危险操作类");
+        // V2.18 补充：13 个 action 计数 + 4 个新 action 行
+        const generatedHas13Count = generated.includes("13 个 action");
+        const generatedHasOutlinks = generated.includes("outlinks_get");
 
-        addTest("V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 9 actions + HTTP 通道",
-          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable ? "pass" : "fail",
-          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable}`);
+        addTest("V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 13 actions + HTTP 通道",
+          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable && generatedHas13Count && generatedHasOutlinks ? "pass" : "fail",
+          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable} gen13Count=${generatedHas13Count} genOutlinks=${generatedHasOutlinks}`);
       }
 
       // Test K1-C: 轻量版 materializeToAllTargets — 单个 conflict 不影响其他 target
