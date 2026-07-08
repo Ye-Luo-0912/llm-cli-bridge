@@ -78,6 +78,8 @@ export interface ProviderRuntimeSkillEntry {
   readonly name: string;
   readonly description?: string;
   readonly instructions?: string;
+  readonly registryPath?: string;
+  readonly sourcePath?: string;
   readonly source?: string;
   readonly enabled?: boolean;
 }
@@ -146,9 +148,15 @@ export function buildCapabilityManifest(
   }
   lines.push("- Host approval 是 write/delete/command 的最终安全边界；权限系统会拦截未授权操作。");
   // V16.5-E: Agent Runtime Workspace 事实（简短路径，不堆规则）
+  const providerId = capabilities.evidence?.provider ?? "";
+  const isCodexManagedProvider = providerId === "codex-managed-app-server" || providerId === "codex-app-server";
   lines.push("- Agent workspace: LLM-AgentRuntime/（sessions/ work/ runtime/ skills/；agent 维护，用户默认不需要编辑）。");
-  lines.push("- Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md（agent 长期认知缓存）。");
-  lines.push("- Runtime Skill target: .claude/skills/vault-context/SKILL.md（物化后 provider 按需识别）。");
+  if (isCodexManagedProvider) {
+    lines.push("- Bridge Skill registry: .llm-bridge/agent-skills.json（Bridge 插件管理的 Skills 源；不是 Claude agent 目录）。");
+  } else {
+    lines.push("- Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md（agent 长期认知缓存）。");
+    lines.push("- Runtime Skill target: .claude/skills/vault-context/SKILL.md（物化后 provider 按需识别）。");
+  }
   lines.push("- Runtime facts: LLM-AgentRuntime/runtime/RUNTIME_FACTS.json（机器事实，不进 prompt）。");
   return lines.join("\n");
 }
@@ -161,7 +169,7 @@ function buildRuntimeSkillCapabilityLines(context?: ProviderRuntimeSkillContext)
   if (enabledPlugins.length === 0 && enabledPluginSkills.length === 0 && enabledSkills.length === 0) return [];
 
   const lines: string[] = [
-    "- Bridge/Vault Agent Skills and managed runtime plugins：以下条目是当前 Bridge 会话可用能力；用户询问“当前可用 Skills”时必须包含这些条目，用户点名要求使用时应按任务匹配使用。",
+    "- Bridge Plugin Skills and managed runtime plugins：以下条目是当前 Bridge 插件会话已启用能力，不是外部示例、传闻或某个单独 agent 的私有目录；用户询问“当前可用 Skills”时必须包含这些条目，用户点名要求使用时应按任务匹配使用。",
   ];
   if (enabledPlugins.length > 0) {
     lines.push("  Managed Codex plugins:");
@@ -186,10 +194,12 @@ function buildRuntimeSkillCapabilityLines(context?: ProviderRuntimeSkillContext)
     }
   }
   if (enabledSkills.length > 0) {
-    lines.push("  Bridge/Vault Agent Skills:");
+    lines.push("  Bridge Plugin Skills:");
     for (const skill of enabledSkills.slice(0, 16)) {
       const desc = skill.description ? ` — ${capabilityText(skill.description, 220)}` : "";
-      lines.push(`  - ${skill.name} (${skill.id})${desc}`);
+      const registryPath = skill.registryPath ? ` | bridge skill: ${capabilityText(skill.registryPath, 120)}` : "";
+      const sourcePath = skill.sourcePath ? ` | source: ${capabilityText(skill.sourcePath, 120)}` : "";
+      lines.push(`  - ${skill.name} (${skill.id})${desc}${registryPath}${sourcePath}`);
     }
     if (enabledSkills.length > 16) {
       lines.push(`  - ... ${enabledSkills.length - 16} more skill(s) omitted from prompt for size.`);

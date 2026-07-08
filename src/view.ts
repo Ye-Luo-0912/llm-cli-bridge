@@ -2356,6 +2356,8 @@ export class LLMBridgeView extends ItemView {
         name: skill.name || skill.slug,
         description: skill.description,
         instructions: skill.instructions,
+        registryPath: `.llm-bridge/agent-skills.json#${skill.slug}`,
+        sourcePath: skill.sourcePath,
         source: skill.source,
         enabled: skill.enabled,
       }))
@@ -2382,7 +2384,7 @@ export class LLMBridgeView extends ItemView {
           managedCodexPlugins,
           managedCodexPluginSkills,
           agentSkills,
-          evidence: "managed Codex runtime plugin list + plugin skills/SKILL.md + Vault Agent Skills manifest",
+          evidence: "managed Codex runtime plugin list + plugin skills/SKILL.md + Bridge plugin Skills manifest",
         }
         : undefined,
       evidence: {
