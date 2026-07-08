@@ -18866,12 +18866,15 @@ if (!runNoteSummarizeSmoke) {
     addTest("V2.16-D view.ts: doNewSession 清除 lastActiveSessionId", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 11: 会话下拉包含单行摘要，并点击恢复而非跳 History ----
+  // ---- Test 11: 会话下拉只保留紧凑标题/元信息，并点击恢复而非跳 History ----
   {
     const ok = sessionsSrc.includes("firstUserSummary")
       && sessionsSrc.includes("lastAssistantSummary")
-      && viewSrc.includes("llm-bridge-session-dropdown-summary")
-      && viewSrc.includes("sessionSummaryText(item)")
+      && viewSrc.includes("this.createComposerMenuItem(dropdown, {")
+      && viewSrc.includes('className: "llm-bridge-session-dropdown-item"')
+      && viewSrc.includes("const meta = `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条`;")
+      && !viewSrc.includes("const summary = this.sessionSummaryText(item);")
+      && !viewSrc.includes("llm-bridge-session-dropdown-summary\", text: summary")
       && !viewSrc.includes("llm-bridge-session-dropdown-request")
       && !viewSrc.includes("llm-bridge-session-dropdown-reply")
       && viewSrc.includes("await this.restoreSession(item.id)")
@@ -19113,7 +19116,8 @@ if (!runNoteSummarizeSmoke) {
     const ok = viewSrc.includes("private coerceMessageContentText(value: unknown): string")
       && viewSrc.includes("llm-bridge-message-render-error-detail")
       && viewSrc.includes('{ value: "default", icon: "shield-question"')
-      && viewSrc.includes("setIcon(optIcon, mode.icon)")
+      && viewSrc.includes('className: "llm-bridge-perm-option"')
+      && viewSrc.includes("icon: mode.icon")
       && viewSrc.includes('if (noteWrap) noteWrap.removeAttribute("hidden");')
       && viewSrc.includes('const displayName = fname || "No active note";')
       && viewSrc.includes("noteTag.textContent = displayName")
@@ -19447,7 +19451,9 @@ if (!runNoteSummarizeSmoke) {
       && codexRunOptionsSrc.includes("function localFileUrl(")
       && codexRunOptionsSrc.includes('inputItems.push({ type: "localImage", refId: entry.refId, path: entry.resolvedPath, url });')
       && !codexRunOptionsSrc.includes('attachments.push({')
-      && viewSrc.includes('row.createEl("span", { cls: "llm-bridge-session-dropdown-inline-meta", text: meta });')
+      && viewSrc.includes("this.createComposerMenuItem(dropdown, {")
+      && viewSrc.includes('className: "llm-bridge-session-dropdown-item"')
+      && !viewSrc.includes('row.createEl("span", { cls: "llm-bridge-session-dropdown-summary"')
       && stylesSrc.includes("V17-G74: compact session dropdown overflow guard")
       && stylesSrc.includes('grid-template-areas:')
       && stylesSrc.includes('"title badge"')
@@ -19500,6 +19506,26 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes("V17-G77: debug stays behind one drawer")
       && !processDebugLeak;
     addTest("V17-G77 UI: Codex debug 抽屉不污染 Process，空白 completed 降级为可读失败",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13j18: V17-G78 shared compact composer menus ----
+  {
+    const ok = viewSrc.includes("private createComposerMenuSurface(")
+      && viewSrc.includes("private createComposerMenuItem(")
+      && viewSrc.includes('this.createComposerMenuSurface(mountEl, "llm-bridge-perm-popover", true)')
+      && viewSrc.includes('className: "llm-bridge-perm-option"')
+      && viewSrc.includes('dropdown.classList.add("llm-bridge-menu-surface")')
+      && viewSrc.includes('className: "llm-bridge-session-dropdown-item"')
+      && !viewSrc.includes("const summary = this.sessionSummaryText(item);")
+      && !viewSrc.includes("llm-bridge-session-dropdown-summary\", text: summary")
+      && stylesSrc.includes("V17-G78: shared Codex-like composer menus and compact sessions")
+      && stylesSrc.includes(".llm-bridge-menu-surface")
+      && stylesSrc.includes(".llm-bridge-menu-item")
+      && stylesSrc.includes(".llm-bridge-menu-item.is-active")
+      && stylesSrc.includes(".llm-bridge-session-dropdown-summary")
+      && stylesSrc.includes("display: none !important");
+    addTest("V17-G78 UI: 权限和会话下拉复用紧凑菜单结构，会话不再渲染明细摘要",
       ok ? "pass" : "fail", "");
   }
 
@@ -19932,7 +19958,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("...(typeof r.previewText === \"string\" && r.previewText.trim() ? { previewText: r.previewText } : {}),")
       && viewSrc.includes("const inlinePreview = this.getFileRefPreviewText(ref);")
       && viewSrc.includes("const previewText = this.getFileRefPreviewText(ref);")
-      && viewSrc.includes('cls: "llm-bridge-session-dropdown-summary"')
+      && viewSrc.includes('className: "llm-bridge-session-dropdown-item"')
+      && !viewSrc.includes("llm-bridge-session-dropdown-summary\", text: summary")
       && viewSrc.includes('cls: "llm-bridge-history-preview"')
       && stylesSrc.includes("V17-G38: text-aware file thumbnails and calmer session surfaces")
       && stylesSrc.includes(".llm-bridge-session-dropdown-summary")
@@ -20033,7 +20060,7 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes('this.contextLabelEl.textContent = `${pct > 0 && pct < 0.1 ? "<0.1" : Math.round(pct * 10) / 10}%`;')
       && viewSrc.includes('dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-title", text: "Sessions" });')
-      && viewSrc.includes('titleRow.createEl("span", { cls: "llm-bridge-session-dropdown-current", text: "当前" });')
+      && viewSrc.includes('badge: item.id === this.currentSessionId ? "当前" : undefined')
       && viewSrc.includes('historyBtn.createEl("span", { text: "查看全部会话" });')
       && viewSrc.includes('const meta = `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条`;')
       && viewSrc.includes('processHead.addClass("is-collapsible");')

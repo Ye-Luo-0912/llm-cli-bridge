@@ -1690,6 +1690,55 @@ export class LLMBridgeView extends ItemView {
     return "shield-question";
   }
 
+  private createComposerMenuSurface(parent: HTMLElement, className: string, hidden = false): HTMLDivElement {
+    const surface = parent.createDiv({ cls: `llm-bridge-menu-surface ${className}` });
+    if (hidden) surface.setAttribute("hidden", "");
+    surface.addEventListener("pointerdown", (event) => event.stopPropagation());
+    surface.addEventListener("click", (event) => event.stopPropagation());
+    return surface;
+  }
+
+  private createComposerMenuItem(parent: HTMLElement, options: {
+    className: string;
+    icon?: string;
+    title: string;
+    description?: string;
+    meta?: string;
+    badge?: string;
+    active?: boolean;
+    danger?: boolean;
+    data?: Record<string, string>;
+    iconClass?: string;
+    bodyClass?: string;
+    titleClass?: string;
+    descClass?: string;
+    checkClass?: string;
+  }): HTMLButtonElement {
+    const classes = ["llm-bridge-menu-item", options.className];
+    if (options.active) classes.push("is-active");
+    if (options.danger) classes.push("is-danger");
+    const attr: Record<string, string> = { type: "button" };
+    for (const [key, value] of Object.entries(options.data ?? {})) attr[key] = value;
+    const item = parent.createEl("button", { cls: classes.join(" "), attr });
+    if (options.icon) {
+      const iconEl = item.createEl("span", { cls: `llm-bridge-menu-item-icon ${options.iconClass ?? ""}`.trim() });
+      setIcon(iconEl, options.icon);
+    }
+    const body = item.createDiv({ cls: `llm-bridge-menu-item-body ${options.bodyClass ?? ""}`.trim() });
+    const titleRow = body.createDiv({ cls: "llm-bridge-menu-item-title-row" });
+    titleRow.createEl("span", { cls: `llm-bridge-menu-item-title ${options.titleClass ?? ""}`.trim(), text: options.title });
+    if (options.badge) titleRow.createEl("span", { cls: "llm-bridge-menu-item-badge", text: options.badge });
+    if (options.meta) body.createEl("span", { cls: "llm-bridge-menu-item-meta", text: options.meta });
+    if (options.description) {
+      body.createEl("span", {
+        cls: `llm-bridge-menu-item-desc ${options.descClass ?? ""}`.trim(),
+        text: options.description,
+      });
+    }
+    item.createEl("span", { cls: `llm-bridge-menu-item-check ${options.checkClass ?? ""}`.trim(), text: "✓" });
+    return item;
+  }
+
   /**
    * V16.4-D: 渲染 permission mode popover（五模式，轻量 chip + popover）
    * 修复：popover 挂载到 leftTools 容器（按钮外部），避免 click 事件冒泡和 pointer-events 问题。
@@ -1701,12 +1750,7 @@ export class LLMBridgeView extends ItemView {
     // V16.4-D: 挂载到 chip 的父容器（leftTools），不挂在 button 内部
     // 避免 click 冒泡到 button 导致 popover 关闭、pointer-events 被吞等问题
     const mountEl = this.permissionModeChipEl.parentElement ?? this.permissionModeChipEl;
-    this.permissionPopoverEl = mountEl.createDiv({
-      cls: "llm-bridge-perm-popover",
-      attr: { hidden: "" },
-    });
-    this.permissionPopoverEl.addEventListener("pointerdown", (event) => event.stopPropagation());
-    this.permissionPopoverEl.addEventListener("click", (event) => event.stopPropagation());
+    this.permissionPopoverEl = this.createComposerMenuSurface(mountEl, "llm-bridge-perm-popover", true);
     const modes: Array<{ value: string; icon: string; title: string; desc: string }> = [
       { value: "plan", icon: "lock", title: "计划模式", desc: "只读、规划、检查" },
       { value: "default", icon: "shield-question", title: "询问后编辑", desc: "编辑或高风险命令先确认" },
@@ -1725,16 +1769,19 @@ export class LLMBridgeView extends ItemView {
     headText.createEl("span", { text: `${currentMode.title} · ${currentMode.desc}` });
     head.createEl("span", { cls: `llm-bridge-perm-popover-risk is-${currentInfo.level}`, text: currentInfo.level === "danger" ? "高风险" : currentInfo.level === "caution" ? "需确认" : "安全" });
     for (const mode of modes) {
-      const opt = this.permissionPopoverEl.createEl("button", {
-        cls: "llm-bridge-perm-option" + (current === mode.value ? " is-active" : ""),
-        attr: { type: "button", "data-permission-mode": mode.value },
+      const opt = this.createComposerMenuItem(this.permissionPopoverEl, {
+        className: "llm-bridge-perm-option",
+        icon: mode.icon,
+        title: mode.title,
+        description: mode.desc,
+        active: current === mode.value,
+        data: { "data-permission-mode": mode.value },
+        iconClass: "llm-bridge-perm-option-icon",
+        bodyClass: "llm-bridge-perm-option-text",
+        titleClass: "llm-bridge-perm-option-title",
+        descClass: "llm-bridge-perm-option-desc",
+        checkClass: "llm-bridge-perm-option-check",
       });
-      const optIcon = opt.createEl("span", { cls: "llm-bridge-perm-option-icon" });
-      setIcon(optIcon, mode.icon);
-      const text = opt.createDiv({ cls: "llm-bridge-perm-option-text" });
-      text.createEl("div", { cls: "llm-bridge-perm-option-title", text: mode.title });
-      text.createEl("div", { cls: "llm-bridge-perm-option-desc", text: mode.desc });
-      opt.createEl("span", { cls: "llm-bridge-perm-option-check", text: "✓" });
       opt.addEventListener("pointerdown", (event) => event.stopPropagation());
       opt.addEventListener("click", async (event) => {
         event.stopPropagation();
@@ -8303,25 +8350,22 @@ export class LLMBridgeView extends ItemView {
 
   private renderRecentSessionDropdown(dropdown: HTMLElement, openHistory: () => void): void {
     dropdown.empty();
+    dropdown.classList.add("llm-bridge-menu-surface");
     dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-title", text: "Sessions" });
     const recent = this.historyItems.slice(0, 6);
     if (recent.length === 0) {
       dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-empty", text: "暂无历史会话" });
     } else {
       for (const item of recent) {
-        const summary = this.sessionSummaryText(item);
         const meta = `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条`;
-        const row = dropdown.createEl("button", {
-          cls: `llm-bridge-session-dropdown-item${item.id === this.currentSessionId ? " is-current" : ""}`,
-          attr: { title: `${item.title}\n${summary}\n${item.messageCount} 条消息 · ${item.savedAt}` },
+        const row = this.createComposerMenuItem(dropdown, {
+          className: "llm-bridge-session-dropdown-item",
+          title: item.title,
+          meta,
+          badge: item.id === this.currentSessionId ? "当前" : undefined,
+          active: item.id === this.currentSessionId,
         });
-        const titleRow = row.createDiv({ cls: "llm-bridge-session-dropdown-title-row" });
-        titleRow.createEl("span", { cls: "llm-bridge-session-dropdown-name", text: item.title });
-        if (item.id === this.currentSessionId) {
-          titleRow.createEl("span", { cls: "llm-bridge-session-dropdown-current", text: "当前" });
-        }
-        row.createEl("span", { cls: "llm-bridge-session-dropdown-inline-meta", text: meta });
-        row.createEl("span", { cls: "llm-bridge-session-dropdown-summary", text: summary });
+        row.setAttribute("title", `${item.title}\n${item.messageCount} 条消息 · ${item.savedAt}`);
         row.addEventListener("click", async () => {
           dropdown.setAttribute("hidden", "");
           await this.restoreSession(item.id);

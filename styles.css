@@ -12577,6 +12577,196 @@
   opacity: 1 !important;
 }
 
+/* ===== V17-G78: shared Codex-like composer menus and compact sessions ===== */
+.llm-bridge-menu-surface {
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 62%, transparent) !important;
+  border-radius: 14px !important;
+  background: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary)) !important;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.12) !important;
+}
+
+.llm-bridge-menu-item {
+  appearance: none !important;
+  width: 100% !important;
+  min-width: 0 !important;
+  display: grid !important;
+  grid-template-columns: 22px minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 8px !important;
+  min-height: 34px !important;
+  padding: 5px 8px !important;
+  border: 0 !important;
+  border-radius: 9px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-normal) !important;
+  text-align: left !important;
+  cursor: pointer !important;
+}
+
+.llm-bridge-menu-item:hover:not(:disabled),
+.llm-bridge-menu-item:focus-visible {
+  background: color-mix(in srgb, var(--background-modifier-hover) 62%, transparent) !important;
+  outline: none !important;
+}
+
+.llm-bridge-menu-item.is-active {
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent) !important;
+  color: var(--text-normal) !important;
+}
+
+.llm-bridge-menu-item-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 20px !important;
+  height: 20px !important;
+  border-radius: 6px !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 46%, transparent) !important;
+  color: var(--text-muted) !important;
+}
+
+.llm-bridge-menu-item-icon svg {
+  width: 13px !important;
+  height: 13px !important;
+}
+
+.llm-bridge-menu-item-body,
+.llm-bridge-menu-item-title-row {
+  min-width: 0 !important;
+}
+
+.llm-bridge-menu-item-body {
+  display: grid !important;
+  gap: 1px !important;
+}
+
+.llm-bridge-menu-item-title-row {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 6px !important;
+}
+
+.llm-bridge-menu-item-title,
+.llm-bridge-menu-item-desc,
+.llm-bridge-menu-item-meta {
+  display: block !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-menu-item-title {
+  color: var(--text-normal) !important;
+  font-size: 12px !important;
+  font-weight: 620 !important;
+}
+
+.llm-bridge-menu-item-desc,
+.llm-bridge-menu-item-meta {
+  color: var(--text-faint) !important;
+  font-size: 10px !important;
+  line-height: 1.35 !important;
+}
+
+.llm-bridge-menu-item-badge {
+  flex: 0 0 auto !important;
+  color: color-mix(in srgb, var(--interactive-accent) 78%, var(--text-muted)) !important;
+  font-size: 10px !important;
+  font-weight: 620 !important;
+}
+
+.llm-bridge-menu-item-check {
+  visibility: hidden !important;
+  color: color-mix(in srgb, var(--interactive-accent) 82%, var(--text-muted)) !important;
+  font-size: 11px !important;
+}
+
+.llm-bridge-menu-item.is-active .llm-bridge-menu-item-check {
+  visibility: visible !important;
+}
+
+.llm-bridge-perm-popover.llm-bridge-menu-surface {
+  width: min(286px, calc(100vw - 28px)) !important;
+  padding: 6px !important;
+}
+
+.llm-bridge-perm-popover-head {
+  display: grid !important;
+  grid-template-columns: 22px minmax(0, 1fr) auto !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin-bottom: 5px !important;
+  padding: 3px 4px 7px !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 36%, transparent) !important;
+}
+
+.llm-bridge-perm-popover-head-text,
+.llm-bridge-perm-option-text {
+  min-width: 0 !important;
+}
+
+.llm-bridge-perm-popover-head-text span,
+.llm-bridge-perm-option-desc {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-perm-option {
+  margin: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+.llm-bridge-perm-option + .llm-bridge-perm-option {
+  margin-top: 1px !important;
+}
+
+.llm-bridge-perm-option:hover,
+.llm-bridge-perm-option.is-active {
+  border-color: transparent !important;
+}
+
+.llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon {
+  color: color-mix(in srgb, var(--interactive-accent) 82%, var(--text-normal)) !important;
+  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent) !important;
+}
+
+.llm-bridge-session-dropdown.llm-bridge-menu-surface,
+.llm-bridge-session-dropdown {
+  width: min(300px, calc(100vw - 28px)) !important;
+  max-width: calc(100vw - 28px) !important;
+  overflow-x: hidden !important;
+}
+
+.llm-bridge-session-dropdown-item {
+  grid-template-columns: minmax(0, 1fr) auto !important;
+  gap: 8px !important;
+  min-height: 38px !important;
+}
+
+.llm-bridge-session-dropdown-item .llm-bridge-menu-item-body {
+  grid-column: 1 !important;
+}
+
+.llm-bridge-session-dropdown-item .llm-bridge-menu-item-check {
+  grid-column: 2 !important;
+}
+
+.llm-bridge-session-dropdown-item .llm-bridge-menu-item-title {
+  font-size: 12px !important;
+}
+
+.llm-bridge-session-dropdown-item .llm-bridge-menu-item-meta {
+  font-size: 10px !important;
+}
+
+.llm-bridge-session-dropdown-summary {
+  display: none !important;
+}
+
 /* ===== V17-G77: debug stays behind one drawer, not in the run waterfall ===== */
 .llm-bridge-codex-debug-drawer {
   margin: 8px 0 0 !important;
