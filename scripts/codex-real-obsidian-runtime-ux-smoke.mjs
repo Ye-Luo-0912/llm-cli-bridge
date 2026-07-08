@@ -646,20 +646,27 @@ const CDP_PROBE = `
     const commandDetailSummaryText = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-detail-command summary") ?? [])
       .map((el) => el.textContent || "")
       .join(" ");
+    const commandEventLabelText = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-event-block.is-command .llm-bridge-codex-feed-label") ?? [])
+      .map((el) => el.textContent || "")
+      .join(" ");
     const inlineShellPanels = view.containerEl?.querySelectorAll?.(".llm-bridge-codex-event-block.is-command .llm-bridge-codex-inline-shell-panel")?.length ?? 0;
     const nestedCommandShellDetails = view.containerEl?.querySelectorAll?.(".llm-bridge-codex-event-block.is-command .llm-bridge-codex-detail-shell")?.length ?? 0;
     const separateOutputDetails = view.containerEl?.querySelectorAll?.(".llm-bridge-codex-event-block.is-command .llm-bridge-codex-detail-stdout, .llm-bridge-codex-event-block.is-command .llm-bridge-codex-detail-stderr")?.length ?? 0;
     const shellPanelText = Array.from(view.containerEl?.querySelectorAll?.(".llm-bridge-codex-inline-shell-panel .llm-bridge-codex-detail-pre, .llm-bridge-codex-detail-shell .llm-bridge-codex-detail-pre") ?? [])
       .map((el) => el.textContent || "")
       .join(String.fromCharCode(10));
-    codexRunCommandShellPanelAvailable = inlineShellPanels > 0 || /Shell\\s*·/.test(commandDetailSummaryText);
+    const collapsedShellSummaryAvailable = /Shell\\s*·/.test(commandEventLabelText);
+    codexRunCommandShellPanelAvailable = inlineShellPanels > 0
+      || /Shell\\s*·/.test(commandDetailSummaryText)
+      || collapsedShellSummaryAvailable;
     codexRunShellOutputMerged = codexRunCommandShellPanelAvailable
-      && inlineShellPanels > 0
       && nestedCommandShellDetails === 0
       && separateOutputDetails === 0
-      && shellPanelText.includes("$")
       && !!uiSmokeCommandToken
-      && shellPanelText.includes(uiSmokeCommandToken);
+      && (
+        (inlineShellPanels > 0 && shellPanelText.includes("$") && shellPanelText.includes(uiSmokeCommandToken))
+        || (commandOutputCollapsedInNormalMode && commandEventLabelText.includes(uiSmokeCommandToken))
+      );
     normalModeCommandSummaryPathRedacted = commandSummaryText.length === 0 || (!/\\bcwd\\s*=/.test(commandSummaryText) && !/[A-Za-z]:\\\\/.test(commandSummaryText));
     messageRenderFailureAbsent = !/消息渲染失败|Cannot use .?in.? operator/i.test(normalText);
     finalAnswerVisuallySeparated = !view.containerEl?.querySelector?.(".llm-bridge-codex-final-answer-marker")

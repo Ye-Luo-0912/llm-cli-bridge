@@ -19070,6 +19070,27 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13j5: V17-G65 grouped lazy tools and full-width composer input ----
+  {
+    const ok = viewSrc.includes("private shouldGroupCodexToolEvents(")
+      && viewSrc.includes("private renderCodexToolGroup(")
+      && viewSrc.includes("private formatCodexToolGroupTitle(")
+      && viewSrc.includes("llm-bridge-codex-tool-group")
+      && viewSrc.includes('if (group.open) renderBody();')
+      && viewSrc.includes('block.querySelector(":scope > .llm-bridge-codex-event-body")')
+      && viewSrc.includes('item.kind === "command"')
+      && viewSrc.includes('`Shell · ${truncateText(commandPreview')
+      && stylesSrc.includes("V17-G65: grouped lazy tool events and full-width composer input")
+      && stylesSrc.includes(".llm-bridge-codex-tool-group-summary")
+      && stylesSrc.includes('"input input input"')
+      && stylesSrc.includes("grid-template-rows: auto auto minmax(68px, auto) auto")
+      && stylesSrc.includes("max-height: 150px")
+      && uxSmokeSrc.includes("collapsedShellSummaryAvailable")
+      && uxSmokeSrc.includes("commandEventLabelText.includes(uiSmokeCommandToken)");
+    addTest("V17-G65 UI: 多工具批次折叠为懒渲染工具组，命令一行摘要，composer 输入跨满宽度",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 13k: V17-G10 permission and files surfaces stay Codex-compact ----
   {
     const ok = viewSrc.includes('cls: "llm-bridge-context-ref-action is-pin"')

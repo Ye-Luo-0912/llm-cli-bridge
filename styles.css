@@ -16121,3 +16121,175 @@
 .llm-bridge-clarification-supplement-textarea {
   background: color-mix(in srgb, var(--background-modifier-hover) 14%, transparent) !important;
 }
+
+/* ===== V17-G65: grouped lazy tool events and full-width composer input ===== */
+.llm-bridge-codex-thinking-line {
+  align-items: start !important;
+}
+
+.llm-bridge-codex-thinking-summary,
+.llm-bridge-codex-feed-batch-text {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+}
+
+.llm-bridge-codex-tool-group {
+  display: block !important;
+  margin: 2px 0 4px 20px !important;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
+  border-radius: 13px !important;
+  background: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary)) !important;
+  overflow: hidden !important;
+}
+
+.llm-bridge-codex-tool-group-summary {
+  display: grid !important;
+  grid-template-columns: 18px minmax(0, 1fr) auto !important;
+  gap: 8px !important;
+  align-items: center !important;
+  min-height: 42px !important;
+  padding: 9px 11px !important;
+  cursor: pointer !important;
+  list-style: none !important;
+}
+
+.llm-bridge-codex-tool-group-summary::-webkit-details-marker {
+  display: none !important;
+}
+
+.llm-bridge-codex-tool-group-summary::before {
+  content: "›" !important;
+  position: absolute !important;
+  margin-left: -1px !important;
+  color: var(--text-faint) !important;
+  transform: translateX(-14px) !important;
+}
+
+.llm-bridge-codex-tool-group[open] > .llm-bridge-codex-tool-group-summary::before {
+  transform: translateX(-14px) rotate(90deg) !important;
+}
+
+.llm-bridge-codex-tool-group-icon {
+  color: color-mix(in srgb, var(--text-muted) 80%, transparent) !important;
+}
+
+.llm-bridge-codex-tool-group-icon,
+.llm-bridge-codex-tool-group-icon svg {
+  width: 15px !important;
+  height: 15px !important;
+}
+
+.llm-bridge-codex-tool-group-main {
+  display: flex !important;
+  min-width: 0 !important;
+  align-items: baseline !important;
+  gap: 8px !important;
+}
+
+.llm-bridge-codex-tool-group-title {
+  min-width: 0 !important;
+  color: var(--text-muted) !important;
+  font-size: 12px !important;
+  font-weight: 560 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-codex-tool-group-preview {
+  min-width: 0 !important;
+  color: color-mix(in srgb, var(--text-muted) 74%, transparent) !important;
+  font-size: 11px !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-codex-tool-group-meta {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 7px !important;
+  color: var(--text-faint) !important;
+  font-size: 10px !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-codex-tool-group-body {
+  display: grid !important;
+  gap: 5px !important;
+  padding: 0 8px 9px 18px !important;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block {
+  margin-left: 0 !important;
+}
+
+.llm-bridge-codex-event-summary {
+  min-height: 38px !important;
+}
+
+.llm-bridge-codex-event-title {
+  min-width: 0 !important;
+}
+
+.llm-bridge-codex-event-title .llm-bridge-codex-feed-label {
+  display: block !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-codex-event-block.is-command:not([open]) {
+  background: color-mix(in srgb, var(--background-primary) 98%, transparent) !important;
+}
+
+.llm-bridge-codex-event-block.is-command:not([open]) .llm-bridge-codex-event-hint {
+  display: none !important;
+}
+
+.llm-bridge-codex-shell-pre {
+  max-height: 150px !important;
+}
+
+.llm-bridge-composer-bar {
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+  grid-template-areas:
+    "meta meta meta"
+    "refs refs refs"
+    "input input input"
+    "left spacer right" !important;
+  grid-template-rows: auto auto minmax(68px, auto) auto !important;
+  align-items: stretch !important;
+  row-gap: 7px !important;
+  min-height: 0 !important;
+  padding: 9px 10px 9px !important;
+}
+
+.llm-bridge-composer-file-refs {
+  justify-self: start !important;
+  align-self: start !important;
+  max-width: 100% !important;
+}
+
+.llm-bridge-input-row {
+  display: flex !important;
+  align-items: stretch !important;
+  min-height: 68px !important;
+  width: 100% !important;
+}
+
+.llm-bridge-input {
+  flex: 1 1 auto !important;
+  width: 100% !important;
+  min-height: 68px !important;
+  max-height: 150px !important;
+  padding: 2px 0 0 !important;
+  resize: none !important;
+}
+
+.llm-bridge-composer-tools-left,
+.llm-bridge-composer-tools-right {
+  align-self: center !important;
+}
