@@ -19098,6 +19098,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private async openVaultFileFromAssistantLink(")
       && viewSrc.includes("private renderCodexFinalAnswer(")
       && viewSrc.includes(".then(() => this.bindAssistantMarkdownVaultLinks(body))")
+      && viewSrc.includes("未在 Vault 中找到可打开的文件")
       && viewSrc.includes('`File · ${changeActionText} ${item.change.fileName}`')
       && viewSrc.includes('const summaryText = item.change')
       && !viewSrc.includes("if (item.change) renderBody();")
@@ -19107,6 +19108,38 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes("max-height: 112px")
       && stylesSrc.includes("overflow-y: auto");
     addTest("V17-G66 UI: file change 折叠态与 Shell 同风格，assistant Vault 链接可打开，composer 长文本不压工具栏",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13j7: V17-G67 responsive run process/answer and non-duplicated thinking lead ----
+  {
+    const ok = !viewSrc.includes("const processPreview = this.formatCodexProcessPreview")
+      && !viewSrc.includes('cls: "llm-bridge-codex-process-head-preview"')
+      && stylesSrc.includes("V17-G67: responsive run process/answer and non-duplicated thinking lead")
+      && stylesSrc.includes(".llm-bridge-codex-process-head-preview")
+      && stylesSrc.includes("display: none !important")
+      && stylesSrc.includes(".llm-bridge-codex-final-answer-body *")
+      && stylesSrc.includes("overflow-wrap: anywhere")
+      && stylesSrc.includes("@media (max-width: 760px)")
+      && stylesSrc.includes(".llm-bridge-codex-feed-batch-text")
+      && stylesSrc.includes("white-space: normal !important");
+    addTest("V17-G67 UI: Process/Answer 响应式收缩，header 不重复首个 Thinking 文本",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13j8: V17-G68 composer controls do not cover text and thinking owns width ----
+  {
+    const ok = stylesSrc.includes("V17-G68: composer text never sits under controls, thinking owns full width")
+      && stylesSrc.includes('"input input input"')
+      && stylesSrc.includes('"left spacer right"')
+      && stylesSrc.includes("grid-template-rows: auto auto minmax(52px, 112px) 32px")
+      && stylesSrc.includes(".llm-bridge-composer-tools-left,\n.llm-bridge-composer-tools-right")
+      && stylesSrc.includes("position: static !important")
+      && stylesSrc.includes(".llm-bridge-codex-feed-batch-meta")
+      && stylesSrc.includes("display: none !important")
+      && stylesSrc.includes(".llm-bridge-codex-final-answer-body")
+      && stylesSrc.includes("user-select: text !important");
+    addTest("V17-G68 UI: composer 文本区不被底部控件遮挡，Thinking 铺满且输出可选择复制",
       ok ? "pass" : "fail", "");
   }
 
@@ -19553,14 +19586,14 @@ if (!runNoteSummarizeSmoke) {
     const ok = viewSrc.includes('const processFeedItems = run.feedItems;')
       && viewSrc.includes('const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);')
       && viewSrc.includes('const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;')
-      && viewSrc.includes('const processPreview = this.formatCodexProcessPreview(processFeedBatches, developerMode);')
+      && !viewSrc.includes('const processPreview = this.formatCodexProcessPreview(processFeedBatches, developerMode);')
       && !viewSrc.includes('if (run.changeGroups.length > 0) this.renderCodexChangesPanel(body, run.changeGroups, developerMode);')
       && viewSrc.includes('const process = body.createDiv({ cls: "llm-bridge-codex-process" });')
       && viewSrc.includes('const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });')
       && viewSrc.includes('const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });')
       && viewSrc.includes('processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: "Process" });')
       && viewSrc.includes('const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });')
-      && viewSrc.includes('cls: "llm-bridge-codex-process-head-preview",')
+      && !viewSrc.includes('cls: "llm-bridge-codex-process-head-preview",')
       && viewSrc.includes('const processToggle = processHead.createEl("span", {')
       && viewSrc.includes("text: `${processEventCount} ${processEventCount === 1 ? \"step\" : \"steps\"}`,")
       && viewSrc.includes('text: hasToggleContent ? (processCollapsedByDefault ? "▶" : "▼") : "",')

@@ -16347,3 +16347,170 @@
   padding: 2px 2px 8px 0 !important;
   line-height: 1.45 !important;
 }
+
+/* ===== V17-G67: responsive run process/answer and non-duplicated thinking lead ===== */
+.llm-bridge-codex-run-view,
+.llm-bridge-codex-run-body,
+.llm-bridge-codex-process,
+.llm-bridge-codex-process-body,
+.llm-bridge-codex-feed-list,
+.llm-bridge-codex-feed-batch,
+.llm-bridge-codex-feed-batch-body,
+.llm-bridge-codex-final-answer,
+.llm-bridge-codex-final-answer-body {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.llm-bridge-codex-process-head-preview {
+  display: none !important;
+}
+
+.llm-bridge-codex-feed-batch-summary {
+  min-width: 0 !important;
+}
+
+.llm-bridge-codex-feed-batch-summary-main {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  flex-wrap: wrap !important;
+  row-gap: 2px !important;
+}
+
+.llm-bridge-codex-feed-batch-text {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere !important;
+}
+
+.llm-bridge-codex-feed-batch-meta {
+  min-width: max-content !important;
+}
+
+.llm-bridge-codex-tool-group,
+.llm-bridge-codex-event-block.llm-bridge-codex-feed-item,
+.llm-bridge-codex-event-block.is-file,
+.llm-bridge-codex-event-block.llm-bridge-codex-change-row {
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.llm-bridge-codex-tool-group-summary,
+.llm-bridge-codex-event-summary {
+  min-width: 0 !important;
+  max-width: 100% !important;
+}
+
+.llm-bridge-codex-tool-group-title,
+.llm-bridge-codex-tool-group-preview,
+.llm-bridge-codex-event-title,
+.llm-bridge-codex-event-hint,
+.llm-bridge-codex-feed-label {
+  min-width: 0 !important;
+}
+
+.llm-bridge-codex-event-title .llm-bridge-codex-feed-label,
+.llm-bridge-codex-tool-group-preview {
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-codex-final-answer-body,
+.llm-bridge-codex-final-answer-body * {
+  overflow-wrap: anywhere !important;
+}
+
+@media (max-width: 760px) {
+  .llm-bridge-codex-run-view {
+    margin-left: 0 !important;
+    margin-right: 0 !important;
+  }
+
+  .llm-bridge-codex-feed-batch-body {
+    margin-left: 6px !important;
+    padding-left: 10px !important;
+  }
+
+  .llm-bridge-codex-tool-group,
+  .llm-bridge-codex-event-block.is-file,
+  .llm-bridge-codex-event-block.llm-bridge-codex-change-row {
+    margin-left: 8px !important;
+  }
+}
+
+/* ===== V17-G68: composer text never sits under controls, thinking owns full width ===== */
+.llm-bridge-composer-bar {
+  display: grid !important;
+  grid-template-columns: auto minmax(0, 1fr) auto !important;
+  grid-template-areas:
+    "meta meta meta"
+    "refs refs refs"
+    "input input input"
+    "left spacer right" !important;
+  grid-template-rows: auto auto minmax(52px, 112px) 32px !important;
+  align-items: stretch !important;
+  row-gap: 6px !important;
+}
+
+.llm-bridge-composer-file-refs {
+  grid-area: refs !important;
+}
+
+.llm-bridge-input-row {
+  grid-area: input !important;
+  min-height: 52px !important;
+  max-height: 112px !important;
+  overflow: hidden !important;
+}
+
+.llm-bridge-input {
+  height: 100% !important;
+  min-height: 52px !important;
+  max-height: 112px !important;
+  padding: 2px 4px !important;
+  overflow-y: auto !important;
+  line-height: 1.5 !important;
+}
+
+.llm-bridge-composer-tools-left,
+.llm-bridge-composer-tools-right {
+  position: static !important;
+  bottom: auto !important;
+  align-self: center !important;
+}
+
+.llm-bridge-composer-tools-left {
+  grid-area: left !important;
+  justify-self: start !important;
+}
+
+.llm-bridge-composer-tools-right {
+  grid-area: right !important;
+  justify-self: end !important;
+}
+
+.llm-bridge-codex-feed-batch-summary {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.llm-bridge-codex-feed-batch-meta {
+  display: none !important;
+}
+
+.llm-bridge-codex-feed-batch-summary-main {
+  width: 100% !important;
+}
+
+.llm-bridge-msg-assistant,
+.llm-bridge-codex-final-answer,
+.llm-bridge-codex-final-answer-body,
+.llm-bridge-codex-feed-output-text,
+.llm-bridge-codex-thinking-summary,
+.llm-bridge-msg-markdown {
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}

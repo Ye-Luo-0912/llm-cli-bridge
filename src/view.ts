@@ -4485,15 +4485,19 @@ export class LLMBridgeView extends ItemView {
       const target = event.target as HTMLElement | null;
       const anchor = target?.closest("a") as HTMLAnchorElement | null;
       if (!anchor) return;
-      const file = this.resolveAssistantMarkdownVaultLink(anchor);
-      if (!file) return;
+      const targetFile = this.resolveAssistantMarkdownVaultLink(anchor);
+      if (!targetFile) return;
       event.preventDefault();
       event.stopPropagation();
-      void this.openVaultFileFromAssistantLink(file);
+      if (!targetFile.file) {
+        new Notice(`未在 Vault 中找到可打开的文件：${targetFile.path}`, 4000);
+        return;
+      }
+      void this.openVaultFileFromAssistantLink(targetFile.file);
     }, true);
   }
 
-  private resolveAssistantMarkdownVaultLink(anchor: HTMLAnchorElement): TFile | null {
+  private resolveAssistantMarkdownVaultLink(anchor: HTMLAnchorElement): { file: TFile | null; path: string } | null {
     const rawTarget = anchor.getAttribute("data-href")
       || anchor.getAttribute("href")
       || anchor.textContent
@@ -4504,17 +4508,17 @@ export class LLMBridgeView extends ItemView {
 
     const sourcePath = this.getActiveFile()?.path || "";
     const linkedFile = this.app.metadataCache.getFirstLinkpathDest(linkText, sourcePath);
-    if (linkedFile instanceof TFile) return linkedFile;
+    if (linkedFile instanceof TFile) return { file: linkedFile, path: linkedFile.path };
 
     const directPath = normalizePath(linkText.replace(/^\/+/, ""));
     const directFile = this.app.vault.getAbstractFileByPath(directPath);
-    if (directFile instanceof TFile) return directFile;
+    if (directFile instanceof TFile) return { file: directFile, path: directFile.path };
 
     if (!/\.[^/\\]+$/.test(directPath)) {
       const markdownFile = this.app.vault.getAbstractFileByPath(`${directPath}.md`);
-      if (markdownFile instanceof TFile) return markdownFile;
+      if (markdownFile instanceof TFile) return { file: markdownFile, path: markdownFile.path };
     }
-    return null;
+    return { file: null, path: directPath || linkText };
   }
 
   private normalizeAssistantMarkdownLinkTarget(value: string): string {
@@ -5023,7 +5027,6 @@ export class LLMBridgeView extends ItemView {
     const processFeedItems = run.feedItems;
     const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);
     const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;
-    const processPreview = this.formatCodexProcessPreview(processFeedBatches, developerMode);
     const hasProcessContent = processFeedItems.length > 0
       || diagnosticsForDisplay.length > 0
       || !!run.debugPanel;
@@ -5082,13 +5085,6 @@ export class LLMBridgeView extends ItemView {
         processMeta.createEl("span", {
           cls: "llm-bridge-codex-process-head-meta-item",
           text: `${processEventCount} ${processEventCount === 1 ? "step" : "steps"}`,
-        });
-      }
-      if (processPreview) {
-        processTitle.createEl("span", {
-          cls: "llm-bridge-codex-process-head-preview",
-          text: truncateText(processPreview, 180),
-          attr: { title: processPreview },
         });
       }
       const processToggle = processHead.createEl("span", {
