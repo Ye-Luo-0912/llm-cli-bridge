@@ -200,9 +200,21 @@ export interface CodexThreadStartParams {
   configRules?: Record<string, unknown>;
   /** 工作目录 */
   cwd?: string;
+  /** 审批策略（真实 codex binary 需要；缺失会 hang。如 "never"） */
+  approvalPolicy?: string;
+  /** 沙箱模式（真实 codex binary 需要；如 "workspace-write"） */
+  sandbox?: string;
+  /** 人格（如 "pragmatic"；也可走 config.personality） */
+  personality?: string;
+  /** 是否 ephemeral 会话（新会话 true，resume false） */
+  ephemeral?: boolean;
+  /** 会话启动来源（"clear" 新建 / "resume" 恢复） */
+  sessionStartSource?: string;
+  /** 基础指令（真实 codex binary 实际读取此字段；与 instructions 同源） */
+  baseInstructions?: string;
 
   // ---------- 兼容字段（旧 fixture 用；新代码应使用 config 容器） ----------
-  /** @deprecated 改用 config.model */
+  /** 真实 codex binary 实际读取此顶层字段（config.model 保留供 resume/审计） */
   model?: string;
 }
 

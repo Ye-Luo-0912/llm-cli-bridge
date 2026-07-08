@@ -122,10 +122,23 @@ export function buildCodexAppServerRunOptions(
 
   // thread/start.config 容器（官方 shape；model 走 config.model）
   const threadConfig: CodexThreadConfig = plan.model ? { model: plan.model } : {};
+  // 真实 codex app-server binary 读取顶层 model + baseInstructions（与 codex-app-server-smoke
+  // / codex-managed-runtime-smoke 主线 wire 一致；缺失会导致 thread/start hang）。
+  // config/instructions 保留供 thread/resume 路径与审计哈希使用。
+  // plan.session 可选（部分测试 plan 不含 session 字段）；缺省按新会话处理。
+  const continueSession = !!plan.session?.continueSession;
   const threadStart: CodexThreadStartParams = {
     config: threadConfig,
     instructions: promptPackage.bridgeSystemAppend,
     cwd: plan.cwd,
+    // 顶层字段（binary 实际读取）
+    model: plan.model,
+    baseInstructions: promptPackage.bridgeSystemAppend,
+    approvalPolicy: "never",
+    sandbox: "workspace-write",
+    personality: "pragmatic",
+    ephemeral: !continueSession,
+    sessionStartSource: continueSession ? "resume" : "clear",
   };
   // 不再把 resumeSessionId 塞进 thread/start；resume 走 thread/resume。
 

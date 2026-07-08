@@ -2422,8 +2422,8 @@ if (runMode !== "all" && runMode !== "unit") {
         const hasBypass = viewSrc.includes("bypassPermissions")
           && viewSrc.includes("完全访问");
         const hasParentMount = viewSrc.includes("parentElement");
-        const hasPointerdownClose = viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-permission-chip")')
-          && viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-perm-popover")');
+        // 任务D: pointerdown close 已统一到 handleComposerSelectorOutsideClick（picker + popover 双排除）
+        const hasPointerdownClose = viewSrc.includes("handleComposerSelectorOutsideClick") && viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-permission-picker")') && viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-perm-popover")') && viewSrc.includes("this.closePermissionPopover()");
         const permPopoverOk = hasBypass && hasParentMount && hasPointerdownClose;
         addTest("V16.4-D: 权限 popover 含 5 模式（含完全访问）+ 外部挂载 + pointerdown close",
           permPopoverOk ? "pass" : "fail",
@@ -19241,15 +19241,15 @@ if (!runNoteSummarizeSmoke) {
       && managedPluginCatalogSrc.includes("resolveManagedRuntime(manifestPath)")
       && viewSrc.includes('title: "Capabilities", "aria-label": "Capabilities"')
       && viewSrc.includes('text: "Plugins & Skills"')
-      && viewSrc.includes('text: "计划模式"')
+      && !viewSrc.includes('text: "计划模式"')
       && viewSrc.includes('text: "插件"')
       && viewSrc.includes("private async refreshManagedCodexPlugins(): Promise<void>")
       && viewSrc.includes('text: "Installed plugins"')
       && viewSrc.includes("直接从 pinned managed Codex runtime 读取真实已安装插件，不依赖用户 PATH。")
-      && stylesSrc.includes("V17-G62: managed Codex plugins surface + plan-mode quick entry")
+      && stylesSrc.includes("V17-G62: managed Codex plugins surface")
       && stylesSrc.includes("V17-G63: capabilities naming + compact permission/request surfaces")
       && stylesSrc.includes(".llm-bridge-codex-plugins-panel");
-    addTest("V17-G62 UI: 直接从 managed Codex runtime 读取 installed plugins，并提供计划模式入口",
+    addTest("V17-G62 UI: 直接从 managed Codex runtime 读取 installed plugins（工具列表已移除计划模式入口，plan 仍由 permission popover 提供）",
       ok ? "pass" : "fail", "");
   }
 
@@ -20135,7 +20135,7 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 15b: permission popover 点击守卫排除 chip/popover，setPermissionMode 不受 runHandle 阻塞 ----
   {
-    const pointerGuardOk = viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-permission-chip")')
+    const pointerGuardOk = viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-permission-picker")')
       && viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-perm-popover")')
       && viewSrc.includes('opt.addEventListener("pointerdown", (event) => event.stopPropagation())')
       && !viewSrc.includes("permissionPopoverOutsideClickHandler");

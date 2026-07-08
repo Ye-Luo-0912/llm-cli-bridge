@@ -679,7 +679,7 @@
 .llm-bridge-composer-tools-right {
   position: absolute;
   bottom: 10px;
-  z-index: 3;
+  /* 任务D: 不设 z-index——避免形成独立层叠上下文，让内部下拉/弹出可越过活动文件 */
 }
 
 .llm-bridge-composer-tools-left {
@@ -16044,7 +16044,7 @@
   word-break: break-word !important;
 }
 
-/* ===== V17-G62: managed Codex plugins surface + plan-mode quick entry ===== */
+/* ===== V17-G62: managed Codex plugins surface ===== */
 .llm-bridge-codex-plugins-panel {
   display: grid;
   gap: 8px;
@@ -17762,4 +17762,101 @@
 .llm-bridge-history-item:hover .llm-bridge-history-actions,
 .llm-bridge-history-item:focus-within .llm-bridge-history-actions {
   opacity: 1 !important;
+}
+
+/* ===== 任务D: 会话框风格选择器统一抽象（层级 / 收窄 / 风格统一 / 权限配色 / 溢出） ===== */
+
+/* 1) 统一选择器层级——所有会话框风格下拉/弹出共用高 z-index，越过活动文件 */
+.llm-bridge-command-menu-body,
+.llm-bridge-perm-popover,
+.llm-bridge-model-effort-popover,
+.llm-bridge-session-dropdown,
+.llm-bridge-mention-picker {
+  z-index: 60 !important;
+}
+
+/* 2) 会话框下拉按钮收窄——统一工具按钮与 chip 尺寸 */
+.llm-bridge-composer-tool-btn {
+  width: 26px !important;
+  height: 26px !important;
+  border-radius: 7px !important;
+}
+
+.llm-bridge-command-menu-summary-icon,
+.llm-bridge-command-menu-summary-icon svg {
+  width: 12px !important;
+  height: 12px !important;
+}
+
+.llm-bridge-command-menu-label {
+  font-size: 11px !important;
+  letter-spacing: 0 !important;
+}
+
+/* 3) 权限 badge 配色——不同权限对应不同颜色（high=红 / medium=黄 / low=灰） */
+.llm-bridge-approval-card-badge.is-risk-high {
+  background: color-mix(in srgb, var(--text-error) 16%, transparent) !important;
+  border-color: color-mix(in srgb, var(--text-error) 32%, transparent) !important;
+  color: var(--text-error) !important;
+}
+
+.llm-bridge-approval-card-badge.is-risk-medium {
+  background: color-mix(in srgb, var(--text-warning, #d97706) 18%, transparent) !important;
+  border-color: color-mix(in srgb, var(--text-warning, #d97706) 34%, transparent) !important;
+  color: var(--text-warning, #b8860b) !important;
+}
+
+.llm-bridge-approval-card-badge.is-risk-low,
+.llm-bridge-approval-card-badge.is-flag,
+.llm-bridge-approval-card-badge.is-subagent {
+  background: color-mix(in srgb, var(--text-muted) 12%, transparent) !important;
+  border-color: color-mix(in srgb, var(--text-muted) 22%, transparent) !important;
+  color: var(--text-muted) !important;
+}
+
+/* 4) 权限 risk reason row 配色——按风险等级区分（覆盖旧 !important 灰色兜底） */
+.llm-bridge-approval-card-row-risk.is-risk-high {
+  background: color-mix(in srgb, var(--text-error) 10%, transparent) !important;
+  color: var(--text-error) !important;
+  font-weight: 600 !important;
+}
+
+.llm-bridge-approval-card-row-risk.is-risk-medium {
+  background: color-mix(in srgb, var(--text-warning, #d97706) 10%, transparent) !important;
+  color: var(--text-warning, #b8860b) !important;
+}
+
+.llm-bridge-approval-card-row-risk.is-risk-low {
+  background: transparent !important;
+  color: var(--text-muted) !important;
+}
+
+/* 5) 权限 UI 文本溢出修复——badge / row / body 不再溢出外框 */
+.llm-bridge-approval-card-body {
+  min-width: 0 !important;
+  overflow: hidden !important;
+}
+
+.llm-bridge-approval-card-badges {
+  min-width: 0 !important;
+}
+
+.llm-bridge-approval-card-badge {
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-approval-card-row-risk,
+.llm-bridge-approval-card-row-highrisk,
+.llm-bridge-approval-card-row-subagent {
+  min-width: 0 !important;
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
+}
+
+.llm-bridge-approval-card-row-command {
+  overflow-wrap: anywhere !important;
+  word-break: break-word !important;
 }

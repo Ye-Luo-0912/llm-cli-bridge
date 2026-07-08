@@ -19,7 +19,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = resolve(__filename, "..");
@@ -71,6 +71,15 @@ const report = {
   // initialized + turn/started + completed(empty) 必须显示为 turn smoke failed
   turnSmokeReady: "unknown",
   turnSmokeFailureReason: null,
+  // 强化 managed smoke：记录 agent 实际产出的 final answer
+  // turnSmokeReady 必须要求 observedFinalAnswer 包含 SMOKE_OK
+  // 仅有 item/completed 但无目标文本不得 pass
+  observedFinalAnswer: null,
+  // provider-wire smoke：用 buildCodexAppServerRunOptions() 生成真实 provider options
+  // 发送完全相同的 initialize/threadStart/turnStart payload 到 managed runtime
+  providerWireSmokeStatus: "unknown",
+  providerWireSmokeFailureReason: null,
+  providerWireObservedFinalAnswer: null,
   stopCancelStatus: "unknown",
   noVaultRootPollution: "unknown",
   selectedModel: null,
@@ -279,6 +288,9 @@ async function runProtocolSmoke(runtimePath, appServerArgs) {
     // 任务4: 收集 turn 期间的有效输出事件，用于 turn smoke readiness 判定
     // initialized + turn/started + completed(empty) 不算 turn smoke ready
     const meaningfulEvents = [];
+    // 强化 managed smoke：拼接 agentMessage delta 作为 observedFinalAnswer
+    const agentMessageChunks = [];
+    let completedFinalText = "";
     const isMeaningful = (method) => {
       // 与 provider 的 isMeaningfulCodexRuntimeEvent 对齐：
       // message / tool / fileChange / approval / user-input / error 算有效
@@ -293,6 +305,7 @@ async function runProtocolSmoke(runtimePath, appServerArgs) {
       const timer = setTimeout(() => resolvePromise("timeout"), 90000);
       client.on("turn/completed", (params) => {
         clearTimeout(timer);
+        if (typeof params?.finalText === "string") completedFinalText = params.finalText;
         resolvePromise({ status: "completed", params });
       });
       client.on("turn/failed", (params) => {
@@ -303,7 +316,10 @@ async function runProtocolSmoke(runtimePath, appServerArgs) {
         turnError = params?.error?.message || params?.message || JSON.stringify(params);
       });
       // 任务4: 收集有效事件（item/completed 含 agentMessage/tool_result/file_change）
-      client.on("item/agentMessage/delta", () => meaningfulEvents.push("message"));
+      client.on("item/agentMessage/delta", (params) => {
+        meaningfulEvents.push("message");
+        if (typeof params?.delta === "string") agentMessageChunks.push(params.delta);
+      });
       client.on("item/completed", (params) => {
         const itemType = params?.item?.type ?? params?.type;
         if (itemType === "agentMessage" || itemType === "commandExecution"
@@ -311,11 +327,15 @@ async function runProtocolSmoke(runtimePath, appServerArgs) {
           || itemType === "dynamicToolCall") {
           meaningfulEvents.push(`item:${itemType}`);
         }
+        // agentMessage item 完成时把 item.text 作为 fallback（delta 可能缺失）
+        if (itemType === "agentMessage" && typeof params?.item?.text === "string" && params.item.text) {
+          if (agentMessageChunks.length === 0) agentMessageChunks.push(params.item.text);
+        }
       });
     });
     await client.request("turn/start", {
       threadId,
-      input: [{ type: "text", text: "Reply with exactly: SMOKE_OK", text_elements: [] }],
+      input: [{ type: "text", text: "Reply with exactly: SMOKE_OK" }],
     }, 20000);
     report.turnStartStatus = "pass";
     step("turn/start", true);
@@ -328,12 +348,25 @@ async function runProtocolSmoke(runtimePath, appServerArgs) {
     // 任务4: turn smoke readiness —— 必须收到有效输出（message/tool/file/approval/error）
     // initialized + turn/started + completed(empty) 不算 turn smoke ready
     const hasMeaningfulOutput = meaningfulEvents.length > 0;
-    report.turnSmokeReady = hasMeaningfulOutput ? "pass" : "fail";
-    report.turnSmokeFailureReason = hasMeaningfulOutput ? null
-      : (turnResult.status === "failed"
-        ? "turn/failed reached without any assistant message, tool, file, approval, or error event"
-        : "turn/completed reached without any assistant message, tool, file, approval, or error event");
-    step("turn smoke (meaningful output)", hasMeaningfulOutput, report.turnSmokeFailureReason || `${meaningfulEvents.length} meaningful event(s)`);
+    // 强化 managed smoke：拼接 final answer，优先用 agentMessage delta，fallback 用 finalText
+    const observedFinalAnswer = (agentMessageChunks.join("").trim()
+      || completedFinalText.trim() || "").trim();
+    report.observedFinalAnswer = observedFinalAnswer || null;
+    // turnSmokeReady 必须要求 observedFinalAnswer 包含 SMOKE_OK
+    // 仅有 item/completed 但无目标文本不得 pass
+    const hasTargetToken = /SMOKE_OK/i.test(observedFinalAnswer);
+    const turnSmokePass = hasMeaningfulOutput && hasTargetToken;
+    report.turnSmokeReady = turnSmokePass ? "pass" : "fail";
+    report.turnSmokeFailureReason = turnSmokePass ? null
+      : (!hasMeaningfulOutput
+        ? (turnResult.status === "failed"
+          ? "turn/failed reached without any assistant message, tool, file, approval, or error event"
+          : "turn/completed reached without any assistant message, tool, file, approval, or error event")
+        : !hasTargetToken
+          ? `turn smoke missing target token SMOKE_OK in final answer (observed="${observedFinalAnswer.slice(0, 200)}")`
+          : "unknown turn smoke failure");
+    step("turn smoke (meaningful output + SMOKE_OK)", turnSmokePass,
+      report.turnSmokeFailureReason || `${meaningfulEvents.length} event(s), final="${observedFinalAnswer.slice(0, 60)}"`);
   } finally {
     try { proc.stdin.end(); } catch {}
     let exited = await waitForExit(proc, 3000);
@@ -364,9 +397,176 @@ async function runProtocolSmoke(runtimePath, appServerArgs) {
   report.managedAppServerProtocolStatus = protocolPass ? "pass" : "fail";
 }
 
+/**
+ * provider-wire smoke：用 buildCodexAppServerRunOptions() 生成真实 provider options，
+ * 发送完全相同的 initialize/threadStart/turnStart payload 到 managed runtime。
+ *
+ * 验证目标：
+ * - final answer 非空且包含目标 token SMOKE_OK
+ * - provider wire shape 不需要额外 text_elements（schema 中 text item 只有 type+text）
+ * - thread/start payload 用 provider 实际生成的 config/instructions/cwd（非手动拼）
+ */
+async function runProviderWireSmoke(runtimePath, appServerArgs) {
+  const PROVIDER_WIRE_VAULT_DIR = join(PROJECT_ROOT, ".tmp", "codex-provider-wire-smoke-vault");
+  rmSync(PROVIDER_WIRE_VAULT_DIR, { recursive: true, force: true });
+  mkdirSync(PROVIDER_WIRE_VAULT_DIR, { recursive: true });
+
+  // 动态 bundle buildCodexAppServerRunOptions（TS 源码）
+  const esbuild = (await import("esbuild")).default;
+  const tempBundle = join(PROJECT_ROOT, ".tmp-codex-provider-wire-smoke-bundle.mjs");
+  await esbuild.build({
+    entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerEffectiveRunPlan.ts")],
+    bundle: true, format: "esm", platform: "node", outfile: tempBundle, logLevel: "silent",
+  });
+  const { buildCodexAppServerRunOptions } = await import(pathToFileURL(tempBundle).href);
+
+  // 构造与 provider 真实 run() 一致的 plan + promptPackage
+  const plan = {
+    backend: "codex-app-server",
+    cwd: PROVIDER_WIRE_VAULT_DIR,
+    model: report.selectedModel || "gpt-5.5",
+    effort: "high",
+    session: { continueSession: false },
+    settingSources: [],
+    skills: [],
+    promptPackageHash: "provider-wire-smoke",
+    attachmentPlan: { entries: [] },
+    createdAt: new Date().toISOString(),
+    instructionsSource: "instructions",
+  };
+  const promptPackage = {
+    userPrompt: "Reply with exactly: SMOKE_OK",
+    bridgeSystemAppend: "You are a provider-wire smoke test assistant. Reply concisely.",
+    attachmentEntries: [],
+    auditHash: "provider-wire-smoke",
+  };
+  const options = buildCodexAppServerRunOptions(plan, promptPackage);
+
+  // 验证 wire shape：text item 不含 text_elements（schema 中 text item 只有 type+text）
+  const firstInputItem = options.turnStart.input?.[0];
+  // 验证 threadStart 含 config/instructions（供 resume/audit）+ 顶层 model/baseInstructions（binary 读取）
+  const threadStartHasResumeFields = "config" in options.threadStart && "instructions" in options.threadStart;
+  const threadStartHasWireFields = "model" in options.threadStart && "baseInstructions" in options.threadStart
+    && "approvalPolicy" in options.threadStart && "sandbox" in options.threadStart;
+  const wireShapeOk = !!firstInputItem
+    && firstInputItem.type === "text"
+    && typeof firstInputItem.text === "string"
+    && !("text_elements" in firstInputItem)
+    && !("attachments" in options.turnStart)
+    && threadStartHasResumeFields
+    && threadStartHasWireFields;
+  step("provider-wire smoke: wire shape (text item 无 text_elements, turnStart 无 attachments, threadStart 含 config/instructions + 顶层 wire 字段)",
+    wireShapeOk, wireShapeOk ? "" : `firstInput=${JSON.stringify(firstInputItem)}, turnStart keys=${Object.keys(options.turnStart).join(",")}, threadStart keys=${Object.keys(options.threadStart).join(",")}`);
+
+  const proc = spawn(runtimePath, appServerArgs, {
+    cwd: PROJECT_ROOT,
+    stdio: ["pipe", "pipe", "pipe"],
+    env: { ...process.env },
+  });
+  let providerWireStderr = "";
+  proc.stderr.on("data", (chunk) => { providerWireStderr += chunk.toString("utf8"); });
+  const client = createJsonRpcClient(proc);
+  step("provider-wire smoke: spawn", !!proc.pid, `pid=${proc.pid || "?"}`);
+  if (!proc.pid) {
+    try { rmSync(tempBundle, { force: true }); } catch { /* ignore */ }
+    report.providerWireSmokeStatus = "fail";
+    report.providerWireSmokeFailureReason = "managed app-server did not spawn for provider-wire smoke";
+    return;
+  }
+
+  try {
+    // 1. initialize（用 provider 生成的真实 payload）
+    const init = await client.request("initialize", options.initialize, 15000);
+    step("provider-wire smoke: initialize", !!init, init?.userAgent || init?.version || "");
+    client.notify("initialized", {});
+
+    // 2. thread/start（发送与 provider 完全一致的 wire shape）
+    // provider 在 codexAppServerProvider.ts 中发送 options.threadStart 时会剥离 config/instructions
+    // （真实 codex binary 读取顶层 model + baseInstructions；config/instructions 在 wire 上会导致 hang）。
+    // 这里复现 provider 的剥离逻辑，验证 provider 实际发送的 wire 与 managed runtime 兼容。
+    const { config: _dropConfig, instructions: _dropInstr, ...threadStartWirePayload } = options.threadStart;
+    const threadStartPayload = threadStartWirePayload;
+    const thread = await client.request("thread/start", threadStartPayload, 20000);
+    const threadId = thread?.thread?.id;
+    step("provider-wire smoke: thread/start", !!threadId, `threadId=${threadId || "?"}`);
+    if (!threadId) throw new Error("provider-wire smoke: thread/start returned no thread id");
+
+    // 3. turn/start（用 provider 生成的真实 input + effort）
+    const turnStartPayload = { ...options.turnStart, threadId };
+    const agentMessageChunks = [];
+    let completedFinalText = "";
+    let turnError = null;
+    const turnWait = new Promise((resolvePromise) => {
+      const timer = setTimeout(() => resolvePromise("timeout"), 90000);
+      client.on("turn/completed", (params) => {
+        clearTimeout(timer);
+        if (typeof params?.finalText === "string") completedFinalText = params.finalText;
+        resolvePromise({ status: "completed", params });
+      });
+      client.on("turn/failed", (params) => {
+        clearTimeout(timer);
+        resolvePromise({ status: "failed", params });
+      });
+      client.on("error", (params) => {
+        turnError = params?.error?.message || params?.message || JSON.stringify(params);
+      });
+      client.on("item/agentMessage/delta", (params) => {
+        if (typeof params?.delta === "string") agentMessageChunks.push(params.delta);
+      });
+      client.on("item/completed", (params) => {
+        const itemType = params?.item?.type ?? params?.type;
+        if (itemType === "agentMessage" && typeof params?.item?.text === "string" && params.item.text) {
+          if (agentMessageChunks.length === 0) agentMessageChunks.push(params.item.text);
+        }
+      });
+    });
+    await client.request("turn/start", turnStartPayload, 20000);
+    step("provider-wire smoke: turn/start", true);
+
+    const turnResult = await turnWait;
+    if (turnResult === "timeout") {
+      throw new Error(`provider-wire smoke: turn/completed timeout${turnError ? `; last error: ${turnError}` : ""}`);
+    }
+    step("provider-wire smoke: turn/completed", turnResult.status === "completed", `status=${turnResult.status}`);
+
+    // 验证 final answer 非空且包含 SMOKE_OK
+    const observed = (agentMessageChunks.join("").trim()
+      || completedFinalText.trim() || "").trim();
+    report.providerWireObservedFinalAnswer = observed || null;
+    const hasTarget = /SMOKE_OK/i.test(observed);
+    const wireSmokePass = turnResult.status === "completed" && !!observed && hasTarget && wireShapeOk;
+    report.providerWireSmokeStatus = wireSmokePass ? "pass" : "fail";
+    report.providerWireSmokeFailureReason = wireSmokePass ? null
+      : (!wireShapeOk ? "provider wire shape mismatch (text_elements or attachments present)"
+        : turnResult.status !== "completed" ? `turn did not complete: ${turnResult.status}`
+        : !observed ? "provider-wire smoke: final answer empty"
+        : !hasTarget ? `provider-wire smoke missing target token SMOKE_OK (observed="${observed.slice(0, 200)}")`
+        : "unknown provider-wire smoke failure");
+    step("provider-wire smoke: final answer 含 SMOKE_OK", wireSmokePass,
+      report.providerWireSmokeFailureReason || `final="${observed.slice(0, 60)}"`);
+  } catch (e) {
+    report.providerWireSmokeStatus = "fail";
+    report.providerWireSmokeFailureReason = e?.message || String(e);
+    step("provider-wire smoke: failed", false, report.providerWireSmokeFailureReason);
+    if (providerWireStderr.trim()) {
+      console.error("[provider-wire debug] app-server stderr:\n", providerWireStderr.slice(-2000));
+    }
+  } finally {
+    try { proc.stdin.end(); } catch { /* ignore */ }
+    let exited = await waitForExit(proc, 3000);
+    if (!exited) {
+      try { proc.kill("SIGKILL"); } catch { /* ignore */ }
+      exited = await waitForExit(proc, 5000);
+    }
+    step("provider-wire smoke: clean shutdown", exited);
+    try { rmSync(tempBundle, { force: true }); } catch { /* ignore */ }
+  }
+}
+
 function deriveCodexUserReady() {
   // 任务4: UI ready 只能在 turn smoke 通过后显示。
   // binary verified != protocol ready != turn smoke ready
+  // provider-wire smoke: 验证真实 provider payload 与 runtime 兼容
   return report.resolverSmokeStatus === "pass"
     && report.runtimeSmokeStatus === "pass"
     && report.managedAppServerProtocolStatus === "pass"
@@ -377,6 +577,7 @@ function deriveCodexUserReady() {
     && report.turnStartStatus === "pass"
     && report.turnCompletedStatus === "pass"
     && report.turnSmokeReady === "pass"
+    && report.providerWireSmokeStatus === "pass"
     && report.stopCancelStatus === "pass"
     && report.noVaultRootPollution === "true";
 }
@@ -417,6 +618,10 @@ function writeReport() {
     `- **turnCompletedStatus**: ${report.turnCompletedStatus}`,
     `- **turnSmokeReady**: ${report.turnSmokeReady}`,
     `- **turnSmokeFailureReason**: ${report.turnSmokeFailureReason || "null"}`,
+    `- **observedFinalAnswer**: ${report.observedFinalAnswer ? JSON.stringify(report.observedFinalAnswer) : "null"}`,
+    `- **providerWireSmokeStatus**: ${report.providerWireSmokeStatus}`,
+    `- **providerWireSmokeFailureReason**: ${report.providerWireSmokeFailureReason || "null"}`,
+    `- **providerWireObservedFinalAnswer**: ${report.providerWireObservedFinalAnswer ? JSON.stringify(report.providerWireObservedFinalAnswer) : "null"}`,
     `- **stopCancelStatus**: ${report.stopCancelStatus}`,
     `- **noVaultRootPollution**: ${report.noVaultRootPollution}`,
     `- **selectedModel**: ${report.selectedModel || "null"}`,
@@ -435,9 +640,11 @@ function writeReport() {
     "",
     "## codexUserReady gate",
     "",
-    "- `codexUserReady=true` 只允许 resolver/runtime/protocol/turnSmoke 四层均 pass。",
-    "- binary verified != protocol ready != turn smoke ready。",
+    "- `codexUserReady=true` 只允许 resolver/runtime/protocol/turnSmoke/providerWire 五层均 pass。",
+    "- binary verified != protocol ready != turn smoke ready != provider-wire ready。",
     "- initialized + turn/started + completed(empty) 必须显示为 turn smoke failed。",
+    "- turn smoke 必须收到目标 token SMOKE_OK；仅有 item/completed 但无目标文本不得 pass。",
+    "- provider-wire smoke 用 buildCodexAppServerRunOptions() 生成真实 payload 验证 wire 兼容性。",
     "- production manifest 下 `skip-fixture` 不允许通过。",
     "- external codex CLI/app-server 不参与本报告 gate。",
     "- 当前 production manifest 仅声明本机已验证平台；`crossPlatformReady=false`，不得表述为 all-platform release-ready。",
@@ -463,10 +670,14 @@ async function main() {
       report.managedAppServerProtocolStatus = "skip-fixture";
       report.turnSmokeReady = "skip-fixture";
       report.turnSmokeFailureReason = "fixture manifest skips protocol/turn smoke";
+      report.providerWireSmokeStatus = "skip-fixture";
+      report.providerWireSmokeFailureReason = "fixture manifest skips provider-wire smoke";
       step("protocol smoke", true, "skip-fixture");
-      step("turn smoke (meaningful output)", true, "skip-fixture");
+      step("turn smoke (meaningful output + SMOKE_OK)", true, "skip-fixture");
+      step("provider-wire smoke", true, "skip-fixture");
     } else {
       await runProtocolSmoke(resolvedRuntime.runtimePath, resolvedRuntime.appServerArgs);
+      await runProviderWireSmoke(resolvedRuntime.runtimePath, resolvedRuntime.appServerArgs);
     }
     report.codexUserReady = deriveCodexUserReady();
   } catch (e) {
@@ -482,6 +693,7 @@ async function main() {
   console.log(`runtimeSmokeStatus=${report.runtimeSmokeStatus}`);
   console.log(`managedAppServerProtocolStatus=${report.managedAppServerProtocolStatus}`);
   console.log(`turnSmokeReady=${report.turnSmokeReady}`);
+  console.log(`providerWireSmokeStatus=${report.providerWireSmokeStatus}`);
   console.log(`codexUserReady=${report.codexUserReady ? "true" : "false"}`);
 
   if (report.manifestFixture) {

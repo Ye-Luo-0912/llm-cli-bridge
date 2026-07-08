@@ -752,16 +752,7 @@ export class LLMBridgeView extends ItemView {
     setIcon(commandSummary.createEl("span", { cls: "llm-bridge-command-menu-summary-icon" }), "wrench");
     commandSummary.createEl("span", { cls: "llm-bridge-command-menu-label", text: "工具" });
     const commandMenuBody = commandMenu.createDiv({ cls: "llm-bridge-command-menu-body" });
-    const planModeBtn = commandMenuBody.createEl("button", {
-      cls: "llm-bridge-command-menu-item",
-      text: "计划模式",
-      attr: { title: "切换到只读规划模式" },
-    });
-    this.decorateCommandMenuItem(planModeBtn, "list-checks", "计划模式", "切换到只读规划模式，不直接改文件");
-    planModeBtn.addEventListener("click", async () => {
-      commandMenu.removeAttribute("open");
-      await this.setPermissionMode("plan");
-    });
+    // 任务D: 去掉工具列表的计划模式入口（permission popover 仍保留 plan 选项）
     const commandPlugins = commandMenuBody.createDiv({ cls: "llm-bridge-command-menu-plugins" });
     const commandPluginsHead = commandPlugins.createDiv({ cls: "llm-bridge-command-menu-plugins-head" });
     commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-title", text: "插件" });
@@ -781,6 +772,12 @@ export class LLMBridgeView extends ItemView {
     };
     commandMenu.addEventListener("toggle", () => {
       if (!commandMenu.hasAttribute("open")) return;
+      // 任务D: 打开工具菜单时关闭其他选择框（会话框风格统一互斥）
+      this.closePermissionPopover();
+      this.closeModelEffortPopover();
+      this.closeMentionPicker();
+      document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
+        .forEach((el) => el.setAttribute("hidden", ""));
       void refreshCommandPlugins();
     });
     this.preflightBtn = document.createElement("button");
@@ -816,13 +813,7 @@ export class LLMBridgeView extends ItemView {
     this.inputEl.addEventListener("paste", (event) => {
       void this.handleComposerPaste(event);
     });
-    this.registerDomEvent(document, "pointerdown", (event) => {
-      if (!this.mentionPickerEl || this.mentionPickerEl.hasAttribute("hidden")) return;
-      const target = event.target as HTMLElement | null;
-      if (target?.closest(".llm-bridge-mention-picker")) return;
-      if (target === this.inputEl) return;
-      this.closeMentionPicker();
-    });
+    // 任务D: @ 提及外部点击关闭已统一到 renderModelEffortPicker 的全局 handler
 
     const rightTools = composerBar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-right" });
     this.agentChipTextEl = agentSelect;
@@ -1549,19 +1540,62 @@ export class LLMBridgeView extends ItemView {
     this.modelEffortPickerEl.addEventListener("keydown", (event) => {
       if (event.key === "Escape") this.closeModelEffortPopover();
     });
+    // 任务D: 统一抽象——所有会话框风格选择器共用一个外部点击关闭 + Escape 关闭 handler
+    // 覆盖：command menu / permission popover / model-effort popover / session dropdown / @ 提及
     this.registerDomEvent(document, "pointerdown", (event) => {
-      if (this.isEventInsideSelector(event, ".llm-bridge-model-effort-picker")) return;
-      this.closeModelEffortPopover();
-      if (this.isEventInsideSelector(event, ".llm-bridge-permission-chip")) return;
-      if (this.isEventInsideSelector(event, ".llm-bridge-perm-popover")) return;
-      this.closePermissionPopover();
+      this.handleComposerSelectorOutsideClick(event);
     });
     this.registerDomEvent(document, "keydown", (event) => {
-      if (event.key === "Escape") {
-        this.closeModelEffortPopover();
-        this.closePermissionPopover();
-      }
+      if (event.key === "Escape") this.closeAllComposerSelectors();
     });
+  }
+
+  /**
+   * 任务D: 统一外部点击关闭——所有会话框风格选择器共用一个抽象。
+   * 点击落在某选择器根容器内则保持其打开（让该选择器自身 toggle 处理），
+   * 点击落在所有选择器根容器之外则关闭全部已打开的下拉/弹出。
+   */
+  private handleComposerSelectorOutsideClick(event: Event): void {
+    // 工具菜单（<details open>）
+    if (!this.isEventInsideSelector(event, ".llm-bridge-command-menu")) {
+      document.querySelectorAll("details.llm-bridge-command-menu[open]")
+        .forEach((el) => el.removeAttribute("open"));
+    }
+    // 权限 popover（chip + popover 容器）
+    if (!this.isEventInsideSelector(event, ".llm-bridge-permission-picker")
+      && !this.isEventInsideSelector(event, ".llm-bridge-perm-popover")) {
+      this.closePermissionPopover();
+    }
+    // 模型 / effort popover
+    if (!this.isEventInsideSelector(event, ".llm-bridge-model-effort-picker")) {
+      this.closeModelEffortPopover();
+    }
+    // 会话下拉（header session selector + dropdown）
+    if (!this.isEventInsideSelector(event, ".llm-bridge-session-selector")
+      && !this.isEventInsideSelector(event, ".llm-bridge-session-dropdown")) {
+      document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
+        .forEach((el) => el.setAttribute("hidden", ""));
+    }
+    // @ 提及：点击输入框或选择器本身不关闭（保留输入体验）
+    if (this.mentionPickerEl && !this.mentionPickerEl.hasAttribute("hidden")) {
+      const target = this.eventTargetElement(event);
+      if (target !== this.inputEl && !target?.closest(".llm-bridge-mention-picker")) {
+        this.closeMentionPicker();
+      }
+    }
+  }
+
+  /**
+   * 任务D: 关闭所有会话框风格选择器（Escape 或互斥打开时调用）。
+   */
+  private closeAllComposerSelectors(): void {
+    document.querySelectorAll("details.llm-bridge-command-menu[open]")
+      .forEach((el) => el.removeAttribute("open"));
+    this.closePermissionPopover();
+    this.closeModelEffortPopover();
+    this.closeMentionPicker();
+    document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
+      .forEach((el) => el.setAttribute("hidden", ""));
   }
 
   private async setModelEffort(model: string, effort: string): Promise<void> {

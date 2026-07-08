@@ -881,6 +881,11 @@ export class CodexAppServerEventMapper {
    * 把旧 outcome（allow/allowSession/deny/cancel）映射为 ApprovalResponse。
    *
    * 内部表示沿用旧命名（provider handleApprovalRequest 回调用），mapper 统一映射。
+   *
+   * 任务3: 当 decision 缺失时返回 decline 仅作为最后安全兜底。
+   * provider 层（serverRequest/resolved handler）已用本地 bookkeeping 回填 decision，
+   * 禁止缺 decision 时把已 accept 的请求映射为 decline。
+   * 此处的 decline 兜底只在本地无记录的异常情况下触发。
    */
   private mapLegacyOutcomeToApprovalResponse(
     outcome: "allow" | "allowSession" | "deny" | "cancel",

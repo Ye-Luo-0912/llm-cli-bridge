@@ -169,6 +169,17 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
   private currentClient: JsonRpcClient | null = null;
   /** 当前 runId（cancel 配对） */
   private currentRunId: string | null = null;
+  /**
+   * 任务3: serverRequestId → 本地 approval response 快照。
+   * 当 serverRequest/resolved 通知缺 itemId/decision 时，用本地记录回填。
+   * 禁止缺 decision 时把已 accept 的请求映射为 decline。
+   */
+  private readonly serverRequestBookkeeping = new Map<string | number, {
+    requestId: string;
+    itemId?: string;
+    decision: "accept" | "acceptForSession" | "decline" | "cancel";
+    method: string;
+  }>();
   /** V17-E 任务 A：codex 命令来源（来自 settings.codexCommand，默认 "codex"） */
   private readonly codexCommand: string;
   /** V17-F1.1 任务 B：app-server 启动参数（由 constructor 接收，子类不再需要 override） */
@@ -351,8 +362,12 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
 
       // 2. thread/start（新 thread；resume 路径走 thread/resume，不再塞 resumeSessionId）
       //    response result shape: { thread: { id, sessionId? } }
+      //    wire payload 剥离 config/instructions（真实 codex binary 读取顶层 model + baseInstructions；
+      //    config/instructions 保留在 options 对象供 thread/resume 路径与审计哈希使用，但发到
+      //    wire 上会导致 app-server hang）。与 codex-managed-runtime-smoke provider-wire 验证一致。
+      const { config: _wireDropConfig, instructions: _wireDropInstr, ...threadStartWire } = options.threadStart;
       const threadResult = await client.send<CodexThreadStartResult>(
-        "thread/start", options.threadStart,
+        "thread/start", threadStartWire,
       );
       const threadId = threadResult.thread.id;
       const sessionId = threadResult.thread.sessionId;
@@ -680,8 +695,26 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     }));
 
     // serverRequest/resolved 通知：标记 approval 已落地（UI 同步，携带真实 requestId/threadId/turnId/itemId）
+    // 任务3: resolved 缺 itemId/decision 时用本地 bookkeeping 回填；
+    //       禁止缺 decision 时默认把已 accept 的请求映射为 decline。
     unreg.push(client.onNotification("serverRequest/resolved", (params) => {
       const resolved = params as CodexServerRequestResolvedParams;
+      const local = resolved.requestId !== undefined
+        ? this.serverRequestBookkeeping.get(resolved.requestId)
+        : undefined;
+      // 回填缺失的 itemId
+      if (!resolved.itemId && local?.itemId) {
+        (resolved as CodexServerRequestResolvedParams).itemId = local.itemId;
+      }
+      // 回填缺失的 decision：用本地记录（禁止默认 decline）
+      const wireDecision = resolved.decision ?? resolved.outcome;
+      if (!wireDecision && local) {
+        (resolved as CodexServerRequestResolvedParams).decision = local.decision;
+      }
+      // 清理 bookkeeping（resolved 已落地）
+      if (resolved.requestId !== undefined) {
+        this.serverRequestBookkeeping.delete(resolved.requestId);
+      }
       push(eventMapper.mapServerRequestResolved(resolved));
     }));
 
@@ -755,6 +788,19 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     rawParams: unknown,
   ): Promise<unknown> {
     const decision = ctx.permission.requestApproval(approvalReq);
+    const serverRequestId = (approvalReq.providerContext as { serverRequestId?: string | number } | undefined)?.serverRequestId;
+    const method = (approvalReq.providerContext as { method?: string } | undefined)?.method ?? "approval-server-request";
+    const itemId = (rawParams as { itemId?: string })?.itemId;
+    // 任务3: 记录本地 approval response 快照，serverRequest/resolved 回填时用
+    const recordBookkeeping = (wireDecision: "accept" | "acceptForSession" | "decline" | "cancel"): void => {
+      if (serverRequestId === undefined) return;
+      this.serverRequestBookkeeping.set(serverRequestId, {
+        requestId: approvalReq.requestId,
+        itemId,
+        decision: wireDecision,
+        method,
+      });
+    };
     // 通知 UI（无论是否 pending）
     push({
       providerId: this.providerId,
@@ -762,9 +808,9 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       sourceRef: {
         threadId: (rawParams as { threadId?: string })?.threadId,
         turnId: (rawParams as { turnId?: string })?.turnId,
-        itemId: (rawParams as { itemId?: string })?.itemId,
-        serverRequestId: (approvalReq.providerContext as { serverRequestId?: string | number } | undefined)?.serverRequestId,
-        method: (approvalReq.providerContext as { method?: string } | undefined)?.method ?? "approval-server-request",
+        itemId,
+        serverRequestId,
+        method,
         sequence: this.directSourceRefSequence++,
       },
       rawProviderEvent: developerMode ? { method: "approval-server-request", params: rawParams } : undefined,
@@ -782,10 +828,12 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
 
     if (decision === "auto-allow") {
       push(eventMapper.mapApprovalResolved(approvalReq.requestId, "allow", "mode"));
+      recordBookkeeping("accept");
       return Promise.resolve(this.approvalMapper.mapServerRequestResult({ type: "accept" }));
     }
     if (decision === "auto-deny") {
       push(eventMapper.mapApprovalResolved(approvalReq.requestId, "deny", "mode"));
+      recordBookkeeping("decline");
       return Promise.resolve(this.approvalMapper.mapServerRequestResult({ type: "decline" }));
     }
     // pending：异步等待 UI 决策
@@ -796,11 +844,17 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
             : result.response.type === "acceptForSession" ? "allowSession"
             : "deny",
           result.source));
+        const wireDecision = result.response.type === "accept" ? "accept"
+          : result.response.type === "acceptForSession" ? "acceptForSession"
+          : result.response.type === "cancel" ? "cancel"
+          : "decline";
+        recordBookkeeping(wireDecision);
         return this.approvalMapper.mapServerRequestResult(result.response);
       },
       () => {
         // cancelAllPending：返回 deny（server 协议无 cancel outcome）
         push(eventMapper.mapApprovalResolved(approvalReq.requestId, "deny", "mode"));
+        recordBookkeeping("decline");
         return this.approvalMapper.mapServerRequestResult({ type: "decline" });
       },
     );
