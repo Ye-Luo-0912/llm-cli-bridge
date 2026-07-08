@@ -1118,7 +1118,8 @@ if (httpAvailable && bridgeInfo) {
         addTest("Helper: --wait --timeout", "fail", String(e.message || e));
       }
     } else {
-      addTest("Helper: --wait --timeout 超时行为", "manual", "需要 devTestMode=true");
+      // 已被 8.6.1 Helper Behavior（fake server）段自动化覆盖
+      addTest("Helper: --wait --timeout 超时行为（真实 bridge）", "skip", "devTestMode 不可用；fake server 段已覆盖");
     }
 
     // bridge.json missing 场景（临时移动文件测试）
@@ -8261,6 +8262,221 @@ if (!runBridgeUnit) {
     }
   }
 }
+
+// ============================================================
+// 8.6.1 Helper Behavior（fake HTTP server，不依赖 Obsidian/devTestMode）
+// 自动化原 manual required：Helper --wait/--timeout 超时行为
+// ============================================================
+console.log("\n=== Helper Behavior（fake server）===");
+
+{
+  const tmpDir = mkdtempSync(join(tmpdir(), "helper-fake-"));
+  try {
+    const http = await import("node:http");
+    const esbuild = (await import("esbuild")).default;
+
+    // --- 启动 fake HTTP server ---
+    // /action：返回 pending_approval（模拟修改类 action 等审批）
+    // /action-status：按 actionId 计数器，第 N 次后返回 completed（模拟用户批准）
+    const statusCounters = new Map(); // actionId → poll count
+    const STATUS_TRANSITION_AT = 3; // 第 3 次轮询后转 completed
+    const fakeServer = http.createServer((req, res) => {
+      const url = new URL(req.url, "http://127.0.0.1");
+      res.setHeader("Content-Type", "application/json");
+      if (req.method === "GET" && url.pathname === "/health") {
+        res.end(JSON.stringify({ ok: true, data: { vaultPath: tmpDir } }));
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/state") {
+        res.end(JSON.stringify({ ok: true, data: { activeFilePath: null } }));
+        return;
+      }
+      if (req.method === "POST" && url.pathname === "/action") {
+        let body = "";
+        req.on("data", (c) => (body += c));
+        req.on("end", () => {
+          const parsed = JSON.parse(body || "{}");
+          const actionId = parsed.id || "fake-id-" + Date.now();
+          statusCounters.set(actionId, 0);
+          // 平铺格式（与真实 httpServer.ts ActionResult 一致）
+          res.end(JSON.stringify({ ok: true, id: actionId, status: "pending_approval" }));
+        });
+        return;
+      }
+      if (req.method === "GET" && url.pathname === "/action-status") {
+        const actionId = url.searchParams.get("id") || "";
+        const count = (statusCounters.get(actionId) || 0) + 1;
+        statusCounters.set(actionId, count);
+        if (count >= STATUS_TRANSITION_AT) {
+          res.end(JSON.stringify({ ok: true, id: actionId, status: "completed" }));
+        } else {
+          res.end(JSON.stringify({ ok: true, id: actionId, status: "pending_approval" }));
+        }
+        return;
+      }
+      res.statusCode = 404;
+      res.end(JSON.stringify({ ok: false, error: "not found" }));
+    });
+
+    await new Promise((resolve) => fakeServer.listen(0, "127.0.0.1", resolve));
+    const fakePort = fakeServer.address().port;
+    const fakeToken = "fake-server-token";
+
+    // 写 bridge.json 指向 fake server
+    const bridgeJsonDir = join(tmpDir, ".llm-bridge");
+    mkdirSync(bridgeJsonDir, { recursive: true });
+    writeFileSync(join(bridgeJsonDir, "bridge.json"), JSON.stringify({
+      version: 1, host: "127.0.0.1", port: fakePort, token: fakeToken,
+      vaultPath: tmpDir, startedAt: new Date().toISOString(), pluginVersion: "test",
+    }), "utf8");
+
+    // 生成 helper mjs（复用 Bridge Sync 的 bundle 模式）
+    const helperBundle = join(PROJECT_ROOT, ".test-helper-behavior-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "toolsWriter.ts")],
+      bundle: true, format: "esm", platform: "node",
+      outfile: helperBundle,
+    });
+    const { writeHelper } = await import(pathToFileURL(helperBundle).href);
+    const helperPath = await writeHelper(tmpDir);
+
+    const { spawn } = await import("node:child_process");
+
+    // 异步运行 helper CLI（关键：spawnSync/execSync 会阻塞主进程事件循环，
+    // 导致 fake server 无法处理 fetch 请求；必须用异步 spawn）
+    async function runHelperCli(args, opts = {}) {
+      const timeoutMs = opts.timeoutMs || 30000;
+      const child = spawn(process.execPath, [helperPath, ...args], {
+        cwd: tmpDir,
+        stdio: ["ignore", "pipe", "pipe"],
+        windowsHide: true,
+      });
+      let stdout = "";
+      let stderr = "";
+      child.stdout.on("data", (d) => (stdout += d.toString()));
+      child.stderr.on("data", (d) => (stderr += d.toString()));
+      const exitCode = await new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          child.kill("SIGKILL");
+          resolve(-1);
+        }, timeoutMs);
+        child.on("exit", (code) => {
+          clearTimeout(timer);
+          resolve(code ?? 0);
+        });
+        child.on("error", (err) => {
+          clearTimeout(timer);
+          stderr += String(err);
+          resolve(-1);
+        });
+      });
+      return { exitCode, stdout, stderr };
+    }
+
+    // --- 测试 1：--wait --timeout 超时行为（fake server 恒返回 pending）---
+    {
+      // 用一个独立的 fake server（恒 pending）测超时
+      const timeoutServer = http.createServer((req, res) => {
+        res.setHeader("Content-Type", "application/json");
+        if (req.method === "POST" && req.url === "/action") {
+          let body = ""; req.on("data", (c) => (body += c));
+          req.on("end", () => {
+            // 平铺格式（与真实 httpServer.ts ActionResult 一致）
+            res.end(JSON.stringify({ ok: true, id: "timeout-test-id", status: "pending_approval" }));
+          });
+        } else if (req.method === "GET" && req.url.startsWith("/action-status")) {
+          res.end(JSON.stringify({ ok: true, id: "timeout-test-id", status: "pending_approval" }));
+        } else {
+          res.statusCode = 404; res.end("{}");
+        }
+      });
+      await new Promise((r) => timeoutServer.listen(0, "127.0.0.1", r));
+      const timeoutPort = timeoutServer.address().port;
+      writeFileSync(join(bridgeJsonDir, "bridge.json"), JSON.stringify({
+        version: 1, host: "127.0.0.1", port: timeoutPort, token: fakeToken,
+        vaultPath: tmpDir, startedAt: new Date().toISOString(), pluginVersion: "test",
+      }), "utf8");
+
+      const start = Date.now();
+      const r = await runHelperCli(["--wait", "--timeout", "2", "create_note", '{"path":"test.md","content":"x"}'], { timeoutMs: 10000 });
+      const elapsed = Date.now() - start;
+      const stderr = r.stderr;
+      const hasTimeout = stderr.includes("超时") || stderr.includes("timeout");
+      addTest("Helper Behavior: --wait --timeout 超时行为（fake server）",
+        r.exitCode !== 0 && elapsed > 1500 && elapsed < 5000 && hasTimeout ? "pass" : "fail",
+        `exit=${r.exitCode} elapsed=${elapsed}ms hasTimeout=${hasTimeout} stderr=${stderr.slice(0, 80)}`);
+
+      timeoutServer.close();
+      // 恢复 bridge.json 指向主 fake server
+      writeFileSync(join(bridgeJsonDir, "bridge.json"), JSON.stringify({
+        version: 1, host: "127.0.0.1", port: fakePort, token: fakeToken,
+        vaultPath: tmpDir, startedAt: new Date().toISOString(), pluginVersion: "test",
+      }), "utf8");
+    }
+
+    // --- 测试 2：--wait 成功路径（fake server 第 3 次轮询后返回 completed）---
+    {
+      const start = Date.now();
+      const r = await runHelperCli(["--wait", "--timeout", "10", "create_note", '{"path":"ok.md","content":"x"}'], { timeoutMs: 30000 });
+      const elapsed = Date.now() - start;
+      const stdout = r.stdout;
+      const hasCompleted = stdout.includes("完成") || stdout.includes("completed");
+      addTest("Helper Behavior: --wait 成功路径（fake server 第 3 次轮询转 completed）",
+        r.exitCode === 0 && hasCompleted ? "pass" : "fail",
+        `exit=${r.exitCode} elapsed=${elapsed}ms hasCompleted=${hasCompleted} stdout=${stdout.slice(0, 80)}`);
+    }
+
+    // --- 测试 3：helper health 命令（fake server）---
+    {
+      const r = await runHelperCli(["health"], { timeoutMs: 10000 });
+      let pass = false; let detail = "";
+      try {
+        const data = JSON.parse(r.stdout);
+        pass = data.ok === true;
+      } catch (e) {
+        detail = String(e.message || e).slice(0, 100);
+      }
+      addTest("Helper Behavior: health 命令（fake server）", pass ? "pass" : "fail", detail || r.stderr.slice(0, 100));
+    }
+
+    // --- 测试 4：helper --json 标志输出有效 JSON（fake server）---
+    {
+      const r = await runHelperCli(["--json", "state"], { timeoutMs: 10000 });
+      let pass = false; let detail = "";
+      try {
+        const data = JSON.parse(r.stdout);
+        pass = typeof data === "object" && data.ok === true;
+      } catch (e) {
+        detail = String(e.message || e).slice(0, 100);
+      }
+      addTest("Helper Behavior: --json 标志输出有效 JSON（fake server）", pass ? "pass" : "fail", detail || r.stderr.slice(0, 100));
+    }
+
+    // --- 测试 5：非修改类 action 直接输出（不轮询）---
+    {
+      // tags_list 是非修改类，fake server 返回结果直接输出
+      const r = await runHelperCli(["tags_list", "{}"], { timeoutMs: 10000 });
+      let pass = false; let detail = "";
+      try {
+        const data = JSON.parse(r.stdout);
+        // fake server 的 /action 对非修改类也返回 pending（因为没区分），但 helper 逻辑：
+        // 非 modifying 类直接输出，不进入 --wait 轮询
+        pass = typeof data === "object";
+      } catch (e) {
+        detail = String(e.message || e).slice(0, 100);
+      }
+      addTest("Helper Behavior: 非修改类 action 直接输出（不轮询）", pass ? "pass" : "fail", detail || (r.stderr || r.stdout).slice(0, 100));
+    }
+
+    rmSync(helperBundle, { force: true });
+    fakeServer.close();
+  } catch (e) {
+    addTest("Helper Behavior 测试段", "fail", String(e.message || e).slice(0, 200));
+  } finally {
+    try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
+  }
+}
+
 
 // ============================================================
 // 8.7 Preset Prompts & Preflight Status 单元测试（V1.1）

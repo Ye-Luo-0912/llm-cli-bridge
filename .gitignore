@@ -19,6 +19,10 @@ Thumbs.db
 # Test temp bundles
 .test-*.mjs
 .git-commit-msg.txt
+temp-debug*/
+
+# Build distribution（本地构建产物，不入库）
+dist/
 
 # Runtime state（包含 token / bridge.json / 日志 / 状态 / outbox）
 .llm-bridge/
