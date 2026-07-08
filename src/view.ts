@@ -37,7 +37,17 @@ import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extr
 import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscript";
 import { computeContextMetrics, formatTokens, formatCompressionRatio, type ContextMetrics, type CompressionInfo } from "./contextMetrics";
 import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
-import { PersistedSession, SessionListItem, SessionExtras, saveSession, listSessions, loadSession, deleteSession, renameSession } from "./sessions";
+import {
+  PersistedSession,
+  SessionListItem,
+  SessionExtras,
+  saveSession,
+  listSessions,
+  loadSession,
+  deleteSessionWithProviderArtifacts,
+  clearSessionsWithProviderArtifacts,
+  renameSession,
+} from "./sessions";
 import {
   AgentSkillRecord,
   loadAgentSkillsManifest,
@@ -439,7 +449,6 @@ export class LLMBridgeView extends ItemView {
     const topbarBrand = header.createDiv({ cls: "llm-bridge-topbar-brand" });
     const topbarLogo = topbarBrand.createEl("span", { cls: "llm-bridge-topbar-logo" });
     setIcon(topbarLogo, "message-square");
-    topbarBrand.createEl("span", { cls: "llm-bridge-topbar-title", text: "Bridge" });
     this.pageTitleEl = topbarBrand.createEl("span", { cls: "llm-bridge-page-title", text: "Chat" });
     const sessionPreview = header.createEl("button", {
       cls: "llm-bridge-session-selector",
@@ -500,6 +509,20 @@ export class LLMBridgeView extends ItemView {
     this.agentChipGroup = agentSelect;
 
     // ===== V2.15-A: 左侧 slim navigation rail（无 Settings 入口） =====
+    const railCollapseBtn = nav.createEl("button", {
+      cls: "llm-bridge-nav-collapse-btn",
+      attr: { title: "折叠左侧栏", "aria-label": "折叠左侧栏" },
+    });
+    const railCollapseIcon = railCollapseBtn.createEl("span", { cls: "llm-bridge-nav-icon" });
+    setIcon(railCollapseIcon, "panel-left-close");
+    railCollapseBtn.addEventListener("click", () => {
+      const collapsed = !shell.classList.contains("is-rail-collapsed");
+      shell.classList.toggle("is-rail-collapsed", collapsed);
+      railCollapseBtn.setAttribute("title", collapsed ? "展开左侧栏" : "折叠左侧栏");
+      railCollapseBtn.setAttribute("aria-label", collapsed ? "展开左侧栏" : "折叠左侧栏");
+      railCollapseIcon.empty();
+      setIcon(railCollapseIcon, collapsed ? "panel-left-open" : "panel-left-close");
+    });
     const chatTab = nav.createEl("button", { cls: "llm-bridge-nav-item is-active", attr: { "data-tab": "chat", title: "Chat", "aria-label": "Chat" } });
     setIcon(chatTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "message-square");
     const filesTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "files", title: "Files", "aria-label": "Files" } });
@@ -814,7 +837,7 @@ export class LLMBridgeView extends ItemView {
       cls: "llm-bridge-send-btn",
       attr: { title: "发送 (Ctrl/Cmd+Enter)", "aria-label": "发送" },
     });
-    setIcon(this.sendBtn.createEl("span", { cls: "llm-bridge-send-icon" }), "send");
+    setIcon(this.sendBtn.createEl("span", { cls: "llm-bridge-send-icon" }), "arrow-up");
     this.sendBtn.addEventListener("click", () => void this.run());
 
     // P4-D: 轻量 context tags（替代 Note/Selection 大按钮）
@@ -8117,6 +8140,12 @@ export class LLMBridgeView extends ItemView {
     });
     setIcon(refreshHistBtn.createEl("span", { cls: "llm-bridge-icon" }), "refresh-cw");
     refreshHistBtn.addEventListener("click", () => void this.refreshHistory(true));
+    const clearHistBtn = head.createEl("button", {
+      cls: "llm-bridge-history-clear-btn",
+      attr: { title: "清空插件内会话，并删除已关联的 Codex 原生 session" },
+    });
+    setIcon(clearHistBtn.createEl("span", { cls: "llm-bridge-icon" }), "trash-2");
+    clearHistBtn.addEventListener("click", () => void this.clearAllHistorySessions());
     // V2.8: 排序下拉（时间/消息数）
     const sortSelect = head.createEl("select", {
       cls: "llm-bridge-history-sort",
@@ -8230,6 +8259,14 @@ export class LLMBridgeView extends ItemView {
     historyBtn.addEventListener("click", () => {
       dropdown.setAttribute("hidden", "");
       openHistory();
+    });
+    const clearBtn = dropdown.createEl("button", { cls: "llm-bridge-session-dropdown-clear" });
+    const clearIcon = clearBtn.createEl("span", { cls: "llm-bridge-session-dropdown-history-icon" });
+    setIcon(clearIcon, "trash-2");
+    clearBtn.createEl("span", { text: "清空 Bridge 会话" });
+    clearBtn.addEventListener("click", () => {
+      dropdown.setAttribute("hidden", "");
+      void this.clearAllHistorySessions();
     });
   }
 
@@ -8588,12 +8625,17 @@ export class LLMBridgeView extends ItemView {
     );
     if (!confirmed) return;
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-    const ok = await deleteSession(vaultPath, sessionId);
-    if (ok) {
-      new Notice(`已删除历史会话：${title}`);
+    const result = await deleteSessionWithProviderArtifacts(vaultPath, sessionId);
+    if (result.bridgeSessionDeleted) {
+      const nativeDeleted = result.codexSessionFilesDeleted + result.codexSessionIndexEntriesDeleted;
+      const nativeSuffix = nativeDeleted > 0
+        ? `；已同步删除 ${nativeDeleted} 条 Codex 原生记录`
+        : "";
+      new Notice(`已删除历史会话：${title}${nativeSuffix}`);
       // 若删除的是当前活动会话，清空 currentSessionId
       if (this.currentSessionId === sessionId) {
         this.currentSessionId = null;
+        this.doNewSession();
       }
       // V2.8: 原地移除该项并重渲染（不重新 listSessions）
       this.historyItems = this.historyItems.filter((it) => it.id !== sessionId);
@@ -8689,6 +8731,27 @@ export class LLMBridgeView extends ItemView {
     } catch {
       this.agentSkills = [];
     }
+  }
+
+  private async clearAllHistorySessions(): Promise<void> {
+    if (this.runHandle) {
+      new Notice("运行中无法清空会话");
+      return;
+    }
+    const total = this.historyItems.length;
+    const confirmed = await this.confirmDialog(
+      "清空 Bridge 会话",
+      `确认清空插件内 ${total} 个历史会话？会同步删除这些会话记录过的 ~/.codex/sessions 原生 Codex session 和索引；不会删除未被 Bridge 映射的 Codex 历史。`,
+    );
+    if (!confirmed) return;
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const result = await clearSessionsWithProviderArtifacts(vaultPath);
+    this.historyItems = [];
+    this.historyLastLoadAt = 0;
+    this.renderHistoryList();
+    this.doNewSession();
+    const nativeDeleted = result.codexSessionFilesDeleted + result.codexSessionIndexEntriesDeleted;
+    new Notice(`已清空 ${result.bridgeSessionsDeleted} 个 Bridge 会话；同步删除 ${nativeDeleted} 条 Codex 原生记录`);
   }
 
   private updateAgentSkillsToggle(): void {

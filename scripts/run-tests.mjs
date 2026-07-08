@@ -11894,7 +11894,18 @@ if (!runV25Unit) {
 
     const { updateImportedSkill, searchSkills, checkImportConflict, importSkillFromText, deleteSkill, isImportedSkill, loadSkills, scanSkillPrompt, truncateSkillPrompt } =
       await import(pathToFileURL(skillsBundleV25).href);
-    const { saveSession, listSessions, loadSession, deleteSession, SESSION_SCHEMA_VERSION, MAX_SESSIONS_KEPT, generateSessionId, redactSessionMessages } =
+    const {
+      saveSession,
+      listSessions,
+      loadSession,
+      deleteSession,
+      deleteSessionWithProviderArtifacts,
+      clearSessionsWithProviderArtifacts,
+      SESSION_SCHEMA_VERSION,
+      MAX_SESSIONS_KEPT,
+      generateSessionId,
+      redactSessionMessages,
+    } =
       await import(pathToFileURL(sessionsBundleV25).href);
     const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV25).href);
     const { DEFAULT_SETTINGS } = await import(pathToFileURL(typesBundleV25).href);
@@ -12099,6 +12110,69 @@ if (!runV25Unit) {
       addTest("V2.5 Session 删除: 不存在返回 false",
         ok === false ? "pass" : "fail",
         `ok=${ok}`);
+    }
+
+    // ---- Test 19b: deleteSessionWithProviderArtifacts 同步删除映射的 Codex 原生 session ----
+    {
+      const oldCodexHome = process.env.CODEX_HOME;
+      const tempCodexHome = mkdtempSync(join(tmpdir(), "llm-bridge-codex-home-"));
+      process.env.CODEX_HOME = tempCodexHome;
+      try {
+        const providerId = "019f9999-1111-7222-8333-abcdefabcdef";
+        const nativeDir = join(tempCodexHome, "sessions", "2026", "07", "08");
+        mkdirSync(nativeDir, { recursive: true });
+        const nativeFile = join(nativeDir, `rollout-2026-07-08T00-00-00-${providerId}.jsonl`);
+        writeFileSync(nativeFile, JSON.stringify({ type: "session_meta", payload: { id: providerId, session_id: providerId } }), "utf8");
+        const nativeIndex = join(tempCodexHome, "session_index.jsonl");
+        writeFileSync(nativeIndex, `${JSON.stringify({ id: providerId, thread_name: "mapped" })}\n${JSON.stringify({ id: "019f9999-keep-7222-8333-abcdefabcdef", thread_name: "keep" })}\n`, "utf8");
+        const state = { title: "Codex provider cleanup", status: "completed", messageCount: 0, startedAt: null };
+        const id = await saveSession(tempSessionsV25Dir, state, [], "codex", undefined, {
+          providerThreadId: providerId,
+          providerSessionId: providerId,
+        });
+        const result = await deleteSessionWithProviderArtifacts(tempSessionsV25Dir, id);
+        const bridgeGone = (await loadSession(tempSessionsV25Dir, id)) === null;
+        const nativeGone = !existsSync(nativeFile);
+        const indexClean = !readFileSync(nativeIndex, "utf8").includes(providerId);
+        addTest("V17-G72 Session 删除: Bridge 会话关联清理 Codex 原生 session",
+          result.bridgeSessionDeleted && result.codexSessionFilesDeleted === 1 && result.codexSessionIndexEntriesDeleted === 1 && bridgeGone && nativeGone && indexClean ? "pass" : "fail",
+          `bridge=${result.bridgeSessionDeleted} nativeDeleted=${result.codexSessionFilesDeleted} indexDeleted=${result.codexSessionIndexEntriesDeleted} bridgeGone=${bridgeGone} nativeGone=${nativeGone} indexClean=${indexClean}`);
+      } finally {
+        if (oldCodexHome === undefined) delete process.env.CODEX_HOME;
+        else process.env.CODEX_HOME = oldCodexHome;
+        rmSync(tempCodexHome, { recursive: true, force: true });
+      }
+    }
+
+    // ---- Test 19c: clearSessionsWithProviderArtifacts 清空 Bridge store 并同步 provider ids ----
+    {
+      const oldCodexHome = process.env.CODEX_HOME;
+      const tempCodexHome = mkdtempSync(join(tmpdir(), "llm-bridge-codex-home-clear-"));
+      const tempVault = mkdtempSync(join(tmpdir(), "llm-bridge-v25-clear-"));
+      process.env.CODEX_HOME = tempCodexHome;
+      try {
+        const providerId = "019f9999-2222-7333-8444-fedcbafedcba";
+        const nativeDir = join(tempCodexHome, "sessions", "2026", "07", "08");
+        mkdirSync(nativeDir, { recursive: true });
+        const nativeFile = join(nativeDir, `rollout-2026-07-08T00-00-01-${providerId}.jsonl`);
+        writeFileSync(nativeFile, JSON.stringify({ type: "session_meta", payload: { id: providerId } }), "utf8");
+        const nativeIndex = join(tempCodexHome, "session_index.jsonl");
+        writeFileSync(nativeIndex, `${JSON.stringify({ id: providerId, thread_name: "mapped" })}\n${JSON.stringify({ id: "019f9999-keep-7333-8444-fedcbafedcba", thread_name: "keep" })}\n`, "utf8");
+        const state = { title: "Codex provider clear", status: "completed", messageCount: 0, startedAt: null };
+        await saveSession(tempVault, state, [], "codex", undefined, { providerThreadId: providerId });
+        await saveSession(tempVault, { ...state, title: "plain local" }, [], "claude");
+        const result = await clearSessionsWithProviderArtifacts(tempVault);
+        const localList = await listSessions(tempVault);
+        const indexClean = !readFileSync(nativeIndex, "utf8").includes(providerId);
+        addTest("V17-G72 Session 清空: 清空 Bridge store 并删除关联 Codex session",
+          result.bridgeSessionsDeleted === 2 && result.codexSessionFilesDeleted === 1 && result.codexSessionIndexEntriesDeleted === 1 && localList.length === 0 && !existsSync(nativeFile) && indexClean ? "pass" : "fail",
+          `bridgeDeleted=${result.bridgeSessionsDeleted} nativeDeleted=${result.codexSessionFilesDeleted} indexDeleted=${result.codexSessionIndexEntriesDeleted} remaining=${localList.length} indexClean=${indexClean}`);
+      } finally {
+        if (oldCodexHome === undefined) delete process.env.CODEX_HOME;
+        else process.env.CODEX_HOME = oldCodexHome;
+        rmSync(tempCodexHome, { recursive: true, force: true });
+        rmSync(tempVault, { recursive: true, force: true });
+      }
     }
 
     // ===== Session 安全写入 / secret 脱敏 =====
@@ -17650,13 +17724,12 @@ if (!runV214BUnit) {
         && viewSrc.includes("\"aria-label\": \"History\"")
         && !viewSrc.includes("llm-bridge-nav-brand")
         && !viewSrc.includes("llm-bridge-nav-label")
-        && !viewSrc.includes("llm-bridge-nav-collapse");
+        && viewSrc.includes("llm-bridge-nav-collapse-btn");
       const noLeftSettingsOrBrand = !/llm-bridge-nav-[^\\n]*Settings/.test(viewSrc)
         && !/llm-bridge-nav-title[\s\S]{0,80}Bridge/.test(viewSrc);
       const topbarBrandOk = viewSrc.includes("llm-bridge-topbar-brand")
-        && viewSrc.includes("llm-bridge-topbar-title")
         && viewSrc.includes("llm-bridge-page-title")
-        && viewSrc.includes("text: \"Bridge\"")
+        && !viewSrc.includes('topbarBrand.createEl("span", { cls: "llm-bridge-topbar-title", text: "Bridge" });')
         && viewSrc.includes("this.pageTitleEl.textContent");
       const compactStylesOk = /\.llm-bridge-nav-rail\s*\{[\s\S]{0,160}width:\s*44px/.test(stylesSrc)
         && /flex:\s*0 0 44px/.test(stylesSrc)
@@ -19301,6 +19374,30 @@ if (!runNoteSummarizeSmoke) {
       && !viewSrc.includes("runtimeAgentSkills.map((skill)")
       && !viewSrc.includes(".llm-bridge/agent-skills.json#");
     addTest("V17-G71 Codex Skills: managed provider materializes Bridge Skills instead of prompt-injecting them",
+      ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 13j12: V17-G72 compact shell chrome and linked session cleanup UI ----
+  {
+    const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf8");
+    const ok = viewSrc.includes('cls: "llm-bridge-nav-collapse-btn"')
+      && viewSrc.includes('shell.classList.toggle("is-rail-collapsed", collapsed);')
+      && !viewSrc.includes('topbarBrand.createEl("span", { cls: "llm-bridge-topbar-title", text: "Bridge" });')
+      && viewSrc.includes('setIcon(this.sendBtn.createEl("span", { cls: "llm-bridge-send-icon" }), "arrow-up");')
+      && viewSrc.includes('cls: "llm-bridge-history-clear-btn"')
+      && viewSrc.includes("private async clearAllHistorySessions(): Promise<void>")
+      && viewSrc.includes("deleteSessionWithProviderArtifacts")
+      && viewSrc.includes("clearSessionsWithProviderArtifacts")
+      && viewSrc.includes('cls: "llm-bridge-session-dropdown-clear"')
+      && sessionsSrc.includes("export async function deleteSessionWithProviderArtifacts")
+      && sessionsSrc.includes("export async function clearSessionsWithProviderArtifacts")
+      && sessionsSrc.includes("deleteCodexSessionFilesByProviderIds")
+      && sessionsSrc.includes("deleteCodexSessionIndexEntriesByProviderIds")
+      && stylesSrc.includes("V17-G72: compact shell chrome, linked session cleanup and calmer menus")
+      && stylesSrc.includes(".llm-bridge-shell.is-rail-collapsed .llm-bridge-nav-rail")
+      && stylesSrc.includes(".llm-bridge-session-dropdown-clear")
+      && stylesSrc.includes(".llm-bridge-history-clear-btn");
+    addTest("V17-G72 UI/session: 顶栏瘦身、左栏折叠、上箭头发送与关联清空会话",
       ok ? "pass" : "fail", "");
   }
 

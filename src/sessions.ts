@@ -9,6 +9,7 @@
 // - 不与 Claude SDK/CLI 会话直连；Continue/Resume 仅作为 UI 本地历史恢复
 
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import type { ChatMessage, RunStatus } from "./types";
 import { redactSecrets } from "./workflowEvent";
@@ -81,6 +82,20 @@ export interface SessionListItem {
   lastAssistantSummary: string;
   /** 文件大小（字节，用于 UI 提示） */
   sizeBytes: number;
+}
+
+export interface SessionDeleteResult {
+  bridgeSessionDeleted: boolean;
+  codexSessionFilesDeleted: number;
+  codexSessionIndexEntriesDeleted: number;
+  providerIds: string[];
+}
+
+export interface SessionsClearResult {
+  bridgeSessionsDeleted: number;
+  codexSessionFilesDeleted: number;
+  codexSessionIndexEntriesDeleted: number;
+  providerIds: string[];
 }
 
 /**
@@ -362,6 +377,51 @@ export async function deleteSession(vaultPath: string, sessionId: string): Promi
   }
 }
 
+export async function deleteSessionWithProviderArtifacts(vaultPath: string, sessionId: string): Promise<SessionDeleteResult> {
+  const session = await loadSession(vaultPath, sessionId);
+  const providerIds = providerIdsFromSession(session);
+  const bridgeSessionDeleted = await deleteSession(vaultPath, sessionId);
+  const codexSessionFilesDeleted = await deleteCodexSessionFilesByProviderIds(providerIds);
+  const codexSessionIndexEntriesDeleted = await deleteCodexSessionIndexEntriesByProviderIds(providerIds);
+  return { bridgeSessionDeleted, codexSessionFilesDeleted, codexSessionIndexEntriesDeleted, providerIds };
+}
+
+export async function clearSessionsWithProviderArtifacts(vaultPath: string): Promise<SessionsClearResult> {
+  const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
+  let files: string[] = [];
+  try {
+    files = await fs.promises.readdir(dirPath);
+  } catch {
+    return { bridgeSessionsDeleted: 0, codexSessionFilesDeleted: 0, codexSessionIndexEntriesDeleted: 0, providerIds: [] };
+  }
+
+  const providerIds = new Set<string>();
+  const sessionFiles = files.filter((file) => file.endsWith(".json"));
+  for (const file of sessionFiles) {
+    try {
+      const session = await loadSession(vaultPath, path.basename(file, ".json"));
+      for (const id of providerIdsFromSession(session)) providerIds.add(id);
+    } catch {
+      // Bad session files are still removed below; they just cannot contribute a provider mapping.
+    }
+  }
+
+  let bridgeSessionsDeleted = 0;
+  for (const file of sessionFiles) {
+    try {
+      await fs.promises.unlink(path.join(dirPath, file));
+      bridgeSessionsDeleted += 1;
+    } catch {
+      // Continue clearing the rest of the local session store.
+    }
+  }
+
+  const providerIdList = Array.from(providerIds);
+  const codexSessionFilesDeleted = await deleteCodexSessionFilesByProviderIds(providerIdList);
+  const codexSessionIndexEntriesDeleted = await deleteCodexSessionIndexEntriesByProviderIds(providerIdList);
+  return { bridgeSessionsDeleted, codexSessionFilesDeleted, codexSessionIndexEntriesDeleted, providerIds: providerIdList };
+}
+
 /**
  * V2.8: 重命名历史会话标题（原子写，失败返回 false）
  * 仅修改 title 与 savedAt，保留其他字段不变
@@ -401,5 +461,130 @@ async function pruneOldSessions(vaultPath: string): Promise<void> {
     } catch {
       // 单个删除失败不阻断
     }
+  }
+}
+
+function providerIdsFromSession(session: PersistedSession | null): string[] {
+  if (!session) return [];
+  const ids = [session.providerThreadId, session.providerSessionId]
+    .filter((value): value is string => typeof value === "string" && isSafeProviderSessionId(value));
+  return Array.from(new Set(ids));
+}
+
+function isSafeProviderSessionId(value: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9_.:-]{7,127}$/.test(value);
+}
+
+function resolveCodexHome(): string {
+  const configured = process.env.CODEX_HOME?.trim();
+  if (configured) return configured;
+  return path.join(os.homedir(), ".codex");
+}
+
+async function deleteCodexSessionFilesByProviderIds(providerIds: string[]): Promise<number> {
+  const safeIds = Array.from(new Set(providerIds.filter(isSafeProviderSessionId)));
+  if (safeIds.length === 0) return 0;
+  const sessionsDir = path.join(resolveCodexHome(), "sessions");
+  let candidates: string[] = [];
+  try {
+    candidates = await collectFilesRecursive(sessionsDir, ".jsonl");
+  } catch {
+    return 0;
+  }
+
+  let deleted = 0;
+  for (const filePath of candidates) {
+    const fileName = path.basename(filePath);
+    const nameMatches = safeIds.some((id) => fileName.includes(id));
+    const contentMatches = nameMatches ? false : await codexSessionFileContainsProviderId(filePath, safeIds);
+    if (!nameMatches && !contentMatches) continue;
+    try {
+      await fs.promises.unlink(filePath);
+      deleted += 1;
+    } catch {
+      // Ignore individual native session cleanup failures; Bridge session deletion remains authoritative.
+    }
+  }
+  return deleted;
+}
+
+async function deleteCodexSessionIndexEntriesByProviderIds(providerIds: string[]): Promise<number> {
+  const safeIds = Array.from(new Set(providerIds.filter(isSafeProviderSessionId)));
+  if (safeIds.length === 0) return 0;
+  const indexPath = path.join(resolveCodexHome(), "session_index.jsonl");
+  let raw: string;
+  try {
+    raw = await fs.promises.readFile(indexPath, "utf8");
+  } catch {
+    return 0;
+  }
+
+  const endsWithNewline = raw.endsWith("\n") || raw.endsWith("\r\n");
+  const lines = raw.split(/\r?\n/);
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+
+  const kept: string[] = [];
+  let removed = 0;
+  for (const line of lines) {
+    if (safeIds.some((id) => line.includes(id))) {
+      removed += 1;
+    } else {
+      kept.push(line);
+    }
+  }
+  if (removed === 0) return 0;
+
+  const nextRaw = kept.join("\n") + (kept.length > 0 && endsWithNewline ? "\n" : "");
+  const tmpPath = `${indexPath}.${Date.now()}.tmp`;
+  try {
+    await fs.promises.writeFile(tmpPath, nextRaw, "utf8");
+    await fs.promises.rename(tmpPath, indexPath);
+  } catch {
+    try {
+      await fs.promises.unlink(tmpPath);
+    } catch {
+      // Ignore cleanup failures for a temporary index rewrite file.
+    }
+    return 0;
+  }
+  return removed;
+}
+
+async function collectFilesRecursive(root: string, extension: string): Promise<string[]> {
+  const out: string[] = [];
+  const stack = [root];
+  while (stack.length > 0) {
+    const dir = stack.pop()!;
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        stack.push(fullPath);
+      } else if (entry.isFile() && entry.name.endsWith(extension)) {
+        out.push(fullPath);
+      }
+    }
+  }
+  return out;
+}
+
+async function codexSessionFileContainsProviderId(filePath: string, providerIds: string[]): Promise<boolean> {
+  try {
+    const handle = await fs.promises.open(filePath, "r");
+    try {
+      const buffer = Buffer.alloc(8192);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+      const head = buffer.toString("utf8", 0, bytesRead);
+      return providerIds.some((id) => head.includes(id));
+    } finally {
+      await handle.close();
+    }
+  } catch {
+    return false;
   }
 }

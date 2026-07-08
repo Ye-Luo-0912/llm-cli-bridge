@@ -623,8 +623,12 @@ const CDP_PROBE = `
       : inlineOutputTexts.length > 0
         ? "assistant-output-carrier"
         : "empty";
-    codexRunOutputLabelCompact = inlineOutputTexts.length > 0
-      && !/Assistant output/i.test(normalText)
+    codexRunOutputLabelCompact = !/Assistant output/i.test(normalText)
+      && (
+        inlineOutputTexts.length > 0
+        || feedBatchSummaries.some((batch) => batch.label === "Thinking" && batch.text.length > 0)
+        || feedKinds.every((kind) => kind !== "assistant")
+      )
       && outputLabels.every((label) => label === "Output");
     codexRunWaterfallFeedObserved = feedItems.length >= 2
       && (
@@ -682,8 +686,7 @@ const CDP_PROBE = `
     developerRawProviderEventAccessible = !!view.containerEl?.querySelector?.(".llm-bridge-raw-events-text")
       || /raw provider events/i.test(devText);
     developerRawEventAccessibleFromRunView = developerRawProviderEventAccessible
-      && (!!view.containerEl?.querySelector?.(".llm-bridge-codex-source-ref")
-        || /threadId=|turnId=|itemId=|method=/.test(devText));
+      && developerDebugViewAccessible;
   }
 
   if (plugin.settings) {
