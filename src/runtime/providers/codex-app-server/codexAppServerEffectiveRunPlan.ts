@@ -127,6 +127,10 @@ export function buildCodexAppServerRunOptions(
   // config/instructions 保留供 thread/resume 路径与审计哈希使用。
   // plan.session 可选（部分测试 plan 不含 session 字段）；缺省按新会话处理。
   const continueSession = !!plan.session?.continueSession;
+  // latest native session only: 总是持久化 rollout（ephemeral=false），
+  // 否则 codex app-server 不会把 rollout 写到 ~/.codex/sessions/，
+  // 下一轮 thread/resume 会报 "no rollout found"。
+  // 持久化 rollout 是 native session resume 的前提条件。
   const threadStart: CodexThreadStartParams = {
     config: threadConfig,
     instructions: promptPackage.bridgeSystemAppend,
@@ -137,7 +141,8 @@ export function buildCodexAppServerRunOptions(
     approvalPolicy: "never",
     sandbox: "workspace-write",
     personality: "pragmatic",
-    ephemeral: !continueSession,
+    // latest native session only: ephemeral=false（总是持久化 rollout，让 thread/resume 可用）
+    ephemeral: false,
     sessionStartSource: continueSession ? "resume" : "clear",
   };
   // 不再把 resumeSessionId 塞进 thread/start；resume 走 thread/resume。

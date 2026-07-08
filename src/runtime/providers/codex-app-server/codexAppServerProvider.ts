@@ -528,24 +528,53 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       push(eventMapper.mapInitialized(initResult));
       client.notify("initialized");
 
-      // 2. thread/resume（恢复已有 threadId；不再走 thread/start 伪恢复）
-      const resumeResult = await client.send<CodexThreadResumeResult>(
-        "thread/resume",
-        {
-          threadId: codexThread,
-          config: options.threadStart.config,
-          cwd: ctx.plan.cwd,
-        },
-      );
-      const resumedThreadId = resumeResult.thread.id;
-      const resumedSessionId = resumeResult.thread.sessionId;
-      // 同步更新 sessionMapper（runId + bridgeSessionId）
-      this.sessionMapper.register(ctx.runId, resumedThreadId, resumedSessionId);
-      if (ctx.bridgeSessionId && ctx.bridgeSessionId !== ctx.runId) {
-        this.sessionMapper.register(ctx.bridgeSessionId, resumedThreadId, resumedSessionId);
+      // 2. thread/resume（恢复已有 threadId；失败时 fallback 到 thread/start）
+      // latest native session only: native session 可能在 provider 侧已失效
+      // （app-server 重启/thread 过期清理），此时 thread/resume 报错。
+      // 容错：捕获错误，fallback 到 thread/start 新开 native session，
+      // 让用户继续工作而非硬中断。
+      let resumedThreadId: string;
+      let resumedSessionId: string | undefined;
+      try {
+        const resumeResult = await client.send<CodexThreadResumeResult>(
+          "thread/resume",
+          {
+            threadId: codexThread,
+            config: options.threadStart.config,
+            cwd: ctx.plan.cwd,
+          },
+        );
+        resumedThreadId = resumeResult.thread.id;
+        resumedSessionId = resumeResult.thread.sessionId;
+        // 同步更新 sessionMapper（runId + bridgeSessionId）
+        this.sessionMapper.register(ctx.runId, resumedThreadId, resumedSessionId);
+        if (ctx.bridgeSessionId && ctx.bridgeSessionId !== ctx.runId) {
+          this.sessionMapper.register(ctx.bridgeSessionId, resumedThreadId, resumedSessionId);
+        }
+        push(eventMapper.mapThreadResumed(resumedThreadId, resumedSessionId));
+      } catch (resumeErr) {
+        // thread/resume 失败（no rollout found / thread expired / server restarted）
+        // → 清理当前 process/client，fallback 到 run() 新开 native session
+        for (const u of unreg) {
+          try { u(); } catch { /* swallow */ }
+        }
+        try { client.close(); } catch { /* swallow */ }
+        try { process.kill(); } catch { /* swallow */ }
+        this.currentProcess = null;
+        this.currentClient = null;
+        // 提示用户：原 native session 失效，已新开
+        yield {
+          providerId: this.providerId,
+          timestamp: new Date().toISOString(),
+          payload: {
+            kind: "warning",
+            message: `原 native session ${codexThread} 已失效（thread/resume 失败: ${(resumeErr as Error).message}），已新开 session。LLM 不会记得之前的对话内容。`,
+          },
+        };
+        // 委托 run() 走完整 thread/start 路径（会自己创建 process/client/handlers）
+        yield* this.run(ctx, settings);
+        return;
       }
-      push(eventMapper.mapThreadResumed(resumedThreadId, resumedSessionId));
-      // latest native session only: 发 native_session_bound 让 UI 更新 activeNativeSessionRef
       push(eventMapper.mapNativeSessionBound(this.providerId, resumedThreadId, resumedSessionId));
 
       // 3. turn/start（input 为 content item array）
@@ -572,8 +601,9 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       for (const u of unreg) {
         try { u(); } catch { /* swallow */ }
       }
-      client.close();
-      process.kill();
+      // fallback 路径可能已关闭 client/process，用 try 包裹防止重复关闭报错
+      try { client.close(); } catch { /* swallow */ }
+      try { process.kill(); } catch { /* swallow */ }
       this.currentProcess = null;
       this.currentClient = null;
       this.currentRunId = null;
