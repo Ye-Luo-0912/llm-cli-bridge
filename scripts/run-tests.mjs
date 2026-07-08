@@ -173,6 +173,16 @@ const ACTION_SCHEMAS = {
   append_to_note: { required: ["path", "content"], optional: [], extraForbidden: false },
   insert_at_cursor: { required: ["content"], optional: [], extraForbidden: false },
   replace_selection: { required: ["content"], optional: [], extraForbidden: false },
+  // V2.18 vault-api schemas
+  property_get: { required: ["path"], optional: ["key"], extraForbidden: false },
+  property_set: { required: ["path", "key", "value"], optional: [], extraForbidden: false },
+  tags_list: { required: [], optional: ["path"], extraForbidden: false },
+  backlinks_get: { required: ["path"], optional: [], extraForbidden: false },
+  tasks_list: { required: [], optional: ["path"], extraForbidden: false },
+  daily_read: { required: [], optional: [], extraForbidden: true },
+  daily_append: { required: ["content"], optional: [], extraForbidden: false },
+  vault_delete: { required: ["path"], optional: [], extraForbidden: false },
+  vault_rename: { required: ["path", "newPath"], optional: [], extraForbidden: false },
 };
 
 function validateActionSchema(action) {
@@ -234,6 +244,25 @@ const schemaTests = [
   { action: { type: "get_state", params: { extra: 1 } }, expect: /不允许额外字段/, desc: "get_state 禁止额外字段" },
   { action: { type: "get_state", params: {} }, expect: null, desc: "get_state 正常" },
   { action: { type: "unknown_type", params: {} }, expect: /未知 action 类型/, desc: "未知 action 类型" },
+  // V2.18 vault-api schema tests
+  { action: { type: "property_get", params: {} }, expect: /缺少必填字段.*path/, desc: "property_get 缺 path" },
+  { action: { type: "property_get", params: { path: "a.md" } }, expect: null, desc: "property_get 仅 path 正常" },
+  { action: { type: "property_get", params: { path: "a.md", key: "tags" } }, expect: null, desc: "property_get path+key 正常" },
+  { action: { type: "property_set", params: { path: "a.md", key: "status" } }, expect: /缺少必填字段.*value/, desc: "property_set 缺 value" },
+  { action: { type: "property_set", params: { path: "a.md", key: "status", value: "done" } }, expect: null, desc: "property_set 完整正常" },
+  { action: { type: "tags_list", params: {} }, expect: null, desc: "tags_list 无参正常" },
+  { action: { type: "tags_list", params: { path: "inbox/" } }, expect: null, desc: "tags_list 带 path 过滤正常" },
+  { action: { type: "backlinks_get", params: {} }, expect: /缺少必填字段.*path/, desc: "backlinks_get 缺 path" },
+  { action: { type: "backlinks_get", params: { path: "a.md" } }, expect: null, desc: "backlinks_get 正常" },
+  { action: { type: "tasks_list", params: {} }, expect: null, desc: "tasks_list 无参正常" },
+  { action: { type: "daily_read", params: { extra: 1 } }, expect: /不允许额外字段/, desc: "daily_read 禁止额外字段" },
+  { action: { type: "daily_read", params: {} }, expect: null, desc: "daily_read 正常" },
+  { action: { type: "daily_append", params: {} }, expect: /缺少必填字段.*content/, desc: "daily_append 缺 content" },
+  { action: { type: "daily_append", params: { content: "hi" } }, expect: null, desc: "daily_append 正常" },
+  { action: { type: "vault_delete", params: {} }, expect: /缺少必填字段.*path/, desc: "vault_delete 缺 path" },
+  { action: { type: "vault_delete", params: { path: "a.md" } }, expect: null, desc: "vault_delete 正常" },
+  { action: { type: "vault_rename", params: { path: "a.md" } }, expect: /缺少必填字段.*newPath/, desc: "vault_rename 缺 newPath" },
+  { action: { type: "vault_rename", params: { path: "a.md", newPath: "b.md" } }, expect: null, desc: "vault_rename 正常" },
 ];
 
 for (const t of schemaTests) {
@@ -4516,24 +4545,59 @@ if (runMode !== "all" && runMode !== "unit") {
           `vcLen=${vcContent.length} underMax=${vcUnderMax} splitNotice=${vcHasSplitNotice} indexPointer=${vcHasIndexPointer} runtimeHeader=${vcHasRuntimeHeader} firstSection=${vcHasFirstSection}`);
       }
 
-      // Test K1-C: 轻量版 materializeToAllTargets — 单个 conflict 不影响其他 target
+      // Test V2.18-a: ensureAgentRuntimeWorkspace 创建 vault-api source + generateInitialVaultApiSkill 内容
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
-        // 先物化到所有 3 个 target
+        const vaSourceAbs = pathMod.join(taskKTmpRoot, agentRuntimeWsMod.VAULT_API_SKILL_SOURCE_REL);
+        const exists = fsMod.existsSync(vaSourceAbs);
+        const content = exists ? await fsMod.promises.readFile(vaSourceAbs, "utf8") : "";
+        // 初版应包含：9 个 action 类型 + HTTP bridge 调用通道 + 文件系统做不到的能力说明
+        const hasPropertyGet = content.includes("property_get");
+        const hasPropertySet = content.includes("property_set");
+        const hasTagsList = content.includes("tags_list");
+        const hasBacklinks = content.includes("backlinks_get");
+        const hasTasks = content.includes("tasks_list");
+        const hasDailyRead = content.includes("daily_read");
+        const hasDailyAppend = content.includes("daily_append");
+        const hasVaultDelete = content.includes("vault_delete");
+        const hasVaultRename = content.includes("vault_rename");
+        const hasHttpBridge = content.includes("bridge.json") && content.includes("/action");
+        const hasFileSystemCaveat = content.includes("native Read/Write/Edit");
+        const allActions = hasPropertyGet && hasPropertySet && hasTagsList && hasBacklinks
+          && hasTasks && hasDailyRead && hasDailyAppend && hasVaultDelete && hasVaultRename;
+
+        // 单独验证 generateInitialVaultApiSkill 纯函数（不依赖文件系统）
+        const generated = agentRuntimeWsMod.generateInitialVaultApiSkill();
+        const generatedHasH1 = generated.startsWith("# vault-api");
+        const generatedHasActionTable = generated.includes("### 结构化类") && generated.includes("### 危险操作类");
+
+        addTest("V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 9 actions + HTTP 通道",
+          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable ? "pass" : "fail",
+          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable}`);
+      }
+
+      // Test K1-C: 轻量版 materializeToAllTargets — 单个 conflict 不影响其他 target
+      // V2.18: 现在物化 vault-context + vault-api 两个 slug × 3 targets = 6 results
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        // 先物化到所有 3 个 target（2 slugs × 3 targets = 6 results）
         const firstResult = await agentRuntimeWsMod.materializeAllVaultSkillsToAllTargets(taskKTmpRoot);
         const firstAllOk = firstResult.ok;
         const firstCount = firstResult.results.length;
-        // 人工修改 .pi target（移除 plugin-generated marker 模拟人工编辑）
+        // 人工修改 .pi target 的 vault-context（模拟人工编辑）
         const piRuntimeAbs = pathMod.join(taskKTmpRoot, ".pi/skills/vault-context/SKILL.md");
         const originalPi = await fsMod.promises.readFile(piRuntimeAbs, "utf8");
         const humanModified = originalPi.replace("<!-- generated-by: llm-cli-bridge -->", "<!-- human edit -->").replace("# Instructions", "# Human Edited");
         await fsMod.promises.writeFile(piRuntimeAbs, humanModified, "utf8");
 
         const secondResult = await agentRuntimeWsMod.materializeAllVaultSkillsToAllTargets(taskKTmpRoot);
-        const piResult = secondResult.results.find((r) => r.target === "pi");
-        const isConflict = piResult?.status === "conflict" && !piResult.ok;
-        const otherResults = secondResult.results.filter((r) => r.target !== "pi");
+        // 找到 vault-context 的 pi target（应冲突）；vault-api 的 pi target 不受影响
+        const vcPiResult = secondResult.results.find((r) => r.target === "pi" && r.sourcePath.includes("vault-context"));
+        const isConflict = vcPiResult?.status === "conflict" && !vcPiResult.ok;
+        // 其他所有结果（含 vault-api pi）应正常
+        const otherResults = secondResult.results.filter((r) => !(r.target === "pi" && r.sourcePath.includes("vault-context")));
         const othersOk = otherResults.every((r) => r.ok || r.status === "skipped");
         const othersCount = otherResults.length;
 
@@ -4541,8 +4605,8 @@ if (runMode !== "all" && runMode !== "unit") {
         await fsMod.promises.writeFile(piRuntimeAbs, originalPi, "utf8");
 
         addTest("V16.5-K1 materializeToAllTargets: 单个 conflict 不影响其他 target",
-          firstAllOk && firstCount === 3 && isConflict && othersOk && othersCount === 2 ? "pass" : "fail",
-          `firstAllOk=${firstAllOk} firstCount=${firstCount} isConflict=${isConflict} othersOk=${othersOk} othersCount=${othersCount} piStatus=${piResult?.status}`);
+          firstAllOk && firstCount === 6 && isConflict && othersOk && othersCount === 5 ? "pass" : "fail",
+          `firstAllOk=${firstAllOk} firstCount=${firstCount} isConflict=${isConflict} othersOk=${othersOk} othersCount=${othersCount} vcPiStatus=${vcPiResult?.status}`);
       }
 
       // Test K1-D: 轻量版 manifest 一致性 — vault-context entry hash/charCount 与实际一致
@@ -4713,7 +4777,8 @@ if (runMode !== "all" && runMode !== "unit") {
           `genericOk=${genericOk} piOk=${piOk} genericExists=${genericExists} piExists=${piExists} genericFormat=${genericFormat} piFormat=${piFormat}`);
       }
 
-      // Test V17A-H: materializeAllVaultSkillsToAllTargets 物化 vault-context 到所有 target
+      // Test V17A-H: materializeAllVaultSkillsToAllTargets 物化 vault-context + vault-api 到所有 target
+      // V2.18: 现在物化两个 slug（vault-context + vault-api）× 3 targets = 6 results
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
@@ -4727,28 +4792,34 @@ if (runMode !== "all" && runMode !== "unit") {
         await fsMod.promises.writeFile(pathMod.join(v17aTmpRoot, agentRuntimeWsMod.VAULT_SKILL_SOURCE_REL), bigContent, "utf8");
         await agentRuntimeWsMod.compactOrSplitVaultSkill(v17aTmpRoot);
 
-        // 物化 vault-context 到所有 3 个 targets（轻量版：vault-context × 3 = 3 results）
+        // 物化 vault-context + vault-api 到所有 3 个 targets（2 slugs × 3 targets = 6 results）
         const result = await agentRuntimeWsMod.materializeAllVaultSkillsToAllTargets(v17aTmpRoot);
 
-        // 验证每个 target 都有物化文件
+        // 验证每个 target 都有 vault-context 与 vault-api 物化文件
         let allTargetsMaterialized = true;
         for (const target of ["claude", "generic-agent", "pi"]) {
           const dir = target === "claude" ? ".claude/skills" : target === "generic-agent" ? ".agents/skills" : ".pi/skills";
           const vcPath = pathMod.join(v17aTmpRoot, dir, "vault-context", "SKILL.md");
-          if (!fsMod.existsSync(vcPath)) {
+          const vaPath = pathMod.join(v17aTmpRoot, dir, "vault-api", "SKILL.md");
+          if (!fsMod.existsSync(vcPath) || !fsMod.existsSync(vaPath)) {
             allTargetsMaterialized = false;
             break;
           }
         }
 
-        // 轻量版：结果数 = 1 skill × 3 targets = 3
-        const resultCountOk = result.results.length === 3;
+        // V2.18：结果数 = 2 skills × 3 targets = 6
+        const resultCountOk = result.results.length === 6;
         const targetsCovered = result.results.every((r) =>
           r.target === "claude" || r.target === "generic-agent" || r.target === "pi");
+        // 验证 vault-api source 也被物化为合法 runtime skill（含 frontmatter + # Instructions）
+        const vaClaudePath = pathMod.join(v17aTmpRoot, ".claude/skills/vault-api/SKILL.md");
+        const vaClaudeContent = fsMod.existsSync(vaClaudePath) ? await fsMod.promises.readFile(vaClaudePath, "utf8") : "";
+        const vaHasFrontmatter = vaClaudeContent.startsWith("---") && vaClaudeContent.includes("name: vault-api");
+        const vaHasInstructions = vaClaudeContent.includes("# Instructions");
 
-        addTest("V17-A materializeAll: vault-context 物化到所有 target（轻量版）",
-          allTargetsMaterialized && resultCountOk && targetsCovered ? "pass" : "fail",
-          `allTargetsMaterialized=${allTargetsMaterialized} resultCount=${result.results.length}/3 targetsCovered=${targetsCovered}`);
+        addTest("V17-A materializeAll: vault-context + vault-api 物化到所有 target（轻量版）",
+          allTargetsMaterialized && resultCountOk && targetsCovered && vaHasFrontmatter && vaHasInstructions ? "pass" : "fail",
+          `allTargetsMaterialized=${allTargetsMaterialized} resultCount=${result.results.length}/6 targetsCovered=${targetsCovered} vaFrontmatter=${vaHasFrontmatter} vaInstructions=${vaHasInstructions}`);
       }
 
       // Test V17A-I: settings 含 backendProfile/piCommand 字段（朋友版 portable 可切换）

@@ -2,8 +2,13 @@
 // Claude Code 通过 .llm-bridge/outbox/actions.jsonl 触发 Obsidian 动作
 // 支持：show_notice / open_note / get_state / get_active_note / get_selection /
 //       create_note / append_to_note / insert_at_cursor / replace_selection
+//
+// V2.18 vault-api Skill（latest native session only 配套）：
+// 聚焦"文件系统操作不能覆盖的能力"——用 Obsidian metadataCache / fileManager /
+// resolvedLinks / trash 等 Plugin API 实现，比裸文件系统读更准、更安全。
+// agent 已有 native Read/Write/Edit/Grep 覆盖普通文件操作，这些 action 只保留前者做不到的。
 
-import { App, DataAdapter, Modal, Notice, TFile, Vault, MarkdownView } from "obsidian";
+import { App, DataAdapter, Modal, Notice, TFile, TFolder, Vault, MarkdownView } from "obsidian";
 
 export type ActionType =
   | "show_notice"
@@ -14,7 +19,18 @@ export type ActionType =
   | "create_note"
   | "append_to_note"
   | "insert_at_cursor"
-  | "replace_selection";
+  | "replace_selection"
+  // V2.18 vault-api：结构化类（文件系统做不准/做不到）
+  | "property_get"    // 读 frontmatter（用 metadataCache，处理 YAML 边界）
+  | "property_set"    // 写 frontmatter（用 fileManager.processFrontMatter）
+  | "tags_list"      // 全 vault 标签清单（用 metadataCache，区分代码块假 tag）
+  | "backlinks_get"  // 反向链接（用 resolvedLinks，文件系统无法反向查）
+  | "tasks_list"     // 待办清单（扫所有 markdown 文件）
+  | "daily_read"     // 读今天 daily note（按 daily-notes 约定路径）
+  | "daily_append"   // 追加到今天 daily note
+  // V2.18 vault-api：危险操作类（走 Obsidian trash + 审批）
+  | "vault_delete"    // 删除文件（走回收站，比 fs.delete 安全）
+  | "vault_rename";   // 重命名/移动（更新 metadataCache）
 
 export interface OutboxAction {
   id: string;
@@ -41,6 +57,16 @@ const ACTION_SCHEMAS: Record<ActionType, ParamSchema> = {
   append_to_note: { required: ["path", "content"], optional: [], extraForbidden: false },
   insert_at_cursor: { required: ["content"], optional: [], extraForbidden: false },
   replace_selection: { required: ["content"], optional: [], extraForbidden: false },
+  // V2.18 vault-api schemas
+  property_get: { required: ["path"], optional: ["key"], extraForbidden: false },
+  property_set: { required: ["path", "key", "value"], optional: [], extraForbidden: false },
+  tags_list: { required: [], optional: ["path"], extraForbidden: false },
+  backlinks_get: { required: ["path"], optional: [], extraForbidden: false },
+  tasks_list: { required: [], optional: ["path"], extraForbidden: false },
+  daily_read: { required: [], optional: [], extraForbidden: true },
+  daily_append: { required: ["content"], optional: [], extraForbidden: false },
+  vault_delete: { required: ["path"], optional: [], extraForbidden: false },
+  vault_rename: { required: ["path", "newPath"], optional: [], extraForbidden: false },
 };
 
 // ─── 路径安全校验 ─────────────────────────────────────────────────────────
@@ -150,6 +176,11 @@ const MODIFYING_ACTIONS: ActionType[] = [
   "append_to_note",
   "insert_at_cursor",
   "replace_selection",
+  // V2.18 vault-api 写入/危险操作类
+  "property_set",
+  "daily_append",
+  "vault_delete",
+  "vault_rename",
 ];
 
 export function isModifying(type: string): boolean {
@@ -264,6 +295,155 @@ export async function executeAction(
       editor.replaceSelection(content);
       return { replaced: selected.length, with: content.length };
     }
+    // ─── V2.18 vault-api：结构化类 ──────────────────────────────────────────
+    case "property_get": {
+      const targetPath = String(p.path ?? "").trim();
+      if (!targetPath) throw new Error("property_get: 缺少 path");
+      const f = app.vault.getAbstractFileByPath(targetPath);
+      if (!(f instanceof TFile)) throw new Error(`property_get: 文件不存在 ${targetPath}`);
+      // metadataCache 提供 frontmatter（已解析 YAML，比裸文本解析可靠）
+      const cache = app.metadataCache.getFileCache(f);
+      const frontmatter = cache?.frontmatter ?? {};
+      const key = typeof p.key === "string" ? String(p.key) : undefined;
+      if (key) {
+        return { path: f.path, key, value: key in frontmatter ? frontmatter[key] : null };
+      }
+      return { path: f.path, properties: frontmatter };
+    }
+    case "property_set": {
+      const targetPath = String(p.path ?? "").trim();
+      if (!targetPath) throw new Error("property_set: 缺少 path");
+      const f = app.vault.getAbstractFileByPath(targetPath);
+      if (!(f instanceof TFile)) throw new Error(`property_set: 文件不存在 ${targetPath}`);
+      const key = String(p.key ?? "");
+      if (!key) throw new Error("property_set: 缺少 key");
+      const value = p.value;
+      // processFrontMatter 安全修改 YAML frontmatter（处理边界/序列化）
+      await app.fileManager.processFrontMatter(f, (fm: Record<string, unknown>) => {
+        fm[key] = value;
+      });
+      return { path: f.path, key, value };
+    }
+    case "tags_list": {
+      // 聚合全 vault 标签（用 metadataCache，区分代码块假 tag）
+      const pathFilter = typeof p.path === "string" ? String(p.path).trim() : undefined;
+      const tagCounts = new Map<string, { count: number; files: string[] }>();
+      const mdFiles = app.vault.getMarkdownFiles();
+      for (const f of mdFiles) {
+        if (pathFilter && !f.path.startsWith(pathFilter)) continue;
+        const cache = app.metadataCache.getFileCache(f);
+        const tags = cache?.tags;
+        if (!tags) continue;
+        for (const t of tags) {
+          const name = t.tag.startsWith("#") ? t.tag : `#${t.tag}`;
+          const existing = tagCounts.get(name);
+          if (existing) {
+            existing.count += 1;
+            if (!existing.files.includes(f.path)) existing.files.push(f.path);
+          } else {
+            tagCounts.set(name, { count: 1, files: [f.path] });
+          }
+        }
+      }
+      const tags = Array.from(tagCounts.entries())
+        .map(([name, info]) => ({ name, count: info.count, files: info.files }))
+        .sort((a, b) => b.count - a.count);
+      return { tags, total: tags.length };
+    }
+    case "backlinks_get": {
+      // 反向链接（用 resolvedLinks，文件系统无法反向查）
+      const targetPath = String(p.path ?? "").trim();
+      if (!targetPath) throw new Error("backlinks_get: 缺少 path");
+      const f = app.vault.getAbstractFileByPath(targetPath);
+      if (!(f instanceof TFile)) throw new Error(`backlinks_get: 文件不存在 ${targetPath}`);
+      const resolvedLinks = (app.metadataCache as unknown as { resolvedLinks: Record<string, Record<string, number>> }).resolvedLinks;
+      const backlinks: { source: string; count: number }[] = [];
+      for (const [sourcePath, links] of Object.entries(resolvedLinks)) {
+        const count = links[targetPath];
+        if (count && count > 0) {
+          backlinks.push({ source: sourcePath, count });
+        }
+      }
+      return { path: targetPath, backlinks, total: backlinks.length };
+    }
+    case "tasks_list": {
+      // 扫描所有 markdown 文件的待办项（- [ ] / - [x]）
+      const pathFilter = typeof p.path === "string" ? String(p.path).trim() : undefined;
+      const tasks: { path: string; line: number; text: string; completed: boolean }[] = [];
+      const mdFiles = app.vault.getMarkdownFiles();
+      for (const f of mdFiles) {
+        if (pathFilter && !f.path.startsWith(pathFilter)) continue;
+        const content = await app.vault.read(f);
+        const lines = content.split("\n");
+        for (let i = 0; i < lines.length; i++) {
+          const m = lines[i].match(/^\s*[-*]\s+\[(x|X| )\]\s+(.+)$/);
+          if (m) {
+            tasks.push({
+              path: f.path,
+              line: i + 1,
+              text: m[2].trim(),
+              completed: m[1].toLowerCase() === "x",
+            });
+          }
+        }
+      }
+      return { tasks, total: tasks.length };
+    }
+    case "daily_read": {
+      // 读今天的 daily note（按 daily-notes 约定路径）
+      const dailyPath = resolveDailyNotePath(app);
+      const f = dailyPath ? app.vault.getAbstractFileByPath(dailyPath) : null;
+      if (!(f instanceof TFile)) return { path: dailyPath, content: null, exists: false };
+      const content = await app.vault.read(f);
+      return { path: f.path, content, exists: true };
+    }
+    case "daily_append": {
+      // 追加到今天的 daily note（不存在则创建）
+      const content = String(p.content ?? "");
+      const dailyPath = resolveDailyNotePath(app);
+      if (!dailyPath) throw new Error("daily_append: 无法解析 daily note 路径（检查 daily-notes 插件配置）");
+      const existingFile = app.vault.getAbstractFileByPath(dailyPath);
+      let f: TFile;
+      if (existingFile instanceof TFile) {
+        f = existingFile;
+      } else {
+        await ensureParentDir(app.vault, dailyPath);
+        f = await app.vault.create(dailyPath, "");
+      }
+      const existing = await app.vault.read(f);
+      const sep = existing.length === 0 || existing.endsWith("\n") ? "" : "\n";
+      await app.vault.modify(f, existing + sep + content);
+      return { path: f.path };
+    }
+    // ─── V2.18 vault-api：危险操作类 ────────────────────────────────────────
+    case "vault_delete": {
+      const targetPath = String(p.path ?? "").trim();
+      if (!targetPath) throw new Error("vault_delete: 缺少 path");
+      const f = app.vault.getAbstractFileByPath(targetPath);
+      if (!(f instanceof TFile) && !(f instanceof TFolder)) {
+        throw new Error(`vault_delete: 文件不存在 ${targetPath}`);
+      }
+      // 走 Obsidian trash（进回收站，比 fs.delete 安全）
+      await app.vault.trash(f, true);
+      return { path: targetPath, trashed: true };
+    }
+    case "vault_rename": {
+      const oldPath = String(p.path ?? "").trim();
+      const newPath = String(p.newPath ?? "").trim();
+      if (!oldPath) throw new Error("vault_rename: 缺少 path");
+      if (!newPath) throw new Error("vault_rename: 缺少 newPath");
+      // newPath 路径安全校验
+      const newPathUnsafe = isPathUnsafe(vaultPath, newPath);
+      if (newPathUnsafe) throw new Error(newPathUnsafe);
+      const f = app.vault.getAbstractFileByPath(oldPath);
+      if (!(f instanceof TFile) && !(f instanceof TFolder)) {
+        throw new Error(`vault_rename: 文件不存在 ${oldPath}`);
+      }
+      // 确保新路径父目录存在
+      await ensureParentDir(app.vault, newPath);
+      await app.vault.rename(f, newPath);
+      return { oldPath, newPath };
+    }
     default:
       throw new Error(`未知 action 类型: ${type}`);
   }
@@ -282,8 +462,55 @@ export function describeAction(action: OutboxAction): string {
       return `将在当前笔记光标处插入内容\n插入内容长度: ${contentLen} 字符`;
     case "replace_selection":
       return `将替换当前选区\n新内容长度: ${contentLen} 字符`;
+    // V2.18 vault-api 描述
+    case "property_set":
+      return `将修改 frontmatter: ${p.path}\n字段: ${p.key} = ${JSON.stringify(p.value)}`;
+    case "daily_append":
+      return `将追加到今天的 daily note\n追加内容长度: ${contentLen} 字符`;
+    case "vault_delete":
+      return `将删除文件（进回收站）: ${p.path}`;
+    case "vault_rename":
+      return `将重命名: ${p.path} → ${p.newPath}`;
     default:
       return JSON.stringify(p, null, 2);
+  }
+}
+
+// V2.18 vault-api：解析今天的 daily note 路径
+// 优先读取 daily-notes 内置插件的配置，fallback 到 "YYYY-MM-DD.md"
+function resolveDailyNotePath(app: App): string | null {
+  const now = new Date();
+  const yyyy = now.getFullYear();
+  const mm = String(now.getMonth() + 1).padStart(2, "0");
+  const dd = String(now.getDate()).padStart(2, "0");
+  const defaultName = `${yyyy}-${mm}-${dd}.md`;
+  try {
+    // 尝试读取 daily-notes 内置插件配置
+    const internalPlugins = (app as unknown as {
+      internalPlugins?: {
+        getPluginById?: (id: string) => {
+          instance?: {
+            options?: { format?: string; folder?: string };
+          };
+        };
+      };
+    }).internalPlugins;
+    const dailyPlugin = internalPlugins?.getPluginById?.("daily-notes");
+    const opts = dailyPlugin?.instance?.options;
+    const folder = (opts?.folder && String(opts.folder).trim()) || "";
+    // 简单格式替换（支持 YYYY-MM-DD / YYYY/MM/DD 等）
+    let name = defaultName;
+    if (opts?.format && typeof opts.format === "string") {
+      name = opts.format
+        .replace("YYYY", String(yyyy))
+        .replace("MM", mm)
+        .replace("DD", dd)
+        .replace(/\//g, "-");
+      if (!name.endsWith(".md")) name += ".md";
+    }
+    return folder ? `${folder}/${name}` : name;
+  } catch {
+    return defaultName;
   }
 }
 

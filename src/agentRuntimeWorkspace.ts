@@ -37,6 +37,10 @@ export const VAULT_CONTEXT_SLUG = "vault-context";
 export const VAULT_SKILL_SOURCE_DIR_REL = "LLM-AgentRuntime/skills/vault-context";
 export const VAULT_SKILL_SOURCE_REL = "LLM-AgentRuntime/skills/vault-context/SKILL.md";
 export const VAULT_SKILL_UPDATE_LOG_REL = "LLM-AgentRuntime/skills/vault-context/update-log.md";
+// V2.18 vault-api：暴露 Obsidian Plugin API 能力（文件系统做不到的：property/tags/backlinks/tasks/daily/trash）
+export const VAULT_API_SLUG = "vault-api";
+export const VAULT_API_SKILL_SOURCE_DIR_REL = "LLM-AgentRuntime/skills/vault-api";
+export const VAULT_API_SKILL_SOURCE_REL = "LLM-AgentRuntime/skills/vault-api/SKILL.md";
 export const VAULT_SKILLS_MANIFEST_REL = "LLM-AgentRuntime/skills/manifest.json";
 export const AGENT_RUNTIME_SESSIONS_DIR_REL = "LLM-AgentRuntime/sessions";
 export const AGENT_RUNTIME_WORK_DIR_REL = "LLM-AgentRuntime/work";
@@ -498,6 +502,100 @@ export async function generateInitialVaultSkill(
   });
 }
 
+// ---------- V2.18 vault-api Skill 初版生成 ----------
+
+/**
+ * V2.18 vault-api：生成 vault-api Skill 初版内容。
+ *
+ * 设计哲学：只暴露"文件系统做不到的能力"。
+ * agent 已有 native Read/Write/Edit/Grep 覆盖普通文件读写；
+ * 本 Skill 通过 outbox action / HTTP bridge 调用 Obsidian Plugin API：
+ * metadataCache（frontmatter/tags/links）、fileManager.processFrontMatter、
+ * vault.trash、vault.rename、resolvedLinks 反查、daily-notes 约定路径。
+ *
+ * 内容是静态的（不依赖运行时扫描），只描述调用方式与 action 清单。
+ */
+export function generateInitialVaultApiSkill(): string {
+  return [
+    "# vault-api",
+    "",
+    "> Obsidian Plugin API 能力 Skill（V2.18）。",
+    "> 只暴露文件系统做不到的能力；普通文件读写请用 native Read/Write/Edit。",
+    "> 调用通道：HTTP bridge（优先）→ helper mjs → outbox actions.jsonl（兜底）。",
+    "",
+    "## 调用通道",
+    "",
+    "### 1. HTTP bridge（推荐）",
+    "",
+    "插件启动时监听 127.0.0.1 随机端口，连接信息写入 `.llm-bridge/bridge.json`（字段：host / port / token / vaultPath / startedAt）。",
+    "",
+    "请求格式：",
+    "- POST /action  body: `{\"id\":\"<可选>\",\"type\":\"<actionType>\",\"params\":{...}}`",
+    "- Header: `Authorization: Bearer <token>`",
+    "- 修改类 action 立即返回 `{status:\"pending_approval\", id}`，需轮询 `GET /action-status?id=<id>` 直到 `completed`/`declined`。",
+    "",
+    "示例（curl）：",
+    "",
+    "```bash",
+    "BRIDGE=$(node -e \"console.log(JSON.stringify(require('./.llm-bridge/bridge.json')))\")",
+    "PORT=$(echo \"$BRIDGE\" | jq -r .port)",
+    "TOKEN=$(echo \"$BRIDGE\" | jq -r .token)",
+    "curl -s -X POST http://127.0.0.1:$PORT/action \\",
+    "  -H \"Authorization: Bearer $TOKEN\" \\",
+    "  -H \"Content-Type: application/json\" \\",
+    "  -d '{\"id\":\"t1\",\"type\":\"tags_list\",\"params\":{}}'",
+    "```",
+    "",
+    "### 2. Helper mjs（封装 HTTP）",
+    "",
+    "`.llm-bridge/tools/obsidian-action.mjs` 提供 createClient()，自动读取 bridge.json 并重试。",
+    "",
+    "```javascript",
+    "import { createClient } from \"./.llm-bridge/tools/obsidian-action.mjs\";",
+    "const c = createClient();",
+    "await c.action(\"property_get\", { path: \"inbox/note.md\", key: \"tags\" });",
+    "// 修改类需 --wait：node .llm-bridge/tools/obsidian-action.mjs --wait property_set '{\"path\":\"a.md\",\"key\":\"status\",\"value\":\"done\"}'",
+    "```",
+    "",
+    "### 3. Outbox 兜底（仅当 HTTP server 不可用）",
+    "",
+    "向 `.llm-bridge/outbox/actions.jsonl` 追加一行 JSON（{ id, type, params, ts? }），插件下次启动时轮询执行。不要在 Obsidian 运行时使用。",
+    "",
+    "## Action 清单（V2.18）",
+    "",
+    "### 结构化类（文件系统做不准/做不到）",
+    "",
+    "| type           | params                              | 确认 | 说明 |",
+    "|----------------|-------------------------------------|------|------|",
+    "| property_get   | {\"path\":\"...\",\"key?\":\"...\"}         | 否   | 读 frontmatter（metadataCache，YAML 已解析；不传 key 返回全部） |",
+    "| property_set   | {\"path\":\"...\",\"key\":\"...\",\"value\":...} | 是   | 写 frontmatter（fileManager.processFrontMatter，自动处理 YAML 边界） |",
+    "| tags_list      | {\"path?\":\"...\"}                     | 否   | 全 vault 标签清单（metadataCache 聚合，区分代码块假 tag；可按目录前缀过滤） |",
+    "| backlinks_get  | {\"path\":\"...\"}                      | 否   | 反向链接（resolvedLinks 反查，文件系统无法做到） |",
+    "| tasks_list     | {\"path?\":\"...\"}                     | 否   | 待办清单（扫所有 markdown `- [ ]` / `- [x]`，可按目录前缀过滤） |",
+    "| daily_read     | {}                                  | 否   | 读今天 daily note（按 daily-notes 内置插件配置解析路径） |",
+    "| daily_append   | {\"content\":\"...\"}                   | 是   | 追加到今天 daily note（路径同 daily_read） |",
+    "",
+    "### 危险操作类（走 Obsidian 回收站 + 审批）",
+    "",
+    "| type          | params                       | 确认 | 说明 |",
+    "|---------------|------------------------------|------|------|",
+    "| vault_delete  | {\"path\":\"...\"}               | 是   | 删除文件（走 Obsidian 回收站 vault.trash，比 fs.delete 安全可恢复） |",
+    "| vault_rename  | {\"path\":\"...\",\"newPath\":\"...\"} | 是   | 重命名/移动（vault.rename，自动更新 metadataCache；newPath 必须在 vault 内） |",
+    "",
+    "## 使用规则",
+    "",
+    "- 普通文件读写 → 用 native Read/Write/Edit/Grep，**不要**走本 Skill 的 action。",
+    "- frontmatter 操作（property_get/set）→ **必须**用本 Skill（metadataCache/fileManager 比 YAML 文本解析可靠）。",
+    "- 全 vault 标签/反向链接/待办清单 → **必须**用本 Skill（文件系统无法高效反查）。",
+    "- daily note → 用本 Skill（自动解析 daily-notes 插件配置的日期格式与目录）。",
+    "- 删除/重命名 → 用本 Skill（走回收站、更新 metadataCache；不要直接 fs.unlink/rename）。",
+    "- path 参数必须是 vault 相对路径（如 `inbox/note.md`），禁止绝对路径与 `..` 遍历。",
+    "- 修改类 action（property_set/daily_append/vault_delete/vault_rename）会弹审批框，用户拒绝则不执行。",
+    "- 9 个 action 之外的 Obsidian 能力暂未暴露；如需扩展请在 LLM-AgentRuntime/skills/vault-api/SKILL.md 记录需求。",
+    "",
+  ].join("\n");
+}
+
 // ---------- Workspace 初始化 ----------
 
 export interface AgentRuntimeWorkspaceInitResult {
@@ -538,6 +636,7 @@ export async function ensureAgentRuntimeWorkspace(
     AGENT_RUNTIME_RUNTIME_DIR_REL,
     AGENT_RUNTIME_SKILLS_DIR_REL,
     VAULT_SKILL_SOURCE_DIR_REL,
+    VAULT_API_SKILL_SOURCE_DIR_REL,
     AGENT_RUNTIME_SESSIONS_DIR_REL,
     AGENT_RUNTIME_WORK_DIR_REL,
     AGENT_RUNTIME_PI_SESSIONS_DIR_REL,
@@ -615,6 +714,25 @@ export async function ensureAgentRuntimeWorkspace(
     }
   }
 
+  // V2.18 vault-api source（缺失时生成初版，不覆盖已有）
+  const vaultApiSkillAbs = path.join(vaultPath, VAULT_API_SKILL_SOURCE_REL);
+  try {
+    await fs.promises.access(vaultApiSkillAbs);
+    skipped.push(VAULT_API_SKILL_SOURCE_REL);
+  } catch {
+    if (options.createVaultSkillIfMissing ?? true) {
+      try {
+        const initial = generateInitialVaultApiSkill();
+        await fs.promises.writeFile(vaultApiSkillAbs, initial, "utf8");
+        created.push(VAULT_API_SKILL_SOURCE_REL);
+      } catch {
+        skipped.push(VAULT_API_SKILL_SOURCE_REL);
+      }
+    } else {
+      skipped.push(VAULT_API_SKILL_SOURCE_REL);
+    }
+  }
+
   return {
     ok: true,
     created,
@@ -635,6 +753,7 @@ export function buildAgentRuntimeReadme(): string {
     "- `runtime/RUNTIME_FACTS.json`: 机器事实（provider/shell/capability），不进 prompt。",
     "- `skills/vault-context/SKILL.md`: VAULT_SKILL 源文件（agent 长期认知缓存）。",
     "- `skills/vault-context/update-log.md`: 可选短变更日志，不进 prompt。",
+    "- `skills/vault-api/SKILL.md`: V2.18 vault-api Skill 源文件（Obsidian Plugin API 能力：property/tags/backlinks/tasks/daily/trash）。",
     "- `sessions/`: 会话摘要（agent 写入，不进 VAULT_SKILL）。",
     "- `work/`: 临时工作文件（agent 写入，不进 VAULT_SKILL）。",
     "- `pi-sessions/`: V17-A Pi portable backend session 目录（pi --mode rpc，不污染 Vault 根）。",
@@ -642,6 +761,7 @@ export function buildAgentRuntimeReadme(): string {
     "## 说明",
     "",
     "- VAULT_SKILL 源文件物化到 `.claude/skills/vault-context/SKILL.md` 才能被 provider 按需识别。",
+    "- vault-api Skill 源文件物化到 `.claude/skills/vault-api/SKILL.md`（以及 .agents/skills / .pi/skills）。",
     "- 用户可查看/重置/清理本目录，但默认不需要维护。",
     "- 所有写入仍走 PermissionBoundary，不绕过权限系统。",
     "",
@@ -680,6 +800,8 @@ export interface VaultSkillRuntimeMeta {
 
 const VAULT_SKILL_RUNTIME_META: Readonly<Record<string, VaultSkillRuntimeMeta>> = {
   [VAULT_CONTEXT_SLUG]: { slug: VAULT_CONTEXT_SLUG, name: "vault-context", description: "Agent-maintained lightweight vault runtime package (rules + conventions + preferences + directory semantics)." },
+  // V2.18 vault-api：Obsidian Plugin API 能力（property/tags/backlinks/tasks/daily/trash）
+  [VAULT_API_SLUG]: { slug: VAULT_API_SLUG, name: "vault-api", description: "Obsidian Plugin API capabilities that the file system cannot provide: frontmatter (metadataCache/fileManager), tags/backlinks/tasks aggregation, daily-notes path, vault trash/rename. Invoke via outbox action / HTTP bridge (see .llm-bridge/bridge.json)." },
 };
 
 export function getVaultSkillRuntimeMeta(slug: string): VaultSkillRuntimeMeta {
@@ -1035,14 +1157,15 @@ export interface MaterializeAllVaultSkillsResult {
 }
 
 /**
- * 轻量版：只物化 vault-context（不遍历 manifest split entries）。
+ * 轻量版：物化 vault-context + vault-api（不遍历 manifest split entries）。
  */
 export async function materializeAllVaultSkills(vaultPath: string): Promise<MaterializeAllVaultSkillsResult> {
-  // 轻量版：只物化 vault-context（不遍历 manifest split entries）
+  // 轻量版：物化 vault-context + vault-api（不遍历 manifest split entries）
   const manifest = await loadVaultSkillsManifest(vaultPath);
   const results: VaultSkillMaterializeResult[] = [];
-  const vaultContextResult = await materializeVaultSkill(vaultPath);
-  results.push(vaultContextResult);
+  results.push(await materializeVaultSkill(vaultPath));
+  // V2.18 vault-api：物化到 .claude/skills/vault-api/SKILL.md
+  results.push(await materializeVaultSkill(vaultPath, { slug: VAULT_API_SLUG }));
   return {
     ok: results.every((r) => r.ok || r.status === "skipped"),
     results,
@@ -1073,7 +1196,7 @@ export interface MaterializeAllToAllTargetsResult {
 }
 
 /**
- * V17-A 任务 C.4：物化 vault-context 到所有 provider targets（轻量版，不遍历 split entries）。
+ * V17-A 任务 C.4 + V2.18：物化 vault-context + vault-api 到所有 provider targets（轻量版，不遍历 split entries）。
  *
  * 单个 conflict 不影响其他 target。
  */
@@ -1081,10 +1204,12 @@ export async function materializeAllVaultSkillsToAllTargets(vaultPath: string): 
   const manifest = await loadVaultSkillsManifest(vaultPath);
   const results: Array<VaultSkillMaterializeResult & { readonly target: ProviderSkillTarget }> = [];
 
-  // 轻量版：只物化 vault-context × 3 targets（不再遍历 manifest split entries）
-  for (const target of PROVIDER_SKILL_TARGETS) {
-    const result = await materializeToProviderTarget(vaultPath, VAULT_CONTEXT_SLUG, target);
-    results.push({ ...result, target });
+  // 轻量版：物化 vault-context + vault-api × 3 targets（不再遍历 manifest split entries）
+  for (const slug of [VAULT_CONTEXT_SLUG, VAULT_API_SLUG]) {
+    for (const target of PROVIDER_SKILL_TARGETS) {
+      const result = await materializeToProviderTarget(vaultPath, slug, target);
+      results.push({ ...result, target });
+    }
   }
 
   return {

@@ -567,8 +567,9 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
           providerId: this.providerId,
           timestamp: new Date().toISOString(),
           payload: {
-            kind: "warning",
-            message: `原 native session ${codexThread} 已失效（thread/resume 失败: ${(resumeErr as Error).message}），已新开 session。LLM 不会记得之前的对话内容。`,
+            kind: "message",
+            role: "system",
+            text: `原 native session ${codexThread} 已失效（thread/resume 失败: ${(resumeErr as Error).message}），已新开 session。LLM 不会记得之前的对话内容。`,
           },
         };
         // 委托 run() 走完整 thread/start 路径（会自己创建 process/client/handlers）

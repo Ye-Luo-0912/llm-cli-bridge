@@ -155,6 +155,8 @@ export function buildCapabilityManifest(
     lines.push("- Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md（轻量 vault-runtime 包：边界规则/稳定约定/用户偏好/目录语义）。");
     lines.push("- Runtime Skill target: .claude/skills/vault-context/SKILL.md（物化后 provider 按需识别）。");
   }
+  // V2.18 vault-api：声明 Obsidian Plugin API 能力 Skill（HTTP bridge / outbox action 调用）
+  lines.push("- vault-api Skill: .claude/skills/vault-api/SKILL.md（物化后）。只暴露文件系统做不到的能力：property_get/set（frontmatter）、tags_list、backlinks_get、tasks_list、daily_read/append、vault_delete/rename。调用通道：HTTP bridge（读 .llm-bridge/bridge.json 取 port/token）→ helper mjs → outbox actions.jsonl 兜底。普通文件读写仍用 native file tools。");
   lines.push("- Runtime facts: LLM-AgentRuntime/runtime/RUNTIME_FACTS.json（机器事实，不进 prompt）。");
   return lines.join("\n");
 }
