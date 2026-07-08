@@ -4470,9 +4470,84 @@ export class LLMBridgeView extends ItemView {
       content.textContent = text;
     };
     try {
-      void MarkdownRenderer.render(this.app, text, content, "", this).catch(fallback);
+      void MarkdownRenderer.render(this.app, text, content, "", this)
+        .then(() => this.bindAssistantMarkdownVaultLinks(content))
+        .catch(fallback);
     } catch {
       fallback();
+    }
+  }
+
+  private bindAssistantMarkdownVaultLinks(content: HTMLElement): void {
+    if (content.dataset.llmBridgeVaultLinksBound === "true") return;
+    content.dataset.llmBridgeVaultLinksBound = "true";
+    content.addEventListener("click", (event) => {
+      const target = event.target as HTMLElement | null;
+      const anchor = target?.closest("a") as HTMLAnchorElement | null;
+      if (!anchor) return;
+      const file = this.resolveAssistantMarkdownVaultLink(anchor);
+      if (!file) return;
+      event.preventDefault();
+      event.stopPropagation();
+      void this.openVaultFileFromAssistantLink(file);
+    }, true);
+  }
+
+  private resolveAssistantMarkdownVaultLink(anchor: HTMLAnchorElement): TFile | null {
+    const rawTarget = anchor.getAttribute("data-href")
+      || anchor.getAttribute("href")
+      || anchor.textContent
+      || "";
+    const linkText = this.normalizeAssistantMarkdownLinkTarget(rawTarget);
+    if (!linkText) return null;
+    if (/^(?:https?:|mailto:|tel:|#)/i.test(linkText)) return null;
+
+    const sourcePath = this.getActiveFile()?.path || "";
+    const linkedFile = this.app.metadataCache.getFirstLinkpathDest(linkText, sourcePath);
+    if (linkedFile instanceof TFile) return linkedFile;
+
+    const directPath = normalizePath(linkText.replace(/^\/+/, ""));
+    const directFile = this.app.vault.getAbstractFileByPath(directPath);
+    if (directFile instanceof TFile) return directFile;
+
+    if (!/\.[^/\\]+$/.test(directPath)) {
+      const markdownFile = this.app.vault.getAbstractFileByPath(`${directPath}.md`);
+      if (markdownFile instanceof TFile) return markdownFile;
+    }
+    return null;
+  }
+
+  private normalizeAssistantMarkdownLinkTarget(value: string): string {
+    let text = value.trim();
+    if (!text) return "";
+    try {
+      text = decodeURIComponent(text);
+    } catch {
+      // Keep the raw link if it is not URI encoded.
+    }
+    if (/^app:\/\/obsidian\.md\//i.test(text)) {
+      text = text.replace(/^app:\/\/obsidian\.md\//i, "");
+    }
+    const obsidianOpen = text.match(/^obsidian:\/\/open\?(.+)$/i);
+    if (obsidianOpen?.[1]) {
+      const params = new URLSearchParams(obsidianOpen[1]);
+      text = params.get("path") || params.get("file") || text;
+    }
+    return text
+      .replace(/[?#].*$/, "")
+      .replace(/\\/g, "/")
+      .trim();
+  }
+
+  private async openVaultFileFromAssistantLink(file: TFile): Promise<void> {
+    try {
+      const existingLeaf = this.findLeafForFile(file);
+      const leaf = existingLeaf ?? this.app.workspace.getLeaf("tab");
+      await leaf.openFile(file);
+      this.app.workspace.revealLeaf(leaf);
+      this.rememberActiveFile(file);
+    } catch (error) {
+      new Notice(`无法打开文件：${file.path} (${error instanceof Error ? error.message : String(error)})`, 5000);
     }
   }
 
@@ -5097,7 +5172,9 @@ export class LLMBridgeView extends ItemView {
       body.textContent = normalized;
     };
     try {
-      void MarkdownRenderer.render(this.app, normalized, body, "", this).catch(fallback);
+      void MarkdownRenderer.render(this.app, normalized, body, "", this)
+        .then(() => this.bindAssistantMarkdownVaultLinks(body))
+        .catch(fallback);
     } catch {
       fallback();
     }
@@ -5540,7 +5617,7 @@ export class LLMBridgeView extends ItemView {
       : item.change ? "Modified" : "";
     const commandPreview = isCommandEvent ? this.formatCodexShellCommandPreview(item.step?.command) : "";
     const label = item.change
-      ? `${changeActionText} ${item.change.fileName}`
+      ? `File · ${changeActionText} ${item.change.fileName}`
       : item.kind === "command"
         ? commandPreview
           ? `Shell · ${truncateText(commandPreview, developerMode ? 150 : 110)}`
@@ -5554,7 +5631,7 @@ export class LLMBridgeView extends ItemView {
       });
     }
     const summaryText = item.change
-      ? [item.change.relativePath, item.change.diffSummary].filter(Boolean).join(" · ")
+      ? ""
       : isCommandEvent
         ? ""
         : this.formatCodexFeedSummary(item, developerMode);
@@ -5605,7 +5682,6 @@ export class LLMBridgeView extends ItemView {
       }
       this.renderCodexSourceRef(body, item.sourceRef, developerMode);
     };
-    if (item.change) renderBody();
     block.addEventListener("toggle", () => {
       if (block.open) renderBody();
     });

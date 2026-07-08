@@ -16293,3 +16293,57 @@
 .llm-bridge-composer-tools-right {
   align-self: center !important;
 }
+
+/* ===== V17-G66: file events match shell rows, composer text stays above controls ===== */
+.llm-bridge-codex-event-block.is-file,
+.llm-bridge-codex-event-block.llm-bridge-codex-change-row {
+  margin: 2px 0 4px 20px !important;
+  padding: 0 !important;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
+  border-radius: 13px !important;
+  background: color-mix(in srgb, var(--background-primary) 98%, transparent) !important;
+  overflow: hidden !important;
+}
+
+.llm-bridge-codex-event-block.is-file:not([open]) > .llm-bridge-codex-event-summary,
+.llm-bridge-codex-event-block.llm-bridge-codex-change-row:not([open]) > .llm-bridge-codex-event-summary {
+  min-height: 38px !important;
+  padding: 9px 11px !important;
+}
+
+.llm-bridge-codex-event-block.is-file:not([open]) .llm-bridge-codex-event-hint,
+.llm-bridge-codex-event-block.llm-bridge-codex-change-row:not([open]) .llm-bridge-codex-event-hint {
+  display: none !important;
+}
+
+.llm-bridge-codex-event-block.llm-bridge-codex-change-row[open] {
+  background: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary)) !important;
+}
+
+.llm-bridge-codex-event-block.llm-bridge-codex-change-row .llm-bridge-codex-feed-icon {
+  color: color-mix(in srgb, var(--text-muted) 84%, transparent) !important;
+}
+
+.llm-bridge-codex-event-block.llm-bridge-codex-change-row .llm-bridge-codex-change-approval {
+  margin-left: 2px !important;
+}
+
+.llm-bridge-composer-bar {
+  grid-template-rows: auto auto minmax(58px, 112px) auto !important;
+}
+
+.llm-bridge-input-row {
+  min-height: 58px !important;
+  max-height: 112px !important;
+  overflow: hidden !important;
+}
+
+.llm-bridge-input {
+  height: 100% !important;
+  min-height: 58px !important;
+  max-height: 112px !important;
+  box-sizing: border-box !important;
+  overflow-y: auto !important;
+  padding: 2px 2px 8px 0 !important;
+  line-height: 1.45 !important;
+}

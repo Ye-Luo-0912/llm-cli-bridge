@@ -19091,6 +19091,25 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
+  // ---- Test 13j6: V17-G66 file rows, composer bounds and assistant vault links ----
+  {
+    const ok = viewSrc.includes("private bindAssistantMarkdownVaultLinks(")
+      && viewSrc.includes("private resolveAssistantMarkdownVaultLink(")
+      && viewSrc.includes("private async openVaultFileFromAssistantLink(")
+      && viewSrc.includes("private renderCodexFinalAnswer(")
+      && viewSrc.includes(".then(() => this.bindAssistantMarkdownVaultLinks(body))")
+      && viewSrc.includes('`File · ${changeActionText} ${item.change.fileName}`')
+      && viewSrc.includes('const summaryText = item.change')
+      && !viewSrc.includes("if (item.change) renderBody();")
+      && stylesSrc.includes("V17-G66: file events match shell rows, composer text stays above controls")
+      && stylesSrc.includes(".llm-bridge-codex-event-block.is-file")
+      && stylesSrc.includes("grid-template-rows: auto auto minmax(58px, 112px) auto")
+      && stylesSrc.includes("max-height: 112px")
+      && stylesSrc.includes("overflow-y: auto");
+    addTest("V17-G66 UI: file change 折叠态与 Shell 同风格，assistant Vault 链接可打开，composer 长文本不压工具栏",
+      ok ? "pass" : "fail", "");
+  }
+
   // ---- Test 13k: V17-G10 permission and files surfaces stay Codex-compact ----
   {
     const ok = viewSrc.includes('cls: "llm-bridge-context-ref-action is-pin"')
