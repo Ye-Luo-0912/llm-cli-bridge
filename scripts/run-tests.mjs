@@ -188,6 +188,11 @@ const ACTION_SCHEMAS = {
   broken_links_list: { required: [], optional: ["path"], extraForbidden: false },
   headings_get: { required: ["path"], optional: [], extraForbidden: false },
   vault_restore: { required: ["path"], optional: [], extraForbidden: false },
+  // V2.18 vault-api 第二批 schemas（搜索/聚合/书签）
+  search: { required: ["query"], optional: ["path", "limit"], extraForbidden: false },
+  rename_tag: { required: ["oldTag", "newTag"], optional: ["path"], extraForbidden: false },
+  bookmarks_list: { required: [], optional: [], extraForbidden: false },
+  metadatacache_get: { required: ["path"], optional: [], extraForbidden: false },
 };
 
 function validateActionSchema(action) {
@@ -277,6 +282,16 @@ const schemaTests = [
   { action: { type: "headings_get", params: { path: "a.md" } }, expect: null, desc: "headings_get 正常" },
   { action: { type: "vault_restore", params: {} }, expect: /缺少必填字段.*path/, desc: "vault_restore 缺 path" },
   { action: { type: "vault_restore", params: { path: "a.md" } }, expect: null, desc: "vault_restore 正常" },
+  // V2.18 vault-api 第二批 schema 测试（搜索/聚合/书签）
+  { action: { type: "search", params: {} }, expect: /缺少必填字段.*query/, desc: "search 缺 query" },
+  { action: { type: "search", params: { query: "foo" } }, expect: null, desc: "search 仅 query 正常" },
+  { action: { type: "search", params: { query: "foo", path: "inbox/", limit: 10 } }, expect: null, desc: "search 全参正常" },
+  { action: { type: "rename_tag", params: { oldTag: "a" } }, expect: /缺少必填字段.*newTag/, desc: "rename_tag 缺 newTag" },
+  { action: { type: "rename_tag", params: { oldTag: "a", newTag: "b" } }, expect: null, desc: "rename_tag 正常" },
+  { action: { type: "rename_tag", params: { oldTag: "a", newTag: "b", path: "inbox/" } }, expect: null, desc: "rename_tag 带 path 过滤正常" },
+  { action: { type: "bookmarks_list", params: {} }, expect: null, desc: "bookmarks_list 无参正常" },
+  { action: { type: "metadatacache_get", params: {} }, expect: /缺少必填字段.*path/, desc: "metadatacache_get 缺 path" },
+  { action: { type: "metadatacache_get", params: { path: "a.md" } }, expect: null, desc: "metadatacache_get 正常" },
 ];
 
 for (const t of schemaTests) {
@@ -4566,7 +4581,7 @@ if (runMode !== "all" && runMode !== "unit") {
         const vaSourceAbs = pathMod.join(taskKTmpRoot, agentRuntimeWsMod.VAULT_API_SKILL_SOURCE_REL);
         const exists = fsMod.existsSync(vaSourceAbs);
         const content = exists ? await fsMod.promises.readFile(vaSourceAbs, "utf8") : "";
-        // 初版应包含：13 个 action 类型 + HTTP bridge 调用通道 + 文件系统做不到的能力说明
+        // 初版应包含：17 个 action 类型 + HTTP bridge 调用通道 + 文件系统做不到的能力说明
         const hasPropertyGet = content.includes("property_get");
         const hasPropertySet = content.includes("property_set");
         const hasTagsList = content.includes("tags_list");
@@ -4581,23 +4596,29 @@ if (runMode !== "all" && runMode !== "unit") {
         const hasBrokenLinksList = content.includes("broken_links_list");
         const hasHeadingsGet = content.includes("headings_get");
         const hasVaultRestore = content.includes("vault_restore");
+        // V2.18 第二批 4 个 action（搜索/聚合/书签）
+        const hasSearch = content.includes("search");
+        const hasRenameTag = content.includes("rename_tag");
+        const hasBookmarksList = content.includes("bookmarks_list");
+        const hasMetadatacacheGet = content.includes("metadatacache_get");
         const hasHttpBridge = content.includes("bridge.json") && content.includes("/action");
         const hasFileSystemCaveat = content.includes("native Read/Write/Edit");
         const allActions = hasPropertyGet && hasPropertySet && hasTagsList && hasBacklinks
           && hasTasks && hasDailyRead && hasDailyAppend && hasVaultDelete && hasVaultRename
-          && hasOutlinksGet && hasBrokenLinksList && hasHeadingsGet && hasVaultRestore;
+          && hasOutlinksGet && hasBrokenLinksList && hasHeadingsGet && hasVaultRestore
+          && hasSearch && hasRenameTag && hasBookmarksList && hasMetadatacacheGet;
 
         // 单独验证 generateInitialVaultApiSkill 纯函数（不依赖文件系统）
         const generated = agentRuntimeWsMod.generateInitialVaultApiSkill();
         const generatedHasH1 = generated.startsWith("# vault-api");
         const generatedHasActionTable = generated.includes("### 结构化类") && generated.includes("### 危险操作类");
-        // V2.18 补充：13 个 action 计数 + 4 个新 action 行
-        const generatedHas13Count = generated.includes("13 个 action");
-        const generatedHasOutlinks = generated.includes("outlinks_get");
+        // V2.18 第二批：17 个 action 计数 + search 行
+        const generatedHas17Count = generated.includes("17 个 action");
+        const generatedHasSearch = generated.includes("search");
 
-        addTest("V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 13 actions + HTTP 通道",
-          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable && generatedHas13Count && generatedHasOutlinks ? "pass" : "fail",
-          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable} gen13Count=${generatedHas13Count} genOutlinks=${generatedHasOutlinks}`);
+        addTest("V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 17 actions + HTTP 通道",
+          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable && generatedHas17Count && generatedHasSearch ? "pass" : "fail",
+          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable} gen17Count=${generatedHas17Count} genSearch=${generatedHasSearch}`);
       }
 
       // Test K1-C: 轻量版 materializeToAllTargets — 单个 conflict 不影响其他 target

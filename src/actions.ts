@@ -35,7 +35,12 @@ export type ActionType =
   // V2.18 vault-api：危险操作类（走 Obsidian trash + 审批）
   | "vault_delete"    // 删除文件（走回收站，比 fs.delete 安全）
   | "vault_rename"   // 重命名/移动（更新 metadataCache）
-  | "vault_restore";  // 从回收站恢复（vault.restore，vault_delete 的逆操作）
+  | "vault_restore"  // 从回收站恢复（vault.restore，vault_delete 的逆操作）
+  // V2.18 vault-api 第二批：搜索/聚合/书签（文件系统做不准/做不到）
+  | "search"             // 全文搜索（markdown-aware：跳过 frontmatter/代码块）
+  | "rename_tag"         // 全 vault 标签重命名（frontmatter + 内联 #tag 原子更新）
+  | "bookmarks_list"     // 读 Obsidian 书签（.obsidian/ 已被路径校验拒绝，必须走 API）
+  | "metadatacache_get"; // 单文件完整 metadataCache 快照（headings+links+tags+frontmatter+embeds 聚合）
 
 export interface OutboxAction {
   id: string;
@@ -77,6 +82,11 @@ const ACTION_SCHEMAS: Record<ActionType, ParamSchema> = {
   broken_links_list: { required: [], optional: ["path"], extraForbidden: false },
   headings_get: { required: ["path"], optional: [], extraForbidden: false },
   vault_restore: { required: ["path"], optional: [], extraForbidden: false },
+  // V2.18 vault-api 第二批 schemas（搜索/聚合/书签）
+  search: { required: ["query"], optional: ["path", "limit"], extraForbidden: false },
+  rename_tag: { required: ["oldTag", "newTag"], optional: ["path"], extraForbidden: false },
+  bookmarks_list: { required: [], optional: [], extraForbidden: false },
+  metadatacache_get: { required: ["path"], optional: [], extraForbidden: false },
 };
 
 // ─── 路径安全校验 ─────────────────────────────────────────────────────────
@@ -192,6 +202,8 @@ const MODIFYING_ACTIONS: ActionType[] = [
   "vault_delete",
   "vault_rename",
   "vault_restore",
+  // V2.18 vault-api 第二批写入类
+  "rename_tag",
 ];
 
 export function isModifying(type: string): boolean {
@@ -559,6 +571,187 @@ export async function executeAction(
       }
       return { path: originalPath, restored: true, trashPath: trashFile.path };
     }
+    // ─── V2.18 vault-api 第二批：搜索/聚合/书签 ─────────────────────────────
+    case "search": {
+      // markdown-aware 全文搜索：跳过 frontmatter + 代码块（grep 做不到）
+      const query = String(p.query ?? "").trim();
+      if (!query) throw new Error("search: 缺少 query");
+      const pathFilter = typeof p.path === "string" ? String(p.path).trim() : undefined;
+      const limitRaw = typeof p.limit === "number" ? p.limit : (typeof p.limit === "string" ? parseInt(p.limit, 10) : NaN);
+      const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 200) : 50;
+      // 尝试作为正则；失败则按字面量
+      let regex: RegExp | null = null;
+      try { regex = new RegExp(query, "i"); } catch { regex = null; }
+      const lowerQuery = query.toLowerCase();
+      const results: { path: string; line: number; col: number; match: string; context: string }[] = [];
+      const mdFiles = app.vault.getMarkdownFiles();
+      outer: for (const f of mdFiles) {
+        if (pathFilter && !f.path.startsWith(pathFilter)) continue;
+        const content = await app.vault.read(f);
+        const lines = content.split(/\r?\n/);
+        let inFrontmatter = false;
+        let frontmatterDone = false;
+        let inCodeFence = false;
+        let codeFenceMarker = "";
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          // frontmatter 检测（仅文件开头）
+          if (i === 0) {
+            if (line.trim() === "---") { inFrontmatter = true; continue; }
+            frontmatterDone = true;
+          }
+          if (inFrontmatter) {
+            if (line.trim() === "---") { inFrontmatter = false; frontmatterDone = true; }
+            continue;
+          }
+          // 代码块检测
+          const fenceMatch = line.match(/^\s*(```|~~~)/);
+          if (fenceMatch) {
+            if (!inCodeFence) { inCodeFence = true; codeFenceMarker = fenceMatch[1]; }
+            else if (line.includes(codeFenceMarker)) { inCodeFence = false; codeFenceMarker = ""; }
+            continue;
+          }
+          if (inCodeFence) continue;
+          // 搜索匹配
+          let matchIndex = -1;
+          let matchedText = "";
+          if (regex) {
+            const m = line.match(regex);
+            if (m && m.index !== undefined) { matchIndex = m.index; matchedText = m[0]; }
+          } else {
+            const lowerLine = line.toLowerCase();
+            matchIndex = lowerLine.indexOf(lowerQuery);
+            if (matchIndex >= 0) matchedText = line.slice(matchIndex, matchIndex + query.length);
+          }
+          if (matchIndex >= 0) {
+            const start = Math.max(0, matchIndex - 30);
+            const end = Math.min(line.length, matchIndex + matchedText.length + 30);
+            results.push({
+              path: f.path,
+              line: i + 1,
+              col: matchIndex + 1,
+              match: matchedText,
+              context: (start > 0 ? "…" : "") + line.slice(start, end) + (end < line.length ? "…" : ""),
+            });
+            if (results.length >= limit) break outer;
+          }
+        }
+      }
+      return { query, isRegex: regex !== null, matches: results, total: results.length, truncated: results.length >= limit };
+    }
+    case "rename_tag": {
+      // 全 vault 标签重命名：frontmatter（processFrontMatter）+ 内联 #tag（跳过代码块）
+      const oldTag = String(p.oldTag ?? "").replace(/^#/, "").trim();
+      const newTag = String(p.newTag ?? "").replace(/^#/, "").trim();
+      if (!oldTag) throw new Error("rename_tag: 缺少 oldTag");
+      if (!newTag) throw new Error("rename_tag: 缺少 newTag");
+      const pathFilter = typeof p.path === "string" ? String(p.path).trim() : undefined;
+      const escapedOld = oldTag.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // 内联 #tag 正则：#前非词字符/行首，tag后非词字符/行尾
+      const inlineRegex = new RegExp(`(^|[^\\w/#])#${escapedOld}(?=$|[^\\w/])`, "g");
+      const mdFiles = app.vault.getMarkdownFiles();
+      const changed: { path: string; frontmatter: boolean; inline: number }[] = [];
+      for (const f of mdFiles) {
+        if (pathFilter && !f.path.startsWith(pathFilter)) continue;
+        let frontmatterChanged = false;
+        let inlineCount = 0;
+        // 1. frontmatter tags 改名（processFrontMatter 安全处理 YAML）
+        await app.fileManager.processFrontMatter(f, (fm: Record<string, unknown>) => {
+          const renameInArray = (arr: unknown): unknown[] => {
+            if (!Array.isArray(arr)) return arr as unknown[];
+            return arr.map((t) => (typeof t === "string" && t.replace(/^#/, "").trim() === oldTag ? newTag : t));
+          };
+          for (const key of ["tags", "tag"]) {
+            if (Array.isArray(fm[key])) {
+              const before = JSON.stringify(fm[key]);
+              fm[key] = renameInArray(fm[key]);
+              if (JSON.stringify(fm[key]) !== before) frontmatterChanged = true;
+            }
+          }
+        });
+        // 2. 内联 #tag 改名（read fresh → skip code fences → replace → modify）
+        const content = await app.vault.read(f);
+        const lines = content.split(/\r?\n/);
+        let inCodeFence = false;
+        let codeFenceMarker = "";
+        let inFrontmatter = false;
+        let modified = false;
+        const newLines = lines.map((line, i) => {
+          if (i === 0) {
+            if (line.trim() === "---") { inFrontmatter = true; return line; }
+          }
+          if (inFrontmatter) {
+            if (line.trim() === "---") inFrontmatter = false;
+            return line;
+          }
+          const fenceMatch = line.match(/^\s*(```|~~~)/);
+          if (fenceMatch) {
+            if (!inCodeFence) { inCodeFence = true; codeFenceMarker = fenceMatch[1]; }
+            else if (line.includes(codeFenceMarker)) { inCodeFence = false; codeFenceMarker = ""; }
+            return line;
+          }
+          if (inCodeFence) return line;
+          if (!line.includes("#")) return line;
+          const replaced = line.replace(inlineRegex, (full, pre) => {
+            inlineCount++;
+            return `${pre}#${newTag}`;
+          });
+          if (replaced !== line) modified = true;
+          return replaced;
+        });
+        if (modified) {
+          await app.vault.modify(f, newLines.join("\n"));
+        }
+        if (frontmatterChanged || inlineCount > 0) {
+          changed.push({ path: f.path, frontmatter: frontmatterChanged, inline: inlineCount });
+        }
+      }
+      return { oldTag, newTag, changedFiles: changed, total: changed.length };
+    }
+    case "bookmarks_list": {
+      // 读 Obsidian 书签（.obsidian/bookmarks.json，已被路径校验拒绝，必须走 API）
+      const bookmarksPath = ".obsidian/bookmarks.json";
+      let raw: string;
+      try {
+        raw = await app.vault.adapter.read(bookmarksPath);
+      } catch {
+        return { bookmarks: [], total: 0, note: "未找到 .obsidian/bookmarks.json（书签插件未启用或无书签）" };
+      }
+      let data: unknown;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        return { bookmarks: [], total: 0, note: "bookmarks.json 解析失败" };
+      }
+      const items = Array.isArray(data) ? data : (data as { items?: unknown[] })?.items ?? [];
+      const bookmarks = items.map((item: Record<string, unknown>) => ({
+        type: (item?.type as string) ?? "unknown",
+        path: (item?.path as string) ?? null,
+        title: (item?.title as string) ?? (item?.path as string) ?? null,
+      }));
+      return { bookmarks, total: bookmarks.length };
+    }
+    case "metadatacache_get": {
+      // 单文件完整 metadataCache 快照（聚合，比分别调 4 个 action 高效）
+      const targetPath = String(p.path ?? "").trim();
+      if (!targetPath) throw new Error("metadatacache_get: 缺少 path");
+      const f = app.vault.getAbstractFileByPath(targetPath);
+      if (!(f instanceof TFile)) throw new Error(`metadatacache_get: 文件不存在 ${targetPath}`);
+      const cache = app.metadataCache.getFileCache(f);
+      return {
+        path: f.path,
+        frontmatter: cache?.frontmatter ?? null,
+        tags: cache?.tags ?? [],
+        links: cache?.links ?? [],
+        embeds: cache?.embeds ?? [],
+        headings: (cache?.headings ?? []).map((h) => ({
+          heading: h.heading, level: h.level, line: (h.position?.start?.line ?? 0) + 1,
+        })),
+        sections: (cache?.sections ?? []).map((s) => ({
+          type: s.type, line: (s.position?.start?.line ?? 0) + 1,
+        })),
+      };
+    }
     default:
       throw new Error(`未知 action 类型: ${type}`);
   }
@@ -588,6 +781,8 @@ export function describeAction(action: OutboxAction): string {
       return `将重命名: ${p.path} → ${p.newPath}`;
     case "vault_restore":
       return `将从回收站恢复文件: ${p.path}`;
+    case "rename_tag":
+      return `将全 vault 重命名标签: #${p.oldTag} → #${p.newTag}${p.path ? `\n范围: ${p.path}` : ""}`;
     default:
       return JSON.stringify(p, null, 2);
   }
