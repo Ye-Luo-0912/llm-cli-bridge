@@ -20,7 +20,6 @@ import type { BridgePromptPackage } from "../../core/types";
 import type { RunInput } from "../../core/types";
 import { buildAttachmentPlan, buildEffectiveRunPlan, computePromptPackageHash } from "../../../effectiveRunPlan";
 import type {
-  CodexAttachmentBlock,
   CodexClientCapabilities,
   CodexClientInfo,
   CodexInitializeParams,
@@ -118,27 +117,6 @@ export function buildCodexAppServerRunOptions(
     cwd: plan.cwd,
   };
 
-  // 附件 → codex attachment blocks.
-  // 真实 managed app-server 不接受 turn/start.input 的 `file` variant；
-  // 非图片附件已经在 userPrompt 的 FileRef index / bounded inline snippet 中承载。
-  const attachments: CodexAttachmentBlock[] = [];
-  for (const entry of promptPackage.attachmentEntries) {
-    if (entry.packing === "inline-snippet") {
-      // inline snippet 已在 userPrompt 中；不再重复作为 codex attachment
-      continue;
-    }
-    if (entry.packing === "sdk-streaming-block") {
-      const url = localFileUrl(entry.resolvedPath);
-      if (!url) continue;
-      attachments.push({
-        type: "image",
-        refId: entry.refId,
-        url,
-        path: entry.resolvedPath,
-      });
-    }
-  }
-
   // bridgeSystemAppend → instructions（当前默认）
   const bridgeSystemAppendSource: CodexAppServerRunOptions["bridgeSystemAppendSource"] = "instructions";
 
@@ -155,21 +133,20 @@ export function buildCodexAppServerRunOptions(
   const inputItems: CodexTurnInputItem[] = [
     { type: "text", text: promptPackage.userPrompt },
   ];
-  // image 附件可作为 input item 一并送入（与 attachments 字段互补）。
+  // 本地图片用 localImage 作为 input item 一并送入。
   // native-ref-only 文件不进入 input item；否则真实 app-server 会返回
   // unknown variant `file`, expected text/image/localImage/skill/mention。
   for (const entry of promptPackage.attachmentEntries) {
     if (entry.packing === "sdk-streaming-block" && entry.fileType === "image") {
       const url = localFileUrl(entry.resolvedPath);
       if (url) {
-        inputItems.push({ type: "image", refId: entry.refId, url, path: entry.resolvedPath });
+        inputItems.push({ type: "localImage", refId: entry.refId, path: entry.resolvedPath, url });
       }
     }
   }
 
   const turnStart: Omit<CodexTurnStartParams, "threadId"> = {
     input: inputItems,
-    attachments: attachments.length > 0 ? attachments : undefined,
     effort: plan.effort || undefined,
   };
 

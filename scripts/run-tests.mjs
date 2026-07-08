@@ -1507,12 +1507,12 @@ if (runMode !== "all" && runMode !== "unit") {
       const input = opts.turnStart.input;
       const isArray = Array.isArray(input);
       const firstText = isArray && input[0]?.type === "text" && input[0]?.text === "hello world";
-      const imageItem = isArray ? input.find((it) => it.type === "image" && it.refId === "r2") : null;
+      const imageItem = isArray ? input.find((it) => it.type === "localImage" && it.refId === "r2") : null;
       const fileItem = isArray ? input.find((it) => it.type === "file" && it.refId === "r3") : null;
-      const hasImage = !!imageItem && typeof imageItem.url === "string" && imageItem.url.startsWith("file:///");
+      const hasImage = !!imageItem && imageItem.path === "D:\\vault\\attachments\\i.png" && typeof imageItem.url === "string" && imageItem.url.startsWith("file:///");
       const noFileVariant = !fileItem && !JSON.stringify(opts.turnStart.attachments || []).includes('"type":"file"');
       const ok = isArray && firstText && hasImage && noFileVariant;
-      addTest("Wire turn/start.input: content item array (text + image url; no unsupported file variant)", ok ? "pass" : "fail",
+      addTest("Wire turn/start.input: content item array (text + localImage; no unsupported file variant)", ok ? "pass" : "fail",
         ok ? "" : `isArray=${isArray}, firstText=${firstText}, hasImage=${hasImage}, noFileVariant=${noFileVariant}, input=${JSON.stringify(input)}, attachments=${JSON.stringify(opts.turnStart.attachments)}`);
     }
 
@@ -18939,10 +18939,14 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("if (this.extractNativeFilePath(file)) return true;")
       && viewSrc.includes("options?: { allowRawAbsolutePaths?: boolean }")
       && viewSrc.includes("if (!isFileUri && !options?.allowRawAbsolutePaths) continue;")
+      && viewSrc.includes("private isUsableNativeFilePath")
+      && viewSrc.includes('if (filePath.includes("\\uFFFD")) return false;')
+      && viewSrc.includes("private isUsableAttachmentFileName")
+      && viewSrc.includes("this.defaultAttachmentFileName(file.type)")
       && viewSrc.includes('addText(text.replace(/\\0/g, "\\n"), { allowRawAbsolutePaths: format !== "text/uri-list" });')
       && !viewSrc.includes('candidate.startsWith("./")')
       && !viewSrc.includes('candidate.startsWith("../")');
-    addTest("V17-G41 composer: 普通复制文本保持原文，仅真实文件或超大文本进入附件流", ok ? "pass" : "fail", "");
+    addTest("V17-G41 composer: 普通复制文本保持原文，损坏路径/文件名不进入附件流", ok ? "pass" : "fail", "");
   }
 
   {
@@ -19430,18 +19434,19 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 13j14: V17-G74 codex image URL input and session dropdown overflow guard ----
+  // ---- Test 13j14: V17-G74 codex localImage input and session dropdown overflow guard ----
   {
     const schemaSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "schema", "index.ts"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "promptPackage.ts"), "utf8");
     const codexRunOptionsSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerEffectiveRunPlan.ts"), "utf8");
     const ok = schemaSrc.includes('| { type: "image"; refId?: string; url: string;')
+      && schemaSrc.includes('| { type: "localImage"; refId?: string;')
       && schemaSrc.includes("url?: string;")
       && promptPackageSrc.includes("resolvedPath: ref.path")
       && codexRunOptionsSrc.includes('import { pathToFileURL } from "url";')
       && codexRunOptionsSrc.includes("function localFileUrl(")
-      && codexRunOptionsSrc.includes('inputItems.push({ type: "image", refId: entry.refId, url, path: entry.resolvedPath });')
-      && codexRunOptionsSrc.includes('attachments.push({')
+      && codexRunOptionsSrc.includes('inputItems.push({ type: "localImage", refId: entry.refId, path: entry.resolvedPath, url });')
+      && !codexRunOptionsSrc.includes('attachments.push({')
       && viewSrc.includes('row.createEl("span", { cls: "llm-bridge-session-dropdown-inline-meta", text: meta });')
       && stylesSrc.includes("V17-G74: compact session dropdown overflow guard")
       && stylesSrc.includes('grid-template-areas:')
@@ -19449,7 +19454,7 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes('"meta meta"')
       && stylesSrc.includes(".llm-bridge-session-dropdown-inline-meta")
       && stylesSrc.includes("overflow-x: hidden !important");
-    addTest("V17-G74 UI/protocol: Codex 图片 input 使用 file URL，会话下拉标题时间分行防溢出",
+    addTest("V17-G74 UI/protocol: Codex 图片 input 使用 localImage，会话下拉标题时间分行防溢出",
       ok ? "pass" : "fail", "");
   }
 
@@ -19487,6 +19492,9 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("if (hasDeveloperDebug) this.renderAgentRunDebugDrawer(body, run.debugPanel!)")
       && viewSrc.includes("private renderAgentRunDebugDrawer")
       && viewSrc.includes("private assistantTurnHasVisibleRunContent")
+      && viewSrc.includes("buildCodexRunViewModel(model, turnView")
+      && viewSrc.includes("codexRun.feedItems.length > 0")
+      && viewSrc.includes("!msg?.assistantTurnView || !this.assistantTurnHasVisibleRunContent")
       && viewSrc.includes("completedWithoutVisibleCodexOutput")
       && viewSrc.includes("Codex runtime completed without visible output")
       && stylesSrc.includes("V17-G77: debug stays behind one drawer")

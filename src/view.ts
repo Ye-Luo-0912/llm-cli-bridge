@@ -3211,7 +3211,10 @@ export class LLMBridgeView extends ItemView {
     try {
       const folder = normalizePath("LLM-Bridge Attachments");
       await this.ensureVaultFolder(folder);
-      const safeName = this.sanitizeAttachmentFileName(file.name || this.defaultAttachmentFileName(file.type));
+      const sourceName = this.isUsableAttachmentFileName(file.name)
+        ? file.name
+        : this.defaultAttachmentFileName(file.type);
+      const safeName = this.sanitizeAttachmentFileName(sourceName);
       const relPath = await this.allocateAttachmentPath(folder, safeName);
       const data = await file.arrayBuffer();
       await this.app.vault.createBinary(relPath, data);
@@ -3293,6 +3296,15 @@ export class LLMBridgeView extends ItemView {
       .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
       .replace(/\s+/g, " ")
       .slice(0, 120);
+  }
+
+  private isUsableAttachmentFileName(fileName: string | null | undefined): fileName is string {
+    const trimmed = (fileName || "").trim();
+    if (!trimmed) return false;
+    if (trimmed.includes("\uFFFD")) return false;
+    if (/[\x00-\x1F]/.test(trimmed)) return false;
+    if (!path.extname(trimmed) && trimmed.length > 48) return false;
+    return true;
   }
 
   private defaultAttachmentFileName(mimeType: string): string {
@@ -3438,12 +3450,20 @@ export class LLMBridgeView extends ItemView {
       const looksLikePath = path.isAbsolute(candidate) || /^[A-Za-z]:[\\/]/.test(candidate);
       if (!looksLikePath) continue;
       if (!isFileUri && !options?.allowRawAbsolutePaths) continue;
+      if (!this.isUsableNativeFilePath(candidate)) continue;
       if (!seen.has(candidate)) {
         seen.add(candidate);
         paths.push(candidate);
       }
     }
     return paths;
+  }
+
+  private isUsableNativeFilePath(filePath: string): boolean {
+    if (!filePath.trim()) return false;
+    if (filePath.includes("\uFFFD")) return false;
+    if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(filePath)) return false;
+    return true;
   }
 
   private parseFileUriToPath(rawUri: string): string {
@@ -5003,12 +5023,20 @@ export class LLMBridgeView extends ItemView {
   }
 
   private assistantTurnHasVisibleRunContent(turnView: AssistantTurnView): boolean {
-    if (turnView.finalAnswer.trim().length > 0) return true;
-    if (turnView.approvals.some((approval) => approval.pending || approval.resolutionSource)) return true;
-    if (turnView.userInputRequests.some((request) => request.pending)) return true;
-    return this.flattenTurnTimeline(turnView.turnTimeline).some((node) => {
-      return [node.text, node.summary, node.detail].some((value) => (value ?? "").trim().length > 0);
+    const model = buildAgentRunDisplayModel(turnView, {
+      isRunning: false,
+      statusLabel: "Completed",
+      developerMode: false,
     });
+    const codexRun = buildCodexRunViewModel(model, turnView, {
+      status: "completed",
+      developerMode: false,
+      providerLabel: turnView.providerId,
+    });
+    return codexRun.finalAnswer.trim().length > 0
+      || codexRun.feedItems.length > 0
+      || codexRun.changeGroups.length > 0
+      || codexRun.approvalGates.length > 0;
   }
 
   // stderr / log / 生成文件，默认折叠；失败或有新文件时显著
@@ -9645,10 +9673,12 @@ export class LLMBridgeView extends ItemView {
       `\nexit code: ${result.exitCode ?? "null"}  signal: ${result.signal ?? "-"}\nduration: ${result.durationMs} ms`;
     let finalStatus = status;
     let finalResult = result;
+    const isCodexAssistantTurn = /codex/i.test(msg?.assistantTurnView?.providerId ?? "")
+      || /codex/i.test(msg?.effectiveRunPlan?.backend ?? "");
     const completedWithoutVisibleCodexOutput = status === "completed"
-      && msg?.assistantTurnView
-      && /codex/i.test(msg.assistantTurnView.providerId)
-      && !this.assistantTurnHasVisibleRunContent(msg.assistantTurnView);
+      && isCodexAssistantTurn
+      && !this.coerceMessageContentText(msg?.content).trim()
+      && (!msg?.assistantTurnView || !this.assistantTurnHasVisibleRunContent(msg.assistantTurnView));
     if (completedWithoutVisibleCodexOutput) {
       finalStatus = "failed";
       finalResult = {
