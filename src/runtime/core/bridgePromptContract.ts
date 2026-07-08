@@ -161,7 +161,7 @@ function buildRuntimeSkillCapabilityLines(context?: ProviderRuntimeSkillContext)
   if (enabledPlugins.length === 0 && enabledPluginSkills.length === 0 && enabledSkills.length === 0) return [];
 
   const lines: string[] = [
-    "- Runtime Skills / Plugins：以下能力来自当前 managed Codex runtime 会话，而不是 Vault 的 AGENTS.md；用户点名要求使用时，应视为可用能力，不要因为它不是 shell 命令就回答不可用。",
+    "- Bridge/Vault Agent Skills and managed runtime plugins：以下条目是当前 Bridge 会话可用能力；用户询问“当前可用 Skills”时必须包含这些条目，用户点名要求使用时应按任务匹配使用。",
   ];
   if (enabledPlugins.length > 0) {
     lines.push("  Managed Codex plugins:");
@@ -186,7 +186,7 @@ function buildRuntimeSkillCapabilityLines(context?: ProviderRuntimeSkillContext)
     }
   }
   if (enabledSkills.length > 0) {
-    lines.push("  Vault Agent Skills:");
+    lines.push("  Bridge/Vault Agent Skills:");
     for (const skill of enabledSkills.slice(0, 16)) {
       const desc = skill.description ? ` — ${capabilityText(skill.description, 220)}` : "";
       lines.push(`  - ${skill.name} (${skill.id})${desc}`);

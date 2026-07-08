@@ -804,8 +804,8 @@ export function buildCompactResumeRuntimeContext(bridgeSystemAppend: string | un
   if (capabilityLines.length === 0) return "";
   const compactLines = limitRuntimeCapabilityLines(capabilityLines, 52, 4200);
   return [
-    "Bridge runtime capabilities for this resumed turn (compact):",
-    "Use these enabled managed Codex plugins/Skills when the user asks for them or when they match the task.",
+    "Available Bridge/Vault Agent Skills and managed Codex plugins for this resumed turn (compact):",
+    "If the user asks what Skills are currently available, include the Bridge/Vault Agent Skills listed here; use named Skills when they match the task.",
     ...compactLines,
   ].join("\n");
 }
@@ -815,9 +815,11 @@ function extractRuntimeSkillCapabilityLines(text: string): string[] {
   const start = lines.findIndex((line) => {
     const trimmed = line.trim();
     return trimmed.includes("Runtime Skills / Plugins")
+      || trimmed.includes("Bridge/Vault Agent Skills and managed runtime plugins")
       || trimmed === "Managed Codex plugins:"
       || trimmed === "Plugin-contained Skills:"
-      || trimmed === "Vault Agent Skills:";
+      || trimmed === "Vault Agent Skills:"
+      || trimmed === "Bridge/Vault Agent Skills:";
   });
   if (start < 0) return [];
 

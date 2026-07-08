@@ -1287,20 +1287,24 @@ if (runMode !== "all" && runMode !== "unit") {
         && noSkillResumeInput.length === opts.turnStart.input.length;
       const resumeSkillAppend = [
         "========== Capability Manifest ==========",
-        "- Runtime Skills / Plugins：以下能力来自当前 managed Codex runtime 会话，而不是 Vault 的 AGENTS.md；用户点名要求使用时，应视为可用能力。",
+        "- Bridge/Vault Agent Skills and managed runtime plugins：以下条目是当前 Bridge 会话可用能力；用户询问“当前可用 Skills”时必须包含这些条目，用户点名要求使用时应按任务匹配使用。",
         "  Managed Codex plugins:",
         "  - defuddle (defuddle) — Extract clean markdown content from web pages [imported]",
         "  Plugin-contained Skills:",
         "  - pdf (pdf@openai-primary-runtime:pdf) — Read, create, inspect, render, and verify PDF files",
+        "  Bridge/Vault Agent Skills:",
+        "  - obsidian-markdown (obsidian-markdown) — Create and edit Obsidian Flavored Markdown",
         "- Host approval 是 write/delete/command 的最终安全边界；权限系统会拦截未授权操作。",
         "========== Autonomy Contract ==========",
         "- 用户意图明确时直接行动。",
       ].join("\n");
       const resumeInput = codexProviderMod.buildResumeTurnInput(opts.turnStart.input, resumeSkillAppend);
       const resumeOk = resumeInput[0]?.type === "text"
-        && resumeInput[0].text.includes("Bridge runtime capabilities for this resumed turn")
+        && resumeInput[0].text.includes("Available Bridge/Vault Agent Skills")
+        && resumeInput[0].text.includes("当前可用 Skills")
         && resumeInput[0].text.includes("defuddle (defuddle)")
         && resumeInput[0].text.includes("pdf (pdf@openai-primary-runtime:pdf)")
+        && resumeInput[0].text.includes("obsidian-markdown (obsidian-markdown)")
         && !resumeInput[0].text.includes("Autonomy Contract")
         && !resumeInput[0].text.includes("Host approval")
         && resumeInput[1]?.type === "text"
@@ -4017,13 +4021,14 @@ if (runMode !== "all" && runMode !== "unit") {
         },
       });
       const append = pkg.bridgeSystemAppend;
-      const ok = append.includes("Runtime Skills / Plugins")
-        && append.includes("不是 Vault 的 AGENTS.md")
+      const ok = append.includes("Bridge/Vault Agent Skills and managed runtime plugins")
+        && append.includes("当前 Bridge 会话可用能力")
+        && append.includes("当前可用 Skills")
         && append.includes("PDF (pdf)")
         && append.includes("Plugin-contained Skills")
         && append.includes("pdf (pdf@openai-primary-runtime:pdf)")
         && append.includes("defuddle (defuddle)")
-        && append.includes("不要因为它不是 shell 命令就回答不可用");
+        && append.includes("用户点名要求使用时应按任务匹配使用");
       addTest("V17-G71 runtime capability context: plugin-contained Skills enter provider instructions",
         ok ? "pass" : "fail", "");
     }
@@ -21390,11 +21395,13 @@ if (!runCodexSchemaAlignment) {
           userPrompt: "hello",
           bridgeSystemAppend: [
             "system rules",
-            "- Runtime Skills / Plugins：以下能力来自当前 managed Codex runtime 会话，而不是 Vault 的 AGENTS.md；用户点名要求使用时，应视为可用能力。",
+            "- Bridge/Vault Agent Skills and managed runtime plugins：以下条目是当前 Bridge 会话可用能力；用户询问“当前可用 Skills”时必须包含这些条目，用户点名要求使用时应按任务匹配使用。",
             "  Managed Codex plugins:",
             "  - defuddle (defuddle) — Extract clean markdown content from web pages [imported]",
             "  Plugin-contained Skills:",
             "  - pdf (pdf@openai-primary-runtime:pdf) — Read and verify PDF files",
+            "  Bridge/Vault Agent Skills:",
+            "  - obsidian-markdown (obsidian-markdown) — Create and edit Obsidian Flavored Markdown",
             "- Host approval 是 write/delete/command 的最终安全边界；权限系统会拦截未授权操作。",
           ].join("\n"),
           attachmentEntries: [], auditHash: "h1",
@@ -21495,9 +21502,11 @@ if (!runCodexSchemaAlignment) {
       const turnStartContextOk = turnStartRequestParams
         && Array.isArray(turnStartRequestParams.input)
         && turnStartRequestParams.input[0]?.type === "text"
-        && turnStartRequestParams.input[0].text.includes("Bridge runtime capabilities for this resumed turn")
+        && turnStartRequestParams.input[0].text.includes("Available Bridge/Vault Agent Skills")
+        && turnStartRequestParams.input[0].text.includes("当前可用 Skills")
         && turnStartRequestParams.input[0].text.includes("defuddle (defuddle)")
         && turnStartRequestParams.input[0].text.includes("pdf (pdf@openai-primary-runtime:pdf)")
+        && turnStartRequestParams.input[0].text.includes("obsidian-markdown (obsidian-markdown)")
         && !turnStartRequestParams.input[0].text.includes("system rules")
         && !turnStartRequestParams.input[0].text.includes("Host approval")
         && turnStartRequestParams.input[1]?.type === "text"
