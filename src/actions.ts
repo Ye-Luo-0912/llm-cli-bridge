@@ -185,7 +185,15 @@ export async function executeAction(
       const file = app.workspace.getActiveFile();
       if (!(file instanceof TFile)) return null;
       const content = await app.vault.read(file);
-      return { path: file.path, content, size: content.length };
+      // V2.18 t3: maxChars 截断（默认 50000，-1 不截断）
+      const maxChars = typeof p.maxChars === "number" ? p.maxChars : 50000;
+      let truncated = false;
+      let outContent = content;
+      if (maxChars >= 0 && content.length > maxChars) {
+        outContent = content.slice(0, maxChars) + "\n...[truncated]";
+        truncated = true;
+      }
+      return { path: file.path, content: outContent, size: content.length, truncated };
     }
     case "get_selection": {
       const view = app.workspace.getActiveViewOfType(MarkdownView);
@@ -266,15 +274,37 @@ export async function executeAction(
       const key = String(p.key ?? "");
       if (!key) throw new Error("property_set: 缺少 key");
       const value = p.value;
+      // V2.18 t5: null 被拒绝，用 property_delete 删除属性
+      if (value === undefined || value === null) {
+        throw new Error("property_set: value 不能为 null/undefined，删除属性请用 property_delete");
+      }
       // processFrontMatter 安全修改 YAML frontmatter（处理边界/序列化）
       await app.fileManager.processFrontMatter(f, (fm: Record<string, unknown>) => {
         fm[key] = value;
       });
       return { path: f.path, key, value };
     }
+    case "property_delete": {
+      const targetPath = String(p.path ?? "").trim();
+      if (!targetPath) throw new Error("property_delete: 缺少 path");
+      const f = app.vault.getAbstractFileByPath(targetPath);
+      if (!(f instanceof TFile)) throw new Error(`property_delete: 文件不存在 ${targetPath}`);
+      const key = String(p.key ?? "");
+      if (!key) throw new Error("property_delete: 缺少 key");
+      let deleted = false;
+      await app.fileManager.processFrontMatter(f, (fm: Record<string, unknown>) => {
+        if (key in fm) {
+          delete fm[key];
+          deleted = true;
+        }
+      });
+      return { path: f.path, key, deleted };
+    }
     case "tags_list": {
       // 聚合全 vault 标签（用 metadataCache，区分代码块假 tag）
       const pathFilter = typeof p.path === "string" ? String(p.path).trim() : undefined;
+      // V2.18 t3: limit 截断（默认 500，-1 不限）
+      const limit = typeof p.limit === "number" ? p.limit : 500;
       const tagCounts = new Map<string, { count: number; files: string[] }>();
       const mdFiles = app.vault.getMarkdownFiles();
       for (const f of mdFiles) {
@@ -293,10 +323,16 @@ export async function executeAction(
           }
         }
       }
-      const tags = Array.from(tagCounts.entries())
+      const allTags = Array.from(tagCounts.entries())
         .map(([name, info]) => ({ name, count: info.count, files: info.files }))
         .sort((a, b) => b.count - a.count);
-      return { tags, total: tags.length };
+      let truncated = false;
+      let tags = allTags;
+      if (limit >= 0 && allTags.length > limit) {
+        tags = allTags.slice(0, limit);
+        truncated = true;
+      }
+      return { tags, total: allTags.length, truncated };
     }
     case "backlinks_get": {
       // 反向链接（用 resolvedLinks，文件系统无法反向查）
@@ -317,7 +353,9 @@ export async function executeAction(
     case "tasks_list": {
       // 扫描所有 markdown 文件的待办项（- [ ] / - [x]）
       const pathFilter = typeof p.path === "string" ? String(p.path).trim() : undefined;
-      const tasks: { path: string; line: number; text: string; completed: boolean }[] = [];
+      // V2.18 t3: limit 截断（默认 500，-1 不限）
+      const limit = typeof p.limit === "number" ? p.limit : 500;
+      const allTasks: { path: string; line: number; text: string; completed: boolean }[] = [];
       const mdFiles = app.vault.getMarkdownFiles();
       for (const f of mdFiles) {
         if (pathFilter && !f.path.startsWith(pathFilter)) continue;
@@ -326,7 +364,7 @@ export async function executeAction(
         for (let i = 0; i < lines.length; i++) {
           const m = lines[i].match(/^\s*[-*]\s+\[(x|X| )\]\s+(.+)$/);
           if (m) {
-            tasks.push({
+            allTasks.push({
               path: f.path,
               line: i + 1,
               text: m[2].trim(),
@@ -335,7 +373,13 @@ export async function executeAction(
           }
         }
       }
-      return { tasks, total: tasks.length };
+      let truncated = false;
+      let tasks = allTasks;
+      if (limit >= 0 && allTasks.length > limit) {
+        tasks = allTasks.slice(0, limit);
+        truncated = true;
+      }
+      return { tasks, total: allTasks.length, truncated };
     }
     case "daily_read": {
       // 读今天的 daily note（按 daily-notes 约定路径）
@@ -505,9 +549,12 @@ export async function executeAction(
       const pathFilter = typeof p.path === "string" ? String(p.path).trim() : undefined;
       const limitRaw = typeof p.limit === "number" ? p.limit : (typeof p.limit === "string" ? parseInt(p.limit, 10) : NaN);
       const limit = Number.isFinite(limitRaw) && limitRaw > 0 ? Math.min(Math.floor(limitRaw), 200) : 50;
-      // 尝试作为正则；失败则按字面量
+      // V2.18 t4: 默认 literal，regex=true 才用 RegExp
+      const useRegex = p.regex === true;
       let regex: RegExp | null = null;
-      try { regex = new RegExp(query, "i"); } catch { regex = null; }
+      if (useRegex) {
+        try { regex = new RegExp(query, "i"); } catch { throw new Error(`search: 无效正则: ${query}`); }
+      }
       const lowerQuery = query.toLowerCase();
       const results: { path: string; line: number; col: number; match: string; context: string }[] = [];
       const mdFiles = app.vault.getMarkdownFiles();
@@ -664,27 +711,41 @@ export async function executeAction(
       const f = app.vault.getAbstractFileByPath(targetPath);
       if (!(f instanceof TFile)) throw new Error(`metadatacache_get: 文件不存在 ${targetPath}`);
       const cache = app.metadataCache.getFileCache(f);
+      // V2.18 t3: limit 截断 links/embeds（默认 200，-1 不限）
+      const limit = typeof p.limit === "number" ? p.limit : 200;
+      const truncateArr = <T>(arr: T[]): { items: T[]; truncated: boolean } => {
+        if (limit < 0 || arr.length <= limit) return { items: arr, truncated: false };
+        return { items: arr.slice(0, limit), truncated: true };
+      };
+      const linksAll = cache?.links ?? [];
+      const embedsAll = cache?.embeds ?? [];
+      const linksTrunc = truncateArr(linksAll);
+      const embedsTrunc = truncateArr(embedsAll);
       return {
         path: f.path,
         frontmatter: cache?.frontmatter ?? null,
         tags: cache?.tags ?? [],
-        links: cache?.links ?? [],
-        embeds: cache?.embeds ?? [],
+        links: linksTrunc.items,
+        linksTotal: linksAll.length,
+        embeds: embedsTrunc.items,
+        embedsTotal: embedsAll.length,
         headings: (cache?.headings ?? []).map((h) => ({
           heading: h.heading, level: h.level, line: (h.position?.start?.line ?? 0) + 1,
         })),
         sections: (cache?.sections ?? []).map((s) => ({
           type: s.type, line: (s.position?.start?.line ?? 0) + 1,
         })),
+        truncated: linksTrunc.truncated || embedsTrunc.truncated,
       };
     }
     // ─── V2.18 vault-api 第三批：全局图/插件/外部操作/设置 ───────────────────
     case "resolved_links_map": {
       // 全 vault 解析后链接图（metadataCache.resolvedLinks 全量，全局拓扑）
       const pathFilter = typeof p.path === "string" ? String(p.path).trim() : undefined;
+      // V2.18 t3: limit 截断（默认 500，-1 不限）
+      const limit = typeof p.limit === "number" ? p.limit : 500;
       const resolvedLinks = (app.metadataCache as unknown as { resolvedLinks: Record<string, Record<string, number>> }).resolvedLinks;
-      const links: Record<string, Record<string, number>> = {};
-      let totalFiles = 0;
+      const allLinks: { source: string; targets: Record<string, number> }[] = [];
       let totalLinks = 0;
       for (const [sourcePath, targets] of Object.entries(resolvedLinks)) {
         if (pathFilter && !sourcePath.startsWith(pathFilter)) continue;
@@ -695,11 +756,16 @@ export async function executeAction(
           totalLinks++;
         }
         if (Object.keys(filtered).length > 0) {
-          links[sourcePath] = filtered;
-          totalFiles++;
+          allLinks.push({ source: sourcePath, targets: filtered });
         }
       }
-      return { links, totalFiles, totalLinks };
+      let truncated = false;
+      let map = allLinks;
+      if (limit >= 0 && allLinks.length > limit) {
+        map = allLinks.slice(0, limit);
+        truncated = true;
+      }
+      return { map, total: allLinks.length, totalLinks, truncated };
     }
     case "plugin_list": {
       // 列出启用的插件（.obsidian/ 被路径校验拒绝，必须走 API）

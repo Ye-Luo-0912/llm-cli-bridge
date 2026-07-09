@@ -3,9 +3,16 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { ACTION_METADATA, type ActionType } from "./actionMetadata";
 
 export const TOOLS_DIR_REL = ".llm-bridge/tools";
 export const HELPER_FILE_NAME = "obsidian-action.mjs";
+
+// V2.18 t2: 从 ACTION_METADATA 派生 dangerous action 清单（单一真相源，不硬编码）
+function getDangerousActionTypes(): string[] {
+  return (Object.keys(ACTION_METADATA) as ActionType[])
+    .filter((type) => ACTION_METADATA[type].category === "dangerous");
+}
 
 // helper 的源码（ESM）。保持自包含、零外部依赖，仅用 node 内置模块 + 全局 fetch。
 const HELPER_SOURCE = `// LLM CLI Bridge — Obsidian Action Helper
@@ -161,7 +168,7 @@ if (isMain) {
       console.error("  <type> [json]                           # 执行 action");
       console.error("");
       console.error("选项:");
-      console.error("  --wait                                  修改类 action 等待确认结果");
+      console.error("  --wait                                  仅 dangerous action 等待确认结果");
       console.error("  --timeout <sec>                         等待超时（秒，默认 300）");
       console.error("  --json                                  输出原始 JSON（友好格式）");
       console.error("  --raw                                   输出纯 JSON（无缩进，适合管道）");
@@ -173,7 +180,7 @@ if (isMain) {
       console.error("  obsidian-bridge tags_list");
       console.error(\`  obsidian-bridge property_get '{"path":"a.md","key":"tags"}'\`);
       console.error(\`  echo '{"path":"a.md","content":"# a"}' | obsidian-bridge create_note --stdin\`);
-      console.error(\`  obsidian-bridge --wait --timeout 60 create_note '{"path":"a.md","content":"x"}'\`);
+      console.error(\`  obsidian-bridge --wait --timeout 60 vault_delete '{"path":"temp/draft.md"}'\`);
       console.error("  obsidian-bridge --raw tags_list | jq '.tags'");
       process.exit(0);
     } else {
@@ -224,9 +231,10 @@ if (isMain) {
         console.log(JSON.stringify(obj, null, 2));
       }
     };
-    // V2.18 r10: 仅 dangerous 类走 bridge 两阶段审批（pending_approval）；
-    // 其余修改类直接执行返回 completed。--wait 仅对 dangerous 有效。
-    const needsApproval = ["vault_delete","vault_rename","vault_restore","rename_tag","command_run"].includes(type);
+    // V2.18 t2: needsApproval 从 ACTION_METADATA 派生（不硬编码 dangerous list）
+    // dangerous action 走 bridge 两阶段审批（pending_approval）；其余修改类直接执行返回 completed。
+    // 注：此清单在 build 时从 ACTION_METADATA 注入，helper 运行时不 import obsidian 依赖。
+    const needsApproval = ${JSON.stringify(getDangerousActionTypes())}.includes(type);
     if (!needsApproval || flags.json || flags.raw) {
       if (r && r.ok === false) {
         if (!flags.json && !flags.raw) console.error("Action 失败:", (r.data && r.data.error) || r.error || "未知错误");

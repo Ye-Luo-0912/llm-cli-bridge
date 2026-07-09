@@ -1,6 +1,8 @@
 # Build output
 main.js
 *.js.map
+# TypeScript compilation artifacts in src/ (src is .ts-only; .js are tsc outputs)
+src/**/*.js
 
 # Dependencies
 node_modules/
