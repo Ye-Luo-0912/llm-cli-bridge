@@ -3644,8 +3644,8 @@ if (runMode !== "all" && runMode !== "unit") {
         // 合并为单个 span：同时含 run-status-text + timeline-summary class
         const hasMergedSpan = methodBody.includes("llm-bridge-timeline-summary llm-bridge-run-status-text")
           || methodBody.includes("llm-bridge-run-status-text llm-bridge-timeline-summary");
-        // 不应出现两个独立的 createEl 调用都输出 "Thinking"
-        const thinkingCount = (methodBody.match(/text:\s*"Thinking"/g) || []).length;
+        // UI-01: "Thinking" 经 localizeRunStatus 本地化，验证仅出现一次
+        const thinkingCount = (methodBody.match(/text:\s*this\.localizeRunStatus\("Thinking"\)/g) || []).length;
         const ok = hasMergedSpan && thinkingCount === 1;
         addTest("V16.4-H UI: Thinking 只出现一次（appendRunningProcessPlaceholder 不重复）",
           ok ? "pass" : "fail",
@@ -20603,7 +20603,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('const process = body.createDiv({ cls: "llm-bridge-codex-process" });')
       && viewSrc.includes('const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });')
       && viewSrc.includes('const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });')
-      && viewSrc.includes('processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: "Process" });')
+      && viewSrc.includes('processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: processTitleLabel });')
       && viewSrc.includes('const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });')
       && !viewSrc.includes('cls: "llm-bridge-codex-process-head-preview",')
       && viewSrc.includes('const processToggle = processHead.createEl("span", {')
@@ -20838,7 +20838,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("isInternalFilePath(toolPath)")
       && viewSrc.includes("aggregateEventsToTimeline(events)")
       && viewSrc.includes("this.liveAggregator.toTimelineNodes()")
-      && viewSrc.includes('titleEl.createEl("span", { text: "Thinking" });')
+      && viewSrc.includes('titleEl.createEl("span", { text: this.localizeRunStatus("Thinking") });')
       && viewSrc.includes("llm-bridge-tl-thinking-star")
       && viewSrc.includes('node.progressLabel === "Preparing tool input"')
       && viewSrc.includes('completedToolNames.has(preparingMatch[1].toLowerCase())')

@@ -23,6 +23,7 @@ import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment, AssistantTurnView, TurnTimelineNode, NativeSessionRef } from "./runtime/core/types";
 import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, toolDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
+import { presentProvider, resolveUiLocale, type Locale } from "./runtime/core/toolPresentation";
 import { buildCodexRunViewModel, formatCodexRunValue, type CodexRunApprovalGate, type CodexRunChangeGroup, type CodexRunDiagnosticsGroup, type CodexRunFeedItem, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
@@ -2412,11 +2413,41 @@ export class LLMBridgeView extends ItemView {
   private renderRunStatusText(parent: HTMLElement, text: string, kind: "running" | "blocked" | "completed"): void {
     const statusEl = parent.createEl("span", {
       cls: `llm-bridge-run-status-text is-${kind}`,
-      text,
+      text: this.localizeRunStatus(text),
     });
     if (kind === "running") {
       statusEl.addClass("llm-bridge-run-glow");
     }
+  }
+
+  /**
+   * UI-01: 运行状态文本双语映射。
+   * 将内部英文状态名映射为用户友好的中文/英文标签，跟随 Obsidian locale。
+   * Developer Mode 下保留原始英文（便于调试）。
+   */
+  private localizeRunStatus(text: string): string {
+    if (this.plugin.settings.developerMode) return text;
+    const loc = resolveUiLocale();
+    if (loc === "en") return text;
+    const map: Record<string, string> = {
+      "Answered": "已完成",
+      "Completed": "已完成",
+      "Done": "已完成",
+      "Running": "正在处理",
+      "Thinking": "正在处理",
+      "Failed": "失败",
+      "Stopped": "已停止",
+      "Idle": "空闲",
+      "Needs approval": "需要你的确认",
+      "Needs input": "需要输入",
+      "Waiting approval": "需要你的确认",
+      "Waiting input": "需要输入",
+      "Running command": "正在执行命令",
+      "Reading files": "正在读取文件",
+      "Searching": "正在搜索",
+      "Writing files": "正在写入文件",
+    };
+    return map[text] ?? text;
   }
 
   /**
@@ -5288,7 +5319,7 @@ export class LLMBridgeView extends ItemView {
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap llm-bridge-process-placeholder" });
     const head = wrap.createDiv({ cls: "llm-bridge-timeline-head llm-bridge-timeline-head-noclick" });
     // V16.4-H: 避免重复 Thinking，仅用 timeline-summary + run-glow class（CSS 控制是否 shimmer）
-    const summary = head.createEl("span", { cls: "llm-bridge-timeline-summary llm-bridge-run-status-text is-running llm-bridge-run-glow", text: "Thinking" });
+    const summary = head.createEl("span", { cls: "llm-bridge-timeline-summary llm-bridge-run-status-text is-running llm-bridge-run-glow", text: this.localizeRunStatus("Thinking") });
     summary.setAttribute("data-run-status", "running");
   }
 
@@ -5312,10 +5343,12 @@ export class LLMBridgeView extends ItemView {
       developerMode: options.developerMode,
       debug: options.debug,
     });
-    const providerLabel = options.debug?.effectiveRunPlan?.backend ?? turnView.providerId;
+    const rawProviderLabel = options.debug?.effectiveRunPlan?.backend ?? turnView.providerId;
     const modelLabel = options.debug?.effectiveRunPlan?.model ?? "";
+    // F-01: 普通模式用 presentProvider 归一化 provider id（codex-managed-app-server → Codex runtime）
+    const providerLabel = options.developerMode ? rawProviderLabel : presentProvider(rawProviderLabel).userLabel;
     const shouldUseCodexRunView = /codex/i.test(turnView.providerId)
-      || /codex/i.test(providerLabel)
+      || /codex/i.test(rawProviderLabel)
       || turnView.turnTimeline.length > 0;
     if (shouldUseCodexRunView) {
       const codexRun = buildCodexRunViewModel(model, turnView, {
@@ -5350,11 +5383,16 @@ export class LLMBridgeView extends ItemView {
     wrap.addClass(`is-disposition-${model.finalAnswerDisposition}`);
     const head = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
     // V16.4: completed 时用 phaseModel.resultSummary 作为 header
-    const headerText = (!isRunning && !isFailed && model.finalAnswerDisposition === "completed" && model.phaseModel.resultSummary)
+    const rawHeaderText = (!isRunning && !isFailed && model.finalAnswerDisposition === "completed" && model.phaseModel.resultSummary)
       ? model.phaseModel.resultSummary
       : model.header;
+    // UI-01: 本地化 header 中的状态文本（"Answered · 12s" → "已完成 · 12s"）
+    const headerText = rawHeaderText.split(" · ").map((part) => this.localizeRunStatus(part)).join(" · ");
+    // UI-01: 有过程内容时显示"运行详情"标签，无内容时不显示 toggle
+    const loc = resolveUiLocale();
+    const detailsLabel = loc === "zh" ? "运行详情" : "Run details";
     const toggle = hasProcessContent
-      ? head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: isRunning ? "▼ " : "▶ " })
+      ? head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: isRunning ? `▼ ${detailsLabel}` : `▶ ${detailsLabel}` })
       : head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: "" });
     // V16.4-G/H: Running 状态用 Codex-style glow text 取代旋转圈
     // V16.4-H: blocked 状态（Needs approval / Needs input）不用 running glow，用 kind="blocked"
@@ -5438,10 +5476,10 @@ export class LLMBridgeView extends ItemView {
         const hidden = body.hasAttribute("hidden");
         if (hidden) {
           body.removeAttribute("hidden");
-          toggle.textContent = "▼ ";
+          toggle.textContent = `▼ ${detailsLabel}`;
         } else {
           body.setAttribute("hidden", "");
-          toggle.textContent = "▶ ";
+          toggle.textContent = `▶ ${detailsLabel}`;
         }
       });
     } else {
@@ -5482,17 +5520,29 @@ export class LLMBridgeView extends ItemView {
     const summary = head.createDiv({ cls: "llm-bridge-codex-run-summary" });
     const statusEl = summary.createEl("span", {
       cls: `llm-bridge-codex-run-status llm-bridge-timeline-summary is-${run.runHeader.statusKind}`,
-      text: run.runHeader.status,
+      text: this.localizeRunStatus(run.runHeader.status),
     });
     statusEl.setAttribute("data-run-status", run.runHeader.statusKind);
     const providerText = [run.runHeader.provider, run.runHeader.model].filter(Boolean).join(" · ");
     if (providerText) summary.createEl("span", { cls: "llm-bridge-codex-run-provider", text: providerText, attr: { title: providerText } });
 
-    const metrics = head.createDiv({ cls: "llm-bridge-codex-run-metrics" });
-    this.renderCodexMetric(metrics, "clock", run.runHeader.elapsed || "0s", "Elapsed time");
-    this.renderCodexMetric(metrics, "file-text", String(run.runHeader.fileChangeCount), "File changes");
-    this.renderCodexMetric(metrics, "terminal", String(run.runHeader.commandCount), "Commands");
-    this.renderCodexMetric(metrics, "shield", String(run.runHeader.approvalCount), "Approvals");
+    // UI-01: 仅在有意义的操作时显示 metrics（文件改动/命令/审批），简单问答不显示大块 metrics
+    const hasMeaningfulMetrics = run.runHeader.fileChangeCount > 0
+      || run.runHeader.commandCount > 0
+      || run.runHeader.approvalCount > 0;
+    if (hasMeaningfulMetrics || developerMode) {
+      const metrics = head.createDiv({ cls: "llm-bridge-codex-run-metrics" });
+      this.renderCodexMetric(metrics, "clock", run.runHeader.elapsed || "0s", "Elapsed time");
+      if (run.runHeader.fileChangeCount > 0 || developerMode) {
+        this.renderCodexMetric(metrics, "file-text", String(run.runHeader.fileChangeCount), "File changes");
+      }
+      if (run.runHeader.commandCount > 0 || developerMode) {
+        this.renderCodexMetric(metrics, "terminal", String(run.runHeader.commandCount), "Commands");
+      }
+      if (run.runHeader.approvalCount > 0 || developerMode) {
+        this.renderCodexMetric(metrics, "shield", String(run.runHeader.approvalCount), "Approvals");
+      }
+    }
 
     const body = wrap.createDiv({ cls: "llm-bridge-timeline-body llm-bridge-codex-run-body" });
     if (run.runHeader.statusKind === "running" || run.runHeader.statusKind === "blocked" || run.runHeader.statusKind === "failed") {
@@ -5504,7 +5554,10 @@ export class LLMBridgeView extends ItemView {
     if (hasProcessContent) {
       const processHead = process.createDiv({ cls: "llm-bridge-codex-section-head llm-bridge-codex-process-head" });
       const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
-      processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: "Process" });
+      // UI-01: "Process" → 双语"运行详情"/"Run details"
+      const codexLoc = resolveUiLocale();
+      const processTitleLabel = codexLoc === "zh" ? "运行详情" : "Run details";
+      processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: processTitleLabel });
       const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });
       if (run.runHeader.elapsed) {
         processMeta.createEl("span", { cls: "llm-bridge-codex-process-head-meta-item", text: run.runHeader.elapsed });
@@ -6008,7 +6061,7 @@ export class LLMBridgeView extends ItemView {
     const row = parent.createDiv({ cls: `llm-bridge-codex-thinking-line is-${item.status}` });
     row.setAttribute("data-step-kind", item.kind);
     if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
-    row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: "Thinking" });
+    row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: this.localizeRunStatus("Thinking") });
     if (summary) {
       row.createEl("span", {
         cls: "llm-bridge-codex-thinking-summary",
@@ -6032,7 +6085,7 @@ export class LLMBridgeView extends ItemView {
     const row = parent.createDiv({ cls: `llm-bridge-codex-thinking-line is-${item.status} is-narrative` });
     row.setAttribute("data-step-kind", item.kind);
     if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
-    row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: "Thinking" });
+    row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: this.localizeRunStatus("Thinking") });
     row.createEl("span", {
       cls: "llm-bridge-codex-thinking-summary is-multiline",
       text: text.length > 1200 ? `${text.slice(0, 1200).trimEnd()}...` : text,
@@ -6708,7 +6761,8 @@ export class LLMBridgeView extends ItemView {
     const titleRow = content.createDiv({ cls: "llm-bridge-tl-tool-head" });
     titleRow.createEl("span", { cls: `llm-bridge-tl-tool-icon is-${iconCat.category}`, text: iconCat.icon });
     // P4-D: 普通用户态用简洁 label（如 "Read AGENTS.md"），developer mode 显示 raw toolName
-    const displayLabel = (card as { label?: string }).label ?? card.toolName;
+    // F-01: 兜底也用 toolDisplayLabel 而非 raw toolName，防止 label 未设置时泄露内部名
+    const displayLabel = (card as { label?: string }).label ?? toolDisplayLabel(card.toolName, card.toolInput);
     titleRow.createEl("span", { cls: "llm-bridge-tl-tool-name", text: displayLabel });
     if (card.durationMs !== undefined) {
       titleRow.createEl("span", { cls: "llm-bridge-tl-tool-duration", text: this.formatDurationMs(card.durationMs) });
@@ -6797,7 +6851,7 @@ export class LLMBridgeView extends ItemView {
       const approval = parent.createDiv({ cls: `llm-bridge-turn-approval-card is-risk-${card.riskLevel}` });
       approval.setAttribute("data-request-id", card.requestId);
       const row = approval.createDiv({ cls: "llm-bridge-turn-approval-row" });
-      row.createEl("span", { cls: "llm-bridge-turn-approval-title", text: card.label || card.summary || card.toolName });
+      row.createEl("span", { cls: "llm-bridge-turn-approval-title", text: card.label || card.summary || toolDisplayLabel(card.toolName) });
       if (card.riskLevel !== "low") {
         row.createEl("span", {
           cls: `llm-bridge-turn-approval-risk is-${card.riskLevel}`,
@@ -6868,7 +6922,7 @@ export class LLMBridgeView extends ItemView {
       : card.resolutionSource === "session_deny" ? "（会话拒绝）"
       : card.resolutionSource === "mode" ? "（模式自动）"
       : "";
-    content.createEl("div", { cls: "llm-bridge-tl-title", text: `权限: ${card.label || card.toolName} → ${resolutionLabel}${sourceLabel}` });
+    content.createEl("div", { cls: "llm-bridge-tl-title", text: `权限: ${card.label || toolDisplayLabel(card.toolName)} → ${resolutionLabel}${sourceLabel}` });
     if (card.inputSummary) {
       content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(card.inputSummary, 120) });
     }
@@ -7177,18 +7231,9 @@ export class LLMBridgeView extends ItemView {
     this.scrollToBottom();
   }
 
-  /** V2.16-C: 工具图标 + 颜色分类（read/write/bash/search/skill/other） */
+  /** V2.16-C: 工具图标 + 颜色分类 — F-01: 委托到 toolPresentation 单一入口 */
   private getToolIconAndCategory(toolName: string): { icon: string; category: string } {
-    const n = (toolName || "").toLowerCase();
-    if (n === "bash") return { icon: "$", category: "bash" };
-    if (n === "read") return { icon: "R", category: "read" };
-    if (n === "write") return { icon: "W", category: "write" };
-    if (n === "edit" || n === "multiedit") return { icon: "E", category: "write" };
-    if (n === "glob") return { icon: "G", category: "search" };
-    if (n === "grep") return { icon: "F", category: "search" };
-    if (n === "skill") return { icon: "S", category: "skill" };
-    if (n === "notebookedit") return { icon: "N", category: "write" };
-    return { icon: "\u2022", category: "other" };
+    return getToolIconCategory(toolName);
   }
 
   /** V2.16-C: 让元素可点击展开/收起（shortText 截断版，fullText 全文） */
@@ -7259,7 +7304,7 @@ export class LLMBridgeView extends ItemView {
       const hasDetail = detailText.trim().length > 0;
       const titleEl = content.createDiv({ cls: "llm-bridge-tl-title llm-bridge-tl-thinking-title llm-bridge-tl-expandable" });
       titleEl.createEl("span", { cls: "llm-bridge-tl-thinking-icon", text: "💭" });
-      titleEl.createEl("span", { text: "Thinking" });
+      titleEl.createEl("span", { text: this.localizeRunStatus("Thinking") });
       if (isLive) titleEl.createEl("span", { cls: "llm-bridge-tl-thinking-star", text: "•" });
       if (node.progressDetail) {
         titleEl.createEl("span", { cls: "llm-bridge-tl-thinking-meta", text: `· ${node.progressDetail}` });
@@ -7294,7 +7339,7 @@ export class LLMBridgeView extends ItemView {
       item.addClass("llm-bridge-tl-tool-cat-" + toolInfo.category);
       const headEl = content.createDiv({ cls: "llm-bridge-tl-tool-head" });
       headEl.createEl("span", { cls: "llm-bridge-tl-tool-badge", text: toolInfo.icon });
-      headEl.createEl("span", { cls: "llm-bridge-tl-tool-name", text: node.toolName ?? "unknown" });
+      headEl.createEl("span", { cls: "llm-bridge-tl-tool-name", text: this.plugin.settings.developerMode ? (node.toolName ?? "unknown") : toolDisplayLabel(node.toolName ?? "", node.toolInput) });
       // 状态标记：运行中无标记；成功无标记；错误 ✗
       if (node.toolError) headEl.createEl("span", { cls: "llm-bridge-tl-tool-err", text: "✗" });
       // 路径直接放 head 行（basename 紧凑，title 全路径）
