@@ -155,8 +155,8 @@ export function buildCapabilityManifest(
     lines.push("- Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md（轻量 vault-runtime 包：边界规则/稳定约定/用户偏好/目录语义）。");
     lines.push("- Runtime Skill target: .claude/skills/vault-context/SKILL.md（物化后 provider 按需识别）。");
   }
-  // V2.18 vault-api：声明 Obsidian Plugin API 能力 Skill（HTTP bridge / outbox action 调用）
-  lines.push("- vault-api Skill: .claude/skills/vault-api/SKILL.md（物化后）。暴露 Obsidian Plugin API 能力（文件系统做不到的）：frontmatter property、tags（清单/反查/改名）、backlinks/outlinks/链接解析/附件、tasks、daily note、search（markdown-aware）、metadataCache 聚合、resolvedLinks 全局图、bookmarks、plugin、setting、命令执行、workspace、clipboard、视图模式、vault 回收站操作。共 29 个 action，详见 SKILL.md。调用通道：HTTP bridge（读 .llm-bridge/bridge.json 取 port/token）→ helper mjs → outbox actions.jsonl 兜底。普通文件读写仍用 native file tools。");
+  // V2.18 vault-api：声明 Obsidian Plugin API 能力 Skill（obsidian wrapper / helper mjs / HTTP bridge / outbox 调用）
+  lines.push("- vault-api Skill: .claude/skills/vault-api/SKILL.md（物化后）。暴露 Obsidian Plugin API 能力（文件系统做不到的）：frontmatter property、tags（清单/反查/改名）、backlinks/outlinks/链接解析/附件、tasks、daily note、search（markdown-aware）、metadataCache 聚合、resolvedLinks 全局图、bookmarks、plugin、setting、命令执行、workspace、clipboard、视图模式、vault 回收站操作。共 29 个 action，详见 SKILL.md。调用通道：obsidian wrapper（推荐，`.llm-bridge/tools/obsidian`，支持 --stdin 绕开 shell 转义 / --raw 管道输出 / --wait 等审批）→ helper mjs → HTTP bridge → outbox actions.jsonl 兜底。普通文件读写仍用 native file tools。");
   lines.push("- Runtime facts: LLM-AgentRuntime/runtime/RUNTIME_FACTS.json（机器事实，不进 prompt）。");
   return lines.join("\n");
 }

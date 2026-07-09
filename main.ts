@@ -8,7 +8,7 @@ import { AgentSkillDocumentView, LLMBridgeView, VIEW_TYPE_AGENT_SKILL_DOCUMENT, 
 import { DEFAULT_SETTINGS, LLMBridgeSettings } from "./src/types";
 import { OutboxWatcher } from "./src/outbox";
 import { BridgeInfo, BridgeWriteResult, HttpBridge } from "./src/httpServer";
-import { writeHelper } from "./src/toolsWriter";
+import { writeHelperAndWrappers } from "./src/toolsWriter";
 import { createBridgeSession } from "./src/runtime/core/bridgeSession";
 import {
   ensureManagedRuntimeInstalledFromPlugin,
@@ -162,8 +162,8 @@ export default class LLMBridgePlugin extends Plugin {
       const writeResult: BridgeWriteResult | null = this.httpBridge.getBridgeWriteResult();
       const bridgePath = path.join(vaultPath, BRIDGE_FILE_REL);
 
-      // 写 helper mjs
-      await writeHelper(vaultPath);
+      // 写 helper mjs + obsidian wrapper（agent 可直接调用 `obsidian health`）
+      await writeHelperAndWrappers(vaultPath);
 
       // V1.0.1: 补充 onload 诊断文件（含 actualPort / bridgeWritten / bridgeWriteError）
       try {

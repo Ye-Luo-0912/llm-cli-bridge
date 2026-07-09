@@ -143,27 +143,38 @@ const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(imp
 if (isMain) {
   const client = createClient();
   const args = process.argv.slice(2);
-  const flags = { wait: false, json: false, timeout: null };
+  const flags = { wait: false, json: false, raw: false, stdin: false, timeout: null };
   const posArgs = [];
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--wait") { flags.wait = true; }
     else if (a === "--json") { flags.json = true; }
+    else if (a === "--raw") { flags.raw = true; }
+    else if (a === "--stdin") { flags.stdin = true; }
     else if (a === "--timeout" && i + 1 < args.length) { flags.timeout = parseInt(args[++i], 10) * 1000; }
     else if (a === "--help" || a === "-h") {
-      console.error("用法:");
-      console.error("  node obsidian-action.mjs health                       # 健康检查");
-      console.error("  node obsidian-action.mjs state                        # 获取状态");
-      console.error("  node obsidian-action.mjs <type> [json]                # 执行 action");
-      console.error("  node obsidian-action.mjs --wait <type> [json]        # 执行并等待确认结果");
-      console.error("  node obsidian-action.mjs --timeout <sec> <type> [json] # 等待超时（秒）");
-      console.error("  node obsidian-action.mjs --json <type> [json]          # 输出原始 JSON");
+      console.error("用法: obsidian <command> [options] [json-params]");
       console.error("");
-      console.error('示例:');
-      console.error('  node obsidian-action.mjs show_notice ' + "'" + '{"message":"hi"}' + "'");
-      console.error('  node obsidian-action.mjs create_note ' + "'" + '{"path":"a.md","content":"# a"}' + "'");
-      console.error('  node obsidian-action.mjs --wait create_note ' + "'" + '{"path":"a.md","content":"# a"}' + "'");
-      console.error('  node obsidian-action.mjs --timeout 60 --wait create_note ' + "'" + '{"path":"a.md","content":"# a"}' + "'");
+      console.error("命令:");
+      console.error("  health                                  # 健康检查");
+      console.error("  state                                   # 获取状态");
+      console.error("  <type> [json]                           # 执行 action");
+      console.error("");
+      console.error("选项:");
+      console.error("  --wait                                  修改类 action 等待确认结果");
+      console.error("  --timeout <sec>                         等待超时（秒，默认 300）");
+      console.error("  --json                                  输出原始 JSON（友好格式）");
+      console.error("  --raw                                   输出纯 JSON（无缩进，适合管道）");
+      console.error("  --stdin                                 从 stdin 读 JSON params（绕开 shell 转义）");
+      console.error("  --help, -h                              显示帮助");
+      console.error("");
+      console.error("示例:");
+      console.error("  obsidian health");
+      console.error("  obsidian tags_list");
+      console.error(\`  obsidian property_get '{"path":"a.md","key":"tags"}'\`);
+      console.error(\`  echo '{"path":"a.md","content":"# a"}' | obsidian create_note --stdin\`);
+      console.error(\`  obsidian --wait --timeout 60 create_note '{"path":"a.md","content":"x"}'\`);
+      console.error("  obsidian --raw tags_list | jq '.tags'");
       process.exit(0);
     } else {
       posArgs.push(a);
@@ -171,9 +182,20 @@ if (isMain) {
   }
 
   const type = posArgs[0];
-  const paramsStr = posArgs[1];
+  // params 来源：--stdin 优先，否则 posArgs[1]
+  let paramsStr = posArgs[1];
+  if (flags.stdin) {
+    paramsStr = await new Promise((resolve) => {
+      let data = "";
+      process.stdin.setEncoding("utf8");
+      process.stdin.on("data", (c) => (data += c));
+      process.stdin.on("end", () => resolve(data));
+      // 无 stdin（TTY）时立即 resolve 空串
+      if (process.stdin.isTTY) resolve("");
+    });
+  }
   if (!type) {
-    console.error("用法: node obsidian-action.mjs <health|state|<type>> [--wait] [--timeout N] [--json] [json-params]");
+    console.error("用法: obsidian <health|state|<type>> [--wait] [--timeout N] [--json] [--raw] [--stdin] [json-params]");
     console.error("用 --help 查看完整帮助");
     process.exit(1);
   }
@@ -185,66 +207,97 @@ if (isMain) {
       const params = paramsStr ? JSON.parse(paramsStr) : {};
       r = await client.action(type, params);
     }
-    const outputJson = () => console.log(JSON.stringify(r, null, 2));
-    // 非修改类 action 或 --json：直接输出
+    // 输出函数：--raw 输出紧凑 JSON，--json 输出缩进 JSON，默认人类可读
+    const outputResult = (obj) => {
+      if (flags.raw) { console.log(JSON.stringify(obj)); return; }
+      if (flags.json || !process.stdout.isTTY) { console.log(JSON.stringify(obj, null, 2)); return; }
+      // 人类可读摘要
+      if (obj && obj.ok === false) {
+        console.error("Action 失败:", obj.error || "未知错误");
+      } else {
+        console.log(JSON.stringify(obj, null, 2));
+      }
+    };
     // 修改类 action（与 actions.ts MODIFYING_ACTIONS 同步，否则 --wait 失效）
     const modifying = ["create_note","append_to_note","insert_at_cursor","replace_selection","property_set","daily_append","vault_delete","vault_rename","vault_restore","rename_tag","command_run"].includes(type);
-    if (!modifying || flags.json) {
-      if (r && r.ok === false) { if (!flags.json) console.error("Action 失败:", r.data?.error || r.data); outputJson(); process.exit(1); }
-      outputJson();
+    if (!modifying || flags.json || flags.raw) {
+      if (r && r.ok === false) {
+        if (!flags.json && !flags.raw) console.error("Action 失败:", (r.data && r.data.error) || r.error || "未知错误");
+        else outputResult(r.data || r);
+        process.exit(1);
+      }
+      outputResult(r.data || r);
       process.exit(0);
     }
     // 修改类 action，无 --wait：直接输出 pending 信息
     if (!flags.wait) {
-      if (r && r.ok === true && r.data?.status === "pending_approval") {
-        if (flags.json) { outputJson(); }
+      // reqOnce 返回 { status: HTTP状态码, ok, data: body }，action status 在 data.status
+      if (r && r.ok === true && r.data && r.data.status === "pending_approval") {
+        if (flags.json || flags.raw) { outputResult(r.data); }
         else { console.log("Action 已提交，等待确认。actionId:", r.data.id); }
         process.exit(0);
       }
-      outputJson();
+      outputResult(r.data || r);
       process.exit(r && r.ok === false ? 1 : 0);
     }
     // --wait：轮询直到终态
-    if (r && r.ok === true && r.data?.status === "pending_approval") {
+    if (r && r.ok === true && r.data && r.data.status === "pending_approval") {
       const actionId = r.data.id;
       const startMs = Date.now();
       const maxMs = flags.timeout || 300000; // 默认 5 分钟
       while (Date.now() - startMs < maxMs) {
         await new Promise((res) => setTimeout(res, 1500));
         const s = await client.actionStatus(actionId);
-        if (s && s.data && s.data.status !== "pending_approval") {
-          const finalResult = s.data;
-          if (flags.json) { console.log(JSON.stringify(finalResult, null, 2)); }
+        // action-status 也返回 { ok, data: { status, result, error } }
+        if (s && s.ok && s.data && s.data.status !== "pending_approval") {
+          if (flags.json || flags.raw) { outputResult(s.data); }
           else {
-            if (finalResult.status === "completed" && !finalResult.error) {
+            if (s.data.status === "completed" && !s.data.error) {
               console.log("Action 已完成。actionId:", actionId);
-            } else if (finalResult.error) {
-              console.error("Action 失败:", finalResult.error, "| actionId:", actionId);
+            } else if (s.data.error) {
+              console.error("Action 失败:", s.data.error, "| actionId:", actionId);
             } else {
-              console.log("Action 状态:", finalResult.status, "| actionId:", actionId);
+              console.log("Action 状态:", s.data.status, "| actionId:", actionId);
             }
           }
-          process.exit(finalResult.status === "completed" && !finalResult.error ? 0 : 1);
+          process.exit(s.data.status === "completed" && !s.data.error ? 0 : 1);
         }
       }
       console.error("等待超时（" + (maxMs / 1000) + "s）。actionId:", actionId);
       process.exit(1);
     }
-    outputJson();
+    outputResult(r.data || r);
     process.exit(r && r.ok === false ? 1 : 0);
   } catch (e) {
     const msg = e && e.message || String(e);
-    if (msg.includes("fetch") || msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND") || msg.includes("aborted")) {
-      console.error("无法连接到 Obsidian Bridge（网络错误或请求超时）。");
-      console.error("请确认:");
-      console.error("  1. Obsidian 已启动");
-      console.error("  2. llm-cli-bridge 插件已启用");
-      console.error("  3. 插件 HTTP Server 已正常启动");
-    } else if (msg.includes("bridge.json")) {
-      console.error("未找到 Bridge 配置。请确认插件已启动。");
-    } else {
-      console.error("错误:", msg);
+    // 错误分级：区分 bridge 未启动 / token 无效 / action 不存在 / 执行失败
+    if (msg.includes("bridge.json") || msg.includes("无法读取")) {
+      console.error("[bridge 未启动] 未找到 .llm-bridge/bridge.json。");
+      console.error("  请确认 Obsidian 已启动且 llm-cli-bridge 插件已启用。");
+      console.error("  如果插件已启动，检查工作目录是否为 vault 根目录。");
+      process.exit(2);
     }
+    if (msg.includes("ECONNREFUSED") || msg.includes("fetch failed") || msg.includes("aborted") || msg.includes("ETIMEDOUT")) {
+      console.error("[bridge 连接失败] 无法连接到 Obsidian Bridge HTTP server。");
+      console.error("  可能原因：");
+      console.error("  1. Obsidian 已退出（重启 Obsidian）");
+      console.error("  2. bridge.json 中的端口已失效（重启插件或 Obsidian）");
+      console.error("  3. 防火墙拦截 127.0.0.1（检查本地回环权限）");
+      console.error("  原始错误:", msg);
+      process.exit(3);
+    }
+    if (msg.includes("401") || msg.includes("403") || msg.includes("unauthorized")) {
+      console.error("[token 无效] Bridge 拒绝认证（HTTP 401/403）。");
+      console.error("  bridge.json 中的 token 已失效。重启 Obsidian 插件会重新生成 token。");
+      process.exit(4);
+    }
+    if (msg.includes("Unexpected token") || msg.includes("JSON")) {
+      console.error("[参数解析失败] JSON 格式错误:", msg);
+      console.error("  建议使用 --stdin 模式避免 shell 转义问题：");
+      console.error(\`  echo '{"path":"a.md"}' | obsidian create_note --stdin\`);
+      process.exit(5);
+    }
+    console.error("[执行失败]", msg);
     process.exit(1);
   }
 }
@@ -256,4 +309,39 @@ export async function writeHelper(vaultPath: string): Promise<string> {
   const filePath = path.join(dir, HELPER_FILE_NAME);
   await fs.promises.writeFile(filePath, HELPER_SOURCE, "utf8");
   return filePath;
+}
+
+// 生成可执行 wrapper（obsidian.cmd for Windows / obsidian shell script for Unix）
+// agent 可直接调用 `obsidian health` 而非 `node xxx.mjs`
+const WIN_WRAPPER_NAME = "obsidian.cmd";
+const UNIX_WRAPPER_NAME = "obsidian";
+
+async function writeWrappers(vaultPath: string): Promise<string[]> {
+  const dir = path.join(vaultPath, TOOLS_DIR_REL);
+  await fs.promises.mkdir(dir, { recursive: true });
+  const helperRel = path.join(".llm-bridge", "tools", HELPER_FILE_NAME).replace(/\\/g, "/");
+  const winContent = [
+    "@echo off",
+    `node "%~dp0..\\${HELPER_FILE_NAME}" %*`,
+    "",
+  ].join("\r\n");
+  const unixContent = [
+    "#!/bin/sh",
+    `exec node "$(dirname "$0")/../${HELPER_FILE_NAME}" "$@"`,
+    "",
+  ].join("\n");
+  const winPath = path.join(dir, WIN_WRAPPER_NAME);
+  const unixPath = path.join(dir, UNIX_WRAPPER_NAME);
+  await fs.promises.writeFile(winPath, winContent, "utf8");
+  await fs.promises.writeFile(unixPath, unixContent, "utf8");
+  // Unix wrapper 需要 +x（Windows 上 fs.chmod 是 no-op，不影响）
+  try { await fs.promises.chmod(unixPath, 0o755); } catch { /* 非 Unix 或权限不足，忽略 */ }
+  return [winPath, unixPath];
+}
+
+// 一次性写 helper + wrappers
+export async function writeHelperAndWrappers(vaultPath: string): Promise<{ helperPath: string; wrapperPaths: string[] }> {
+  const helperPath = await writeHelper(vaultPath);
+  const wrapperPaths = await writeWrappers(vaultPath);
+  return { helperPath, wrapperPaths };
 }

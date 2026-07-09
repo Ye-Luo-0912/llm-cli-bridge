@@ -8297,9 +8297,15 @@ console.log("\n=== Helper Behavior（fake server）===");
         req.on("end", () => {
           const parsed = JSON.parse(body || "{}");
           const actionId = parsed.id || "fake-id-" + Date.now();
-          statusCounters.set(actionId, 0);
-          // 平铺格式（与真实 httpServer.ts ActionResult 一致）
-          res.end(JSON.stringify({ ok: true, id: actionId, status: "pending_approval" }));
+          // 修改类返回 pending_approval；非修改类返回 completed + result
+          const modifyingTypes = ["create_note","append_to_note","insert_at_cursor","replace_selection","property_set","daily_append","vault_delete","vault_rename","vault_restore","rename_tag","command_run"];
+          if (modifyingTypes.includes(parsed.type)) {
+            statusCounters.set(actionId, 0);
+            // 平铺格式（与真实 httpServer.ts ActionResult 一致）
+            res.end(JSON.stringify({ ok: true, id: actionId, status: "pending_approval" }));
+          } else {
+            res.end(JSON.stringify({ ok: true, id: actionId, status: "completed", result: { type: parsed.type, fake: true } }));
+          }
         });
         return;
       }
@@ -8337,24 +8343,33 @@ console.log("\n=== Helper Behavior（fake server）===");
       bundle: true, format: "esm", platform: "node",
       outfile: helperBundle,
     });
-    const { writeHelper } = await import(pathToFileURL(helperBundle).href);
+    const { writeHelper, writeHelperAndWrappers } = await import(pathToFileURL(helperBundle).href);
     const helperPath = await writeHelper(tmpDir);
+    // 同时生成 wrapper（测试 10 验证）
+    await writeHelperAndWrappers(tmpDir);
 
     const { spawn } = await import("node:child_process");
 
     // 异步运行 helper CLI（关键：spawnSync/execSync 会阻塞主进程事件循环，
     // 导致 fake server 无法处理 fetch 请求；必须用异步 spawn）
+    // opts.stdin：string，传入则写入子进程 stdin
     async function runHelperCli(args, opts = {}) {
       const timeoutMs = opts.timeoutMs || 30000;
       const child = spawn(process.execPath, [helperPath, ...args], {
         cwd: tmpDir,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
         windowsHide: true,
       });
       let stdout = "";
       let stderr = "";
       child.stdout.on("data", (d) => (stdout += d.toString()));
       child.stderr.on("data", (d) => (stderr += d.toString()));
+      if (opts.stdin !== undefined) {
+        child.stdin.write(opts.stdin);
+        child.stdin.end();
+      } else {
+        child.stdin.end();
+      }
       const exitCode = await new Promise((resolve) => {
         const timer = setTimeout(() => {
           child.kill("SIGKILL");
@@ -8454,18 +8469,97 @@ console.log("\n=== Helper Behavior（fake server）===");
 
     // --- 测试 5：非修改类 action 直接输出（不轮询）---
     {
-      // tags_list 是非修改类，fake server 返回结果直接输出
+      // tags_list 是非修改类，fake server 返回 completed + result 直接输出
       const r = await runHelperCli(["tags_list", "{}"], { timeoutMs: 10000 });
       let pass = false; let detail = "";
       try {
         const data = JSON.parse(r.stdout);
-        // fake server 的 /action 对非修改类也返回 pending（因为没区分），但 helper 逻辑：
-        // 非 modifying 类直接输出，不进入 --wait 轮询
-        pass = typeof data === "object";
+        pass = typeof data === "object" && data.ok === true && data.status === "completed";
       } catch (e) {
         detail = String(e.message || e).slice(0, 100);
       }
       addTest("Helper Behavior: 非修改类 action 直接输出（不轮询）", pass ? "pass" : "fail", detail || (r.stderr || r.stdout).slice(0, 100));
+    }
+
+    // --- 测试 6：--stdin 模式（绕开 shell 转义）---
+    {
+      const r = await runHelperCli(["property_get", "--stdin"], {
+        stdin: JSON.stringify({ path: "test/note.md", key: "tags" }),
+        timeoutMs: 10000,
+      });
+      let pass = false; let detail = "";
+      try {
+        const data = JSON.parse(r.stdout);
+        pass = data.ok === true && data.status === "completed";
+      } catch (e) {
+        detail = String(e.message || e).slice(0, 100);
+      }
+      addTest("Helper Behavior: --stdin 模式读取 JSON params", pass ? "pass" : "fail", detail || (r.stderr || r.stdout).slice(0, 100));
+    }
+
+    // --- 测试 7：--raw 输出纯 JSON（无缩进，适合管道）---
+    {
+      const r = await runHelperCli(["--raw", "tags_list"], { timeoutMs: 10000 });
+      let pass = false; let detail = "";
+      try {
+        // --raw 输出应为单行 JSON（无换行缩进）
+        const lines = r.stdout.trim().split("\n");
+        const data = JSON.parse(lines[0]);
+        pass = lines.length === 1 && data.ok === true;
+      } catch (e) {
+        detail = String(e.message || e).slice(0, 100);
+      }
+      addTest("Helper Behavior: --raw 输出纯 JSON（单行）", pass ? "pass" : "fail", detail || (r.stderr || r.stdout).slice(0, 100));
+    }
+
+    // --- 测试 8：错误分级 - bridge.json 缺失（exit 2）---
+    {
+      // 用一个没有 bridge.json 的临时目录
+      const noBridgeDir = mkdtempSync(join(tmpdir(), "helper-nobridge-"));
+      try {
+        const child = spawn(process.execPath, [helperPath, "health"], {
+          cwd: noBridgeDir,
+          stdio: ["ignore", "pipe", "pipe"],
+          windowsHide: true,
+        });
+        let stderr = "";
+        child.stderr.on("data", (d) => (stderr += d.toString()));
+        const exitCode = await new Promise((resolve) => {
+          const timer = setTimeout(() => { child.kill("SIGKILL"); resolve(-1); }, 10000);
+          child.on("exit", (code) => { clearTimeout(timer); resolve(code ?? 0); });
+        });
+        const hasBridgeMsg = stderr.includes("bridge 未启动") || stderr.includes("bridge.json");
+        addTest("Helper Behavior: 错误分级 - bridge.json 缺失 exit 2",
+          exitCode === 2 && hasBridgeMsg ? "pass" : "fail",
+          `exit=${exitCode} stderr=${stderr.slice(0, 80)}`);
+      } finally {
+        try { rmSync(noBridgeDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // --- 测试 9：错误分级 - JSON 参数解析失败（exit 5）---
+    {
+      const r = await runHelperCli(["property_get", "{invalid json}"], { timeoutMs: 10000 });
+      const hasJsonErr = r.stderr.includes("参数解析失败") || r.stderr.includes("JSON");
+      addTest("Helper Behavior: 错误分级 - JSON 解析失败 exit 5",
+        r.exitCode === 5 && hasJsonErr ? "pass" : "fail",
+        `exit=${r.exitCode} stderr=${r.stderr.slice(0, 80)}`);
+    }
+
+    // --- 测试 10：wrapper 文件已生成 ---
+    {
+      const winWrapper = join(tmpDir, ".llm-bridge", "tools", "obsidian.cmd");
+      const unixWrapper = join(tmpDir, ".llm-bridge", "tools", "obsidian");
+      const winExists = existsSync(winWrapper);
+      const unixExists = existsSync(unixWrapper);
+      let winContent = ""; let unixContent = "";
+      if (winExists) winContent = readFileSync(winWrapper, "utf8");
+      if (unixExists) unixContent = readFileSync(unixWrapper, "utf8");
+      const winOk = winContent.includes("obsidian-action.mjs");
+      const unixOk = unixContent.includes("obsidian-action.mjs");
+      addTest("Helper Behavior: obsidian wrapper 生成（obsidian.cmd + obsidian）",
+        winOk && unixOk ? "pass" : "fail",
+        `win=${winOk} unix=${unixOk}`);
     }
 
     rmSync(helperBundle, { force: true });
