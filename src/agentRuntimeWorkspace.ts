@@ -23,10 +23,9 @@
 
 import * as fs from "fs";
 import * as path from "path";
-import { createHash } from "crypto";
 import type { ObsidianCliAvailability } from "./runtime/core/bridgePromptContract";
 import { ACTION_METADATA, requiresBridgeApproval, type ActionMetadata, type ActionType } from "./actionMetadata";
-import { loadAgentSkillsManifestSync, saveAgentSkillsManifestSync, createAgentSkillRecord, materializeAgentSkillSync, type AgentSkillRecord } from "./agentSkills";
+import { loadAgentSkillsManifestSync, saveAgentSkillsManifestSync, createAgentSkillRecord, materializeAgentSkillSync, materializeAgentSkillToTarget, materializeAgentSkillToCodexHomeSync, computeAgentSkillSourceHash, type AgentSkillRecord, type AgentSkillMaterializeResult, type AgentSkillsManifest } from "./agentSkills";
 
 // ---------- 常量 ----------
 
@@ -857,178 +856,6 @@ export function getVaultSkillRuntimeMeta(slug: string): VaultSkillRuntimeMeta {
   return VAULT_SKILL_RUNTIME_META[slug] ?? { slug, name: slug, description: `Split skill: ${slug}` };
 }
 
-export function convertVaultSkillSourceToRuntime(
-  sourceContent: string,
-  slug: string,
-  metaOverride?: Partial<VaultSkillRuntimeMeta>,
-): string {
-  const meta = { ...getVaultSkillRuntimeMeta(slug), ...metaOverride };
-  const sourceHash = sha256(sourceContent);
-  // 去除 source 可能已有的 H1（# VAULT_SKILL / # vault-index 等），避免与 # Instructions 重复
-  const stripped = sourceContent.replace(/^#\s+[^\n]*\n+/m, "").trim();
-  return [
-    "---",
-    `name: ${quoteYamlValue(meta.name)}`,
-    `description: ${quoteYamlValue(meta.description)}`,
-    "---",
-    "",
-    `<!-- generated-by: llm-cli-bridge -->`,
-    `<!-- source-slug: ${slug} -->`,
-    `<!-- source-hash: ${sourceHash} -->`,
-    "",
-    "# Instructions",
-    "",
-    stripped,
-    "",
-  ].join("\n");
-}
-
-function quoteYamlValue(value: string): string {
-  // 简单 YAML quoting：含特殊字符时用双引号
-  const needsQuote = /[:#\[\]{}&!*|>'"%@`,\n]/.test(value) || value.trim() !== value || value.length === 0;
-  if (!needsQuote) return value;
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
-}
-
-/**
- * V16.5-K1 任务 A：从 runtime SKILL.md 内容中解析 source-hash。
- * 用于 conflict 检测：比较 runtime 记录的 source-hash 与当前 source 的 hash。
- */
-export function parseRuntimeSkillSourceHash(runtimeContent: string): string | null {
-  const m = runtimeContent.match(/<!-- source-hash: ([a-f0-9]{64}) -->/);
-  return m ? m[1] : null;
-}
-
-/**
- * V16.5-K1 任务 A：判断 runtime SKILL.md 是否由 plugin 生成。
- */
-export function isRuntimeSkillPluginGenerated(runtimeContent: string): boolean {
-  return runtimeContent.includes("<!-- generated-by: llm-cli-bridge -->")
-    && runtimeContent.includes("# Instructions");
-}
-
-/**
- * V16.5-E 任务 E：读取 VAULT_SKILL source 并物化到 .claude/skills。
- *
- * 复用现有 agentSkills.ts 机制，不重写 Skills 系统。
- * sourcePath = LLM-AgentRuntime/skills/vault-context/SKILL.md
- * materializedPath = .claude/skills/vault-context/SKILL.md
- *
- * 如果 source skill 更新，下次物化 runtime skill。
- * 如果 runtime skill 被人工修改且 hash 不匹配，返回 conflict，不强制覆盖。
- */
-export interface VaultSkillMaterializeResult {
-  readonly ok: boolean;
-  readonly status: "created" | "updated" | "skipped" | "conflict" | "missing-source" | "error";
-  readonly sourcePath: string;
-  readonly materializedPath: string;
-  readonly sourceHash: string;
-  readonly materializedHash: string;
-  readonly reason?: string;
-}
-
-export async function materializeVaultSkill(
-  vaultPath: string,
-  options: {
-    readonly slug?: string;
-    readonly sourcePath?: string;
-    readonly materializedPath?: string;
-    readonly metaOverride?: Partial<VaultSkillRuntimeMeta>;
-  } = {},
-): Promise<VaultSkillMaterializeResult> {
-  const slug = options.slug ?? VAULT_CONTEXT_SLUG;
-  const sourceRel = options.sourcePath ?? (slug === VAULT_CONTEXT_SLUG
-    ? VAULT_SKILL_SOURCE_REL
-    : `LLM-AgentRuntime/skills/${slug}/SKILL.md`);
-  const materializedRel = options.materializedPath ?? path.posix.join(".claude/skills", slug, "SKILL.md");
-  const sourceAbs = path.join(vaultPath, sourceRel);
-  const materializedAbs = path.join(vaultPath, materializedRel);
-
-  // 读取 source
-  let sourceContent: string;
-  try {
-    sourceContent = await fs.promises.readFile(sourceAbs, "utf8");
-  } catch {
-    return {
-      ok: false,
-      status: "missing-source",
-      sourcePath: sourceRel,
-      materializedPath: materializedRel,
-      sourceHash: "",
-      materializedHash: "",
-      reason: "source SKILL.md not found; run ensureAgentRuntimeWorkspace first",
-    };
-  }
-
-  const sourceHash = sha256(sourceContent);
-
-  // V16.5-K1：使用 convertVaultSkillSourceToRuntime 派生 runtime 内容（含 frontmatter + # Instructions）
-  const runtimeContent = convertVaultSkillSourceToRuntime(sourceContent, slug, options.metaOverride);
-
-  // 读取 materialized
-  let existingMaterialized: string | null = null;
-  try {
-    existingMaterialized = await fs.promises.readFile(materializedAbs, "utf8");
-  } catch {
-    existingMaterialized = null;
-  }
-
-  // conflict 检测：通过 runtime 中记录的 source-hash 比对当前 source hash
-  if (existingMaterialized !== null) {
-    const existingSourceHash = parseRuntimeSkillSourceHash(existingMaterialized);
-    const isPluginGenerated = isRuntimeSkillPluginGenerated(existingMaterialized);
-
-    if (!isPluginGenerated) {
-      return {
-        ok: false,
-        status: "conflict",
-        sourcePath: sourceRel,
-        materializedPath: materializedRel,
-        sourceHash,
-        materializedHash: sha256(existingMaterialized),
-        reason: "materialized SKILL.md is not plugin-generated; will not overwrite",
-      };
-    }
-
-    if (existingSourceHash === sourceHash) {
-      // runtime 由 plugin 生成且记录的 source-hash 与当前 source 一致 → 已是最新
-      return {
-        ok: true,
-        status: "skipped",
-        sourcePath: sourceRel,
-        materializedPath: materializedRel,
-        sourceHash,
-        materializedHash: sha256(existingMaterialized),
-      };
-    }
-    // plugin-generated 但 source-hash 不一致 → 正常更新
-  }
-
-  // 写入 materialized（runtime 格式，含 frontmatter + # Instructions）
-  try {
-    await fs.promises.mkdir(path.dirname(materializedAbs), { recursive: true });
-    await fs.promises.writeFile(materializedAbs, runtimeContent, "utf8");
-    return {
-      ok: true,
-      status: existingMaterialized === null ? "created" : "updated",
-      sourcePath: sourceRel,
-      materializedPath: materializedRel,
-      sourceHash,
-      materializedHash: sha256(runtimeContent),
-    };
-  } catch (e) {
-    return {
-      ok: false,
-      status: "error",
-      sourcePath: sourceRel,
-      materializedPath: materializedRel,
-      sourceHash,
-      materializedHash: "",
-      reason: e instanceof Error ? e.message : String(e),
-    };
-  }
-}
-
 // ---------- update-log.md ----------
 
 export interface VaultSkillUpdateLogEntry {
@@ -1054,12 +881,6 @@ export async function appendVaultSkillUpdateLog(
   } catch {
     return false;
   }
-}
-
-// ---------- 工具函数 ----------
-
-function sha256(text: string): string {
-  return createHash("sha256").update(text, "utf8").digest("hex");
 }
 
 // ---------- V16.5-K: Vault Skill manifest（轻量版，单 skill） ----------
@@ -1193,109 +1014,95 @@ export async function compactOrSplitVaultSkill(vaultPath: string): Promise<Compa
   };
 }
 
-/**
- * V16.5-K: 物化所有 vault skills（轻量版：仅 vault-context，不遍历 split entries）。
- *
- * runtime skill hash conflict 时不强制覆盖。
- */
-export interface MaterializeAllVaultSkillsResult {
+// ============================================================
+// u5: 统一物化入口 — 消除 runtime 格式与 Agent Skill 格式的双重物化
+// ============================================================
+
+export interface MaterializeAllSkillsResult {
   readonly ok: boolean;
-  readonly results: ReadonlyArray<VaultSkillMaterializeResult>;
-  readonly manifest: VaultSkillsManifest | null;
+  readonly results: ReadonlyArray<AgentSkillMaterializeResult & { readonly target: string; readonly slug: string }>;
+  readonly manifest: AgentSkillsManifest;
+  readonly saved: boolean;
+  readonly syncSummary: { readonly synced: readonly string[]; readonly skipped: readonly string[] };
   readonly reason?: string;
 }
 
 /**
- * 轻量版：物化 vault-context + vault-api（不遍历 manifest split entries）。
- */
-export async function materializeAllVaultSkills(vaultPath: string): Promise<MaterializeAllVaultSkillsResult> {
-  // 轻量版：物化 vault-context + vault-api（不遍历 manifest split entries）
-  const manifest = await loadVaultSkillsManifest(vaultPath);
-  const results: VaultSkillMaterializeResult[] = [];
-  results.push(await materializeVaultSkill(vaultPath));
-  // V2.18 vault-api：物化到 .claude/skills/vault-api/SKILL.md
-  results.push(await materializeVaultSkill(vaultPath, { slug: VAULT_API_SLUG }));
-  return {
-    ok: results.every((r) => r.ok || r.status === "skipped"),
-    results,
-    manifest,
-  };
-}
-
-export async function materializeToProviderTarget(
-  vaultPath: string,
-  slug: string,
-  target: ProviderSkillTarget,
-  options: { readonly sourcePath?: string; readonly metaOverride?: Partial<VaultSkillRuntimeMeta> } = {},
-): Promise<VaultSkillMaterializeResult> {
-  return materializeVaultSkill(vaultPath, {
-    slug,
-    sourcePath: options.sourcePath ?? (slug === VAULT_CONTEXT_SLUG
-      ? VAULT_SKILL_SOURCE_REL
-      : `LLM-AgentRuntime/skills/${slug}/SKILL.md`),
-    materializedPath: providerTargetPathForSlug(target, slug),
-    metaOverride: options.metaOverride,
-  });
-}
-
-export interface MaterializeAllToAllTargetsResult {
-  readonly ok: boolean;
-  readonly results: ReadonlyArray<VaultSkillMaterializeResult & { readonly target: ProviderSkillTarget }>;
-  readonly manifest: VaultSkillsManifest;
-}
-
-/**
- * V17-A 任务 C.4 + V2.18：物化 vault-context + vault-api 到所有 provider targets（轻量版，不遍历 split entries）。
+ * u5: 统一物化入口 — 一步完成 source→manifest 同步 + 四端物化（claude/.agents/.pi/codex）。
  *
- * 单个 conflict 不影响其他 target。
+ * 取代旧的 5 步调用链：
+ * 1. materializeAllVaultSkillsToAllTargets（runtime 格式 → .claude/.agents/.pi）
+ * 2. syncVaultSkillsToAgentManifest（删除 .claude 的 runtime 文件 → Agent Skill 格式重写 + manifest upsert）
+ * 3. prepareAgentSkillsForCodexRuntimeSync（Agent Skill 格式 → ~/.codex/skills/）
+ *
+ * 统一为：所有 target 使用 materializeAgentSkillToTarget（Agent Skill 格式，source-id marker）。
  */
-export async function materializeAllVaultSkillsToAllTargets(vaultPath: string): Promise<MaterializeAllToAllTargetsResult> {
-  const manifest = await loadVaultSkillsManifest(vaultPath);
-  const results: Array<VaultSkillMaterializeResult & { readonly target: ProviderSkillTarget }> = [];
+export function materializeAllSkillsToAllTargets(vaultPath: string): MaterializeAllSkillsResult {
+  // Step 1: 同步 vault-context + vault-api source 到 manifest
+  const syncSummary = syncVaultSkillsSourceToManifest(vaultPath);
 
-  // 轻量版：物化 vault-context + vault-api × 3 targets（不再遍历 manifest split entries）
-  for (const slug of [VAULT_CONTEXT_SLUG, VAULT_API_SLUG]) {
-    for (const target of PROVIDER_SKILL_TARGETS) {
-      const result = await materializeToProviderTarget(vaultPath, slug, target);
-      results.push({ ...result, target });
+  // Step 2: 加载 manifest，遍历 enabled skills 物化到四端
+  let manifest = loadAgentSkillsManifestSync(vaultPath);
+  const results: Array<AgentSkillMaterializeResult & { target: string; slug: string }> = [];
+  const nextRecords: AgentSkillRecord[] = [...manifest.skills];
+  let manifestChanged = false;
+
+  for (let i = 0; i < manifest.skills.length; i++) {
+    const record = manifest.skills[i];
+    if (!record.enabled) continue;
+
+    // claude target（带 hash check 检测外部修改 + 更新 manifest hash）
+    const claudeResult = materializeAgentSkillSync(vaultPath, record);
+    results.push({ ...claudeResult, target: "claude", slug: record.slug });
+    if (claudeResult.ok && claudeResult.record.materializedHash !== record.materializedHash) {
+      nextRecords[i] = claudeResult.record;
+      manifestChanged = true;
     }
+
+    // generic-agent target（.agents/skills/<slug>/SKILL.md）
+    const agentsPath = path.join(vaultPath, providerTargetPathForSlug("generic-agent", record.slug));
+    const agentsResult = materializeAgentSkillToTarget(record, agentsPath);
+    results.push({ ...agentsResult, target: "generic-agent", slug: record.slug });
+
+    // pi target（.pi/skills/<slug>/SKILL.md）
+    const piPath = path.join(vaultPath, providerTargetPathForSlug("pi", record.slug));
+    const piResult = materializeAgentSkillToTarget(record, piPath);
+    results.push({ ...piResult, target: "pi", slug: record.slug });
+
+    // codex target（~/.codex/skills/llm-bridge-<slug>/SKILL.md，带 name/desc override）
+    const codexResult = materializeAgentSkillToCodexHomeSync(record);
+    results.push({ ...codexResult, target: "codex", slug: record.slug });
   }
 
-  return {
-    ok: results.every((r) => r.ok || r.status === "skipped"),
-    results,
-    manifest,
-  };
+  // Step 3: 保存 manifest（hash 变化时）
+  let saved = false;
+  if (manifestChanged) {
+    saved = saveAgentSkillsManifestSync(vaultPath, {
+      version: manifest.version,
+      skills: nextRecords,
+    });
+    manifest = loadAgentSkillsManifestSync(vaultPath);
+  }
+
+  const ok = results.every((r) => r.ok || r.status === "skipped");
+  return { ok, results, manifest, saved, syncSummary };
 }
 
 /**
- * V2.18: 将 vault-context + vault-api 同步注册到 .llm-bridge/agent-skills.json manifest。
+ * u5: 将 vault-context + vault-api 的 source SKILL.md 同步到 agent-skills.json manifest。
  *
- * agent 通过 agent-skills.json 发现可用 skill（而非直接扫描 .claude/skills/）。
- * vault skills 物化到 .claude/skills/ 后必须同步注册到 manifest，否则 agent 看不到。
- *
- * 逻辑：
- * - 读取 vault-context/vault-api 的 runtime SKILL.md（物化后的内容）
- * - 用 VAULT_SKILL_RUNTIME_META 的 description 创建 AgentSkillRecord
- * - upsert 到 manifest（按 slug 去重：已存在则更新内容，不存在则添加）
- * - 重新物化到 .claude/skills/（确保 manifest 中的 hash 与文件一致）
+ * 读取 source 内容 → 创建/更新 AgentSkillRecord → 保存 manifest。
+ * 使用 computeAgentSkillSourceHash 检测内容变化（比 materializedHash 更稳定）。
  */
-export function syncVaultSkillsToAgentManifest(vaultPath: string): {
-  ok: boolean;
-  synced: string[];
-  skipped: string[];
-  reason?: string;
-} {
+function syncVaultSkillsSourceToManifest(vaultPath: string): { synced: string[]; skipped: string[] } {
   const synced: string[] = [];
   const skipped: string[] = [];
-
   const manifest = loadAgentSkillsManifestSync(vaultPath);
   const existingBySlug = new Map(manifest.skills.map((s) => [s.slug, s]));
   const nextRecords: AgentSkillRecord[] = [...manifest.skills];
 
   for (const slug of [VAULT_CONTEXT_SLUG, VAULT_API_SLUG]) {
     const meta = getVaultSkillRuntimeMeta(slug);
-    // 读取 source SKILL.md（LLM-AgentRuntime/skills/<slug>/SKILL.md）
     const sourceRel = slug === VAULT_API_SLUG ? VAULT_API_SKILL_SOURCE_REL : VAULT_SKILL_SOURCE_REL;
     const sourcePath = path.join(vaultPath, sourceRel);
     let instructions = "";
@@ -1306,75 +1113,53 @@ export function syncVaultSkillsToAgentManifest(vaultPath: string): {
       continue;
     }
 
-    // 读取物化后的 runtime SKILL.md（用于检测内容变化）
-    const materializedPath = path.join(vaultPath, ".claude/skills", slug, "SKILL.md");
-
     const existing = existingBySlug.get(slug);
     const nowIso = new Date().toISOString();
 
+    // 检测 source 内容是否变化（用 sourceHash 而非 materializedHash）
+    // 注意：trim 后再计算 hash，与 normalizeAgentSkillRecord 的 trim 行为一致
+    const newSourceHash = computeAgentSkillSourceHash({
+      name: meta.name,
+      description: meta.description,
+      instructions: instructions.trim(),
+    });
     if (existing) {
-      // 先物化以计算 hash（如果文件已存在且格式一致，会返回 skipped）
-      const tempRecord = createAgentSkillRecord({
-        name: meta.name,
-        description: meta.description,
-        instructions,
-        enabled: true,
-        source: existing.source,
-        sourcePath: existing.sourcePath,
-        slug,
-        id: existing.id,
-      }, [], nowIso);
-
-      // 先删除旧文件（可能是 runtime 格式，与 Agent Skill 格式不同）
-      try { fs.unlinkSync(materializedPath); } catch { /* 文件不存在没关系 */ }
-
-      const matResult = materializeAgentSkillSync(vaultPath, tempRecord);
-      const finalizedRecord = matResult.ok ? matResult.record : tempRecord;
-
-      // 内容未变则跳过（比较 manifest 中的 hash 与新计算的 hash）
-      if (existing.materializedHash && finalizedRecord.materializedHash === existing.materializedHash) {
+      const oldSourceHash = computeAgentSkillSourceHash(existing);
+      if (newSourceHash === oldSourceHash) {
         skipped.push(slug);
         continue;
       }
-
-      // 替换旧记录
-      const idx = nextRecords.findIndex((r) => r.slug === slug);
-      if (idx >= 0) nextRecords[idx] = finalizedRecord;
-      synced.push(slug);
-    } else {
-      // 新增
-      const newRecord = createAgentSkillRecord({
-        name: meta.name,
-        description: meta.description,
-        instructions,
-        enabled: true,
-        source: "manual",
-        slug,
-      }, nextRecords.map((r) => r.slug), nowIso);
-
-      // 先删除旧文件（可能是 runtime 格式，与 Agent Skill 格式不同）
-      try { fs.unlinkSync(materializedPath); } catch { /* 文件不存在没关系 */ }
-
-      const matResult = materializeAgentSkillSync(vaultPath, newRecord);
-      const finalizedRecord = matResult.ok ? matResult.record : newRecord;
-      nextRecords.push(finalizedRecord);
-      synced.push(slug);
     }
+
+    // 创建/更新 record
+    const record = createAgentSkillRecord({
+      name: meta.name,
+      description: meta.description,
+      instructions,
+      enabled: true,
+      source: existing?.source ?? "manual",
+      sourcePath: existing?.sourcePath,
+      slug,
+      id: existing?.id,
+    }, nextRecords.map((r) => r.slug).filter((s) => s !== slug), nowIso);
+
+    if (existing) {
+      const idx = nextRecords.findIndex((r) => r.slug === slug);
+      if (idx >= 0) nextRecords[idx] = record;
+    } else {
+      nextRecords.push(record);
+    }
+    synced.push(slug);
   }
 
   if (synced.length === 0) {
-    return { ok: true, synced, skipped };
+    return { synced, skipped };
   }
 
-  // 保存更新后的 manifest
-  const saved = saveAgentSkillsManifestSync(vaultPath, {
+  saveAgentSkillsManifestSync(vaultPath, {
     version: manifest.version,
     skills: nextRecords,
   });
 
-  if (!saved) {
-    return { ok: false, synced, skipped, reason: "failed to save agent-skills.json" };
-  }
-
-  return { ok: true, synced, skipped };
+  return { synced, skipped };
 }

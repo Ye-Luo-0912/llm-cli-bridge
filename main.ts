@@ -111,28 +111,18 @@ export default class LLMBridgePlugin extends Plugin {
     }
   }
 
-  /** V2.18 r5: onload 自动物化 SKILL.md 到三端 target（.claude/.agents/.pi） */
+  /** V2.18 r5 / u5: onload 自动物化 SKILL.md — 统一入口（source→manifest 同步 + 四端物化） */
   private async materializeVaultSkillsOnload(vaultPath: string): Promise<void> {
     try {
-      const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllVaultSkillsToAllTargets, syncVaultSkillsToAgentManifest } = await import("./src/agentRuntimeWorkspace");
+      const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllSkillsToAllTargets } = await import("./src/agentRuntimeWorkspace");
       await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
       try { await compactOrSplitVaultSkill(vaultPath); } catch { /* compact 失败不阻塞物化 */ }
-      const result = await materializeAllVaultSkillsToAllTargets(vaultPath);
-      // V2.18: 同步注册到 agent-skills.json manifest（agent 通过 manifest 发现 skill）
-      const syncResult = syncVaultSkillsToAgentManifest(vaultPath);
-      // V2.18: 物化到 Codex home（~/.codex/skills/llm-bridge-*），Codex 从此处发现 skill
-      let codexOk = 0, codexTotal = 0;
-      try {
-        const { prepareAgentSkillsForCodexRuntimeSync } = await import("./src/agentSkills");
-        const codexPrep = prepareAgentSkillsForCodexRuntimeSync(vaultPath);
-        codexOk = codexPrep.results.filter((r) => r.ok).length;
-        codexTotal = codexPrep.results.length;
-        if (!codexPrep.ok) console.warn("[llm-cli-bridge] Codex skill 物化有失败项（不阻塞）：", codexPrep.reason);
-      } catch (e) {
-        console.warn("[llm-cli-bridge] Codex skill 物化跳过（不阻塞）：", e);
-      }
+      // u5: 统一物化 — sync manifest + 物化到 claude/.agents/.pi/codex 四端（均为 Agent Skill 格式）
+      const result = materializeAllSkillsToAllTargets(vaultPath);
       const okCount = result.results.filter((r) => r.ok).length;
-      console.log(`[llm-cli-bridge] onload skill 物化完成: vault=${okCount}/${result.results.length}, manifest sync=${syncResult.synced.length}/${syncResult.synced.length + syncResult.skipped.length}, codex=${codexOk}/${codexTotal}`);
+      const syncOk = result.syncSummary.synced.length;
+      const syncSkip = result.syncSummary.skipped.length;
+      console.log(`[llm-cli-bridge] onload skill 物化完成: materialize=${okCount}/${result.results.length}, manifest sync=${syncOk}/${syncOk + syncSkip}, manifestSaved=${result.saved}`);
     } catch (e) {
       console.warn("[llm-cli-bridge] onload skill 物化失败（不阻塞）：", e);
     }
@@ -376,26 +366,17 @@ export default class LLMBridgePlugin extends Plugin {
       name: "Materialize All Vault Skills to .claude/skills",
       callback: async () => {
         const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-        const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllVaultSkills, materializeAllVaultSkillsToAllTargets } = await import("./src/agentRuntimeWorkspace");
+        const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllSkillsToAllTargets } = await import("./src/agentRuntimeWorkspace");
         await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
-        // V17-A: 先 compact/split（保证 vault-context 不超限、split skills 已生成），再物化全部
         try { await compactOrSplitVaultSkill(vaultPath); } catch { /* compact 失败不阻塞物化 */ }
-        const result = await materializeAllVaultSkills(vaultPath);
+        // u5: 统一物化 — sync manifest + 物化到 claude/.agents/.pi/codex 四端
+        const result = materializeAllSkillsToAllTargets(vaultPath);
         const okCount = result.results.filter((r) => r.ok).length;
         const conflictCount = result.results.filter((r) => r.status === "conflict").length;
-        // V17-B 任务 E: portable profile 优先物化 .agents/skills 和 .pi/skills（Pi portable backend 主线）
-        // 同时也物化到所有 target（claude/generic-agent/pi），保证不同 backend 可用
-        let allTargetsOkCount = 0;
-        let allTargetsTotal = 0;
-        try {
-          const allTargetsResult = await materializeAllVaultSkillsToAllTargets(vaultPath);
-          allTargetsOkCount = allTargetsResult.results.filter((r) => r.ok).length;
-          allTargetsTotal = allTargetsResult.results.length;
-        } catch { /* all-targets 物化失败不阻塞主流程 */ }
         if (conflictCount > 0) {
-          new Notice(`Materialized ${okCount}/${result.results.length} (claude) + ${allTargetsOkCount}/${allTargetsTotal} (all targets); ${conflictCount} conflict`);
+          new Notice(`Materialized ${okCount}/${result.results.length} (4 targets); ${conflictCount} conflict`);
         } else {
-          new Notice(`Materialized ${okCount}/${result.results.length} (claude) + ${allTargetsOkCount}/${allTargetsTotal} (all targets)`);
+          new Notice(`Materialized ${okCount}/${result.results.length} (4 targets: claude/.agents/.pi/codex)`);
         }
       },
     });

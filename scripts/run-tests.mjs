@@ -4280,6 +4280,8 @@ if (runMode !== "all" && runMode !== "unit") {
     // ===== V16.5-E: Agent Runtime Workspace + Vault Skill =====
     // 使用真实临时目录测试文件系统操作
     const v165eTmpRoot = mkdtempSync(join(tmpdir(), "v165e-ws-"));
+    const v165eOldCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = join(v165eTmpRoot, ".codex-home");
     try {
       // Test E-0a: V16.5-D blocker 回归 — session 声明在 buildRuntimeCapabilities 之前
       {
@@ -4397,30 +4399,31 @@ if (runMode !== "all" && runMode !== "unit") {
 
       // Test E-f: skill 物化 — source → .claude/skills/vault-context/SKILL.md
       {
-        const result = await agentRuntimeWsMod.materializeVaultSkill(v165eTmpRoot);
-        const isOk = result.ok && (result.status === "created" || result.status === "updated");
-        const hasPaths = result.sourcePath === "LLM-AgentRuntime/skills/vault-context/SKILL.md"
-          && result.materializedPath === ".claude/skills/vault-context/SKILL.md";
         const fsMod = await import("fs");
         const pathMod = await import("path");
+        const result = agentRuntimeWsMod.materializeAllSkillsToAllTargets(v165eTmpRoot);
+        const vcClaude = result.results.find((r) => r.target === "claude" && r.slug === "vault-context");
+        const isOk = result.ok && vcClaude?.ok && (vcClaude.status === "created" || vcClaude.status === "updated");
+        const hasPaths = vcClaude?.record.materializedPath === ".claude/skills/vault-context/SKILL.md";
         const materializedAbs = pathMod.join(v165eTmpRoot, ".claude/skills/vault-context/SKILL.md");
         const materializedContent = await fsMod.promises.readFile(materializedAbs, "utf8");
-        // V16.5-K1: runtime 格式含 frontmatter + # Instructions + plugin-generated marker
+        // u5: Agent Skill 格式含 frontmatter + # Instructions + plugin-generated marker + source-id
         const hasMarker = materializedContent.includes("<!-- generated-by: llm-cli-bridge -->");
-        const hasFrontmatter = /^---\nname: vault-context\n/.test(materializedContent);
+        const hasFrontmatter = /^---\nname: "vault-context"\n/.test(materializedContent);
         const hasInstructions = materializedContent.includes("# Instructions");
-        addTest("V16.5-E materialize: source → .claude/skills/vault-context/SKILL.md",
+        addTest("u5-E materialize: source → .claude/skills/vault-context/SKILL.md",
           isOk && hasPaths && hasMarker && hasFrontmatter && hasInstructions ? "pass" : "fail",
-          `isOk=${isOk} hasPaths=${hasPaths} hasMarker=${hasMarker} hasFrontmatter=${hasFrontmatter} hasInstructions=${hasInstructions} status=${result.status}`);
+          `isOk=${isOk} hasPaths=${hasPaths} hasMarker=${hasMarker} hasFrontmatter=${hasFrontmatter} hasInstructions=${hasInstructions} status=${vcClaude?.status}`);
       }
 
       // Test E-g: 二次物化 status=skipped（内容一致）
       {
-        const result = await agentRuntimeWsMod.materializeVaultSkill(v165eTmpRoot);
-        const isSkipped = result.ok && result.status === "skipped";
-        addTest("V16.5-E materialize: 内容一致时 skipped",
+        const result = agentRuntimeWsMod.materializeAllSkillsToAllTargets(v165eTmpRoot);
+        const vcClaude = result.results.find((r) => r.target === "claude" && r.slug === "vault-context");
+        const isSkipped = result.ok && vcClaude?.ok && vcClaude.status === "skipped";
+        addTest("u5-E materialize: 内容一致时 skipped",
           isSkipped ? "pass" : "fail",
-          `status=${result.status}`);
+          `status=${vcClaude?.status}`);
       }
 
       // Test E-h: runtime skill 被人工修改后物化返回 conflict
@@ -4429,21 +4432,22 @@ if (runMode !== "all" && runMode !== "unit") {
         const pathMod = await import("path");
         const materializedAbs = pathMod.join(v165eTmpRoot, ".claude/skills/vault-context/SKILL.md");
         const originalMat = await fsMod.promises.readFile(materializedAbs, "utf8");
-        // V16.5-K1: 移除 plugin-generated marker + # Instructions 模拟人工修改（不再是 plugin-generated）
+        // u5: 移除 plugin-generated marker + # Instructions 模拟人工修改（不再是 plugin-generated）
         const humanModified = originalMat
           .replace("<!-- generated-by: llm-cli-bridge -->", "<!-- human edit -->")
           .replace("# Instructions", "# Human Edited");
         await fsMod.promises.writeFile(materializedAbs, humanModified, "utf8");
 
-        const result = await agentRuntimeWsMod.materializeVaultSkill(v165eTmpRoot);
-        const isConflict = !result.ok && result.status === "conflict";
+        const result = agentRuntimeWsMod.materializeAllSkillsToAllTargets(v165eTmpRoot);
+        const vcClaude = result.results.find((r) => r.target === "claude" && r.slug === "vault-context");
+        const isConflict = !vcClaude?.ok && vcClaude?.status === "conflict";
 
         // 恢复 original 以便后续测试
         await fsMod.promises.writeFile(materializedAbs, originalMat, "utf8");
 
-        addTest("V16.5-E materialize: 人工修改后 conflict 不强制覆盖",
+        addTest("u5-E materialize: 人工修改后 conflict 不强制覆盖",
           isConflict ? "pass" : "fail",
-          `isConflict=${isConflict} status=${result.status} reason=${result.reason ?? ""}`);
+          `isConflict=${isConflict} status=${vcClaude?.status} reason=${vcClaude?.reason ?? ""}`);
       }
 
       // Test E-i: shouldWriteVaultSkill 只允许合法 reason
@@ -4535,11 +4539,15 @@ if (runMode !== "all" && runMode !== "unit") {
       }
     } finally {
       // 清理临时目录
+      if (v165eOldCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = v165eOldCodexHome;
       try { rmSync(v165eTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
     }
 
     // ===== Task K: Vault Skill 自动拆分与索引 =====
     const taskKTmpRoot = mkdtempSync(join(tmpdir(), "taskk-ws-"));
+    const taskKOldCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = join(taskKTmpRoot, ".codex-home");
     try {
       const fact300 = (prefix, idx) => (prefix + " fact " + idx + " " + ".".repeat(300)).slice(0, 300);
 
@@ -4649,24 +4657,25 @@ if (runMode !== "all" && runMode !== "unit") {
           `rejectedEmpty=${rejectedEmpty} rejectedTemp=${rejectedTemp} rejectedCmd=${rejectedCmd} acceptedStable=${acceptedStable}`);
       }
 
-      // ===== V16.5-K1: 轻量版 Runtime SKILL.md 格式 + 单 conflict 隔离 =====
+      // ===== u5: 统一 Agent Skill 格式 + 单 conflict 隔离 =====
 
-      // Test K1-A: 轻量版物化格式 — vault-context 含 frontmatter + # Instructions + marker + source-hash
+      // Test K1-A: 统一物化格式 — vault-context 含 frontmatter + # Instructions + marker + source-id
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
-        const vcResult = await agentRuntimeWsMod.materializeVaultSkill(taskKTmpRoot);
+        const result = agentRuntimeWsMod.materializeAllSkillsToAllTargets(taskKTmpRoot);
+        const vcClaude = result.results.find((r) => r.target === "claude" && r.slug === "vault-context");
         const vcRuntimeAbs = pathMod.join(taskKTmpRoot, ".claude/skills/vault-context/SKILL.md");
         const vcRuntime = await fsMod.promises.readFile(vcRuntimeAbs, "utf8");
-        const vcHasFrontmatter = /^---\nname: vault-context\ndescription: [^\n]+\n---\n/.test(vcRuntime);
+        const vcHasFrontmatter = /^---\nname: "vault-context"\ndescription: [^\n]+\n---\n/.test(vcRuntime);
         const vcHasInstructions = vcRuntime.includes("# Instructions");
         const vcHasMarker = vcRuntime.includes("<!-- generated-by: llm-cli-bridge -->");
         const vcHasSourceHash = /<!-- source-hash: [a-f0-9]{64} -->/.test(vcRuntime);
-        const vcHasSourceSlug = vcRuntime.includes("<!-- source-slug: vault-context -->");
+        const vcHasSourceId = vcRuntime.includes("<!-- source-id:");
 
-        addTest("V16.5-K1 runtime format: 物化后含 frontmatter + # Instructions",
-          vcResult.ok && vcHasFrontmatter && vcHasInstructions && vcHasMarker && vcHasSourceHash && vcHasSourceSlug ? "pass" : "fail",
-          `vcOk=${vcResult.ok} status=${vcResult.status} frontmatter=${vcHasFrontmatter} instructions=${vcHasInstructions} marker=${vcHasMarker} sourceHash=${vcHasSourceHash} sourceSlug=${vcHasSourceSlug}`);
+        addTest("u5 Agent Skill format: 物化后含 frontmatter + # Instructions + source-id",
+          vcClaude?.ok && vcHasFrontmatter && vcHasInstructions && vcHasMarker && vcHasSourceHash && vcHasSourceId ? "pass" : "fail",
+          `vcOk=${vcClaude?.ok} status=${vcClaude?.status} frontmatter=${vcHasFrontmatter} instructions=${vcHasInstructions} marker=${vcHasMarker} sourceHash=${vcHasSourceHash} sourceId=${vcHasSourceId}`);
       }
 
       // Test K1-B: 轻量版单文件 — vault-context 无 split notice / index pointer
@@ -4754,13 +4763,13 @@ if (runMode !== "all" && runMode !== "unit") {
           `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable} genActionCount=${generatedHasActionCount} genTagFiles=${generatedHasTagFiles}`);
       }
 
-      // Test K1-C: 轻量版 materializeToAllTargets — 单个 conflict 不影响其他 target
-      // V2.18: 现在物化 vault-context + vault-api 两个 slug × 3 targets = 6 results
+      // Test K1-C: 统一 materializeAllSkillsToAllTargets — 单个 conflict 不影响其他 target
+      // u5: 物化 vault-context + vault-api 两个 slug × 4 targets = 8 results
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
-        // 先物化到所有 3 个 target（2 slugs × 3 targets = 6 results）
-        const firstResult = await agentRuntimeWsMod.materializeAllVaultSkillsToAllTargets(taskKTmpRoot);
+        // 先物化到所有 4 个 target（2 slugs × 4 targets = 8 results）
+        const firstResult = agentRuntimeWsMod.materializeAllSkillsToAllTargets(taskKTmpRoot);
         const firstAllOk = firstResult.ok;
         const firstCount = firstResult.results.length;
         // 人工修改 .pi target 的 vault-context（模拟人工编辑）
@@ -4769,20 +4778,20 @@ if (runMode !== "all" && runMode !== "unit") {
         const humanModified = originalPi.replace("<!-- generated-by: llm-cli-bridge -->", "<!-- human edit -->").replace("# Instructions", "# Human Edited");
         await fsMod.promises.writeFile(piRuntimeAbs, humanModified, "utf8");
 
-        const secondResult = await agentRuntimeWsMod.materializeAllVaultSkillsToAllTargets(taskKTmpRoot);
+        const secondResult = agentRuntimeWsMod.materializeAllSkillsToAllTargets(taskKTmpRoot);
         // 找到 vault-context 的 pi target（应冲突）；vault-api 的 pi target 不受影响
-        const vcPiResult = secondResult.results.find((r) => r.target === "pi" && r.sourcePath.includes("vault-context"));
+        const vcPiResult = secondResult.results.find((r) => r.target === "pi" && r.slug === "vault-context");
         const isConflict = vcPiResult?.status === "conflict" && !vcPiResult.ok;
         // 其他所有结果（含 vault-api pi）应正常
-        const otherResults = secondResult.results.filter((r) => !(r.target === "pi" && r.sourcePath.includes("vault-context")));
+        const otherResults = secondResult.results.filter((r) => !(r.target === "pi" && r.slug === "vault-context"));
         const othersOk = otherResults.every((r) => r.ok || r.status === "skipped");
         const othersCount = otherResults.length;
 
         // 恢复 original
         await fsMod.promises.writeFile(piRuntimeAbs, originalPi, "utf8");
 
-        addTest("V16.5-K1 materializeToAllTargets: 单个 conflict 不影响其他 target",
-          firstAllOk && firstCount === 6 && isConflict && othersOk && othersCount === 5 ? "pass" : "fail",
+        addTest("u5 materializeAllSkillsToAllTargets: 单个 conflict 不影响其他 target",
+          firstAllOk && firstCount === 8 && isConflict && othersOk && othersCount === 7 ? "pass" : "fail",
           `firstAllOk=${firstAllOk} firstCount=${firstCount} isConflict=${isConflict} othersOk=${othersOk} othersCount=${othersCount} vcPiStatus=${vcPiResult?.status}`);
       }
 
@@ -4820,11 +4829,15 @@ if (runMode !== "all" && runMode !== "unit") {
           `saved=${saved} hashMatch=${hashMatch} charCountMatch=${charCountMatch} onlyVaultContext=${onlyVaultContext} entries=${reloaded.entries.length}`);
       }
     } finally {
+      if (taskKOldCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = taskKOldCodexHome;
       try { rmSync(taskKTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
     }
 
     // ===== V17-A: Pi Portable Backend Spike + Provider Skill Targets =====
     const v17aTmpRoot = mkdtempSync(join(tmpdir(), "v17a-pi-"));
+    const v17aOldCodexHome = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = join(v17aTmpRoot, ".codex-home");
     try {
       // Test V17A-A: Pi probe 不存在的命令返回 not-found，不崩溃
       {
@@ -4925,37 +4938,38 @@ if (runMode !== "all" && runMode !== "unit") {
           `claude=${claudePath} generic=${genericPath} pi=${piPath}`);
       }
 
-      // Test V17A-G: materializeToProviderTarget 物化到 .agents/skills 和 .pi/skills
+      // Test V17A-G: materializeAllSkillsToAllTargets 物化到 .agents/skills 和 .pi/skills
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
         // 初始化 workspace（含 vault-context source）
         await agentRuntimeWsMod.ensureAgentRuntimeWorkspace(v17aTmpRoot, { createVaultSkillIfMissing: true });
 
-        // 物化 vault-context 到 generic-agent 和 pi target
-        const genericResult = await agentRuntimeWsMod.materializeToProviderTarget(v17aTmpRoot, "vault-context", "generic-agent");
-        const piResult = await agentRuntimeWsMod.materializeToProviderTarget(v17aTmpRoot, "vault-context", "pi");
+        // u5: 统一物化到所有 target（含 generic-agent 和 pi）
+        const result = agentRuntimeWsMod.materializeAllSkillsToAllTargets(v17aTmpRoot);
+        const genericResult = result.results.find((r) => r.target === "generic-agent" && r.slug === "vault-context");
+        const piResult = result.results.find((r) => r.target === "pi" && r.slug === "vault-context");
 
-        const genericOk = genericResult.ok;
-        const piOk = piResult.ok;
+        const genericOk = genericResult?.ok;
+        const piOk = piResult?.ok;
         const genericPath = pathMod.join(v17aTmpRoot, ".agents/skills/vault-context/SKILL.md");
         const piPath = pathMod.join(v17aTmpRoot, ".pi/skills/vault-context/SKILL.md");
         const genericExists = fsMod.existsSync(genericPath);
         const piExists = fsMod.existsSync(piPath);
 
-        // 验证物化文件含 frontmatter + # Instructions
+        // 验证物化文件含 frontmatter（Agent Skill 格式，name 带引号）+ # Instructions
         const genericContent = await fsMod.promises.readFile(genericPath, "utf8");
         const piContent = await fsMod.promises.readFile(piPath, "utf8");
-        const genericFormat = /^---\nname: vault-context\n/.test(genericContent) && genericContent.includes("# Instructions");
-        const piFormat = /^---\nname: vault-context\n/.test(piContent) && piContent.includes("# Instructions");
+        const genericFormat = /^---\nname: "vault-context"\n/.test(genericContent) && genericContent.includes("# Instructions");
+        const piFormat = /^---\nname: "vault-context"\n/.test(piContent) && piContent.includes("# Instructions");
 
-        addTest("V17-A materialize: 物化到 .agents/skills 和 .pi/skills 含 frontmatter",
+        addTest("u5 materialize: 物化到 .agents/skills 和 .pi/skills 含 frontmatter",
           genericOk && piOk && genericExists && piExists && genericFormat && piFormat ? "pass" : "fail",
           `genericOk=${genericOk} piOk=${piOk} genericExists=${genericExists} piExists=${piExists} genericFormat=${genericFormat} piFormat=${piFormat}`);
       }
 
-      // Test V17A-H: materializeAllVaultSkillsToAllTargets 物化 vault-context + vault-api 到所有 target
-      // V2.18: 现在物化两个 slug（vault-context + vault-api）× 3 targets = 6 results
+      // Test V17A-H: materializeAllSkillsToAllTargets 物化 vault-context + vault-api 到所有 target
+      // u5: 物化两个 slug（vault-context + vault-api）× 4 targets = 8 results
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
@@ -4969,8 +4983,8 @@ if (runMode !== "all" && runMode !== "unit") {
         await fsMod.promises.writeFile(pathMod.join(v17aTmpRoot, agentRuntimeWsMod.VAULT_SKILL_SOURCE_REL), bigContent, "utf8");
         await agentRuntimeWsMod.compactOrSplitVaultSkill(v17aTmpRoot);
 
-        // 物化 vault-context + vault-api 到所有 3 个 targets（2 slugs × 3 targets = 6 results）
-        const result = await agentRuntimeWsMod.materializeAllVaultSkillsToAllTargets(v17aTmpRoot);
+        // u5: 物化 vault-context + vault-api 到所有 4 个 targets（2 slugs × 4 targets = 8 results）
+        const result = agentRuntimeWsMod.materializeAllSkillsToAllTargets(v17aTmpRoot);
 
         // 验证每个 target 都有 vault-context 与 vault-api 物化文件
         let allTargetsMaterialized = true;
@@ -4984,22 +4998,22 @@ if (runMode !== "all" && runMode !== "unit") {
           }
         }
 
-        // V2.18：结果数 = 2 skills × 3 targets = 6
-        const resultCountOk = result.results.length === 6;
+        // u5：结果数 = 2 skills × 4 targets = 8
+        const resultCountOk = result.results.length === 8;
         const targetsCovered = result.results.every((r) =>
-          r.target === "claude" || r.target === "generic-agent" || r.target === "pi");
-        // 验证 vault-api source 也被物化为合法 runtime skill（含 frontmatter + # Instructions）
+          r.target === "claude" || r.target === "generic-agent" || r.target === "pi" || r.target === "codex");
+        // 验证 vault-api source 也被物化为合法 Agent Skill（含 frontmatter name 带引号 + # Instructions）
         const vaClaudePath = pathMod.join(v17aTmpRoot, ".claude/skills/vault-api/SKILL.md");
         const vaClaudeContent = fsMod.existsSync(vaClaudePath) ? await fsMod.promises.readFile(vaClaudePath, "utf8") : "";
-        const vaHasFrontmatter = vaClaudeContent.startsWith("---") && vaClaudeContent.includes("name: vault-api");
+        const vaHasFrontmatter = vaClaudeContent.startsWith("---") && vaClaudeContent.includes('name: "vault-api"');
         const vaHasInstructions = vaClaudeContent.includes("# Instructions");
 
-        addTest("V17-A materializeAll: vault-context + vault-api 物化到所有 target（轻量版）",
+        addTest("u5 materializeAll: vault-context + vault-api 物化到所有 target（统一版）",
           allTargetsMaterialized && resultCountOk && targetsCovered && vaHasFrontmatter && vaHasInstructions ? "pass" : "fail",
-          `allTargetsMaterialized=${allTargetsMaterialized} resultCount=${result.results.length}/6 targetsCovered=${targetsCovered} vaFrontmatter=${vaHasFrontmatter} vaInstructions=${vaHasInstructions}`);
+          `allTargetsMaterialized=${allTargetsMaterialized} resultCount=${result.results.length}/8 targetsCovered=${targetsCovered} vaFrontmatter=${vaHasFrontmatter} vaInstructions=${vaHasInstructions}`);
       }
 
-      // Test V17A-H2: syncVaultSkillsToAgentManifest 将 vault-context + vault-api 注册到 agent-skills.json
+      // Test V17A-H2: materializeAllSkillsToAllTargets 将 vault-context + vault-api 同步到 agent-skills.json
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
@@ -5009,9 +5023,14 @@ if (runMode !== "all" && runMode !== "unit") {
         // 清空 manifest（确保测试干净）
         await fsMod.promises.mkdir(pathMod.dirname(manifestPath), { recursive: true });
         await fsMod.promises.writeFile(manifestPath, JSON.stringify({ version: 1, skills: [] }, null, 2), "utf8");
+        // u5: 同时清除物化文件（避免 record id 不匹配导致 conflict）
+        for (const dir of [".claude/skills", ".agents/skills", ".pi/skills"]) {
+          fsMod.rmSync(pathMod.join(v17aTmpRoot, dir), { recursive: true, force: true });
+        }
+        fsMod.rmSync(pathMod.join(v17aTmpRoot, ".codex-home"), { recursive: true, force: true });
 
-        // 执行同步
-        const syncResult = agentRuntimeWsMod.syncVaultSkillsToAgentManifest(v17aTmpRoot);
+        // 执行同步 + 物化
+        const syncResult = agentRuntimeWsMod.materializeAllSkillsToAllTargets(v17aTmpRoot);
 
         // 验证 manifest 包含 vault-context 和 vault-api
         const manifestContent = JSON.parse(await fsMod.promises.readFile(manifestPath, "utf8"));
@@ -5022,15 +5041,15 @@ if (runMode !== "all" && runMode !== "unit") {
         const hasValidHash = manifestContent.skills.every((s) => typeof s.materializedHash === "string" && s.materializedHash.length > 0);
 
         // 再次同步应跳过（内容未变）
-        const syncResult2 = agentRuntimeWsMod.syncVaultSkillsToAgentManifest(v17aTmpRoot);
+        const syncResult2 = agentRuntimeWsMod.materializeAllSkillsToAllTargets(v17aTmpRoot);
 
-        addTest("V17-A syncVaultSkillsToAgentManifest: vault-context + vault-api 注册到 agent-skills.json",
-          syncResult.ok && syncResult.synced.length === 2 && hasVaultContext && hasVaultApi && allEnabled && hasValidHash ? "pass" : "fail",
-          `ok=${syncResult.ok} synced=${syncResult.synced.length} vaultContext=${hasVaultContext} vaultApi=${hasVaultApi} allEnabled=${allEnabled} hasHash=${hasValidHash}`);
+        addTest("u5 materializeAllSkillsToAllTargets: vault-context + vault-api 同步到 agent-skills.json",
+          syncResult.ok && syncResult.syncSummary.synced.length === 2 && hasVaultContext && hasVaultApi && allEnabled && hasValidHash ? "pass" : "fail",
+          `ok=${syncResult.ok} synced=${syncResult.syncSummary.synced.length} vaultContext=${hasVaultContext} vaultApi=${hasVaultApi} allEnabled=${allEnabled} hasHash=${hasValidHash}`);
 
-        addTest("V17-A syncVaultSkillsToAgentManifest: 二次同步跳过（内容未变）",
-          syncResult2.ok && syncResult2.synced.length === 0 && syncResult2.skipped.length === 2 ? "pass" : "fail",
-          `ok=${syncResult2.ok} synced=${syncResult2.synced.length} skipped=${syncResult2.skipped.length}`);
+        addTest("u5 materializeAllSkillsToAllTargets: 二次调用幂等（物化结果全 skipped）",
+          syncResult2.ok && syncResult2.results.every((r) => r.ok && r.status === "skipped") ? "pass" : "fail",
+          `ok=${syncResult2.ok} allSkipped=${syncResult2.results.every((r) => r.ok && r.status === "skipped")} synced=${syncResult2.syncSummary.synced.length} skipped=${syncResult2.syncSummary.skipped.length}`);
 
         // Test: prepareAgentSkillsForCodexRuntimeSync 物化到 Codex home
         {
@@ -5083,6 +5102,8 @@ if (runMode !== "all" && runMode !== "unit") {
           `backendProfile=${profileFieldExists}(${profileValue}) piCommand=${piCommandExists} piArgs=${piArgsExists} valid=${profileValid}`);
       }
     } finally {
+      if (v17aOldCodexHome === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = v17aOldCodexHome;
       try { rmSync(v17aTmpRoot, { recursive: true, force: true }); } catch { /* ignore */ }
     }
 
@@ -5848,16 +5869,16 @@ if (runMode !== "all" && runMode !== "unit") {
           `toolMode=${hasToolModeDropdown} trust=${hasTrustButton}`);
       }
 
-      // Test V17C-H: 回归 — V16.5-K1 skill runtime format 不回退
+      // Test V17C-H: 回归 — u5 统一物化格式不回退
       {
         const vaultSkillRuntimeSrc = readFileSync(join(PROJECT_ROOT, "src", "agentRuntimeWorkspace.ts"), "utf8");
-        const hasFrontmatterGen = vaultSkillRuntimeSrc.includes("convertVaultSkillSourceToRuntime");
+        const hasUnifiedMaterialize = vaultSkillRuntimeSrc.includes("materializeAllSkillsToAllTargets");
         const hasInstructionsSection = /# Instructions|# Instruction/.test(vaultSkillRuntimeSrc);
-        const skillRuntimeOk = hasFrontmatterGen && hasInstructionsSection;
+        const skillRuntimeOk = hasUnifiedMaterialize && hasInstructionsSection;
 
-        addTest("V17-C 回归 V16.5-K1: skill runtime format（frontmatter + Instructions）不回退",
+        addTest("V17-C 回归 u5: 统一物化格式（materializeAllSkillsToAllTargets + Instructions）不回退",
           skillRuntimeOk ? "pass" : "fail",
-          `frontmatter=${hasFrontmatterGen} instructions=${hasInstructionsSection}`);
+          `unifiedMaterialize=${hasUnifiedMaterialize} instructions=${hasInstructionsSection}`);
       }
 
       // ===== V17-C1: Friend Preview Packaging + Real Pi Smoke Gate =====
@@ -6056,16 +6077,16 @@ if (runMode !== "all" && runMode !== "unit") {
           `piRpcSessionDir=${piRpcSessionDir} piSdkInMemory=${piSdkInMemory}`);
       }
 
-      // Test V17C2-E: 回归 — V16.5-K1 skill runtime format + materialize 不回退（任务 E）
+      // Test V17C2-E: 回归 — u5 统一物化格式 + materialize 不回退（任务 E）
       {
         const workspaceSrc = readFileSync(join(PROJECT_ROOT, "src", "agentRuntimeWorkspace.ts"), "utf8");
-        const hasConvertVaultSkill = workspaceSrc.includes("convertVaultSkillSourceToRuntime");
-        const hasMaterializeAll = /materializeAllVaultSkills|materializeVaultSkill/.test(workspaceSrc);
+        const hasUnifiedEntry = workspaceSrc.includes("materializeAllSkillsToAllTargets");
+        const hasCoreMaterialize = workspaceSrc.includes("materializeAgentSkillToTarget") || workspaceSrc.includes("serializeAgentSkillToMarkdown");
         const hasInstructionsSection = /# Instructions|# Instruction/.test(workspaceSrc);
 
-        addTest("V17-C2 回归 V16.5-K1: skill runtime format + materialize all targets 不回退",
-          hasConvertVaultSkill && hasMaterializeAll && hasInstructionsSection ? "pass" : "fail",
-          `convert=${hasConvertVaultSkill} materialize=${hasMaterializeAll} instructions=${hasInstructionsSection}`);
+        addTest("V17-C2 回归 u5: 统一物化 + materialize all targets 不回退",
+          hasUnifiedEntry && hasCoreMaterialize && hasInstructionsSection ? "pass" : "fail",
+          `unifiedEntry=${hasUnifiedEntry} coreMaterialize=${hasCoreMaterialize} instructions=${hasInstructionsSection}`);
       }
 
       // ===== V17-D 任务 D：Fake Pi SDK 行为测试 =====
@@ -6392,15 +6413,15 @@ if (runMode !== "all" && runMode !== "unit") {
 
       // ===== V17-D 任务 G：回归汇总 =====
       // 验证：
-      // - V16.5-K1 skill runtime format 不回退（convertVaultSkillSourceToRuntime + materializeAllVaultSkills + # Instructions）
+      // - u5 统一物化格式不回退（materializeAllSkillsToAllTargets + materializeAgentSkillToTarget + # Instructions）
       // - 轻量版 vault-runtime skill 格式（VAULT_RUNTIME_SKILL + 4 section + VAULT_SKILL_MAX_CHARS）
       // - Claude/Codex provider 关键文件存在且导出未变（V17-D 改动不应触及）
       // - PiSdkProvider 导出 V17-C/D 所需全部 API
       // - types.ts 含 V17-D 任务 F 新增字段
       {
         const workspaceSrc = readFileSync(join(PROJECT_ROOT, "src", "agentRuntimeWorkspace.ts"), "utf8");
-        const k1Convert = workspaceSrc.includes("convertVaultSkillSourceToRuntime");
-        const k1Materialize = /materializeAllVaultSkills|materializeVaultSkill/.test(workspaceSrc);
+        const k1Convert = workspaceSrc.includes("materializeAllSkillsToAllTargets");
+        const k1Materialize = workspaceSrc.includes("materializeAgentSkillToTarget") || workspaceSrc.includes("serializeAgentSkillToMarkdown");
         const k1Instructions = /# Instructions|# Instruction/.test(workspaceSrc);
         const k1IndexOnly = /VAULT_RUNTIME_SKILL|VAULT_SKILL_MAX_CHARS|vaultRules|directorySemantics/.test(workspaceSrc);
 
@@ -6423,13 +6444,13 @@ if (runMode !== "all" && runMode !== "unit") {
         const claudeCliExists = existsSync(claudeCliPath);
         const codexExists = existsSync(codexPath);
 
-        addTest("V17-D 回归 G: V16.5-K1 轻量版 skill format + Claude/Codex provider 不受影响 + PiSdkProvider 导出完整 + types 新字段",
+        addTest("V17-D 回归 G: u5 统一物化 skill format + Claude/Codex provider 不受影响 + PiSdkProvider 导出完整 + types 新字段",
           k1Convert && k1Materialize && k1Instructions && k1IndexOnly &&
           hasTryLoadAsync && hasPreload && hasSetProbeForTest && hasAuthOverride && hasProbeOverride &&
           hasNewSettings && hasDefaults &&
           claudeSdkExists && claudeCliExists && codexExists
             ? "pass" : "fail",
-          `k1Convert=${k1Convert} k1Materialize=${k1Materialize} k1Instructions=${k1Instructions} k1Lightweight=${k1IndexOnly} tryAsync=${hasTryLoadAsync} preload=${hasPreload} setProbe=${hasSetProbeForTest} authOverride=${hasAuthOverride} probeOverride=${hasProbeOverride} newSettings=${hasNewSettings} defaults=${hasDefaults} claudeSdk=${claudeSdkExists} claudeCli=${claudeCliExists} codex=${codexExists}`);
+          `u5Unified=${k1Convert} u5Core=${k1Materialize} instructions=${k1Instructions} k1Lightweight=${k1IndexOnly} tryAsync=${hasTryLoadAsync} preload=${hasPreload} setProbe=${hasSetProbeForTest} authOverride=${hasAuthOverride} probeOverride=${hasProbeOverride} newSettings=${hasNewSettings} defaults=${hasDefaults} claudeSdk=${claudeSdkExists} claudeCli=${claudeCliExists} codex=${codexExists}`);
       }
 
       // ===== V17-E 任务 A：Codex provider selection 一致性 =====

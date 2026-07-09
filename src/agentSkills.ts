@@ -258,49 +258,36 @@ export function serializeAgentSkillToMarkdown(record: AgentSkillRecord): string 
   ].join("\n");
 }
 
-export async function materializeAgentSkill(vaultPath: string, record: AgentSkillRecord): Promise<AgentSkillMaterializeResult> {
-  const normalized = normalizeAgentSkillRecord(record);
-  const filePath = path.join(vaultPath, normalized.materializedPath);
-  const nextContent = serializeAgentSkillToMarkdown(normalized);
-  const nextHash = sha256(nextContent);
-  const nextRecord = normalizeAgentSkillRecord({ ...normalized, materializedHash: nextHash });
-
-  try {
-    let existing: string | null = null;
-    try {
-      existing = await fs.promises.readFile(filePath, "utf8");
-    } catch {
-      existing = null;
-    }
-
-    if (existing !== null) {
-      const marker = parseGeneratedMarker(existing);
-      if (!marker || marker.generatedBy !== AGENT_SKILL_GENERATED_BY) {
-        return conflict(nextRecord, filePath, "target SKILL.md is not plugin-generated");
-      }
-      if (marker.sourceId !== normalized.id) {
-        return conflict(nextRecord, filePath, "target SKILL.md belongs to another Agent Skill record");
-      }
-      if (normalized.materializedHash && sha256(existing) !== normalized.materializedHash) {
-        return conflict(nextRecord, filePath, "target SKILL.md changed after last materialization");
-      }
-      if (existing === nextContent) {
-        return { ok: true, status: "skipped", record: nextRecord, filePath };
-      }
-    }
-
-    await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
-    await fs.promises.writeFile(filePath, nextContent, "utf8");
-    return { ok: true, status: existing === null ? "created" : "updated", record: nextRecord, filePath };
-  } catch (e) {
-    return { ok: false, status: "error", record: nextRecord, filePath, reason: e instanceof Error ? e.message : String(e) };
-  }
+/**
+ * u5: 统一物化核心函数 — 将单个 AgentSkillRecord 物化到任意目标文件路径。
+ *
+ * 所有 target（claude/.agents/.pi/codex）都通过此函数物化，使用统一的 Agent Skill 格式
+ * （source-id marker），消除旧的 runtime 格式（source-slug marker）。
+ *
+ * - 支持可选 name/description override（Codex 需要 "llm-bridge-" 前缀）
+ * - 支持可选 expectedHash 检测外部修改（仅 claude target 从 manifest 传入）
+ * - 自动升级旧 runtime 格式文件（source-slug marker → source-id marker）
+ */
+export interface AgentSkillTargetOptions {
+  readonly nameOverride?: string;
+  readonly descriptionOverride?: string;
+  readonly expectedHash?: string;
 }
 
-export function materializeAgentSkillSync(vaultPath: string, record: AgentSkillRecord): AgentSkillMaterializeResult {
+export function materializeAgentSkillToTarget(
+  record: AgentSkillRecord,
+  filePath: string,
+  options: AgentSkillTargetOptions = {},
+): AgentSkillMaterializeResult {
   const normalized = normalizeAgentSkillRecord(record);
-  const filePath = path.join(vaultPath, normalized.materializedPath);
-  const nextContent = serializeAgentSkillToMarkdown(normalized);
+  const projected: AgentSkillRecord = (options.nameOverride || options.descriptionOverride)
+    ? normalizeAgentSkillRecord({
+        ...normalized,
+        name: options.nameOverride ?? normalized.name,
+        description: options.descriptionOverride ?? normalized.description,
+      })
+    : normalized;
+  const nextContent = serializeAgentSkillToMarkdown(projected);
   const nextHash = sha256(nextContent);
   const nextRecord = normalizeAgentSkillRecord({ ...normalized, materializedHash: nextHash });
 
@@ -314,17 +301,22 @@ export function materializeAgentSkillSync(vaultPath: string, record: AgentSkillR
 
     if (existing !== null) {
       const marker = parseGeneratedMarker(existing);
-      if (!marker || marker.generatedBy !== AGENT_SKILL_GENERATED_BY) {
+      if (marker && marker.generatedBy === AGENT_SKILL_GENERATED_BY) {
+        // Agent Skill 格式（source-id marker）
+        if (marker.sourceId !== normalized.id) {
+          return conflict(nextRecord, filePath, "target SKILL.md belongs to another Agent Skill record");
+        }
+        if (options.expectedHash && sha256(existing) !== options.expectedHash) {
+          return conflict(nextRecord, filePath, "target SKILL.md changed after last materialization");
+        }
+        if (existing === nextContent) {
+          return { ok: true, status: "skipped", record: nextRecord, filePath };
+        }
+        // 内容不同 → 更新（fall through 到写入）
+      } else if (isLegacyPluginGeneratedSkill(existing)) {
+        // 旧 runtime 格式（source-slug marker）→ 自动升级为 Agent Skill 格式（fall through 到写入）
+      } else {
         return conflict(nextRecord, filePath, "target SKILL.md is not plugin-generated");
-      }
-      if (marker.sourceId !== normalized.id) {
-        return conflict(nextRecord, filePath, "target SKILL.md belongs to another Agent Skill record");
-      }
-      if (normalized.materializedHash && sha256(existing) !== normalized.materializedHash) {
-        return conflict(nextRecord, filePath, "target SKILL.md changed after last materialization");
-      }
-      if (existing === nextContent) {
-        return { ok: true, status: "skipped", record: nextRecord, filePath };
       }
     }
 
@@ -334,6 +326,26 @@ export function materializeAgentSkillSync(vaultPath: string, record: AgentSkillR
   } catch (e) {
     return { ok: false, status: "error", record: nextRecord, filePath, reason: e instanceof Error ? e.message : String(e) };
   }
+}
+
+/**
+ * 检测旧 runtime 格式文件（source-slug marker，无 source-id）。
+ * 用于自动升级为 Agent Skill 格式，而非报 conflict。
+ */
+function isLegacyPluginGeneratedSkill(content: string): boolean {
+  return content.includes(`<!-- generated-by: ${AGENT_SKILL_GENERATED_BY} -->`)
+    && content.includes("<!-- source-slug:")
+    && !content.includes("<!-- source-id:");
+}
+
+export async function materializeAgentSkill(vaultPath: string, record: AgentSkillRecord): Promise<AgentSkillMaterializeResult> {
+  return materializeAgentSkillSync(vaultPath, record);
+}
+
+export function materializeAgentSkillSync(vaultPath: string, record: AgentSkillRecord): AgentSkillMaterializeResult {
+  const normalized = normalizeAgentSkillRecord(record);
+  const filePath = path.join(vaultPath, normalized.materializedPath);
+  return materializeAgentSkillToTarget(normalized, filePath, { expectedHash: normalized.materializedHash });
 }
 
 export function materializeAgentSkillToCodexHomeSync(
@@ -342,41 +354,10 @@ export function materializeAgentSkillToCodexHomeSync(
 ): AgentSkillMaterializeResult {
   const normalized = normalizeAgentSkillRecord(record);
   const filePath = codexBridgeSkillPathForSlug(normalized.slug, codexHome);
-  const nextContent = serializeAgentSkillToMarkdown({
-    ...normalized,
-    name: `${CODEX_BRIDGE_SKILL_PREFIX}${normalized.name}`,
-    description: `${normalized.description} (Bridge plugin Skill)`,
+  return materializeAgentSkillToTarget(normalized, filePath, {
+    nameOverride: `${CODEX_BRIDGE_SKILL_PREFIX}${normalized.name}`,
+    descriptionOverride: `${normalized.description} (Bridge plugin Skill)`,
   });
-  const nextHash = sha256(nextContent);
-  const nextRecord = normalizeAgentSkillRecord({ ...normalized, materializedHash: nextHash });
-
-  try {
-    let existing: string | null = null;
-    try {
-      existing = fs.readFileSync(filePath, "utf8");
-    } catch {
-      existing = null;
-    }
-
-    if (existing !== null) {
-      const marker = parseGeneratedMarker(existing);
-      if (!marker || marker.generatedBy !== AGENT_SKILL_GENERATED_BY) {
-        return conflict(nextRecord, filePath, "target Codex SKILL.md is not plugin-generated");
-      }
-      if (marker.sourceId !== normalized.id) {
-        return conflict(nextRecord, filePath, "target Codex SKILL.md belongs to another Bridge Skill record");
-      }
-      if (existing === nextContent) {
-        return { ok: true, status: "skipped", record: nextRecord, filePath };
-      }
-    }
-
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, nextContent, "utf8");
-    return { ok: true, status: existing === null ? "created" : "updated", record: nextRecord, filePath };
-  } catch (e) {
-    return { ok: false, status: "error", record: nextRecord, filePath, reason: e instanceof Error ? e.message : String(e) };
-  }
 }
 
 export async function materializeEnabledAgentSkills(
