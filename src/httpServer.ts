@@ -9,7 +9,7 @@
 import { App } from "obsidian";
 import * as fs from "fs";
 import * as path from "path";
-import { ConfirmModal, describeAction, executeAction, validateAction, OutboxAction, isModifying } from "./actions";
+import { ConfirmModal, describeAction, executeAction, validateAction, OutboxAction, requiresBridgeApproval } from "./actions";
 
 // 运行时获取 node http 模块（避免顶层 import 导致 renderer 加载失败）
 type HttpModule = typeof import("http");
@@ -483,10 +483,10 @@ export class HttpBridge {
       return ar;
     }
 
-    // V2.18 r6: 权限精简 — 废弃 low/medium/high 分级与会话缓存，改用 isModifying 二值判定。
-    // 非修改类 action 直接执行；修改类 action 走两阶段审批流程（pending approval）。
-    // 会话级权限由 agent 自身的 PermissionBoundary 维护，bridge 不再维护独立权限系统。
-    if (!isModifying(type)) {
+    // V2.18 r10/r11: 权限精简 — 仅 dangerous 类走 bridge 两阶段审批；
+    // 其余（含修改类 create_note/append/property_set/daily_append/clipboard_write/view_mode_set）直接执行并审计。
+    // agent runtime 的 PermissionBoundary 是唯一用户交互审批源；bridge 保留硬边界（path/token）+ dangerous 安全网。
+    if (!requiresBridgeApproval(type)) {
       try {
         const result = await executeAction(this.app, this.vaultPath, action);
         const ar: ActionResult = { ok: true, id, type, result, status: "completed", confirmed: true };

@@ -207,6 +207,12 @@ if (isMain) {
       const params = paramsStr ? JSON.parse(paramsStr) : {};
       r = await client.action(type, params);
     }
+    // V2.18 r14: HTTP 401/403 直接 exit 4（token 无效），不进入正常输出流程
+    if (r && (r.status === 401 || r.status === 403)) {
+      console.error("[token 无效] Bridge 拒绝认证（HTTP " + r.status + "）。");
+      console.error("  bridge.json 中的 token 已失效。重启 Obsidian 插件会重新生成 token。");
+      process.exit(4);
+    }
     // 输出函数：--raw 输出紧凑 JSON，--json 输出缩进 JSON，默认人类可读
     const outputResult = (obj) => {
       if (flags.raw) { console.log(JSON.stringify(obj)); return; }
@@ -218,10 +224,10 @@ if (isMain) {
         console.log(JSON.stringify(obj, null, 2));
       }
     };
-    // 修改类 action（与 actions.ts ACTION_METADATA.modifying 同步，否则 --wait 失效）
-    // 单一真相源在 src/actions.ts 的 ACTION_METADATA
-    const modifying = ["create_note","append_to_note","insert_at_cursor","replace_selection","property_set","daily_append","vault_delete","vault_rename","vault_restore","rename_tag","command_run"].includes(type);
-    if (!modifying || flags.json || flags.raw) {
+    // V2.18 r10: 仅 dangerous 类走 bridge 两阶段审批（pending_approval）；
+    // 其余修改类直接执行返回 completed。--wait 仅对 dangerous 有效。
+    const needsApproval = ["vault_delete","vault_rename","vault_restore","rename_tag","command_run"].includes(type);
+    if (!needsApproval || flags.json || flags.raw) {
       if (r && r.ok === false) {
         if (!flags.json && !flags.raw) console.error("Action 失败:", (r.data && r.data.error) || r.error || "未知错误");
         else outputResult(r.data || r);
@@ -323,12 +329,12 @@ async function writeWrappers(vaultPath: string): Promise<string[]> {
   const helperRel = path.join(".llm-bridge", "tools", HELPER_FILE_NAME).replace(/\\/g, "/");
   const winContent = [
     "@echo off",
-    `node "%~dp0..\\${HELPER_FILE_NAME}" %*`,
+    `node "%~dp0${HELPER_FILE_NAME}" %*`,
     "",
   ].join("\r\n");
   const unixContent = [
     "#!/bin/sh",
-    `exec node "$(dirname "$0")/../${HELPER_FILE_NAME}" "$@"`,
+    `exec node "$(dirname "$0")/${HELPER_FILE_NAME}" "$@"`,
     "",
   ].join("\n");
   const winPath = path.join(dir, WIN_WRAPPER_NAME);

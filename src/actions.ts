@@ -11,8 +11,8 @@
 import { App, DataAdapter, Modal, Notice, TFile, TFolder, Vault, MarkdownView } from "obsidian";
 
 // V2.18 r7: 纯数据/类型提取到 actionMetadata.ts（不依赖 obsidian，可供 agentRuntimeWorkspace 直接 import）
-export { type ActionType, type OutboxAction, type ActionParamSpec, type ActionMetadata, ACTION_METADATA, isModifying } from "./actionMetadata";
-import { ACTION_SCHEMAS, type ActionType, type OutboxAction } from "./actionMetadata";
+export { type ActionType, type OutboxAction, type ActionParamSpec, type ActionMetadata, ACTION_METADATA, isModifying, requiresBridgeApproval } from "./actionMetadata";
+import { ACTION_SCHEMAS, ACTION_METADATA, type ActionType, type OutboxAction } from "./actionMetadata";
 
 // ─── 路径安全校验 ─────────────────────────────────────────────────────────
 
@@ -353,8 +353,9 @@ export async function executeAction(
       if (!(f instanceof TFile) && !(f instanceof TFolder)) {
         throw new Error(`vault_delete: 文件不存在 ${targetPath}`);
       }
-      // 走 Obsidian trash（进回收站，比 fs.delete 安全）
-      await app.vault.trash(f, true);
+      // V2.18 r13: trash(f, false) 进 Obsidian 内部 .trash/，与 vault_restore 一致；
+      // trash(f, true) 进系统回收站，vault_restore 无法搜索恢复。
+      await app.vault.trash(f, false);
       return { path: targetPath, trashed: true };
     }
     case "vault_rename": {

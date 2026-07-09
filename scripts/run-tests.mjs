@@ -8397,7 +8397,7 @@ console.log("\n=== Helper Behavior（fake server）===");
       }), "utf8");
 
       const start = Date.now();
-      const r = await runHelperCli(["--wait", "--timeout", "2", "create_note", '{"path":"test.md","content":"x"}'], { timeoutMs: 10000 });
+      const r = await runHelperCli(["--wait", "--timeout", "2", "vault_delete", '{"path":"test.md"}'], { timeoutMs: 10000 });
       const elapsed = Date.now() - start;
       const stderr = r.stderr;
       const hasTimeout = stderr.includes("超时") || stderr.includes("timeout");
@@ -8416,7 +8416,7 @@ console.log("\n=== Helper Behavior（fake server）===");
     // --- 测试 2：--wait 成功路径（fake server 第 3 次轮询后返回 completed）---
     {
       const start = Date.now();
-      const r = await runHelperCli(["--wait", "--timeout", "10", "create_note", '{"path":"ok.md","content":"x"}'], { timeoutMs: 30000 });
+      const r = await runHelperCli(["--wait", "--timeout", "10", "vault_delete", '{"path":"ok.md"}'], { timeoutMs: 30000 });
       const elapsed = Date.now() - start;
       const stdout = r.stdout;
       const hasCompleted = stdout.includes("完成") || stdout.includes("completed");

@@ -217,3 +217,12 @@ export function isModifying(type: string): boolean {
   const meta = ACTION_METADATA[type as ActionType];
   return !!meta && meta.modifying;
 }
+
+// V2.18 r10/r11: 危险操作才走 bridge 两阶段审批；其余（含修改类）直接执行并审计。
+// agent runtime 的 PermissionBoundary 是唯一用户交互审批源；
+// bridge 仅对 dangerous 类（删除/重命名/恢复/标签重命名/命令执行）保留安全网。
+// 普通修改类（create_note/append/property_set/daily_append/clipboard_write/view_mode_set）直接执行。
+export function requiresBridgeApproval(type: string): boolean {
+  const meta = ACTION_METADATA[type as ActionType];
+  return !!meta && meta.category === "dangerous";
+}

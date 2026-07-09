@@ -527,7 +527,7 @@ export function generateInitialVaultApiSkill(): string {
     { label: "结构化类（metadataCache / fileManager，文件系统做不准）", cat: "structured" },
     { label: "全文搜索", cat: "search" },
     { label: "UI / 运行时操作（文件系统做不到）", cat: "ui" },
-    { label: "危险操作类（走回收站 + 审批）", cat: "dangerous" },
+    { label: "危险操作类（advanced — 默认不调用，需 agent runtime approval 显式确认）", cat: "dangerous" },
   ];
 
   const actionTables = categories.map(({ label, cat }) => {
@@ -564,6 +564,7 @@ export function generateInitialVaultApiSkill(): string {
     "- **L0 native file tools（优先）**：普通文件读写用 Read/Write/Edit/Grep/Glob。文件系统能做的不走本 Skill。",
     "- **L1 obsidian-bridge wrapper（本 Skill）**：文件系统做不到或做不准的能力——frontmatter/tags/backlinks/tasks/daily note/metadataCache/搜索/回收站/UI 操作。",
     "- **L2 shell 降级**：当 wrapper 不可用（exit 2/3/4），可降级用 shell + 文件系统做近似操作（如 grep 替代 search），但失去 metadataCache 准确性。",
+    "- **dangerous 操作（advanced）**：vault_delete/vault_rename/vault_restore/rename_tag/command_run 默认不调用。仅在用户明确要求时使用，并走 agent runtime approval 显式确认。bridge 对此类保留两阶段审批安全网。",
     "",
     "## 调用通道",
     "",
@@ -580,6 +581,10 @@ export function generateInitialVaultApiSkill(): string {
     `obsidian-bridge --wait --timeout 60 create_note '{"path":"a.md","content":"x"}'`,
     "obsidian-bridge --raw tags_list | jq '.tags'              # 纯 JSON 输出，适合管道",
     "```",
+    "",
+    "如 PATH 中存在同名冲突（如官方 Obsidian CLI），用显式路径调用：",
+    "- Windows: `.\\.llm-bridge\\tools\\obsidian-bridge.cmd health`",
+    "- Unix: `./.llm-bridge/tools/obsidian-bridge health`",
     "",
     "**--stdin 模式**（强烈推荐用于修改类 action）：从 stdin 读 JSON params，彻底避免 PowerShell/bash 引号转义问题。",
     "",
