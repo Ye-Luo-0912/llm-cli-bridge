@@ -120,8 +120,19 @@ export default class LLMBridgePlugin extends Plugin {
       const result = await materializeAllVaultSkillsToAllTargets(vaultPath);
       // V2.18: 同步注册到 agent-skills.json manifest（agent 通过 manifest 发现 skill）
       const syncResult = syncVaultSkillsToAgentManifest(vaultPath);
+      // V2.18: 物化到 Codex home（~/.codex/skills/llm-bridge-*），Codex 从此处发现 skill
+      let codexOk = 0, codexTotal = 0;
+      try {
+        const { prepareAgentSkillsForCodexRuntimeSync } = await import("./src/agentSkills");
+        const codexPrep = prepareAgentSkillsForCodexRuntimeSync(vaultPath);
+        codexOk = codexPrep.results.filter((r) => r.ok).length;
+        codexTotal = codexPrep.results.length;
+        if (!codexPrep.ok) console.warn("[llm-cli-bridge] Codex skill 物化有失败项（不阻塞）：", codexPrep.reason);
+      } catch (e) {
+        console.warn("[llm-cli-bridge] Codex skill 物化跳过（不阻塞）：", e);
+      }
       const okCount = result.results.filter((r) => r.ok).length;
-      console.log(`[llm-cli-bridge] onload skill 物化完成: ${okCount}/${result.results.length} ok (claude + generic-agent + pi), manifest sync: ${syncResult.synced.length} synced / ${syncResult.skipped.length} skipped`);
+      console.log(`[llm-cli-bridge] onload skill 物化完成: vault=${okCount}/${result.results.length}, manifest sync=${syncResult.synced.length}/${syncResult.synced.length + syncResult.skipped.length}, codex=${codexOk}/${codexTotal}`);
     } catch (e) {
       console.warn("[llm-cli-bridge] onload skill 物化失败（不阻塞）：", e);
     }

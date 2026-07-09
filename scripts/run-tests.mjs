@@ -5031,6 +5031,43 @@ if (runMode !== "all" && runMode !== "unit") {
         addTest("V17-A syncVaultSkillsToAgentManifest: 二次同步跳过（内容未变）",
           syncResult2.ok && syncResult2.synced.length === 0 && syncResult2.skipped.length === 2 ? "pass" : "fail",
           `ok=${syncResult2.ok} synced=${syncResult2.synced.length} skipped=${syncResult2.skipped.length}`);
+
+        // Test: prepareAgentSkillsForCodexRuntimeSync 物化到 Codex home
+        {
+          const esbuildMod = (await import("esbuild")).default;
+          const agentSkillsBundlePath = pathMod.join(v17aTmpRoot, ".agent-skills-bundle.mjs");
+          await esbuildMod.build({
+            entryPoints: [pathMod.join(PROJECT_ROOT, "src", "agentSkills.ts")],
+            bundle: true, format: "esm", platform: "node", outfile: agentSkillsBundlePath, logLevel: "silent",
+          });
+          const agentSkillsMod = await import(pathToFileURL(agentSkillsBundlePath).href);
+          const tmpCodexHome = pathMod.join(v17aTmpRoot, ".codex-home-tmp");
+          await fsMod.promises.mkdir(tmpCodexHome, { recursive: true });
+          const codexPrep = agentSkillsMod.prepareAgentSkillsForCodexRuntimeSync(v17aTmpRoot, tmpCodexHome);
+          const codexVaultApi = codexPrep.results.find((r) => r.record.slug === "vault-api");
+          const codexVaultContext = codexPrep.results.find((r) => r.record.slug === "vault-context");
+          const codexAllOk = codexPrep.results.every((r) => r.ok);
+          const codexVaultApiOk = codexVaultApi && codexVaultApi.ok;
+          const codexVaultContextOk = codexVaultContext && codexVaultContext.ok;
+          // 验证文件存在
+          const codexVaultApiPath = pathMod.join(tmpCodexHome, "skills", "llm-bridge-vault-api", "SKILL.md");
+          const codexVaultContextPath = pathMod.join(tmpCodexHome, "skills", "llm-bridge-vault-context", "SKILL.md");
+          const codexVaultApiFileExists = fsMod.existsSync(codexVaultApiPath);
+          const codexVaultContextFileExists = fsMod.existsSync(codexVaultContextPath);
+          // 验证名称带前缀
+          let codexVaultApiHasPrefix = false;
+          if (codexVaultApiFileExists) {
+            const content = fsMod.readFileSync(codexVaultApiPath, "utf8");
+            codexVaultApiHasPrefix = content.includes("llm-bridge-vault-api");
+          }
+
+          addTest("V17-A prepareAgentSkillsForCodexRuntimeSync: vault-api + vault-context 物化到 Codex home",
+            codexAllOk && codexVaultApiOk && codexVaultContextOk && codexVaultApiFileExists && codexVaultContextFileExists && codexVaultApiHasPrefix ? "pass" : "fail",
+            `allOk=${codexAllOk} vaultApiOk=${!!codexVaultApiOk} vaultContextOk=${!!codexVaultContextOk} apiFile=${codexVaultApiFileExists} ctxFile=${codexVaultContextFileExists} hasPrefix=${codexVaultApiHasPrefix}`);
+
+          // 清理
+          fsMod.rmSync(tmpCodexHome, { recursive: true, force: true });
+        }
       }
 
       // Test V17A-I: settings 含 backendProfile/piCommand 字段（朋友版 portable 可切换）
