@@ -150,8 +150,12 @@ export function buildCapabilityManifest(
   if (isCodexManagedProvider) {
     lines.push("- Codex Skills: Bridge-managed Skills are materialized into Codex home personal skills before run; they are not injected as prompt capability text.");
   } else {
-    lines.push("- Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md（轻量 vault-runtime 包：边界规则/稳定约定/用户偏好/目录语义）。");
-    lines.push("- Runtime Skill target: .claude/skills/vault-context/SKILL.md（物化后 provider 按需识别）。");
+    lines.push("- Vault Skill 包: LLM-AgentRuntime/skills/vault-context/（agent 自维护的 vault 认知包）");
+    lines.push("  - SKILL.md（清单+维护规则）+ 子 skill 文件（vault-rules/conventions/preferences/directories .md）+ INDEX.md（索引）");
+    lines.push("  - 物化到 .claude/skills/vault-context/（整包复制，provider 按需识别）");
+    lines.push("  - **agent 随时维护**：发现稳定事实/约定/偏好/目录语义时，用 file tools 直接编辑对应子 .md 文件");
+    lines.push("  - 维护后更新 INDEX.md（记录条目数和最后更新时间），方便快速查找");
+    lines.push("  - 可自主新增 *.md 子 skill 文件，新增后在 SKILL.md 清单登记");
   }
   // V2.18 vault-api：声明 Obsidian Plugin API 能力 Skill（obsidian-bridge wrapper / helper mjs / HTTP bridge / outbox 调用）
   lines.push("- vault-api Skill: .claude/skills/vault-api/SKILL.md（物化后）。暴露 Obsidian Plugin API 能力（文件系统做不到的）：frontmatter property、tags（清单/反查/改名）、backlinks/outlinks/链接解析/附件、tasks、daily note、search（markdown-aware）、metadataCache 聚合、resolvedLinks 全局图、bookmarks、plugin、setting、命令执行、workspace、clipboard、视图模式、vault 回收站操作。共 29 个 action，详见 SKILL.md。调用通道：obsidian-bridge wrapper（推荐，`.llm-bridge/tools/obsidian-bridge`，支持 --stdin 绕开 shell 转义 / --raw 管道输出 / --wait 等审批）→ helper mjs → HTTP bridge → outbox actions.jsonl 兜底。普通文件读写仍用 native file tools。");

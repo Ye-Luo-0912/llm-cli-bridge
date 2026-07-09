@@ -454,8 +454,19 @@ export function compactVaultSkillContent(content: string): string {
 // ---------- VAULT_SKILL 初版生成 ----------
 
 /**
- * 生成轻量 vault-runtime Skill 初版。
+ * vault-context 子 skill 主题映射（文件名 stem → 中文主题）。
+ */
+const VAULT_CONTEXT_TOPIC_MAP: Readonly<Record<string, string>> = {
+  "vault-rules": "边界规则",
+  "conventions": "稳定约定",
+  "preferences": "用户偏好",
+  "directories": "目录语义",
+};
+
+/**
+ * 生成 vault-context Skill 包初版。
  *
+ * 包结构：SKILL.md（清单）+ 4 个子 .md 文件 + INDEX.md（索引）。
  * 写入 bridge 默认已知的边界规则（禁区）+ 目录语义；
  * 不做深度全库扫描（轻量原则）。
  */
@@ -465,8 +476,8 @@ export async function generateInitialVaultSkill(
     readonly scanTopLevelDirs?: boolean;
     readonly readKeyFiles?: boolean;
   } = {},
-): Promise<string> {
-  const vaultRules: string[] = [
+): Promise<{ readonly skillMd: string; readonly subFiles: Readonly<Record<string, string>>; readonly indexMd: string }> {
+  const vaultRules = [
     "不修改 .obsidian/ 目录（Obsidian 配置区）",
     "不修改 .llm-bridge/ 目录（Bridge 主控区，含 bridge.json/credentials）",
     "不修改 .git/ 目录（版本控制）",
@@ -474,7 +485,7 @@ export async function generateInitialVaultSkill(
     "agent 自维护区在 LLM-AgentRuntime/（sessions/work/runtime/skills）",
   ];
 
-  const directorySemantics: string[] = [
+  const directories = [
     `${AGENT_RUNTIME_DIR_REL}/ : agent 自维护工作区（sessions/work/runtime/skills）`,
     `.llm-bridge/ : Bridge 主控区（bridge.json/state/logs/sessions）`,
     `.obsidian/ : Obsidian 配置区（禁写）`,
@@ -483,24 +494,142 @@ export async function generateInitialVaultSkill(
     `.pi/skills/ : Pi skill 物化目标`,
   ];
 
-  // 轻量扫描：读顶层目录名（前 8 个）作为 directory semantics 补充
+  const skillMd = [
+    "# vault-context",
+    "",
+    "> Agent 自维护的 vault 认知包。在发现稳定事实、有变更时更新对应子 skill 文件。",
+    `> Source: ${VAULT_SKILL_SOURCE_DIR_REL}/`,
+    "",
+    "## 子 Skills",
+    "",
+    "- [vault-rules](vault-rules.md) — 边界规则（agent 必须遵守的禁区/审批边界）",
+    "- [conventions](conventions.md) — 稳定约定（命名/输出位置/格式）",
+    "- [preferences](preferences.md) — 用户偏好（用户明确要求的偏好；agent 不自动覆盖）",
+    "- [directories](directories.md) — 目录语义（关键目录含义）",
+    "",
+    "## 维护规则",
+    "",
+    "- **何时维护**：发现稳定 + 有用 + 可复用的事实时；用户明确表达偏好时；发现错误需要纠正时",
+    "- **如何维护**：用 file tools（Write/Edit）直接编辑对应子 .md 文件",
+    "- **不写入**：一次性命令日志、临时测试、当前会话过程、未确认猜测",
+    "- **compact 规则**：每个子 skill 上限 15 条，每条上限 300 字符；超过时 compact（保留最新、合并重复）",
+    "- **可扩展**：可自主新增 `*.md` 子 skill 文件，新增后在本清单登记",
+    "- **索引**：INDEX.md 自动维护所有子 skill 的摘要索引，方便快速查找",
+    "",
+    "## 索引",
+    "",
+    "参见 [INDEX.md](INDEX.md) 获取所有子 skill 的摘要索引。",
+    "",
+  ].join("\n");
+
+  const subFiles: Record<string, string> = {
+    "vault-rules.md": [
+      "# vault-rules",
+      "",
+      ...vaultRules.map((r) => `- ${r}`),
+      "",
+    ].join("\n"),
+    "conventions.md": [
+      "# conventions",
+      "",
+      "<!-- agent 维护：命名/输出位置/格式约定 -->",
+      "（暂无，agent 在发现稳定约定时追加）",
+      "",
+    ].join("\n"),
+    "preferences.md": [
+      "# preferences",
+      "",
+      "<!-- agent 维护：用户明确表达的偏好（agent 不自动覆盖，只追加） -->",
+      "（暂无，用户表达偏好时追加）",
+      "",
+    ].join("\n"),
+    "directories.md": [
+      "# directories",
+      "",
+      ...directories.map((d) => `- ${d}`),
+      "",
+    ].join("\n"),
+  };
+
+  // 接受 vaultPath 参数以保持签名兼容（轻量扫描已内联到 directories 默认值中）
+  void vaultPath;
+
+  const indexMd = buildVaultContextIndexMd([
+    { file: "vault-rules.md", topic: VAULT_CONTEXT_TOPIC_MAP["vault-rules"] ?? "vault-rules", count: vaultRules.length, updatedAt: "-" },
+    { file: "conventions.md", topic: VAULT_CONTEXT_TOPIC_MAP["conventions"] ?? "conventions", count: 0, updatedAt: "-" },
+    { file: "preferences.md", topic: VAULT_CONTEXT_TOPIC_MAP["preferences"] ?? "preferences", count: 0, updatedAt: "-" },
+    { file: "directories.md", topic: VAULT_CONTEXT_TOPIC_MAP["directories"] ?? "directories", count: directories.length, updatedAt: "-" },
+  ]);
+
+  return { skillMd, subFiles, indexMd };
+}
+
+/**
+ * 构建 vault-context INDEX.md 内容。
+ */
+function buildVaultContextIndexMd(entries: ReadonlyArray<{ readonly file: string; readonly topic: string; readonly count: number; readonly updatedAt: string }>): string {
+  const rows = entries.map((e) => `| [${e.file}](${e.file}) | ${e.topic} | ${e.count} | ${e.updatedAt} |`);
+  return [
+    "# vault-context 索引",
+    "",
+    "> 自动生成的子 skill 索引。agent 可参考此索引快速定位需要更新/查看的子 skill。",
+    "> 物化时会从源目录同步到目标目录。",
+    "",
+    "## 子 Skills",
+    "",
+    "| 文件 | 主题 | 条目数 | 最后更新 |",
+    "|------|------|--------|----------|",
+    ...rows,
+    "",
+  ].join("\n");
+}
+
+/**
+ * 扫描 vault-context 源目录下所有子 .md 文件，生成/更新 INDEX.md。
+ *
+ * 排除 SKILL.md 和 INDEX.md 本身。对每个子 skill 文件统计 `- ` 开头行数作为条目数。
+ */
+export async function regenerateVaultContextIndex(vaultPath: string): Promise<boolean> {
+  const sourceDirAbs = path.join(vaultPath, VAULT_SKILL_SOURCE_DIR_REL);
+  let files: string[];
   try {
-    const entries = await fs.promises.readdir(vaultPath, { withFileTypes: true });
-    const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name)
-      .filter((d) => !d.startsWith(".") && d !== AGENT_RUNTIME_DIR_REL);
-    if (dirs.length > 0) {
-      directorySemantics.push(`Vault top-level dirs: ${dirs.slice(0, 8).join(", ")}`);
-    }
+    files = (await fs.promises.readdir(sourceDirAbs))
+      .filter((f): f is string => typeof f === "string" && f.endsWith(".md") && f !== "SKILL.md" && f !== "INDEX.md")
+      .sort();
   } catch {
-    // 读取失败不阻断初版生成
+    return false;
   }
 
-  return buildVaultSkillMarkdown({
-    vaultRules,
-    stableConventions: [],
-    userPreferences: [],
-    directorySemantics,
-  });
+  const entries: Array<{ file: string; topic: string; count: number; updatedAt: string }> = [];
+  for (const file of files) {
+    const filePath = path.join(sourceDirAbs, file);
+    let content = "";
+    try {
+      content = await fs.promises.readFile(filePath, "utf8");
+    } catch {
+      continue;
+    }
+    const stem = file.replace(/\.md$/, "");
+    const topic = VAULT_CONTEXT_TOPIC_MAP[stem] ?? stem;
+    const count = content.split("\n").filter((l) => l.startsWith("- ")).length;
+    let updatedAt = "-";
+    try {
+      const stat = await fs.promises.stat(filePath);
+      updatedAt = stat.mtime.toISOString();
+    } catch {
+      // 保留 "-"
+    }
+    entries.push({ file, topic, count, updatedAt });
+  }
+
+  const indexMd = buildVaultContextIndexMd(entries);
+  try {
+    await fs.promises.mkdir(sourceDirAbs, { recursive: true });
+    await fs.promises.writeFile(path.join(sourceDirAbs, "INDEX.md"), indexMd, "utf8");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 // ---------- V2.18 vault-api Skill 初版生成 ----------
@@ -742,7 +871,7 @@ export async function ensureAgentRuntimeWorkspace(
     }
   }
 
-  // VAULT_SKILL source（缺失时生成初版，不覆盖已有）
+  // VAULT_SKILL source（缺失时生成初版包，不覆盖已有）
   const vaultSkillAbs = path.join(vaultPath, VAULT_SKILL_SOURCE_REL);
   try {
     await fs.promises.access(vaultSkillAbs);
@@ -751,8 +880,25 @@ export async function ensureAgentRuntimeWorkspace(
     if (options.createVaultSkillIfMissing ?? true) {
       try {
         const initial = await generateInitialVaultSkill(vaultPath);
-        await fs.promises.writeFile(vaultSkillAbs, initial, "utf8");
+        const skillDir = path.dirname(vaultSkillAbs);
+        await fs.promises.mkdir(skillDir, { recursive: true });
+        await fs.promises.writeFile(vaultSkillAbs, initial.skillMd, "utf8");
         created.push(VAULT_SKILL_SOURCE_REL);
+        for (const [name, content] of Object.entries(initial.subFiles)) {
+          const subRel = `${VAULT_SKILL_SOURCE_DIR_REL}/${name}`;
+          try {
+            await fs.promises.writeFile(path.join(skillDir, name), content, "utf8");
+            created.push(subRel);
+          } catch {
+            skipped.push(subRel);
+          }
+        }
+        try {
+          await fs.promises.writeFile(path.join(skillDir, "INDEX.md"), initial.indexMd, "utf8");
+          created.push(`${VAULT_SKILL_SOURCE_DIR_REL}/INDEX.md`);
+        } catch {
+          skipped.push(`${VAULT_SKILL_SOURCE_DIR_REL}/INDEX.md`);
+        }
         vaultSkillInitialized = true;
       } catch {
         skipped.push(VAULT_SKILL_SOURCE_REL);
@@ -799,8 +945,7 @@ export function buildAgentRuntimeReadme(): string {
     "## 结构",
     "",
     "- `runtime/RUNTIME_FACTS.json`: 机器事实（provider/shell/capability），不进 prompt。",
-    "- `skills/vault-context/SKILL.md`: VAULT_SKILL 源文件（agent 长期认知缓存）。",
-    "- `skills/vault-context/update-log.md`: 可选短变更日志，不进 prompt。",
+    "- `skills/vault-context/`: vault-context Skill 包（SKILL.md 清单 + 子 skill .md + INDEX.md 索引）。agent 自维护的 vault 认知包。",
     "- `skills/vault-api/SKILL.md`: V2.18 vault-api Skill 源文件（Obsidian Plugin API 能力：property/tags/backlinks/tasks/daily/trash）。",
     "- `sessions/`: 会话摘要（agent 写入，不进 VAULT_SKILL）。",
     "- `work/`: 临时工作文件（agent 写入，不进 VAULT_SKILL）。",
@@ -808,7 +953,7 @@ export function buildAgentRuntimeReadme(): string {
     "",
     "## 说明",
     "",
-    "- VAULT_SKILL 源文件物化到 `.claude/skills/vault-context/SKILL.md` 才能被 provider 按需识别。",
+    "- vault-context 包物化到 `.claude/skills/vault-context/`（SKILL.md + 子 .md + INDEX.md）才能被 provider 按需识别。",
     "- vault-api Skill 源文件物化到 `.claude/skills/vault-api/SKILL.md`（以及 .agents/skills / .pi/skills）。",
     "- 用户可查看/重置/清理本目录，但默认不需要维护。",
     "- 所有写入仍走 PermissionBoundary，不绕过权限系统。",
@@ -847,7 +992,7 @@ export interface VaultSkillRuntimeMeta {
 }
 
 const VAULT_SKILL_RUNTIME_META: Readonly<Record<string, VaultSkillRuntimeMeta>> = {
-  [VAULT_CONTEXT_SLUG]: { slug: VAULT_CONTEXT_SLUG, name: "vault-context", description: "Agent-maintained lightweight vault runtime package (rules + conventions + preferences + directory semantics)." },
+  [VAULT_CONTEXT_SLUG]: { slug: VAULT_CONTEXT_SLUG, name: "vault-context", description: "Agent-maintained vault context skill package (SKILL.md manifest + sub-skills: vault-rules/conventions/preferences/directories + INDEX.md). Agent edits sub-skill .md files directly to maintain stable facts." },
   // V2.18 vault-api：Obsidian Plugin API 能力（property/tags/backlinks/tasks/daily/trash）
   [VAULT_API_SLUG]: { slug: VAULT_API_SLUG, name: "vault-api", description: "Obsidian Plugin API capabilities that the file system cannot provide: frontmatter (metadataCache/fileManager), tags/backlinks/tasks aggregation, daily-notes path, vault trash/rename. Invoke via outbox action / HTTP bridge (see .llm-bridge/bridge.json)." },
 };
@@ -976,10 +1121,11 @@ export function decideCompact(charCount: number): "compact" | "keep" {
 }
 
 /**
- * 执行 vault-context skill 的 compact 流程（轻量版，无 split）。
+ * 执行 vault-context skill 包的 compact 流程（包结构版）。
  *
- * 当 source 超过 VAULT_SKILL_MAX_CHARS 时，compact rewrite 并写回。
- * 保留 main.ts 命令引用的函数名（向后兼容）。
+ * 遍历源目录下所有子 .md 文件（SKILL.md + INDEX.md 除外），每个文件单独 compact：
+ * 保留前 15 条 `- ` 开头的行，每条截断到 300 字符。
+ * compact 后重新生成 INDEX.md。
  */
 export interface CompactOrSplitResult {
   readonly action: "keep" | "compacted";
@@ -987,30 +1133,74 @@ export interface CompactOrSplitResult {
   readonly reason?: string;
 }
 
+/**
+ * compact 单个子 skill 文件内容：
+ * 保留非 `- ` 行（标题/注释/空行），对 `- ` 行只保留前 15 条且每条截断到 300 字符。
+ */
+function compactSubSkillContent(content: string): string {
+  const lines = content.split("\n");
+  let bulletCount = 0;
+  const result: string[] = [];
+  for (const line of lines) {
+    if (line.startsWith("- ")) {
+      if (bulletCount >= VAULT_SKILL_SECTION_MAX_ITEMS) {
+        continue;
+      }
+      const itemContent = line.slice(2);
+      const truncated = itemContent.length > VAULT_SKILL_ITEM_MAX_CHARS
+        ? itemContent.slice(0, VAULT_SKILL_ITEM_MAX_CHARS) + "..."
+        : itemContent;
+      result.push(`- ${truncated}`);
+      bulletCount++;
+    } else {
+      result.push(line);
+    }
+  }
+  return result.join("\n");
+}
+
 export async function compactOrSplitVaultSkill(vaultPath: string): Promise<CompactOrSplitResult> {
-  const existing = await readVaultSkillSource(vaultPath);
-  if (!existing) {
+  const sourceDirAbs = path.join(vaultPath, VAULT_SKILL_SOURCE_DIR_REL);
+  let files: string[];
+  try {
+    files = (await fs.promises.readdir(sourceDirAbs))
+      .filter((f): f is string => typeof f === "string" && f.endsWith(".md") && f !== "SKILL.md" && f !== "INDEX.md")
+      .sort();
+  } catch {
     return {
       action: "keep",
       vaultContextContent: "",
-      reason: "vault-context source not found",
+      reason: "vault-context source dir not found",
     };
   }
 
-  const decision = decideCompact(existing.length);
-  if (decision === "keep") {
-    return {
-      action: "keep",
-      vaultContextContent: existing,
-    };
+  let anyCompacted = false;
+  for (const file of files) {
+    const filePath = path.join(sourceDirAbs, file);
+    let content: string;
+    try {
+      content = await fs.promises.readFile(filePath, "utf8");
+    } catch {
+      continue;
+    }
+    const compacted = compactSubSkillContent(content);
+    if (compacted !== content) {
+      try {
+        await fs.promises.writeFile(filePath, compacted, "utf8");
+        anyCompacted = true;
+      } catch {
+        // 写入失败不阻塞后续文件
+      }
+    }
   }
 
-  // 执行 compact（分区内截断，不拆分多文件）
-  const compacted = enforceVaultSkillMaxChars(compactVaultSkillContent(existing));
-  await fs.promises.writeFile(path.join(vaultPath, VAULT_SKILL_SOURCE_REL), compacted, "utf8");
+  // 重新生成 INDEX.md
+  await regenerateVaultContextIndex(vaultPath);
+
+  const skillMd = await readVaultSkillSource(vaultPath);
   return {
-    action: "compacted",
-    vaultContextContent: compacted,
+    action: anyCompacted ? "compacted" : "keep",
+    vaultContextContent: skillMd ?? "",
   };
 }
 
@@ -1061,16 +1251,20 @@ export function materializeAllSkillsToAllTargets(vaultPath: string): Materialize
 
     // generic-agent target（.agents/skills/<slug>/SKILL.md）
     const agentsPath = path.join(vaultPath, providerTargetPathForSlug("generic-agent", record.slug));
-    const agentsResult = materializeAgentSkillToTarget(record, agentsPath);
+    const agentsResult = materializeAgentSkillToTarget(record, agentsPath, {
+      sourceDir: record.sourceDir ? path.join(vaultPath, record.sourceDir) : undefined,
+    });
     results.push({ ...agentsResult, target: "generic-agent", slug: record.slug });
 
     // pi target（.pi/skills/<slug>/SKILL.md）
     const piPath = path.join(vaultPath, providerTargetPathForSlug("pi", record.slug));
-    const piResult = materializeAgentSkillToTarget(record, piPath);
+    const piResult = materializeAgentSkillToTarget(record, piPath, {
+      sourceDir: record.sourceDir ? path.join(vaultPath, record.sourceDir) : undefined,
+    });
     results.push({ ...piResult, target: "pi", slug: record.slug });
 
     // codex target（~/.codex/skills/llm-bridge-<slug>/SKILL.md，带 name/desc override）
-    const codexResult = materializeAgentSkillToCodexHomeSync(record);
+    const codexResult = materializeAgentSkillToCodexHomeSync(record, undefined, vaultPath);
     results.push({ ...codexResult, target: "codex", slug: record.slug });
   }
 
@@ -1092,7 +1286,9 @@ export function materializeAllSkillsToAllTargets(vaultPath: string): Materialize
  * u5: 将 vault-context + vault-api 的 source SKILL.md 同步到 agent-skills.json manifest。
  *
  * 读取 source 内容 → 创建/更新 AgentSkillRecord → 保存 manifest。
- * 使用 computeAgentSkillSourceHash 检测内容变化（比 materializedHash 更稳定）。
+ * vault-context 是包 skill：instructions = SKILL.md，sourceDir 指向源目录，
+ * sourceContentHash 包含 SKILL.md + 所有子 .md 文件内容（检测子文件变化）。
+ * vault-api 是单文件 skill：用 computeAgentSkillSourceHash 检测变化。
  */
 function syncVaultSkillsSourceToManifest(vaultPath: string): { synced: string[]; skipped: string[] } {
   const synced: string[] = [];
@@ -1103,6 +1299,7 @@ function syncVaultSkillsSourceToManifest(vaultPath: string): { synced: string[];
 
   for (const slug of [VAULT_CONTEXT_SLUG, VAULT_API_SLUG]) {
     const meta = getVaultSkillRuntimeMeta(slug);
+    const isPackage = slug === VAULT_CONTEXT_SLUG;
     const sourceRel = slug === VAULT_API_SLUG ? VAULT_API_SKILL_SOURCE_REL : VAULT_SKILL_SOURCE_REL;
     const sourcePath = path.join(vaultPath, sourceRel);
     let instructions = "";
@@ -1116,18 +1313,43 @@ function syncVaultSkillsSourceToManifest(vaultPath: string): { synced: string[];
     const existing = existingBySlug.get(slug);
     const nowIso = new Date().toISOString();
 
-    // 检测 source 内容是否变化（用 sourceHash 而非 materializedHash）
-    // 注意：trim 后再计算 hash，与 normalizeAgentSkillRecord 的 trim 行为一致
+    // 包 skill：hash 包含 SKILL.md + 所有子 .md 文件内容拼接
+    let combinedForHash = instructions;
+    if (isPackage) {
+      const sourceDirAbs = path.join(vaultPath, VAULT_SKILL_SOURCE_DIR_REL);
+      try {
+        const subFiles = fs.readdirSync(sourceDirAbs)
+          .filter((f): f is string => typeof f === "string" && f.endsWith(".md") && f !== "SKILL.md")
+          .sort();
+        for (const f of subFiles) {
+          combinedForHash += "\n\n---" + f + "---\n\n" + fs.readFileSync(path.join(sourceDirAbs, f), "utf8");
+        }
+      } catch {
+        // 目录读取失败，仅用 SKILL.md 内容
+      }
+    }
+
+    // 检测 source 内容是否变化
     const newSourceHash = computeAgentSkillSourceHash({
       name: meta.name,
       description: meta.description,
-      instructions: instructions.trim(),
+      instructions: combinedForHash.trim(),
     });
-    if (existing) {
-      const oldSourceHash = computeAgentSkillSourceHash(existing);
-      if (newSourceHash === oldSourceHash) {
+
+    if (isPackage) {
+      // 包 skill：用 sourceContentHash 比较（检测子文件变化）
+      if (existing?.sourceContentHash && existing.sourceContentHash === newSourceHash) {
         skipped.push(slug);
         continue;
+      }
+    } else {
+      // 单文件 skill：用 instructions hash 比较
+      if (existing) {
+        const oldSourceHash = computeAgentSkillSourceHash(existing);
+        if (oldSourceHash === newSourceHash) {
+          skipped.push(slug);
+          continue;
+        }
       }
     }
 
@@ -1139,6 +1361,8 @@ function syncVaultSkillsSourceToManifest(vaultPath: string): { synced: string[];
       enabled: true,
       source: existing?.source ?? "manual",
       sourcePath: existing?.sourcePath,
+      ...(isPackage ? { sourceDir: VAULT_SKILL_SOURCE_DIR_REL } : {}),
+      ...(isPackage ? { sourceContentHash: newSourceHash } : {}),
       slug,
       id: existing?.id,
     }, nextRecords.map((r) => r.slug).filter((s) => s !== slug), nowIso);

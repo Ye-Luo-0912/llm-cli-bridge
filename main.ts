@@ -355,8 +355,13 @@ export default class LLMBridgePlugin extends Plugin {
         const fsMod = await import("fs");
         const fsPromises = fsMod.promises;
         const pathMod = await import("path");
-        await fsPromises.mkdir(pathMod.join(vaultPath, "LLM-AgentRuntime/skills/vault-context"), { recursive: true });
-        await fsPromises.writeFile(pathMod.join(vaultPath, VAULT_SKILL_SOURCE_REL), initial, "utf8");
+        const skillDir = pathMod.join(vaultPath, "LLM-AgentRuntime/skills/vault-context");
+        await fsPromises.mkdir(skillDir, { recursive: true });
+        await fsPromises.writeFile(pathMod.join(vaultPath, VAULT_SKILL_SOURCE_REL), initial.skillMd, "utf8");
+        for (const [name, content] of Object.entries(initial.subFiles)) {
+          await fsPromises.writeFile(pathMod.join(skillDir, name), content, "utf8");
+        }
+        await fsPromises.writeFile(pathMod.join(skillDir, "INDEX.md"), initial.indexMd, "utf8");
         new Notice("VAULT_SKILL 初版已重建。");
       },
     });

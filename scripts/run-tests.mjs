@@ -3940,8 +3940,8 @@ if (runMode !== "all" && runMode !== "unit") {
       const hasHeaders = capText.includes("========== Capability Manifest ==========")
         && autoText.includes("========== Autonomy Contract ==========")
         && safetyText.includes("========== Safety Boundary Contract ==========");
-      // 不应出现大量重复细则（每段 < 1500 chars，避免堆砌规则）
-      const reasonableLen = capText.length < 1500 && autoText.length < 1500 && safetyText.length < 1500;
+      // 不应出现大量重复细则（capability manifest 含 Vault Skill 包说明，阈值放宽到 2000，避免堆砌规则）
+      const reasonableLen = capText.length < 2000 && autoText.length < 1500 && safetyText.length < 1500;
       addTest("V16.5-C bridgePromptContract: 最小三类 section，不堆砌细则",
         allPresent && hasHeaders && reasonableLen ? "pass" : "fail",
         `allPresent=${allPresent} hasHeaders=${hasHeaders} reasonableLen=${reasonableLen} capLen=${capText.length} autoLen=${autoText.length} safetyLen=${safetyText.length}`);
@@ -4358,19 +4358,43 @@ if (runMode !== "all" && runMode !== "unit") {
           `isUnknown=${isUnknown} probeNotProbed=${probeNotProbed} hasSchema=${hasSchema}`);
       }
 
-      // Test E-d: 轻量 vault-runtime Skill 初版包含四 section + 边界规则
+      // Test E-d: vault-context 包初版 — SKILL.md 清单 + 子 skill 文件 + 边界规则/目录语义
       {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
         const skill = await agentRuntimeWsMod.readVaultSkillSource(v165eTmpRoot);
-        const hasHeader = skill?.includes("# VAULT_RUNTIME_SKILL") ?? false;
-        const hasVaultRules = skill?.includes("## Vault Rules") ?? false;
-        const hasStableConventions = skill?.includes("## Stable Conventions") ?? false;
-        const hasUserPreferences = skill?.includes("## User Preferences") ?? false;
-        const hasDirectorySemantics = skill?.includes("## Directory Semantics") ?? false;
-        const hasDefaultRules = skill?.includes("不修改 .obsidian/") ?? false;
+        const hasHeader = skill?.includes("# vault-context") ?? false;
+        const hasSubSkills = skill?.includes("## 子 Skills") ?? false;
+        const hasMaintenanceRules = skill?.includes("## 维护规则") ?? false;
         const hasAgentRuntimeDir = skill?.includes("LLM-AgentRuntime/") ?? false;
-        addTest("V16.5-E VAULT_SKILL 初版: 轻量四 section + 默认边界规则",
-          hasHeader && hasVaultRules && hasStableConventions && hasUserPreferences && hasDirectorySemantics && hasDefaultRules && hasAgentRuntimeDir ? "pass" : "fail",
-          `header=${hasHeader} vaultRules=${hasVaultRules} stableConventions=${hasStableConventions} userPreferences=${hasUserPreferences} directorySemantics=${hasDirectorySemantics} defaultRules=${hasDefaultRules} agentRuntimeDir=${hasAgentRuntimeDir}`);
+        // 子 skill 文件存在 + 含边界规则/目录语义
+        const skillDir = pathMod.join(v165eTmpRoot, "LLM-AgentRuntime/skills/vault-context");
+        const vaultRulesContent = await fsMod.promises.readFile(pathMod.join(skillDir, "vault-rules.md"), "utf8");
+        const directoriesContent = await fsMod.promises.readFile(pathMod.join(skillDir, "directories.md"), "utf8");
+        const vaultRulesHasBoundary = vaultRulesContent.includes("# vault-rules") && vaultRulesContent.includes("不修改 .obsidian/");
+        const directoriesHasSemantics = directoriesContent.includes("# directories") && directoriesContent.includes("LLM-AgentRuntime/");
+        addTest("V16.5-E VAULT_SKILL 初版: 包结构 SKILL.md 清单 + 子 skill 边界规则/目录语义",
+          hasHeader && hasSubSkills && hasMaintenanceRules && hasAgentRuntimeDir && vaultRulesHasBoundary && directoriesHasSemantics ? "pass" : "fail",
+          `header=${hasHeader} subSkills=${hasSubSkills} maintenance=${hasMaintenanceRules} agentRuntimeDir=${hasAgentRuntimeDir} vaultRulesHasBoundary=${vaultRulesHasBoundary} directoriesHasSemantics=${directoriesHasSemantics}`);
+      }
+
+      // Test E-d2: generateInitialVaultSkill 返回包结构对象（skillMd + subFiles + indexMd）
+      {
+        const result = await agentRuntimeWsMod.generateInitialVaultSkill(v165eTmpRoot);
+        const isObject = typeof result === "object" && result !== null && typeof result.skillMd === "string";
+        const skillMdOk = result.skillMd.includes("# vault-context") && result.skillMd.includes("## 子 Skills") && result.skillMd.includes("## 维护规则");
+        const subFilesKeys = Object.keys(result.subFiles).sort();
+        const subFilesOk = subFilesKeys.length === 4
+          && subFilesKeys[0] === "conventions.md"
+          && subFilesKeys[1] === "directories.md"
+          && subFilesKeys[2] === "preferences.md"
+          && subFilesKeys[3] === "vault-rules.md";
+        const vaultRulesOk = result.subFiles["vault-rules.md"].includes("# vault-rules") && result.subFiles["vault-rules.md"].includes("不修改 .obsidian/");
+        const directoriesOk = result.subFiles["directories.md"].includes("# directories") && result.subFiles["directories.md"].includes("LLM-AgentRuntime/");
+        const indexMdOk = result.indexMd.includes("索引") && result.indexMd.includes("vault-rules.md") && result.indexMd.includes("directories.md");
+        addTest("V16.5-E generateInitialVaultSkill: 返回包结构对象 skillMd + subFiles(4) + indexMd",
+          isObject && skillMdOk && subFilesOk && vaultRulesOk && directoriesOk && indexMdOk ? "pass" : "fail",
+          `isObject=${isObject} skillMdOk=${skillMdOk} subFilesOk=${subFilesOk} keys=${JSON.stringify(subFilesKeys)} vaultRulesOk=${vaultRulesOk} directoriesOk=${directoriesOk} indexMdOk=${indexMdOk}`);
       }
 
       // Test E-e: 已存在 VAULT_SKILL 不被模板覆盖
@@ -4491,28 +4515,28 @@ if (runMode !== "all" && runMode !== "unit") {
           `length=${result.length} max=${agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS} compacted=${result.compacted}`);
       }
 
-      // Test E-l: prompt 包含 Agent workspace / Vault Skill source / runtime skill target 事实
+      // Test E-l: prompt 包含 Agent workspace / Vault Skill 包 / agent 随时维护 事实
       {
         const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES);
         const hasAgentWs = capText.includes("Agent workspace: LLM-AgentRuntime/");
-        const hasSource = capText.includes("Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md");
-        const hasTarget = capText.includes("Runtime Skill target: .claude/skills/vault-context/SKILL.md");
+        const hasVaultSkillPkg = capText.includes("Vault Skill 包");
+        const hasAgentMaintain = capText.includes("agent 随时维护");
         const hasFacts = capText.includes("Runtime facts: LLM-AgentRuntime/runtime/RUNTIME_FACTS.json");
-        addTest("V16.5-E prompt: 包含 Agent workspace / Vault Skill source / target 事实",
-          hasAgentWs && hasSource && hasTarget && hasFacts ? "pass" : "fail",
-          `agentWs=${hasAgentWs} source=${hasSource} target=${hasTarget} facts=${hasFacts}`);
+        addTest("V16.5-E prompt: 包含 Agent workspace / Vault Skill 包 / agent 随时维护 事实",
+          hasAgentWs && hasVaultSkillPkg && hasAgentMaintain && hasFacts ? "pass" : "fail",
+          `agentWs=${hasAgentWs} vaultSkillPkg=${hasVaultSkillPkg} agentMaintain=${hasAgentMaintain} facts=${hasFacts}`);
       }
 
-      // Test E-m: prompt 不包含完整 VAULT_SKILL 内容（只注入路径事实）
+      // Test E-m: prompt 不包含完整 VAULT_SKILL 内容（只注入包路径事实）
       {
         const pkg = promptPkgMod.buildBridgePromptPackage("用户请求", v165cSnapshot, baseBridgeSettings, bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES);
         const append = pkg.bridgeSystemAppend;
-        // 应包含路径，不包含 vault-runtime skill markdown 内容（如 Vault Rules section header）
-        const hasPath = append.includes("Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md");
+        // 应包含 Vault Skill 包路径事实，不包含子 skill markdown 正文（如 Vault Rules section header）
+        const hasPkgPath = append.includes("Vault Skill 包") && append.includes("LLM-AgentRuntime/skills/vault-context/");
         const notFullContent = !append.includes("## Vault Rules");
-        addTest("V16.5-E prompt: 不注入完整 VAULT_SKILL，只注入路径事实",
-          hasPath && notFullContent ? "pass" : "fail",
-          `hasPath=${hasPath} notFullContent=${notFullContent}`);
+        addTest("V16.5-E prompt: 不注入完整 VAULT_SKILL，只注入包路径事实",
+          hasPkgPath && notFullContent ? "pass" : "fail",
+          `hasPkgPath=${hasPkgPath} notFullContent=${notFullContent}`);
       }
 
       // Test E-n: command palette 命令已注册
@@ -4551,59 +4575,71 @@ if (runMode !== "all" && runMode !== "unit") {
     try {
       const fact300 = (prefix, idx) => (prefix + " fact " + idx + " " + ".".repeat(300)).slice(0, 300);
 
-      // Test K-a: 大 skill compact 后低于阈值时不拆分
+      // Test K-a: 包结构 compact — 子文件超 15 条 compact 到 15，SKILL.md/INDEX.md 不被 compact
       {
-        // 初始化 workspace（含初版 vault-context）
+        // 初始化 workspace（含初版 vault-context 包）
         await agentRuntimeWsMod.ensureAgentRuntimeWorkspace(taskKTmpRoot, { createVaultSkillIfMissing: true });
         const fsMod = await import("fs");
         const pathMod = await import("path");
-        const sourceAbs = pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-context/SKILL.md");
-        // 写入 50 条 ~300 chars 的 vaultRules（总 > 8000），compact 后 15×300 < 8000
-        const bigContent = agentRuntimeWsMod.buildVaultSkillMarkdown({
-          vaultRules: Array.from({ length: 50 }, (_, i) => fact300("directory structure 顶层目录 layout", i)),
-          stableConventions: [],
-          userPreferences: [],
-          directorySemantics: [],
-        });
-        await fsMod.promises.writeFile(sourceAbs, bigContent, "utf8");
-        const beforeLen = bigContent.length;
+        const skillDir = pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-context");
+        const rulesPath = pathMod.join(skillDir, "vault-rules.md");
+        const skillMdPath = pathMod.join(skillDir, "SKILL.md");
+        const indexPath = pathMod.join(skillDir, "INDEX.md");
+        // 记录 compact 前 SKILL.md 内容（验证不被 compact）
+        const skillMdBefore = await fsMod.promises.readFile(skillMdPath, "utf8");
+        // 写入 30 条 - 开头的行到 vault-rules.md（超过 15 条上限）
+        const bigRules = "# vault-rules\n\n" + Array.from({ length: 30 }, (_, i) => `- 边界规则条目 ${i}: ` + ".".repeat(100)).join("\n") + "\n";
+        await fsMod.promises.writeFile(rulesPath, bigRules, "utf8");
 
         const result = await agentRuntimeWsMod.compactOrSplitVaultSkill(taskKTmpRoot);
         const isCompacted = result.action === "compacted";
-        const afterUnderMax = result.vaultContextContent.length <= agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS;
         const noSplit = result.action !== "split";
+        // compact 后 vault-rules.md 应保留前 15 条 - 开头行
+        const afterRules = await fsMod.promises.readFile(rulesPath, "utf8");
+        const bulletCount = afterRules.split("\n").filter((l) => l.startsWith("- ")).length;
+        const rulesCapped = bulletCount === 15;
+        // SKILL.md 不被 compact（内容不变）
+        const skillMdAfter = await fsMod.promises.readFile(skillMdPath, "utf8");
+        const skillMdUntouched = skillMdAfter === skillMdBefore;
         // 不应创建 split skill 源文件（轻量版无 split）
         const structureDirExists = fsMod.existsSync(pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-structure"));
+        // INDEX.md 应被重新生成（条目数更新）
+        const indexAfter = await fsMod.promises.readFile(indexPath, "utf8");
+        const indexRegenerated = indexAfter.includes("vault-rules.md");
 
-        addTest("V16.5-K compact: 大 skill compact 后低于阈值（轻量版无 split）",
-          isCompacted && afterUnderMax && noSplit && !structureDirExists ? "pass" : "fail",
-          `action=${result.action} beforeLen=${beforeLen} afterLen=${result.vaultContextContent.length} max=${agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS} noSplit=${noSplit} structureDirExists=${structureDirExists}`);
+        addTest("V16.5-K compact: 子文件超 15 条 compact 到 15，SKILL.md 不动（轻量版无 split）",
+          isCompacted && noSplit && rulesCapped && skillMdUntouched && !structureDirExists && indexRegenerated ? "pass" : "fail",
+          `action=${result.action} bulletCount=${bulletCount} noSplit=${noSplit} rulesCapped=${rulesCapped} skillMdUntouched=${skillMdUntouched} structureDirExists=${structureDirExists} indexRegenerated=${indexRegenerated}`);
       }
 
-      // Test K-b: 轻量版无 split（即使 compact 后仍超限，也只硬截断不拆分）
+      // Test K-b: 多子文件 compact，无 split（即使所有子文件都超限，也只 compact 不拆分）
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
-        const sourceAbs = pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-context/SKILL.md");
-        // 四 section 各 25 条 ~300 chars，compact 后仍 15×4×300 > 8000 → 硬截断
-        const bigContent = agentRuntimeWsMod.buildVaultSkillMarkdown({
-          vaultRules: Array.from({ length: 25 }, (_, i) => fact300("rule boundary 边界 禁区", i)),
-          stableConventions: Array.from({ length: 25 }, (_, i) => fact300("convention 命名 输出 格式", i)),
-          userPreferences: Array.from({ length: 25 }, (_, i) => fact300("preference 偏好 用户", i)),
-          directorySemantics: Array.from({ length: 25 }, (_, i) => fact300("directory 目录 语义", i)),
-        });
-        await fsMod.promises.writeFile(sourceAbs, bigContent, "utf8");
+        const skillDir = pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-context");
+        // 四个子文件各写 25 条 - 开头行
+        const makeBig = (header, prefix) => "# " + header + "\n\n" + Array.from({ length: 25 }, (_, i) => `- ${prefix} ${i}: ` + ".".repeat(200)).join("\n") + "\n";
+        await fsMod.promises.writeFile(pathMod.join(skillDir, "vault-rules.md"), makeBig("vault-rules", "rule boundary 边界 禁区"), "utf8");
+        await fsMod.promises.writeFile(pathMod.join(skillDir, "conventions.md"), makeBig("conventions", "convention 命名 输出 格式"), "utf8");
+        await fsMod.promises.writeFile(pathMod.join(skillDir, "preferences.md"), makeBig("preferences", "preference 偏好 用户"), "utf8");
+        await fsMod.promises.writeFile(pathMod.join(skillDir, "directories.md"), makeBig("directories", "directory 目录 语义"), "utf8");
 
         const result = await agentRuntimeWsMod.compactOrSplitVaultSkill(taskKTmpRoot);
         // 轻量版：compact 或 keep，永不 split
         const noSplit = result.action !== "split";
-        const afterUnderMax = result.vaultContextContent.length <= agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS;
+        const isCompacted = result.action === "compacted";
+        // 每个子文件都应 compact 到 15 条 - 开头行
+        const counts = await Promise.all(["vault-rules.md", "conventions.md", "preferences.md", "directories.md"].map(async (f) => {
+          const c = await fsMod.promises.readFile(pathMod.join(skillDir, f), "utf8");
+          return c.split("\n").filter((l) => l.startsWith("- ")).length;
+        }));
+        const allCapped = counts.every((c) => c === 15);
         // 不应创建 split skill 源文件
         const structureSkillExists = fsMod.existsSync(pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-structure/SKILL.md"));
 
-        addTest("V16.5-K 轻量版: 超大 skill 也只 compact 不 split",
-          noSplit && afterUnderMax && !structureSkillExists ? "pass" : "fail",
-          `action=${result.action} afterLen=${result.vaultContextContent.length} max=${agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS} noSplit=${noSplit} structureExists=${structureSkillExists}`);
+        addTest("V16.5-K 轻量版: 多子文件 compact 不 split",
+          noSplit && allCapped && isCompacted && !structureSkillExists ? "pass" : "fail",
+          `action=${result.action} noSplit=${noSplit} allCapped=${allCapped} counts=${JSON.stringify(counts)} structureExists=${structureSkillExists}`);
       }
 
       // Test K-c: 轻量版无 vault-index 与 split 文件
@@ -4621,21 +4657,27 @@ if (runMode !== "all" && runMode !== "unit") {
           `vaultIndexDir=${vaultIndexDirExists} vaultStructureDir=${vaultStructureDirExists} splitEntries=${JSON.stringify(splitEntries.map((e) => e.slug))}`);
       }
 
-      // Test K-d: 轻量版去噪 — vault-context 不含 runtime/session JSON 泄漏
+      // Test K-d: 轻量版去噪 — vault-context 包不含 runtime/session JSON 泄漏
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
-        const vcAbs = pathMod.join(taskKTmpRoot, agentRuntimeWsMod.VAULT_SKILL_SOURCE_REL);
-        const vcContent = await fsMod.promises.readFile(vcAbs, "utf8");
-        // 不应泄漏 RUNTIME_FACTS.json 的 JSON 字段（schemaVersion/obsidianCliAvailable/runtimeFileToolAdapter）
-        const leakedRuntimeFacts = /"schemaVersion"|obsidianCliAvailable|runtimeFileToolAdapter|"providerId"/.test(vcContent);
-        // 不应泄漏 session JSON 结构（sessionId/messages 数组）
-        const leakedSession = /"sessionId"|"messages"\s*:\s*\[/.test(vcContent);
-        const underMax = vcContent.length <= agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS;
+        const skillDir = pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-context");
+        // 扫描整个包目录（SKILL.md + 子 .md + INDEX.md）
+        const pkgFiles = (await fsMod.promises.readdir(skillDir)).filter((f) => f.endsWith(".md"));
+        let leakedRuntimeFacts = false;
+        let leakedSession = false;
+        let allUnderMax = true;
+        for (const f of pkgFiles) {
+          const c = await fsMod.promises.readFile(pathMod.join(skillDir, f), "utf8");
+          // 包结构下每个文件独立 compact（每文件上限 VAULT_SKILL_MAX_CHARS）
+          if (c.length > agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS) allUnderMax = false;
+          if (/"schemaVersion"|obsidianCliAvailable|runtimeFileToolAdapter|"providerId"/.test(c)) leakedRuntimeFacts = true;
+          if (/"sessionId"|"messages"\s*:\s*\[/.test(c)) leakedSession = true;
+        }
 
-        addTest("V16.5-K 去噪: vault-context 不含 runtime/session JSON",
-          !leakedRuntimeFacts && !leakedSession && underMax ? "pass" : "fail",
-          `leakedRuntimeFacts=${leakedRuntimeFacts} leakedSession=${leakedSession} vcLen=${vcContent.length} underMax=${underMax}`);
+        addTest("V16.5-K 去噪: vault-context 包不含 runtime/session JSON",
+          !leakedRuntimeFacts && !leakedSession && allUnderMax ? "pass" : "fail",
+          `leakedRuntimeFacts=${leakedRuntimeFacts} leakedSession=${leakedSession} allUnderMax=${allUnderMax} files=${pkgFiles.length}`);
       }
 
       // Test K-e: 轻量版碎片化拒绝 — isVaultSkillWritableContent 拒绝临时内容
@@ -4678,7 +4720,7 @@ if (runMode !== "all" && runMode !== "unit") {
           `vcOk=${vcClaude?.ok} status=${vcClaude?.status} frontmatter=${vcHasFrontmatter} instructions=${vcHasInstructions} marker=${vcHasMarker} sourceHash=${vcHasSourceHash} sourceId=${vcHasSourceId}`);
       }
 
-      // Test K1-B: 轻量版单文件 — vault-context 无 split notice / index pointer
+      // Test K1-B: 包结构 SKILL.md — vault-context 清单含子 Skills / 维护规则（无 split）
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
@@ -4687,14 +4729,14 @@ if (runMode !== "all" && runMode !== "unit") {
         const vcUnderMax = vcContent.length <= agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS;
         const vcHasSplitNotice = vcContent.includes("Split notice") || vcContent.includes("已按职责拆分") || vcContent.includes("split");
         const vcHasIndexPointer = vcContent.includes("vault-index");
-        // 轻量版应为 VAULT_RUNTIME_SKILL header（非旧 VAULT_SKILL）
-        const vcHasRuntimeHeader = vcContent.includes("# VAULT_RUNTIME_SKILL");
-        // 硬截断后可能只保留前 1-2 个 section；至少 Vault Rules（第一个 section）应存在
-        const vcHasFirstSection = vcContent.includes("## Vault Rules");
+        // 包结构 SKILL.md 应为 vault-context 清单 header（含子 Skills / 维护规则）
+        const vcHasPkgHeader = vcContent.includes("# vault-context");
+        const vcHasSubSkills = vcContent.includes("## 子 Skills");
+        const vcHasMaintenance = vcContent.includes("## 维护规则");
 
-        addTest("V16.5-K1 单文件: vault-context 无 split notice / index pointer",
-          vcUnderMax && !vcHasSplitNotice && !vcHasIndexPointer && vcHasRuntimeHeader && vcHasFirstSection ? "pass" : "fail",
-          `vcLen=${vcContent.length} underMax=${vcUnderMax} splitNotice=${vcHasSplitNotice} indexPointer=${vcHasIndexPointer} runtimeHeader=${vcHasRuntimeHeader} firstSection=${vcHasFirstSection}`);
+        addTest("V16.5-K1 包结构: vault-context SKILL.md 含子 Skills / 维护规则（无 split）",
+          vcUnderMax && !vcHasSplitNotice && !vcHasIndexPointer && vcHasPkgHeader && vcHasSubSkills && vcHasMaintenance ? "pass" : "fail",
+          `vcLen=${vcContent.length} underMax=${vcUnderMax} splitNotice=${vcHasSplitNotice} indexPointer=${vcHasIndexPointer} pkgHeader=${vcHasPkgHeader} subSkills=${vcHasSubSkills} maintenance=${vcHasMaintenance}`);
       }
 
       // Test V2.18-a: ensureAgentRuntimeWorkspace 创建 vault-api source + generateInitialVaultApiSkill 内容
@@ -4968,6 +5010,46 @@ if (runMode !== "all" && runMode !== "unit") {
           `genericOk=${genericOk} piOk=${piOk} genericExists=${genericExists} piExists=${piExists} genericFormat=${genericFormat} piFormat=${piFormat}`);
       }
 
+      // Test V17A-G2: materializeAgentSkillToTarget 包物化 — sourceDir 时复制附属 .md 文件到目标目录
+      {
+        const esbuildMod = (await import("esbuild")).default;
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        const agentSkillsBundlePath = pathMod.join(v17aTmpRoot, ".agent-skills-bundle-pkg.mjs");
+        await esbuildMod.build({
+          entryPoints: [pathMod.join(PROJECT_ROOT, "src", "agentSkills.ts")],
+          bundle: true, format: "esm", platform: "node", outfile: agentSkillsBundlePath, logLevel: "silent",
+        });
+        const agentSkillsMod = await import(pathToFileURL(agentSkillsBundlePath).href);
+        // 构造 source dir（含 SKILL.md + 2 个附属 .md + 1 个 INDEX.md）
+        const pkgSrcDir = pathMod.join(v17aTmpRoot, ".pkg-src-test");
+        await fsMod.promises.mkdir(pkgSrcDir, { recursive: true });
+        await fsMod.promises.writeFile(pathMod.join(pkgSrcDir, "SKILL.md"), "# pkg skill\n\nmanifest content\n", "utf8");
+        await fsMod.promises.writeFile(pathMod.join(pkgSrcDir, "sub-a.md"), "# sub-a\n\n- item a1\n- item a2\n", "utf8");
+        await fsMod.promises.writeFile(pathMod.join(pkgSrcDir, "sub-b.md"), "# sub-b\n\n- item b1\n", "utf8");
+        await fsMod.promises.writeFile(pathMod.join(pkgSrcDir, "INDEX.md"), "# index\n", "utf8");
+        // 创建 record（带 sourceDir 指向源目录）
+        const record = agentSkillsMod.createAgentSkillRecord({
+          name: "pkg-skill", description: "package skill test", instructions: "# pkg skill\n\nmanifest content\n",
+          enabled: true, source: "manual", sourceDir: ".pkg-src-test", slug: "pkg-skill",
+        }, [], new Date().toISOString());
+        const targetAbs = pathMod.join(v17aTmpRoot, ".target-pkg", "SKILL.md");
+        const result = agentSkillsMod.materializeAgentSkillToTarget(record, targetAbs, { sourceDir: pkgSrcDir });
+        const targetDir = pathMod.dirname(targetAbs);
+        // 附属 .md 文件（含 INDEX.md）应被复制到目标目录
+        const subAExists = fsMod.existsSync(pathMod.join(targetDir, "sub-a.md"));
+        const subBExists = fsMod.existsSync(pathMod.join(targetDir, "sub-b.md"));
+        const indexExists = fsMod.existsSync(pathMod.join(targetDir, "INDEX.md"));
+        const subAContent = subAExists ? await fsMod.promises.readFile(pathMod.join(targetDir, "sub-a.md"), "utf8") : "";
+        const subAOk = subAContent.includes("# sub-a");
+        // 主 SKILL.md 应由主物化写入（Agent Skill 格式 frontmatter）
+        const skillMdOk = fsMod.existsSync(targetAbs);
+
+        addTest("u5 materializeAgentSkillToTarget: sourceDir 时复制附属 .md 到目标目录",
+          result.ok && subAExists && subBExists && indexExists && subAOk && skillMdOk ? "pass" : "fail",
+          `ok=${result.ok} status=${result.status} subA=${subAExists} subB=${subBExists} index=${indexExists} subAContent=${subAOk} skillMd=${skillMdOk}`);
+      }
+
       // Test V17A-H: materializeAllSkillsToAllTargets 物化 vault-context + vault-api 到所有 target
       // u5: 物化两个 slug（vault-context + vault-api）× 4 targets = 8 results
       {
@@ -5039,6 +5121,12 @@ if (runMode !== "all" && runMode !== "unit") {
         const hasVaultApi = slugs.includes("vault-api");
         const allEnabled = manifestContent.skills.filter((s) => slugs.includes(s.slug)).every((s) => s.enabled === true);
         const hasValidHash = manifestContent.skills.every((s) => typeof s.materializedHash === "string" && s.materializedHash.length > 0);
+        // vault-context 是包 skill：record 应含 sourceDir 指向源目录（vault-api 是单文件，无 sourceDir）
+        const vcRecord = manifestContent.skills.find((s) => s.slug === "vault-context");
+        const vaRecord = manifestContent.skills.find((s) => s.slug === "vault-api");
+        const vcHasSourceDir = vcRecord?.sourceDir === "LLM-AgentRuntime/skills/vault-context";
+        const vaNoSourceDir = vaRecord?.sourceDir === undefined;
+        const vcHasSourceContentHash = typeof vcRecord?.sourceContentHash === "string" && vcRecord.sourceContentHash.length > 0;
 
         // 再次同步应跳过（内容未变）
         const syncResult2 = agentRuntimeWsMod.materializeAllSkillsToAllTargets(v17aTmpRoot);
@@ -5046,6 +5134,10 @@ if (runMode !== "all" && runMode !== "unit") {
         addTest("u5 materializeAllSkillsToAllTargets: vault-context + vault-api 同步到 agent-skills.json",
           syncResult.ok && syncResult.syncSummary.synced.length === 2 && hasVaultContext && hasVaultApi && allEnabled && hasValidHash ? "pass" : "fail",
           `ok=${syncResult.ok} synced=${syncResult.syncSummary.synced.length} vaultContext=${hasVaultContext} vaultApi=${hasVaultApi} allEnabled=${allEnabled} hasHash=${hasValidHash}`);
+
+        addTest("u5 syncVaultSkillsSourceToManifest: vault-context record 含 sourceDir + sourceContentHash（vault-api 无）",
+          vcHasSourceDir && vaNoSourceDir && vcHasSourceContentHash ? "pass" : "fail",
+          `vcSourceDir=${vcRecord?.sourceDir} vcHasSourceDir=${vcHasSourceDir} vaSourceDir=${vaRecord?.sourceDir} vaNoSourceDir=${vaNoSourceDir} vcHasSourceContentHash=${vcHasSourceContentHash}`);
 
         addTest("u5 materializeAllSkillsToAllTargets: 二次调用幂等（物化结果全 skipped）",
           syncResult2.ok && syncResult2.results.every((r) => r.ok && r.status === "skipped") ? "pass" : "fail",

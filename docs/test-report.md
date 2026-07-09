@@ -1,24 +1,24 @@
 # LLM CLI Bridge 测试报告 — 全量测试（all）
 
-- **测试时间**: 2026-07-09T17:22:14.166Z
+- **测试时间**: 2026-07-09T19:37:25.374Z
 - **测试环境**: win32 / Node.js v24.14.0
-- **插件版本**: 2.16.0
-- **main.js 大小**: 1145.1 KB
+- **插件版本**: 2.18.0
+- **main.js 大小**: 1134.6 KB
 - **main.js bundle content smoke**: PASS ({"HttpBridge":true,"writeHelperAndWrappers":true,"CodexAppServerProvider":true,"vault_api":true})
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 54651
-- **commit sha**: c8d4aff6531873d024f9fbcd42d50fd8501f04e7
-- **commit 短 sha**: c8d4aff65318
-- **运行命令**: node scripts/run-tests.mjs --mode=process
+- **HTTP 端口**: 57986
+- **commit sha**: 8fdb3a8cc68690667d84a211964a3cb7f17b6666
+- **commit 短 sha**: 8fdb3a8cc686
+- **运行命令**: node scripts/run-tests.mjs 
 
 ## 测试汇总
 
-- ✅ **通过**: 1217
+- ✅ **通过**: 1220
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 5
 - ⚪ **需人工验证**: 6
-- **总计**: 1228
+- **总计**: 1231
 
 ### 审计模式说明
 
@@ -671,7 +671,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 最小三类 section，不堆砌细则 | allPresent=true hasHeaders=true reasonableLen=true capLen=1411 autoLen=195 safetyLen=326 |
+| ✅ | 最小三类 section，不堆砌细则 | allPresent=true hasHeaders=true reasonableLen=true capLen=1607 autoLen=195 safetyLen=326 |
 
 ### V16.5-C contract
 
@@ -739,7 +739,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-DoGbDK\\skills\\pdf\\SKILL.md"}] |
+| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-zeq1JK\\skills\\pdf\\SKILL.md"}] |
 
 ### V16.5-D view.ts 主路径注入真实 capabilities
 
@@ -782,7 +782,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 首次初始化创建完整结构 | allCreated=true vaultSkillInitialized=true created=["LLM-AgentRuntime","LLM-AgentRuntime/runtime","LLM-AgentRuntime/skills","LLM-AgentRuntime/skills/vault-context","LLM-AgentRuntime/skills/vault-api","LLM-AgentRuntime/sessions","LLM-AgentRuntime/work","LLM-AgentRuntime/pi-sessions","LLM-AgentRuntime/README.md","LLM-AgentRuntime/runtime/RUNTIME_FACTS.json","LLM-AgentRuntime/skills/vault-context/SKILL.md","LLM-AgentRuntime/skills/vault-api/SKILL.md"] |
+| ✅ | 首次初始化创建完整结构 | allCreated=true vaultSkillInitialized=true created=["LLM-AgentRuntime","LLM-AgentRuntime/runtime","LLM-AgentRuntime/skills","LLM-AgentRuntime/skills/vault-context","LLM-AgentRuntime/skills/vault-api","LLM-AgentRuntime/sessions","LLM-AgentRuntime/work","LLM-AgentRuntime/pi-sessions","LLM-AgentRuntime/README.md","LLM-AgentRuntime/runtime/RUNTIME_FACTS.json","LLM-AgentRuntime/skills/vault-context/SKILL.md","LLM-AgentRuntime/skills/vault-context/vault-rules.md","LLM-AgentRuntime/skills/vault-context/conventions.md","LLM-AgentRuntime/skills/vault-context/preferences.md","LLM-AgentRuntime/skills/vault-context/directories.md","LLM-AgentRuntime/skills/vault-context/INDEX.md","LLM-AgentRuntime/skills/vault-api/SKILL.md"] |
 | ✅ | 二次初始化不覆盖已存在文件 | vaultSkillSkipped=true readmeSkipped=true initialized=false |
 
 ### V16.5-E RUNTIME_FACTS
@@ -795,7 +795,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 轻量四 section + 默认边界规则 | header=true vaultRules=true stableConventions=true userPreferences=true directorySemantics=true defaultRules=true agentRuntimeDir=true |
+| ✅ | 包结构 SKILL.md 清单 + 子 skill 边界规则/目录语义 | header=true subSkills=true maintenance=true agentRuntimeDir=true vaultRulesHasBoundary=true directoriesHasSemantics=true |
+
+### V16.5-E generateInitialVaultSkill
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 返回包结构对象 skillMd + subFiles(4) + indexMd | isObject=true skillMdOk=true subFilesOk=true keys=["conventions.md","directories.md","preferences.md","vault-rules.md"] vaultRulesOk=true directoriesOk=true indexMdOk=true |
 
 ### V16.5-E VAULT_SKILL
 
@@ -833,8 +839,8 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 包含 Agent workspace / Vault Skill source / target 事实 | agentWs=true source=true target=true facts=true |
-| ✅ | 不注入完整 VAULT_SKILL，只注入路径事实 | hasPath=true notFullContent=true |
+| ✅ | 包含 Agent workspace / Vault Skill 包 / agent 随时维护 事实 | agentWs=true vaultSkillPkg=true agentMaintain=true facts=true |
+| ✅ | 不注入完整 VAULT_SKILL，只注入包路径事实 | hasPkgPath=true notFullContent=true |
 
 ### V16.5-E command palette
 
@@ -852,20 +858,20 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 大 skill compact 后低于阈值（轻量版无 split） | action=compacted beforeLen=15569 afterLen=4964 max=8000 noSplit=true structureDirExists=false |
+| ✅ | 子文件超 15 条 compact 到 15，SKILL.md 不动（轻量版无 split） | action=compacted bulletCount=15 noSplit=true rulesCapped=true skillMdUntouched=true structureDirExists=false indexRegenerated=true |
 
 ### V16.5-K 轻量版
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 超大 skill 也只 compact 不 split | action=compacted afterLen=7948 max=8000 noSplit=true structureExists=false |
+| ✅ | 多子文件 compact 不 split | action=compacted noSplit=true allCapped=true counts=[15,15,15,15] structureExists=false |
 | ✅ | 无 vault-index 与 split 文件 | vaultIndexDir=false vaultStructureDir=false splitEntries=[] |
 
 ### V16.5-K 去噪
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | vault-context 不含 runtime/session JSON | leakedRuntimeFacts=false leakedSession=false vcLen=7948 underMax=true |
+| ✅ | vault-context 包不含 runtime/session JSON | leakedRuntimeFacts=false leakedSession=false allUnderMax=true files=6 |
 
 ### V16.5-K 碎片化
 
@@ -879,11 +885,11 @@
 |------|--------|------|
 | ✅ | 物化后含 frontmatter + # Instructions + source-id | vcOk=true status=created frontmatter=true instructions=true marker=true sourceHash=true sourceId=true |
 
-### V16.5-K1 单文件
+### V16.5-K1 包结构
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | vault-context 无 split notice / index pointer | vcLen=7948 underMax=true splitNotice=false indexPointer=false runtimeHeader=true firstSection=true |
+| ✅ | vault-context SKILL.md 含子 Skills / 维护规则（无 split） | vcLen=707 underMax=true splitNotice=false indexPointer=false pkgHeader=true subSkills=true maintenance=true |
 
 ### V2.18 vault-api Skill
 
@@ -947,11 +953,23 @@
 |------|--------|------|
 | ✅ | 物化到 .agents/skills 和 .pi/skills 含 frontmatter | genericOk=true piOk=true genericExists=true piExists=true genericFormat=true piFormat=true |
 
+### u5 materializeAgentSkillToTarget
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | sourceDir 时复制附属 .md 到目标目录 | ok=true status=created subA=true subB=true index=true subAContent=true skillMd=true |
+
 ### u5 materializeAll
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | vault-context + vault-api 物化到所有 target（统一版） | allTargetsMaterialized=true resultCount=8/8 targetsCovered=true vaFrontmatter=true vaInstructions=true |
+
+### u5 syncVaultSkillsSourceToManifest
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | vault-context record 含 sourceDir + sourceContentHash（vault-api 无） | vcSourceDir=LLM-AgentRuntime/skills/vault-context vcHasSourceDir=true vaSourceDir=undefined vaNoSourceDir=true vcHasSourceContentHash=true |
 
 ### V17-A prepareAgentSkillsForCodexRuntimeSync
 
@@ -1036,7 +1054,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783617736363-0 update=pi-sdk-read-1783617736363-0 end=pi-sdk-read-1783617736363-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783625847754-0 update=pi-sdk-read-1783625847754-0 end=pi-sdk-read-1783625847754-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -1495,25 +1513,25 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3234ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
+| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3220ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
  |
-| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4634ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783617741358
+| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4626ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783625852668
  |
 | ✅ | health 命令（fake server） | - |
 | ✅ | --json 标志输出有效 JSON（fake server） | - |
 | ✅ | 非修改类 action 直接输出（不轮询） | {
   "ok": true,
-  "id": "fake-id-1783617746169",
+  "id": "fake-id-1783625857482",
   "status": "completed",
   "result": {
     "type":  |
 | ✅ | --stdin 模式读取 JSON params | {
   "ok": true,
-  "id": "fake-id-1783617746271",
+  "id": "fake-id-1783625857577",
   "status": "completed",
   "result": {
     "type":  |
-| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783617746362","status":"completed","result":{"type":"tags_list","fake":tru |
+| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783625857680","status":"completed","result":{"type":"tags_list","fake":tru |
 | ✅ | 错误分级 - bridge.json 缺失 exit 2 | exit=2 stderr=[bridge 未启动] 未找到 .llm-bridge/bridge.json。
   请确认 Obsidian 已启动且 llm-cli-bridge 插件已 |
 | ✅ | 错误分级 - JSON 解析失败 exit 5 | exit=5 stderr=[参数解析失败] JSON 格式错误: Expected property name or '}' in JSON at position 1 (line 1  |
@@ -2386,7 +2404,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-09T17-22-52-735Z-n58k7c |
+| ✅ | 返回非空 id | id=s-2026-07-09T19-38-03-968Z-80n5qg |
 
 ### V2.5 Session 版本
 
@@ -2405,7 +2423,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-09T17-22-52-816Z-m131bb second=s-2026-07-09T17-22-52-747Z-1xrhnu |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-09T19-38-04-045Z-sh7fcx second=s-2026-07-09T19-38-03-979Z-qu5f73 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2444,7 +2462,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-09T17-22-52-869Z-2yak4i id2=s-2026-07-09T17-22-52-869Z-r0524e |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-09T19-38-04-089Z-ut7jay id2=s-2026-07-09T19-38-04-089Z-hpoy7m |
 
 ### V2.5 Session 上限
 
@@ -2542,7 +2560,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-09T17:22:52.944Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-09T19:38:04.150Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2630,7 +2648,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-09T17:22:53.015Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-09T19:38:04.209Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2744,7 +2762,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-09T17:22:53.104Z after=2026-07-09T17:22:53.172Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-09T19:38:04.307Z after=2026-07-09T19:38:04.389Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -3111,13 +3129,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-09T17:22:53.951Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-09T19:38:05.060Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-09T17:22:53.959Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-09T19:38:05.069Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3233,7 +3251,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-v5tXD0\skills\llm-bridge-review-skill\SKILL.md |
+| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-fNBKEc\skills\llm-bridge-review-skill\SKILL.md |
 | ✅ | run 前从 Bridge manifest 物化 enabled Skills | ok=true count=1 |
 
 ### V2.13.0-C materializeEnabled
@@ -3429,7 +3447,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-mtbRU9\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-HNbd01\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-e2tTPV\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-gDEgeL\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3441,7 +3459,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-4sa6lR\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-grCEc6\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-uzW9Db\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-wxSdxs\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3453,7 +3471,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-chnbYJ\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-9UDa2P\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-8POm8R\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-fcZKTx\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 

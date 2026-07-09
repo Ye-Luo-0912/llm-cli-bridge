@@ -25,6 +25,12 @@ export interface AgentSkillRecord {
   readonly enabled: boolean;
   readonly source: AgentSkillSource;
   readonly sourcePath?: string;
+  /** 包 skill 的源目录（相对 vault 路径，如 LLM-AgentRuntime/skills/vault-context）。
+   * 非空时物化会复制目录下所有 .md 文件（除 SKILL.md 主文件外）。 */
+  readonly sourceDir?: string;
+  /** 包 skill 的组合源内容 hash（含 SKILL.md + 所有子 .md 文件内容拼接）。
+   * 用于检测子文件变化；非包 skill 不设置此字段。 */
+  readonly sourceContentHash?: string;
   readonly materializedPath: string;
   readonly materializedHash: string;
   readonly updatedAt: string;
@@ -42,6 +48,8 @@ export interface AgentSkillInput {
   readonly enabled?: boolean;
   readonly source?: AgentSkillSource;
   readonly sourcePath?: string;
+  readonly sourceDir?: string;
+  readonly sourceContentHash?: string;
   readonly slug?: string;
   readonly id?: string;
 }
@@ -174,6 +182,8 @@ export function createAgentSkillRecord(
     enabled: input.enabled ?? true,
     source: input.source ?? "manual",
     sourcePath: input.sourcePath,
+    ...(input.sourceDir ? { sourceDir: input.sourceDir } : {}),
+    ...(input.sourceContentHash ? { sourceContentHash: input.sourceContentHash } : {}),
     materializedPath: materializedSkillPathForSlug(slug),
     materializedHash: "",
     updatedAt: nowIso,
@@ -272,6 +282,8 @@ export interface AgentSkillTargetOptions {
   readonly nameOverride?: string;
   readonly descriptionOverride?: string;
   readonly expectedHash?: string;
+  /** 源目录绝对路径（包 skill 物化时读取附属 .md 文件的来源） */
+  readonly sourceDir?: string;
 }
 
 export function materializeAgentSkillToTarget(
@@ -299,6 +311,7 @@ export function materializeAgentSkillToTarget(
       existing = null;
     }
 
+    let skipped = false;
     if (existing !== null) {
       const marker = parseGeneratedMarker(existing);
       if (marker && marker.generatedBy === AGENT_SKILL_GENERATED_BY) {
@@ -310,7 +323,7 @@ export function materializeAgentSkillToTarget(
           return conflict(nextRecord, filePath, "target SKILL.md changed after last materialization");
         }
         if (existing === nextContent) {
-          return { ok: true, status: "skipped", record: nextRecord, filePath };
+          skipped = true;
         }
         // 内容不同 → 更新（fall through 到写入）
       } else if (isLegacyPluginGeneratedSkill(existing)) {
@@ -320,8 +333,29 @@ export function materializeAgentSkillToTarget(
       }
     }
 
-    fs.mkdirSync(path.dirname(filePath), { recursive: true });
-    fs.writeFileSync(filePath, nextContent, "utf8");
+    if (!skipped) {
+      fs.mkdirSync(path.dirname(filePath), { recursive: true });
+      fs.writeFileSync(filePath, nextContent, "utf8");
+    }
+
+    // 包 skill：复制附属 .md 文件（SKILL.md 以外的源目录 .md 文件）
+    if (options.sourceDir) {
+      try {
+        const sourceFiles = fs.readdirSync(options.sourceDir)
+          .filter((f): f is string => typeof f === "string" && f.endsWith(".md") && f !== AGENT_SKILL_FILE_NAME);
+        const targetDir = path.dirname(filePath);
+        for (const f of sourceFiles) {
+          const src = path.join(options.sourceDir, f);
+          const dst = path.join(targetDir, f);
+          const content = fs.readFileSync(src, "utf8");
+          fs.writeFileSync(dst, content, "utf8");
+        }
+      } catch { /* 附属文件复制失败不阻塞主文件物化 */ }
+    }
+
+    if (skipped) {
+      return { ok: true, status: "skipped", record: nextRecord, filePath };
+    }
     return { ok: true, status: existing === null ? "created" : "updated", record: nextRecord, filePath };
   } catch (e) {
     return { ok: false, status: "error", record: nextRecord, filePath, reason: e instanceof Error ? e.message : String(e) };
@@ -345,18 +379,22 @@ export async function materializeAgentSkill(vaultPath: string, record: AgentSkil
 export function materializeAgentSkillSync(vaultPath: string, record: AgentSkillRecord): AgentSkillMaterializeResult {
   const normalized = normalizeAgentSkillRecord(record);
   const filePath = path.join(vaultPath, normalized.materializedPath);
-  return materializeAgentSkillToTarget(normalized, filePath, { expectedHash: normalized.materializedHash });
+  const sourceDir = normalized.sourceDir ? path.join(vaultPath, normalized.sourceDir) : undefined;
+  return materializeAgentSkillToTarget(normalized, filePath, { expectedHash: normalized.materializedHash, sourceDir });
 }
 
 export function materializeAgentSkillToCodexHomeSync(
   record: AgentSkillRecord,
   codexHome: string = resolveCodexHome(),
+  vaultPath?: string,
 ): AgentSkillMaterializeResult {
   const normalized = normalizeAgentSkillRecord(record);
   const filePath = codexBridgeSkillPathForSlug(normalized.slug, codexHome);
+  const sourceDir = (normalized.sourceDir && vaultPath) ? path.join(vaultPath, normalized.sourceDir) : undefined;
   return materializeAgentSkillToTarget(normalized, filePath, {
     nameOverride: `${CODEX_BRIDGE_SKILL_PREFIX}${normalized.name}`,
     descriptionOverride: `${normalized.description} (Bridge plugin Skill)`,
+    sourceDir,
   });
 }
 
@@ -477,6 +515,8 @@ function sanitizeAgentSkillRecord(raw: unknown): AgentSkillRecord | null {
   if (typeof r.enabled !== "boolean" || !isAgentSkillSource(r.source)) return null;
   if (typeof r.materializedPath !== "string" || typeof r.materializedHash !== "string" || typeof r.updatedAt !== "string") return null;
   if (r.sourcePath !== undefined && typeof r.sourcePath !== "string") return null;
+  if (r.sourceDir !== undefined && typeof r.sourceDir !== "string") return null;
+  if (r.sourceContentHash !== undefined && typeof r.sourceContentHash !== "string") return null;
   return normalizeAgentSkillRecord(r as AgentSkillRecord);
 }
 
@@ -491,6 +531,8 @@ function normalizeAgentSkillRecord(record: AgentSkillRecord): AgentSkillRecord {
     enabled: !!record.enabled,
     source: isAgentSkillSource(record.source) ? record.source : "manual",
     ...(record.sourcePath ? { sourcePath: record.sourcePath } : {}),
+    ...(record.sourceDir ? { sourceDir: record.sourceDir } : {}),
+    ...(record.sourceContentHash ? { sourceContentHash: record.sourceContentHash } : {}),
     materializedPath: materializedSkillPathForSlug(slug),
     materializedHash: record.materializedHash || "",
     updatedAt: record.updatedAt,
