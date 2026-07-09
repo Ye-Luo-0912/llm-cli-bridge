@@ -4744,13 +4744,14 @@ if (runMode !== "all" && runMode !== "unit") {
         const generated = agentRuntimeWsMod.generateInitialVaultApiSkill();
         const generatedHasH1 = generated.startsWith("# vault-api");
         const generatedHasActionTable = generated.includes("### 结构化类") && generated.includes("### 危险操作类");
-        // V2.18 第五批：29 个 action 计数 + tag_files 行
-        const generatedHas29Count = generated.includes("29 个 action");
+        // V2.18 第五批：动态 action 计数 + tag_files 行
+        const actionCount = Object.keys(ACTION_METADATA).length;
+        const generatedHasActionCount = generated.includes(`${actionCount} 个 action`);
         const generatedHasTagFiles = generated.includes("tag_files");
 
-        addTest("V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 29 actions + HTTP 通道",
-          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable && generatedHas29Count && generatedHasTagFiles ? "pass" : "fail",
-          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable} gen29Count=${generatedHas29Count} genTagFiles=${generatedHasTagFiles}`);
+        addTest(`V2.18 vault-api Skill: ensureAgentRuntimeWorkspace 创建 source + 初版含 ${actionCount} actions + HTTP 通道`,
+          exists && allActions && hasHttpBridge && hasFileSystemCaveat && generatedHasH1 && generatedHasActionTable && generatedHasActionCount && generatedHasTagFiles ? "pass" : "fail",
+          `exists=${exists} allActions=${allActions} httpBridge=${hasHttpBridge} fsCaveat=${hasFileSystemCaveat} genH1=${generatedHasH1} genTable=${generatedHasActionTable} genActionCount=${generatedHasActionCount} genTagFiles=${generatedHasTagFiles}`);
       }
 
       // Test K1-C: 轻量版 materializeToAllTargets — 单个 conflict 不影响其他 target

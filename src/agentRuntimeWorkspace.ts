@@ -623,7 +623,7 @@ export function generateInitialVaultApiSkill(): string {
     "- exit 1：action 执行失败或用户拒绝审批",
     "",
     "",
-    "## Action 清单（V2.18，共 29 个）",
+    `## Action 清单（V2.18，共 ${actionEntries.length} 个）`,
     "",
     actionTables,
     "",
@@ -639,7 +639,7 @@ export function generateInitialVaultApiSkill(): string {
     "- path 参数必须是 vault 相对路径（如 `inbox/note.md`），禁止绝对路径与 `..` 遍历。",
     "- 修改类 action（property_set/daily_append/vault_delete/vault_rename/vault_restore/rename_tag/command_run）会弹审批框，用户拒绝则不执行。",
     "- **推荐调用方式**：`obsidian-bridge <type> --stdin`（从 stdin 读 JSON，避免 shell 转义）；修改类加 `--wait --timeout N` 等审批结果。",
-    "- 29 个 action 之外的 Obsidian 能力暂未暴露；如需扩展请在 LLM-AgentRuntime/skills/vault-api/SKILL.md 记录需求。",
+    `- ${actionEntries.length} 个 action 之外的 Obsidian 能力暂未暴露；如需扩展请在 LLM-AgentRuntime/skills/vault-api/SKILL.md 记录需求。`,
     "",
   ].join("\n");
 }
