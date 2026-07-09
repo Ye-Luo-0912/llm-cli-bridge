@@ -1,24 +1,24 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-09T09:23:44.728Z
+- **测试时间**: 2026-07-09T09:55:32.994Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 1130.2 KB
+- **main.js 大小**: 1135.5 KB
 - **main.js bundle content smoke**: PASS ({"HttpBridge":true,"writeHelperAndWrappers":true,"CodexAppServerProvider":true,"vault_api":true})
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 51838
-- **commit sha**: 51dbaba9833937ab087c0a39823607e6bb18950a
-- **commit 短 sha**: 51dbaba98339
+- **commit sha**: b58eaa3ae6ff162f3171fc0e67e5032272456656
+- **commit 短 sha**: b58eaa3ae6ff
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
 
-- ✅ **通过**: 229
+- ✅ **通过**: 232
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 56
 - ⚪ **需人工验证**: 0
-- **总计**: 285
+- **总计**: 288
 
 ### 审计模式说明
 
@@ -75,6 +75,9 @@
 | ✅ | property_set value=object 通过 | - |
 | ✅ | property_set value=null 视为缺失 | - |
 | ✅ | property_set value=number 不是 string 也通过（unknown 类型） | - |
+| ✅ | property_delete 缺 key | - |
+| ✅ | property_delete 完整正常 | - |
+| ✅ | property_delete 缺 path | - |
 | ✅ | tags_list 无参正常 | - |
 | ✅ | tags_list 带 path 过滤正常 | - |
 | ✅ | backlinks_get 缺 path | - |
@@ -270,25 +273,25 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3485ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
+| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3246ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
  |
-| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4620ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783589029388
+| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4641ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783590937218
  |
 | ✅ | health 命令（fake server） | - |
 | ✅ | --json 标志输出有效 JSON（fake server） | - |
 | ✅ | 非修改类 action 直接输出（不轮询） | {
   "ok": true,
-  "id": "fake-id-1783589034196",
+  "id": "fake-id-1783590942030",
   "status": "completed",
   "result": {
     "type":  |
 | ✅ | --stdin 模式读取 JSON params | {
   "ok": true,
-  "id": "fake-id-1783589034291",
+  "id": "fake-id-1783590942123",
   "status": "completed",
   "result": {
     "type":  |
-| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783589034388","status":"completed","result":{"type":"tags_list","fake":tru |
+| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783590942215","status":"completed","result":{"type":"tags_list","fake":tru |
 | ✅ | 错误分级 - bridge.json 缺失 exit 2 | exit=2 stderr=[bridge 未启动] 未找到 .llm-bridge/bridge.json。
   请确认 Obsidian 已启动且 llm-cli-bridge 插件已 |
 | ✅ | 错误分级 - JSON 解析失败 exit 5 | exit=5 stderr=[参数解析失败] JSON 格式错误: Expected property name or '}' in JSON at position 1 (line 1  |
