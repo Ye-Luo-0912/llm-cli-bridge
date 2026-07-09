@@ -1,23 +1,23 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-08T22:14:38.726Z
+- **测试时间**: 2026-07-09T09:01:58.592Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.16.0
-- **main.js 大小**: 1090.5 KB
+- **main.js 大小**: 26.6 KB
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 51838
-- **commit sha**: ab52714558138c252e71d9ff8dc45c10a7e52af0
-- **commit 短 sha**: ab5271455813
+- **commit sha**: 4921b2660af709923daeb7255eab5f041da77492
+- **commit 短 sha**: 4921b2660af7
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
 
-- ✅ **通过**: 171
+- ✅ **通过**: 222
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 56
 - ⚪ **需人工验证**: 0
-- **总计**: 227
+- **总计**: 278
 
 ### 审计模式说明
 
@@ -81,6 +81,47 @@
 | ✅ | vault_delete 正常 | - |
 | ✅ | vault_rename 缺 newPath | - |
 | ✅ | vault_rename 正常 | - |
+| ✅ | outlinks_get 缺 path | - |
+| ✅ | outlinks_get 正常 | - |
+| ✅ | broken_links_list 无参正常 | - |
+| ✅ | broken_links_list 带 path 过滤正常 | - |
+| ✅ | headings_get 缺 path | - |
+| ✅ | headings_get 正常 | - |
+| ✅ | vault_restore 缺 path | - |
+| ✅ | vault_restore 正常 | - |
+| ✅ | search 缺 query | - |
+| ✅ | search 仅 query 正常 | - |
+| ✅ | search 全参正常 | - |
+| ✅ | rename_tag 缺 newTag | - |
+| ✅ | rename_tag 正常 | - |
+| ✅ | rename_tag 带 path 过滤正常 | - |
+| ✅ | bookmarks_list 无参正常 | - |
+| ✅ | metadatacache_get 缺 path | - |
+| ✅ | metadatacache_get 正常 | - |
+| ✅ | resolved_links_map 无参正常 | - |
+| ✅ | resolved_links_map 带 path 过滤正常 | - |
+| ✅ | plugin_list 无参正常 | - |
+| ✅ | open_url 缺 url | - |
+| ✅ | open_url 正常 | - |
+| ✅ | setting_get 缺 key | - |
+| ✅ | setting_get 正常 | - |
+| ✅ | command_list 无参正常 | - |
+| ✅ | command_run 缺 commandId | - |
+| ✅ | command_run 正常 | - |
+| ✅ | workspace_get 无参正常 | - |
+| ✅ | clipboard_write 缺 text | - |
+| ✅ | clipboard_write 正常 | - |
+| ✅ | tag_files 缺 tag | - |
+| ✅ | tag_files 正常（不带 #） | - |
+| ✅ | tag_files 正常（带 #） | - |
+| ✅ | link_resolve 缺 link | - |
+| ✅ | link_resolve wikilink 正常 | - |
+| ✅ | link_resolve 带 sourcePath 正常 | - |
+| ✅ | attachment_list 缺 path | - |
+| ✅ | attachment_list 正常 | - |
+| ✅ | view_mode_set 缺 mode | - |
+| ✅ | view_mode_set reading 正常 | - |
+| ✅ | view_mode_set source 正常 | - |
 
 ### validateAction
 
@@ -217,6 +258,34 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ⏭️ | Bridge Metadata Sync 测试段 | 当前为 process/claude 模式，跳过 bridge unit 测试 |
+
+### Helper Behavior
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | --wait --timeout 超时行为（fake server） | exit=3221226505 elapsed=3326ms hasTimeout=true stderr=等待超时（2s）。actionId: timeout-test-id
+Assertion failed: !(handle->flags & UV_HANDLE |
+| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4617ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783587722843
+ |
+| ✅ | health 命令（fake server） | - |
+| ✅ | --json 标志输出有效 JSON（fake server） | - |
+| ✅ | 非修改类 action 直接输出（不轮询） | {
+  "ok": true,
+  "id": "fake-id-1783587727637",
+  "status": "completed",
+  "result": {
+    "type":  |
+| ✅ | --stdin 模式读取 JSON params | {
+  "ok": true,
+  "id": "fake-id-1783587727732",
+  "status": "completed",
+  "result": {
+    "type":  |
+| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783587727825","status":"completed","result":{"type":"tags_list","fake":tru |
+| ✅ | 错误分级 - bridge.json 缺失 exit 2 | exit=2 stderr=[bridge 未启动] 未找到 .llm-bridge/bridge.json。
+  请确认 Obsidian 已启动且 llm-cli-bridge 插件已 |
+| ✅ | 错误分级 - JSON 解析失败 exit 5 | exit=5 stderr=[参数解析失败] JSON 格式错误: Expected property name or '}' in JSON at position 1 (line 1  |
+| ✅ | obsidian-bridge wrapper 生成（obsidian-bridge.cmd + obsidian-bridge） | win=true unix=true |
 
 ### V1.1 单元测试段
 
