@@ -10,114 +10,9 @@
 
 import { App, DataAdapter, Modal, Notice, TFile, TFolder, Vault, MarkdownView } from "obsidian";
 
-export type ActionType =
-  | "show_notice"
-  | "open_note"
-  | "get_state"
-  | "get_active_note"
-  | "get_selection"
-  | "create_note"
-  | "append_to_note"
-  | "insert_at_cursor"
-  | "replace_selection"
-  // V2.18 vault-api：结构化类（文件系统做不准/做不到）
-  | "property_get"    // 读 frontmatter（用 metadataCache，处理 YAML 边界）
-  | "property_set"    // 写 frontmatter（用 fileManager.processFrontMatter）
-  | "tags_list"      // 全 vault 标签清单（用 metadataCache，区分代码块假 tag）
-  | "backlinks_get"  // 反向链接（用 resolvedLinks，文件系统无法反向查）
-  | "tasks_list"     // 待办清单（扫所有 markdown 文件）
-  | "daily_read"     // 读今天 daily note（按 daily-notes 约定路径）
-  | "daily_append"   // 追加到今天 daily note
-  // V2.18 vault-api：结构化类补充（metadataCache 解析能力，文件系统做不准）
-  | "outlinks_get"      // 出链清单（getFileCache().links，区分代码块假链接 + 解析目标）
-  | "broken_links_list" // 断链清单（unresolvedLinks，文件系统无法检测）
-  | "headings_get"      // 标题大纲（getFileCache().headings，区分代码块内 # 误判）
-  // V2.18 vault-api：危险操作类（走 Obsidian trash + 审批）
-  | "vault_delete"    // 删除文件（走回收站，比 fs.delete 安全）
-  | "vault_rename"   // 重命名/移动（更新 metadataCache）
-  | "vault_restore"  // 从回收站恢复（vault.restore，vault_delete 的逆操作）
-  // V2.18 vault-api 第二批：搜索/聚合/书签（文件系统做不准/做不到）
-  | "search"             // 全文搜索（markdown-aware：跳过 frontmatter/代码块）
-  | "rename_tag"         // 全 vault 标签重命名（frontmatter + 内联 #tag 原子更新）
-  | "bookmarks_list"     // 读 Obsidian 书签（.obsidian/ 已被路径校验拒绝，必须走 API）
-  | "metadatacache_get"  // 单文件完整 metadataCache 快照（headings+links+tags+frontmatter+embeds 聚合）
-  // V2.18 vault-api 第三批：全局图/插件/外部操作/设置（文件系统做不准/做不到）
-  | "resolved_links_map" // 全 vault 解析后链接图（resolvedLinks 全量，全局拓扑）
-  | "plugin_list"        // 列出启用的插件（.obsidian/ 被路径校验拒绝）
-  | "open_url"           // 在默认浏览器打开 URL（UI 操作）
-  | "setting_get"        // 读 Obsidian 设置项（.obsidian/app.json 被拒绝）
-  // V2.18 vault-api 第四批：命令/工作区/剪贴板（文件系统做不到的 UI 与运行时状态）
-  | "command_list"       // 列出所有可执行 Obsidian 命令（app.commands.listCommands）
-  | "command_run"        // 执行 Obsidian 命令（app.commands.executeCommandById；走审批）
-  | "workspace_get"      // 读当前工作区状态（打开的标签页/活动文件；.obsidian/workspace.json 被拒绝且非实时）
-  | "clipboard_write"   // 写入剪贴板（navigator.clipboard.writeText）
-  // V2.18 vault-api 第五批：反向查询/链接解析/附件/视图模式（metadataCache 解析能力 + UI 操作）
-  | "tag_files"          // 列出某 tag 下的所有文件（metadataCache 反向查询，tags_list 的逆向）
-  | "link_resolve"       // 解析 wikilink/markdown link 到实际路径（metadataCache.getFirstLinkpathDest）
-  | "attachment_list"    // 列出笔记嵌入的所有附件（getFileCache().embeds，区分纯文本引用）
-  | "view_mode_set";      // 切换当前视图编辑/预览模式（MarkdownView.setState，UI 运行时操作）
-
-export interface OutboxAction {
-  id: string;
-  type: ActionType;
-  params: Record<string, unknown>;
-  ts?: string;
-}
-
-// ─── Action Schema 校验 ───────────────────────────────────────────────────
-
-interface ParamSchema {
-  required?: string[];
-  optional?: string[];
-  extraForbidden?: boolean; // true = 不允许额外字段
-}
-
-const ACTION_SCHEMAS: Record<ActionType, ParamSchema> = {
-  show_notice: { required: ["message"], optional: [], extraForbidden: false },
-  open_note: { required: ["path"], optional: [], extraForbidden: false },
-  get_state: { required: [], optional: [], extraForbidden: true },
-  get_active_note: { required: [], optional: [], extraForbidden: true },
-  get_selection: { required: [], optional: [], extraForbidden: true },
-  create_note: { required: ["path", "content"], optional: [], extraForbidden: false },
-  append_to_note: { required: ["path", "content"], optional: [], extraForbidden: false },
-  insert_at_cursor: { required: ["content"], optional: [], extraForbidden: false },
-  replace_selection: { required: ["content"], optional: [], extraForbidden: false },
-  // V2.18 vault-api schemas
-  property_get: { required: ["path"], optional: ["key"], extraForbidden: false },
-  property_set: { required: ["path", "key", "value"], optional: [], extraForbidden: false },
-  tags_list: { required: [], optional: ["path"], extraForbidden: false },
-  backlinks_get: { required: ["path"], optional: [], extraForbidden: false },
-  tasks_list: { required: [], optional: ["path"], extraForbidden: false },
-  daily_read: { required: [], optional: [], extraForbidden: true },
-  daily_append: { required: ["content"], optional: [], extraForbidden: false },
-  vault_delete: { required: ["path"], optional: [], extraForbidden: false },
-  vault_rename: { required: ["path", "newPath"], optional: [], extraForbidden: false },
-  // V2.18 vault-api schemas 补充（metadataCache 解析能力 + 回收站恢复）
-  outlinks_get: { required: ["path"], optional: [], extraForbidden: false },
-  broken_links_list: { required: [], optional: ["path"], extraForbidden: false },
-  headings_get: { required: ["path"], optional: [], extraForbidden: false },
-  vault_restore: { required: ["path"], optional: [], extraForbidden: false },
-  // V2.18 vault-api 第二批 schemas（搜索/聚合/书签）
-  search: { required: ["query"], optional: ["path", "limit"], extraForbidden: false },
-  rename_tag: { required: ["oldTag", "newTag"], optional: ["path"], extraForbidden: false },
-  bookmarks_list: { required: [], optional: [], extraForbidden: false },
-  metadatacache_get: { required: ["path"], optional: [], extraForbidden: false },
-  // V2.18 vault-api 第三批 schemas（全局图/插件/外部操作/设置）
-  resolved_links_map: { required: [], optional: ["path"], extraForbidden: false },
-  plugin_list: { required: [], optional: [], extraForbidden: false },
-  open_url: { required: ["url"], optional: [], extraForbidden: false },
-  setting_get: { required: ["key"], optional: [], extraForbidden: false },
-  // V2.18 vault-api 第四批 schemas（命令/工作区/剪贴板）
-  command_list: { required: [], optional: [], extraForbidden: false },
-  command_run: { required: ["commandId"], optional: [], extraForbidden: false },
-  workspace_get: { required: [], optional: [], extraForbidden: false },
-  clipboard_write: { required: ["text"], optional: [], extraForbidden: false },
-  // V2.18 vault-api 第五批 schemas（反向查询/链接解析/附件/视图模式）
-  tag_files: { required: ["tag"], optional: [], extraForbidden: false },
-  link_resolve: { required: ["link"], optional: ["sourcePath"], extraForbidden: false },
-  attachment_list: { required: ["path"], optional: [], extraForbidden: false },
-  view_mode_set: { required: ["mode"], optional: [], extraForbidden: false },
-};
+// V2.18 r7: 纯数据/类型提取到 actionMetadata.ts（不依赖 obsidian，可供 agentRuntimeWorkspace 直接 import）
+export { type ActionType, type OutboxAction, type ActionParamSpec, type ActionMetadata, ACTION_METADATA, isModifying } from "./actionMetadata";
+import { ACTION_SCHEMAS, type ActionType, type OutboxAction } from "./actionMetadata";
 
 // ─── 路径安全校验 ─────────────────────────────────────────────────────────
 
@@ -220,27 +115,7 @@ export function validateAction(
   return null;
 }
 
-// 会修改笔记或覆盖文件的 action：必须弹确认
-const MODIFYING_ACTIONS: ActionType[] = [
-  "create_note",
-  "append_to_note",
-  "insert_at_cursor",
-  "replace_selection",
-  // V2.18 vault-api 写入/危险操作类
-  "property_set",
-  "daily_append",
-  "vault_delete",
-  "vault_rename",
-  "vault_restore",
-  // V2.18 vault-api 第二批写入类
-  "rename_tag",
-  // V2.18 vault-api 第四批：命令执行可能有副作用/破坏性
-  "command_run",
-];
-
-export function isModifying(type: string): boolean {
-  return MODIFYING_ACTIONS.includes(type as ActionType);
-}
+// isModifying 已移至 actionMetadata.ts（通过 re-export 暴露）
 
 // 从 app 获取 Vault 根路径
 function getVaultPathFromApp(app: App): string {

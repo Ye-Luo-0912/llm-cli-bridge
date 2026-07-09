@@ -153,7 +153,7 @@ if (isMain) {
     else if (a === "--stdin") { flags.stdin = true; }
     else if (a === "--timeout" && i + 1 < args.length) { flags.timeout = parseInt(args[++i], 10) * 1000; }
     else if (a === "--help" || a === "-h") {
-      console.error("用法: obsidian <command> [options] [json-params]");
+      console.error("用法: obsidian-bridge <command> [options] [json-params]");
       console.error("");
       console.error("命令:");
       console.error("  health                                  # 健康检查");
@@ -169,12 +169,12 @@ if (isMain) {
       console.error("  --help, -h                              显示帮助");
       console.error("");
       console.error("示例:");
-      console.error("  obsidian health");
-      console.error("  obsidian tags_list");
-      console.error(\`  obsidian property_get '{"path":"a.md","key":"tags"}'\`);
-      console.error(\`  echo '{"path":"a.md","content":"# a"}' | obsidian create_note --stdin\`);
-      console.error(\`  obsidian --wait --timeout 60 create_note '{"path":"a.md","content":"x"}'\`);
-      console.error("  obsidian --raw tags_list | jq '.tags'");
+      console.error("  obsidian-bridge health");
+      console.error("  obsidian-bridge tags_list");
+      console.error(\`  obsidian-bridge property_get '{"path":"a.md","key":"tags"}'\`);
+      console.error(\`  echo '{"path":"a.md","content":"# a"}' | obsidian-bridge create_note --stdin\`);
+      console.error(\`  obsidian-bridge --wait --timeout 60 create_note '{"path":"a.md","content":"x"}'\`);
+      console.error("  obsidian-bridge --raw tags_list | jq '.tags'");
       process.exit(0);
     } else {
       posArgs.push(a);
@@ -195,7 +195,7 @@ if (isMain) {
     });
   }
   if (!type) {
-    console.error("用法: obsidian <health|state|<type>> [--wait] [--timeout N] [--json] [--raw] [--stdin] [json-params]");
+    console.error("用法: obsidian-bridge <health|state|<type>> [--wait] [--timeout N] [--json] [--raw] [--stdin] [json-params]");
     console.error("用 --help 查看完整帮助");
     process.exit(1);
   }
@@ -218,7 +218,8 @@ if (isMain) {
         console.log(JSON.stringify(obj, null, 2));
       }
     };
-    // 修改类 action（与 actions.ts MODIFYING_ACTIONS 同步，否则 --wait 失效）
+    // 修改类 action（与 actions.ts ACTION_METADATA.modifying 同步，否则 --wait 失效）
+    // 单一真相源在 src/actions.ts 的 ACTION_METADATA
     const modifying = ["create_note","append_to_note","insert_at_cursor","replace_selection","property_set","daily_append","vault_delete","vault_rename","vault_restore","rename_tag","command_run"].includes(type);
     if (!modifying || flags.json || flags.raw) {
       if (r && r.ok === false) {
@@ -294,7 +295,7 @@ if (isMain) {
     if (msg.includes("Unexpected token") || msg.includes("JSON")) {
       console.error("[参数解析失败] JSON 格式错误:", msg);
       console.error("  建议使用 --stdin 模式避免 shell 转义问题：");
-      console.error(\`  echo '{"path":"a.md"}' | obsidian create_note --stdin\`);
+      console.error(\`  echo '{"path":"a.md"}' | obsidian-bridge create_note --stdin\`);
       process.exit(5);
     }
     console.error("[执行失败]", msg);
@@ -311,10 +312,10 @@ export async function writeHelper(vaultPath: string): Promise<string> {
   return filePath;
 }
 
-// 生成可执行 wrapper（obsidian.cmd for Windows / obsidian shell script for Unix）
-// agent 可直接调用 `obsidian health` 而非 `node xxx.mjs`
-const WIN_WRAPPER_NAME = "obsidian.cmd";
-const UNIX_WRAPPER_NAME = "obsidian";
+// 生成可执行 wrapper（obsidian-bridge.cmd for Windows / obsidian-bridge shell script for Unix）
+// 命名 obsidian-bridge 避免与 PATH 上的 Obsidian app launcher 冲突
+const WIN_WRAPPER_NAME = "obsidian-bridge.cmd";
+const UNIX_WRAPPER_NAME = "obsidian-bridge";
 
 async function writeWrappers(vaultPath: string): Promise<string[]> {
   const dir = path.join(vaultPath, TOOLS_DIR_REL);

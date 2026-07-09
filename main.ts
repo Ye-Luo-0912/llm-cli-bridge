@@ -89,6 +89,10 @@ export default class LLMBridgePlugin extends Plugin {
       void this.startHttpBridge(vaultPath).catch((e) => {
         console.error("[llm-cli-bridge] startHttpBridge 未捕获错误:", e);
       });
+
+      // V2.18 r5: 三端统一 onload 自动物化 SKILL.md
+      // 确保 source 存在 → compact → 物化到 .claude/skills + .agents/skills + .pi/skills
+      void this.materializeVaultSkillsOnload(vaultPath);
     }
 
     // V17-D 任务 B：异步预加载 Pi SDK（不阻塞 onload）
@@ -104,6 +108,20 @@ export default class LLMBridgePlugin extends Plugin {
       console.log("[llm-cli-bridge] Pi SDK preload 完成");
     } catch (e) {
       console.warn("[llm-cli-bridge] Pi SDK preload 失败（不阻塞）：", e);
+    }
+  }
+
+  /** V2.18 r5: onload 自动物化 SKILL.md 到三端 target（.claude/.agents/.pi） */
+  private async materializeVaultSkillsOnload(vaultPath: string): Promise<void> {
+    try {
+      const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllVaultSkillsToAllTargets } = await import("./src/agentRuntimeWorkspace");
+      await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
+      try { await compactOrSplitVaultSkill(vaultPath); } catch { /* compact 失败不阻塞物化 */ }
+      const result = await materializeAllVaultSkillsToAllTargets(vaultPath);
+      const okCount = result.results.filter((r) => r.ok).length;
+      console.log(`[llm-cli-bridge] onload skill 物化完成: ${okCount}/${result.results.length} ok (claude + generic-agent + pi)`);
+    } catch (e) {
+      console.warn("[llm-cli-bridge] onload skill 物化失败（不阻塞）：", e);
     }
   }
 
@@ -529,9 +547,5 @@ export default class LLMBridgePlugin extends Plugin {
 
   async saveSettings(): Promise<void> {
     await this.saveData(this.settings);
-    // V2.3: 同步权限策略到 httpBridge（运行时生效）
-    if (this.httpBridge) {
-      this.httpBridge.setPermissionPolicy(this.settings.permissionPolicy);
-    }
   }
 }

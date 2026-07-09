@@ -132,11 +132,9 @@ export function buildCapabilityManifest(
   if (capabilities.shellAvailable) {
     lines.push("- Shell / PowerShell / Bash：可用于高效任务，但 write/delete/command 类操作需要 host approval。");
   }
-  // V16.5-D: Obsidian CLI 文案根据三态派生（不臆造可用性）
-  const obsidianLine = buildObsidianCliLine(capabilities.obsidianCliAvailable);
-  if (obsidianLine) {
-    lines.push(obsidianLine);
-  }
+  // V2.18 r4: Obsidian CLI 降级 — 三态声明废弃，统一指向 obsidian-bridge wrapper。
+  // 外部 Obsidian CLI 不再作为独立能力声明；Vault API 操作一律走 obsidian-bridge wrapper。
+  lines.push("- Obsidian CLI: not bundled. Vault API operations use the obsidian-bridge wrapper (see vault-api Skill).");
   if (capabilities.askUserQuestionAvailable) {
     lines.push("- AskUserQuestion：可用于真实歧义（target/scope/operation 不明确时）。");
   }
@@ -155,8 +153,8 @@ export function buildCapabilityManifest(
     lines.push("- Vault Skill source: LLM-AgentRuntime/skills/vault-context/SKILL.md（轻量 vault-runtime 包：边界规则/稳定约定/用户偏好/目录语义）。");
     lines.push("- Runtime Skill target: .claude/skills/vault-context/SKILL.md（物化后 provider 按需识别）。");
   }
-  // V2.18 vault-api：声明 Obsidian Plugin API 能力 Skill（obsidian wrapper / helper mjs / HTTP bridge / outbox 调用）
-  lines.push("- vault-api Skill: .claude/skills/vault-api/SKILL.md（物化后）。暴露 Obsidian Plugin API 能力（文件系统做不到的）：frontmatter property、tags（清单/反查/改名）、backlinks/outlinks/链接解析/附件、tasks、daily note、search（markdown-aware）、metadataCache 聚合、resolvedLinks 全局图、bookmarks、plugin、setting、命令执行、workspace、clipboard、视图模式、vault 回收站操作。共 29 个 action，详见 SKILL.md。调用通道：obsidian wrapper（推荐，`.llm-bridge/tools/obsidian`，支持 --stdin 绕开 shell 转义 / --raw 管道输出 / --wait 等审批）→ helper mjs → HTTP bridge → outbox actions.jsonl 兜底。普通文件读写仍用 native file tools。");
+  // V2.18 vault-api：声明 Obsidian Plugin API 能力 Skill（obsidian-bridge wrapper / helper mjs / HTTP bridge / outbox 调用）
+  lines.push("- vault-api Skill: .claude/skills/vault-api/SKILL.md（物化后）。暴露 Obsidian Plugin API 能力（文件系统做不到的）：frontmatter property、tags（清单/反查/改名）、backlinks/outlinks/链接解析/附件、tasks、daily note、search（markdown-aware）、metadataCache 聚合、resolvedLinks 全局图、bookmarks、plugin、setting、命令执行、workspace、clipboard、视图模式、vault 回收站操作。共 29 个 action，详见 SKILL.md。调用通道：obsidian-bridge wrapper（推荐，`.llm-bridge/tools/obsidian-bridge`，支持 --stdin 绕开 shell 转义 / --raw 管道输出 / --wait 等审批）→ helper mjs → HTTP bridge → outbox actions.jsonl 兜底。普通文件读写仍用 native file tools。");
   lines.push("- Runtime facts: LLM-AgentRuntime/runtime/RUNTIME_FACTS.json（机器事实，不进 prompt）。");
   return lines.join("\n");
 }
@@ -209,25 +207,16 @@ function capabilityText(value: string, maxChars: number): string {
 }
 
 /**
- * V16.5-D: 根据 Obsidian CLI 可用性三态派生 prompt 文案。
+ * V2.18 r4: Obsidian CLI 降级 — 三态声明已废弃。
  *
- * - known-available:   "Obsidian CLI: available."
- * - unknown:           "Obsidian CLI: availability unknown; you may probe if useful."
- * - known-unavailable:  "Obsidian CLI: unavailable; use other tools."
+ * 外部 Obsidian CLI 不再作为独立能力声明。Vault API 操作统一走
+ * obsidian-bridge wrapper（详见 vault-api Skill）。本函数保留签名供
+ * legacy/测试引用，但不再产出三态文案，统一返回空串。
  *
- * 不新增行为规则，只写事实。
+ * 调用方应改用 buildCapabilityManifest 内联的降级声明。
  */
-export function buildObsidianCliLine(availability: ObsidianCliAvailability): string {
-  switch (availability) {
-    case "known-available":
-      return "- Obsidian CLI: available.";
-    case "unknown":
-      return "- Obsidian CLI: availability unknown; you may probe if useful.";
-    case "known-unavailable":
-      return "- Obsidian CLI: unavailable; use other tools.";
-    default:
-      return "";
-  }
+export function buildObsidianCliLine(_availability: ObsidianCliAvailability): string {
+  return "";
 }
 
 // ---------- Section 2: Autonomy Contract ----------

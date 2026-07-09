@@ -25,6 +25,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { createHash } from "crypto";
 import type { ObsidianCliAvailability } from "./runtime/core/bridgePromptContract";
+import { ACTION_METADATA, type ActionMetadata, type ActionType } from "./actionMetadata";
 
 // ---------- 常量 ----------
 
@@ -516,27 +517,68 @@ export async function generateInitialVaultSkill(
  * 内容是静态的（不依赖运行时扫描），只描述调用方式与 action 清单。
  */
 export function generateInitialVaultApiSkill(): string {
+  // 从 ACTION_METADATA 自动生成 action 表（单一真相源）
+  const actionEntries = (Object.keys(ACTION_METADATA) as ActionType[])
+    .map((type) => ACTION_METADATA[type]);
+
+  // 按 category 分组
+  const categories: Array<{ label: string; cat: ActionMetadata["category"] }> = [
+    { label: "基础操作", cat: "basic" },
+    { label: "结构化类（metadataCache / fileManager，文件系统做不准）", cat: "structured" },
+    { label: "全文搜索", cat: "search" },
+    { label: "UI / 运行时操作（文件系统做不到）", cat: "ui" },
+    { label: "危险操作类（走回收站 + 审批）", cat: "dangerous" },
+  ];
+
+  const actionTables = categories.map(({ label, cat }) => {
+    const rows = actionEntries.filter((m) => m.category === cat);
+    if (rows.length === 0) return "";
+    const tableLines = [
+      `### ${label}`,
+      "",
+      "| type | params | 返回 | 确认 | 说明 |",
+      "|------|--------|------|------|------|",
+    ];
+    for (const m of rows) {
+      const paramsStr = m.params.length === 0
+        ? "{}"
+        : m.params.map((p) => `\"${p.name}\"${p.required ? "" : "?"}`).join(", ");
+      const confirm = m.modifying ? "是" : "否";
+      tableLines.push(`| ${m.type} | ${paramsStr} | ${m.returns} | ${confirm} | ${m.description} |`);
+    }
+    tableLines.push("");
+    return tableLines.join("\n");
+  }).filter(Boolean).join("\n");
+
   return [
     "# vault-api",
     "",
     "> Obsidian Plugin API 能力 Skill（V2.18）。",
     "> 只暴露文件系统做不到的能力；普通文件读写请用 native Read/Write/Edit。",
-    "> 调用通道：obsidian wrapper（推荐）→ helper mjs → HTTP bridge → outbox actions.jsonl（兜底）。",
+    "> 调用通道：obsidian-bridge wrapper（推荐）→ helper mjs → HTTP bridge → outbox actions.jsonl（兜底）。",
+    "",
+    "## 能力分级",
+    "",
+    "agent 操作 vault 内容时按以下优先级选择工具：",
+    "",
+    "- **L0 native file tools（优先）**：普通文件读写用 Read/Write/Edit/Grep/Glob。文件系统能做的不走本 Skill。",
+    "- **L1 obsidian-bridge wrapper（本 Skill）**：文件系统做不到或做不准的能力——frontmatter/tags/backlinks/tasks/daily note/metadataCache/搜索/回收站/UI 操作。",
+    "- **L2 shell 降级**：当 wrapper 不可用（exit 2/3/4），可降级用 shell + 文件系统做近似操作（如 grep 替代 search），但失去 metadataCache 准确性。",
     "",
     "## 调用通道",
     "",
-    "### 1. obsidian wrapper（推荐，最稳定）",
+    "### 1. obsidian-bridge wrapper（推荐，最稳定）",
     "",
-    "插件启动时在 `.llm-bridge/tools/` 生成 `obsidian.cmd`（Windows）/ `obsidian`（Unix）可执行 wrapper。",
-    "agent 直接调用 `obsidian <type> [params]`，无需手写 `node xxx.mjs`，自动处理 port/token。",
+    "插件启动时在 `.llm-bridge/tools/` 生成 `obsidian-bridge.cmd`（Windows）/ `obsidian-bridge`（Unix）可执行 wrapper。",
+    "agent 直接调用 `obsidian-bridge <type> [params]`，无需手写 `node xxx.mjs`，自动处理 port/token。",
     "",
     "```bash",
-    "obsidian health                                    # 健康检查",
-    "obsidian tags_list                                 # 非修改类直接输出",
-    "obsidian property_get '{\"path\":\"a.md\",\"key\":\"tags\"}'   # JSON 参数",
-    "echo '{\"path\":\"a.md\",\"content\":\"# a\"}' | obsidian create_note --stdin  # 推荐：绕开 shell 转义",
-    "obsidian --wait --timeout 60 create_note '{\"path\":\"a.md\",\"content\":\"x\"}'  # 修改类等审批",
-    "obsidian --raw tags_list | jq '.tags'              # 纯 JSON 输出，适合管道",
+    "obsidian-bridge health                                    # 健康检查",
+    "obsidian-bridge tags_list                                 # 非修改类直接输出",
+    `obsidian-bridge property_get '{"path":"a.md","key":"tags"}'`,
+    `echo '{"path":"a.md","content":"# a"}' | obsidian-bridge create_note --stdin`,
+    `obsidian-bridge --wait --timeout 60 create_note '{"path":"a.md","content":"x"}'`,
+    "obsidian-bridge --raw tags_list | jq '.tags'              # 纯 JSON 输出，适合管道",
     "```",
     "",
     "**--stdin 模式**（强烈推荐用于修改类 action）：从 stdin 读 JSON params，彻底避免 PowerShell/bash 引号转义问题。",
@@ -570,60 +612,22 @@ export function generateInitialVaultApiSkill(): string {
     "- exit 1：action 执行失败或用户拒绝审批",
     "",
     "",
-    "## Action 清单（V2.18）",
+    "## Action 清单（V2.18，共 29 个）",
     "",
-    "### 结构化类（文件系统做不准/做不到）",
-    "",
-    "| type           | params                              | 确认 | 说明 |",
-    "|----------------|-------------------------------------|------|------|",
-    "| property_get   | {\"path\":\"...\",\"key?\":\"...\"}         | 否   | 读 frontmatter（metadataCache，YAML 已解析；不传 key 返回全部） |",
-    "| property_set   | {\"path\":\"...\",\"key\":\"...\",\"value\":...} | 是   | 写 frontmatter（fileManager.processFrontMatter，自动处理 YAML 边界） |",
-    "| tags_list      | {\"path?\":\"...\"}                     | 否   | 全 vault 标签清单（metadataCache 聚合，区分代码块假 tag；可按目录前缀过滤） |",
-    "| backlinks_get  | {\"path\":\"...\"}                      | 否   | 反向链接（resolvedLinks 反查，文件系统无法做到） |",
-    "| tasks_list     | {\"path?\":\"...\"}                     | 否   | 待办清单（扫所有 markdown `- [ ]` / `- [x]`，可按目录前缀过滤） |",
-    "| daily_read     | {}                                  | 否   | 读今天 daily note（按 daily-notes 内置插件配置解析路径） |",
-    "| daily_append   | {\"content\":\"...\"}                   | 是   | 追加到今天 daily note（路径同 daily_read） |",
-    "| outlinks_get   | {\"path\":\"...\"}                      | 否   | 出链清单（getFileCache().links，区分代码块假链接 + 用 resolvedLinks 解析目标） |",
-    "| broken_links_list | {\"path?\":\"...\"}                  | 否   | 断链清单（metadataCache.unresolvedLinks，文件系统无法检测） |",
-    "| headings_get   | {\"path\":\"...\"}                      | 否   | 标题大纲（getFileCache().headings，区分代码块内 # 误判） |",
-    "| search         | {\"query\":\"...\",\"path?\":\"...\",\"limit?\":N} | 否 | 全文搜索（markdown-aware：跳过 frontmatter/代码块；query 可为正则；默认 limit=50，上限 200） |",
-    "| bookmarks_list | {}                                  | 否   | 读 Obsidian 书签（.obsidian/bookmarks.json 已被路径校验拒绝，必须走 API） |",
-    "| metadatacache_get | {\"path\":\"...\"}                   | 否   | 单文件完整 metadataCache 快照（frontmatter+tags+links+embeds+headings+sections 聚合，比多次调用高效） |",
-    "| resolved_links_map | {\"path?\":\"...\"}                | 否   | 全 vault 解析后链接图（resolvedLinks 全量，全局拓扑；可按目录前缀过滤） |",
-    "| plugin_list    | {}                                  | 否   | 列出启用的核心+社区插件（.obsidian/ 被路径校验拒绝，必须走 API） |",
-    "| open_url       | {\"url\":\"...\"}                     | 否   | 在默认浏览器打开 URL（仅允许 http/https/obsidian:// scheme） |",
-    "| setting_get    | {\"key\":\"...\"}                     | 否   | 读 Obsidian 设置项（如 attachmentFolderPath/newFileLocation；.obsidian/app.json 被拒绝） |",
-    "| command_list   | {}                                  | 否   | 列出所有可执行 Obsidian 命令（app.commands.listCommands，含命令 id/name） |",
-    "| workspace_get  | {}                                  | 否   | 读当前工作区状态（活动文件 + 打开的标签页清单；.obsidian/workspace.json 被拒绝且非实时） |",
-    "| clipboard_write | {\"text\":\"...\"}                    | 否   | 写入系统剪贴板（navigator.clipboard.writeText，含 execCommand fallback） |",
-    "| tag_files      | {\"tag\":\"...\"}                     | 否   | 列出某 tag 下的所有文件（metadataCache 反向查询；内联 #tag + frontmatter tags；tag 不带 #） |",
-    "| link_resolve   | {\"link\":\"...\",\"sourcePath?\":\"...\"}  | 否   | 解析 wikilink [[x]] / markdown [x](x.md) 到实际路径（getFirstLinkpathDest；支持 #heading / |alias 去除） |",
-    "| attachment_list | {\"path\":\"...\"}                    | 否   | 列出笔记嵌入的所有附件（getFileCache().embeds：图片/PDF/audio；含解析后 resolvedPath） |",
-    "| view_mode_set  | {\"mode\":\"source\"|\"reading\"}        | 否   | 切换当前视图编辑/预览模式（MarkdownView.setState；接受 source/edit/reading/preview） |",
-    "",
-    "### 危险操作类（走 Obsidian 回收站 + 审批）",
-    "",
-    "| type          | params                       | 确认 | 说明 |",
-    "|---------------|------------------------------|------|------|",
-    "| vault_delete  | {\"path\":\"...\"}               | 是   | 删除文件（走 Obsidian 回收站 vault.trash，比 fs.delete 安全可恢复） |",
-    "| vault_rename  | {\"path\":\"...\",\"newPath\":\"...\"} | 是   | 重命名/移动（vault.rename，自动更新 metadataCache；newPath 必须在 vault 内） |",
-    "| vault_restore | {\"path\":\"...\"}               | 是   | 从回收站恢复文件（vault.restore，vault_delete 的逆操作；按 basename 或 stem 匹配 .trash 内文件） |",
-    "| rename_tag    | {\"oldTag\":\"...\",\"newTag\":\"...\",\"path?\":\"...\"} | 是 | 全 vault 标签重命名（frontmatter 用 processFrontMatter + 内联 #tag 跳过代码块替换；oldTag/newTag 不带 #） |",
-    "| command_run   | {\"commandId\":\"...\"}            | 是   | 执行 Obsidian 命令（app.commands.executeCommandById；用 command_list 查可用 id；命令可能有副作用故走审批） |",
+    actionTables,
     "",
     "## 使用规则",
     "",
-    "- 普通文件读写 → 用 native Read/Write/Edit/Grep，**不要**走本 Skill 的 action。",
+    "- **L0 优先**：普通文件读写 → 用 native Read/Write/Edit/Grep，**不要**走本 Skill。",
     "- frontmatter 操作（property_get/set）→ **必须**用本 Skill（metadataCache/fileManager 比 YAML 文本解析可靠）。",
-    "- 全 vault 标签/反向链接/待办清单/出链/断链/标题大纲/书签 → **必须**用本 Skill（文件系统无法高效反查或做不准解析或被路径校验拒绝）。",
+    "- 全 vault 标签/反向链接/待办清单/出链/断链/标题大纲/书签/metadataCache → **必须**用本 Skill（文件系统无法高效反查或做不准解析或被路径校验拒绝）。",
     "- 全文搜索 → 用 search action（跳过 frontmatter/代码块，比 grep 准；query 可为正则）。",
     "- daily note → 用本 Skill（自动解析 daily-notes 插件配置的日期格式与目录）。",
     "- 删除/重命名/恢复/标签改名 → 用本 Skill（走回收站、更新 metadataCache、原子改 frontmatter；不要直接 fs.unlink/rename 或手动改 YAML）。",
-    "- 工作区状态/命令清单/剪贴板写入 → 用本 Skill（.obsidian/workspace.json 被拒绝且非实时；命令执行与剪贴板是运行时 UI 操作，文件系统做不到）。",
-    "- 按 tag 反查文件 / 解析 link 到路径 / 列附件 / 切视图模式 → 用本 Skill（metadataCache 反向查询与 link 解析、embeds 聚合、视图状态切换，文件系统做不到或做不准）。",
+    "- 工作区状态/命令清单/剪贴板写入/视图模式 → 用本 Skill（.obsidian/workspace.json 被拒绝且非实时；命令执行与剪贴板是运行时 UI 操作，文件系统做不到）。",
     "- path 参数必须是 vault 相对路径（如 `inbox/note.md`），禁止绝对路径与 `..` 遍历。",
     "- 修改类 action（property_set/daily_append/vault_delete/vault_rename/vault_restore/rename_tag/command_run）会弹审批框，用户拒绝则不执行。",
-    "- **推荐调用方式**：`obsidian <type> --stdin`（从 stdin 读 JSON，避免 shell 转义）；修改类加 `--wait --timeout N` 等审批结果。",
+    "- **推荐调用方式**：`obsidian-bridge <type> --stdin`（从 stdin 读 JSON，避免 shell 转义）；修改类加 `--wait --timeout N` 等审批结果。",
     "- 29 个 action 之外的 Obsidian 能力暂未暴露；如需扩展请在 LLM-AgentRuntime/skills/vault-api/SKILL.md 记录需求。",
     "",
   ].join("\n");

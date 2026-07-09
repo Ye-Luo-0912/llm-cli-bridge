@@ -9,8 +9,7 @@
 import { App } from "obsidian";
 import * as fs from "fs";
 import * as path from "path";
-import { ConfirmModal, describeAction, executeAction, validateAction, OutboxAction } from "./actions";
-import { checkPermission, SessionAllow, SessionDeny, PermissionPolicy, PermissionDecision, extractPathPattern } from "./permissionPolicy";
+import { ConfirmModal, describeAction, executeAction, validateAction, OutboxAction, isModifying } from "./actions";
 
 // 运行时获取 node http 模块（避免顶层 import 导致 renderer 加载失败）
 type HttpModule = typeof import("http");
@@ -164,11 +163,6 @@ export class HttpBridge {
   private pendingConfirmCallback: PendingConfirmCallback | null = null;
   // Dev endpoint 已处理的 approve/reject id，防止重复操作
   private processedDevOps = new Set<string>();
-  // V2.3: 会话级授权/拒绝缓存（运行时，不持久化；Obsidian 重启清空）
-  private sessionAllows: SessionAllow[] = [];
-  private sessionDenies: SessionDeny[] = [];
-  // V2.3: 当前权限策略（由 main.ts 从 settings 同步）
-  private permissionPolicy: PermissionPolicy = "medium";
 
   constructor(
     private app: App,
@@ -196,32 +190,6 @@ export class HttpBridge {
   // 获取当前所有 pending actions（供 view 渲染）
   getPendingActions(): PendingActionEntry[] {
     return Array.from(this.pendingActions.values());
-  }
-
-  // V2.3: 设置权限策略（由 main.ts 从 settings 同步）
-  setPermissionPolicy(policy: PermissionPolicy): void {
-    this.permissionPolicy = policy;
-  }
-
-  // V2.3: 获取当前权限策略（供 view 显示）
-  getPermissionPolicy(): PermissionPolicy {
-    return this.permissionPolicy;
-  }
-
-  // V2.3: 获取会话授权缓存（供 view 显示）
-  getSessionAllows(): ReadonlyArray<SessionAllow> {
-    return this.sessionAllows.slice();
-  }
-
-  // V2.3: 获取会话拒绝缓存（供 view 显示）
-  getSessionDenies(): ReadonlyArray<SessionDeny> {
-    return this.sessionDenies.slice();
-  }
-
-  // V2.3: 清空会话授权/拒绝缓存（New Session 时调用）
-  clearSessionPermissions(): void {
-    this.sessionAllows = [];
-    this.sessionDenies = [];
   }
 
   async start(): Promise<BridgeInfo> {
@@ -286,9 +254,6 @@ export class HttpBridge {
     this.pendingConfirms.clear();
     this.processedActionIds.clear();
     this.processedDevOps.clear();
-    // V2.3: 清空会话授权/拒绝缓存
-    this.sessionAllows = [];
-    this.sessionDenies = [];
     for (const entry of entries) {
       if (entry.status === "pending_approval") {
         entry.status = "cancelled";
@@ -518,11 +483,10 @@ export class HttpBridge {
       return ar;
     }
 
-    // V2.3: 权限检查（统一处理 low/medium/high + 会话缓存）
-    // - auto_allow / session_allowed：直接执行，跳过 pending（读操作 + 已授权的 medium + 宽松策略下的 medium）
-    // - needs_approval：走两阶段审批流程（medium 首次 / high 始终 / 严格策略下的读）
-    const permResult = checkPermission(type, params, this.permissionPolicy, this.sessionAllows, this.sessionDenies);
-    if (permResult.decision === "auto_allow" || permResult.decision === "session_allowed") {
+    // V2.18 r6: 权限精简 — 废弃 low/medium/high 分级与会话缓存，改用 isModifying 二值判定。
+    // 非修改类 action 直接执行；修改类 action 走两阶段审批流程（pending approval）。
+    // 会话级权限由 agent 自身的 PermissionBoundary 维护，bridge 不再维护独立权限系统。
+    if (!isModifying(type)) {
       try {
         const result = await executeAction(this.app, this.vaultPath, action);
         const ar: ActionResult = { ok: true, id, type, result, status: "completed", confirmed: true };
@@ -625,60 +589,30 @@ export class HttpBridge {
     }
   }
 
-  // V2.3: 批准并附带决策（allow_once / allow_session）
-  // allow_session 时记录到 sessionAllows，后续同类操作自动通过
-  approvePendingActionWithDecision(actionId: string, decision: PermissionDecision): void {
-    const entry = this.pendingActions.get(actionId);
-    if (entry && decision === "allow_session") {
-      const pathPattern = extractPathPattern(entry.type, entry.params);
-      this.sessionAllows.push({
-        actionType: entry.type,
-        pathPattern,
-        grantedAt: new Date().toISOString(),
-      });
-    }
+  // V2.18 r6: 批准并附带决策（保留签名兼容 view；会话缓存已废弃，统一走 approvePendingAction）
+  approvePendingActionWithDecision(actionId: string, _decision: string): void {
     this.approvePendingAction(actionId);
   }
 
-  // V2.3: 拒绝并附带决策（allow_once 的拒绝 / deny_session）
-  // deny_session 时记录到 sessionDenies，后续同类操作自动拒绝（重新询问）
-  rejectPendingActionWithDecision(actionId: string, decision: PermissionDecision): void {
-    const entry = this.pendingActions.get(actionId);
-    if (entry && decision === "deny_session") {
-      const pathPattern = extractPathPattern(entry.type, entry.params);
-      this.sessionDenies.push({
-        actionType: entry.type,
-        pathPattern,
-        deniedAt: new Date().toISOString(),
-      });
-    }
+  // V2.18 r6: 拒绝并附带决策（保留签名兼容 view；会话缓存已废弃，统一走 rejectPendingAction）
+  rejectPendingActionWithDecision(actionId: string, _decision: string): void {
     this.rejectPendingAction(actionId);
   }
 
-  // V2.3: 批量批准某 actionType 的所有 pending（会话级授权）
+  // V2.18 r6: 批量批准某 actionType 的所有 pending（保留签名兼容 view；会话缓存已废弃）
   batchApproveSession(actionType: string): void {
-    // 收集该类型的所有 pending entry
     const entries: PendingActionEntry[] = [];
     for (const entry of this.pendingActions.values()) {
       if (entry.type === actionType && entry.status === "pending_approval") {
         entries.push(entry);
       }
     }
-    if (entries.length === 0) return;
-    // 取第一个 entry 的 pathPattern 作为会话级授权代表（同类型通常路径前缀相近）
-    const pathPattern = extractPathPattern(entries[0].type, entries[0].params);
-    this.sessionAllows.push({
-      actionType,
-      pathPattern,
-      grantedAt: new Date().toISOString(),
-    });
-    // 批量批准
     for (const entry of entries) {
       this.approvePendingAction(entry.id);
     }
   }
 
-  // V2.3: 批量拒绝某 actionType 的所有 pending（会话级拒绝）
+  // V2.18 r6: 批量拒绝某 actionType 的所有 pending（保留签名兼容 view；会话缓存已废弃）
   batchRejectSession(actionType: string): void {
     const entries: PendingActionEntry[] = [];
     for (const entry of this.pendingActions.values()) {
@@ -686,13 +620,6 @@ export class HttpBridge {
         entries.push(entry);
       }
     }
-    if (entries.length === 0) return;
-    const pathPattern = extractPathPattern(entries[0].type, entries[0].params);
-    this.sessionDenies.push({
-      actionType,
-      pathPattern,
-      deniedAt: new Date().toISOString(),
-    });
     for (const entry of entries) {
       this.rejectPendingAction(entry.id);
     }

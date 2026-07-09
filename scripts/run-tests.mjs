@@ -1212,6 +1212,7 @@ if (runMode !== "all" && runMode !== "unit") {
       format: "esm",
       platform: "node",
       logLevel: "silent",
+      external: ["obsidian"],
     });
 
     await esbuild.build({ ...bundleOpts("runtime/providers/codex-app-server/codexAppServerProvider.ts"), outfile: tempCodexProviderBundle });
@@ -3859,19 +3860,18 @@ if (runMode !== "all" && runMode !== "unit") {
         `allPresent=${allPresent} hasHeaders=${hasHeaders} reasonableLen=${reasonableLen} capLen=${capText.length} autoLen=${autoText.length} safetyLen=${safetyText.length}`);
     }
 
-    // Test C-b: contract 允许 Obsidian CLI，但要求确认可用性，不禁止使用
-    // V16.5-D: 默认 obsidianCliAvailable="unknown"，文案为 "availability unknown; you may probe if useful."
+    // Test C-b: V2.18 r4 — Obsidian CLI 降级为统一声明，指向 obsidian-bridge wrapper
     {
       const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES);
-      // Obsidian CLI 被提及（事实陈述，不是禁止）
+      // Obsidian CLI 被提及（降级声明）
       const mentionsCli = capText.includes("Obsidian CLI");
       // 不被禁止
       const notBanned = !capText.includes("禁止使用 Obsidian CLI") && !capText.includes("Obsidian CLI: unavailable; use other tools");
-      // unknown 状态允许 LLM probe（不臆造可用）
-      const allowsProbe = capText.includes("you may probe if useful");
-      addTest("V16.5-C contract: 允许 Obsidian CLI 但要求确认可用性",
-        mentionsCli && notBanned && allowsProbe ? "pass" : "fail",
-        `mentionsCli=${mentionsCli} notBanned=${notBanned} allowsProbe=${allowsProbe}`);
+      // 降级文案指向 obsidian-bridge wrapper
+      const mentionsWrapper = capText.includes("obsidian-bridge wrapper") || capText.includes("not bundled");
+      addTest("V16.5-C contract: Obsidian CLI 降级声明指向 obsidian-bridge wrapper",
+        mentionsCli && notBanned && mentionsWrapper ? "pass" : "fail",
+        `mentionsCli=${mentionsCli} notBanned=${notBanned} mentionsWrapper=${mentionsWrapper}`);
     }
 
     // Test C-c: "用户确认后继续执行，不反复正文确认"的契约存在
@@ -4029,62 +4029,44 @@ if (runMode !== "all" && runMode !== "unit") {
         `cap=${hasCap} auto=${hasAuto} safety=${hasSafety} attachment=${hasAttachment} output=${hasOutput} noOldNative=${noOldNative} noOldSteering=${noOldSteering}`);
     }
 
-    // ===== V16.5-D: Runtime Capability Facts / Prompt Contract Grounding =====
-    // Test D-a: buildCapabilityManifest 根据 known-available 输出 "Obsidian CLI: available."
+    // ===== V2.18 r4: Obsidian CLI 降级 — 三态废弃，统一降级文案 =====
+    // Test D-a/b/c: buildCapabilityManifest 三态都输出降级文案，不再区分
     {
-      const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, {
-        ...bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES,
-        obsidianCliAvailable: "known-available",
-      });
-      const hasAvailable = capText.includes("- Obsidian CLI: available.");
-      const notUnknown = !capText.includes("availability unknown");
-      const notUnavailable = !capText.includes("unavailable; use other tools");
-      addTest("V16.5-D manifest known-available: 输出 'Obsidian CLI: available.'",
-        hasAvailable && notUnknown && notUnavailable ? "pass" : "fail",
-        `hasAvailable=${hasAvailable} notUnknown=${notUnknown} notUnavailable=${notUnavailable}`);
+      const states = ["known-available", "unknown", "known-unavailable"];
+      let allDowngraded = true;
+      let detail = "";
+      for (const st of states) {
+        const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, {
+          ...bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES,
+          obsidianCliAvailable: st,
+        });
+        const hasDowngrade = capText.includes("- Obsidian CLI: not bundled. Vault API operations use the obsidian-bridge wrapper");
+        const noLegacy = !capText.includes("- Obsidian CLI: available.")
+          && !capText.includes("availability unknown")
+          && !capText.includes("unavailable; use other tools");
+        if (!hasDowngrade || !noLegacy) {
+          allDowngraded = false;
+          detail = `state=${st} hasDowngrade=${hasDowngrade} noLegacy=${noLegacy}`;
+          break;
+        }
+      }
+      addTest("V2.18 r4 manifest 降级: 三态统一输出降级文案（obsidian-bridge wrapper）",
+        allDowngraded ? "pass" : "fail",
+        detail || `states=${states.join(",")}`);
     }
 
-    // Test D-b: buildCapabilityManifest 根据 unknown 输出 "availability unknown; you may probe if useful."
-    {
-      const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, {
-        ...bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES,
-        obsidianCliAvailable: "unknown",
-      });
-      const hasUnknown = capText.includes("- Obsidian CLI: availability unknown; you may probe if useful.");
-      const notAvailable = !capText.includes("- Obsidian CLI: available.");
-      addTest("V16.5-D manifest unknown: 输出 'availability unknown; you may probe if useful.'",
-        hasUnknown && notAvailable ? "pass" : "fail",
-        `hasUnknown=${hasUnknown} notAvailable=${notAvailable}`);
-    }
-
-    // Test D-c: buildCapabilityManifest 根据 known-unavailable 输出 "unavailable; use other tools."
-    {
-      const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, {
-        ...bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES,
-        obsidianCliAvailable: "known-unavailable",
-      });
-      const hasUnavailable = capText.includes("- Obsidian CLI: unavailable; use other tools.");
-      const notAvailable = !capText.includes("- Obsidian CLI: available.");
-      const notUnknown = !capText.includes("availability unknown");
-      addTest("V16.5-D manifest known-unavailable: 输出 'unavailable; use other tools.'",
-        hasUnavailable && notAvailable && notUnknown ? "pass" : "fail",
-        `hasUnavailable=${hasUnavailable} notAvailable=${notAvailable} notUnknown=${notUnknown}`);
-    }
-
-    // Test D-d: buildObsidianCliLine 单元函数覆盖三态
+    // Test D-d: buildObsidianCliLine 降级为空串（保留签名，不再产出三态文案）
     {
       const a = bridgeContractMod.buildObsidianCliLine("known-available");
       const u = bridgeContractMod.buildObsidianCliLine("unknown");
       const un = bridgeContractMod.buildObsidianCliLine("known-unavailable");
-      const ok = a === "- Obsidian CLI: available."
-        && u === "- Obsidian CLI: availability unknown; you may probe if useful."
-        && un === "- Obsidian CLI: unavailable; use other tools.";
-      addTest("V16.5-D buildObsidianCliLine: 三态文案派生正确",
+      const ok = a === "" && u === "" && un === "";
+      addTest("V2.18 r4 buildObsidianCliLine: 降级为空串（deprecated no-op）",
         ok ? "pass" : "fail",
         `a='${a}' u='${u}' un='${un}'`);
     }
 
-    // Test D-e: buildBridgePromptPackage 接收 capabilities 参数，传递到 bridgeSystemAppend
+    // Test D-e: buildBridgePromptPackage 降级文案出现在 bridgeSystemAppend
     {
       const pkg = promptPkgMod.buildBridgePromptPackage("用户请求", v165cSnapshot, baseBridgeSettings, {
         providerNativeFileTools: true,
@@ -4100,13 +4082,14 @@ if (runMode !== "all" && runMode !== "unit") {
         },
       });
       const append = pkg.bridgeSystemAppend;
-      // known-unavailable 文案应出现在 bridgeSystemAppend
-      const hasUnavailable = append.includes("- Obsidian CLI: unavailable; use other tools.");
-      // 不应出现 unknown 文案
-      const notUnknown = !append.includes("availability unknown");
-      addTest("V16.5-D buildBridgePromptPackage: capabilities 参数传递到 bridgeSystemAppend",
-        hasUnavailable && notUnknown ? "pass" : "fail",
-        `hasUnavailable=${hasUnavailable} notUnknown=${notUnknown}`);
+      // 降级文案应出现在 bridgeSystemAppend
+      const hasDowngrade = append.includes("- Obsidian CLI: not bundled. Vault API operations use the obsidian-bridge wrapper");
+      // 不应出现三态遗留文案
+      const noLegacy = !append.includes("- Obsidian CLI: unavailable; use other tools.")
+        && !append.includes("availability unknown");
+      addTest("V2.18 r4 buildBridgePromptPackage: 降级文案传递到 bridgeSystemAppend",
+        hasDowngrade && noLegacy ? "pass" : "fail",
+        `hasDowngrade=${hasDowngrade} noLegacy=${noLegacy}`);
     }
 
     {
@@ -4200,10 +4183,11 @@ if (runMode !== "all" && runMode !== "unit") {
       });
       // manifest 应正常渲染（evidence 不直接出现在文案中，但不应报错）
       const hasManifest = capText.includes("========== Capability Manifest ==========");
-      const hasAvailable = capText.includes("- Obsidian CLI: available.");
+      // r4 降级后统一输出 "not bundled" 文案，不再有 "available." 文案
+      const hasDowngrade = capText.includes("not bundled") || capText.includes("obsidian-bridge");
       addTest("V16.5-D ProviderCapabilityInfo evidence 字段可填充",
-        hasManifest && hasAvailable ? "pass" : "fail",
-        `hasManifest=${hasManifest} hasAvailable=${hasAvailable}`);
+        hasManifest && hasDowngrade ? "pass" : "fail",
+        `hasManifest=${hasManifest} hasDowngrade=${hasDowngrade}`);
     }
 
     // ===== V16.5-E: Agent Runtime Workspace + Vault Skill =====
@@ -8548,8 +8532,8 @@ console.log("\n=== Helper Behavior（fake server）===");
 
     // --- 测试 10：wrapper 文件已生成 ---
     {
-      const winWrapper = join(tmpDir, ".llm-bridge", "tools", "obsidian.cmd");
-      const unixWrapper = join(tmpDir, ".llm-bridge", "tools", "obsidian");
+      const winWrapper = join(tmpDir, ".llm-bridge", "tools", "obsidian-bridge.cmd");
+      const unixWrapper = join(tmpDir, ".llm-bridge", "tools", "obsidian-bridge");
       const winExists = existsSync(winWrapper);
       const unixExists = existsSync(unixWrapper);
       let winContent = ""; let unixContent = "";
@@ -8557,7 +8541,7 @@ console.log("\n=== Helper Behavior（fake server）===");
       if (unixExists) unixContent = readFileSync(unixWrapper, "utf8");
       const winOk = winContent.includes("obsidian-action.mjs");
       const unixOk = unixContent.includes("obsidian-action.mjs");
-      addTest("Helper Behavior: obsidian wrapper 生成（obsidian.cmd + obsidian）",
+      addTest("Helper Behavior: obsidian-bridge wrapper 生成（obsidian-bridge.cmd + obsidian-bridge）",
         winOk && unixOk ? "pass" : "fail",
         `win=${winOk} unix=${unixOk}`);
     }
@@ -11109,34 +11093,26 @@ if (!runV21SkillsUnit) {
 }
 
 // ============================================================
-// 8.10 V2.3 Permission Policy / Skills Install / SDK Process UX 单元测试
-//     覆盖：权限分级 low/medium/high、checkPermission 决策矩阵、
-//           会话级 allow/deny 缓存、extractPathPattern、
-//           Skills 导入/删除/扫描/截断、SDK agent/subagent 事件标识、
+// 8.10 V2.3 Skills Install / SDK Process UX 单元测试
+//     覆盖：Skills 导入/删除/扫描/截断、SDK agent/subagent 事件标识、
 //           CLI 不回归
 // ============================================================
-console.log("\n=== V2.3 Permission / Skills / SDK UX 单元测试 ===");
+console.log("\n=== V2.3 Skills / SDK UX 单元测试 ===");
 
 const runV23Unit = runMode === "all" || runMode === "unit";
 
 if (!runV23Unit) {
   addTest("V2.3 单元测试段", "skip", "当前模式不运行 unit");
 } else {
-  let permissionBundleV23 = null;
   let skillsBundleV23 = null;
   let sdkMapperBundleV23 = null;
   let cliBackendBundleV23 = null;
   let tempSkillsV23Dir = null;
   try {
     const esbuild = (await import("esbuild")).default;
-    permissionBundleV23 = join(PROJECT_ROOT, ".test-permission-v23-temp.mjs");
     skillsBundleV23 = join(PROJECT_ROOT, ".test-skills-v23-temp.mjs");
     sdkMapperBundleV23 = join(PROJECT_ROOT, ".test-sdk-mapper-v23-temp.mjs");
     cliBackendBundleV23 = join(PROJECT_ROOT, ".test-cli-backend-v23-temp.mjs");
-    await esbuild.build({
-      entryPoints: [join(PROJECT_ROOT, "src", "permissionPolicy.ts")],
-      bundle: true, format: "esm", platform: "node", outfile: permissionBundleV23,
-    });
     await esbuild.build({
       entryPoints: [join(PROJECT_ROOT, "src", "skills.ts")],
       bundle: true, format: "esm", platform: "node", outfile: skillsBundleV23,
@@ -11151,17 +11127,6 @@ if (!runV23Unit) {
     });
 
     const {
-      classifyActionRisk,
-      checkPermission,
-      checkSessionAllow,
-      checkSessionDeny,
-      extractPathPattern,
-      createSessionAllow,
-      createSessionDeny,
-      permissionPolicyLabel,
-      permissionLevelLabel,
-    } = await import(pathToFileURL(permissionBundleV23).href);
-    const {
       importSkillFromText,
       deleteSkill,
       isImportedSkill,
@@ -11175,81 +11140,6 @@ if (!runV23Unit) {
     const { ClaudeCliBackend } = await import(pathToFileURL(cliBackendBundleV23).href);
 
     const TS = "2026-06-28T00:00:00.000Z";
-
-    // ===== 权限分级 =====
-
-    // ---- Test 1: classifyActionRisk 低/中/高 ----
-    {
-      const low = classifyActionRisk("show_notice", {}, "/vault");
-      const med = classifyActionRisk("create_note", { path: "/vault/a.md" }, "/vault");
-      const high = classifyActionRisk("unknown_action", {}, "/vault");
-      addTest("V2.3 权限分级: low/medium/high 分类",
-        low === "low" && med === "medium" && high === "high" ? "pass" : "fail",
-        `low=${low} med=${med} high=${high}`);
-    }
-
-    // ---- Test 2: checkPermission medium 策略：low 自动允许，high 需审批，medium 需本轮授权 ----
-    {
-      const lowRes = checkPermission("show_notice", {}, "medium", [], []);
-      const highRes = checkPermission("delete_note", { path: "a.md" }, "medium", [], []);
-      const medRes = checkPermission("create_note", { path: "a.md" }, "medium", [], []);
-      addTest("V2.3 权限决策: medium 策略矩阵",
-        lowRes.decision === "auto_allow" && highRes.decision === "needs_approval" && medRes.decision === "needs_approval" ? "pass" : "fail",
-        `low=${lowRes.decision} high=${highRes.decision} med=${medRes.decision}`);
-    }
-
-    // ---- Test 3: low 策略下 medium 自动允许 ----
-    {
-      const medRes = checkPermission("create_note", { path: "a.md" }, "low", [], []);
-      addTest("V2.3 权限决策: low 策略 medium 自动允许",
-        medRes.decision === "auto_allow" ? "pass" : "fail",
-        `decision=${medRes.decision}`);
-    }
-
-    // ---- Test 4: high 策略下 low 也需审批 ----
-    {
-      const lowRes = checkPermission("show_notice", {}, "high", [], []);
-      addTest("V2.3 权限决策: high 策略 low 需审批",
-        lowRes.decision === "needs_approval" ? "pass" : "fail",
-        `decision=${lowRes.decision}`);
-    }
-
-    // ---- Test 5: 会话级 allow：同 actionType+pathPattern 不再询问 ----
-    {
-      const allow = createSessionAllow("create_note", "notes/");
-      const res = checkPermission("create_note", { path: "notes/a.md" }, "medium", [allow], []);
-      addTest("V2.3 会话级 allow: 同类操作自动通过",
-        res.decision === "session_allowed" ? "pass" : "fail",
-        `decision=${res.decision}`);
-    }
-
-    // ---- Test 6: 会话级 deny：重新询问（不自动拒绝，保守策略）----
-    {
-      const deny = createSessionDeny("create_note", "secret/");
-      const res = checkPermission("create_note", { path: "secret/x.md" }, "medium", [], [deny]);
-      addTest("V2.3 会话级 deny: 重新询问",
-        res.decision === "needs_approval" ? "pass" : "fail",
-        `decision=${res.decision}`);
-    }
-
-    // ---- Test 7: extractPathPattern 提取目录前缀 ----
-    {
-      const p1 = extractPathPattern("create_note", { path: "notes/sub/a.md" });
-      const p2 = extractPathPattern("create_note", { path: "a.md" });
-      const p3 = extractPathPattern("create_note", {});
-      addTest("V2.3 extractPathPattern: 目录前缀提取",
-        p1 === "notes/sub/" && p2 === "" && p3 === "" ? "pass" : "fail",
-        `p1=${p1} p2=${p2} p3=${p3}`);
-    }
-
-    // ---- Test 8: permissionPolicyLabel / permissionLevelLabel 可读标签 ----
-    {
-      const polLabel = permissionPolicyLabel("medium");
-      const lvlLabel = permissionLevelLabel("high");
-      addTest("V2.3 权限标签: policy/level 文本",
-        typeof polLabel === "string" && polLabel.length > 0 && typeof lvlLabel === "string" && lvlLabel.length > 0 ? "pass" : "fail",
-        `policy=${polLabel} level=${lvlLabel}`);
-    }
 
     // ===== Skills 导入/删除/扫描/截断 =====
 
@@ -11411,7 +11301,6 @@ if (!runV23Unit) {
   } catch (e) {
     addTest("V2.3 单元测试段", "fail", e?.stack || e?.message || String(e));
   } finally {
-    try { if (permissionBundleV23) rmSync(permissionBundleV23, { force: true }); } catch {}
     try { if (skillsBundleV23) rmSync(skillsBundleV23, { force: true }); } catch {}
     try { if (sdkMapperBundleV23) rmSync(sdkMapperBundleV23, { force: true }); } catch {}
     try { if (cliBackendBundleV23) rmSync(cliBackendBundleV23, { force: true }); } catch {}
@@ -15053,7 +14942,6 @@ if (runMode !== "all" && runMode !== "unit") {
   const viewSrcV212 = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
   const typesSrcV212 = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf8");
   const agentBackendSrcV212 = readFileSync(join(PROJECT_ROOT, "src", "agentBackend.ts"), "utf8");
-  const permissionPolicySrcV212 = readFileSync(join(PROJECT_ROOT, "src", "permissionPolicy.ts"), "utf8");
 
   // ===== 要求 1+2: 不改 AgentEvent v0.1 + CLI 主线稳定 + sdk-experimental 默认关闭 =====
 
@@ -15095,20 +14983,6 @@ if (runMode !== "all" && runMode !== "unit") {
 
   addTest("V2.12 UI: SDK event detail 含 tooltip attr title",
     /llm-bridge-sdk-event-detail[\s\S]{0,100}attr:\s*\{\s*title:\s*detail\s*\}/.test(viewSrcV212) ? "pass" : "fail", "");
-
-  // ===== 要求 6: 权限策略 =====
-
-  addTest("V2.12 权限: low 风险 auto_allow（policy != high）",
-    /level === "low"[\s\S]{0,200}policy === "high"[\s\S]{0,200}auto_allow/.test(permissionPolicySrcV212) ? "pass" : "fail", "");
-
-  addTest("V2.12 权限: high 风险 needs_approval（始终）",
-    /level === "high"[\s\S]{0,200}needs_approval/.test(permissionPolicySrcV212) ? "pass" : "fail", "");
-
-  addTest("V2.12 权限: medium + policy=high 不静默放行（needs_approval）",
-    /policy === "high"[\s\S]{0,300}needs_approval/.test(permissionPolicySrcV212) ? "pass" : "fail", "");
-
-  addTest("V2.12 权限: medium + policy=medium 不静默放行（needs_approval）",
-    /medium 风险需本轮授权/.test(permissionPolicySrcV212) ? "pass" : "fail", "");
 
   // ===== 要求 6: stop 清理 pending =====
 
@@ -16351,7 +16225,6 @@ if (!runV214AUnit) {
     const actionsSrc = readFileSync(join(PROJECT_ROOT, "src", "actions.ts"), "utf8");
     const fileDiffSrc = readFileSync(join(PROJECT_ROOT, "src", "fileDiff.ts"), "utf8");
     const promptPackageSrc = readFileSync(join(PROJECT_ROOT, "src", "promptPackage.ts"), "utf8");
-    const permissionPolicySrc = readFileSync(join(PROJECT_ROOT, "src", "permissionPolicy.ts"), "utf8");
     const sdkPermissionSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkPermission.ts"), "utf8");
     const agentBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "agentBackend.ts"), "utf8");
     const cliBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "claudeCliBackend.ts"), "utf8");
@@ -16413,22 +16286,6 @@ if (!runV214AUnit) {
       addTest("V2.14.0-A sensitive paths: 敏感路径默认拒绝或强确认",
         reportSensitiveOk && actionsSensitiveOk && sdkSensitiveOk ? "pass" : "fail",
         `report=${reportSensitiveOk} actions=${actionsSensitiveOk} sdk=${sdkSensitiveOk}`);
-    }
-
-    {
-      const fileDiffVaultOnly = fileDiffSrc.includes("snapshotVaultMarkdownFiles(vaultPath")
-        && fileDiffSrc.includes("\".obsidian\"")
-        && fileDiffSrc.includes("\".llm-bridge\"")
-        && fileDiffSrc.includes("\".git\"")
-        && !fileDiffSrc.includes("readRoots")
-        && !fileDiffSrc.includes("writeRoots");
-      const permissionPolicyFutureHigh = permissionPolicySrc.includes("Vault 外访问")
-        && permissionPolicySrc.includes(".obsidian")
-        && permissionPolicySrc.includes("env")
-        && permissionPolicySrc.includes("shell");
-      addTest("V2.14.0-A current audit: fileDiff Vault-only，权限策略保留高风险边界",
-        fileDiffVaultOnly && permissionPolicyFutureHigh ? "pass" : "fail",
-        `fileDiff=${fileDiffVaultOnly} policy=${permissionPolicyFutureHigh}`);
     }
 
     {
