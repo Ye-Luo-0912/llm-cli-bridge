@@ -22,7 +22,7 @@ import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalW
 import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment, AssistantTurnView, TurnTimelineNode, NativeSessionRef } from "./runtime/core/types";
-import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
+import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, toolDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
 import { buildCodexRunViewModel, formatCodexRunValue, type CodexRunApprovalGate, type CodexRunChangeGroup, type CodexRunDiagnosticsGroup, type CodexRunFeedItem, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
@@ -6651,49 +6651,11 @@ export class LLMBridgeView extends ItemView {
   /**
    * V16.4: 普通用户态阶段视图内的工具简洁标签。
    * 不含 raw JSON input/output。
+   *
+   * F-01: 委托到 toolPresentation 单一入口（经 toolDisplayLabel），消除重复逻辑。
    */
   private toolDisplayLabelForPhase(toolName: string, toolInput?: string): string {
-    const lower = toolName.toLowerCase();
-    const extractPath = (input?: string): string | null => {
-      if (!input) return null;
-      try {
-        const parsed = JSON.parse(input);
-        const p = parsed.file_path ?? parsed.notebook_path ?? parsed.path ?? parsed.pattern;
-        if (typeof p === "string" && p.length > 0) {
-          const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
-          return parts[parts.length - 1] ?? p;
-        }
-      } catch {
-        if (/[/\\]/.test(input)) {
-          const parts = input.replace(/\\/g, "/").split("/").filter(Boolean);
-          return parts[parts.length - 1] ?? null;
-        }
-      }
-      return null;
-    };
-    if (/^read|getfile|file_read|view$/.test(lower) || lower === "read") {
-      const p = extractPath(toolInput);
-      return p ? `Read ${p}` : "Read";
-    }
-    if (/write|edit|str_replace|patch|update_file|insert/.test(lower)) {
-      const p = extractPath(toolInput);
-      return p ? `Write ${p}` : "Write";
-    }
-    if (/create_file/.test(lower)) {
-      const p = extractPath(toolInput);
-      return p ? `Created ${p}` : "Created";
-    }
-    if (/delete_file|remove/.test(lower)) {
-      const p = extractPath(toolInput);
-      return p ? `Deleted ${p}` : "Deleted";
-    }
-    if (/bash|execute|run|command|shell/.test(lower)) {
-      return "Run command";
-    }
-    if (/grep|glob|search|ls|list/.test(lower)) {
-      return "Search";
-    }
-    return toolName;
+    return toolDisplayLabel(toolName, toolInput);
   }
 
   /**

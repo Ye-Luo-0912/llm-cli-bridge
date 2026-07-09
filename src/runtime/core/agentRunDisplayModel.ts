@@ -14,6 +14,7 @@ import type { AttachmentPlan, EffectiveRunPlan } from "../../types";
 import { redactSecrets } from "../../workflowEvent";
 import { buildLifecycleEventsFromTurnView, type ProviderLifecycleEvent } from "./providerLifecycleEvent";
 import { buildRunPhaseModel, type RunPhaseModel } from "./runPhaseModel";
+import { toolLabelLegacy, toolIconCategoryLegacy, toolActivityLegacy } from "./toolPresentation";
 
 // ---------- Card Types ----------
 
@@ -398,13 +399,11 @@ function mapTurnTimelineNodeToCard(node: TurnTimelineNode, developerMode: boolea
 /**
  * Map tool name to user-friendly activity label.
  * Read/Write/Bash etc. → Reading files / Editing files / Running checks
+ *
+ * F-01: 委托到 toolPresentation 单一入口（toolActivityLegacy 精确保留既有正则与输出）。
  */
 export function toolToActivity(toolName: string): string {
-  const lower = toolName.toLowerCase();
-  if (/read|getfile|file_read|view|cat|grep|glob|search|ls/.test(lower)) return "Reading files";
-  if (/write|edit|str_replace|patch|create_file|update_file|insert|delete_file/.test(lower)) return "Editing files";
-  if (/bash|execute|run|command|shell|check|test|lint/.test(lower)) return "Running checks";
-  return toolName;
+  return toolActivityLegacy(toolName);
 }
 
 /**
@@ -414,52 +413,13 @@ export function toolToActivity(toolName: string): string {
  * - Create {"file_path":"x.md"} → "Created x.md"
  * - Bash {"command":"ls"} → "Run command"（不暴露 command 内容）
  * - 其他 → 原始 toolName
+ *
+ * F-01: 委托到 toolPresentation 单一入口（toolLabelLegacy）。
+ * 测试环境（node，无 window.moment）locale 解析为 en，输出与既有断言完全一致；
+ * Obsidian 中文环境下输出中文。普通模式不泄露下划线内部名；未知工具走安全降级。
  */
 export function toolDisplayLabel(toolName: string, toolInput?: string): string {
-  const lower = toolName.toLowerCase();
-  const extractPath = (input?: string): string | null => {
-    if (!input) return null;
-    try {
-      const parsed = JSON.parse(input);
-      const p = parsed.file_path ?? parsed.notebook_path ?? parsed.path ?? parsed.pattern;
-      if (typeof p === "string" && p.length > 0) {
-        // basename only, avoid leaking full path in normal user UI
-        const parts = p.replace(/\\/g, "/").split("/").filter(Boolean);
-        return parts[parts.length - 1] ?? p;
-      }
-    } catch {
-      // 非 JSON：如果本身像路径，取 basename
-      if (/[/\\]/.test(input)) {
-        const parts = input.replace(/\\/g, "/").split("/").filter(Boolean);
-        return parts[parts.length - 1] ?? null;
-      }
-    }
-    return null;
-  };
-  if (/^read|getfile|file_read|view$/.test(lower) || lower === "read") {
-    const p = extractPath(toolInput);
-    return p ? `Read ${p}` : "Read";
-  }
-  if (/write|edit|str_replace|patch|update_file|insert/.test(lower)) {
-    const p = extractPath(toolInput);
-    return p ? `Write ${p}` : "Write";
-  }
-  if (/create_file/.test(lower)) {
-    const p = extractPath(toolInput);
-    return p ? `Created ${p}` : "Created";
-  }
-  if (/delete_file|remove/.test(lower)) {
-    const p = extractPath(toolInput);
-    return p ? `Deleted ${p}` : "Deleted";
-  }
-  if (/bash|execute|run|command|shell/.test(lower)) {
-    // 不暴露 command 内容，避免噪音
-    return "Run command";
-  }
-  if (/grep|glob|search|ls|list/.test(lower)) {
-    return "Search";
-  }
-  return toolName;
+  return toolLabelLegacy(toolName, toolInput);
 }
 
 function extractApprovalPath(inputSummary?: string): string | null {
@@ -973,34 +933,12 @@ function buildApprovalResolutionSummary(
  * - web → globe
  * - notify → bell
  * - default → settings
+ *
+ * F-01: 委托到 toolPresentation 单一入口（toolIconCategoryLegacy）。
+ * category 值（read/write/command/...）向后兼容既有测试断言。
  */
 export function getToolIconCategory(toolName: string): { icon: string; category: string } {
-  const name = toolName.toLowerCase();
-  if (name.includes("read") || name.includes("list") || name.includes("grep") || name.includes("stat") || name.includes("glob")) {
-    return { icon: "file-text", category: "read" };
-  }
-  if (name.includes("search")) {
-    return { icon: "search", category: "search" };
-  }
-  if (name.includes("write") || name.includes("create") || name.includes("edit") || name.includes("replace") || name.includes("insert") || name.includes("patch")) {
-    return { icon: "pencil", category: "write" };
-  }
-  if (name.includes("delete") || name.includes("remove") || name.includes("rm")) {
-    return { icon: "trash-2", category: "delete" };
-  }
-  if (name.includes("bash") || name.includes("command") || name.includes("execute") || name.includes("run") || name.includes("shell") || name.includes("terminal")) {
-    return { icon: "terminal", category: "command" };
-  }
-  if (name.includes("think") || name.includes("reason")) {
-    return { icon: "brain", category: "think" };
-  }
-  if (name.includes("web") || name.includes("fetch") || name.includes("curl") || name.includes("http") || name.includes("browse")) {
-    return { icon: "globe", category: "web" };
-  }
-  if (name.includes("notify") || name.includes("notice") || name.includes("toast")) {
-    return { icon: "bell", category: "notify" };
-  }
-  return { icon: "settings", category: "tool" };
+  return toolIconCategoryLegacy(toolName);
 }
 
 /**
