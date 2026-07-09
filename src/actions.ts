@@ -79,16 +79,34 @@ export function validateAction(
 
   const params = action.params || {};
   const keys = Object.keys(params);
+  const meta = ACTION_METADATA[action.type as ActionType];
 
-  // 检查必填字段
-  if (schema.required) {
+  // V2.18 s1: 基于 ACTION_METADATA.params 的 type 做校验，不再强制 string
+  if (meta) {
+    for (const spec of meta.params) {
+      const v = params[spec.name];
+      if (spec.required && (v === undefined || v === null)) {
+        return `action ${action.type} 缺少必填字段: ${spec.name}`;
+      }
+      // 仅当字段存在时校验类型（optional 未传不校验）
+      if (v !== undefined && v !== null) {
+        if (spec.type === "string" && typeof v !== "string") {
+          return `action ${action.type} 字段 ${spec.name} 类型错误，需要 string，实际 ${typeof v}`;
+        }
+        if (spec.type === "number" && typeof v !== "number") {
+          return `action ${action.type} 字段 ${spec.name} 类型错误，需要 number，实际 ${typeof v}`;
+        }
+        if (spec.type === "boolean" && typeof v !== "boolean") {
+          return `action ${action.type} 字段 ${spec.name} 类型错误，需要 boolean，实际 ${typeof v}`;
+        }
+        // "unknown" 类型不校验（支持 string/number/boolean/array/object/null）
+      }
+    }
+  } else if (schema.required) {
+    // fallback：无 metadata 时只检查必填存在性
     for (const k of schema.required) {
       if (params[k] === undefined || params[k] === null) {
         return `action ${action.type} 缺少必填字段: ${k}`;
-      }
-      // string 类型字段值必须是字符串
-      if (typeof params[k] !== "string") {
-        return `action ${action.type} 字段 ${k} 类型错误，需要 string，实际 ${typeof params[k]}`;
       }
     }
   }

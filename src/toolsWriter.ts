@@ -271,6 +271,8 @@ if (isMain) {
         }
       }
       console.error("等待超时（" + (maxMs / 1000) + "s）。actionId:", actionId);
+      // V2.18 s3: 给 libuv 100ms 清理活跃 handle，避免 Windows 上 process.exit 触发 assertion
+      await new Promise((res) => setTimeout(res, 100));
       process.exit(1);
     }
     outputResult(r.data || r);

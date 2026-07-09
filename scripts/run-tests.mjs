@@ -114,6 +114,24 @@ function collectEnv() {
   console.log("Platform:", results.environment.platform);
   console.log("Plugin version:", results.environment.pluginVersion || "unknown");
   console.log("main.js size:", results.environment.mainJsSizeKB || "unknown");
+
+  // V2.18 s5: bundle content smoke — 确认 main.js 含关键模块/符号（非测试 stub）
+  try {
+    const mainJsContent = readFileSync(join(PROJECT_ROOT, "main.js"), "utf8");
+    const bundleChecks = {
+      HttpBridge: mainJsContent.includes("HttpBridge") || mainJsContent.includes("class HttpBridge"),
+      writeHelperAndWrappers: mainJsContent.includes("writeHelperAndWrappers"),
+      CodexAppServerProvider: mainJsContent.includes("CodexAppServerProvider") || mainJsContent.includes("codex-app-server"),
+      vault_api: mainJsContent.includes("vault-api") || mainJsContent.includes("generateInitialVaultApiSkill"),
+    };
+    results.environment.mainJsBundleChecks = bundleChecks;
+    const allPresent = Object.values(bundleChecks).every(Boolean);
+    results.environment.mainJsBundleComplete = allPresent;
+    console.log("main.js bundle content smoke:", allPresent ? "PASS" : "FAIL", bundleChecks);
+  } catch (e) {
+    results.environment.mainJsBundleComplete = false;
+    results.environment.mainJsBundleError = String(e.message || e);
+  }
   console.log("bridge.json exists:", results.environment.bridgeJsonExists);
   console.log("HTTP port:", results.environment.httpPort || "N/A");
 }
@@ -161,6 +179,48 @@ function isPathUnsafe(vaultPath, filePath) {
 
   return null;
 }
+
+// V2.18 s1: ACTION_METADATA params 副本（仅用于 validateActionSchema 类型校验）
+const ACTION_METADATA = {
+  show_notice: [{ name: "message", type: "string", required: true }],
+  open_note: [{ name: "path", type: "string", required: true }],
+  get_state: [],
+  get_active_note: [],
+  get_selection: [],
+  create_note: [{ name: "path", type: "string", required: true }, { name: "content", type: "string", required: true }],
+  append_to_note: [{ name: "path", type: "string", required: true }, { name: "content", type: "string", required: true }],
+  insert_at_cursor: [{ name: "content", type: "string", required: true }],
+  replace_selection: [{ name: "content", type: "string", required: true }],
+  property_get: [{ name: "path", type: "string", required: true }, { name: "key", type: "string", required: false }],
+  property_set: [{ name: "path", type: "string", required: true }, { name: "key", type: "string", required: true }, { name: "value", type: "unknown", required: true }],
+  tags_list: [{ name: "path", type: "string", required: false }],
+  backlinks_get: [{ name: "path", type: "string", required: true }],
+  tasks_list: [{ name: "path", type: "string", required: false }],
+  daily_read: [],
+  daily_append: [{ name: "content", type: "string", required: true }],
+  outlinks_get: [{ name: "path", type: "string", required: true }],
+  broken_links_list: [{ name: "path", type: "string", required: false }],
+  headings_get: [{ name: "path", type: "string", required: true }],
+  vault_delete: [{ name: "path", type: "string", required: true }],
+  vault_rename: [{ name: "path", type: "string", required: true }, { name: "newPath", type: "string", required: true }],
+  vault_restore: [{ name: "path", type: "string", required: true }],
+  search: [{ name: "query", type: "string", required: true }, { name: "path", type: "string", required: false }, { name: "limit", type: "number", required: false }],
+  rename_tag: [{ name: "oldTag", type: "string", required: true }, { name: "newTag", type: "string", required: true }, { name: "path", type: "string", required: false }],
+  bookmarks_list: [],
+  metadatacache_get: [{ name: "path", type: "string", required: true }],
+  resolved_links_map: [{ name: "path", type: "string", required: false }],
+  plugin_list: [],
+  open_url: [{ name: "url", type: "string", required: true }],
+  setting_get: [{ name: "key", type: "string", required: true }],
+  command_list: [],
+  command_run: [{ name: "commandId", type: "string", required: true }],
+  workspace_get: [],
+  clipboard_write: [{ name: "text", type: "string", required: true }],
+  tag_files: [{ name: "tag", type: "string", required: true }],
+  link_resolve: [{ name: "link", type: "string", required: true }, { name: "sourcePath", type: "string", required: false }],
+  attachment_list: [{ name: "path", type: "string", required: true }],
+  view_mode_set: [{ name: "mode", type: "string", required: true }],
+};
 
 // ACTION_SCHEMAS 复刻
 const ACTION_SCHEMAS = {
@@ -215,7 +275,21 @@ function validateActionSchema(action) {
   if (!schema) return `未知 action 类型: ${action.type}`;
   const params = action.params || {};
   const keys = Object.keys(params);
-  if (schema.required) {
+  // V2.18 s1: 基于 ACTION_METADATA.params 的 type 校验，不再强制 string
+  // 测试本地 ACTION_METADATA 是 params 数组（非完整 ActionMetadata 对象）
+  const metaParams = ACTION_METADATA[action.type];
+  if (metaParams) {
+    for (const spec of metaParams) {
+      const v = params[spec.name];
+      if (spec.required && (v === undefined || v === null)) return `action ${action.type} 缺少必填字段: ${spec.name}`;
+      if (v !== undefined && v !== null) {
+        if (spec.type === "string" && typeof v !== "string") return `action ${action.type} 字段 ${spec.name} 类型错误`;
+        if (spec.type === "number" && typeof v !== "number") return `action ${action.type} 字段 ${spec.name} 类型错误`;
+        if (spec.type === "boolean" && typeof v !== "boolean") return `action ${action.type} 字段 ${spec.name} 类型错误`;
+        // unknown 不校验
+      }
+    }
+  } else if (schema.required) {
     for (const k of schema.required) {
       if (params[k] === undefined || params[k] === null) return `action ${action.type} 缺少必填字段: ${k}`;
       if (typeof params[k] !== "string") return `action ${action.type} 字段 ${k} 类型错误`;
@@ -275,6 +349,13 @@ const schemaTests = [
   { action: { type: "property_get", params: { path: "a.md", key: "tags" } }, expect: null, desc: "property_get path+key 正常" },
   { action: { type: "property_set", params: { path: "a.md", key: "status" } }, expect: /缺少必填字段.*value/, desc: "property_set 缺 value" },
   { action: { type: "property_set", params: { path: "a.md", key: "status", value: "done" } }, expect: null, desc: "property_set 完整正常" },
+  // V2.18 s1: property_set value 类型校验 — value 类型为 unknown，支持多种类型
+  { action: { type: "property_set", params: { path: "a.md", key: "count", value: 3 } }, expect: null, desc: "property_set value=number 通过" },
+  { action: { type: "property_set", params: { path: "a.md", key: "done", value: true } }, expect: null, desc: "property_set value=boolean 通过" },
+  { action: { type: "property_set", params: { path: "a.md", key: "tags", value: ["ai","codex"] } }, expect: null, desc: "property_set value=array 通过" },
+  { action: { type: "property_set", params: { path: "a.md", key: "meta", value: { nested: true } } }, expect: null, desc: "property_set value=object 通过" },
+  { action: { type: "property_set", params: { path: "a.md", key: "cleared", value: null } }, expect: /缺少必填字段.*value/, desc: "property_set value=null 视为缺失" },
+  { action: { type: "property_set", params: { path: "a.md", key: "status", value: 123 } }, expect: null, desc: "property_set value=number 不是 string 也通过（unknown 类型）" },
   { action: { type: "tags_list", params: {} }, expect: null, desc: "tags_list 无参正常" },
   { action: { type: "tags_list", params: { path: "inbox/" } }, expect: null, desc: "tags_list 带 path 过滤正常" },
   { action: { type: "backlinks_get", params: {} }, expect: /缺少必填字段.*path/, desc: "backlinks_get 缺 path" },
@@ -8337,6 +8418,8 @@ console.log("\n=== Helper Behavior（fake server）===");
     // 异步运行 helper CLI（关键：spawnSync/execSync 会阻塞主进程事件循环，
     // 导致 fake server 无法处理 fetch 请求；必须用异步 spawn）
     // opts.stdin：string，传入则写入子进程 stdin
+    // V2.18 s3: Windows 上 SIGKILL 会触发 libuv handle assertion failed（exit 3221226505），
+    // 改用默认 SIGTERM；并捕获 Assertion failed 标记为 abnormal exit（测试应判 fail）
     async function runHelperCli(args, opts = {}) {
       const timeoutMs = opts.timeoutMs || 30000;
       const child = spawn(process.execPath, [helperPath, ...args], {
@@ -8346,6 +8429,7 @@ console.log("\n=== Helper Behavior（fake server）===");
       });
       let stdout = "";
       let stderr = "";
+      let timedOut = false;
       child.stdout.on("data", (d) => (stdout += d.toString()));
       child.stderr.on("data", (d) => (stderr += d.toString()));
       if (opts.stdin !== undefined) {
@@ -8356,8 +8440,14 @@ console.log("\n=== Helper Behavior（fake server）===");
       }
       const exitCode = await new Promise((resolve) => {
         const timer = setTimeout(() => {
-          child.kill("SIGKILL");
-          resolve(-1);
+          timedOut = true;
+          // Windows 上 SIGKILL 会触发 libuv assertion；用默认 SIGTERM
+          try { child.kill(); } catch {}
+          // 给 500ms 让进程退出，否则强制
+          setTimeout(() => {
+            try { child.kill("SIGKILL"); } catch {}
+            resolve(-1);
+          }, 500);
         }, timeoutMs);
         child.on("exit", (code) => {
           clearTimeout(timer);
@@ -8369,7 +8459,7 @@ console.log("\n=== Helper Behavior（fake server）===");
           resolve(-1);
         });
       });
-      return { exitCode, stdout, stderr };
+      return { exitCode, stdout, stderr, timedOut };
     }
 
     // --- 测试 1：--wait --timeout 超时行为（fake server 恒返回 pending）---
@@ -8401,9 +8491,11 @@ console.log("\n=== Helper Behavior（fake server）===");
       const elapsed = Date.now() - start;
       const stderr = r.stderr;
       const hasTimeout = stderr.includes("超时") || stderr.includes("timeout");
+      // V2.18 s3: Assertion failed / native abort 必须 fail；exit code 必须是 1（不是异常码）
+      const hasAssertion = stderr.includes("Assertion failed") || stderr.includes("abort");
       addTest("Helper Behavior: --wait --timeout 超时行为（fake server）",
-        r.exitCode !== 0 && elapsed > 1500 && elapsed < 5000 && hasTimeout ? "pass" : "fail",
-        `exit=${r.exitCode} elapsed=${elapsed}ms hasTimeout=${hasTimeout} stderr=${stderr.slice(0, 80)}`);
+        r.exitCode === 1 && elapsed > 1500 && elapsed < 5000 && hasTimeout && !hasAssertion ? "pass" : "fail",
+        `exit=${r.exitCode} elapsed=${elapsed}ms hasTimeout=${hasTimeout} hasAssertion=${hasAssertion} stderr=${stderr.slice(0, 80)}`);
 
       timeoutServer.close();
       // 恢复 bridge.json 指向主 fake server
@@ -8544,6 +8636,52 @@ console.log("\n=== Helper Behavior（fake server）===");
       addTest("Helper Behavior: obsidian-bridge wrapper 生成（obsidian-bridge.cmd + obsidian-bridge）",
         winOk && unixOk ? "pass" : "fail",
         `win=${winOk} unix=${unixOk}`);
+    }
+
+    // --- 测试 11：真实 wrapper invocation（当前平台实跑 health）---
+    // V2.18 s4: 不只检查文件内容，必须实际执行 wrapper 验证路径正确
+    {
+      const isWindows = process.platform === "win32";
+      const wrapperPath = isWindows
+        ? join(tmpDir, ".llm-bridge", "tools", "obsidian-bridge.cmd")
+        : join(tmpDir, ".llm-bridge", "tools", "obsidian-bridge");
+      const wrapperExists = existsSync(wrapperPath);
+      let wrapperStdout = "";
+      let wrapperExitCode = -1;
+      let wrapperErr = "";
+      if (wrapperExists) {
+        try {
+          const wrapperResult = await new Promise((resolve) => {
+            const cmd = isWindows ? wrapperPath : process.execPath;
+            const args = isWindows ? ["health"] : [wrapperPath, "health"];
+            const child = spawn(cmd, args, {
+              cwd: tmpDir,
+              stdio: ["ignore", "pipe", "pipe"],
+              windowsHide: true,
+              shell: isWindows, // .cmd 需要 shell
+            });
+            let out = ""; let err = "";
+            child.stdout.on("data", (d) => (out += d.toString()));
+            child.stderr.on("data", (d) => (err += d.toString()));
+            const timer = setTimeout(() => { try { child.kill(); } catch {} }, 10000);
+            child.on("exit", (code) => { clearTimeout(timer); resolve({ exitCode: code ?? 0, stdout: out, stderr: err }); });
+            child.on("error", (e) => { clearTimeout(timer); resolve({ exitCode: -1, stdout: out, stderr: err + String(e) }); });
+          });
+          wrapperStdout = wrapperResult.stdout;
+          wrapperExitCode = wrapperResult.exitCode;
+          wrapperErr = wrapperResult.stderr;
+        } catch (e) {
+          wrapperErr = String(e.message || e);
+        }
+      }
+      let wrapperOk = false;
+      try {
+        const parsed = JSON.parse(wrapperStdout);
+        wrapperOk = parsed.ok === true;
+      } catch {}
+      addTest("Helper Behavior: 真实 wrapper invocation（当前平台 health 实跑）",
+        wrapperExists && wrapperOk && wrapperExitCode === 0 ? "pass" : "fail",
+        `platform=${process.platform} wrapperExists=${wrapperExists} exit=${wrapperExitCode} stdout=${wrapperStdout.slice(0, 80)} stderr=${wrapperErr.slice(0, 80)}`);
     }
 
     rmSync(helperBundle, { force: true });
@@ -22447,6 +22585,12 @@ function generateReport() {
   lines.push(`- **测试环境**: ${results.environment.platform} / Node.js ${results.environment.nodeVersion}`);
   lines.push(`- **插件版本**: ${results.environment.pluginVersion || "unknown"}`);
   lines.push(`- **main.js 大小**: ${results.environment.mainJsSizeKB || "unknown"}`);
+  // V2.18 s5: bundle content smoke 结果
+  if (results.environment.mainJsBundleChecks) {
+    lines.push(`- **main.js bundle content smoke**: ${results.environment.mainJsBundleComplete ? "PASS" : "FAIL"} (${JSON.stringify(results.environment.mainJsBundleChecks)})`);
+  } else if (results.environment.mainJsBundleError) {
+    lines.push(`- **main.js bundle content smoke**: ERROR (${results.environment.mainJsBundleError})`);
+  }
   lines.push(`- **Vault 路径**: \`${results.environment.vaultPath}\``);
   lines.push(`- **bridge.json 存在**: ${results.environment.bridgeJsonExists ? "是" : "否"}`);
   lines.push(`- **HTTP 端口**: ${results.environment.httpPort || "N/A"}`);

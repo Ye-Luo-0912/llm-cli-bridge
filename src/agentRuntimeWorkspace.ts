@@ -25,7 +25,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { createHash } from "crypto";
 import type { ObsidianCliAvailability } from "./runtime/core/bridgePromptContract";
-import { ACTION_METADATA, type ActionMetadata, type ActionType } from "./actionMetadata";
+import { ACTION_METADATA, requiresBridgeApproval, type ActionMetadata, type ActionType } from "./actionMetadata";
 
 // ---------- 常量 ----------
 
@@ -536,14 +536,15 @@ export function generateInitialVaultApiSkill(): string {
     const tableLines = [
       `### ${label}`,
       "",
-      "| type | params | 返回 | 确认 | 说明 |",
+      "| type | params | 返回 | dangerous审批 | 说明 |",
       "|------|--------|------|------|------|",
     ];
     for (const m of rows) {
       const paramsStr = m.params.length === 0
         ? "{}"
         : m.params.map((p) => `\"${p.name}\"${p.required ? "" : "?"}`).join(", ");
-      const confirm = m.modifying ? "是" : "否";
+      // V2.18 s2: 用 requiresBridgeApproval 而非 modifying（仅 dangerous 走 Bridge 审批）
+      const confirm = requiresBridgeApproval(m.type) ? "是" : "否";
       tableLines.push(`| ${m.type} | ${paramsStr} | ${m.returns} | ${confirm} | ${m.description} |`);
     }
     tableLines.push("");
