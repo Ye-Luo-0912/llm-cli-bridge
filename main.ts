@@ -114,12 +114,14 @@ export default class LLMBridgePlugin extends Plugin {
   /** V2.18 r5: onload 自动物化 SKILL.md 到三端 target（.claude/.agents/.pi） */
   private async materializeVaultSkillsOnload(vaultPath: string): Promise<void> {
     try {
-      const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllVaultSkillsToAllTargets } = await import("./src/agentRuntimeWorkspace");
+      const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllVaultSkillsToAllTargets, syncVaultSkillsToAgentManifest } = await import("./src/agentRuntimeWorkspace");
       await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
       try { await compactOrSplitVaultSkill(vaultPath); } catch { /* compact 失败不阻塞物化 */ }
       const result = await materializeAllVaultSkillsToAllTargets(vaultPath);
+      // V2.18: 同步注册到 agent-skills.json manifest（agent 通过 manifest 发现 skill）
+      const syncResult = syncVaultSkillsToAgentManifest(vaultPath);
       const okCount = result.results.filter((r) => r.ok).length;
-      console.log(`[llm-cli-bridge] onload skill 物化完成: ${okCount}/${result.results.length} ok (claude + generic-agent + pi)`);
+      console.log(`[llm-cli-bridge] onload skill 物化完成: ${okCount}/${result.results.length} ok (claude + generic-agent + pi), manifest sync: ${syncResult.synced.length} synced / ${syncResult.skipped.length} skipped`);
     } catch (e) {
       console.warn("[llm-cli-bridge] onload skill 物化失败（不阻塞）：", e);
     }

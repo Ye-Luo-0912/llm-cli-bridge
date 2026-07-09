@@ -4999,6 +4999,40 @@ if (runMode !== "all" && runMode !== "unit") {
           `allTargetsMaterialized=${allTargetsMaterialized} resultCount=${result.results.length}/6 targetsCovered=${targetsCovered} vaFrontmatter=${vaHasFrontmatter} vaInstructions=${vaHasInstructions}`);
       }
 
+      // Test V17A-H2: syncVaultSkillsToAgentManifest 将 vault-context + vault-api 注册到 agent-skills.json
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        // 复用 v17aTmpRoot（已物化 vault-context + vault-api 到 .claude/skills/）
+        // 先确保 agent-skills.json 存在且不含 vault-context/vault-api
+        const manifestPath = pathMod.join(v17aTmpRoot, ".llm-bridge", "agent-skills.json");
+        // 清空 manifest（确保测试干净）
+        await fsMod.promises.mkdir(pathMod.dirname(manifestPath), { recursive: true });
+        await fsMod.promises.writeFile(manifestPath, JSON.stringify({ version: 1, skills: [] }, null, 2), "utf8");
+
+        // 执行同步
+        const syncResult = agentRuntimeWsMod.syncVaultSkillsToAgentManifest(v17aTmpRoot);
+
+        // 验证 manifest 包含 vault-context 和 vault-api
+        const manifestContent = JSON.parse(await fsMod.promises.readFile(manifestPath, "utf8"));
+        const slugs = manifestContent.skills.map((s) => s.slug);
+        const hasVaultContext = slugs.includes("vault-context");
+        const hasVaultApi = slugs.includes("vault-api");
+        const allEnabled = manifestContent.skills.filter((s) => slugs.includes(s.slug)).every((s) => s.enabled === true);
+        const hasValidHash = manifestContent.skills.every((s) => typeof s.materializedHash === "string" && s.materializedHash.length > 0);
+
+        // 再次同步应跳过（内容未变）
+        const syncResult2 = agentRuntimeWsMod.syncVaultSkillsToAgentManifest(v17aTmpRoot);
+
+        addTest("V17-A syncVaultSkillsToAgentManifest: vault-context + vault-api 注册到 agent-skills.json",
+          syncResult.ok && syncResult.synced.length === 2 && hasVaultContext && hasVaultApi && allEnabled && hasValidHash ? "pass" : "fail",
+          `ok=${syncResult.ok} synced=${syncResult.synced.length} vaultContext=${hasVaultContext} vaultApi=${hasVaultApi} allEnabled=${allEnabled} hasHash=${hasValidHash}`);
+
+        addTest("V17-A syncVaultSkillsToAgentManifest: 二次同步跳过（内容未变）",
+          syncResult2.ok && syncResult2.synced.length === 0 && syncResult2.skipped.length === 2 ? "pass" : "fail",
+          `ok=${syncResult2.ok} synced=${syncResult2.synced.length} skipped=${syncResult2.skipped.length}`);
+      }
+
       // Test V17A-I: settings 含 backendProfile/piCommand 字段（朋友版 portable 可切换）
       {
         const profileFieldExists = "backendProfile" in baseBridgeSettings;

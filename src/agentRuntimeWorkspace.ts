@@ -26,6 +26,7 @@ import * as path from "path";
 import { createHash } from "crypto";
 import type { ObsidianCliAvailability } from "./runtime/core/bridgePromptContract";
 import { ACTION_METADATA, requiresBridgeApproval, type ActionMetadata, type ActionType } from "./actionMetadata";
+import { loadAgentSkillsManifestSync, saveAgentSkillsManifestSync, createAgentSkillRecord, materializeAgentSkillSync, type AgentSkillRecord } from "./agentSkills";
 
 // ---------- 常量 ----------
 
@@ -1265,4 +1266,115 @@ export async function materializeAllVaultSkillsToAllTargets(vaultPath: string): 
     results,
     manifest,
   };
+}
+
+/**
+ * V2.18: 将 vault-context + vault-api 同步注册到 .llm-bridge/agent-skills.json manifest。
+ *
+ * agent 通过 agent-skills.json 发现可用 skill（而非直接扫描 .claude/skills/）。
+ * vault skills 物化到 .claude/skills/ 后必须同步注册到 manifest，否则 agent 看不到。
+ *
+ * 逻辑：
+ * - 读取 vault-context/vault-api 的 runtime SKILL.md（物化后的内容）
+ * - 用 VAULT_SKILL_RUNTIME_META 的 description 创建 AgentSkillRecord
+ * - upsert 到 manifest（按 slug 去重：已存在则更新内容，不存在则添加）
+ * - 重新物化到 .claude/skills/（确保 manifest 中的 hash 与文件一致）
+ */
+export function syncVaultSkillsToAgentManifest(vaultPath: string): {
+  ok: boolean;
+  synced: string[];
+  skipped: string[];
+  reason?: string;
+} {
+  const synced: string[] = [];
+  const skipped: string[] = [];
+
+  const manifest = loadAgentSkillsManifestSync(vaultPath);
+  const existingBySlug = new Map(manifest.skills.map((s) => [s.slug, s]));
+  const nextRecords: AgentSkillRecord[] = [...manifest.skills];
+
+  for (const slug of [VAULT_CONTEXT_SLUG, VAULT_API_SLUG]) {
+    const meta = getVaultSkillRuntimeMeta(slug);
+    // 读取 source SKILL.md（LLM-AgentRuntime/skills/<slug>/SKILL.md）
+    const sourceRel = slug === VAULT_API_SLUG ? VAULT_API_SKILL_SOURCE_REL : VAULT_SKILL_SOURCE_REL;
+    const sourcePath = path.join(vaultPath, sourceRel);
+    let instructions = "";
+    try {
+      instructions = fs.readFileSync(sourcePath, "utf8");
+    } catch {
+      skipped.push(slug);
+      continue;
+    }
+
+    // 读取物化后的 runtime SKILL.md（用于检测内容变化）
+    const materializedPath = path.join(vaultPath, ".claude/skills", slug, "SKILL.md");
+
+    const existing = existingBySlug.get(slug);
+    const nowIso = new Date().toISOString();
+
+    if (existing) {
+      // 先物化以计算 hash（如果文件已存在且格式一致，会返回 skipped）
+      const tempRecord = createAgentSkillRecord({
+        name: meta.name,
+        description: meta.description,
+        instructions,
+        enabled: true,
+        source: existing.source,
+        sourcePath: existing.sourcePath,
+        slug,
+        id: existing.id,
+      }, [], nowIso);
+
+      // 先删除旧文件（可能是 runtime 格式，与 Agent Skill 格式不同）
+      try { fs.unlinkSync(materializedPath); } catch { /* 文件不存在没关系 */ }
+
+      const matResult = materializeAgentSkillSync(vaultPath, tempRecord);
+      const finalizedRecord = matResult.ok ? matResult.record : tempRecord;
+
+      // 内容未变则跳过（比较 manifest 中的 hash 与新计算的 hash）
+      if (existing.materializedHash && finalizedRecord.materializedHash === existing.materializedHash) {
+        skipped.push(slug);
+        continue;
+      }
+
+      // 替换旧记录
+      const idx = nextRecords.findIndex((r) => r.slug === slug);
+      if (idx >= 0) nextRecords[idx] = finalizedRecord;
+      synced.push(slug);
+    } else {
+      // 新增
+      const newRecord = createAgentSkillRecord({
+        name: meta.name,
+        description: meta.description,
+        instructions,
+        enabled: true,
+        source: "manual",
+        slug,
+      }, nextRecords.map((r) => r.slug), nowIso);
+
+      // 先删除旧文件（可能是 runtime 格式，与 Agent Skill 格式不同）
+      try { fs.unlinkSync(materializedPath); } catch { /* 文件不存在没关系 */ }
+
+      const matResult = materializeAgentSkillSync(vaultPath, newRecord);
+      const finalizedRecord = matResult.ok ? matResult.record : newRecord;
+      nextRecords.push(finalizedRecord);
+      synced.push(slug);
+    }
+  }
+
+  if (synced.length === 0) {
+    return { ok: true, synced, skipped };
+  }
+
+  // 保存更新后的 manifest
+  const saved = saveAgentSkillsManifestSync(vaultPath, {
+    version: manifest.version,
+    skills: nextRecords,
+  });
+
+  if (!saved) {
+    return { ok: false, synced, skipped, reason: "failed to save agent-skills.json" };
+  }
+
+  return { ok: true, synced, skipped };
 }
