@@ -40,6 +40,30 @@ async function main() {
     await new Promise((r, e) => { ws.addEventListener("open", r); ws.addEventListener("error", e); });
     await cdpSend(ws, "Runtime.enable");
 
+    // 重新加载插件 — 强制加载新 main.js（清除 V8 编译缓存）
+    console.log("重新加载 LLM CLI Bridge 插件...");
+    try {
+      const reloadResult = await cdpSend(ws, "Runtime.evaluate", {
+        expression: `(async function(){ try { await app.plugins.disablePlugin('llm-cli-bridge'); await app.plugins.enablePlugin('llm-cli-bridge'); return 'RELOADED'; } catch(e) { return 'ERROR:'+e.message; } })()`,
+        awaitPromise: true,
+      });
+      console.log("  插件重载:", reloadResult.result?.value);
+    } catch (e) {
+      console.log("  插件重载失败:", e.message);
+    }
+    await new Promise((r) => setTimeout(r, 3000));
+
+    // 激活 LLM Bridge 视图
+    try {
+      const activateResult = await cdpSend(ws, "Runtime.evaluate", {
+        expression: `(function(){ const leaves = app.workspace.getLeavesOfType("llm-cli-bridge-view"); if(leaves.length>0){ app.workspace.revealLeaf(leaves[0]); return "ACTIVATED"; } else { app.workspace.getLeftLeaf(false).setViewState({type:"llm-cli-bridge-view"}); return "CREATED"; } })()`,
+      });
+      console.log("  视图激活:", activateResult.result?.value);
+    } catch (e) {
+      console.log("  视图激活失败:", e.message);
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+
     // 检查 LLM Bridge 视图
     const r1 = await cdpSend(ws, "Runtime.evaluate", {
       expression: 'document.querySelector(".llm-bridge-view") ? "FOUND" : "NOT FOUND"',

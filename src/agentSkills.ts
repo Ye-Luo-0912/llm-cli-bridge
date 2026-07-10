@@ -507,6 +507,143 @@ export function prepareAgentSkillsForCodexRuntimeSync(
   return { ok: true, enabledCount, results, manifest, saved: false };
 }
 
+/**
+ * 异步版本 — 用 fs.promises 替代同步 fs，避免阻塞 Obsidian 主线程。
+ *
+ * 同步版本（prepareAgentSkillsForCodexRuntimeSync）会对每个 enabled skill
+ * 执行多次 readFileSync/mkdirSync/writeFileSync/readdirSync，
+ * 7 个 skill × 多次同步 I/O 在 Windows（尤其杀毒扫描时）足以冻结主线程，
+ * 导致"整个 Obsidian 卡死、Notice 弹窗不消失"。
+ * 此版本将所有 I/O 移到 fs.promises，让事件循环保持响应。
+ */
+export async function prepareAgentSkillsForCodexRuntime(
+  vaultPath: string,
+  codexHome: string = resolveCodexHome(),
+): Promise<AgentSkillsRuntimePreparationResult> {
+  const manifest = await loadAgentSkillsManifest(vaultPath);
+  const enabledCount = manifest.skills.filter((record) => record.enabled).length;
+  if (enabledCount === 0) {
+    return { ok: true, enabledCount, results: [], manifest, saved: false };
+  }
+
+  const results: AgentSkillMaterializeResult[] = [];
+  for (const record of manifest.skills) {
+    if (!record.enabled) continue;
+    const result = await materializeAgentSkillToCodexHomeAsync(record, codexHome, vaultPath);
+    results.push(result);
+  }
+
+  const failed = results.filter((result) => !result.ok);
+  if (failed.length > 0) {
+    return {
+      ok: false,
+      enabledCount,
+      results,
+      manifest,
+      saved: false,
+      reason: failed.map((result) => `${result.record.slug}: ${result.reason || result.status}`).join("; "),
+    };
+  }
+
+  return { ok: true, enabledCount, results, manifest, saved: false };
+}
+
+/**
+ * 异步版本 — 将单个 AgentSkillRecord 物化到 Codex home 的 personal skills 目录。
+ * 使用 fs.promises 替代同步 fs。
+ */
+export async function materializeAgentSkillToCodexHomeAsync(
+  record: AgentSkillRecord,
+  codexHome: string = resolveCodexHome(),
+  vaultPath?: string,
+): Promise<AgentSkillMaterializeResult> {
+  const normalized = normalizeAgentSkillRecord(record);
+  const filePath = codexBridgeSkillPathForSlug(normalized.slug, codexHome);
+  const sourceDir = (normalized.sourceDir && vaultPath) ? path.join(vaultPath, normalized.sourceDir) : undefined;
+  return materializeAgentSkillToTargetAsync(normalized, filePath, {
+    nameOverride: `${CODEX_BRIDGE_SKILL_PREFIX}${normalized.name}`,
+    descriptionOverride: `${normalized.description} (Bridge plugin Skill)`,
+    sourceDir,
+  });
+}
+
+/**
+ * 异步版本 — 用 fs.promises 替代同步 fs，避免阻塞主线程。
+ * 逻辑与 materializeAgentSkillToTarget 完全一致，仅 I/O 改为异步。
+ */
+export async function materializeAgentSkillToTargetAsync(
+  record: AgentSkillRecord,
+  filePath: string,
+  options: AgentSkillTargetOptions = {},
+): Promise<AgentSkillMaterializeResult> {
+  const normalized = normalizeAgentSkillRecord(record);
+  const projected: AgentSkillRecord = (options.nameOverride || options.descriptionOverride)
+    ? normalizeAgentSkillRecord({
+        ...normalized,
+        name: options.nameOverride ?? normalized.name,
+        description: options.descriptionOverride ?? normalized.description,
+      })
+    : normalized;
+  const nextContent = serializeAgentSkillToMarkdown(projected);
+  const nextHash = sha256(nextContent);
+  const nextRecord = normalizeAgentSkillRecord({ ...normalized, materializedHash: nextHash });
+
+  try {
+    let existing: string | null = null;
+    try {
+      existing = await fs.promises.readFile(filePath, "utf8");
+    } catch {
+      existing = null;
+    }
+
+    let skipped = false;
+    if (existing !== null) {
+      const marker = parseGeneratedMarker(existing);
+      if (marker && marker.generatedBy === AGENT_SKILL_GENERATED_BY) {
+        if (marker.sourceId !== normalized.id) {
+          return conflict(nextRecord, filePath, "target SKILL.md belongs to another Agent Skill record");
+        }
+        if (options.expectedHash && sha256(existing) !== options.expectedHash) {
+          return conflict(nextRecord, filePath, "target SKILL.md changed after last materialization");
+        }
+        if (existing === nextContent) {
+          skipped = true;
+        }
+      } else if (isLegacyPluginGeneratedSkill(existing)) {
+        // 旧 runtime 格式 → 自动升级（fall through 到写入）
+      } else {
+        return conflict(nextRecord, filePath, "target SKILL.md is not plugin-generated");
+      }
+    }
+
+    if (!skipped) {
+      await fs.promises.mkdir(path.dirname(filePath), { recursive: true });
+      await fs.promises.writeFile(filePath, nextContent, "utf8");
+    }
+
+    if (options.sourceDir) {
+      try {
+        const entries = await fs.promises.readdir(options.sourceDir);
+        const mdFiles = entries.filter((f): f is string => typeof f === "string" && f.endsWith(".md") && f !== AGENT_SKILL_FILE_NAME);
+        const targetDir = path.dirname(filePath);
+        for (const f of mdFiles) {
+          const src = path.join(options.sourceDir, f);
+          const dst = path.join(targetDir, f);
+          const content = await fs.promises.readFile(src, "utf8");
+          await fs.promises.writeFile(dst, content, "utf8");
+        }
+      } catch { /* 附属文件复制失败不阻塞主文件物化 */ }
+    }
+
+    if (skipped) {
+      return { ok: true, status: "skipped", record: nextRecord, filePath };
+    }
+    return { ok: true, status: existing === null ? "created" : "updated", record: nextRecord, filePath };
+  } catch (e) {
+    return { ok: false, status: "error", record: nextRecord, filePath, reason: e instanceof Error ? e.message : String(e) };
+  }
+}
+
 function sanitizeAgentSkillRecord(raw: unknown): AgentSkillRecord | null {
   if (!raw || typeof raw !== "object") return null;
   const r = raw as Partial<AgentSkillRecord>;

@@ -3,7 +3,7 @@
   "name": "LLM CLI Bridge",
   "version": "2.18.0",
   "minAppVersion": "1.4.0",
-  "description": "将 Obsidian 桥接到本地 Claude Code / Claude SDK agent，仅在桌面端运行。",
+  "description": "将 Obsidian 桥接到本地 LLM CLI agent（Codex managed runtime / Claude Code / Claude SDK / Pi），仅 Windows x64 桌面端。",
   "author": "Ye_Luo",
   "authorUrl": "",
   "isDesktopOnly": true

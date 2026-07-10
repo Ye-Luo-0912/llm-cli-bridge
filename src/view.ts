@@ -53,7 +53,7 @@ import {
   AgentSkillRecord,
   loadAgentSkillsManifest,
   loadAgentSkillsManifestSync,
-  prepareAgentSkillsForCodexRuntimeSync,
+  prepareAgentSkillsForCodexRuntime,
   saveAgentSkillsManifest,
 } from "./agentSkills";
 import { getPermissionModeInfo, normalizeToolName, type PermissionChoice } from "./sdkPermission";
@@ -9506,7 +9506,7 @@ export class LLMBridgeView extends ItemView {
     if (session.providerId === "codex-managed-app-server") {
       await this.refreshManagedCodexPlugins();
       await this.refreshAgentSkillsManifestOnly();
-      const codexSkillPrep = prepareAgentSkillsForCodexRuntimeSync(vaultPath);
+      const codexSkillPrep = await prepareAgentSkillsForCodexRuntime(vaultPath);
       if (!codexSkillPrep.ok) {
         new Notice(`Codex Skills 物化失败：${codexSkillPrep.reason || "unknown error"}`);
       }
