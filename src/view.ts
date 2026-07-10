@@ -249,6 +249,8 @@ export class LLMBridgeView extends ItemView {
   /** V2.16-B: 实际 runtime 标签（供 UI 显示，区分 auto→SDK / auto→CLI fallback） */
   private actualRuntimeLabel: string = "Claude Code";
   private runHandle: AgentRunHandle | null = null;
+  /** F-03: onRunFinished 执行中标志，防止 restore 在收尾期间竞态 */
+  private finishingRun = false;
   private messages: ChatMessage[] = [];
   private currentAssistantId: string | null = null;
   /**
@@ -8661,7 +8663,7 @@ export class LLMBridgeView extends ItemView {
 
   // V2.5: 恢复历史会话（确认后加载消息 + 状态 + workflow trace）
   private async restoreSession(sessionId: string): Promise<void> {
-    if (this.runHandle) {
+    if (this.runHandle || this.finishingRun) { // F-03: 运行中或收尾中均禁止 restore
       new Notice("运行中无法恢复历史会话");
       return;
     }
@@ -9614,6 +9616,7 @@ export class LLMBridgeView extends ItemView {
     // - WorkflowEvent 映射仅保留为 legacy log（sdkEvents/timelineEvents），不作主 UI 数据源
     let terminalStatus: RunStatus | null = null;
     let terminalResult: RunResult | null = null;
+    let cancelled = false; // F-03: cancel 标志，防止 cancel 后事件被 ingest
     // latest native session only: 如果 activeNativeSessionRef 存在且 providerId 匹配 → resume（thread/resume）；否则 start（thread/start）
     // 不同 agent 的 native session 不互通（providerId 不匹配时 transcript-only）
     const activeRef = session.activeNativeSessionRef;
@@ -9628,15 +9631,32 @@ export class LLMBridgeView extends ItemView {
     this.runHandle = {
       get running(): boolean { return terminalStatus === null; },
       stop(): void {
+        // F-03: 立即标记取消，防止 cancel 后到终态事件到达之间的事件被 ingest
+        cancelled = true;
         // BridgeSession.cancel 会调用 provider.cancel + permission.cancelAllPending
         session.cancel("");
+        // F-03: 激活 markStopped — 用户取消应产生 stopped 状态（而非等 provider 的 failed 事件）
+        // 此前 markStopped 是死代码，用户取消始终表现为 failed；现在 UI 能正确显示"已停止"
+        turnBuilder.markStopped();
+        if (!terminalStatus) {
+          terminalStatus = "stopped";
+          terminalResult = {
+            exitCode: null,
+            signal: null,
+            durationMs: Date.now() - new Date(startedAt).getTime(),
+            stdout: "",
+            stderr: "",
+            command: "",
+            args: [],
+          };
+        }
       },
     };
 
     void (async () => {
       try {
         for await (const ev of runIter) {
-          if (terminalStatus) break;
+          if (cancelled || terminalStatus) break; // F-03: cancelled 也立即退出，不再 ingest 迟到事件
           view.handleNormalizedEvent(ev, {
             assistantId,
             vaultPath,
@@ -9671,6 +9691,20 @@ export class LLMBridgeView extends ItemView {
         };
       } finally {
         view.runHandle = null;
+        // F-03: 流无终态事件兜底 — provider 迭代器静默结束时，terminalStatus 仍为 null
+        // cancel 路径视为 stopped（用户主动取消），异常静默结束视为 failed
+        if (!terminalStatus) {
+          terminalStatus = cancelled ? "stopped" : "failed";
+          terminalResult = terminalResult || {
+            exitCode: null,
+            signal: null,
+            durationMs: Date.now() - new Date(startedAt).getTime(),
+            stdout: "",
+            stderr: cancelled ? "" : "Stream ended without terminal event",
+            command: "",
+            args: [],
+          };
+        }
         if (terminalStatus && terminalResult) {
           await view.onRunFinished(
             terminalResult, vaultPath, assistantId, terminalStatus,
@@ -9870,6 +9904,9 @@ export class LLMBridgeView extends ItemView {
     promptLength: number,
     sdkEvents: ReadonlyArray<WorkflowEvent>,
   ): Promise<void> {
+    // F-03: 标记收尾中，防止 restore 在 onRunFinished 的 await 期间竞态
+    this.finishingRun = true;
+    try {
     this.runHandle = null;
     this.clearApprovalUiState();
 
@@ -10007,6 +10044,10 @@ export class LLMBridgeView extends ItemView {
       }
     } catch {
       // 保存失败不阻断主流程
+    }
+    } finally {
+      // F-03: 收尾完成，清除标志
+      this.finishingRun = false;
     }
   }
 

@@ -108,6 +108,11 @@ export class AssistantTurnViewBuilder {
   }
 
   ingest(event: NormalizedRuntimeEvent): AssistantTurnView {
+    // F-03: 终态后不再处理事件（防止迟到事件覆盖 stopped/completed/failed）
+    // 状态机一旦进入终态即不可逆，迟到事件直接返回当前快照
+    if (this.status !== "running") {
+      return this.toView();
+    }
     this.codexTimelineReducer?.ingest(event);
     if (event.rawProviderEvent !== undefined) {
       this.rawProviderEvents.push(event.rawProviderEvent);
