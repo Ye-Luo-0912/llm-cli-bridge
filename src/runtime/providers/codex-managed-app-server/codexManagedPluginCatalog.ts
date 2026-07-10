@@ -1,4 +1,5 @@
-import { execFileSync } from "child_process";
+import { execFileSync, execFile } from "child_process";
+import { promisify } from "util";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
 import { resolveManifestPath, resolveManagedRuntime } from "./codexManagedRuntimeResolver";
@@ -144,6 +145,54 @@ export function listManagedCodexPlugins(pluginDir: string): CodexManagedPluginCa
 
   try {
     const raw = execFileSync(resolver.runtimePath, ["plugin", "list", "--json"], {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 15000,
+    });
+    const parsed = JSON.parse(raw) as RawPluginListResult;
+    const entries = Array.isArray(parsed.installed)
+      ? parsed.installed
+        .map((item) => normalizePluginEntry((item || {}) as RawPluginEntry))
+        .filter((item): item is CodexManagedPluginEntry => !!item)
+        .sort((a, b) => a.name.localeCompare(b.name))
+      : [];
+    return {
+      available: true,
+      runtimePath: resolver.runtimePath,
+      entries,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      available: false,
+      runtimePath: resolver.runtimePath,
+      entries: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+const execFileAsync = promisify(execFile);
+
+/**
+ * 异步版本 — 用 execFile（非阻塞）替代 execFileSync，避免冻结 Obsidian 主线程。
+ * execFileSync 会在子进程启动期间同步阻塞渲染线程长达 15 秒（timeout），
+ * 导致"整个 Obsidian 卡死"。此版本将子进程等待移出主线程。
+ */
+export async function listManagedCodexPluginsAsync(pluginDir: string): Promise<CodexManagedPluginCatalog> {
+  const manifestPath = resolveManifestPath(pluginDir);
+  const resolver = resolveManagedRuntime(manifestPath);
+  if (!resolver.available || !resolver.runtimePath) {
+    return {
+      available: false,
+      runtimePath: resolver.runtimePath,
+      entries: [],
+      error: resolver.error || `managed runtime unavailable: ${resolver.reason}`,
+    };
+  }
+
+  try {
+    const { stdout: raw } = await execFileAsync(resolver.runtimePath, ["plugin", "list", "--json"], {
       encoding: "utf8",
       windowsHide: true,
       timeout: 15000,

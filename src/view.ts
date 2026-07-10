@@ -29,7 +29,7 @@ import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
 import { DEFAULT_PROVIDER_CAPABILITIES, type ProviderCapabilityInfo, type ObsidianCliAvailability, type ProviderRuntimeSkillEntry } from "./runtime/core/bridgePromptContract";
 import type { ManagedRuntimeInstallStatus } from "./runtime/providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge";
-import { listManagedCodexPlugins, type CodexManagedPluginCatalog, type CodexManagedPluginEntry } from "./runtime/providers/codex-managed-app-server/codexManagedPluginCatalog";
+import { listManagedCodexPluginsAsync, type CodexManagedPluginCatalog, type CodexManagedPluginEntry } from "./runtime/providers/codex-managed-app-server/codexManagedPluginCatalog";
 import { AssistantTurnViewBuilder } from "./runtime/core/assistantTurnView";
 import { mapNormalizedToWorkflowEvent } from "./runtime/providers/workflowEventMapper";
 import { getRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
@@ -9180,7 +9180,7 @@ export class LLMBridgeView extends ItemView {
 
   private async refreshManagedCodexPlugins(): Promise<void> {
     try {
-      this.managedCodexPluginCatalog = listManagedCodexPlugins(this.plugin.pluginDir);
+      this.managedCodexPluginCatalog = await listManagedCodexPluginsAsync(this.plugin.pluginDir);
       this.managedCodexPlugins = this.managedCodexPluginCatalog.entries.slice();
     } catch (error) {
       this.managedCodexPluginCatalog = {
