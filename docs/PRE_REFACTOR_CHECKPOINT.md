@@ -9,7 +9,7 @@
 | Gate | Result | Notes |
 |------|--------|-------|
 | `npm run build` | PASS | tsc + `build-styles` + esbuild |
-| `npm run test:unit` | **1191 passed**, 0 failed, 25 skipped | includes approval-profile + waterfall + composer + message-details guards |
+| `npm run test:unit` | **1191 passed**, 0 failed, 25 skipped | includes approval-profile + waterfall + composer + message-details + Round 7 batch/status-rail guards |
 | `npm run test:process` | **233 passed**, 0 failed, 56 skipped | |
 | `npm run test:presentation` | **8 passed**, 0 failed | `scripts/presentation/` semantic suite |
 | Obsidian deploy + reload | **PASS** | `deploy-to-obsidian.ps1` → both vault plugin dirs; SHA-256 of `main.js` matched repo; CDP `plugin:reload` → **v2.18.0**; bridge health OK on live vault `D:\Users\Ye_Luo\APP\Obsidian\LLM-Wiki` (Obsidian restarted with `--remote-debugging-port=9223`) |
@@ -56,6 +56,7 @@ Structure-only first: **no visual/behavior change**, Obsidian native DOM only (n
 - deleted dead `renderCodexFinalAnswer` + `ensureCodexFinalAnswerNode` shims
 - **Round 5 done:** `patchCodexFeedEntryItem` / `patchCodexFeedEntryToolGroup` / `patchCodexToolGroupBody` → `src/ui/codexWaterfallRenderer.ts` (View keeps `renderCodexFeedItem*` initial render helpers)
 - **Round 6 done:** `renderCodexFeedItem` / thinking / narrative / event-block / `formatCodexFeedSummary` → `src/ui/codexWaterfallRenderer.ts` (View keeps shell/diff/sourceRef helpers + batch summary)
+- **Round 7 done:** `renderCodexFeedBatch` / tool-group / batch summary + thinking-fallback formatters → `src/ui/codexWaterfallRenderer.ts`; composer status-rail apply + file-drag surface → `src/ui/composerController.ts` (View keeps paste/drop ingest + turn-status computation)
 - **Round 2 done:** `renderMessage` / `renderMessageContent` / actions / error / suppress helpers → `src/ui/messageRenderer.ts` (View keeps thin wrappers + fileRefs/details/actions orchestration)
 - **Round 4 done:** `renderMessageFileRefs` / `appendMsgDetails` (+ tail) / presentation chrome → `src/ui/messageRenderer.ts` (View keeps run-display helpers, collapsibles, `updateAssistantMessage` orchestration)
 - Round 3: ComposerController

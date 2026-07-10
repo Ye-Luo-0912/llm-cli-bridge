@@ -1,8 +1,8 @@
 // LLM CLI Bridge — Codex waterfall renderer (structure extract, no visual change)
 //
 // Owns keyed feed reconciliation, item/tool-group patch, feed-item render,
-// and in-place candidate upgrade. LLMBridgeView supplies Markdown, shell/diff
-// helpers, path open, and duration formatting.
+// batch/tool-group initial render, and in-place candidate upgrade.
+// LLMBridgeView supplies Markdown, shell/diff helpers, path open, and duration formatting.
 
 import * as path from "path";
 import { Notice, setIcon } from "obsidian";
@@ -14,6 +14,7 @@ import {
   formatCodexToolGroupCount,
   formatCodexToolGroupTitle,
   isCodexFeedEvent,
+  shouldGroupCodexToolEvents,
   sumCodexEventDuration,
 } from "./codexProcessFeed";
 
@@ -35,7 +36,6 @@ export interface CodexWaterfallPatchDeps {
 export interface CodexFeedItemRenderDeps {
   developerMode: boolean;
   formatDurationMs: (ms: number) => string;
-  formatCodexThinkingFallbackFromBatch: (batch: ReadonlyArray<CodexRunFeedItem>) => string;
   localizeRunStatus: (status: string) => string;
   renderMarkdownInto: (host: HTMLElement, text: string) => void;
   renderCodexDiffPreview: (parent: HTMLElement, diff: string, diffSummary?: string) => void;
@@ -442,7 +442,7 @@ export function renderCodexFeedThinking(
   batch?: ReadonlyArray<CodexRunFeedItem>,
 ): void {
   const summary = formatCodexFeedSummary(item, false).trim()
-    || (batch ? deps.formatCodexThinkingFallbackFromBatch(batch) : "");
+    || (batch ? formatCodexThinkingFallbackFromBatch(batch) : "");
   // 无真实 reasoning 文本时不渲染空泛「正在思考」行
   if (!summary) return;
   const isLive = item.status === "running" || item.status === "pending";
@@ -676,4 +676,244 @@ export function renderCodexFeedItem(
   }
 
   deps.renderCodexSourceRef(row, item.sourceRef, developerMode);
+}
+
+export function formatCodexThinkingFallbackAction(item: CodexRunFeedItem): string {
+  const loc = resolveUiLocale() === "en" ? "en" : "zh";
+  if (item.kind === "assistant") {
+    const text = formatCodexFeedSummary(item, false).trim();
+    return text ? truncateText(text, 120) : "";
+  }
+  if (item.kind === "command") return loc === "zh" ? "执行命令" : "run a command";
+  if (item.change) {
+    const fileLabel = item.change.fileName || item.change.relativePath || (loc === "zh" ? "文件" : "a file");
+    if (item.change.action === "create") return loc === "zh" ? `创建 ${fileLabel}` : `create ${fileLabel}`;
+    if (item.change.action === "delete") return loc === "zh" ? `删除 ${fileLabel}` : `delete ${fileLabel}`;
+    return loc === "zh" ? `编辑 ${fileLabel}` : `edit ${fileLabel}`;
+  }
+  if (item.kind === "approval") return loc === "zh" ? "等待确认" : "wait for approval";
+  if (item.kind === "user-input") return loc === "zh" ? "等待输入" : "wait for input";
+  if (item.kind === "mcp") return item.label ? (loc === "zh" ? `使用 ${item.label}` : `use ${item.label}`) : (loc === "zh" ? "使用工具" : "use an MCP tool");
+  if (item.kind === "dynamic") return item.label ? (loc === "zh" ? `使用 ${item.label}` : `use ${item.label}`) : (loc === "zh" ? "使用工具" : "use a tool");
+  if (item.label) return item.label.replace(/\.$/, "");
+  return "";
+}
+
+export function formatCodexThinkingFallbackFromBatch(
+  batch: ReadonlyArray<CodexRunFeedItem>,
+): string {
+  const items = batch[0] && (batch[0].kind === "thinking" || batch[0].kind === "assistant")
+    ? batch.slice(1)
+    : batch;
+  const actions = items
+    .map((item) => formatCodexThinkingFallbackAction(item))
+    .filter(Boolean);
+  if (actions.length === 0) return "";
+  const loc = resolveUiLocale() === "en" ? "en" : "zh";
+  if (actions.length === 1) return actions[0];
+  if (loc === "zh") {
+    if (actions.length === 2) return `${actions[0]}，然后${actions[1]}`;
+    return `${actions.slice(0, 2).join("，")}，以及另外 ${actions.length - 2} 步`;
+  }
+  if (actions.length === 2) return `${actions[0]}, then ${actions[1]}`;
+  return `${actions.slice(0, 2).join(", ")}, then ${actions.length - 2} more step${actions.length - 2 === 1 ? "" : "s"}`;
+}
+
+export function formatCodexBatchSummary(
+  batch: ReadonlyArray<CodexRunFeedItem>,
+  developerMode: boolean,
+): string {
+  for (const item of batch) {
+    const summary = formatCodexFeedSummary(item, developerMode).trim();
+    if (summary) return summary;
+  }
+  const firstEvent = batch.find((item) => isCodexFeedEvent(item));
+  return firstEvent?.label ?? batch[0]?.label ?? "";
+}
+
+export function formatCodexThinkingBatchSummary(
+  batch: ReadonlyArray<CodexRunFeedItem>,
+  developerMode: boolean,
+): string {
+  const lead = batch[0];
+  if (!lead) return "";
+  const summary = formatCodexFeedSummary(lead, developerMode).trim();
+  if (summary) return summary;
+  return formatCodexThinkingFallbackFromBatch(batch);
+}
+
+export function formatCodexProcessPreview(
+  batches: ReadonlyArray<ReadonlyArray<CodexRunFeedItem>>,
+  developerMode: boolean,
+): string {
+  for (const batch of batches) {
+    if (!batch.length) continue;
+    const lead = batch[0];
+    const leadIsThinking = lead.kind === "thinking";
+    const label = leadIsThinking
+      ? "Thinking"
+      : lead.kind === "assistant"
+        ? (lead.label || "说明")
+        : lead.label || "Step";
+    const batchSummary = leadIsThinking
+      ? formatCodexThinkingBatchSummary(batch, developerMode)
+      : formatCodexBatchSummary(batch, developerMode).trim();
+    if (label === "Thinking") return batchSummary ? `Thinking · ${batchSummary}` : "Thinking";
+    if (batchSummary) return batchSummary;
+  }
+  return "";
+}
+
+export function renderCodexFeedBatchSummary(
+  parent: HTMLElement,
+  batch: ReadonlyArray<CodexRunFeedItem>,
+  developerMode: boolean,
+  eventCount: number,
+): void {
+  const lead = batch[0];
+  const leadIsThinking = lead.kind === "thinking";
+  const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";
+  const syntheticNarrative = !leadIsNarrative
+    && (lead.kind === "command" || lead.kind === "file" || lead.kind === "mcp" || lead.kind === "dynamic");
+  const batchSummary = leadIsThinking
+    ? formatCodexThinkingBatchSummary(batch, developerMode)
+    : lead.kind === "assistant"
+      ? formatCodexFeedSummary(lead, developerMode).trim() || formatCodexThinkingFallbackFromBatch(batch)
+    : syntheticNarrative
+      ? formatCodexThinkingFallbackFromBatch(batch) || formatCodexBatchSummary(batch, developerMode)
+    : formatCodexBatchSummary(batch, developerMode);
+
+  const textWrap = parent.createDiv({ cls: "llm-bridge-codex-feed-batch-summary-main" });
+  if (developerMode) {
+    const label = leadIsThinking
+      ? "Thinking"
+      : lead.kind === "assistant"
+        ? (lead.label || "说明")
+        : lead.label || "Step";
+    textWrap.createEl("span", { cls: "llm-bridge-codex-feed-batch-label", text: label });
+    if (batchSummary) {
+      textWrap.createEl("span", {
+        cls: "llm-bridge-codex-feed-batch-text",
+        text: truncateText(batchSummary, 420),
+        attr: { title: batchSummary },
+      });
+    } else if (!leadIsNarrative) {
+      textWrap.createEl("span", {
+        cls: "llm-bridge-codex-feed-batch-text",
+        text: truncateText(lead.label || "", 180),
+        attr: { title: lead.label || "" },
+      });
+    }
+  } else if (batchSummary) {
+    // 普通模式：仅真实 reasoning 带思考光效；assistant narrative 是普通文字
+    const isLiveThinking = leadIsThinking
+      && (lead.status === "running" || lead.status === "pending");
+    textWrap.createEl("span", {
+      cls: `llm-bridge-codex-feed-batch-text is-quiet-narrative${isLiveThinking ? " llm-bridge-run-status-text is-running llm-bridge-run-glow" : ""}${lead.kind === "assistant" ? " is-assistant-narrative" : ""}`,
+      text: truncateText(batchSummary, 420),
+      attr: { title: batchSummary },
+    });
+  } else if (!leadIsNarrative && !syntheticNarrative) {
+    textWrap.createEl("span", {
+      cls: "llm-bridge-codex-feed-batch-text",
+      text: truncateText(lead.label || "", 180),
+      attr: { title: lead.label || "" },
+    });
+  } else {
+    // 无摘要的 Thinking 行：不渲染空泛标签
+    parent.addClass("is-empty-narrative");
+    parent.setAttribute("hidden", "");
+  }
+
+  if (developerMode) {
+    const meta = parent.createDiv({ cls: "llm-bridge-codex-feed-batch-meta" });
+    if (eventCount > 0) {
+      meta.createEl("span", {
+        cls: "llm-bridge-codex-feed-batch-count",
+        text: `${eventCount} ${eventCount === 1 ? "step" : "steps"}`,
+      });
+    }
+    meta.createEl("span", { cls: `llm-bridge-codex-feed-batch-status is-${lead.status}`, text: lead.status });
+  }
+}
+
+export function renderCodexToolGroup(
+  parent: HTMLElement,
+  items: ReadonlyArray<CodexRunFeedItem>,
+  developerMode: boolean,
+  deps: CodexFeedItemRenderDeps,
+): void {
+  const events = items.filter((item) => isCodexFeedEvent(item));
+  if (events.length === 0) return;
+  const hasActive = events.some((item) => item.status === "running" || item.status === "pending");
+  const hasFailed = events.some((item) => item.status === "failed");
+  const groupStatus = hasActive ? "running" : hasFailed ? "failed" : "completed";
+  const group = parent.createEl("details", {
+    cls: `llm-bridge-codex-tool-group is-${groupStatus}`,
+  });
+  group.setAttribute("data-step-count", String(events.length));
+
+  const summary = group.createEl("summary", { cls: "llm-bridge-codex-tool-group-summary" });
+  const icon = summary.createEl("span", { cls: "llm-bridge-codex-tool-group-icon" });
+  setIcon(icon, "terminal");
+  const main = summary.createDiv({ cls: "llm-bridge-codex-tool-group-main" });
+  const groupTitle = formatCodexToolGroupTitle(events);
+  main.createEl("span", {
+    cls: "llm-bridge-codex-tool-group-title",
+    text: groupTitle,
+    attr: { title: groupTitle },
+  });
+  const meta = summary.createDiv({ cls: "llm-bridge-codex-tool-group-meta" });
+  if (developerMode) {
+    meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${groupStatus}`, text: groupStatus });
+    const totalDuration = sumCodexEventDuration(events);
+    if (totalDuration) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: deps.formatDurationMs(totalDuration) });
+    meta.createEl("span", {
+      cls: "llm-bridge-codex-tool-group-count",
+      text: formatCodexToolGroupCount(events),
+    });
+  }
+
+  let bodyRendered = false;
+  const renderBody = () => {
+    if (bodyRendered) return;
+    bodyRendered = true;
+    const body = group.createDiv({ cls: "llm-bridge-codex-tool-group-body" });
+    events.forEach((item) => renderCodexFeedItem(body, item, developerMode, true, deps));
+  };
+  group.addEventListener("toggle", () => {
+    if (group.open) renderBody();
+  });
+}
+
+export function renderCodexFeedBatch(
+  parent: HTMLElement,
+  batch: ReadonlyArray<CodexRunFeedItem>,
+  developerMode: boolean,
+  deps: CodexFeedItemRenderDeps,
+): void {
+  if (batch.length === 0) return;
+  const lead = batch[0];
+  const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";
+  const bodyItems = leadIsNarrative ? batch.slice(1) : batch;
+  const eventCount = bodyItems.filter((item) => isCodexFeedEvent(item)).length;
+  const batchEl = parent.createDiv({
+    cls: `llm-bridge-codex-feed-batch is-${lead.status}${bodyItems.length === 0 ? " is-summary-only" : ""}`,
+  });
+  const summary = batchEl.createDiv({ cls: "llm-bridge-codex-feed-batch-summary" });
+  renderCodexFeedBatchSummary(summary, batch, developerMode, eventCount);
+  if (bodyItems.length === 0) return;
+  const body = batchEl.createDiv({ cls: "llm-bridge-codex-feed-batch-body" });
+  if (lead.kind === "thinking" && shouldRenderExpandedThinkingLine(lead, developerMode)) {
+    renderCodexFeedThinking(body, lead, deps, batch);
+  } else if (lead.kind === "assistant" && developerMode) {
+    renderCodexFeedNarrative(body, lead, deps);
+  }
+  if (shouldGroupCodexToolEvents(bodyItems)) {
+    renderCodexToolGroup(body, bodyItems, developerMode, deps);
+    return;
+  }
+  bodyItems.forEach((item) => {
+    renderCodexFeedItem(body, item, developerMode, isCodexFeedEvent(item), deps);
+  });
 }

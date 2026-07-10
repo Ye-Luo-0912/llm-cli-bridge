@@ -1,6 +1,7 @@
 // LLM CLI Bridge — Composer controller (structure extract, no visual change)
 //
-// Owns menu surfaces, permission/model picker DOM, attachment tokens, autoGrow.
+// Owns menu surfaces, permission/model picker DOM, attachment tokens, autoGrow,
+// status-rail apply, and file-drag surface bind.
 // LLMBridgeView supplies settings/session mutation and file-ingest callbacks.
 
 import * as path from "path";
@@ -417,6 +418,58 @@ export function closeAttachmentContextMenu(
     menuElRef.current = null;
   }
   if (updateActive && activePopup === "attachment") setActivePopup(null);
+}
+
+export interface ComposerStatusRailEls {
+  railEl: HTMLElement;
+  textEl: HTMLElement;
+  stepPillEl: HTMLElement;
+}
+
+export interface ComposerStatusRailState {
+  kind: string;
+  label: string;
+  stepText: string;
+}
+
+/** Apply computed status-rail state; pass null to hide. */
+export function applyComposerStatusRail(
+  els: ComposerStatusRailEls,
+  state: ComposerStatusRailState | null,
+): void {
+  if (!state) {
+    els.railEl.setAttribute("hidden", "");
+    els.textEl.textContent = "";
+    els.stepPillEl.textContent = "";
+    els.railEl.className = "llm-bridge-composer-status-rail";
+    return;
+  }
+  els.railEl.removeAttribute("hidden");
+  els.railEl.className = `llm-bridge-composer-status-rail is-${state.kind}`;
+  els.textEl.textContent = state.label;
+  els.textEl.setAttribute("title", state.label);
+  els.stepPillEl.textContent = state.stepText;
+  els.stepPillEl.toggleAttribute("hidden", !state.stepText);
+}
+
+/** Bind dragover/dragleave/drop visual + drop callback; ingest stays on View. */
+export function bindComposerFileDragSurface(
+  surface: HTMLElement,
+  onDrop: (event: DragEvent) => void,
+): void {
+  surface.addEventListener("dragover", (event) => {
+    const hasFiles = !!event.dataTransfer?.files?.length
+      || Array.from(event.dataTransfer?.types ?? []).some((type) => /files|uri-list/i.test(type));
+    if (!hasFiles) return;
+    event.preventDefault();
+    surface.addClass("is-dragging-file");
+  });
+  surface.addEventListener("dragleave", () => surface.removeClass("is-dragging-file"));
+  surface.addEventListener("drop", (event) => {
+    event.preventDefault();
+    surface.removeClass("is-dragging-file");
+    onDrop(event);
+  });
 }
 
 /** 空输入时 Backspace 选中/删除附件；有文本时优先删文字 */

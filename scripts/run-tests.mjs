@@ -17500,8 +17500,8 @@ if (!runV214BUnit) {
       const uiOk = viewSrc.includes("type: \"file\"")
         && viewSrc.includes("multiple: \"true\"")
         && viewSrc.includes("addFilesFromFileList")
-        && viewSrc.includes("dragover")
-        && viewSrc.includes("drop")
+        && (viewSrc.includes("dragover") || composerControllerSrcH.includes("dragover"))
+        && (viewSrc.includes("drop") || composerControllerSrcH.includes("export function bindComposerFileDragSurface"))
         && viewSrc.includes("webUtils")
         && viewSrc.includes("getPathForFile")
         && viewSrc.includes("添加文件或图片")
@@ -19595,11 +19595,14 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13: composer 支持 drag/drop、clipboard file，普通 text/plain 不转附件 ----
   {
+    const composerControllerSrcD = readFileSync(join(PROJECT_ROOT, "src", "ui", "composerController.ts"), "utf8");
     const ok = viewSrc.includes('this.inputEl.addEventListener("paste"')
       && viewSrc.includes("private async handleComposerPaste")
       && viewSrc.includes("extractPastedFilePaths")
       && viewSrc.includes("addUserFilePathsToContext")
-      && viewSrc.includes('composer.addEventListener("drop"')
+      && (viewSrc.includes('composer.addEventListener("drop"')
+        || composerControllerSrcD.includes("surface.addEventListener(\"drop\"")
+        || composerControllerSrcD.includes("export function bindComposerFileDragSurface"))
       && viewSrc.includes("composerFileRefsEl")
       && viewSrc.includes("openFileRefPreview")
       && viewSrc.includes("getIndexedVaultFile")
@@ -20815,6 +20818,7 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13ae: V17-G53 waterfall batches + history header + right-aligned user file previews ----
   {
+    const waterfallSrcG53 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
     const ok = viewSrc.includes("private setPageTitleForTab(tab:")
       && viewSrc.includes('this.pageTitleEl.toggleAttribute("hidden", tab === "chat");')
       && viewSrc.includes("private setHistoryPanelExpanded(expanded: boolean): void")
@@ -20822,9 +20826,12 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('this.historyToggleChevronEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-chevron", text: "▶" });')
       && viewSrc.includes('this.historyToggleLabelEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-label", text: "Sessions" });')
       && viewSrc.includes('this.historyToggleCountEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-count", text: "0" });')
-      && viewSrc.includes('const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";')
-      && viewSrc.includes('const bodyItems = leadIsNarrative ? batch.slice(1) : batch;')
-      && viewSrc.includes('text: `${eventCount} ${eventCount === 1 ? "step" : "steps"}`')
+      && (viewSrc.includes('const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";')
+        || waterfallSrcG53.includes('const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";'))
+      && (viewSrc.includes('const bodyItems = leadIsNarrative ? batch.slice(1) : batch;')
+        || waterfallSrcG53.includes('const bodyItems = leadIsNarrative ? batch.slice(1) : batch;'))
+      && (viewSrc.includes('text: `${eventCount} ${eventCount === 1 ? "step" : "steps"}`')
+        || waterfallSrcG53.includes('text: `${eventCount} ${eventCount === 1 ? "step" : "steps"}`'))
       && stylesSrc.includes("V17-G53: waterfall batches, calmer sessions, right-aligned user previews")
       && stylesSrc.includes(".llm-bridge-history-toggle-label")
       && stylesSrc.includes(".llm-bridge-history-toggle-count")
@@ -20840,12 +20847,14 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13af: V17-G54 topbar/composer/history shell surfaces continue converging to Codex ----
   {
     const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+    const waterfallSrcG54 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
     const ok = viewSrc.includes('const historyHead = historyPanel.createDiv({ cls: "llm-bridge-secondary-head llm-bridge-history-page-head" });')
       && (viewSrc.includes('const lineCount = normalized.split(/\\r?\\n/).length;')
         || messageRendererSrc.includes('const lineCount = normalized.split(/\\r?\\n/).length;'))
       && (viewSrc.includes("const shouldCollapse = normalized.length > 1200 || lineCount > 12;")
         || messageRendererSrc.includes("const shouldCollapse = normalized.length > 1200 || lineCount > 12;"))
-      && viewSrc.includes('if (label === "Thinking") return batchSummary ? `Thinking · ${batchSummary}` : "Thinking";')
+      && (viewSrc.includes('if (label === "Thinking") return batchSummary ? `Thinking · ${batchSummary}` : "Thinking";')
+        || waterfallSrcG54.includes('if (label === "Thinking") return batchSummary ? `Thinking · ${batchSummary}` : "Thinking";'))
       && viewSrc.includes('? "Shell"')
       && viewSrc.includes("private formatCodexShellCommandPreview(command?: string): string")
       && viewSrc.includes("const isWrappedShell = /^(?:")

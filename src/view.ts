@@ -81,10 +81,6 @@ import {
   groupCodexFeedBatches,
   isCodexFeedEvent,
   shouldGroupCodexToolEvents,
-  formatCodexToolGroupTitle,
-  formatCodexToolGroupCount,
-  sumCodexEventDuration,
-  codexFeedLeadDevLabel,
 } from "./ui/codexProcessFeed";
 import {
   reconcileCodexRunWaterfall as reconcileCodexRunWaterfallDom,
@@ -93,7 +89,14 @@ import {
   renderCodexFeedThinking as renderCodexFeedThinkingDom,
   renderCodexFeedNarrative as renderCodexFeedNarrativeDom,
   renderCodexFeedEventBlock as renderCodexFeedEventBlockDom,
+  renderCodexFeedBatch as renderCodexFeedBatchDom,
+  renderCodexFeedBatchSummary as renderCodexFeedBatchSummaryDom,
+  renderCodexToolGroup as renderCodexToolGroupDom,
   formatCodexFeedSummary as formatCodexFeedSummaryDom,
+  formatCodexBatchSummary as formatCodexBatchSummaryDom,
+  formatCodexThinkingBatchSummary as formatCodexThinkingBatchSummaryDom,
+  formatCodexThinkingFallbackFromBatch as formatCodexThinkingFallbackFromBatchDom,
+  formatCodexProcessPreview as formatCodexProcessPreviewDom,
   shouldRenderExpandedThinkingLine as shouldRenderExpandedThinkingLineDom,
   type CodexWaterfallPatchDeps,
   type CodexFeedItemRenderDeps,
@@ -132,7 +135,10 @@ import {
   showAttachmentContextMenu as showAttachmentContextMenuDom,
   closeAttachmentContextMenu as closeAttachmentContextMenuDom,
   handleComposerAttachmentKeydown as handleComposerAttachmentKeydownDom,
+  applyComposerStatusRail as applyComposerStatusRailDom,
+  bindComposerFileDragSurface as bindComposerFileDragSurfaceDom,
   type ComposerMenuItemOptions,
+  type ComposerStatusRailState,
 } from "./ui/composerController";
 import {
   approvePendingExternalReadRequest,
@@ -1023,16 +1029,7 @@ export class LLMBridgeView extends ItemView {
     this.attachmentFileInputEl.addClass("llm-bridge-native-file-input");
     this.attachmentFileInputEl.addEventListener("change", () => void this.addNativeSelectedAttachments());
 
-    composer.addEventListener("dragover", (event) => {
-      const hasFiles = !!event.dataTransfer?.files?.length || Array.from(event.dataTransfer?.types ?? []).some((type) => /files|uri-list/i.test(type));
-      if (!hasFiles) return;
-      event.preventDefault();
-      composer.addClass("is-dragging-file");
-    });
-    composer.addEventListener("dragleave", () => composer.removeClass("is-dragging-file"));
-    composer.addEventListener("drop", (event) => {
-      event.preventDefault();
-      composer.removeClass("is-dragging-file");
+    bindComposerFileDragSurfaceDom(composer, (event) => {
       void this.handleComposerDrop(event);
     });
     this.refreshContextRefs();
@@ -5820,35 +5817,11 @@ export class LLMBridgeView extends ItemView {
     batch: ReadonlyArray<CodexRunFeedItem>,
     developerMode: boolean,
   ): void {
-    if (batch.length === 0) return;
-    const lead = batch[0];
-    const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";
-    const bodyItems = leadIsNarrative ? batch.slice(1) : batch;
-    const eventCount = bodyItems.filter((item) => this.isCodexFeedEvent(item)).length;
-    const batchEl = parent.createDiv({
-      cls: `llm-bridge-codex-feed-batch is-${lead.status}${bodyItems.length === 0 ? " is-summary-only" : ""}`,
-    });
-    const summary = batchEl.createDiv({ cls: "llm-bridge-codex-feed-batch-summary" });
-    this.renderCodexFeedBatchSummary(summary, batch, developerMode, eventCount);
-    if (bodyItems.length === 0) return;
-    const body = batchEl.createDiv({ cls: "llm-bridge-codex-feed-batch-body" });
-    if (lead.kind === "thinking" && this.shouldRenderExpandedThinkingLine(lead, developerMode)) {
-      this.renderCodexFeedThinking(body, lead, batch);
-    } else if (lead.kind === "assistant" && developerMode) {
-      this.renderCodexFeedNarrative(body, lead);
-    }
-    if (this.shouldGroupCodexToolEvents(bodyItems)) {
-      this.renderCodexToolGroup(body, bodyItems, developerMode);
-      return;
-    }
-    bodyItems.forEach((item) => {
-      this.renderCodexFeedItem(body, item, developerMode, this.isCodexFeedEvent(item));
-    });
+    renderCodexFeedBatchDom(parent, batch, developerMode, this.codexFeedItemRenderDeps());
   }
 
   private shouldGroupCodexToolEvents(items: ReadonlyArray<CodexRunFeedItem>): boolean {
-    const events = items.filter((item) => this.isCodexFeedEvent(item));
-    return events.length > 1 && events.length === items.length;
+    return shouldGroupCodexToolEvents(items);
   }
 
   private renderCodexToolGroup(
@@ -5856,47 +5829,7 @@ export class LLMBridgeView extends ItemView {
     items: ReadonlyArray<CodexRunFeedItem>,
     developerMode: boolean,
   ): void {
-    const events = items.filter((item) => this.isCodexFeedEvent(item));
-    if (events.length === 0) return;
-    const hasActive = events.some((item) => item.status === "running" || item.status === "pending");
-    const hasFailed = events.some((item) => item.status === "failed");
-    const groupStatus = hasActive ? "running" : hasFailed ? "failed" : "completed";
-    const group = parent.createEl("details", {
-      cls: `llm-bridge-codex-tool-group is-${groupStatus}`,
-    });
-    group.setAttribute("data-step-count", String(events.length));
-
-    const summary = group.createEl("summary", { cls: "llm-bridge-codex-tool-group-summary" });
-    const icon = summary.createEl("span", { cls: "llm-bridge-codex-tool-group-icon" });
-    setIcon(icon, "terminal");
-    const main = summary.createDiv({ cls: "llm-bridge-codex-tool-group-main" });
-    const groupTitle = formatCodexToolGroupTitle(events);
-    main.createEl("span", {
-      cls: "llm-bridge-codex-tool-group-title",
-      text: groupTitle,
-      attr: { title: groupTitle },
-    });
-    const meta = summary.createDiv({ cls: "llm-bridge-codex-tool-group-meta" });
-    if (developerMode) {
-      meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${groupStatus}`, text: groupStatus });
-      const totalDuration = sumCodexEventDuration(events);
-      if (totalDuration) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(totalDuration) });
-      meta.createEl("span", {
-        cls: "llm-bridge-codex-tool-group-count",
-        text: formatCodexToolGroupCount(events),
-      });
-    }
-
-    let bodyRendered = false;
-    const renderBody = () => {
-      if (bodyRendered) return;
-      bodyRendered = true;
-      const body = group.createDiv({ cls: "llm-bridge-codex-tool-group-body" });
-      events.forEach((item) => this.renderCodexFeedItem(body, item, developerMode, true));
-    };
-    group.addEventListener("toggle", () => {
-      if (group.open) renderBody();
-    });
+    renderCodexToolGroupDom(parent, items, developerMode, this.codexFeedItemRenderDeps());
   }
 
   private renderCodexFeedBatchSummary(
@@ -5905,157 +5838,34 @@ export class LLMBridgeView extends ItemView {
     developerMode: boolean,
     eventCount: number,
   ): void {
-    const lead = batch[0];
-    const leadIsThinking = lead.kind === "thinking";
-    const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";
-    const syntheticNarrative = !leadIsNarrative
-      && (lead.kind === "command" || lead.kind === "file" || lead.kind === "mcp" || lead.kind === "dynamic");
-    const batchSummary = leadIsThinking
-      ? this.formatCodexThinkingBatchSummary(batch, developerMode)
-      : lead.kind === "assistant"
-        ? this.formatCodexFeedSummary(lead, developerMode).trim() || this.formatCodexThinkingFallbackFromBatch(batch)
-      : syntheticNarrative
-        ? this.formatCodexThinkingFallbackFromBatch(batch) || this.formatCodexBatchSummary(batch, developerMode)
-      : this.formatCodexBatchSummary(batch, developerMode);
-
-    const textWrap = parent.createDiv({ cls: "llm-bridge-codex-feed-batch-summary-main" });
-    if (developerMode) {
-      const label = leadIsThinking
-        ? "Thinking"
-        : lead.kind === "assistant"
-          ? (lead.label || "说明")
-          : lead.label || "Step";
-      textWrap.createEl("span", { cls: "llm-bridge-codex-feed-batch-label", text: label });
-      if (batchSummary) {
-        textWrap.createEl("span", {
-          cls: "llm-bridge-codex-feed-batch-text",
-          text: truncateText(batchSummary, 420),
-          attr: { title: batchSummary },
-        });
-      } else if (!leadIsNarrative) {
-        textWrap.createEl("span", {
-          cls: "llm-bridge-codex-feed-batch-text",
-          text: truncateText(lead.label || "", 180),
-          attr: { title: lead.label || "" },
-        });
-      }
-    } else if (batchSummary) {
-      // 普通模式：仅真实 reasoning 带思考光效；assistant narrative 是普通文字
-      const isLiveThinking = leadIsThinking
-        && (lead.status === "running" || lead.status === "pending");
-      textWrap.createEl("span", {
-        cls: `llm-bridge-codex-feed-batch-text is-quiet-narrative${isLiveThinking ? " llm-bridge-run-status-text is-running llm-bridge-run-glow" : ""}${lead.kind === "assistant" ? " is-assistant-narrative" : ""}`,
-        text: truncateText(batchSummary, 420),
-        attr: { title: batchSummary },
-      });
-    } else if (!leadIsNarrative && !syntheticNarrative) {
-      textWrap.createEl("span", {
-        cls: "llm-bridge-codex-feed-batch-text",
-        text: truncateText(lead.label || "", 180),
-        attr: { title: lead.label || "" },
-      });
-    } else {
-      // 无摘要的 Thinking 行：不渲染空泛标签
-      parent.addClass("is-empty-narrative");
-      parent.setAttribute("hidden", "");
-    }
-
-    if (developerMode) {
-      const meta = parent.createDiv({ cls: "llm-bridge-codex-feed-batch-meta" });
-      if (eventCount > 0) {
-        meta.createEl("span", {
-          cls: "llm-bridge-codex-feed-batch-count",
-          text: `${eventCount} ${eventCount === 1 ? "step" : "steps"}`,
-        });
-      }
-      meta.createEl("span", { cls: `llm-bridge-codex-feed-batch-status is-${lead.status}`, text: lead.status });
-    }
+    renderCodexFeedBatchSummaryDom(parent, batch, developerMode, eventCount);
   }
 
   private formatCodexBatchSummary(
     batch: ReadonlyArray<CodexRunFeedItem>,
     developerMode: boolean,
   ): string {
-    for (const item of batch) {
-      const summary = this.formatCodexFeedSummary(item, developerMode).trim();
-      if (summary) return summary;
-    }
-    const firstEvent = batch.find((item) => this.isCodexFeedEvent(item));
-    return firstEvent?.label ?? batch[0]?.label ?? "";
+    return formatCodexBatchSummaryDom(batch, developerMode);
   }
 
   private formatCodexThinkingBatchSummary(
     batch: ReadonlyArray<CodexRunFeedItem>,
     developerMode: boolean,
   ): string {
-    const lead = batch[0];
-    if (!lead) return "";
-    const summary = this.formatCodexFeedSummary(lead, developerMode).trim();
-    if (summary) return summary;
-    return this.formatCodexThinkingFallbackFromBatch(batch);
+    return formatCodexThinkingBatchSummaryDom(batch, developerMode);
   }
 
   private formatCodexThinkingFallbackFromBatch(
     batch: ReadonlyArray<CodexRunFeedItem>,
   ): string {
-    const items = batch[0] && (batch[0].kind === "thinking" || batch[0].kind === "assistant")
-      ? batch.slice(1)
-      : batch;
-    const actions = items
-      .map((item) => this.formatCodexThinkingFallbackAction(item))
-      .filter(Boolean);
-    if (actions.length === 0) return "";
-    const loc = resolveUiLocale() === "en" ? "en" : "zh";
-    if (actions.length === 1) return actions[0];
-    if (loc === "zh") {
-      if (actions.length === 2) return `${actions[0]}，然后${actions[1]}`;
-      return `${actions.slice(0, 2).join("，")}，以及另外 ${actions.length - 2} 步`;
-    }
-    if (actions.length === 2) return `${actions[0]}, then ${actions[1]}`;
-    return `${actions.slice(0, 2).join(", ")}, then ${actions.length - 2} more step${actions.length - 2 === 1 ? "" : "s"}`;
-  }
-
-  private formatCodexThinkingFallbackAction(item: CodexRunFeedItem): string {
-    const loc = resolveUiLocale() === "en" ? "en" : "zh";
-    if (item.kind === "assistant") {
-      const text = this.formatCodexFeedSummary(item, false).trim();
-      return text ? truncateText(text, 120) : "";
-    }
-    if (item.kind === "command") return loc === "zh" ? "执行命令" : "run a command";
-    if (item.change) {
-      const fileLabel = item.change.fileName || item.change.relativePath || (loc === "zh" ? "文件" : "a file");
-      if (item.change.action === "create") return loc === "zh" ? `创建 ${fileLabel}` : `create ${fileLabel}`;
-      if (item.change.action === "delete") return loc === "zh" ? `删除 ${fileLabel}` : `delete ${fileLabel}`;
-      return loc === "zh" ? `编辑 ${fileLabel}` : `edit ${fileLabel}`;
-    }
-    if (item.kind === "approval") return loc === "zh" ? "等待确认" : "wait for approval";
-    if (item.kind === "user-input") return loc === "zh" ? "等待输入" : "wait for input";
-    if (item.kind === "mcp") return item.label ? (loc === "zh" ? `使用 ${item.label}` : `use ${item.label}`) : (loc === "zh" ? "使用工具" : "use an MCP tool");
-    if (item.kind === "dynamic") return item.label ? (loc === "zh" ? `使用 ${item.label}` : `use ${item.label}`) : (loc === "zh" ? "使用工具" : "use a tool");
-    if (item.label) return item.label.replace(/\.$/, "");
-    return "";
+    return formatCodexThinkingFallbackFromBatchDom(batch);
   }
 
   private formatCodexProcessPreview(
     batches: ReadonlyArray<ReadonlyArray<CodexRunFeedItem>>,
     developerMode: boolean,
   ): string {
-    for (const batch of batches) {
-      if (!batch.length) continue;
-      const lead = batch[0];
-      const leadIsThinking = lead.kind === "thinking";
-      const label = leadIsThinking
-        ? "Thinking"
-        : lead.kind === "assistant"
-          ? (lead.label || "说明")
-          : lead.label || "Step";
-      const batchSummary = leadIsThinking
-        ? this.formatCodexThinkingBatchSummary(batch, developerMode)
-        : this.formatCodexBatchSummary(batch, developerMode).trim();
-      if (label === "Thinking") return batchSummary ? `Thinking · ${batchSummary}` : "Thinking";
-      if (batchSummary) return batchSummary;
-    }
-    return "";
+    return formatCodexProcessPreviewDom(batches, developerMode);
   }
 
   private renderCodexFeedItem(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean, nestedEvent: boolean): void {
@@ -6105,7 +5915,6 @@ export class LLMBridgeView extends ItemView {
     return {
       developerMode: !!this.plugin.settings.developerMode,
       formatDurationMs: (ms) => this.formatDurationMs(ms),
-      formatCodexThinkingFallbackFromBatch: (batch) => this.formatCodexThinkingFallbackFromBatch(batch),
       localizeRunStatus: (status) => this.localizeRunStatus(status),
       renderMarkdownInto: (host, text) => this.renderMarkdownInto(host, text),
       renderCodexDiffPreview: (parent, diff, diffSummary) => this.renderCodexDiffPreview(parent, diff, diffSummary),
@@ -8306,25 +8115,23 @@ export class LLMBridgeView extends ItemView {
     const compressionText = this.getContextCompressionStatusText();
     const shouldShow = !!turnStatus?.isActive || !!turnStatus?.isContextCompaction || !!compressionText;
 
-    if (!shouldShow) {
-      this.composerStatusRailEl.setAttribute("hidden", "");
-      this.composerStatusTextEl.textContent = "";
-      this.composerStepPillEl.textContent = "";
-      this.composerStatusRailEl.className = "llm-bridge-composer-status-rail";
-      return;
+    let state: ComposerStatusRailState | null = null;
+    if (shouldShow) {
+      const useTurnStatus = !!turnStatus && (turnStatus.isActive || turnStatus.isContextCompaction);
+      state = {
+        kind: useTurnStatus ? turnStatus!.kind : "compressed",
+        label: useTurnStatus ? turnStatus!.label : compressionText ?? "",
+        stepText: useTurnStatus ? turnStatus!.stepText : "",
+      };
     }
-
-    const useTurnStatus = !!turnStatus && (turnStatus.isActive || turnStatus.isContextCompaction);
-    const kind = useTurnStatus ? turnStatus.kind : "compressed";
-    const label = useTurnStatus ? turnStatus.label : compressionText ?? "";
-    this.composerStatusRailEl.removeAttribute("hidden");
-    this.composerStatusRailEl.className = `llm-bridge-composer-status-rail is-${kind}`;
-    this.composerStatusTextEl.textContent = label;
-    this.composerStatusTextEl.setAttribute("title", label);
-
-    const stepText = useTurnStatus ? turnStatus.stepText : "";
-    this.composerStepPillEl.textContent = stepText;
-    this.composerStepPillEl.toggleAttribute("hidden", !stepText);
+    applyComposerStatusRailDom(
+      {
+        railEl: this.composerStatusRailEl,
+        textEl: this.composerStatusTextEl,
+        stepPillEl: this.composerStepPillEl,
+      },
+      state,
+    );
   }
 
   private getLatestAssistantTurnView(): AssistantTurnView | null {
