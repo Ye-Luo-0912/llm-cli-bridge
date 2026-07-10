@@ -19959,11 +19959,15 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13j6: V17-G66 file rows, composer bounds and assistant vault links ----
   {
+    const waterfallSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
     const ok = viewSrc.includes("private bindAssistantMarkdownVaultLinks(")
       && viewSrc.includes("private resolveAssistantMarkdownVaultLink(")
       && viewSrc.includes("private async openVaultFileFromAssistantLink(")
-      && viewSrc.includes("private renderCodexFinalAnswer(")
-      && viewSrc.includes(".then(() => this.bindAssistantMarkdownVaultLinks(body))")
+      && (waterfallSrc.includes("export function upgradeCodexCandidateAnswerInFeed")
+        || viewSrc.includes("upgradeCodexCandidateAnswerInFeed"))
+      && (viewSrc.includes(".then(() => this.bindAssistantMarkdownVaultLinks(host))")
+        || viewSrc.includes(".then(() => this.bindAssistantMarkdownVaultLinks(content))")
+        || viewSrc.includes(".then(() => this.bindAssistantMarkdownVaultLinks(body))"))
       && viewSrc.includes("未在 Vault 中找到可打开的文件")
       && viewSrc.includes('item.change')
       && viewSrc.includes('? "已编辑 1 个文件"')
@@ -20649,6 +20653,7 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13ac: V17-G39 run hierarchy separates process from final answer ----
   {
+    const waterfallSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
     const ok = viewSrc.includes('const processFeedItems = run.feedItems;')
       && viewSrc.includes('const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);')
       && viewSrc.includes('const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;')
@@ -20667,19 +20672,21 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("text: `${processEventCount} ${processEventCount === 1 ? \"step\" : \"steps\"}`,")
       && viewSrc.includes('text: showFeed && presentation.kind !== "assistant-running" ? "▾" : "",')
       && viewSrc.includes("禁止自动折叠：过程体始终可见")
-      && (viewSrc.includes("ensureCodexFinalAnswerNode") || viewSrc.includes("upgradeCodexCandidateAnswerInFeed"))
+      && (viewSrc.includes("upgradeCodexCandidateAnswerInFeed") || waterfallSrc.includes("upgradeCodexCandidateAnswerInFeed"))
       && viewSrc.includes("patchCodexRunViewInPlace")
-      && (viewSrc.includes("private renderCodexFinalAnswer(parent: HTMLElement, text: string): void {")
-        || viewSrc.includes("upgradeCodexCandidateAnswerInFeed"))
-      && (viewSrc.includes('section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Answer" });')
-        || viewSrc.includes("upgradeCodexCandidateAnswerInFeed")
-        || viewSrc.includes("is-final-candidate"))
+      && viewSrc.includes("reconcileCodexRunWaterfall")
+      && (waterfallSrc.includes("export function reconcileCodexRunWaterfall")
+        || viewSrc.includes("private reconcileCodexRunWaterfall("))
+      && (waterfallSrc.includes("export function patchCodexFeedStable")
+        || viewSrc.includes("patchCodexFeedStable"))
+      && (waterfallSrc.includes("is-final-candidate")
+        || viewSrc.includes("is-final-candidate")
+        || viewSrc.includes("is-answer-candidate"))
       && viewSrc.includes("private renderCodexFeedBatch(")
       && viewSrc.includes("private renderCodexFeedBatchSummary(")
       && viewSrc.includes("private renderCodexFeedNarrative(parent: HTMLElement, item: CodexRunFeedItem): void {")
       && viewSrc.includes("private formatCodexBatchSummary(")
       && viewSrc.includes("private formatCodexProcessPreview(")
-      && viewSrc.includes("patchCodexFeedStable")
       && !viewSrc.includes('label: "Output"')
       && viewSrc.includes('setIcon(this.clearBtn.createEl("span", { cls: "llm-bridge-icon" }), "plus");')
       && viewSrc.includes('setIcon(refreshHistBtn.createEl("span", { cls: "llm-bridge-icon" }), "refresh-cw");')

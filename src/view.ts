@@ -88,6 +88,12 @@ import {
   codexFeedLeadDevLabel,
 } from "./ui/codexProcessFeed";
 import {
+  reconcileCodexRunWaterfall as reconcileCodexRunWaterfallDom,
+  upgradeCodexCandidateAnswerInFeed as upgradeCodexCandidateAnswerInFeedDom,
+  codexFeedItemKey,
+  type CodexWaterfallPatchDeps,
+} from "./ui/codexWaterfallRenderer";
+import {
   approvePendingExternalReadRequest,
   createFileAccessPolicy,
   createPendingExternalReadRequest,
@@ -6185,7 +6191,7 @@ export class LLMBridgeView extends ItemView {
 
     // candidate 升级已并入 reconcileCodexRunWaterfall；无 feed 时仍兜底一次
     if (hasAnswer && processFeedItems.length === 0) {
-      this.upgradeCodexCandidateAnswerInFeed(body, run.finalAnswer, presentation.kind === "assistant-running");
+      upgradeCodexCandidateAnswerInFeedDom(body, run.finalAnswer, presentation.kind === "assistant-running", this.codexWaterfallDeps());
     }
     if (hasDeveloperDebug) this.renderAgentRunDebugDrawer(body, run.debugPanel!);
 
@@ -6218,25 +6224,6 @@ export class LLMBridgeView extends ItemView {
     const activity = parent.createDiv({ cls: `llm-bridge-codex-current-activity is-${run.currentActivity.kind}` });
     const text = activity.createEl("span", { cls: "llm-bridge-codex-current-activity-text" });
     this.renderRunStatusText(text, run.currentActivity.label, run.currentActivity.kind === "blocked" ? "blocked" : run.currentActivity.kind === "running" ? "running" : "completed");
-  }
-
-  private renderCodexFinalAnswer(parent: HTMLElement, text: string): void {
-    const normalized = text.trim();
-    if (!normalized) return;
-    const section = parent.createDiv({ cls: "llm-bridge-codex-final-answer" });
-    section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Answer" });
-    const body = section.createDiv({ cls: "llm-bridge-codex-final-answer-body llm-bridge-msg-markdown" });
-    const fallback = () => {
-      body.empty();
-      body.textContent = normalized;
-    };
-    try {
-      void MarkdownRenderer.render(this.app, normalized, body, "", this)
-        .then(() => this.bindAssistantMarkdownVaultLinks(body))
-        .catch(fallback);
-    } catch {
-      fallback();
-    }
   }
 
   /** 复用固定 approval-gates-host，避免增量刷新堆积空 host */
@@ -8645,109 +8632,24 @@ export class LLMBridgeView extends ItemView {
     });
   }
 
-  private codexFeedItemKey(item: CodexRunFeedItem): string {
-    const itemId = item.sourceRef?.itemId || item.id;
-    const seq = item.sourceRef?.sequence;
-    return seq !== undefined ? `seq:${seq}:${itemId}` : itemId;
-  }
-
-  private isCodexImageFeedItem(item: CodexRunFeedItem): boolean {
-    if (item.icon === "image") return true;
-    const blob = `${item.label} ${item.summary || ""} ${item.step?.label || ""}`;
-    return /imageview|viewing image|viewed image|分析图片|查看图片/i.test(blob);
-  }
-
-  /** 初渲/增量共用：按时间线顺序分组，不按类型重排 */
-  private groupCodexFeedRenderEntries(
-    items: ReadonlyArray<CodexRunFeedItem>,
-  ): Array<
-    | { kind: "item"; key: string; item: CodexRunFeedItem }
-    | { kind: "tool-group"; key: string; groupKind: "command" | "image"; items: CodexRunFeedItem[] }
-  > {
-    const entries: Array<
-      | { kind: "item"; key: string; item: CodexRunFeedItem }
-      | { kind: "tool-group"; key: string; groupKind: "command" | "image"; items: CodexRunFeedItem[] }
-    > = [];
-    let i = 0;
-    while (i < items.length) {
-      const item = items[i];
-      if (item.kind === "command") {
-        const group: CodexRunFeedItem[] = [];
-        const startKey = this.codexFeedItemKey(item);
-        while (i < items.length && items[i].kind === "command") {
-          group.push(items[i]);
-          i += 1;
-        }
-        if (group.length >= 2) {
-          entries.push({ kind: "tool-group", key: `group:command:${startKey}`, groupKind: "command", items: group });
-        } else {
-          entries.push({ kind: "item", key: startKey, item: group[0] });
-        }
-        continue;
-      }
-      if (this.isCodexImageFeedItem(item)) {
-        const group: CodexRunFeedItem[] = [];
-        const startKey = this.codexFeedItemKey(item);
-        while (i < items.length && this.isCodexImageFeedItem(items[i])) {
-          group.push(items[i]);
-          i += 1;
-        }
-        entries.push({ kind: "tool-group", key: `group:image:${startKey}`, groupKind: "image", items: group });
-        continue;
-      }
-      entries.push({ kind: "item", key: this.codexFeedItemKey(item), item });
-      i += 1;
-    }
-    return entries;
+  private codexWaterfallDeps(): CodexWaterfallPatchDeps {
+    return {
+      patchEntryItem: (entry, item, developerMode) => this.patchCodexFeedEntryItem(entry, item, developerMode),
+      patchEntryToolGroup: (entry, groupKind, items, developerMode) =>
+        this.patchCodexFeedEntryToolGroup(entry, groupKind, items, developerMode),
+      renderMarkdownInto: (host, text) => this.renderMarkdownInto(host, text),
+    };
   }
 
   /**
-   * 真正的 keyed reconciliation：
-   * - 顺序 = sourceRef.sequence + itemId（由 feed 原序 + 稳定 key 保证）
-   * - 已有节点 insertBefore 移到正确位置，保留 DOM 身份/展开态/内容
-   * - 初渲与增量共用 groupCodexFeedRenderEntries
+   * 初渲与增量共用的瀑布流 reconcile 主入口（实现见 src/ui/codexWaterfallRenderer.ts）。
    */
-  private patchCodexFeedStable(
-    list: HTMLElement,
-    items: ReadonlyArray<CodexRunFeedItem>,
-    developerMode: boolean,
+  private reconcileCodexRunWaterfall(
+    processBody: HTMLElement,
+    run: CodexRunViewModel,
+    options: { streaming: boolean; developerMode: boolean },
   ): void {
-    const entries = this.groupCodexFeedRenderEntries(items);
-    const desiredKeys = new Set(entries.map((entry) => entry.key));
-    const existingByKey = new Map<string, HTMLElement>();
-    Array.from(list.children).forEach((child) => {
-      if (!(child instanceof HTMLElement)) return;
-      const key = child.getAttribute("data-feed-key");
-      if (key) existingByKey.set(key, child);
-    });
-
-    for (let index = 0; index < entries.length; index++) {
-      const entry = entries[index];
-      const anchor = list.children[index] as HTMLElement | undefined;
-      let node = existingByKey.get(entry.key);
-      if (!node) {
-        node = list.createDiv({
-          cls: "llm-bridge-codex-feed-entry",
-          attr: { "data-feed-key": entry.key },
-        });
-        existingByKey.set(entry.key, node);
-      }
-      if (anchor !== node) {
-        list.insertBefore(node, anchor ?? null);
-      }
-      if (entry.kind === "item") {
-        this.patchCodexFeedEntryItem(node, entry.item, developerMode);
-      } else {
-        this.patchCodexFeedEntryToolGroup(node, entry.groupKind, entry.items, developerMode);
-      }
-    }
-
-    // 移除不再存在的节点（不触碰仍在 desired 中的节点）
-    Array.from(list.children).forEach((child) => {
-      if (!(child instanceof HTMLElement)) return;
-      const key = child.getAttribute("data-feed-key");
-      if (!key || !desiredKeys.has(key)) child.remove();
-    });
+    reconcileCodexRunWaterfallDom(processBody, run, options, this.codexWaterfallDeps());
   }
 
   private patchCodexFeedEntryItem(
@@ -8881,7 +8783,7 @@ export class LLMBridgeView extends ItemView {
     }
 
     this.codexToolGroupMembers.set(group, { items, developerMode });
-    group.setAttribute("data-member-ids", items.map((item) => this.codexFeedItemKey(item)).join("|"));
+    group.setAttribute("data-member-ids", items.map((item) => codexFeedItemKey(item)).join("|"));
 
     // 已展开：局部更新 body 成员（keyed），保留已渲染内容身份
     if (group.open) {
@@ -8902,7 +8804,7 @@ export class LLMBridgeView extends ItemView {
     items: ReadonlyArray<CodexRunFeedItem>,
     developerMode: boolean,
   ): void {
-    const desiredKeys = items.map((item) => this.codexFeedItemKey(item));
+    const desiredKeys = items.map((item) => codexFeedItemKey(item));
     const existingByKey = new Map<string, HTMLElement>();
     Array.from(body.children).forEach((child) => {
       if (!(child instanceof HTMLElement)) return;
@@ -8911,7 +8813,7 @@ export class LLMBridgeView extends ItemView {
     });
     for (let index = 0; index < items.length; index++) {
       const item = items[index];
-      const key = this.codexFeedItemKey(item);
+      const key = codexFeedItemKey(item);
       const anchor = body.children[index] as HTMLElement | undefined;
       let node = existingByKey.get(key);
       if (!node) {
@@ -8934,72 +8836,6 @@ export class LLMBridgeView extends ItemView {
     const active = items.some((item) => item.status === "running" || item.status === "pending");
     if (loc === "zh") return active ? "正在分析图片" : items.length > 1 ? `已查看 ${items.length} 张图片` : "已查看图片";
     return active ? "Viewing image" : items.length > 1 ? `Viewed ${items.length} images` : "Viewed image";
-  }
-
-  /**
-   * 初渲与增量共用的瀑布流 reconcile：
-   * 确保 feed list 存在 → keyed patch → candidate 原地升级 Markdown。
-   * 不创建独立 Final Answer 副本。
-   */
-  private reconcileCodexRunWaterfall(
-    processBody: HTMLElement,
-    run: CodexRunViewModel,
-    options: { streaming: boolean; developerMode: boolean },
-  ): void {
-    let feedList = processBody.querySelector<HTMLElement>(".llm-bridge-codex-feed-list");
-    if (!feedList) {
-      const section = processBody.createDiv({ cls: "llm-bridge-codex-feed llm-bridge-codex-changes-panel" });
-      feedList = section.createDiv({ cls: "llm-bridge-codex-feed-list llm-bridge-codex-step-list" });
-    }
-    this.patchCodexFeedStable(feedList, run.feedItems, options.developerMode);
-    const text = run.finalAnswer.trim();
-    if (!text) return;
-    const body = processBody.closest<HTMLElement>(".llm-bridge-codex-run-body") || processBody;
-    this.upgradeCodexCandidateAnswerInFeed(body, text, options.streaming);
-  }
-
-  /**
-   * 单瀑布流：在 feed 的 candidate 节点上更新/升级最终回答。
-   * 不创建独立 .llm-bridge-codex-final-answer 副本。
-   */
-  private upgradeCodexCandidateAnswerInFeed(body: HTMLElement, text: string, streaming: boolean): void {
-    const normalized = text.trim();
-    if (!normalized) return;
-    // 清理历史独立 Final Answer 副本（旧会话 DOM）
-    body.querySelectorAll(".llm-bridge-codex-final-answer").forEach((el) => el.remove());
-
-    const candidate = body.querySelector<HTMLElement>(
-      '.llm-bridge-codex-feed-entry.is-answer-candidate, .llm-bridge-codex-thinking-line.is-final-candidate, [data-answer-role="candidate"]',
-    );
-    if (!candidate) return;
-
-    const line = candidate.classList.contains("llm-bridge-codex-thinking-line")
-      ? candidate
-      : candidate.querySelector<HTMLElement>(".llm-bridge-codex-thinking-line") || candidate;
-
-    if (streaming) {
-      let stream = line.querySelector<HTMLElement>(".llm-bridge-msg-stream-text");
-      const md = line.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
-      if (md) md.remove();
-      if (!stream) {
-        stream = line.createEl("span", { cls: "llm-bridge-msg-stream-text llm-bridge-codex-thinking-summary is-multiline" });
-      }
-      stream.textContent = normalized.length > 1200 ? `${normalized.slice(0, 1200).trimEnd()}...` : normalized;
-      stream.setAttribute("title", normalized);
-      return;
-    }
-
-    line.querySelectorAll(".llm-bridge-msg-stream-text").forEach((el) => el.remove());
-    line.classList.remove("is-thinking-live");
-    line.classList.add("is-thinking-done");
-    let md = line.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
-    if (!md) md = line.createDiv({ cls: "llm-bridge-codex-answer-body llm-bridge-msg-markdown" });
-    this.renderMarkdownInto(md, normalized);
-  }
-
-  /** @deprecated 保留空壳避免旧测试字符串匹配失败；实际走 upgradeCodexCandidateAnswerInFeed */
-  private ensureCodexFinalAnswerNode(body: HTMLElement, text: string, streaming: boolean): void {
-    this.upgradeCodexCandidateAnswerInFeed(body, text, streaming);
   }
 
   private appendAssistantContentDelta(id: string, delta: string): void {

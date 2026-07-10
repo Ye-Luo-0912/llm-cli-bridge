@@ -51,9 +51,10 @@ Structure-only first: **no visual/behavior change**, Obsidian native DOM only (n
 
 **Agent A (Message / Waterfall)**
 
-- `renderCodexFeed*`, `patchCodexFeed*`, `groupCodexFeedBatches` / `codexProcessFeed` → waterfall module
-- `upgradeCodexCandidateAnswerInFeed` (in-place Markdown); keep `ensureCodexFinalAnswerNode` as thin deprecated shim only if tests still need the name
-- `renderMessage*`, `renderMessageContent`, `appendUserMessage`
+- `renderCodexFeed*`, `patchCodexFeed*` item/tool-group patches remain on `LLMBridgeView` for now
+- **Round 1 done:** `reconcileCodexRunWaterfall` / `patchCodexFeedStable` / `upgradeCodexCandidateAnswerInFeed` → `src/ui/codexWaterfallRenderer.ts` (single reconcile entry; keys/expand/candidate identity preserved)
+- deleted dead `renderCodexFinalAnswer` + `ensureCodexFinalAnswerNode` shims
+- `renderMessage*`, `renderMessageContent`, `appendUserMessage` → Round 2 MessageRenderer
 
 **Agent C (Composer)**
 
