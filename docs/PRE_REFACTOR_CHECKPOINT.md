@@ -9,9 +9,9 @@
 | Gate | Result | Notes |
 |------|--------|-------|
 | `npm run build` | PASS | tsc + `build-styles` + esbuild |
-| `npm run test:unit` | **1190 passed**, 0 failed, 25 skipped | includes approval-profile + waterfall guards |
+| `npm run test:unit` | **1191 passed**, 0 failed, 25 skipped | includes approval-profile + waterfall + composer guards |
 | `npm run test:process` | **233 passed**, 0 failed, 56 skipped | |
-| `npm run test:presentation` | **7 passed**, 0 failed | `scripts/presentation/` semantic suite |
+| `npm run test:presentation` | **8 passed**, 0 failed | `scripts/presentation/` semantic suite |
 | Obsidian deploy + reload | **PASS** | `deploy-to-obsidian.ps1` → both vault plugin dirs; SHA-256 of `main.js` matched repo; CDP `plugin:reload` → **v2.18.0**; bridge health OK on live vault `D:\Users\Ye_Luo\APP\Obsidian\LLM-Wiki` (Obsidian restarted with `--remote-debugging-port=9223`) |
 
 ## Semantic invariants (do not regress)
@@ -57,6 +57,7 @@ Structure-only first: **no visual/behavior change**, Obsidian native DOM only (n
 - **Round 2 done:** `renderMessage` / `renderMessageContent` / actions / error / suppress helpers → `src/ui/messageRenderer.ts` (View keeps thin wrappers + fileRefs/details/actions orchestration)
 - `appendMsgDetails` / `updateAssistantMessage` / `renderMessageFileRefs` remain on View for now
 - Round 3: ComposerController
+- **Round 3 done:** menu surfaces / permission popover DOM / model-effort options+labels / attachment tokens / autoGrow → `src/ui/composerController.ts` (View keeps settings mutation, paste/drop, popup orchestration)
 
 **Agent C (Composer)**
 
