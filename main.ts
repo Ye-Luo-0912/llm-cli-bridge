@@ -6,6 +6,10 @@ import { DataAdapter, Editor, Notice, Plugin, TFile, TFolder, WorkspaceLeaf } fr
 import { LLMBridgeSettingTab } from "./src/settings";
 import { AgentSkillDocumentView, LLMBridgeView, VIEW_TYPE_AGENT_SKILL_DOCUMENT, VIEW_TYPE_LLM_BRIDGE } from "./src/view";
 import { DEFAULT_SETTINGS, LLMBridgeSettings } from "./src/types";
+import {
+  isAgentApprovalProfile,
+  migrateLegacyPermissionToApprovalProfile,
+} from "./src/agentApprovalProfile";
 import { OutboxWatcher } from "./src/outbox";
 import { BridgeInfo, BridgeWriteResult, HttpBridge } from "./src/httpServer";
 import { writeHelperAndWrappers } from "./src/toolsWriter";
@@ -540,6 +544,12 @@ export default class LLMBridgePlugin extends Plugin {
     // V17-F0 任务 C：迁移旧的 "codex" → "codex-app-server-external"（保留用户选择，不强制改 auto）
     if ((this.settings as { backendMode?: string }).backendMode === "codex") {
       this.settings.backendMode = "codex-app-server-external";
+      await this.saveData(this.settings);
+    }
+    // agentApprovalProfile：旧数据统一回到「请求批准」，不把 bypassPermissions 静默升级为完全访问
+    const raw = this.settings as { agentApprovalProfile?: unknown };
+    if (!isAgentApprovalProfile(raw.agentApprovalProfile)) {
+      this.settings.agentApprovalProfile = migrateLegacyPermissionToApprovalProfile(this.settings.claudePermissionMode);
       await this.saveData(this.settings);
     }
   }

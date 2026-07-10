@@ -5,7 +5,13 @@ import type LLMBridgePlugin from "../main";
 import { execFileSync } from "child_process";
 import { existsSync } from "fs";
 import { join } from "path";
-import { AgentType, BackendMode, BackendProfile, ClaudePermissionMode, PermissionPolicy, PiToolMode } from "./types";
+import { AgentType, BackendMode, BackendProfile, PermissionPolicy, PiToolMode } from "./types";
+import {
+  AGENT_APPROVAL_PROFILES,
+  isAgentApprovalProfile,
+  mapAgentApprovalProfileToClaudePermissionMode,
+  type AgentApprovalProfile,
+} from "./agentApprovalProfile";
 
 export class LLMBridgeSettingTab extends PluginSettingTab {
   plugin: LLMBridgePlugin;
@@ -135,23 +141,45 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("权限模式 (--permission-mode)")
-      .setDesc("SDK 与 CLI 共用的权限模式。default=默认询问；acceptEdits=自动接受编辑；plan=只读规划；auto=自动决策；dontAsk=不询问；bypassPermissions=跳过所有权限（危险）。默认 default。风险说明见面板状态栏。")
+      .setName("Agent 审批画像")
+      .setDesc("请求批准 / 替我审批 / 完全访问。Codex 由此映射 approvalPolicy、approvalsReviewer 与 sandbox；完全访问需在面板中显式确认。计划模式已移出权限菜单（Claude 可在下方单独设置）。")
       .addDropdown((d) => {
-        d.addOption("default", "default（默认询问）");
-        d.addOption("acceptEdits", "acceptEdits（自动接受编辑）");
-        d.addOption("plan", "plan（只读规划）");
-        d.addOption("auto", "auto（自动决策）");
-        d.addOption("dontAsk", "dontAsk（不询问，危险）");
-        d.addOption("bypassPermissions", "bypassPermissions（跳过权限，危险）");
-        d.setValue(s.claudePermissionMode);
+        for (const profile of AGENT_APPROVAL_PROFILES) {
+          d.addOption(profile.id, `${profile.title} — ${profile.description}`);
+        }
+        const current = isAgentApprovalProfile(s.agentApprovalProfile) ? s.agentApprovalProfile : "ask";
+        d.setValue(current);
         d.onChange(async (v) => {
-          s.claudePermissionMode = v as ClaudePermissionMode;
+          const profile = v as AgentApprovalProfile;
+          if (profile === "full-access") {
+            // 设置页不静默启用完全访问；提示用户在面板权限菜单中确认
+            new Notice("完全访问需在聊天面板权限菜单中显式确认后启用。");
+            d.setValue(isAgentApprovalProfile(s.agentApprovalProfile) ? s.agentApprovalProfile : "ask");
+            return;
+          }
+          s.agentApprovalProfile = profile;
+          s.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode(profile);
           await this.plugin.saveSettings();
-          // V2.11.1: 权限模式影响状态栏显示，通知 view 刷新
           this.plugin.refreshBridgeView();
         });
       });
+
+    new Setting(containerEl)
+      .setName("Claude 计划模式")
+      .setDesc("仅 Claude：开启后使用 --permission-mode plan（只读规划）。不影响 Codex 审批画像。")
+      .addToggle((t) =>
+        t.setValue(s.claudePermissionMode === "plan").onChange(async (v) => {
+          if (v) {
+            s.claudePermissionMode = "plan";
+          } else if (s.claudePermissionMode === "plan") {
+            s.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode(
+              isAgentApprovalProfile(s.agentApprovalProfile) ? s.agentApprovalProfile : "ask",
+            );
+          }
+          await this.plugin.saveSettings();
+          this.plugin.refreshBridgeView();
+        }),
+      );
 
     new Setting(containerEl)
       .setName("额外参数 (extra args)")

@@ -206,6 +206,14 @@ export interface CodexAppServerEffectiveRunPlan extends BaseEffectiveRunPlan {
   backend: "codex-app-server";
   /** bridgeSystemAppend 的承载层（审计用：标记它走了哪个 codex 字段） */
   instructionsSource: "instructions" | "config" | "rules" | "provider-preamble";
+  /** 实际生效的审批画像（provider-neutral） */
+  approvalProfile: import("./agentApprovalProfile").AgentApprovalProfile;
+  /** 映射后的 Codex approvalPolicy */
+  approvalPolicy: string;
+  /** 映射后的 approvalsReviewer */
+  approvalsReviewer: string;
+  /** 映射后的 sandbox 字符串 */
+  sandbox: string;
 }
 
 /**
@@ -300,6 +308,11 @@ export interface LLMBridgeSettings {
   claudeResumeSessionId: string;
   claudePermissionMode: ClaudePermissionMode;
   claudeExtraArgs: string;
+  /**
+   * provider-neutral 审批画像（请求批准 / 替我审批 / 完全访问）。
+   * Codex 由此映射 approvalPolicy/sandbox；不再用 claudePermissionMode 驱动 Codex。
+   */
+  agentApprovalProfile: import("./agentApprovalProfile").AgentApprovalProfile;
   // V2.1: 被禁用的 skill 名称列表（数据驱动，skills 从 .llm-bridge/skills.md 读取）
   disabledSkills: string[];
   // V2.3: 权限策略（low/medium/high，控制修改类操作的授权门槛）
@@ -352,6 +365,7 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   claudeResumeSessionId: "",
   claudePermissionMode: "default",
   claudeExtraArgs: "",
+  agentApprovalProfile: "ask",
   // V2.1: 默认所有 skill 启用
   disabledSkills: [],
   // V2.3: 默认标准策略（medium 风险需本轮授权，读操作自动允许）

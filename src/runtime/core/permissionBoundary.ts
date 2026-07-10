@@ -52,10 +52,17 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
    * 用户取消。resolvedMap 缓存真实 response，waitForApproval 命中时返回真实决策。
    */
   private readonly resolvedMap = new Map<string, { response: ApprovalResponse; source: "user" | "session_allow" | "session_deny" | "mode" }>();
+  /** Codex：native-pending，不走 Claude decideByMode */
+  readonly strategy: "claude-mode" | "native-pending";
 
-  constructor(mode: ClaudePermissionMode, policy: PermissionPolicy) {
+  constructor(
+    mode: ClaudePermissionMode,
+    policy: PermissionPolicy,
+    strategy: "claude-mode" | "native-pending" = "claude-mode",
+  ) {
     this.mode = mode;
     this.policy = policy;
+    this.strategy = strategy;
   }
 
   get pending(): ReadonlyMap<string, ApprovalRequest> { return this.pendingMap; }
@@ -91,7 +98,12 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
     if (checkSessionAllow(this.allowsList, req.toolName, riskAssessment, {})) {
       return "auto-allow";
     }
-    // 2. 按 permissionMode 自动决策
+    // Codex：交给 runtime 原生审批协议，不复用 Claude decideByMode
+    if (this.strategy === "native-pending") {
+      this.pendingMap.set(req.requestId, req);
+      return "pending";
+    }
+    // 2. 按 permissionMode 自动决策（仅 Claude）
     const decision = decideByMode(this.mode, riskAssessment);
     if (decision.behavior === "allow") {
       return "auto-allow";
@@ -233,12 +245,14 @@ export class PermissionBoundaryImpl implements PermissionBoundary {
 /**
  * 创建一个会话级 PermissionBoundary。
  *
- * @param mode Claude permissionMode（default/acceptEdits/plan/auto/dontAsk/bypassPermissions）
- * @param policy 权限策略（low/medium/high，目前仅记录，决策以 mode 为主）
+ * @param mode Claude permissionMode（仅 claude-mode 策略使用）
+ * @param policy 权限策略（low/medium/high，目前仅记录）
+ * @param strategy claude-mode=走 decideByMode；native-pending=Codex 原生审批（始终 pending）
  */
 export function createPermissionBoundary(
   mode: ClaudePermissionMode,
   policy: PermissionPolicy,
+  strategy: "claude-mode" | "native-pending" = "claude-mode",
 ): PermissionBoundaryImpl {
-  return new PermissionBoundaryImpl(mode, policy);
+  return new PermissionBoundaryImpl(mode, policy, strategy);
 }

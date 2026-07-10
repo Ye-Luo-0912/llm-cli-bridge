@@ -1,4 +1,4 @@
-import { execFileSync, execFile } from "child_process";
+import { execFile } from "child_process";
 import { promisify } from "util";
 import { existsSync, readdirSync, readFileSync, statSync } from "fs";
 import { join } from "path";
@@ -132,6 +132,7 @@ function firstNonEmptyMarkdownLine(raw: string): string {
 }
 
 export function listManagedCodexPlugins(pluginDir: string): CodexManagedPluginCatalog {
+  // 同步路径禁止 execFileSync（会冻主线程）；仅做热路径 resolve，插件列表请用 Async 版本。
   const manifestPath = resolveManifestPath(pluginDir);
   const resolver = resolveManagedRuntime(manifestPath);
   if (!resolver.available || !resolver.runtimePath) {
@@ -142,34 +143,12 @@ export function listManagedCodexPlugins(pluginDir: string): CodexManagedPluginCa
       error: resolver.error || `managed runtime unavailable: ${resolver.reason}`,
     };
   }
-
-  try {
-    const raw = execFileSync(resolver.runtimePath, ["plugin", "list", "--json"], {
-      encoding: "utf8",
-      windowsHide: true,
-      timeout: 15000,
-    });
-    const parsed = JSON.parse(raw) as RawPluginListResult;
-    const entries = Array.isArray(parsed.installed)
-      ? parsed.installed
-        .map((item) => normalizePluginEntry((item || {}) as RawPluginEntry))
-        .filter((item): item is CodexManagedPluginEntry => !!item)
-        .sort((a, b) => a.name.localeCompare(b.name))
-      : [];
-    return {
-      available: true,
-      runtimePath: resolver.runtimePath,
-      entries,
-      error: null,
-    };
-  } catch (error) {
-    return {
-      available: false,
-      runtimePath: resolver.runtimePath,
-      entries: [],
-      error: error instanceof Error ? error.message : String(error),
-    };
-  }
+  return {
+    available: true,
+    runtimePath: resolver.runtimePath,
+    entries: [],
+    error: "listManagedCodexPlugins sync is deprecated; use listManagedCodexPluginsAsync",
+  };
 }
 
 const execFileAsync = promisify(execFile);

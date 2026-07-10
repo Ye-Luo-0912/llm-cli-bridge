@@ -241,6 +241,30 @@ export function codexBridgeSkillPathForSlug(slug: string, codexHome: string = re
   return path.join(codexHome, "skills", codexBridgeSkillDirName(slug), AGENT_SKILL_FILE_NAME);
 }
 
+/**
+ * 仅当目标目录名严格等于 `llm-bridge-<slug>` 时，允许将旧 source-id 迁移到当前 manifest。
+ * 其他插件或手工 Skill（目录名不符）必须继续报冲突、绝不覆盖。
+ */
+export function isBridgeOwnedSkillDirectory(filePath: string, slug: string): boolean {
+  const dirName = path.basename(path.dirname(filePath));
+  return dirName === codexBridgeSkillDirName(slug);
+}
+
+/**
+ * 插件生成 + 目录归属匹配时，允许旧 source-id 迁移（覆盖写入新 marker）。
+ */
+export function canMigrateBridgeSkillOwnership(
+  existingContent: string,
+  filePath: string,
+  slug: string,
+  nextSourceId: string,
+): boolean {
+  const marker = parseGeneratedMarker(existingContent);
+  if (!marker || marker.generatedBy !== AGENT_SKILL_GENERATED_BY) return false;
+  if (marker.sourceId === nextSourceId) return false; // 同 ID 走常规更新/跳过，不算迁移
+  return isBridgeOwnedSkillDirectory(filePath, slug);
+}
+
 export function computeAgentSkillSourceHash(record: Pick<AgentSkillRecord, "name" | "description" | "instructions">): string {
   return sha256(JSON.stringify({
     name: record.name,
@@ -317,15 +341,18 @@ export function materializeAgentSkillToTarget(
       if (marker && marker.generatedBy === AGENT_SKILL_GENERATED_BY) {
         // Agent Skill 格式（source-id marker）
         if (marker.sourceId !== normalized.id) {
-          return conflict(nextRecord, filePath, "target SKILL.md belongs to another Agent Skill record");
-        }
-        if (options.expectedHash && sha256(existing) !== options.expectedHash) {
+          // P0: 仅 llm-bridge-<slug> 目录允许旧 source-id → 当前 manifest 迁移
+          if (!isBridgeOwnedSkillDirectory(filePath, normalized.slug)) {
+            return conflict(nextRecord, filePath, "target SKILL.md belongs to another Agent Skill record");
+          }
+          // fall through → 覆盖写入（ownership migration）
+        } else if (options.expectedHash && sha256(existing) !== options.expectedHash) {
           return conflict(nextRecord, filePath, "target SKILL.md changed after last materialization");
         }
-        if (existing === nextContent) {
+        if (marker.sourceId === normalized.id && existing === nextContent) {
           skipped = true;
         }
-        // 内容不同 → 更新（fall through 到写入）
+        // 内容不同或 ID 迁移 → 更新（fall through 到写入）
       } else if (isLegacyPluginGeneratedSkill(existing)) {
         // 旧 runtime 格式（source-slug marker）→ 自动升级为 Agent Skill 格式（fall through 到写入）
       } else {
@@ -601,12 +628,13 @@ export async function materializeAgentSkillToTargetAsync(
       const marker = parseGeneratedMarker(existing);
       if (marker && marker.generatedBy === AGENT_SKILL_GENERATED_BY) {
         if (marker.sourceId !== normalized.id) {
-          return conflict(nextRecord, filePath, "target SKILL.md belongs to another Agent Skill record");
-        }
-        if (options.expectedHash && sha256(existing) !== options.expectedHash) {
+          if (!isBridgeOwnedSkillDirectory(filePath, normalized.slug)) {
+            return conflict(nextRecord, filePath, "target SKILL.md belongs to another Agent Skill record");
+          }
+        } else if (options.expectedHash && sha256(existing) !== options.expectedHash) {
           return conflict(nextRecord, filePath, "target SKILL.md changed after last materialization");
         }
-        if (existing === nextContent) {
+        if (marker.sourceId === normalized.id && existing === nextContent) {
           skipped = true;
         }
       } else if (isLegacyPluginGeneratedSkill(existing)) {

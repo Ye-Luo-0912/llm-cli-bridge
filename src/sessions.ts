@@ -55,8 +55,10 @@ export interface PersistedSession {
   effortLevel?: string;
   /** backend 模式 auto/cli/sdk/mock */
   backendMode?: string;
-  /** SDK 权限模式 */
+  /** SDK 权限模式（legacy；新会话优先 approvalProfile） */
   permissionMode?: string;
+  /** provider-neutral 审批画像 ask/auto/full-access */
+  approvalProfile?: string;
   // latest native session only: 该会话绑定的 native session 引用
   // 用于判断历史恢复是否允许 native continuation
   nativeSessionRef?: NativeSessionRef;
@@ -112,6 +114,7 @@ export interface SessionExtras {
   effortLevel?: string;
   backendMode?: string;
   permissionMode?: string;
+  approvalProfile?: string;
   // latest native session only: 该会话绑定的 native session 引用
   nativeSessionRef?: NativeSessionRef;
 }
@@ -239,6 +242,7 @@ export async function saveSession(
       ...(extras?.effortLevel ? { effortLevel: extras.effortLevel } : {}),
       ...(extras?.backendMode ? { backendMode: extras.backendMode } : {}),
       ...(extras?.permissionMode ? { permissionMode: extras.permissionMode } : {}),
+      ...(extras?.approvalProfile ? { approvalProfile: extras.approvalProfile } : {}),
       // latest native session only: native session 引用（用于判断历史恢复是否允许 continuation）
       ...(extras?.nativeSessionRef ? { nativeSessionRef: extras.nativeSessionRef } : {}),
     };
@@ -355,6 +359,7 @@ export function migrateSession(parsed: unknown): PersistedSession | null {
     ...(typeof p.effortLevel === "string" ? { effortLevel: p.effortLevel } : {}),
     ...(typeof p.backendMode === "string" ? { backendMode: p.backendMode } : {}),
     ...(typeof p.permissionMode === "string" ? { permissionMode: p.permissionMode } : {}),
+    ...(typeof p.approvalProfile === "string" ? { approvalProfile: p.approvalProfile } : {}),
     // Legacy: provider session persistence（旧格式兼容读取）
     ...(typeof p.providerThreadId === "string" ? { providerThreadId: p.providerThreadId } : {}),
     ...(typeof p.providerSessionId === "string" ? { providerSessionId: p.providerSessionId } : {}),

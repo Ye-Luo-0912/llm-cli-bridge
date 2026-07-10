@@ -200,9 +200,11 @@ export interface CodexThreadStartParams {
   configRules?: Record<string, unknown>;
   /** 工作目录 */
   cwd?: string;
-  /** 审批策略（真实 codex binary 需要；缺失会 hang。如 "never"） */
+  /** 审批策略（如 "untrusted" / "on-request" / "never"） */
   approvalPolicy?: string;
-  /** 沙箱模式（真实 codex binary 需要；如 "workspace-write"） */
+  /** 审批审阅者（如 "user"） */
+  approvalsReviewer?: string;
+  /** 沙箱模式（如 "workspace-write" / "danger-full-access"） */
   sandbox?: string;
   /** 人格（如 "pragmatic"；也可走 config.personality） */
   personality?: string;
@@ -276,6 +278,18 @@ export interface CodexTurnStartParams {
   input: CodexTurnInputItem[];
   /** 已存在的 thread id（resume 场景由 provider 在 thread/start 或 thread/resume 后注入） */
   threadId: string;
+  /**
+   * 本轮审批策略（恢复会话后切换权限时，从下一轮 turn/start 立即生效）。
+   */
+  approvalPolicy?: string;
+  /**
+   * 本轮审批审查方（user / auto_review；恢复会话后切换权限时同步下发）。
+   */
+  approvalsReviewer?: string;
+  /**
+   * 本轮结构化沙箱策略（与 thread/start.sandbox 对应）。
+   */
+  sandboxPolicy?: Record<string, unknown>;
   /**
    * 附件条目（codex 原生 attachment block；与 input 数组互补，用于 image/file ref）。
    *

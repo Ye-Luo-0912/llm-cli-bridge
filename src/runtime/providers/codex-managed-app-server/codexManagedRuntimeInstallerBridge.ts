@@ -23,7 +23,13 @@ import { dirname, join, resolve } from "path";
 import { pathToFileURL } from "url";
 import { gunzipSync } from "zlib";
 import type { CodexManagedRuntimeManifest } from "../../../types";
-import { resolveManagedRuntime, resolveManifestPath } from "./codexManagedRuntimeResolver";
+import {
+  invalidateManagedRuntimeIntegrityCache,
+  markManagedRuntimeIntegrityVerified,
+  resolveManagedRuntime,
+  resolveManifestPath,
+  type RuntimeIntegrityStatus,
+} from "./codexManagedRuntimeResolver";
 
 export interface ManagedRuntimeInstallStatus {
   required: boolean;
@@ -41,6 +47,8 @@ export interface ManagedRuntimeInstallStatus {
   runtimeExecutable?: boolean;
   requiresSystemNpm?: boolean;
   requiresSystemTar?: boolean;
+  /** 热路径完整性状态：pending 时 UI 显示「正在验证」，不阻塞发送 */
+  integrityStatus?: RuntimeIntegrityStatus;
 }
 
 type InstallerModule = {
@@ -75,6 +83,7 @@ function readInstallMetadata(pluginDir?: string): ManagedRuntimeInstallStatus {
     const platformKey = `${process.platform}-${process.arch}`;
     const entry = manifest.platforms?.[platformKey];
     const installPath = entry ? resolve(dirname(manifestPath), entry.path) : null;
+    // 热路径：resolveManagedRuntime 只用 stat/size，不读完整 binary、不同步 SHA
     const resolver = resolveManagedRuntime(manifestPath);
     return {
       required: resolver.reason === "path-not-exist" && manifest.fixture !== true,
@@ -83,11 +92,16 @@ function readInstallMetadata(pluginDir?: string): ManagedRuntimeInstallStatus {
       source: entry?.artifact?.tarball || entry?.artifact?.package || null,
       sha256: entry?.sha256 || null,
       installPath,
-      status: resolver.available ? "installed" : resolver.reason,
+      status: resolver.integrityStatus === "pending"
+        ? "verifying"
+        : resolver.available
+          ? "installed"
+          : resolver.reason,
       error: resolver.error,
       runtimeExecutable: resolver.available,
-      binarySha256Valid: resolver.available,
-      binarySizeValid: resolver.available,
+      binarySha256Valid: resolver.integrityStatus === "verified",
+      binarySizeValid: resolver.reason !== "size-mismatch" && resolver.reason !== "path-not-exist",
+      integrityStatus: resolver.integrityStatus,
       requiresSystemNpm: false,
       requiresSystemTar: false,
     };
@@ -255,17 +269,17 @@ async function installManagedRuntimeBundled(
   }
 
   if (existsSync(runtimePath)) {
-    const sizeValid = statSync(runtimePath).size === entry.size;
-    const hashValid = sizeValid && sha256File(runtimePath) === entry.sha256;
-    const executable = hashValid && checkExecutablePath(runtimePath, platformKey);
-    if (sizeValid && hashValid && executable) {
+    // 已安装探测走热路径 resolver（stat + 缓存），避免同步读 323MB binary
+    const quick = resolveManagedRuntime(manifestPath, process.platform, process.arch, { scheduleVerify: true });
+    if (quick.available && quick.integrityStatus !== "failed") {
       return {
         ...base,
         required: false,
-        status: "already-installed",
+        status: quick.integrityStatus === "verified" ? "already-installed" : "verifying",
         binarySizeValid: true,
-        binarySha256Valid: true,
+        binarySha256Valid: quick.integrityStatus === "verified",
         runtimeExecutable: true,
+        integrityStatus: quick.integrityStatus,
       };
     }
   }
@@ -319,7 +333,19 @@ async function installManagedRuntimeBundled(
     base.runtimeExecutable = checkExecutablePath(runtimePath, platformKey);
     if (!base.runtimeExecutable) throw new Error(`runtime is not executable: ${runtimePath}`);
     rmSync(extractDir, { recursive: true, force: true });
-    return { ...base, required: true, status: "installed" };
+    // 安装刚校验过 binary：写入完整性缓存，避免热路径立刻再扫一遍大文件
+    try {
+      const st = statSync(runtimePath);
+      invalidateManagedRuntimeIntegrityCache(runtimePath);
+      markManagedRuntimeIntegrityVerified({
+        path: runtimePath,
+        size: st.size,
+        mtimeMs: st.mtimeMs,
+        manifestVersion: manifest.version || "",
+        expectedSha256: entry.sha256,
+      }, binaryHash);
+    } catch { /* cache write best-effort */ }
+    return { ...base, required: false, status: "installed", integrityStatus: "verified" };
   } catch (e) {
     rmSync(extractDir, { recursive: true, force: true });
     rmSync(partialRuntimePath, { force: true });

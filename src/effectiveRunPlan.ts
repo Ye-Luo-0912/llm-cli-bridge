@@ -114,6 +114,10 @@ export function buildEffectiveRunPlan(args: {
   settingSources: readonly string[];
   skills: readonly string[];
   attachmentPlan: AttachmentPlan;
+  approvalProfile?: import("./agentApprovalProfile").AgentApprovalProfile;
+  approvalPolicy?: string;
+  approvalsReviewer?: string;
+  sandbox?: string;
 }): EffectiveRunPlan {
   const { backend, settings, cwd, promptPackageText, settingSources, skills, attachmentPlan } = args;
   const base = {
@@ -137,6 +141,10 @@ export function buildEffectiveRunPlan(args: {
       backend: "codex-app-server",
       // bridgeSystemAppend 走 instructions 层（见 codexAppServerEffectiveRunPlan.ts）
       instructionsSource: "instructions",
+      approvalProfile: args.approvalProfile ?? "ask",
+      approvalPolicy: args.approvalPolicy ?? "on-request",
+      approvalsReviewer: args.approvalsReviewer ?? "user",
+      sandbox: args.sandbox ?? "workspace-write",
     };
     return codexPlan;
   }
@@ -166,6 +174,10 @@ export function formatEffectiveRunPlan(plan: EffectiveRunPlan): Array<{ label: s
   // 按 backend 收窄：codex-app-server 走 instructionsSource；codex-sdk 走 sdkConfigSource；sdk/cli 走 Claude preset 字段
   if (plan.backend === "codex-app-server") {
     rows.push({ label: "instructionsSource", value: plan.instructionsSource });
+    rows.push({ label: "approvalProfile", value: plan.approvalProfile });
+    rows.push({ label: "approvalPolicy", value: plan.approvalPolicy });
+    rows.push({ label: "approvalsReviewer", value: plan.approvalsReviewer });
+    rows.push({ label: "sandbox", value: plan.sandbox });
   } else if (plan.backend === "codex-sdk") {
     rows.push({ label: "sdkConfigSource", value: plan.sdkConfigSource });
   } else {

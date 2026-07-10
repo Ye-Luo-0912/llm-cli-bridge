@@ -19,6 +19,12 @@ import { pathToFileURL } from "url";
 import type { BridgePromptPackage } from "../../core/types";
 import type { RunInput } from "../../core/types";
 import { buildAttachmentPlan, buildEffectiveRunPlan, computePromptPackageHash } from "../../../effectiveRunPlan";
+import {
+  isAgentApprovalProfile,
+  mapAgentApprovalProfileToCodex,
+  migrateLegacyPermissionToApprovalProfile,
+  type AgentApprovalProfile,
+} from "../../../agentApprovalProfile";
 import type {
   CodexClientCapabilities,
   CodexClientInfo,
@@ -70,6 +76,10 @@ export function buildCodexAppServerEffectiveRunPlan(
 ): EffectiveRunPlan {
   // attachmentPlan 从 promptPackage.attachmentEntries 聚合（counts + entry-level 审计）
   const attachmentPlan = buildAttachmentPlan(input.promptPackage.attachmentEntries);
+  const profile: AgentApprovalProfile = isAgentApprovalProfile(settings.agentApprovalProfile)
+    ? settings.agentApprovalProfile
+    : migrateLegacyPermissionToApprovalProfile(settings.claudePermissionMode);
+  const wire = mapAgentApprovalProfileToCodex(profile, input.cwd);
   return buildEffectiveRunPlan({
     backend: "codex-app-server",
     settings,
@@ -78,6 +88,10 @@ export function buildCodexAppServerEffectiveRunPlan(
     settingSources: [], // codex app-server 当前不读 claude skills/setting sources
     skills: [],
     attachmentPlan,
+    approvalProfile: profile,
+    approvalPolicy: wire.approvalPolicy,
+    approvalsReviewer: wire.approvalsReviewer,
+    sandbox: wire.sandbox,
   });
 }
 
@@ -131,6 +145,10 @@ export function buildCodexAppServerRunOptions(
   // 否则 codex app-server 不会把 rollout 写到 ~/.codex/sessions/，
   // 下一轮 thread/resume 会报 "no rollout found"。
   // 持久化 rollout 是 native session resume 的前提条件。
+  const approvalProfile: AgentApprovalProfile = plan.backend === "codex-app-server" && isAgentApprovalProfile(plan.approvalProfile)
+    ? plan.approvalProfile
+    : "ask";
+  const approvalWire = mapAgentApprovalProfileToCodex(approvalProfile, plan.cwd);
   const threadStart: CodexThreadStartParams = {
     config: threadConfig,
     instructions: promptPackage.bridgeSystemAppend,
@@ -138,8 +156,9 @@ export function buildCodexAppServerRunOptions(
     // 顶层字段（binary 实际读取）
     model: plan.model,
     baseInstructions: promptPackage.bridgeSystemAppend,
-    approvalPolicy: "never",
-    sandbox: "workspace-write",
+    approvalPolicy: approvalWire.approvalPolicy,
+    approvalsReviewer: approvalWire.approvalsReviewer,
+    sandbox: approvalWire.sandbox,
     personality: "pragmatic",
     // latest native session only: ephemeral=false（总是持久化 rollout，让 thread/resume 可用）
     ephemeral: false,
@@ -166,6 +185,10 @@ export function buildCodexAppServerRunOptions(
   const turnStart: Omit<CodexTurnStartParams, "threadId"> = {
     input: inputItems,
     effort: plan.effort || undefined,
+    // 每次 turn/start 都带上审批/沙箱/reviewer，恢复会话后切换权限从下一轮立即生效
+    approvalPolicy: approvalWire.approvalPolicy,
+    approvalsReviewer: approvalWire.approvalsReviewer,
+    sandboxPolicy: approvalWire.sandboxPolicy as unknown as Record<string, unknown>,
   };
 
   return {
@@ -203,6 +226,12 @@ export function computeCodexRunOptionsAuditHash(options: CodexAppServerRunOption
     options.initialize.clientInfo.version,
     options.threadStart.instructions ?? "",
     configStr,
+    `approvalPolicy=${options.threadStart.approvalPolicy ?? ""}`,
+    `approvalsReviewer=${options.threadStart.approvalsReviewer ?? ""}`,
+    `sandbox=${options.threadStart.sandbox ?? ""}`,
+    `turnApprovalPolicy=${options.turnStart.approvalPolicy ?? ""}`,
+    `turnApprovalsReviewer=${options.turnStart.approvalsReviewer ?? ""}`,
+    `turnSandboxPolicy=${JSON.stringify(options.turnStart.sandboxPolicy ?? {})}`,
     inputItemsStr,
     options.turnStart.effort ?? "",
     attachmentsAudit,

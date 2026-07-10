@@ -200,7 +200,11 @@ export class BridgeSessionImpl implements BridgeSession {
     this.provider = provider;
     this.providerId = provider.providerId;
     this.displayLabel = label;
-    this.permission = createPermissionBoundary(settings.claudePermissionMode, settings.permissionPolicy);
+    this.permission = createPermissionBoundary(
+      settings.claudePermissionMode,
+      settings.permissionPolicy,
+      /codex/i.test(provider.providerId) ? "native-pending" : "claude-mode",
+    );
     this.userInput = createUserInputBoundary();
   }
 
@@ -262,8 +266,15 @@ export class BridgeSessionImpl implements BridgeSession {
    */
   rebuildPermissionBoundary(settings: LLMBridgeSettings): void {
     if (this.currentRunId !== null) return;
-    if (this.permission.mode === settings.claudePermissionMode) return;
-    this.permission = createPermissionBoundary(settings.claudePermissionMode, settings.permissionPolicy);
+    const strategy = /codex/i.test(this.providerId) ? "native-pending" : "claude-mode";
+    const current = this.permission as PermissionBoundaryImpl;
+    if (strategy === "native-pending") {
+      // Codex：边界策略固定 native-pending；画像变更由下一轮 turn/start wire 生效
+      if (current.strategy === "native-pending") return;
+    } else if (current.mode === settings.claudePermissionMode && current.strategy === "claude-mode") {
+      return;
+    }
+    this.permission = createPermissionBoundary(settings.claudePermissionMode, settings.permissionPolicy, strategy);
   }
 
   async *resume(ref: NativeSessionRef, input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
