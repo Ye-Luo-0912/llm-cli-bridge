@@ -524,14 +524,19 @@ export class LLMBridgeView extends ItemView {
       railCollapseIcon.empty();
       setIcon(railCollapseIcon, collapsed ? "panel-left-open" : "panel-left-close");
     });
+    // UI-03: 左 rail 加 active label — active 项显示文字标签，键盘焦点可访问
     const chatTab = nav.createEl("button", { cls: "llm-bridge-nav-item is-active", attr: { "data-tab": "chat", title: "Chat", "aria-label": "Chat" } });
     setIcon(chatTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "message-square");
+    chatTab.createEl("span", { cls: "llm-bridge-nav-label", text: "Chat" });
     const filesTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "files", title: "Files", "aria-label": "Files" } });
     setIcon(filesTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "files");
+    filesTab.createEl("span", { cls: "llm-bridge-nav-label", text: "Files" });
     const skillsTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "skills", title: "Capabilities", "aria-label": "Capabilities" } });
     setIcon(skillsTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "sparkles");
+    skillsTab.createEl("span", { cls: "llm-bridge-nav-label", text: "Skills" });
     const historyTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "history", title: "History", "aria-label": "History" } });
     setIcon(historyTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "history");
+    historyTab.createEl("span", { cls: "llm-bridge-nav-label", text: "History" });
 
     const pageStack = main.createDiv({ cls: "llm-bridge-page-stack" });
     const chatPanel = pageStack.createDiv({ cls: "llm-bridge-tab-panel llm-bridge-chat-page is-active", attr: { "data-panel": "chat" } });
@@ -8516,7 +8521,6 @@ export class LLMBridgeView extends ItemView {
     }
     const list = this.historyListEl.createDiv({ cls: "llm-bridge-history-list" });
     for (const item of filtered) {
-      const preview = this.sessionSummaryText(item);
       const row = list.createDiv({
         cls: `llm-bridge-history-item is-${item.status}${item.id === this.currentSessionId ? " is-current" : ""}`,
         attr: { title: `${item.title} · ${item.messageCount} 条消息 · ${item.savedAt}` },
@@ -8541,7 +8545,18 @@ export class LLMBridgeView extends ItemView {
       titleRow.createEl("span", { cls: "llm-bridge-history-title", text: item.title });
       const meta = `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条`;
       titleRow.createEl("span", { cls: "llm-bridge-history-inline-meta", text: meta });
-      main.createEl("span", { cls: "llm-bridge-history-preview", text: preview });
+      // UI-03: 分开显示首条请求 + 最后答复（而非单一 preview）
+      const firstUser = item.firstUserSummary || "";
+      const lastReply = item.lastAssistantSummary || "";
+      if (firstUser) {
+        main.createEl("span", { cls: "llm-bridge-history-preview llm-bridge-history-first-user", text: `首条：${firstUser}`, attr: { title: firstUser } });
+      }
+      if (lastReply) {
+        main.createEl("span", { cls: "llm-bridge-history-preview llm-bridge-history-last-reply", text: `答复：${lastReply}`, attr: { title: lastReply } });
+      }
+      if (!firstUser && !lastReply) {
+        main.createEl("span", { cls: "llm-bridge-history-preview", text: "无摘要" });
+      }
       main.addEventListener("click", () => void this.restoreSession(item.id));
       const status = row.createDiv({ cls: "llm-bridge-history-status" });
       status.createEl("span", {
@@ -8707,7 +8722,13 @@ export class LLMBridgeView extends ItemView {
     this.clearExternalReadRequests();
     this.refreshStatusBar();
     this.scrollToBottom(); // V2.8: 恢复后滚到最新消息
-    new Notice(`已恢复会话：${session.title}`);
+    // UI-03: 恢复时提示恢复了哪些状态
+    const restoredParts: string[] = [`${session.messageCount} 条消息`];
+    if (session.model) restoredParts.push(`模型 ${session.model}`);
+    if (session.permissionMode) restoredParts.push(`权限 ${session.permissionMode}`);
+    if (session.pinnedContextRefs && session.pinnedContextRefs.length > 0) restoredParts.push(`${session.pinnedContextRefs.length} 个 Pin`);
+    if (session.nativeSessionRef) restoredParts.push("原生会话");
+    new Notice(`已恢复会话：${session.title}\n恢复状态：${restoredParts.join(" · ")}`);
   }
 
   // V2.17-A: 恢复 pinned context（保留完整类型字段）+ 重算 message-scope 附件内联 snippet + 恢复 agentType
@@ -9094,40 +9115,65 @@ export class LLMBridgeView extends ItemView {
 
       const list = this.agentSkillsListEl.createDiv({ cls: "llm-bridge-agent-skills-list" });
       const sorted = this.agentSkills.slice().sort((a, b) => a.slug.localeCompare(b.slug));
-      for (const skill of sorted) {
-        const item = list.createDiv({
-          cls: `llm-bridge-agent-skill-registry-item${skill.enabled ? "" : " is-disabled"}`,
-          attr: { title: skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md` },
-        });
-        const icon = item.createEl("span", { cls: "llm-bridge-agent-skill-icon" });
-        setIcon(icon, skill.enabled ? "sparkles" : "circle-dashed");
-        const main = item.createEl("button", {
-          cls: "llm-bridge-agent-skill-open",
-          attr: { title: `在 Obsidian 中打开 ${skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md`}` },
-        });
-        const titleRow = main.createDiv({ cls: "llm-bridge-agent-skill-title-row" });
-        titleRow.createEl("span", { cls: "llm-bridge-agent-skill-name", text: skill.name || skill.slug });
-        titleRow.createEl("span", { cls: `llm-bridge-agent-skill-badge ${skill.enabled ? "is-enabled" : "is-disabled"}`, text: skill.enabled ? "已启用" : "已禁用" });
-        main.createEl("span", { cls: "llm-bridge-agent-skill-desc", text: skill.description || "No description" });
-        const meta = main.createDiv({ cls: "llm-bridge-agent-skill-meta" });
-        meta.createEl("span", { text: `slug: ${skill.slug}` });
-        meta.createEl("span", { text: `source: ${skill.source}` });
-        main.addEventListener("click", () => void this.openAgentSkillFile(skill));
+      // UI-03: Skills 页区分"本轮已启用能力"和"可用但未启用能力"
+      const enabledSkills = sorted.filter((s) => s.enabled);
+      const disabledSkills = sorted.filter((s) => !s.enabled);
 
-        const toggleBtn = item.createEl("button", {
-          cls: `llm-bridge-agent-skill-toggle ${skill.enabled ? "is-enabled" : "is-disabled"}`,
-          text: skill.enabled ? "关闭" : "启用",
-          attr: { title: "启用/禁用此 Agent Skill（只更新 manifest，不插入输入框）" },
-        });
-        toggleBtn.addEventListener("click", (e) => {
-          e.stopPropagation();
-          void this.toggleAgentSkillEnabled(skill.id, !skill.enabled);
-        });
+      if (enabledSkills.length > 0) {
+        const enabledSection = list.createDiv({ cls: "llm-bridge-agent-skills-group is-enabled-group" });
+        enabledSection.createDiv({ cls: "llm-bridge-agent-skills-group-label", text: `本轮已启用（${enabledSkills.length}）` });
+        for (const skill of enabledSkills) {
+          this.renderAgentSkillItem(list, skill);
+        }
+      }
+
+      if (disabledSkills.length > 0) {
+        const disabledSection = list.createDiv({ cls: "llm-bridge-agent-skills-group is-disabled-group" });
+        disabledSection.createDiv({ cls: "llm-bridge-agent-skills-group-label", text: `可用但未启用（${disabledSkills.length}）` });
+        for (const skill of disabledSkills) {
+          this.renderAgentSkillItem(list, skill);
+        }
+      }
+
+      if (enabledSkills.length === 0 && disabledSkills.length === 0) {
+        list.createDiv({ cls: "llm-bridge-skills-empty", text: "无 Agent Skills。" });
       }
       this.updateAgentSkillsToggle();
     } catch (e) {
       this.renderListError(this.agentSkillsListEl, "agent-skills", e);
     }
+  }
+
+  // UI-03: 抽取单个 skill 项渲染为独立方法
+  private renderAgentSkillItem(parent: HTMLElement, skill: AgentSkillRecord): void {
+    const item = parent.createDiv({
+      cls: `llm-bridge-agent-skill-registry-item${skill.enabled ? "" : " is-disabled"}`,
+      attr: { title: skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md` },
+    });
+    const icon = item.createEl("span", { cls: "llm-bridge-agent-skill-icon" });
+    setIcon(icon, skill.enabled ? "sparkles" : "circle-dashed");
+    const main = item.createEl("button", {
+      cls: "llm-bridge-agent-skill-open",
+      attr: { title: `在 Obsidian 中打开 ${skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md`}` },
+    });
+    const titleRow = main.createDiv({ cls: "llm-bridge-agent-skill-title-row" });
+    titleRow.createEl("span", { cls: "llm-bridge-agent-skill-name", text: skill.name || skill.slug });
+    titleRow.createEl("span", { cls: `llm-bridge-agent-skill-badge ${skill.enabled ? "is-enabled" : "is-disabled"}`, text: skill.enabled ? "已启用" : "已禁用" });
+    main.createEl("span", { cls: "llm-bridge-agent-skill-desc", text: skill.description || "No description" });
+    const meta = main.createDiv({ cls: "llm-bridge-agent-skill-meta" });
+    meta.createEl("span", { text: `slug: ${skill.slug}` });
+    meta.createEl("span", { text: `source: ${skill.source}` });
+    main.addEventListener("click", () => void this.openAgentSkillFile(skill));
+
+    const toggleBtn = item.createEl("button", {
+      cls: `llm-bridge-agent-skill-toggle ${skill.enabled ? "is-enabled" : "is-disabled"}`,
+      text: skill.enabled ? "关闭" : "启用",
+      attr: { title: "启用/禁用此 Agent Skill（只更新 manifest，不插入输入框）" },
+    });
+    toggleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      void this.toggleAgentSkillEnabled(skill.id, !skill.enabled);
+    });
   }
 
   private async refreshManagedCodexPlugins(): Promise<void> {

@@ -15973,6 +15973,67 @@
   border-left: 3px solid var(--interactive-accent) !important;
 }
 
+/* UI-03: 左 rail active label — 默认隐藏，active 项显示文字标签 */
+.llm-bridge-nav-label {
+  display: none;
+  font-size: var(--font-smallest);
+  font-weight: 600;
+  color: var(--text-normal);
+  margin-left: 4px;
+  white-space: nowrap;
+}
+
+.llm-bridge-nav-item.is-active .llm-bridge-nav-label {
+  display: inline;
+}
+
+/* UI-03: 左 rail 键盘焦点 */
+.llm-bridge-nav-item:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: -2px;
+  border-radius: 6px;
+}
+
+.llm-bridge-nav-item {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* UI-03: Skills 页分组标签 */
+.llm-bridge-agent-skills-group-label {
+  font-size: var(--font-smallest);
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 8px 4px 4px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 4px;
+}
+
+.llm-bridge-agent-skills-group.is-enabled-group .llm-bridge-agent-skills-group-label {
+  color: var(--interactive-accent);
+}
+
+/* UI-03: History 首条请求 + 最后答复分行 */
+.llm-bridge-history-first-user,
+.llm-bridge-history-last-reply {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-history-first-user {
+  color: var(--text-normal);
+}
+
+.llm-bridge-history-last-reply {
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+}
+
 .llm-bridge-composer-tools-right .llm-bridge-permission-picker-compact {
   display: none;
 }

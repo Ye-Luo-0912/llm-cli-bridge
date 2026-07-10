@@ -18350,8 +18350,8 @@ if (!runV214BUnit) {
         && (viewSrc.includes("\"aria-label\": \"Skills\"") || viewSrc.includes("\"aria-label\": \"Capabilities\""))
         && viewSrc.includes("\"aria-label\": \"History\"")
         && !viewSrc.includes("llm-bridge-nav-brand")
-        && !viewSrc.includes("llm-bridge-nav-label")
         && viewSrc.includes("llm-bridge-nav-collapse-btn");
+      // UI-03: nav-label 现在存在但默认 display:none，仅 active 项显示
       const noLeftSettingsOrBrand = !/llm-bridge-nav-[^\\n]*Settings/.test(viewSrc)
         && !/llm-bridge-nav-title[\s\S]{0,80}Bridge/.test(viewSrc);
       const topbarBrandOk = viewSrc.includes("llm-bridge-topbar-brand")
