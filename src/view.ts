@@ -56,7 +56,33 @@ import {
   prepareAgentSkillsForCodexRuntime,
   saveAgentSkillsManifest,
 } from "./agentSkills";
-import { getPermissionModeInfo, normalizeToolName, type PermissionChoice } from "./sdkPermission";
+import {
+  buildMessagePresentation,
+  buildPresentationFromCodexRun,
+  mapRunningActivityToStatusLine,
+  shouldShowContextOccupancyChip,
+  NAV_TAB_LABELS,
+  type MessagePresentation,
+  type MessageActionId,
+} from "./messagePresentation";
+import { normalizeToolName, type PermissionChoice } from "./sdkPermission";
+import {
+  AGENT_APPROVAL_PROFILES,
+  getAgentApprovalProfileInfo,
+  isAgentApprovalProfile,
+  mapAgentApprovalProfileToClaudePermissionMode,
+  migrateLegacyPermissionToApprovalProfile,
+  type AgentApprovalProfile,
+} from "./agentApprovalProfile";
+import {
+  groupCodexFeedBatches,
+  isCodexFeedEvent,
+  shouldGroupCodexToolEvents,
+  formatCodexToolGroupTitle,
+  formatCodexToolGroupCount,
+  sumCodexEventDuration,
+  codexFeedLeadDevLabel,
+} from "./ui/codexProcessFeed";
 import {
   approvePendingExternalReadRequest,
   createFileAccessPolicy,
@@ -261,6 +287,8 @@ export class LLMBridgeView extends ItemView {
   private liveAggregator: RunStateAggregator = new RunStateAggregator();
   private beforeFiles: Map<string, FileSnapshot> = new Map();
   private pendingActions: PendingActionEntry[] = [];
+  /** P1: 上一轮是否产生文件改动（重试前需确认） */
+  private lastRunHadFileChanges = false;
 
   // V1.1: preflight 结果缓存
   private lastPreflightResult: PreflightResult | null = null;
@@ -285,12 +313,31 @@ export class LLMBridgeView extends ItemView {
   private managedCodexPlugins: ReadonlyArray<CodexManagedPluginEntry> = [];
   private managedCodexPluginCatalog: CodexManagedPluginCatalog | null = null;
   private managedCodexPluginsListEl!: HTMLElement;
+  /** P0: Codex Skills 物化去重缓存（同 vault 连续发送不重复全量物化） */
+  private codexSkillPrepCache: { vaultPath: string; preparedAt: number; ok: boolean; reason?: string } | null = null;
+  private codexSkillPrepInFlight: Promise<{ ok: boolean; reason?: string }> | null = null;
+  /** P0: managed plugin 列表刷新去重 */
+  private managedPluginsRefreshInFlight: Promise<void> | null = null;
+  private managedPluginsRefreshedAt = 0;
   private selectedRuntimeCapabilities: ComposerRuntimeCapabilitySelection[] = [];
   private composerRuntimeCapabilitiesEl!: HTMLElement;
   // V2.9: scrollToBottom rAF 批处理定时器（合并同帧多次调用，避免每个 delta 触发 reflow）
   private scrollRafId: number | null = null;
   private streamContentRafId: number | null = null;
   private streamContentAssistantId: string | null = null;
+  /** 流式期间工具/授权/文件变化的批处理刷新（150–250ms） */
+  private streamDetailsTimerId: number | null = null;
+  private streamDetailsAssistantId: string | null = null;
+  private selectedComposerAttachmentId: string | null = null;
+  /** 当前激活的 composer 弹层（互斥；统一提升 composer 层级） */
+  private activeComposerPopup: "command" | "model" | "permission" | "attachment" | "session" | "mention" | null = null;
+  private attachmentContextMenuEl: HTMLElement | null = null;
+  private closeCommandMenuPopover: (() => void) | null = null;
+  /** 工具组懒展开时读取最新成员（保留 details 身份） */
+  private codexToolGroupMembers = new WeakMap<HTMLElement, {
+    items: ReadonlyArray<CodexRunFeedItem>;
+    developerMode: boolean;
+  }>();
   private liveTimelineTimerId: number | null = null;
   // V2.5: 历史会话列表
   private historyListEl!: HTMLElement;
@@ -345,6 +392,7 @@ export class LLMBridgeView extends ItemView {
   // V2.7: 长会话旧消息折叠（false=折叠显示最近 N 条；true=展开全部）
   private messagesFoldExpanded = false;
   private inputEl!: HTMLTextAreaElement;
+  private composerEl!: HTMLElement;
   private composerBarEl!: HTMLElement;
   // V2.15-H: @ 提及文件选择器（输入框上方 inline popup）
   private mentionPickerEl: HTMLElement | null = null;
@@ -526,19 +574,19 @@ export class LLMBridgeView extends ItemView {
       railCollapseIcon.empty();
       setIcon(railCollapseIcon, collapsed ? "panel-left-open" : "panel-left-close");
     });
-    // UI-03: 左 rail 加 active label — active 项显示文字标签，键盘焦点可访问
-    const chatTab = nav.createEl("button", { cls: "llm-bridge-nav-item is-active", attr: { "data-tab": "chat", title: "Chat", "aria-label": "Chat" } });
+    // 左 rail：固定图标模式；页面标题/tooltip 承担命名（对话/上下文/能力/历史）
+    const chatTab = nav.createEl("button", { cls: "llm-bridge-nav-item is-active", attr: { "data-tab": "chat", title: "对话", "aria-label": "对话" } });
     setIcon(chatTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "message-square");
-    chatTab.createEl("span", { cls: "llm-bridge-nav-label", text: "Chat" });
-    const filesTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "files", title: "Files", "aria-label": "Files" } });
+    chatTab.createEl("span", { cls: "llm-bridge-nav-label", text: "对话" });
+    const filesTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "files", title: "上下文", "aria-label": "上下文" } });
     setIcon(filesTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "files");
-    filesTab.createEl("span", { cls: "llm-bridge-nav-label", text: "Files" });
-    const skillsTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "skills", title: "Capabilities", "aria-label": "Capabilities" } });
+    filesTab.createEl("span", { cls: "llm-bridge-nav-label", text: "上下文" });
+    const skillsTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "skills", title: "能力", "aria-label": "能力" } });
     setIcon(skillsTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "sparkles");
-    skillsTab.createEl("span", { cls: "llm-bridge-nav-label", text: "Skills" });
-    const historyTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "history", title: "History", "aria-label": "History" } });
+    skillsTab.createEl("span", { cls: "llm-bridge-nav-label", text: "能力" });
+    const historyTab = nav.createEl("button", { cls: "llm-bridge-nav-item", attr: { "data-tab": "history", title: "历史", "aria-label": "历史" } });
     setIcon(historyTab.createEl("span", { cls: "llm-bridge-nav-icon" }), "history");
-    historyTab.createEl("span", { cls: "llm-bridge-nav-label", text: "History" });
+    historyTab.createEl("span", { cls: "llm-bridge-nav-label", text: "历史" });
 
     const pageStack = main.createDiv({ cls: "llm-bridge-page-stack" });
     const chatPanel = pageStack.createDiv({ cls: "llm-bridge-tab-panel llm-bridge-chat-page is-active", attr: { "data-panel": "chat" } });
@@ -580,11 +628,11 @@ export class LLMBridgeView extends ItemView {
     historyTab.addEventListener("click", () => switchTab("history"));
     this.setPageTitleForTab("chat");
 
-    // ===== Files page: attachments / pinned context / FileRef index / approvals =====
+    // ===== 上下文页：本轮附件 / 旧会话 Pin / 授权（非文件浏览器） =====
     const filesHead = filesPanel.createDiv({ cls: "llm-bridge-secondary-head" });
-    filesHead.createEl("span", { cls: "llm-bridge-secondary-kicker", text: "Files" });
-    filesHead.createEl("strong", { text: "文件与授权" });
-    filesHead.createEl("small", { text: "下一条消息附件、跨轮引用和外部读取授权。" });
+    filesHead.createEl("span", { cls: "llm-bridge-secondary-kicker", text: "上下文" });
+    filesHead.createEl("strong", { text: "附件与授权" });
+    filesHead.createEl("small", { text: "本轮附件与外部读取授权。旧会话的 Pin 仅在此查看/复制/移除，不再提供新建 Pin。" });
     this.filesContextEl = filesPanel.createDiv({ cls: "llm-bridge-context-refs llm-bridge-context-refs-page" });
 
     // ===== Pending Actions 区域（在 Files 页默认折叠） =====
@@ -695,6 +743,7 @@ export class LLMBridgeView extends ItemView {
 
     // ===== 底部 composer =====
     const composer = chatPanel.createDiv({ cls: "llm-bridge-composer" });
+    this.composerEl = composer;
     // V16.4-F: permission approval dock 与 AskUserQuestion dock 同级，均在 composer 内部、composerBar 上方
     this.permissionPanelEl = composer.createDiv({ cls: "llm-bridge-perm-panel llm-bridge-approval-dock" });
     this.permissionPanelEl.style.display = "none";
@@ -748,86 +797,151 @@ export class LLMBridgeView extends ItemView {
       this.inputEl.focus();
       this.attachmentFileInputEl?.click();
     });
-    const commandMenu = leftTools.createEl("details", { cls: "llm-bridge-command-menu" });
-    const commandSummary = commandMenu.createEl("summary", {
-      cls: "llm-bridge-composer-tool-btn llm-bridge-command-menu-summary",
-      attr: { title: "工具、上下文与辅助操作" },
+
+    // 工具菜单：显式 button + popover（先提升层级再显示，避免 <details> 打开闪动）
+    const commandMenuWrap = leftTools.createDiv({ cls: "llm-bridge-command-menu" });
+    const commandMenuBtn = commandMenuWrap.createEl("button", {
+      cls: "llm-bridge-composer-tool-btn llm-bridge-command-menu-btn",
+      attr: {
+        type: "button",
+        title: "本轮插件与 Skills",
+        "aria-haspopup": "true",
+        "aria-expanded": "false",
+      },
     });
-    setIcon(commandSummary.createEl("span", { cls: "llm-bridge-command-menu-summary-icon" }), "wrench");
-    commandSummary.createEl("span", { cls: "llm-bridge-command-menu-label", text: "工具" });
-    const commandMenuBody = commandMenu.createDiv({ cls: "llm-bridge-command-menu-body" });
-    // 任务D: 去掉工具列表的计划模式入口（permission popover 仍保留 plan 选项）
+    setIcon(commandMenuBtn.createEl("span", { cls: "llm-bridge-command-menu-summary-icon" }), "wrench");
+    commandMenuBtn.createEl("span", { cls: "llm-bridge-command-menu-label", text: "工具" });
+    const commandMenuBody = commandMenuWrap.createDiv({
+      cls: "llm-bridge-command-menu-body",
+      attr: { hidden: "", role: "menu" },
+    });
     const commandPlugins = commandMenuBody.createDiv({ cls: "llm-bridge-command-menu-plugins" });
     const commandPluginsHead = commandPlugins.createDiv({ cls: "llm-bridge-command-menu-plugins-head" });
-    commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-title", text: "插件" });
-    commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-hint", text: "选择本轮能力" });
+    commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-title", text: "本轮能力" });
+    commandPluginsHead.createEl("span", { cls: "llm-bridge-command-menu-section-hint", text: "仅影响当前发送" });
     const commandPluginsList = commandPlugins.createDiv({ cls: "llm-bridge-command-menu-plugins-list" });
-    commandPluginsList.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "打开菜单后读取插件与 Skills。" });
+    commandPluginsList.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "首次打开时读取插件与 Skills。" });
     let commandPluginsRequest = 0;
-    const refreshCommandPlugins = async () => {
+    let commandPluginsLoaded = false;
+    const refreshCommandPlugins = async (opts?: { force?: boolean; background?: boolean }) => {
+      const force = !!opts?.force;
+      const background = !!opts?.background;
+      const FRESH_MS = 60_000;
+      const cacheFresh = commandPluginsLoaded
+        && !!this.managedCodexPluginCatalog
+        && Date.now() - this.managedPluginsRefreshedAt < FRESH_MS;
+      if (!force && cacheFresh) {
+        if (!background) {
+          this.renderComposerRuntimeToolsList(commandPluginsList);
+          this.renderAgentSkillsList();
+        }
+        // 后台静默刷新，不清空现有列表
+        void (async () => {
+          const request = ++commandPluginsRequest;
+          await this.refreshManagedCodexPlugins();
+          await this.refreshAgentSkillsManifestOnly();
+          if (request !== commandPluginsRequest) return;
+          this.renderComposerRuntimeToolsList(commandPluginsList);
+          this.renderAgentSkillsList();
+        })();
+        return;
+      }
       const request = ++commandPluginsRequest;
-      commandPluginsList.empty();
-      commandPluginsList.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "正在读取..." });
+      if (!background || !commandPluginsLoaded) {
+        commandPluginsList.empty();
+        commandPluginsList.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "正在读取..." });
+      }
       await this.refreshManagedCodexPlugins();
       await this.refreshAgentSkillsManifestOnly();
       if (request !== commandPluginsRequest) return;
       this.renderComposerRuntimeToolsList(commandPluginsList);
       this.renderAgentSkillsList();
+      commandPluginsLoaded = true;
     };
-    commandMenu.addEventListener("toggle", () => {
-      if (!commandMenu.hasAttribute("open")) return;
-      // 任务D: 打开工具菜单时关闭其他选择框（会话框风格统一互斥）
+    const closeCommandMenu = () => {
+      commandMenuBody.setAttribute("hidden", "");
+      commandMenuBtn.setAttribute("aria-expanded", "false");
+      commandMenuWrap.classList.remove("is-open");
+      if (this.activeComposerPopup === "command") this.setActiveComposerPopup(null);
+    };
+    const openCommandMenu = () => {
+      // 先提升 composer 层级，再显示弹层，消除打开瞬间闪动
+      this.setActiveComposerPopup("command");
       this.closePermissionPopover();
       this.closeModelEffortPopover();
       this.closeMentionPicker();
+      this.closeAttachmentContextMenu();
       document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
         .forEach((el) => el.setAttribute("hidden", ""));
-      void refreshCommandPlugins();
+      commandMenuWrap.classList.add("is-open");
+      commandMenuBtn.setAttribute("aria-expanded", "true");
+      commandMenuBody.removeAttribute("hidden");
+      void refreshCommandPlugins({ background: commandPluginsLoaded });
+    };
+    commandMenuBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (commandMenuBody.hasAttribute("hidden")) openCommandMenu();
+      else closeCommandMenu();
     });
-    this.preflightBtn = document.createElement("button");
+    // 权限：扳手旁边的同级入口（不在工具菜单内）
     this.permissionModePickerEl = leftTools.createDiv({ cls: "llm-bridge-permission-picker" });
     this.permissionModeChipEl = this.permissionModePickerEl.createEl("button", {
-      cls: "llm-bridge-permission-chip",
+      cls: "llm-bridge-permission-chip llm-bridge-composer-tool-btn",
       attr: { title: "切换权限模式：受限 / 默认 / acceptEdits", "aria-haspopup": "true", "aria-expanded": "false" },
     });
     this.permissionModeChipEl.addEventListener("click", (event) => {
       event.stopPropagation();
+      closeCommandMenu();
       void this.togglePermissionPopover();
     });
+    this.preflightBtn = document.createElement("button");
 
     this.composerRuntimeCapabilitiesEl = composerBar.createDiv({ cls: "llm-bridge-composer-runtime-capabilities" });
     this.composerRuntimeCapabilitiesEl.setAttribute("hidden", "");
-    this.composerFileRefsEl = composerBar.createDiv({ cls: "llm-bridge-composer-file-refs" });
-    const inputRow = composerBar.createDiv({ cls: "llm-bridge-input-row" });
+    const inputSurface = composerBar.createDiv({ cls: "llm-bridge-input-surface" });
+    this.composerFileRefsEl = inputSurface.createDiv({
+      cls: "llm-bridge-composer-file-refs llm-bridge-attachment-tokens",
+    });
+    this.composerFileRefsEl.setAttribute("hidden", "");
+    const inputRow = inputSurface.createDiv({ cls: "llm-bridge-input-row" });
     this.inputEl = inputRow.createEl("textarea", {
       cls: "llm-bridge-input",
-      attr: { placeholder: "要求后续变更", rows: "1" },
+      attr: { placeholder: "输入消息…", rows: "1" },
     });
     this.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
       if (this.mentionPickerEl && !this.mentionPickerEl.hasAttribute("hidden")) {
         if (this.handleMentionKeydown(e)) return;
       }
+      if (this.handleComposerAttachmentKeydown(e)) return;
       if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
         e.preventDefault();
         void this.run();
       }
     });
-    // V2.15-H: 监听 input 事件，检测 @ 提及触发 inline 文件选择器
-    // UI-02: 同时触发自动增高
     this.inputEl.addEventListener("input", () => {
+      if (this.selectedComposerAttachmentId && this.inputEl.value.length > 0) {
+        this.selectedComposerAttachmentId = null;
+        this.renderComposerFileRefs();
+      }
       this.handleMentionInput();
       this.autoGrowInput();
     });
     this.inputEl.addEventListener("paste", (event) => {
       void this.handleComposerPaste(event);
     });
-    // 任务D: @ 提及外部点击关闭已统一到 renderModelEffortPicker 的全局 handler
+    // 工具菜单内部点击不得触发全局 outside-click 关闭
+    commandMenuBody.addEventListener("pointerdown", (event) => event.stopPropagation());
+    commandMenuBody.addEventListener("click", (event) => event.stopPropagation());
+    // 供 outside-click / Escape 关闭
+    this.closeCommandMenuPopover = closeCommandMenu;
 
-    const rightTools = composerBar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-right" });
+    const toolbar = composerBar.createDiv({ cls: "llm-bridge-composer-toolbar" });
+    toolbar.appendChild(leftTools);
+    const rightTools = toolbar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-right" });
     this.agentChipTextEl = agentSelect;
     this.renderModelEffortPicker(rightTools);
     const actionCol = rightTools.createDiv({ cls: "llm-bridge-action-col" });
-    // 停止按钮：只在运行中显示
     this.stopBtn = actionCol.createEl("button", {
       cls: "llm-bridge-stop-btn",
       attr: { title: "停止", "aria-label": "停止" },
@@ -835,7 +949,6 @@ export class LLMBridgeView extends ItemView {
     this.stopBtn.createEl("span", { cls: "llm-bridge-stop-icon", text: "■" });
     this.stopBtn.style.display = "none";
     this.stopBtn.addEventListener("click", () => this.stop());
-    // 发送按钮
     this.sendBtn = actionCol.createEl("button", {
       cls: "llm-bridge-send-btn",
       attr: { title: "发送 (Ctrl/Cmd+Enter)", "aria-label": "发送" },
@@ -1119,7 +1232,8 @@ export class LLMBridgeView extends ItemView {
 
   private setPageTitleForTab(tab: "chat" | "files" | "skills" | "history"): void {
     if (!this.pageTitleEl) return;
-    const label = tab === "chat" ? "Chat" : tab === "files" ? "Files" : tab === "skills" ? "Capabilities" : "History";
+    const loc = resolveUiLocale() === "en" ? "en" : "zh";
+    const label = NAV_TAB_LABELS[tab][loc];
     this.pageTitleEl.textContent = label;
     this.pageTitleEl.toggleAttribute("hidden", tab === "chat");
   }
@@ -1514,36 +1628,29 @@ export class LLMBridgeView extends ItemView {
 
   private renderModelEffortPicker(parent: HTMLElement): void {
     this.modelEffortPickerEl = parent.createDiv({ cls: "llm-bridge-model-effort-picker" });
-    // V16.3 Round 3: 拆成两个独立轻量 inline chip（model / effort），共享一个 popover
+    // 模型与 effort 合并成一个 chip
     this.modelEffortButtonEl = this.modelEffortPickerEl.createEl("button", {
-      cls: "llm-bridge-model-effort-chip llm-bridge-model-chip-inline",
-      attr: { title: "选择模型", "aria-haspopup": "true", "aria-expanded": "false" },
+      cls: "llm-bridge-model-effort-chip llm-bridge-model-chip-inline llm-bridge-model-chip-merged",
+      attr: { title: "模型与推理等级", "aria-haspopup": "true", "aria-expanded": "false" },
     });
     this.modelEffortButtonEl.addEventListener("click", (event) => {
       event.stopPropagation();
       if (this.runHandle) return;
       this.toggleModelEffortPopover();
     });
+    // 保留隐藏 effort chip 以兼容旧刷新逻辑，但不展示
     this.effortChipEl = this.modelEffortPickerEl.createEl("button", {
       cls: "llm-bridge-model-effort-chip llm-bridge-effort-chip-inline",
-      attr: { title: "选择推理等级", "aria-haspopup": "true", "aria-expanded": "false" },
-    });
-    this.effortChipEl.addEventListener("click", (event) => {
-      event.stopPropagation();
-      if (this.runHandle) return;
-      this.toggleModelEffortPopover();
+      attr: { title: "选择推理等级", "aria-haspopup": "true", "aria-expanded": "false", hidden: "" },
     });
 
-    // V2.16-C: 单列紧凑 popover，上半模型下半推理等级
     this.modelEffortPopoverEl = this.modelEffortPickerEl.createDiv({
       cls: "llm-bridge-model-effort-popover llm-bridge-model-effort-popover-single",
       attr: { hidden: "" },
     });
-    // 上半部分：模型
     const modelSection = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-model-list" });
     modelSection.createEl("div", { cls: "llm-bridge-model-effort-section-title", text: "Model" });
     this.modelOptionsEl = modelSection.createDiv({ cls: "llm-bridge-model-options" });
-    // 下半部分：推理等级（使用原始名称，不中文化）
     const effortSection = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-effort-list" });
     effortSection.createEl("div", { cls: "llm-bridge-model-effort-section-title", text: "Effort" });
     this.effortOptionsEl = effortSection.createDiv({ cls: "llm-bridge-effort-options" });
@@ -1552,8 +1659,6 @@ export class LLMBridgeView extends ItemView {
     this.modelEffortPickerEl.addEventListener("keydown", (event) => {
       if (event.key === "Escape") this.closeModelEffortPopover();
     });
-    // 任务D: 统一抽象——所有会话框风格选择器共用一个外部点击关闭 + Escape 关闭 handler
-    // 覆盖：command menu / permission popover / model-effort popover / session dropdown / @ 提及
     this.registerDomEvent(document, "pointerdown", (event) => {
       this.handleComposerSelectorOutsideClick(event);
     });
@@ -1568,10 +1673,13 @@ export class LLMBridgeView extends ItemView {
    * 点击落在所有选择器根容器之外则关闭全部已打开的下拉/弹出。
    */
   private handleComposerSelectorOutsideClick(event: Event): void {
-    // 工具菜单（<details open>）
+    // 附件右键菜单
+    if (this.attachmentContextMenuEl && !this.isEventInsideSelector(event, ".llm-bridge-attachment-context-menu")) {
+      this.closeAttachmentContextMenu();
+    }
+    // 工具菜单（button + popover）
     if (!this.isEventInsideSelector(event, ".llm-bridge-command-menu")) {
-      document.querySelectorAll("details.llm-bridge-command-menu[open]")
-        .forEach((el) => el.removeAttribute("open"));
+      this.closeCommandMenuPopover?.();
     }
     // 权限 popover（chip + popover 容器）
     if (!this.isEventInsideSelector(event, ".llm-bridge-permission-picker")
@@ -1587,25 +1695,58 @@ export class LLMBridgeView extends ItemView {
       && !this.isEventInsideSelector(event, ".llm-bridge-session-dropdown")) {
       document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
         .forEach((el) => el.setAttribute("hidden", ""));
+      if (this.activeComposerPopup === "session") this.setActiveComposerPopup(null);
     }
     // @ 提及：点击输入框或选择器本身不关闭（保留输入体验）
     if (this.mentionPickerEl && !this.mentionPickerEl.hasAttribute("hidden")) {
       const target = this.eventTargetElement(event);
       if (target !== this.inputEl && !target?.closest(".llm-bridge-mention-picker")) {
         this.closeMentionPicker();
+        if (this.activeComposerPopup === "mention") this.setActiveComposerPopup(null);
       }
     }
+  }
+
+  /**
+   * 统一激活弹层：同一时刻只保留一个；提升 composer 层级，避免各自堆 z-index。
+   */
+  private setActiveComposerPopup(
+    kind: "command" | "model" | "permission" | "attachment" | "session" | "mention" | null,
+  ): void {
+    const applyOpenClass = () => {
+      const open = kind !== null;
+      this.composerEl?.classList.toggle("is-popup-open", open);
+      this.composerBarEl?.classList.toggle("is-popup-open", open);
+      this.composerBarEl?.classList.toggle("is-command-menu-open", kind === "command");
+    };
+    if (this.activeComposerPopup === kind) {
+      applyOpenClass();
+      return;
+    }
+    const prev = this.activeComposerPopup;
+    this.activeComposerPopup = kind;
+    if (prev === "attachment" && kind !== "attachment") this.closeAttachmentContextMenu(false);
+    if (prev === "command" && kind !== "command") this.closeCommandMenuPopover?.();
+    if (prev === "model" && kind !== "model") this.closeModelEffortPopover(false);
+    if (prev === "permission" && kind !== "permission") this.closePermissionPopover(false);
+    if (prev === "mention" && kind !== "mention") this.closeMentionPicker();
+    if (prev === "session" && kind !== "session") {
+      document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
+        .forEach((el) => el.setAttribute("hidden", ""));
+    }
+    applyOpenClass();
   }
 
   /**
    * 任务D: 关闭所有会话框风格选择器（Escape 或互斥打开时调用）。
    */
   private closeAllComposerSelectors(): void {
-    document.querySelectorAll("details.llm-bridge-command-menu[open]")
-      .forEach((el) => el.removeAttribute("open"));
-    this.closePermissionPopover();
-    this.closeModelEffortPopover();
+    this.setActiveComposerPopup(null);
+    this.closeCommandMenuPopover?.();
+    this.closePermissionPopover(false);
+    this.closeModelEffortPopover(false);
     this.closeMentionPicker();
+    this.closeAttachmentContextMenu(false);
     document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
       .forEach((el) => el.setAttribute("hidden", ""));
   }
@@ -1678,6 +1819,7 @@ export class LLMBridgeView extends ItemView {
   private toggleModelEffortPopover(): void {
     if (!this.modelEffortPopoverEl) return;
     if (this.modelEffortPopoverEl.hasAttribute("hidden")) {
+      this.setActiveComposerPopup("model");
       this.modelEffortPopoverEl.removeAttribute("hidden");
       this.modelEffortPopoverEl.classList.add("is-open");
       this.modelEffortButtonEl?.setAttribute("aria-expanded", "true");
@@ -1687,26 +1829,25 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  private closeModelEffortPopover(): void {
+  private closeModelEffortPopover(updateActive = true): void {
     if (!this.modelEffortPopoverEl) return;
     this.modelEffortPopoverEl.setAttribute("hidden", "");
     this.modelEffortPopoverEl.classList.remove("is-open");
     this.modelEffortButtonEl?.setAttribute("aria-expanded", "false");
     this.effortChipEl?.setAttribute("aria-expanded", "false");
+    if (updateActive && this.activeComposerPopup === "model") this.setActiveComposerPopup(null);
   }
 
   private refreshModelEffortPicker(): void {
     if (!this.modelEffortButtonEl) return;
     this.syncModelCatalogForCurrentAgent(false);
     this.renderModelEffortOptions();
-    // V2.16-C: 从 catalog 读取 label，不再依赖硬编码列表
     const model = findModelEntry(this.modelCatalog, this.plugin.settings.model);
     const effort = findEffortEntry(this.modelCatalog, this.plugin.settings.effortLevel);
     const modelLabel = model?.label ?? this.plugin.settings.model ?? "unknown";
     const effortLabel = effort?.label ?? this.plugin.settings.effortLevel ?? "unknown";
-    // V16.3 Round 3: 两个独立 chip 分别显示 model / effort
-    this.modelEffortButtonEl.textContent = modelLabel;
-    this.effortChipEl.textContent = effortLabel;
+    this.modelEffortButtonEl.textContent = `${modelLabel} · ${effortLabel}`;
+    if (this.effortChipEl) this.effortChipEl.textContent = effortLabel;
     const currentModelValue = model?.value ?? this.plugin.settings.model;
     const currentEffortValue = effort?.value ?? this.plugin.settings.effortLevel;
     this.modelEffortPopoverEl?.querySelectorAll<HTMLElement>(".llm-bridge-model-option").forEach((option) => {
@@ -1718,22 +1859,29 @@ export class LLMBridgeView extends ItemView {
   }
 
   private permissionModeShortLabel(): string {
-    const mode = this.plugin.settings.claudePermissionMode ?? "default";
-    if (mode === "plan") return "只读";
-    if (mode === "default") return "询问";
-    if (mode === "acceptEdits") return "自动编辑";
-    if (mode === "auto") return "自动";
-    if (mode === "bypassPermissions") return "完全访问";
-    if (mode === "dontAsk") return "不询问";
-    return mode;
+    const profile = this.effectiveApprovalProfile();
+    return getAgentApprovalProfileInfo(profile).shortLabel;
   }
 
-  private permissionModeIconName(mode: string): string {
-    if (mode === "plan") return "lock";
-    if (mode === "acceptEdits") return "file-check-2";
-    if (mode === "auto") return "zap";
-    if (mode === "bypassPermissions" || mode === "dontAsk") return "shield-alert";
-    return "shield-question";
+  private permissionModeIconName(_mode?: string): string {
+    return getAgentApprovalProfileInfo(this.effectiveApprovalProfile()).icon;
+  }
+
+  private effectiveApprovalProfile(): AgentApprovalProfile {
+    const fromSettings = this.plugin.settings.agentApprovalProfile;
+    if (isAgentApprovalProfile(fromSettings)) return fromSettings;
+    return migrateLegacyPermissionToApprovalProfile(this.plugin.settings.claudePermissionMode);
+  }
+
+  /**
+   * 实际生效画像：优先本轮 EffectiveRunPlan（Codex），否则 settings。
+   */
+  private displayApprovalProfile(): AgentApprovalProfile {
+    const plan = this.messages.slice().reverse().find((m) => m.effectiveRunPlan)?.effectiveRunPlan;
+    if (plan && plan.backend === "codex-app-server" && isAgentApprovalProfile(plan.approvalProfile)) {
+      return plan.approvalProfile;
+    }
+    return this.effectiveApprovalProfile();
   }
 
   private createComposerMenuSurface(parent: HTMLElement, className: string, hidden = false): HTMLDivElement {
@@ -1786,117 +1934,147 @@ export class LLMBridgeView extends ItemView {
   }
 
   /**
-   * V16.4-D: 渲染 permission mode popover（五模式，轻量 chip + popover）
-   * 修复：popover 挂载到 leftTools 容器（按钮外部），避免 click 事件冒泡和 pointer-events 问题。
+   * 权限菜单：请求批准 / 替我审批 / 完全访问（计划模式已移出）
    */
   private renderPermissionPopover(): void {
     if (!this.permissionModePickerEl) return;
-    // 移除旧 popover
     this.permissionPopoverEl?.remove();
-    // V16.4-D: 挂载到 chip 的父容器（leftTools），不挂在 button 内部
-    // 避免 click 冒泡到 button 导致 popover 关闭、pointer-events 被吞等问题
-    const mountEl = this.permissionModeChipEl.parentElement ?? this.permissionModeChipEl;
+    const mountEl = this.permissionModePickerEl;
     this.permissionPopoverEl = this.createComposerMenuSurface(mountEl, "llm-bridge-perm-popover", true);
-    const modes: Array<{ value: string; icon: string; title: string; desc: string }> = [
-      { value: "plan", icon: "lock", title: "计划模式", desc: "只读、规划、检查" },
-      { value: "default", icon: "shield-question", title: "询问后编辑", desc: "编辑或高风险命令先确认" },
-      { value: "acceptEdits", icon: "file-check-2", title: "自动接受编辑", desc: "文件修改自动通过，命令仍受控" },
-      { value: "auto", icon: "zap", title: "低风险自动", desc: "低风险自动允许，敏感操作仍拦截" },
-      { value: "bypassPermissions", icon: "shield-alert", title: "完全访问", desc: "跳过权限确认，仅用于可信任务" },
-    ];
-    const current = this.plugin.settings.claudePermissionMode ?? "default";
-    const currentMode = modes.find((mode) => mode.value === current) ?? modes[1];
-    const currentInfo = getPermissionModeInfo(current);
+
+    const current = this.effectiveApprovalProfile();
+
     const head = this.permissionPopoverEl.createDiv({ cls: "llm-bridge-perm-popover-head" });
-    const headIcon = head.createEl("span", { cls: "llm-bridge-perm-popover-head-icon" });
-    setIcon(headIcon, currentMode.icon);
-    const headText = head.createDiv({ cls: "llm-bridge-perm-popover-head-text" });
-    headText.createEl("strong", { text: "Codex 模式" });
-    headText.createEl("span", { text: `${currentMode.title} · ${currentMode.desc}` });
-    head.createEl("span", { cls: `llm-bridge-perm-popover-risk is-${currentInfo.level}`, text: currentInfo.level === "danger" ? "高风险" : currentInfo.level === "caution" ? "需确认" : "安全" });
-    for (const mode of modes) {
-      const opt = this.createComposerMenuItem(this.permissionPopoverEl, {
-        className: "llm-bridge-perm-option",
-        icon: mode.icon,
-        title: mode.title,
-        description: mode.desc,
-        active: current === mode.value,
-        data: { "data-permission-mode": mode.value },
-        iconClass: "llm-bridge-perm-option-icon",
-        bodyClass: "llm-bridge-perm-option-text",
-        titleClass: "llm-bridge-perm-option-title",
-        descClass: "llm-bridge-perm-option-desc",
-        checkClass: "llm-bridge-perm-option-check",
+    head.createEl("span", {
+      cls: "llm-bridge-perm-popover-question",
+      text: "应如何批准 Agent 操作？",
+    });
+
+    const list = this.permissionPopoverEl.createDiv({ cls: "llm-bridge-perm-popover-list" });
+    for (const profile of AGENT_APPROVAL_PROFILES) {
+      const opt = list.createEl("button", {
+        cls: `llm-bridge-perm-option is-profile-${profile.id}${current === profile.id ? " is-active" : ""}`,
+        attr: {
+          type: "button",
+          "data-approval-profile": profile.id,
+        },
       });
+      const iconEl = opt.createEl("span", { cls: "llm-bridge-perm-option-icon" });
+      setIcon(iconEl, profile.icon);
+      const text = opt.createDiv({ cls: "llm-bridge-perm-option-text" });
+      text.createEl("span", { cls: "llm-bridge-perm-option-title", text: profile.title });
+      text.createEl("span", { cls: "llm-bridge-perm-option-desc", text: profile.description });
+      const check = opt.createEl("span", { cls: "llm-bridge-perm-option-check" });
+      setIcon(check, "check");
       opt.addEventListener("pointerdown", (event) => event.stopPropagation());
       opt.addEventListener("click", async (event) => {
         event.stopPropagation();
         this.closePermissionPopover();
-        await this.setPermissionMode(mode.value);
+        await this.setApprovalProfile(profile.id);
       });
     }
   }
 
-  /**
-   * V16.4-D: 打开/关闭 permission mode popover
-   */
   private togglePermissionPopover(): void {
+    if (!this.permissionPopoverEl) this.renderPermissionPopover();
     if (!this.permissionPopoverEl) return;
     const hidden = this.permissionPopoverEl.hasAttribute("hidden");
     if (hidden) {
-      this.closeModelEffortPopover();
+      this.setActiveComposerPopup("permission");
+      void this.composerEl?.offsetHeight;
       this.renderPermissionPopover();
-      this.permissionPopoverEl.removeAttribute("hidden");
-      this.permissionModeChipEl.setAttribute("aria-expanded", "true");
+      requestAnimationFrame(() => {
+        this.permissionPopoverEl?.removeAttribute("hidden");
+        this.permissionModeChipEl?.setAttribute("aria-expanded", "true");
+      });
     } else {
       this.closePermissionPopover();
     }
   }
 
-  /**
-   * V16.4-D: 关闭 permission mode popover
-   */
-  private closePermissionPopover(): void {
+  private closePermissionPopover(updateActive = true): void {
     this.permissionPopoverEl?.setAttribute("hidden", "");
     this.permissionModeChipEl?.setAttribute("aria-expanded", "false");
+    if (updateActive && this.activeComposerPopup === "permission") this.setActiveComposerPopup(null);
   }
 
-  /**
-   * V16.4-D: 设置 permission mode — 允许在 run 进行中切换（影响下一次 run）
-   */
-  private async setPermissionMode(mode: string): Promise<void> {
-    // V16.4-D: 移除 runHandle 阻塞 — 允许在 run 进行中切换权限（影响下一次 run）
-    this.plugin.settings.claudePermissionMode = mode as never;
+  private confirmFullAccess(): Promise<boolean> {
+    return new Promise((resolve) => {
+      const modal = new Modal(this.app);
+      modal.titleEl.setText("启用完全访问？");
+      modal.contentEl.createEl("p", {
+        text: "完全访问将跳过权限确认，并可访问互联网与本机文件。仅在可信任务中使用。",
+      });
+      const row = modal.contentEl.createDiv({ cls: "modal-button-container" });
+      const cancel = row.createEl("button", { text: "取消" });
+      const ok = row.createEl("button", { cls: "mod-warning", text: "确认启用" });
+      cancel.addEventListener("click", () => { modal.close(); resolve(false); });
+      ok.addEventListener("click", () => { modal.close(); resolve(true); });
+      modal.open();
+    });
+  }
+
+  private async setApprovalProfile(profile: AgentApprovalProfile): Promise<void> {
+    if (profile === "full-access") {
+      const ok = await this.confirmFullAccess();
+      if (!ok) return;
+    }
+    this.plugin.settings.agentApprovalProfile = profile;
+    this.plugin.settings.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode(profile);
     await this.plugin.saveSettings();
     this.refreshPermissionModeChip();
     this.refreshStatusBar();
+    this.session?.rebuildPermissionBoundary(this.plugin.settings);
+  }
+
+  /** @deprecated 兼容旧调用；统一走 setApprovalProfile */
+  private async setPermissionMode(mode: string): Promise<void> {
+    if (mode === "bypassPermissions" || mode === "dontAsk") {
+      await this.setApprovalProfile("full-access");
+      return;
+    }
+    if (mode === "auto" || mode === "acceptEdits") {
+      await this.setApprovalProfile("auto");
+      return;
+    }
+    await this.setApprovalProfile("ask");
   }
 
   private refreshPermissionModeChip(): void {
     if (!this.permissionModeChipEl) return;
-    const mode = this.plugin.settings.claudePermissionMode ?? "default";
-    const info = getPermissionModeInfo(mode);
-    const claudeLabel = this.permissionModeShortLabel();
-    const iconName = this.permissionModeIconName(mode);
+    const profile = this.displayApprovalProfile();
+    const info = getAgentApprovalProfileInfo(profile);
     this.permissionModeChipEl.empty();
-    setIcon(this.permissionModeChipEl.createEl("span", { cls: "llm-bridge-permission-chip-icon" }), iconName);
-    this.permissionModeChipEl.createEl("span", { cls: "llm-bridge-permission-chip-label", text: claudeLabel });
-    this.permissionModeChipEl.setAttribute("aria-label", claudeLabel);
-    this.permissionModeChipEl.setAttribute("title", `权限模式：${info.label}\n${info.risk}\n点击切换`);
-    this.permissionModeChipEl.classList.remove("is-safe", "is-caution", "is-danger");
-    this.permissionModeChipEl.classList.add(`is-${info.level}`);
+    setIcon(this.permissionModeChipEl.createEl("span", { cls: "llm-bridge-permission-chip-icon" }), info.icon);
+    this.permissionModeChipEl.createEl("span", { cls: "llm-bridge-permission-chip-label", text: info.shortLabel });
+    this.permissionModeChipEl.setAttribute("aria-label", info.title);
+    this.permissionModeChipEl.setAttribute("title", `${info.title}\n${info.description}\n点击切换`);
+    this.permissionModeChipEl.classList.remove("is-safe", "is-caution", "is-danger", "is-ask", "is-auto", "is-full-access");
+    this.permissionModeChipEl.classList.add(`is-${profile}`);
   }
 
   private async cyclePermissionMode(): Promise<void> {
-    // V16.4-D: 移除 runHandle 阻塞
-    const modes: Array<"plan" | "default" | "acceptEdits" | "auto" | "bypassPermissions"> = ["plan", "default", "acceptEdits", "auto", "bypassPermissions"];
-    const current = this.plugin.settings.claudePermissionMode ?? "default";
-    const index = modes.indexOf(current as "plan" | "default" | "acceptEdits" | "auto" | "bypassPermissions");
+    const modes: AgentApprovalProfile[] = ["ask", "auto", "full-access"];
+    const current = this.effectiveApprovalProfile();
+    const index = modes.indexOf(current);
     const next = modes[(index + 1 + modes.length) % modes.length];
-    this.plugin.settings.claudePermissionMode = next;
-    await this.plugin.saveSettings();
-    this.refreshPermissionModeChip();
-    this.refreshStatusBar();
+    await this.setApprovalProfile(next);
+  }
+
+  /**
+   * 恢复会话审批画像。
+   * 有 approvalProfile 用其值；仅有旧 permissionMode 时统一回到「请求批准」，
+   * 不把 bypassPermissions 静默升级为完全访问。
+   */
+  private applySessionApprovalProfile(session: { approvalProfile?: string; permissionMode?: string }): void {
+    const s = this.plugin.settings;
+    if (isAgentApprovalProfile(session.approvalProfile)) {
+      s.agentApprovalProfile = session.approvalProfile;
+      s.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode(session.approvalProfile);
+      return;
+    }
+    s.agentApprovalProfile = migrateLegacyPermissionToApprovalProfile(session.permissionMode);
+    s.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode(s.agentApprovalProfile);
   }
 
   async onClose(): Promise<void> {
@@ -1915,6 +2093,10 @@ export class LLMBridgeView extends ItemView {
     if (this.streamContentRafId !== null) {
       window.cancelAnimationFrame(this.streamContentRafId);
       this.streamContentRafId = null;
+    }
+    if (this.streamDetailsTimerId !== null) {
+      window.clearTimeout(this.streamDetailsTimerId);
+      this.streamDetailsTimerId = null;
     }
     if (this.liveTimelineTimerId !== null) {
       window.clearTimeout(this.liveTimelineTimerId);
@@ -2095,9 +2277,12 @@ export class LLMBridgeView extends ItemView {
   private setGlobalStatus(status: RunStatus): void {
     const runtimeLabel = this.actualRuntimeLabel;
     const installStatus = this.getManagedRuntimeInstallStatusForCurrentMode();
+    const verifying = installStatus?.integrityStatus === "pending" || installStatus?.status === "verifying";
     const runtimeState = installStatus?.required
       ? "install required"
-      : status === "failed" ? "失败" : status === "running" ? "运行中" : "已连接";
+      : verifying
+        ? "正在验证"
+        : status === "failed" ? "失败" : status === "running" ? "运行中" : "已连接";
     this.statusLabelEl.textContent = `${installStatus?.required ? "Codex runtime" : runtimeLabel} · ${runtimeState}`;
     this.statusDotEl.className = `llm-bridge-status-dot llm-bridge-status-dot-${status}`;
     this.statusDotEl.setAttribute("title", installStatus?.required ? this.formatRuntimeInstallTitle(installStatus) : STATUS_LABEL[status]);
@@ -2107,10 +2292,10 @@ export class LLMBridgeView extends ItemView {
     this.stopBtn.style.display = running ? "inline-flex" : "none";
     this.sendBtn.style.display = running ? "none" : "inline-flex";
     this.sendBtn.disabled = running;
-    // 禁用所有 chip 与 agent 下拉
+    // 仅禁用真实 <button>；summary（扳手菜单）不是 button，不可设 disabled
     const allChips = this.contentEl.querySelectorAll(".llm-bridge-chip, .llm-bridge-agent-select, .llm-bridge-composer-tool-btn, .llm-bridge-command-menu-item, .llm-bridge-permission-chip, .llm-bridge-model-effort-chip, .llm-bridge-model-option, .llm-bridge-effort-option");
     allChips.forEach((c) => {
-      (c as HTMLButtonElement).disabled = running;
+      if (c instanceof HTMLButtonElement) c.disabled = running;
     });
     this.includeNoteCheckEl.disabled = running;
     this.includeSelectionCheckEl.disabled = running;
@@ -2167,13 +2352,13 @@ export class LLMBridgeView extends ItemView {
     this.statusPermissionEl.setAttribute("title", `权限策略：${policyDesc}`);
     this.statusPermissionEl.classList.remove("is-low", "is-medium", "is-high");
     this.statusPermissionEl.classList.add(`is-${policy}`);
-    // V2.3s: 权限模式（SDK permissionMode + 中文风险解释）
-    const permMode = s.claudePermissionMode ?? "default";
-    const permModeInfo = getPermissionModeInfo(permMode);
-    this.statusPermModeEl.querySelector(".llm-bridge-sb-value")!.textContent = permModeInfo.label;
-    this.statusPermModeEl.setAttribute("title", `权限模式：${permModeInfo.label}\n${permModeInfo.risk}`);
-    this.statusPermModeEl.classList.remove("is-safe", "is-caution", "is-danger");
-    this.statusPermModeEl.classList.add(`is-${permModeInfo.level}`);
+    // 审批画像（优先显示本轮 EffectiveRunPlan 实际生效值）
+    const profile = this.displayApprovalProfile();
+    const profileInfo = getAgentApprovalProfileInfo(profile);
+    this.statusPermModeEl.querySelector(".llm-bridge-sb-value")!.textContent = profileInfo.shortLabel;
+    this.statusPermModeEl.setAttribute("title", `${profileInfo.title}\n${profileInfo.description}`);
+    this.statusPermModeEl.classList.remove("is-safe", "is-caution", "is-danger", "is-ask", "is-auto", "is-full-access");
+    this.statusPermModeEl.classList.add(`is-${profile}`);
     // V2.3: 最近一次 SDK 运行的工具步骤与 agent 数
     this.statusToolsEl.querySelector(".llm-bridge-sb-value")!.textContent = String(this.lastSdkToolCount);
     this.statusToolsEl.setAttribute("title", `最近一次 SDK 运行：${this.lastSdkToolCount} 个工具步骤`);
@@ -3043,19 +3228,21 @@ export class LLMBridgeView extends ItemView {
     this.openMentionPicker(match[1]);
   }
 
-  // UI-02: 输入框自动增高 — 空态 52px，有内容 ≥64px，上限 180px
+  // 空输入 52–64px；有内容最多 128px
   private autoGrowInput(): void {
     const el = this.inputEl;
     if (!el) return;
     el.style.height = "auto";
-    const max = 180;
-    const next = Math.min(el.scrollHeight, max);
-    el.style.height = `${next}px`;
-    if (el.value.trim().length > 0) {
-      el.addClass("is-auto-grown");
-    } else {
+    const emptyH = 56;
+    const max = 128;
+    if (!el.value.trim()) {
+      el.style.height = `${emptyH}px`;
       el.removeClass("is-auto-grown");
+      return;
     }
+    const next = Math.min(Math.max(el.scrollHeight, 64), max);
+    el.style.height = `${next}px`;
+    el.addClass("is-auto-grown");
   }
 
   private openMentionPicker(query: string): void {
@@ -3693,83 +3880,214 @@ export class LLMBridgeView extends ItemView {
     container.empty();
     const refs = this.messageFileRefs.filter((ref) => ref.kind === "vault" || ref.kind === "attachment" || ref.kind === "external");
     if (refs.length === 0) {
+      this.selectedComposerAttachmentId = null;
       container.setAttribute("hidden", "");
       return;
     }
     container.removeAttribute("hidden");
-    // UI-02: 分组展示 — Pin / External / File，让用户一眼看出上下文类型
-    const loc = resolveUiLocale();
-    const groups: Array<{ label: string; refs: typeof refs }> = [
-      { label: "Pin", refs: refs.filter((r) => r.scope === "pinned") },
-      { label: loc === "zh" ? "外部读取" : "External", refs: refs.filter((r) => r.kind === "external" && r.scope !== "pinned") },
-      { label: loc === "zh" ? "文件" : "File", refs: refs.filter((r) => (r.kind === "vault" || r.kind === "attachment") && r.scope !== "pinned") },
-    ];
-    for (const group of groups) {
-      if (group.refs.length === 0) continue;
-      container.createDiv({ cls: "llm-bridge-composer-context-group-label", text: group.label });
-      for (const ref of group.refs) {
-      const chip = container.createEl("button", {
-        cls: `llm-bridge-composer-file-chip is-${ref.kind} is-${ref.fileType}`,
-        attr: { type: "button", title: `预览：${ref.displayName}\n${ref.resolvedPath}`, "aria-label": `预览 ${ref.displayName}` },
+    const maxVisible = 4;
+    const visible = refs.slice(0, maxVisible);
+    const overflow = refs.length - visible.length;
+    for (const ref of visible) {
+      this.renderComposerAttachmentToken(container, ref, true);
+    }
+    if (overflow > 0) {
+      container.createEl("span", {
+        cls: "llm-bridge-attachment-more",
+        text: `+${overflow}`,
+        attr: { title: `还有 ${overflow} 个附件` },
       });
-      const thumb = chip.createEl("span", { cls: "llm-bridge-composer-file-thumb" });
-      const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
+    }
+  }
+
+  private shortAttachmentName(name: string, max = 14): string {
+    const base = (name || "file").trim();
+    if (base.length <= max) return base;
+    const ext = path.extname(base);
+    const stem = path.basename(base, ext);
+    const keep = Math.max(4, max - ext.length - 1);
+    return `${stem.slice(0, keep)}…${ext}`;
+  }
+
+  private renderComposerAttachmentToken(container: HTMLElement, ref: FileRef, allowRemove: boolean): void {
+    const isImage = ref.fileType === "image";
+    const token = container.createDiv({
+      cls: `llm-bridge-attachment-token is-${isImage ? "image" : "file"}${this.selectedComposerAttachmentId === ref.id ? " is-selected" : ""}`,
+      attr: { "data-ref-id": ref.id },
+    });
+    const preview = token.createEl("button", {
+      cls: "llm-bridge-attachment-token-preview",
+      attr: {
+        type: "button",
+        title: `预览：${ref.displayName}`,
+        "aria-label": `预览 ${ref.displayName}`,
+      },
+    });
+    if (isImage) {
+      const thumbnailUrl = this.getFileRefThumbnailUrl(ref);
       if (thumbnailUrl) {
-        chip.addClass("has-preview");
-        chip.addClass("is-preview-only");
-        thumb.addClass("has-image-preview");
-        const previewEl = thumb.createEl("img", {
-          cls: "llm-bridge-composer-file-image",
+        const img = preview.createEl("img", {
+          cls: "llm-bridge-attachment-token-thumb llm-bridge-composer-file-image",
           attr: { src: thumbnailUrl, alt: ref.displayName },
         });
-        const fallback = thumb.createEl("span", { cls: "llm-bridge-composer-file-icon is-fallback", attr: { hidden: "" } });
-        setIcon(fallback, this.getFileRefIconName(ref));
-        previewEl.addEventListener("load", () => {
-          thumb.addClass("is-preview-loaded");
-          fallback.setAttribute("hidden", "");
-          this.maybeApplySmartImageThumbnail(previewEl, this.getSmartImageThumbnailCacheKey(ref, thumbnailUrl));
+        img.addEventListener("error", () => {
+          img.remove();
+          const icon = preview.createEl("span", { cls: "llm-bridge-attachment-token-icon llm-bridge-composer-file-icon is-fallback" });
+          setIcon(icon, "image");
         });
-        previewEl.addEventListener("error", () => {
-          previewEl.remove();
-          thumb.removeClass("has-image-preview");
-          thumb.removeClass("is-preview-loaded");
-          thumb.addClass("is-preview-missing");
-          chip.addClass("is-thumbnail-fallback");
-          fallback.removeAttribute("hidden");
-          fallback.empty();
-          setIcon(fallback, "image");
+        img.addEventListener("load", () => {
+          this.maybeApplySmartImageThumbnail(img, this.getSmartImageThumbnailCacheKey(ref, thumbnailUrl));
         });
       } else {
-        chip.addClass("is-preview-only");
-        chip.addClass("has-document-preview");
-        thumb.addClass("has-document-preview");
-        this.renderDocumentPreviewThumb(thumb, "llm-bridge-composer-file-doc-thumb", "llm-bridge-composer-file-doc-line", ref, 3, 14);
+        const icon = preview.createEl("span", { cls: "llm-bridge-attachment-token-icon" });
+        setIcon(icon, "image");
       }
-      const fileText = chip.createEl("span", { cls: "llm-bridge-composer-file-text" });
-      fileText.createEl("span", { cls: "llm-bridge-composer-file-name", text: ref.displayName });
-      fileText.createEl("span", {
-        cls: "llm-bridge-composer-file-meta",
-        text: this.fileRefMetaLabel(ref),
-        attr: { title: ref.resolvedPath },
+    } else {
+      const icon = preview.createEl("span", { cls: "llm-bridge-attachment-token-icon llm-bridge-composer-file-icon" });
+      setIcon(icon, this.getFileRefIconName(ref));
+      preview.createEl("span", {
+        cls: "llm-bridge-attachment-token-name llm-bridge-composer-file-text",
+        text: this.shortAttachmentName(ref.displayName),
+        attr: { title: ref.displayName },
       });
-      chip.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        void this.openFileRefPreview(ref);
+    }
+    // 左键预览；右键弹出复制 / 从本轮移除
+    preview.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closeAttachmentContextMenu();
+      void this.openFileRefPreview(ref);
+    });
+    token.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      this.showAttachmentContextMenu(event, ref, {
+        allowRemove,
+        allowOpen: false,
       });
-      const remove = chip.createEl("span", { cls: "llm-bridge-composer-file-remove", text: "×", attr: { title: "移除", tabindex: "0", role: "button", "aria-label": `移除 ${ref.displayName}` } });
-      remove.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
+    });
+  }
+
+  private showAttachmentContextMenu(
+    event: MouseEvent,
+    ref: FileRef,
+    options: { allowRemove: boolean; allowOpen: boolean },
+  ): void {
+    this.closeAttachmentContextMenu(false);
+    this.setActiveComposerPopup("attachment");
+    const menu = document.body.createDiv({ cls: "llm-bridge-attachment-context-menu" });
+    this.attachmentContextMenuEl = menu;
+    const addItem = (label: string, onClick: () => void) => {
+      const item = menu.createEl("button", {
+        cls: "llm-bridge-attachment-context-item",
+        text: label,
+        attr: { type: "button" },
+      });
+      item.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this.closeAttachmentContextMenu();
+        onClick();
+      });
+    };
+    addItem("复制", () => void this.copyFileRefToClipboard(ref));
+    if (options.allowOpen) {
+      addItem("打开", () => {
+        const target = ref.resolvedPath || ref.displayName;
+        if (target) void this.openPathWithSystemDefault(target);
+      });
+    }
+    if (options.allowRemove) {
+      addItem("从本轮移除", () => {
+        if (this.selectedComposerAttachmentId === ref.id) this.selectedComposerAttachmentId = null;
         this.removeMessageFileRef(ref.id);
       });
-      // UI-02: 键盘可操作的删除按钮
-      remove.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        this.removeMessageFileRef(ref.id);
-      });
+    }
+    const x = Math.min(event.clientX, window.innerWidth - 160);
+    const y = Math.min(event.clientY, window.innerHeight - 120);
+    menu.style.left = `${Math.max(8, x)}px`;
+    menu.style.top = `${Math.max(8, y)}px`;
+  }
+
+  private closeAttachmentContextMenu(updateActive = true): void {
+    if (this.attachmentContextMenuEl) {
+      this.attachmentContextMenuEl.remove();
+      this.attachmentContextMenuEl = null;
+    }
+    if (updateActive && this.activeComposerPopup === "attachment") this.setActiveComposerPopup(null);
+  }
+
+  /** 空输入时 Backspace 选中/删除附件；有文本时优先删文字 */
+  private handleComposerAttachmentKeydown(e: KeyboardEvent): boolean {
+    const value = this.inputEl.value;
+    const hasSelection = this.inputEl.selectionStart !== this.inputEl.selectionEnd;
+    if (e.key === "Escape" && this.selectedComposerAttachmentId) {
+      e.preventDefault();
+      this.selectedComposerAttachmentId = null;
+      this.renderComposerFileRefs();
+      return true;
+    }
+    if (value.length > 0 || hasSelection) return false;
+    const refs = this.messageFileRefs.filter((ref) => ref.kind === "vault" || ref.kind === "attachment" || ref.kind === "external");
+    if (refs.length === 0) return false;
+    if (e.key === "Backspace" || e.key === "Delete") {
+      e.preventDefault();
+      if (this.selectedComposerAttachmentId) {
+        const id = this.selectedComposerAttachmentId;
+        this.selectedComposerAttachmentId = null;
+        this.removeMessageFileRef(id);
+        return true;
       }
+      if (e.key === "Backspace") {
+        this.selectedComposerAttachmentId = refs[refs.length - 1].id;
+        this.renderComposerFileRefs();
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private async copyFileRefToClipboard(ref: FileRef): Promise<void> {
+    const filePath = ref.resolvedPath || "";
+    try {
+      if (ref.fileType === "image" && filePath && fs.existsSync(filePath)) {
+        try {
+          // Obsidian/Electron：复制为系统剪贴板图片
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          const electron = (window as unknown as { require?: (id: string) => unknown }).require?.("electron") as {
+            clipboard?: { writeImage?: (img: unknown) => void };
+            nativeImage?: { createFromPath?: (p: string) => unknown };
+          } | undefined;
+          const image = electron?.nativeImage?.createFromPath?.(filePath);
+          if (image && electron?.clipboard?.writeImage) {
+            electron.clipboard.writeImage(image);
+            new Notice("已复制图片到剪贴板");
+            return;
+          }
+        } catch {
+          // fall through to path
+        }
+        await navigator.clipboard.writeText(filePath);
+        new Notice("无法复制图片数据，已复制图片路径");
+        return;
+      }
+      if ((ref.fileType === "markdown" || ref.fileType === "text" || ref.fileType === "json") && filePath && fs.existsSync(filePath)) {
+        const text = fs.readFileSync(filePath, "utf8");
+        await navigator.clipboard.writeText(text);
+        new Notice("已复制文件内容");
+        return;
+      }
+      const snippet = this.getFileRefPreviewText(ref) || this.attachmentTextSnippets.find((s) => s.refId === ref.id)?.content;
+      if (snippet) {
+        await navigator.clipboard.writeText(snippet);
+        new Notice("已复制文本内容");
+        return;
+      }
+      const pathOrRef = filePath || ref.displayName || ref.id;
+      await navigator.clipboard.writeText(pathOrRef);
+      new Notice(filePath ? "已复制文件路径" : "已复制文件引用");
+    } catch {
+      new Notice("复制失败");
     }
   }
 
@@ -4164,29 +4482,32 @@ export class LLMBridgeView extends ItemView {
     this.renderFileContextSection(container, {
       variant: "current",
       icon: "paperclip",
-      title: "Next message",
-      description: "Files attached to the next request.",
+      title: "本轮附件",
+      description: "仅随下一条消息发送；移除不会删除原文件。",
       refs: this.messageFileRefs,
-      emptyText: "Drop files, paste files, or type @ to attach a file.",
-      actions: { allowRemove: true },
+      emptyText: "拖拽、粘贴或输入 @ 添加文件。",
+      actions: { allowRemove: true, allowCopy: true },
     });
-    this.renderFileContextSection(container, {
-      variant: "pinned",
-      icon: "pin",
-      title: "Pinned context",
-      description: "Files kept across turns.",
-      refs: this.pinnedFileRefs,
-      emptyText: "Pin an attachment to keep it across future turns.",
-      actions: { allowUnpin: true, allowRemove: true },
-    });
+    // 旧会话 Pin：只读入口（查看/复制/移除），不提供新建 Pin
+    if (this.pinnedFileRefs.length > 0) {
+      this.renderFileContextSection(container, {
+        variant: "pinned",
+        icon: "pin",
+        title: "旧会话上下文",
+        description: "来自升级前的 Pin；可查看、复制或移除，不再支持新建。",
+        refs: this.pinnedFileRefs,
+        emptyText: "",
+        actions: { allowUnpin: true, allowRemove: true, allowCopy: true },
+      });
+    }
     this.renderFileContextSection(container, {
       variant: "session",
       icon: "shield-check",
-      title: "Session grants",
-      description: "External file access allowed for this session.",
+      title: "会话授权",
+      description: "本会话允许的外部文件读取。",
       refs: this.sessionFileRefs,
-      emptyText: "External read grants appear here after approval.",
-      actions: { allowRemove: true },
+      emptyText: "外部读取授权批准后会出现在这里。",
+      actions: { allowRemove: true, allowCopy: true },
     });
   }
 
@@ -4199,7 +4520,7 @@ export class LLMBridgeView extends ItemView {
       description: string;
       refs: FileRef[];
       emptyText: string;
-      actions: { allowPin?: boolean; allowUnpin?: boolean; allowRemove?: boolean };
+      actions: { allowPin?: boolean; allowUnpin?: boolean; allowRemove?: boolean; allowCopy?: boolean };
     },
   ): void {
     const section = container.createDiv({ cls: `llm-bridge-context-section is-${options.variant}` });
@@ -4219,7 +4540,7 @@ export class LLMBridgeView extends ItemView {
     for (const ref of options.refs) this.renderContextRefChip(body, ref, options.actions);
   }
 
-  private renderContextRefChip(container: HTMLElement, ref: FileRef, options: { allowPin?: boolean; allowUnpin?: boolean; allowRemove?: boolean }): void {
+  private renderContextRefChip(container: HTMLElement, ref: FileRef, options: { allowPin?: boolean; allowUnpin?: boolean; allowRemove?: boolean; allowCopy?: boolean }): void {
     const chip = container.createDiv({
       cls: `llm-bridge-context-ref-chip is-${ref.kind} is-${ref.status} is-${ref.fileType}`,
       attr: { title: `${ref.displayName}\n${this.fileRefDisplayPath(ref)}\n${this.fileRefBadgeLabel(ref)}` },
@@ -4230,16 +4551,17 @@ export class LLMBridgeView extends ItemView {
     text.createEl("span", { cls: "llm-bridge-context-ref-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
     text.createEl("span", { cls: "llm-bridge-context-ref-meta", text: this.fileRefDisplayPath(ref), attr: { title: ref.resolvedPath } });
     chip.createEl("span", { cls: "llm-bridge-context-ref-mode", text: this.fileRefBadgeLabel(ref) });
-    if (options.allowPin) {
-      const pinActionBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-action is-pin", attr: { title: "Pin to future turns", "aria-label": "Pin to future turns" } });
-      setIcon(pinActionBtn, "pin");
-      pinActionBtn.addEventListener("click", (event) => {
+    // 普通 UI 不再提供新建 Pin（allowPin 保留类型兼容，但不渲染）
+    if (options.allowCopy) {
+      const copyBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-action is-copy", attr: { title: "复制", "aria-label": `复制 ${ref.displayName}` } });
+      setIcon(copyBtn, "copy");
+      copyBtn.addEventListener("click", (event) => {
         event.stopPropagation();
-        this.pinFileRef(ref.id);
+        void this.copyFileRefToClipboard(ref);
       });
     }
     if (options.allowUnpin) {
-      const unpinActionBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-action is-unpin", attr: { title: "Unpin from future turns", "aria-label": "Unpin from future turns" } });
+      const unpinActionBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-action is-unpin", attr: { title: "从旧会话上下文移除", "aria-label": "从旧会话上下文移除" } });
       setIcon(unpinActionBtn, "pin-off");
       unpinActionBtn.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -4247,7 +4569,7 @@ export class LLMBridgeView extends ItemView {
       });
     }
     if (options.allowRemove) {
-      const removeBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-remove is-remove", attr: { title: "Remove", "aria-label": "Remove" } });
+      const removeBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-remove is-remove", attr: { title: "移除", "aria-label": "移除" } });
       setIcon(removeBtn, "x");
       removeBtn.addEventListener("click", (event) => {
         event.stopPropagation();
@@ -4897,41 +5219,166 @@ export class LLMBridgeView extends ItemView {
       const empty = this.messagesEl.querySelector(".llm-bridge-empty");
       if (empty) empty.remove();
 
+      const loc = resolveUiLocale() === "en" ? "en" : "zh";
+      const presentation = buildMessagePresentation(msg, {
+        developerMode: !!this.plugin.settings.developerMode,
+        locale: loc,
+        runtimeLabel: this.actualRuntimeLabel,
+      });
+      const kindClass = presentation.kind === "user"
+        ? ""
+        : presentation.kind === "assistant-running"
+          ? " is-running"
+          : presentation.kind === "assistant-answer"
+            ? " is-answer is-completed"
+            : presentation.kind === "assistant-summary"
+              ? " is-summary is-completed"
+              : presentation.kind === "assistant-failed"
+                ? " is-failed"
+                : presentation.kind === "assistant-stopped"
+                  ? " is-stopped"
+                  : ` is-${msg.status}`;
+
       const block = this.messagesEl.createDiv({
-        cls: `llm-bridge-msg llm-bridge-msg-${msg.role}${msg.role === "assistant" ? ` is-${msg.status}` : ""}`,
+        cls: `llm-bridge-msg llm-bridge-msg-${msg.role}${kindClass}`,
         attr: { "data-msg-id": msg.id },
       });
 
-      // 消息头：角色 + 状态（失败时高亮）+ 时间
       const head = block.createDiv({ cls: "llm-bridge-msg-head" });
-      const devMode = !!this.plugin.settings.developerMode;
-      head.createEl("span", { cls: "llm-bridge-msg-role", text: msg.role === "user" ? "You" : (devMode ? this.actualRuntimeLabel : "Assistant") });
-      if (msg.role === "assistant") {
-        // Normal user mode: no "Done"/"Running" status label (shown in turn view header)
-        // Developer mode: keep legacy status label for debugging
-        if (devMode) {
-          head.createEl("span", {
-            cls: `llm-bridge-msg-status is-${msg.status}`,
-            text: STATUS_LABEL[msg.status],
-          });
-        } else if (msg.status === "running") {
-          // V16.4-G: Codex-style glow text 取代旋转圈
-          this.renderRunStatusText(head, "Thinking", "running");
-        }
+      if (presentation.showRole) {
+        head.createEl("span", { cls: "llm-bridge-msg-role", text: presentation.roleLabel });
       }
-      head.createEl("span", { cls: "llm-bridge-msg-time", text: new Date(msg.timestamp).toLocaleTimeString() });
+      if (presentation.statusLine) {
+        head.createEl("span", { cls: "llm-bridge-msg-status-line llm-bridge-run-status-text is-running llm-bridge-run-glow", text: presentation.statusLine });
+      }
+      if (presentation.showTime) {
+        head.createEl("span", {
+          cls: `llm-bridge-msg-time${presentation.timeFaded ? " is-faded" : ""}`,
+          text: new Date(msg.timestamp).toLocaleTimeString(),
+        });
+      }
 
       const content = block.createEl("div", { cls: "llm-bridge-msg-content" });
       this.renderMessageContent(content, msg);
 
-      if (msg.role === "assistant") {
-        this.appendMsgDetails(block, msg, content);
+      if (presentation.errorSummary) {
+        block.createDiv({ cls: "llm-bridge-msg-error-summary", text: presentation.errorSummary });
       }
+
+      if (msg.role === "assistant") {
+        if (presentation.resultSummary) {
+          const summaryBtn = block.createEl("button", {
+            cls: "llm-bridge-msg-result-summary",
+            attr: { type: "button" },
+            text: `▸ ${presentation.resultSummary}`,
+          });
+          summaryBtn.addEventListener("click", () => {
+            const details = block.querySelector(".llm-bridge-msg-details") as HTMLElement | null;
+            if (!details) return;
+            const hidden = details.hasAttribute("hidden");
+            if (hidden) {
+              details.removeAttribute("hidden");
+              summaryBtn.textContent = `▾ ${presentation.resultSummary}`;
+            } else {
+              details.setAttribute("hidden", "");
+              summaryBtn.textContent = `▸ ${presentation.resultSummary}`;
+            }
+          });
+        }
+        this.appendMsgDetails(block, msg, content);
+        const details = block.querySelector(".llm-bridge-msg-details") as HTMLElement | null;
+        if (details && presentation.kind === "assistant-answer" && !presentation.showProcessFeed) {
+          // 无工具的普通问答：过程区可空
+          const processOnly = details.querySelector(".llm-bridge-codex-process, .llm-bridge-timeline-body");
+          if (processOnly && !msg.content && !msg.assistantTurnView) {
+            details.setAttribute("hidden", "");
+          }
+        }
+        // 有工具调用时过程流默认可见（工具组自身折叠），不再用 resultSummary 把 details 整块藏起
+        if (details && presentation.kind === "assistant-running" && !presentation.showProcessFeed) {
+          // 兼容旧路径
+        }
+      }
+
+      this.renderMessageActions(block, msg, presentation);
       this.scrollToBottom(true);
     } catch (e) {
-      // V2.7: 单条消息渲染失败不影响其他消息
       this.renderMessageError(msg, e);
     }
+  }
+
+  private renderMessageActions(block: HTMLElement, msg: ChatMessage, presentation: MessagePresentation): void {
+    if (!presentation.actions.length) return;
+    const actions = block.createDiv({ cls: "llm-bridge-msg-actions" });
+    const addIcon = (id: MessageActionId, iconName: string, title: string) => {
+      const btn = actions.createEl("button", {
+        cls: "llm-bridge-msg-action-btn",
+        attr: { type: "button", title, "aria-label": title, "data-action": id },
+      });
+      setIcon(btn, iconName);
+      btn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        void this.handleMessageAction(id, msg);
+      });
+    };
+    for (const action of presentation.actions) {
+      if (action === "copy") addIcon("copy", "copy", "复制回答");
+      if (action === "retry") addIcon("retry", "refresh-cw", "再次运行");
+    }
+  }
+
+  private async handleMessageAction(action: MessageActionId, msg: ChatMessage): Promise<void> {
+    if (action === "copy") {
+      const text = this.getAssistantCopyText(msg);
+      if (!text) {
+        new Notice("没有可复制的内容");
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(text);
+        new Notice("已复制");
+      } catch {
+        new Notice("复制失败");
+      }
+      return;
+    }
+    if (action === "retry") {
+      await this.retryFromMessage(msg);
+    }
+  }
+
+  private getAssistantCopyText(msg: ChatMessage): string {
+    if (msg.role === "user") return msg.content || "";
+    const fromTurn = msg.assistantTurnView?.finalAnswer?.trim();
+    if (fromTurn) return fromTurn;
+    return (msg.content || "").trim();
+  }
+
+  private async retryFromMessage(msg: ChatMessage): Promise<void> {
+    if (this.runHandle) {
+      new Notice("当前仍有运行中的任务");
+      return;
+    }
+    // 找到该 assistant 之前最近一条 user 消息
+    const idx = this.messages.findIndex((m) => m.id === msg.id);
+    let userText = "";
+    for (let i = idx - 1; i >= 0; i--) {
+      if (this.messages[i].role === "user") {
+        userText = this.messages[i].content || "";
+        break;
+      }
+    }
+    if (!userText.trim()) {
+      new Notice("找不到可重试的用户消息");
+      return;
+    }
+    if (this.lastRunHadFileChanges) {
+      const ok = window.confirm("上一轮已修改文件。再次运行可能重复执行相同操作，是否继续？");
+      if (!ok) return;
+    }
+    this.inputEl.value = userText;
+    this.autoGrowInput();
+    await this.run();
   }
 
   private renderMessageContent(content: HTMLElement, msg: ChatMessage): void {
@@ -5085,29 +5532,33 @@ export class LLMBridgeView extends ItemView {
     parent.addClass("has-attachments");
     parent.prepend(wrap);
     for (const ref of refs) {
-      const chip = wrap.createEl("button", {
+      const chip = wrap.createDiv({
         cls: `llm-bridge-msg-attachment-chip is-${ref.kind} is-${ref.fileType}`,
+        attr: { title: `${ref.displayName}\n${ref.resolvedPath}` },
+      });
+      const preview = chip.createEl("button", {
+        cls: "llm-bridge-msg-attachment-preview",
         attr: {
           type: "button",
-          title: `${ref.displayName}\n${ref.resolvedPath}`,
+          title: `预览 ${ref.displayName}`,
           "aria-label": `预览 ${ref.displayName}`,
         },
       });
-      const visual = chip.createEl("span", { cls: "llm-bridge-msg-attachment-visual" });
+      const visual = preview.createEl("span", { cls: "llm-bridge-msg-attachment-visual" });
       const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
       if (thumbnailUrl) {
         chip.addClass("has-preview");
         chip.addClass("is-preview-only");
         visual.addClass("has-image-preview");
-        const preview = visual.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });
-        preview.addEventListener("load", () => {
-          this.maybeApplySmartImageThumbnail(preview, this.getSmartImageThumbnailCacheKey(ref, thumbnailUrl));
+        const previewImg = visual.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });
+        previewImg.addEventListener("load", () => {
+          this.maybeApplySmartImageThumbnail(previewImg, this.getSmartImageThumbnailCacheKey(ref, thumbnailUrl));
         });
-        preview.addEventListener("error", () => {
+        previewImg.addEventListener("error", () => {
           chip.addClass("is-preview-missing");
           visual.removeClass("has-image-preview");
           visual.addClass("is-image-placeholder");
-          preview.remove();
+          previewImg.remove();
           const placeholder = visual.createEl("span", { cls: "llm-bridge-msg-attachment-image-placeholder" });
           setIcon(placeholder, "image");
         });
@@ -5122,8 +5573,24 @@ export class LLMBridgeView extends ItemView {
         chip.addClass("has-document-preview");
         visual.addClass("has-document-preview");
         this.renderDocumentPreviewThumb(visual, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);
+        preview.createEl("span", {
+          cls: "llm-bridge-attachment-token-name",
+          text: this.shortAttachmentName(ref.displayName),
+        });
       }
-      chip.addEventListener("click", () => void this.openFileRefPreview(ref));
+      preview.addEventListener("click", () => {
+        this.closeAttachmentContextMenu();
+        void this.openFileRefPreview(ref);
+      });
+      // 已发送附件：左键预览；右键复制/打开；不提供删除
+      chip.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        this.showAttachmentContextMenu(event, ref, {
+          allowRemove: false,
+          allowOpen: true,
+        });
+      });
     }
   }
 
@@ -5543,42 +6010,61 @@ export class LLMBridgeView extends ItemView {
     sourceModel: AgentRunDisplayModel,
     developerMode: boolean,
   ): void {
+    const loc = resolveUiLocale() === "en" ? "en" : "zh";
+    const presentation = buildPresentationFromCodexRun(run, {
+      developerMode,
+      locale: loc,
+      runtimeLabel: this.actualRuntimeLabel,
+    });
     const diagnosticsForDisplay = this.filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode);
     const processFeedItems = run.feedItems;
     const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);
-    const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;
     const hasDeveloperDebug = developerMode && !!run.debugPanel;
     const hasProcessContent = processFeedItems.length > 0
       || diagnosticsForDisplay.length > 0;
     const hasAnswer = !!run.finalAnswer.trim();
-    const processCollapsedByDefault = !developerMode && run.runHeader.statusKind === "completed" && hasAnswer;
-    const hasToggleContent = hasProcessContent;
+    // 终态禁止自动折叠过程：运行中看到的节点完成后原样保留
+    const showFeed = hasProcessContent; // 有过程内容就展示，不因 presentation 标志清空
+    const showChrome = presentation.showRunChrome || developerMode;
     const hasBodyContent = run.approvalGates.length > 0
-      || processFeedItems.length > 0
-      || diagnosticsForDisplay.length > 0
+      || showFeed
       || hasDeveloperDebug
       || hasAnswer;
+
+    const semanticClass = presentation.kind === "assistant-answer"
+      ? " is-semantic-answer"
+      : presentation.kind === "assistant-running"
+        ? " is-semantic-running"
+        : presentation.kind === "assistant-summary"
+          ? " is-semantic-summary"
+          : presentation.kind === "assistant-failed" || presentation.kind === "assistant-stopped"
+            ? " is-semantic-failed"
+            : "";
+
     const wrap = parent.createDiv({
-      cls: `llm-bridge-timeline-wrap llm-bridge-turn-view llm-bridge-codex-run-view is-${run.runHeader.statusKind}${developerMode ? " is-developer" : ""}`,
+      cls: `llm-bridge-timeline-wrap llm-bridge-turn-view llm-bridge-codex-run-view is-${run.runHeader.statusKind}${developerMode ? " is-developer" : ""}${semanticClass}${showChrome ? " is-run-chrome" : " is-process-quiet"}`,
     });
     wrap.setAttribute("data-final-answer-disposition", sourceModel.finalAnswerDisposition);
     wrap.addClass(`is-disposition-${sourceModel.finalAnswerDisposition}`);
 
     const head = wrap.createDiv({ cls: "llm-bridge-timeline-head llm-bridge-codex-run-header" });
     const summary = head.createDiv({ cls: "llm-bridge-codex-run-summary" });
-    const statusEl = summary.createEl("span", {
-      cls: `llm-bridge-codex-run-status llm-bridge-timeline-summary is-${run.runHeader.statusKind}`,
-      text: this.localizeRunStatus(run.runHeader.status),
-    });
-    statusEl.setAttribute("data-run-status", run.runHeader.statusKind);
-    const providerText = [run.runHeader.provider, run.runHeader.model].filter(Boolean).join(" · ");
-    if (providerText) summary.createEl("span", { cls: "llm-bridge-codex-run-provider", text: providerText, attr: { title: providerText } });
+    if (showChrome && (presentation.showCompletedBadge || developerMode)) {
+      const statusEl = summary.createEl("span", {
+        cls: `llm-bridge-codex-run-status llm-bridge-timeline-summary is-${run.runHeader.statusKind}`,
+        text: this.localizeRunStatus(run.runHeader.status),
+      });
+      statusEl.setAttribute("data-run-status", run.runHeader.statusKind);
+    }
+    if (showChrome && (presentation.showProviderBadge || developerMode)) {
+      const providerText = [run.runHeader.provider, run.runHeader.model].filter(Boolean).join(" · ");
+      if (providerText) summary.createEl("span", { cls: "llm-bridge-codex-run-provider", text: providerText, attr: { title: providerText } });
+    }
 
-    // UI-01: 仅在有意义的操作时显示 metrics（文件改动/命令/审批），简单问答不显示大块 metrics
     const hasMeaningfulMetrics = run.runHeader.fileChangeCount > 0
       || run.runHeader.commandCount > 0
       || run.runHeader.approvalCount > 0;
-    if (hasMeaningfulMetrics || developerMode) {
+    if (showChrome && developerMode && (hasMeaningfulMetrics || true)) {
       const metrics = head.createDiv({ cls: "llm-bridge-codex-run-metrics" });
       this.renderCodexMetric(metrics, "clock", run.runHeader.elapsed || "0s", "Elapsed time");
       if (run.runHeader.fileChangeCount > 0 || developerMode) {
@@ -5593,59 +6079,84 @@ export class LLMBridgeView extends ItemView {
     }
 
     const body = wrap.createDiv({ cls: "llm-bridge-timeline-body llm-bridge-codex-run-body" });
-    if (run.runHeader.statusKind === "running" || run.runHeader.statusKind === "blocked" || run.runHeader.statusKind === "failed") {
+    // 普通模式运行态：状态行已在 msg-head；此处仅在 blocked / 开发者模式重复展示
+    if (run.runHeader.statusKind === "blocked") {
       this.renderCodexCurrentActivity(body, run);
+    } else if (presentation.kind === "assistant-running" && developerMode) {
+      const line = mapRunningActivityToStatusLine(run.currentActivity?.label || "", loc);
+      const activity = body.createDiv({ cls: "llm-bridge-codex-current-activity is-running" });
+      activity.createEl("span", { cls: "llm-bridge-codex-current-activity-text llm-bridge-run-status-text is-running llm-bridge-run-glow", text: line });
     }
     if (run.approvalGates.length > 0) this.renderCodexApprovalGates(body, run.approvalGates, developerMode);
 
     const process = body.createDiv({ cls: "llm-bridge-codex-process" });
-    if (hasProcessContent) {
+    if (showFeed) {
       const processHead = process.createDiv({ cls: "llm-bridge-codex-section-head llm-bridge-codex-process-head" });
       const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
-      // UI-01: "Process" → 双语"运行详情"/"Run details"
-      const codexLoc = resolveUiLocale();
-      const processTitleLabel = codexLoc === "zh" ? "运行详情" : "Run details";
-      processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: processTitleLabel });
-      const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });
-      if (run.runHeader.elapsed) {
-        processMeta.createEl("span", { cls: "llm-bridge-codex-process-head-meta-item", text: run.runHeader.elapsed });
-      }
-      if (processFeedBatches.length > 1) {
-        processMeta.createEl("span", {
-          cls: "llm-bridge-codex-process-head-meta-item",
-          text: `${processFeedBatches.length} batches`,
+      if (showChrome) {
+        const processTitleLabel = loc === "zh" ? "运行详情" : "Run details";
+        processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: processTitleLabel });
+        const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });
+        if (run.runHeader.elapsed) {
+          processMeta.createEl("span", { cls: "llm-bridge-codex-process-head-meta-item", text: run.runHeader.elapsed });
+        }
+        if (processFeedBatches.length > 1) {
+          processMeta.createEl("span", {
+            cls: "llm-bridge-codex-process-head-meta-item",
+            text: `${processFeedBatches.length} batches`,
+          });
+        }
+        const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;
+        if (processEventCount > 0) {
+          processMeta.createEl("span", {
+            cls: "llm-bridge-codex-process-head-meta-item",
+            text: `${processEventCount} ${processEventCount === 1 ? "step" : "steps"}`,
+          });
+        }
+      } else if (presentation.kind !== "assistant-running") {
+        // 普通完成态：每轮最多一个简短状态入口，例如「已处理 6m42s」
+        const elapsed = (run.runHeader.elapsed || "").trim();
+        const quietLabel = loc === "zh"
+          ? (elapsed ? `已处理 ${elapsed}` : "已处理")
+          : (elapsed ? `Processed ${elapsed}` : "Processed");
+        processTitle.createDiv({
+          cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title",
+          text: quietLabel,
         });
-      }
-      if (processEventCount > 0) {
-        processMeta.createEl("span", {
-          cls: "llm-bridge-codex-process-head-meta-item",
-          text: `${processEventCount} ${processEventCount === 1 ? "step" : "steps"}`,
-        });
+      } else {
+        // 运行中：不显示「运行详情」标题，过程流直接铺开
+        processHead.setAttribute("hidden", "");
       }
       const processToggle = processHead.createEl("span", {
         cls: "llm-bridge-codex-process-toggle",
-        text: hasToggleContent ? (processCollapsedByDefault ? "▶" : "▼") : "",
+        text: showFeed && presentation.kind !== "assistant-running" ? "▾" : "",
       });
       const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
-      if (processCollapsedByDefault) processBody.setAttribute("hidden", "");
-      if (processFeedItems.length > 0) this.renderCodexFeed(processBody, processFeedBatches, developerMode);
+      // 禁止自动折叠：过程体始终可见
+      // 初渲与增量共用同一套分组 + keyed reconciliation
+      if (processFeedItems.length > 0) {
+        const section = processBody.createDiv({ cls: "llm-bridge-codex-feed llm-bridge-codex-changes-panel" });
+        const list = section.createDiv({ cls: "llm-bridge-codex-feed-list llm-bridge-codex-step-list" });
+        this.patchCodexFeedStable(list, processFeedItems, developerMode);
+      }
       if (diagnosticsForDisplay.length > 0) this.renderCodexDiagnosticsDrawer(processBody, diagnosticsForDisplay, developerMode);
 
-      if (hasToggleContent) {
+      const canToggle = showFeed && presentation.kind !== "assistant-running" && !processHead.hasAttribute("hidden");
+      if (canToggle) {
         processHead.addClass("is-collapsible");
         processHead.setAttribute("role", "button");
         processHead.setAttribute("tabindex", "0");
-        processHead.setAttribute("aria-expanded", processCollapsedByDefault ? "false" : "true");
+        processHead.setAttribute("aria-expanded", "true");
         const toggleProcessBody = () => {
           const hidden = processBody.hasAttribute("hidden");
           if (hidden) {
             processBody.removeAttribute("hidden");
             processHead.setAttribute("aria-expanded", "true");
-            processToggle.textContent = "▼";
+            processToggle.textContent = "▾";
           } else {
             processBody.setAttribute("hidden", "");
             processHead.setAttribute("aria-expanded", "false");
-            processToggle.textContent = "▶";
+            processToggle.textContent = "▸";
           }
         };
         processHead.addEventListener("click", (event) => {
@@ -5662,12 +6173,19 @@ export class LLMBridgeView extends ItemView {
       process.setAttribute("hidden", "");
     }
 
-    if (hasAnswer) this.renderCodexFinalAnswer(body, run.finalAnswer);
+    if (hasAnswer) {
+      // 单瀑布流：终端回答已在 feed 的 candidate 节点；不另建 Final Answer 副本
+      this.upgradeCodexCandidateAnswerInFeed(body, run.finalAnswer, presentation.kind === "assistant-running");
+    }
     if (hasDeveloperDebug) this.renderAgentRunDebugDrawer(body, run.debugPanel!);
 
-    if (!hasBodyContent) {
+    // 普通模式始终隐藏 run header chrome
+    if (!showChrome || !hasBodyContent || presentation.kind === "assistant-answer" || presentation.kind === "assistant-running") {
       head.removeClass("llm-bridge-timeline-head");
       head.addClass("llm-bridge-timeline-head-noclick");
+      if (!showChrome || presentation.kind === "assistant-answer" || presentation.kind === "assistant-running") {
+        head.setAttribute("hidden", "");
+      }
     }
   }
 
@@ -5752,30 +6270,11 @@ export class LLMBridgeView extends ItemView {
   }
 
   private groupCodexFeedBatches(items: ReadonlyArray<CodexRunFeedItem>): CodexRunFeedItem[][] {
-    const batches: CodexRunFeedItem[][] = [];
-    let current: CodexRunFeedItem[] = [];
-    let currentStartsWithNarrative = false;
-    for (const item of items) {
-      const startsNewBatch = item.kind === "thinking" || item.kind === "assistant";
-      if (startsNewBatch) {
-        if (current.length > 0) batches.push(current);
-        current = [item];
-        currentStartsWithNarrative = true;
-        continue;
-      }
-      if (current.length > 0 && !currentStartsWithNarrative) {
-        batches.push(current);
-        current = [];
-      }
-      current.push(item);
-      if (current.length === 1) currentStartsWithNarrative = false;
-    }
-    if (current.length > 0) batches.push(current);
-    return batches;
+    return groupCodexFeedBatches(items);
   }
 
   private isCodexFeedEvent(item: CodexRunFeedItem): boolean {
-    return item.kind !== "thinking" && item.kind !== "assistant";
+    return isCodexFeedEvent(item);
   }
 
   private renderCodexFeedBatch(
@@ -5840,13 +6339,15 @@ export class LLMBridgeView extends ItemView {
       attr: { title: groupTitle },
     });
     const meta = summary.createDiv({ cls: "llm-bridge-codex-tool-group-meta" });
-    meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${groupStatus}`, text: groupStatus });
-    const totalDuration = this.sumCodexEventDuration(events);
-    if (totalDuration) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(totalDuration) });
-    meta.createEl("span", {
-      cls: "llm-bridge-codex-tool-group-count",
-      text: this.formatCodexToolGroupCount(events),
-    });
+    if (developerMode) {
+      meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${groupStatus}`, text: groupStatus });
+      const totalDuration = this.sumCodexEventDuration(events);
+      if (totalDuration) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(totalDuration) });
+      meta.createEl("span", {
+        cls: "llm-bridge-codex-tool-group-count",
+        text: this.formatCodexToolGroupCount(events),
+      });
+    }
 
     let bodyRendered = false;
     const renderBody = () => {
@@ -5902,13 +6403,6 @@ export class LLMBridgeView extends ItemView {
     const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";
     const syntheticNarrative = !leadIsNarrative
       && (lead.kind === "command" || lead.kind === "file" || lead.kind === "mcp" || lead.kind === "dynamic");
-    const label = leadIsThinking
-      ? "Thinking"
-      : lead.kind === "assistant"
-        ? "Thinking"
-        : syntheticNarrative
-          ? "Thinking"
-        : lead.label || "Step";
     const batchSummary = leadIsThinking
       ? this.formatCodexThinkingBatchSummary(batch, developerMode)
       : lead.kind === "assistant"
@@ -5918,29 +6412,57 @@ export class LLMBridgeView extends ItemView {
       : this.formatCodexBatchSummary(batch, developerMode);
 
     const textWrap = parent.createDiv({ cls: "llm-bridge-codex-feed-batch-summary-main" });
-    textWrap.createEl("span", { cls: "llm-bridge-codex-feed-batch-label", text: label });
-    if (batchSummary) {
+    if (developerMode) {
+      const label = leadIsThinking
+        ? "Thinking"
+        : lead.kind === "assistant"
+          ? (lead.label || "说明")
+          : lead.label || "Step";
+      textWrap.createEl("span", { cls: "llm-bridge-codex-feed-batch-label", text: label });
+      if (batchSummary) {
+        textWrap.createEl("span", {
+          cls: "llm-bridge-codex-feed-batch-text",
+          text: truncateText(batchSummary, 420),
+          attr: { title: batchSummary },
+        });
+      } else if (!leadIsNarrative) {
+        textWrap.createEl("span", {
+          cls: "llm-bridge-codex-feed-batch-text",
+          text: truncateText(lead.label || "", 180),
+          attr: { title: lead.label || "" },
+        });
+      }
+    } else if (batchSummary) {
+      // 普通模式：仅真实 reasoning 带思考光效；assistant narrative 是普通文字
+      const isLiveThinking = leadIsThinking
+        && (lead.status === "running" || lead.status === "pending");
       textWrap.createEl("span", {
-        cls: "llm-bridge-codex-feed-batch-text",
+        cls: `llm-bridge-codex-feed-batch-text is-quiet-narrative${isLiveThinking ? " llm-bridge-run-status-text is-running llm-bridge-run-glow" : ""}${lead.kind === "assistant" ? " is-assistant-narrative" : ""}`,
         text: truncateText(batchSummary, 420),
         attr: { title: batchSummary },
       });
-    } else if (!leadIsNarrative) {
+    } else if (!leadIsNarrative && !syntheticNarrative) {
       textWrap.createEl("span", {
         cls: "llm-bridge-codex-feed-batch-text",
         text: truncateText(lead.label || "", 180),
         attr: { title: lead.label || "" },
       });
+    } else {
+      // 无摘要的 Thinking 行：不渲染空泛标签
+      parent.addClass("is-empty-narrative");
+      parent.setAttribute("hidden", "");
     }
 
-    const meta = parent.createDiv({ cls: "llm-bridge-codex-feed-batch-meta" });
-    if (eventCount > 0) {
-      meta.createEl("span", {
-        cls: "llm-bridge-codex-feed-batch-count",
-        text: `${eventCount} ${eventCount === 1 ? "step" : "steps"}`,
-      });
+    if (developerMode) {
+      const meta = parent.createDiv({ cls: "llm-bridge-codex-feed-batch-meta" });
+      if (eventCount > 0) {
+        meta.createEl("span", {
+          cls: "llm-bridge-codex-feed-batch-count",
+          text: `${eventCount} ${eventCount === 1 ? "step" : "steps"}`,
+        });
+      }
+      meta.createEl("span", { cls: `llm-bridge-codex-feed-batch-status is-${lead.status}`, text: lead.status });
     }
-    meta.createEl("span", { cls: `llm-bridge-codex-feed-batch-status is-${lead.status}`, text: lead.status });
   }
 
   private formatCodexBatchSummary(
@@ -5976,27 +6498,33 @@ export class LLMBridgeView extends ItemView {
       .map((item) => this.formatCodexThinkingFallbackAction(item))
       .filter(Boolean);
     if (actions.length === 0) return "";
+    const loc = resolveUiLocale() === "en" ? "en" : "zh";
     if (actions.length === 1) return actions[0];
+    if (loc === "zh") {
+      if (actions.length === 2) return `${actions[0]}，然后${actions[1]}`;
+      return `${actions.slice(0, 2).join("，")}，以及另外 ${actions.length - 2} 步`;
+    }
     if (actions.length === 2) return `${actions[0]}, then ${actions[1]}`;
     return `${actions.slice(0, 2).join(", ")}, then ${actions.length - 2} more step${actions.length - 2 === 1 ? "" : "s"}`;
   }
 
   private formatCodexThinkingFallbackAction(item: CodexRunFeedItem): string {
+    const loc = resolveUiLocale() === "en" ? "en" : "zh";
     if (item.kind === "assistant") {
       const text = this.formatCodexFeedSummary(item, false).trim();
       return text ? truncateText(text, 120) : "";
     }
-    if (item.kind === "command") return "run a command";
+    if (item.kind === "command") return loc === "zh" ? "执行命令" : "run a command";
     if (item.change) {
-      const fileLabel = item.change.fileName || item.change.relativePath || "a file";
-      if (item.change.action === "create") return `create ${fileLabel}`;
-      if (item.change.action === "delete") return `delete ${fileLabel}`;
-      return `edit ${fileLabel}`;
+      const fileLabel = item.change.fileName || item.change.relativePath || (loc === "zh" ? "文件" : "a file");
+      if (item.change.action === "create") return loc === "zh" ? `创建 ${fileLabel}` : `create ${fileLabel}`;
+      if (item.change.action === "delete") return loc === "zh" ? `删除 ${fileLabel}` : `delete ${fileLabel}`;
+      return loc === "zh" ? `编辑 ${fileLabel}` : `edit ${fileLabel}`;
     }
-    if (item.kind === "approval") return "wait for approval";
-    if (item.kind === "user-input") return "wait for input";
-    if (item.kind === "mcp") return item.label ? `use ${item.label}` : "use an MCP tool";
-    if (item.kind === "dynamic") return item.label ? `use ${item.label}` : "use a tool";
+    if (item.kind === "approval") return loc === "zh" ? "等待确认" : "wait for approval";
+    if (item.kind === "user-input") return loc === "zh" ? "等待输入" : "wait for input";
+    if (item.kind === "mcp") return item.label ? (loc === "zh" ? `使用 ${item.label}` : `use ${item.label}`) : (loc === "zh" ? "使用工具" : "use an MCP tool");
+    if (item.kind === "dynamic") return item.label ? (loc === "zh" ? `使用 ${item.label}` : `use ${item.label}`) : (loc === "zh" ? "使用工具" : "use a tool");
     if (item.label) return item.label.replace(/\.$/, "");
     return "";
   }
@@ -6012,7 +6540,7 @@ export class LLMBridgeView extends ItemView {
       const label = leadIsThinking
         ? "Thinking"
         : lead.kind === "assistant"
-          ? "Thinking"
+          ? (lead.label || "说明")
           : lead.label || "Step";
       const batchSummary = leadIsThinking
         ? this.formatCodexThinkingBatchSummary(batch, developerMode)
@@ -6106,39 +6634,88 @@ export class LLMBridgeView extends ItemView {
   private renderCodexFeedThinking(parent: HTMLElement, item: CodexRunFeedItem, batch?: ReadonlyArray<CodexRunFeedItem>): void {
     const summary = this.formatCodexFeedSummary(item, false).trim()
       || (batch ? this.formatCodexThinkingFallbackFromBatch(batch) : "");
-    const row = parent.createDiv({ cls: `llm-bridge-codex-thinking-line is-${item.status}` });
+    // 无真实 reasoning 文本时不渲染空泛「正在思考」行
+    if (!summary) return;
+    const isLive = item.status === "running" || item.status === "pending";
+    const row = parent.createDiv({
+      cls: `llm-bridge-codex-thinking-line is-${item.status}${isLive ? " is-thinking-live" : " is-thinking-done"}`,
+    });
     row.setAttribute("data-step-kind", item.kind);
     if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
-    row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: this.localizeRunStatus("Thinking") });
-    if (summary) {
-      row.createEl("span", {
-        cls: "llm-bridge-codex-thinking-summary",
-        text: truncateText(summary, 360),
-        attr: { title: summary },
-      });
+    // 普通模式不显示 Thinking 标签；开发者模式保留
+    if (this.plugin.settings.developerMode) {
+      row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: this.localizeRunStatus("Thinking") });
     }
+    row.createEl("span", {
+      cls: `llm-bridge-codex-thinking-summary is-reasoning-text${isLive ? " llm-bridge-run-status-text is-running llm-bridge-run-glow is-thinking-faded" : ""}`,
+      text: truncateText(summary, 360),
+      attr: { title: summary },
+    });
   }
 
   private shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, developerMode: boolean): boolean {
     const summary = this.formatCodexFeedSummary(item, developerMode).trim();
     const detail = (item.detail || "").trim();
     if (developerMode) return !!(summary || detail);
+    // 运行中：有真实摘要或 live thinking 状态时展开
+    if (item.status === "running" || item.status === "pending") {
+      return !!(summary || detail);
+    }
+    // 普通完成态：仅在有用户可读摘要时展开；空泛「正在推理」不渲染
+    if (!summary) return false;
     if (detail && detail !== summary) return true;
-    return summary.length > 140 || /\r?\n/.test(summary);
+    return summary.length > 40 || /\r?\n/.test(summary);
   }
 
   private renderCodexFeedNarrative(parent: HTMLElement, item: CodexRunFeedItem): void {
     const text = this.formatCodexFeedSummary(item, false).trim();
     if (!text) return;
-    const row = parent.createDiv({ cls: `llm-bridge-codex-thinking-line is-${item.status} is-narrative` });
+    const isReasoning = item.kind === "thinking";
+    const role = item.answerRole || "process";
+    const isCandidate = role === "candidate";
+    const isLive = isReasoning && (item.status === "running" || item.status === "pending");
+    const row = parent.createDiv({
+      cls: `llm-bridge-codex-thinking-line is-${item.status} is-narrative is-answer-${role}${isLive ? " is-thinking-live" : ""}${isCandidate ? " is-final-candidate" : ""}`,
+    });
     row.setAttribute("data-step-kind", item.kind);
+    row.setAttribute("data-answer-role", role);
     if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
-    row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: this.localizeRunStatus("Thinking") });
+    if (this.plugin.settings.developerMode) {
+      row.createEl("span", {
+        cls: "llm-bridge-codex-thinking-label",
+        text: isReasoning ? this.localizeRunStatus("Thinking") : (item.label || (isCandidate ? "Answer" : "说明")),
+      });
+    }
+    if (isCandidate && (item.status === "completed" || item.status === "failed")) {
+      const md = row.createDiv({ cls: "llm-bridge-codex-answer-body llm-bridge-msg-markdown" });
+      this.renderMarkdownInto(md, text);
+      return;
+    }
+    // 流式 / 过程说明：普通文字，无外框底色（仅 white-space: pre-wrap）
     row.createEl("span", {
-      cls: "llm-bridge-codex-thinking-summary is-multiline",
+      cls: `llm-bridge-msg-stream-text llm-bridge-codex-thinking-summary is-multiline${isLive ? " llm-bridge-run-status-text is-running llm-bridge-run-glow is-thinking-faded" : ""}${isReasoning ? " is-reasoning-text" : ""}`,
       text: text.length > 1200 ? `${text.slice(0, 1200).trimEnd()}...` : text,
       attr: { title: text },
     });
+  }
+
+  private renderMarkdownInto(host: HTMLElement, text: string): void {
+    const normalized = text.trim();
+    if (!normalized) return;
+    if (host.dataset.finalRendered === normalized) return;
+    host.dataset.finalRendered = normalized;
+    host.empty();
+    const fallback = () => {
+      host.empty();
+      host.textContent = normalized;
+    };
+    try {
+      void MarkdownRenderer.render(this.app, normalized, host, "", this)
+        .then(() => this.bindAssistantMarkdownVaultLinks(host))
+        .catch(fallback);
+    } catch {
+      fallback();
+    }
   }
 
   private renderCodexFeedEventBlock(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean): void {
@@ -6177,9 +6754,11 @@ export class LLMBridgeView extends ItemView {
     }
 
     const meta = summary.createDiv({ cls: "llm-bridge-codex-feed-meta llm-bridge-codex-event-meta" });
-    meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${item.status}`, text: item.status });
-    if (item.durationMs) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(item.durationMs) });
-    if (item.step?.exitCode !== undefined) meta.createEl("span", { cls: "llm-bridge-codex-step-exit", text: `exit ${item.step.exitCode}` });
+    if (developerMode) {
+      meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${item.status}`, text: item.status });
+      if (item.durationMs) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(item.durationMs) });
+      if (item.step?.exitCode !== undefined) meta.createEl("span", { cls: "llm-bridge-codex-step-exit", text: `exit ${item.step.exitCode}` });
+    }
     if (item.change) meta.createEl("span", { cls: "llm-bridge-codex-change-diff-summary", text: item.change.diffSummary });
 
     const renderBody = () => {
@@ -7830,55 +8409,563 @@ export class LLMBridgeView extends ItemView {
     const contentOnly = patchKeys.length === 1 && patchKeys[0] === "content";
     Object.assign(msg, patch);
     const block = this.messagesEl.querySelector(`[data-msg-id="${id}"]`);
-    if (!block) return;
-    if (msg.role === "assistant" && block instanceof HTMLElement) {
-      block.removeClass("is-idle", "is-running", "is-completed", "is-failed", "is-stopped");
-      block.addClass(`is-${msg.status}`);
-    }
+    if (!block || !(block instanceof HTMLElement)) return;
+    const loc = resolveUiLocale() === "en" ? "en" : "zh";
+    const presentation = buildMessagePresentation(msg, {
+      developerMode: !!this.plugin.settings.developerMode,
+      locale: loc,
+      runtimeLabel: this.actualRuntimeLabel,
+    });
+    block.removeClass("is-idle", "is-running", "is-completed", "is-failed", "is-stopped", "is-answer", "is-summary");
+    if (presentation.kind === "assistant-answer") block.addClass("is-answer", "is-completed");
+    else if (presentation.kind === "assistant-summary") block.addClass("is-summary", "is-completed");
+    else block.addClass(`is-${msg.status}`);
 
-    // 状态
-    const devMode = !!this.plugin.settings.developerMode;
     const statusEl = block.querySelector(".llm-bridge-msg-status");
     if (statusEl) {
-      if (devMode) {
+      if (this.plugin.settings.developerMode) {
         statusEl.textContent = STATUS_LABEL[msg.status];
         statusEl.className = `llm-bridge-msg-status is-${msg.status}`;
       } else {
-        // Normal user mode: remove status text, show spinner only for running
         statusEl.remove();
       }
     }
-    // V16.4-G: Add/remove Codex-style glow text for normal user mode running state
-    const existingRunStatus = block.querySelector(".llm-bridge-run-status-text");
-    if (msg.status === "running" && !devMode && !existingRunStatus) {
-      const head = block.querySelector(".llm-bridge-msg-head");
-      if (head) this.renderRunStatusText(head as HTMLElement, "Thinking", "running");
-    } else if (msg.status !== "running" && existingRunStatus) {
+    const existingRunStatus = block.querySelector(".llm-bridge-msg-status-line, .llm-bridge-run-status-text");
+    if (presentation.statusLine) {
+      if (existingRunStatus) {
+        existingRunStatus.textContent = presentation.statusLine;
+        existingRunStatus.classList.add("is-running", "llm-bridge-run-glow");
+      } else {
+        const head = block.querySelector(".llm-bridge-msg-head");
+        if (head) {
+          head.createEl("span", {
+            cls: "llm-bridge-msg-status-line llm-bridge-run-status-text is-running llm-bridge-run-glow",
+            text: presentation.statusLine,
+          });
+        }
+      }
+    } else if (existingRunStatus) {
       existingRunStatus.remove();
     }
 
-    // 内容
     const contentEl = block.querySelector<HTMLElement>(".llm-bridge-msg-content");
-    if (contentEl) {
-      this.renderMessageContent(contentEl, msg);
-    }
+    if (contentEl) this.renderMessageContent(contentEl, msg);
 
+    // 文本 delta：局部更新正文（含 Codex final-answer 节点），不重建过程
     if (contentOnly) {
+      this.patchCodexFinalAnswerSurface(block, msg);
       this.scrollToBottom();
       return;
     }
 
-    // 重建 details（stderr / log / files）
+    // 已有 Codex 过程视图：append-only / 局部更新，禁止删除重建
+    const existingRun = block.querySelector<HTMLElement>(".llm-bridge-codex-run-view");
+    if (existingRun && msg.assistantTurnView) {
+      this.patchCodexRunViewInPlace(block, existingRun, msg, presentation);
+      if (presentation.errorSummary) {
+        let err = block.querySelector(".llm-bridge-msg-error-summary");
+        if (!err) err = block.createDiv({ cls: "llm-bridge-msg-error-summary" });
+        err.textContent = presentation.errorSummary;
+      }
+      const oldActions = block.querySelector(".llm-bridge-msg-actions");
+      if (oldActions) oldActions.remove();
+      this.renderMessageActions(block, msg, presentation);
+      this.scrollToBottom();
+      return;
+    }
+
+    // 首次创建过程区
     const oldDetails = block.querySelector(".llm-bridge-msg-details");
     if (oldDetails) oldDetails.remove();
-    this.appendMsgDetails(block as HTMLElement, msg, contentEl);
+    const oldSummary = block.querySelector(".llm-bridge-msg-result-summary");
+    if (oldSummary) oldSummary.remove();
+    const oldError = block.querySelector(".llm-bridge-msg-error-summary");
+    if (oldError) oldError.remove();
+    const oldActions = block.querySelector(".llm-bridge-msg-actions");
+    if (oldActions) oldActions.remove();
+
+    if (presentation.errorSummary) {
+      block.createDiv({ cls: "llm-bridge-msg-error-summary", text: presentation.errorSummary });
+    }
+    this.appendMsgDetails(block, msg, contentEl);
+    this.renderMessageActions(block, msg, presentation);
     this.scrollToBottom();
+  }
+
+  private buildCodexRunForMessage(msg: ChatMessage): { run: CodexRunViewModel; model: ReturnType<typeof buildAgentRunDisplayModel> } | null {
+    if (!msg.assistantTurnView) return null;
+    const turnView = msg.assistantTurnView;
+    const developerMode = !!this.plugin.settings.developerMode;
+    const model = buildAgentRunDisplayModel(turnView, {
+      isRunning: msg.status === "running",
+      statusLabel: STATUS_LABEL[msg.status],
+      developerMode,
+    });
+    const rawProviderLabel = msg.effectiveRunPlan?.backend ?? turnView.providerId;
+    const providerLabel = developerMode ? rawProviderLabel : presentProvider(rawProviderLabel).userLabel;
+    const run = buildCodexRunViewModel(model, turnView, {
+      status: msg.status,
+      developerMode,
+      providerLabel,
+      modelLabel: msg.effectiveRunPlan?.model ?? "",
+      cwd: msg.effectiveRunPlan?.cwd ?? this.getVaultPath(),
+    });
+    return { run, model };
+  }
+
+  /** 流式正文：更新瀑布流中的 candidate 节点，不另建 Final Answer */
+  private patchCodexFinalAnswerSurface(block: HTMLElement, msg: ChatMessage): void {
+    const built = this.buildCodexRunForMessage(msg);
+    const text = (built?.run.finalAnswer || msg.content || "").trim();
+    if (!text) return;
+    const wrap = block.querySelector<HTMLElement>(".llm-bridge-codex-run-view");
+    if (!wrap) return;
+    const body = wrap.querySelector<HTMLElement>(".llm-bridge-codex-run-body");
+    if (!body) return;
+    // 先同步 feed（含 candidate 流式文本），再按需升级
+    const feedList = body.querySelector<HTMLElement>(".llm-bridge-codex-feed-list");
+    if (feedList && built) {
+      this.patchCodexFeedStable(feedList, built.run.feedItems, !!this.plugin.settings.developerMode);
+    }
+    this.upgradeCodexCandidateAnswerInFeed(body, text, msg.status === "running");
+  }
+
+  /**
+   * 过程区 append-only 局部更新：保留已渲染节点，只更新状态/文本并追加新 item。
+   * 终态停止光效、弱化思考，不自动折叠、不清空。
+   */
+  private patchCodexRunViewInPlace(
+    block: HTMLElement,
+    wrap: HTMLElement,
+    msg: ChatMessage,
+    presentation: ReturnType<typeof buildMessagePresentation>,
+  ): void {
+    const built = this.buildCodexRunForMessage(msg);
+    if (!built) return;
+    const { run, model } = built;
+    const developerMode = !!this.plugin.settings.developerMode;
+    const loc = resolveUiLocale() === "en" ? "en" : "zh";
+
+    wrap.className = `llm-bridge-timeline-wrap llm-bridge-turn-view llm-bridge-codex-run-view is-${run.runHeader.statusKind}${developerMode ? " is-developer" : ""}${
+      presentation.kind === "assistant-answer" ? " is-semantic-answer"
+        : presentation.kind === "assistant-running" ? " is-semantic-running"
+          : presentation.kind === "assistant-summary" ? " is-semantic-summary"
+            : presentation.kind === "assistant-failed" || presentation.kind === "assistant-stopped" ? " is-semantic-failed"
+              : ""
+    } is-process-quiet`;
+    wrap.setAttribute("data-final-answer-disposition", model.finalAnswerDisposition);
+
+    // 终态：去掉运行光效
+    if (msg.status !== "running") {
+      wrap.querySelectorAll(".llm-bridge-run-glow").forEach((el) => {
+        el.classList.remove("llm-bridge-run-glow", "is-running");
+      });
+      wrap.querySelectorAll(".llm-bridge-codex-thinking-line.is-thinking-live").forEach((el) => {
+        el.classList.remove("is-thinking-live");
+        el.classList.add("is-thinking-done");
+      });
+    }
+
+    const body = wrap.querySelector<HTMLElement>(".llm-bridge-codex-run-body");
+    if (!body) return;
+
+    // 授权门：有则确保存在（简单替换授权区，不影响过程时间线）
+    const existingGates = body.querySelector(".llm-bridge-codex-approval-gates");
+    if (run.approvalGates.length > 0) {
+      if (existingGates) existingGates.remove();
+      const process = body.querySelector(".llm-bridge-codex-process");
+      const gatesHost = body.createDiv({ cls: "llm-bridge-codex-approval-gates-host" });
+      if (process) body.insertBefore(gatesHost, process);
+      this.renderCodexApprovalGates(gatesHost, run.approvalGates, developerMode);
+    } else if (existingGates) {
+      existingGates.remove();
+    }
+
+    let process = body.querySelector<HTMLElement>(".llm-bridge-codex-process");
+    if (!process) {
+      process = body.createDiv({ cls: "llm-bridge-codex-process" });
+    }
+    process.removeAttribute("hidden");
+
+    // 完成态过程头：更新「已处理 Xs」，不自动折叠
+    if (presentation.kind !== "assistant-running" && run.feedItems.length > 0) {
+      let processHead = process.querySelector<HTMLElement>(".llm-bridge-codex-process-head");
+      if (!processHead) {
+        processHead = process.createDiv({ cls: "llm-bridge-codex-section-head llm-bridge-codex-process-head" });
+        const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
+        processTitle.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title", text: "" });
+      }
+      processHead.removeAttribute("hidden");
+      const quietTitle = processHead.querySelector(".llm-bridge-codex-process-quiet-title");
+      if (quietTitle) {
+        const elapsed = (run.runHeader.elapsed || "").trim();
+        quietTitle.textContent = loc === "zh"
+          ? (elapsed ? `已处理 ${elapsed}` : "已处理")
+          : (elapsed ? `Processed ${elapsed}` : "Processed");
+      }
+    }
+
+    let processBody = process.querySelector<HTMLElement>(".llm-bridge-codex-process-body");
+    if (!processBody) {
+      processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
+    }
+    // 禁止自动折叠：确保过程体可见
+    processBody.removeAttribute("hidden");
+
+    let feedList = processBody.querySelector<HTMLElement>(".llm-bridge-codex-feed-list");
+    if (!feedList) {
+      const section = processBody.createDiv({ cls: "llm-bridge-codex-feed llm-bridge-codex-changes-panel" });
+      feedList = section.createDiv({ cls: "llm-bridge-codex-feed-list llm-bridge-codex-step-list" });
+    }
+    this.patchCodexFeedStable(feedList, run.feedItems, developerMode);
+
+    // 单瀑布流：在 feed 的 candidate 节点上原地升级，不另建 Final Answer
+    this.upgradeCodexCandidateAnswerInFeed(body, run.finalAnswer, msg.status === "running");
+  }
+
+  private codexFeedItemKey(item: CodexRunFeedItem): string {
+    const itemId = item.sourceRef?.itemId || item.id;
+    const seq = item.sourceRef?.sequence;
+    return seq !== undefined ? `seq:${seq}:${itemId}` : itemId;
+  }
+
+  private isCodexImageFeedItem(item: CodexRunFeedItem): boolean {
+    if (item.icon === "image") return true;
+    const blob = `${item.label} ${item.summary || ""} ${item.step?.label || ""}`;
+    return /imageview|viewing image|viewed image|分析图片|查看图片/i.test(blob);
+  }
+
+  /** 初渲/增量共用：按时间线顺序分组，不按类型重排 */
+  private groupCodexFeedRenderEntries(
+    items: ReadonlyArray<CodexRunFeedItem>,
+  ): Array<
+    | { kind: "item"; key: string; item: CodexRunFeedItem }
+    | { kind: "tool-group"; key: string; groupKind: "command" | "image"; items: CodexRunFeedItem[] }
+  > {
+    const entries: Array<
+      | { kind: "item"; key: string; item: CodexRunFeedItem }
+      | { kind: "tool-group"; key: string; groupKind: "command" | "image"; items: CodexRunFeedItem[] }
+    > = [];
+    let i = 0;
+    while (i < items.length) {
+      const item = items[i];
+      if (item.kind === "command") {
+        const group: CodexRunFeedItem[] = [];
+        const startKey = this.codexFeedItemKey(item);
+        while (i < items.length && items[i].kind === "command") {
+          group.push(items[i]);
+          i += 1;
+        }
+        if (group.length >= 2) {
+          entries.push({ kind: "tool-group", key: `group:command:${startKey}`, groupKind: "command", items: group });
+        } else {
+          entries.push({ kind: "item", key: startKey, item: group[0] });
+        }
+        continue;
+      }
+      if (this.isCodexImageFeedItem(item)) {
+        const group: CodexRunFeedItem[] = [];
+        const startKey = this.codexFeedItemKey(item);
+        while (i < items.length && this.isCodexImageFeedItem(items[i])) {
+          group.push(items[i]);
+          i += 1;
+        }
+        entries.push({ kind: "tool-group", key: `group:image:${startKey}`, groupKind: "image", items: group });
+        continue;
+      }
+      entries.push({ kind: "item", key: this.codexFeedItemKey(item), item });
+      i += 1;
+    }
+    return entries;
+  }
+
+  /**
+   * 真正的 keyed reconciliation：
+   * - 顺序 = sourceRef.sequence + itemId（由 feed 原序 + 稳定 key 保证）
+   * - 已有节点 insertBefore 移到正确位置，保留 DOM 身份/展开态/内容
+   * - 初渲与增量共用 groupCodexFeedRenderEntries
+   */
+  private patchCodexFeedStable(
+    list: HTMLElement,
+    items: ReadonlyArray<CodexRunFeedItem>,
+    developerMode: boolean,
+  ): void {
+    const entries = this.groupCodexFeedRenderEntries(items);
+    const desiredKeys = new Set(entries.map((entry) => entry.key));
+    const existingByKey = new Map<string, HTMLElement>();
+    Array.from(list.children).forEach((child) => {
+      if (!(child instanceof HTMLElement)) return;
+      const key = child.getAttribute("data-feed-key");
+      if (key) existingByKey.set(key, child);
+    });
+
+    for (let index = 0; index < entries.length; index++) {
+      const entry = entries[index];
+      const anchor = list.children[index] as HTMLElement | undefined;
+      let node = existingByKey.get(entry.key);
+      if (!node) {
+        node = list.createDiv({
+          cls: "llm-bridge-codex-feed-entry",
+          attr: { "data-feed-key": entry.key },
+        });
+        existingByKey.set(entry.key, node);
+      }
+      if (anchor !== node) {
+        list.insertBefore(node, anchor ?? null);
+      }
+      if (entry.kind === "item") {
+        this.patchCodexFeedEntryItem(node, entry.item, developerMode);
+      } else {
+        this.patchCodexFeedEntryToolGroup(node, entry.groupKind, entry.items, developerMode);
+      }
+    }
+
+    // 移除不再存在的节点（不触碰仍在 desired 中的节点）
+    Array.from(list.children).forEach((child) => {
+      if (!(child instanceof HTMLElement)) return;
+      const key = child.getAttribute("data-feed-key");
+      if (!key || !desiredKeys.has(key)) child.remove();
+    });
+  }
+
+  private patchCodexFeedEntryItem(
+    entry: HTMLElement,
+    item: CodexRunFeedItem,
+    developerMode: boolean,
+  ): void {
+    const answerRole = item.kind === "assistant" ? (item.answerRole || "process") : "";
+    const roleClass = answerRole ? ` is-answer-${answerRole}` : "";
+    entry.className = `llm-bridge-codex-feed-entry is-item is-${item.kind} is-${item.status}${roleClass}`;
+    entry.setAttribute("data-feed-kind", item.kind);
+    if (item.sourceRef?.itemId) entry.setAttribute("data-item-id", item.sourceRef.itemId);
+    if (item.sourceRef?.sequence !== undefined) {
+      entry.setAttribute("data-sequence", String(item.sourceRef.sequence));
+    }
+    if (answerRole) entry.setAttribute("data-answer-role", answerRole);
+    else entry.removeAttribute("data-answer-role");
+
+    const text = (item.summary || "").trim();
+    const isCandidate = item.kind === "assistant" && answerRole === "candidate";
+    const isComplete = item.status === "completed" || item.status === "failed";
+
+    // candidate 完成后原地升级 Markdown（不重建节点）
+    if (isCandidate && isComplete && text) {
+      let line = entry.querySelector<HTMLElement>(".llm-bridge-codex-thinking-line.is-final-candidate");
+      if (!line) {
+        entry.empty();
+        entry.dataset.renderItemKey = `${item.id}|${item.kind}|${answerRole}|md`;
+        this.renderCodexFeedItem(entry, item, developerMode, false);
+      } else {
+        line.classList.remove("is-thinking-live");
+        line.classList.add("is-thinking-done");
+        let md = line.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
+        const stream = line.querySelector<HTMLElement>(".llm-bridge-msg-stream-text");
+        if (stream) stream.remove();
+        if (!md) {
+          md = line.createDiv({ cls: "llm-bridge-codex-answer-body llm-bridge-msg-markdown" });
+        }
+        this.renderMarkdownInto(md, text);
+      }
+      return;
+    }
+
+    const renderedKey = entry.dataset.renderItemKey;
+    const nextRenderKey = `${item.id}|${item.kind}|${answerRole}`;
+    if (renderedKey !== nextRenderKey || entry.childElementCount === 0) {
+      entry.empty();
+      entry.dataset.renderItemKey = nextRenderKey;
+      this.renderCodexFeedItem(entry, item, developerMode, false);
+    } else {
+      const streamEl = entry.querySelector<HTMLElement>(".llm-bridge-msg-stream-text, .llm-bridge-codex-thinking-summary");
+      const nextSummary = text || (item.label || "").trim();
+      if (streamEl && nextSummary) {
+        const clipped = streamEl.classList.contains("llm-bridge-msg-stream-text")
+          || streamEl.classList.contains("llm-bridge-codex-thinking-summary")
+          ? (nextSummary.length > 1200 ? `${nextSummary.slice(0, 1200).trimEnd()}...` : nextSummary)
+          : truncateText(nextSummary, 180);
+        if (streamEl.textContent !== clipped) {
+          streamEl.textContent = clipped;
+          streamEl.setAttribute("title", nextSummary);
+        }
+      }
+    }
+
+    if (isComplete) {
+      entry.querySelectorAll(".llm-bridge-run-glow").forEach((el) => {
+        el.classList.remove("llm-bridge-run-glow", "is-running");
+      });
+      entry.querySelectorAll(".is-thinking-live").forEach((el) => {
+        el.classList.remove("is-thinking-live");
+        el.classList.add("is-thinking-done");
+      });
+    }
+  }
+
+  private patchCodexFeedEntryToolGroup(
+    entry: HTMLElement,
+    groupKind: "command" | "image",
+    items: ReadonlyArray<CodexRunFeedItem>,
+    developerMode: boolean,
+  ): void {
+    const hasActive = items.some((item) => item.status === "running" || item.status === "pending");
+    const hasFailed = items.some((item) => item.status === "failed");
+    const groupStatus = hasActive ? "running" : hasFailed ? "failed" : "completed";
+    entry.className = `llm-bridge-codex-feed-entry is-tool-group is-${groupKind} is-${groupStatus}`;
+    entry.setAttribute("data-feed-kind", "tool-group");
+    entry.setAttribute("data-group-kind", groupKind);
+    entry.setAttribute("data-step-count", String(items.length));
+
+    let group = entry.querySelector<HTMLDetailsElement>(":scope > details.llm-bridge-codex-tool-group");
+    const wasOpen = !!group?.open;
+    if (!group) {
+      group = entry.createEl("details", { cls: `llm-bridge-codex-tool-group is-${groupStatus}` });
+      const summary = group.createEl("summary", { cls: "llm-bridge-codex-tool-group-summary" });
+      const icon = summary.createEl("span", { cls: "llm-bridge-codex-tool-group-icon" });
+      setIcon(icon, groupKind === "image" ? "image" : "terminal");
+      const main = summary.createDiv({ cls: "llm-bridge-codex-tool-group-main" });
+      main.createEl("span", { cls: "llm-bridge-codex-tool-group-title", text: "" });
+      summary.createDiv({ cls: "llm-bridge-codex-tool-group-meta" });
+      group.addEventListener("toggle", () => {
+        if (!group?.open) return;
+        if (group.querySelector(":scope > .llm-bridge-codex-tool-group-body")) return;
+        const cached = this.codexToolGroupMembers.get(group);
+        if (!cached) return;
+        const nextBody = group.createDiv({ cls: "llm-bridge-codex-tool-group-body" });
+        this.patchCodexToolGroupBody(nextBody, cached.items, cached.developerMode);
+      });
+    }
+    group.className = `llm-bridge-codex-tool-group is-${groupStatus}`;
+    if (wasOpen) group.open = true;
+
+    const titleEl = group.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-title");
+    const title = groupKind === "image"
+      ? this.formatCodexImageGroupTitle(items)
+      : this.formatCodexToolGroupTitle(items);
+    if (titleEl && titleEl.textContent !== title) {
+      titleEl.textContent = title;
+      titleEl.setAttribute("title", title);
+    }
+
+    const meta = group.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-meta");
+    if (meta && developerMode) {
+      meta.empty();
+      meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${groupStatus}`, text: groupStatus });
+      const totalDuration = this.sumCodexEventDuration(items);
+      if (totalDuration) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(totalDuration) });
+      meta.createEl("span", {
+        cls: "llm-bridge-codex-tool-group-count",
+        text: this.formatCodexToolGroupCount(items),
+      });
+    }
+
+    this.codexToolGroupMembers.set(group, { items, developerMode });
+    group.setAttribute("data-member-ids", items.map((item) => this.codexFeedItemKey(item)).join("|"));
+
+    // 已展开：局部更新 body 成员（keyed），保留已渲染内容身份
+    if (group.open) {
+      let body = group.querySelector<HTMLElement>(":scope > .llm-bridge-codex-tool-group-body");
+      if (!body) body = group.createDiv({ cls: "llm-bridge-codex-tool-group-body" });
+      this.patchCodexToolGroupBody(body, items, developerMode);
+    }
+
+    if (groupStatus === "completed" || groupStatus === "failed") {
+      entry.querySelectorAll(".llm-bridge-run-glow").forEach((el) => {
+        el.classList.remove("llm-bridge-run-glow", "is-running");
+      });
+    }
+  }
+
+  private patchCodexToolGroupBody(
+    body: HTMLElement,
+    items: ReadonlyArray<CodexRunFeedItem>,
+    developerMode: boolean,
+  ): void {
+    const desiredKeys = items.map((item) => this.codexFeedItemKey(item));
+    const existingByKey = new Map<string, HTMLElement>();
+    Array.from(body.children).forEach((child) => {
+      if (!(child instanceof HTMLElement)) return;
+      const key = child.getAttribute("data-feed-key") || child.getAttribute("data-item-id");
+      if (key) existingByKey.set(key, child);
+    });
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index];
+      const key = this.codexFeedItemKey(item);
+      const anchor = body.children[index] as HTMLElement | undefined;
+      let node = existingByKey.get(key);
+      if (!node) {
+        node = body.createDiv({ cls: "llm-bridge-codex-tool-group-member", attr: { "data-feed-key": key } });
+        if (item.sourceRef?.itemId) node.setAttribute("data-item-id", item.sourceRef.itemId);
+        this.renderCodexFeedItem(node, item, developerMode, true);
+        existingByKey.set(key, node);
+      }
+      if (anchor !== node) body.insertBefore(node, anchor ?? null);
+    }
+    Array.from(body.children).forEach((child) => {
+      if (!(child instanceof HTMLElement)) return;
+      const key = child.getAttribute("data-feed-key") || child.getAttribute("data-item-id");
+      if (!key || !desiredKeys.includes(key)) child.remove();
+    });
+  }
+
+  private formatCodexImageGroupTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
+    const loc = resolveUiLocale() === "en" ? "en" : "zh";
+    const active = items.some((item) => item.status === "running" || item.status === "pending");
+    if (loc === "zh") return active ? "正在分析图片" : items.length > 1 ? `已查看 ${items.length} 张图片` : "已查看图片";
+    return active ? "Viewing image" : items.length > 1 ? `Viewed ${items.length} images` : "Viewed image";
+  }
+
+  /**
+   * 单瀑布流：在 feed 的 candidate 节点上更新/升级最终回答。
+   * 不创建独立 .llm-bridge-codex-final-answer 副本。
+   */
+  private upgradeCodexCandidateAnswerInFeed(body: HTMLElement, text: string, streaming: boolean): void {
+    const normalized = text.trim();
+    if (!normalized) return;
+    // 清理历史独立 Final Answer 副本（旧会话 DOM）
+    body.querySelectorAll(".llm-bridge-codex-final-answer").forEach((el) => el.remove());
+
+    const candidate = body.querySelector<HTMLElement>(
+      '.llm-bridge-codex-feed-entry.is-answer-candidate, .llm-bridge-codex-thinking-line.is-final-candidate, [data-answer-role="candidate"]',
+    );
+    if (!candidate) return;
+
+    const line = candidate.classList.contains("llm-bridge-codex-thinking-line")
+      ? candidate
+      : candidate.querySelector<HTMLElement>(".llm-bridge-codex-thinking-line") || candidate;
+
+    if (streaming) {
+      let stream = line.querySelector<HTMLElement>(".llm-bridge-msg-stream-text");
+      const md = line.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
+      if (md) md.remove();
+      if (!stream) {
+        stream = line.createEl("span", { cls: "llm-bridge-msg-stream-text llm-bridge-codex-thinking-summary is-multiline" });
+      }
+      stream.textContent = normalized.length > 1200 ? `${normalized.slice(0, 1200).trimEnd()}...` : normalized;
+      stream.setAttribute("title", normalized);
+      return;
+    }
+
+    line.querySelectorAll(".llm-bridge-msg-stream-text").forEach((el) => el.remove());
+    line.classList.remove("is-thinking-live");
+    line.classList.add("is-thinking-done");
+    let md = line.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
+    if (!md) md = line.createDiv({ cls: "llm-bridge-codex-answer-body llm-bridge-msg-markdown" });
+    this.renderMarkdownInto(md, normalized);
+  }
+
+  /** @deprecated 保留空壳避免旧测试字符串匹配失败；实际走 upgradeCodexCandidateAnswerInFeed */
+  private ensureCodexFinalAnswerNode(body: HTMLElement, text: string, streaming: boolean): void {
+    this.upgradeCodexCandidateAnswerInFeed(body, text, streaming);
   }
 
   private appendAssistantContentDelta(id: string, delta: string): void {
     const msg = this.messages.find((m) => m.id === id);
     if (!msg) return;
     msg.content += delta;
+    this.scheduleAssistantContentPaint(id);
+  }
+
+  private scheduleAssistantContentPaint(id: string): void {
     this.streamContentAssistantId = id;
     if (this.streamContentRafId !== null) return;
     this.streamContentRafId = window.requestAnimationFrame(() => {
@@ -7888,10 +8975,113 @@ export class LLMBridgeView extends ItemView {
       if (!nextId) return;
       const nextMsg = this.messages.find((m) => m.id === nextId);
       const block = this.messagesEl.querySelector(`[data-msg-id="${nextId}"]`);
-      const contentEl = block?.querySelector<HTMLElement>(".llm-bridge-msg-content");
-      if (!nextMsg || !contentEl) return;
-      this.renderMessageContent(contentEl, nextMsg);
+      if (!nextMsg || !(block instanceof HTMLElement)) return;
+      const contentEl = block.querySelector<HTMLElement>(".llm-bridge-msg-content");
+      if (contentEl) this.renderMessageContent(contentEl, nextMsg);
+      this.patchCodexFinalAnswerSurface(block, nextMsg);
       this.scrollToBottom();
+    });
+  }
+
+  private patchRunningStatusLine(id: string): void {
+    const msg = this.messages.find((m) => m.id === id);
+    if (!msg || msg.status !== "running") return;
+    const loc = resolveUiLocale() === "en" ? "en" : "zh";
+    const presentation = buildMessagePresentation(msg, {
+      developerMode: !!this.plugin.settings.developerMode,
+      locale: loc,
+      runtimeLabel: this.actualRuntimeLabel,
+    });
+    const block = this.messagesEl.querySelector(`[data-msg-id="${id}"]`);
+    if (!block) return;
+    const existingRunStatus = block.querySelector(".llm-bridge-msg-status-line, .llm-bridge-run-status-text");
+    if (presentation.statusLine) {
+      if (existingRunStatus) {
+        existingRunStatus.textContent = presentation.statusLine;
+        existingRunStatus.classList.add("is-running", "llm-bridge-run-glow");
+      } else {
+        const head = block.querySelector(".llm-bridge-msg-head");
+        if (head) {
+          head.createEl("span", {
+            cls: "llm-bridge-msg-status-line llm-bridge-run-status-text is-running llm-bridge-run-glow",
+            text: presentation.statusLine,
+          });
+        }
+      }
+    } else if (existingRunStatus) {
+      // 首段回答到来：结束光效状态行
+      existingRunStatus.remove();
+    }
+  }
+
+  private isStructuralTurnChange(
+    prev: ChatMessage["assistantTurnView"] | undefined,
+    next: NonNullable<ChatMessage["assistantTurnView"]>,
+  ): boolean {
+    if (!prev) return true;
+    const prevTools = prev.tools?.length ?? (prev as { processSteps?: unknown[] }).processSteps?.length ?? 0;
+    const nextTools = next.tools?.length ?? (next as { processSteps?: unknown[] }).processSteps?.length ?? 0;
+    if (prevTools !== nextTools) return true;
+    if ((prev.fileChanges?.length ?? 0) !== (next.fileChanges?.length ?? 0)) return true;
+    if ((prev.approvals?.length ?? 0) !== (next.approvals?.length ?? 0)) return true;
+    const prevPending = prev.approvals?.filter((a) => a.pending).length ?? 0;
+    const nextPending = next.approvals?.filter((a) => a.pending).length ?? 0;
+    if (prevPending !== nextPending) return true;
+    const prevUser = prev.userInputRequests?.length ?? 0;
+    const nextUser = next.userInputRequests?.length ?? 0;
+    if (prevUser !== nextUser) return true;
+
+    // reasoning 文本变化 → 刷新过程区
+    const thoughtLen = (turn: NonNullable<ChatMessage["assistantTurnView"]>) =>
+      (turn.thoughts ?? []).reduce((sum, t) => sum + ((t.text || "").length), 0);
+    if (thoughtLen(prev) !== thoughtLen(next)) return true;
+
+    // timeline 节点 / imageView / 当前活动
+    const summarizeTimeline = (turn: NonNullable<ChatMessage["assistantTurnView"]>) => {
+      const flat: Array<{ kind: string; status: string; textLen: number }> = [];
+      const visit = (nodes: ReadonlyArray<{ kind: string; status: string; text?: string; summary?: string; children?: ReadonlyArray<unknown> }>) => {
+        for (const n of nodes) {
+          flat.push({
+            kind: n.kind,
+            status: n.status,
+            textLen: ((n.text || n.summary || "") as string).length,
+          });
+          if (n.children?.length) visit(n.children as typeof nodes);
+        }
+      };
+      visit(turn.turnTimeline ?? []);
+      const active = [...flat].reverse().find((n) => n.status === "running" || n.status === "blocked");
+      return `${flat.length}|${active?.kind ?? ""}|${active?.status ?? ""}|${flat.filter((n) => n.kind === "imageView").length}|${flat.reduce((s, n) => s + n.textLen, 0)}`;
+    };
+    if (summarizeTimeline(prev) !== summarizeTimeline(next)) return true;
+
+    return false;
+  }
+
+  private scheduleStreamDetailsRefresh(id: string): void {
+    this.streamDetailsAssistantId = id;
+    if (this.streamDetailsTimerId !== null) return;
+    // 结构过程 150–250ms 合并刷新
+    this.streamDetailsTimerId = window.setTimeout(() => {
+      this.streamDetailsTimerId = null;
+      this.flushStreamDetailsRefresh();
+    }, 180);
+  }
+
+  private flushStreamDetailsRefresh(): void {
+    if (this.streamDetailsTimerId !== null) {
+      window.clearTimeout(this.streamDetailsTimerId);
+      this.streamDetailsTimerId = null;
+    }
+    const id = this.streamDetailsAssistantId;
+    this.streamDetailsAssistantId = null;
+    if (!id) return;
+    const msg = this.messages.find((m) => m.id === id);
+    if (!msg || msg.status !== "running") return;
+    this.updateAssistantMessage(id, {
+      content: msg.content,
+      stderr: msg.stderr,
+      assistantTurnView: msg.assistantTurnView,
     });
   }
 
@@ -8090,8 +9280,12 @@ export class LLMBridgeView extends ItemView {
     if (metrics.compression) this.contextRingEl.classList.add("is-compressed");
     this.contextRingEl.style.cssText = `background: conic-gradient(${color} ${pct * 3.6}deg, var(--background-modifier-border) ${pct * 3.6}deg);`;
     const isDev = !!this.plugin.settings.developerMode;
-    // V16.3 Round 3: 普通用户态 title 简化为 "Context used: X / total tokens"；
-    // developerMode 保留完整 breakdown（含 compression）
+    const usedRatio = win > 0 ? total / win : 0;
+    const showOccupancyChip = isDev || shouldShowContextOccupancyChip(usedRatio);
+    const strip = this.contextRingEl.parentElement;
+    if (strip) {
+      strip.classList.toggle("is-tooltip-only", !showOccupancyChip);
+    }
     if (isDev) {
       const tipParts = [`${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`];
       if (metrics.compression) {
@@ -8099,9 +9293,8 @@ export class LLMBridgeView extends ItemView {
       }
       this.contextRingEl.setAttribute("title", tipParts.join("\n"));
     } else {
-      this.contextRingEl.setAttribute("title", `Context used: ${formatTokens(total)} / ${formatTokens(win)} tokens`);
+      this.contextRingEl.setAttribute("title", `上下文占用: ${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`);
     }
-    // V16.3 Round 3: 普通用户态短标签 "Context 0.5%"；developerMode 显示完整比例
     if (isDev) {
       if (metrics.precision === "exact") {
         this.contextLabelEl.textContent = `Context ${formatTokens(total)} / ${formatTokens(win)}`;
@@ -8109,9 +9302,12 @@ export class LLMBridgeView extends ItemView {
         this.contextLabelEl.textContent = "Context estimate";
       }
       this.contextLabelEl.setAttribute("title", `Exact runtime usage: ${metrics.precision === "exact" ? "available" : "unavailable"}\nLocal estimate: ${metrics.total.tokens} tokens (${metrics.total.chars} chars)\nWindow: ${formatTokens(win)}\nPrecision: ${metrics.precision}`);
-    } else {
+    } else if (showOccupancyChip) {
       this.contextLabelEl.textContent = `${pct > 0 && pct < 0.1 ? "<0.1" : Math.round(pct * 10) / 10}%`;
-      this.contextLabelEl.setAttribute("title", `Context used: ${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`);
+      this.contextLabelEl.setAttribute("title", `上下文占用: ${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`);
+    } else {
+      this.contextLabelEl.textContent = "";
+      this.contextLabelEl.setAttribute("title", `上下文占用: ${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`);
     }
     // V16.3 Round 3: 普通用户态不填充明细；developerMode 保留完整明细
     this.contextDetailEl.empty();
@@ -8283,7 +9479,7 @@ export class LLMBridgeView extends ItemView {
       attr: { type: "button", title: "Agent 可发现/可调用的 runtime capabilities；不会插入输入框", "aria-expanded": "false" },
     });
     this.agentSkillsToggleChevronEl = this.agentSkillsToggleEl.createEl("span", { cls: "llm-bridge-skills-toggle-chevron", text: "›" });
-    this.agentSkillsToggleEl.createEl("span", { cls: "llm-bridge-skills-toggle-label", text: "Plugins & Skills" });
+    this.agentSkillsToggleEl.createEl("span", { cls: "llm-bridge-skills-toggle-label", text: "持久能力" });
     this.agentSkillsToggleCountEl = this.agentSkillsToggleEl.createEl("span", { cls: "llm-bridge-skills-toggle-count", text: "0/0P · 0/0S" });
     const refreshBtn = head.createEl("button", {
       cls: "llm-bridge-skills-refresh-btn",
@@ -8296,7 +9492,7 @@ export class LLMBridgeView extends ItemView {
     body.setAttribute("hidden", "");
     this.agentSkillsBodyEl = body;
     const help = body.createDiv({ cls: "llm-bridge-agent-skills-boundary" });
-    help.createEl("span", { text: "Plugins 来自 managed Codex runtime；Skills 来自本地 Agent Skills manifest。启用项会作为 runtime capability 进入 provider instructions，菜单选择只生成 composer 内轻量 chip。" });
+    help.createEl("span", { text: "此页管理持久能力（Plugins / Skills）。Composer 工具菜单只负责本轮选择，避免两个入口功能重叠。" });
     this.managedCodexPluginsListEl = body.createDiv({ cls: "llm-bridge-agent-skills-list-container llm-bridge-codex-plugins-list-container" });
     this.agentSkillsListEl = body.createDiv({ cls: "llm-bridge-agent-skills-list-container" });
 
@@ -8697,7 +9893,7 @@ export class LLMBridgeView extends ItemView {
     if (session.model) s.model = session.model;
     if (session.effortLevel) s.effortLevel = session.effortLevel;
     if (session.backendMode) s.backendMode = session.backendMode as typeof s.backendMode;
-    if (session.permissionMode) s.claudePermissionMode = session.permissionMode as typeof s.claudePermissionMode;
+    this.applySessionApprovalProfile(session);
     if (session.sessionMode) s.sessionMode = session.sessionMode as typeof s.sessionMode;
     await this.restoreContextAndSnippets(session);
     this.session = null;
@@ -8727,7 +9923,10 @@ export class LLMBridgeView extends ItemView {
     // UI-03: 恢复时提示恢复了哪些状态
     const restoredParts: string[] = [`${session.messageCount} 条消息`];
     if (session.model) restoredParts.push(`模型 ${session.model}`);
-    if (session.permissionMode) restoredParts.push(`权限 ${session.permissionMode}`);
+    const restoredProfile = isAgentApprovalProfile(session.approvalProfile)
+      ? session.approvalProfile
+      : this.plugin.settings.agentApprovalProfile;
+    if (restoredProfile) restoredParts.push(`权限 ${getAgentApprovalProfileInfo(restoredProfile).shortLabel}`);
     if (session.pinnedContextRefs && session.pinnedContextRefs.length > 0) restoredParts.push(`${session.pinnedContextRefs.length} 个 Pin`);
     if (session.nativeSessionRef) restoredParts.push("原生会话");
     new Notice(`已恢复会话：${session.title}\n恢复状态：${restoredParts.join(" · ")}`);
@@ -8853,7 +10052,7 @@ export class LLMBridgeView extends ItemView {
     if (session.model) s.model = session.model;
     if (session.effortLevel) s.effortLevel = session.effortLevel;
     if (session.backendMode) s.backendMode = session.backendMode as typeof s.backendMode;
-    if (session.permissionMode) s.claudePermissionMode = session.permissionMode as typeof s.claudePermissionMode;
+    this.applySessionApprovalProfile(session);
     if (session.sessionMode) s.sessionMode = session.sessionMode as typeof s.sessionMode;
     // V2.17-A: 复用统一恢复逻辑（pinned context 保留类型 + message snippet 重算 + agentType 对齐）
     await this.restoreContextAndSnippets(session);
@@ -9179,18 +10378,99 @@ export class LLMBridgeView extends ItemView {
   }
 
   private async refreshManagedCodexPlugins(): Promise<void> {
-    try {
-      this.managedCodexPluginCatalog = await listManagedCodexPluginsAsync(this.plugin.pluginDir);
-      this.managedCodexPlugins = this.managedCodexPluginCatalog.entries.slice();
-    } catch (error) {
-      this.managedCodexPluginCatalog = {
-        available: false,
-        runtimePath: null,
-        entries: [],
-        error: error instanceof Error ? error.message : String(error),
-      };
-      this.managedCodexPlugins = [];
+    if (this.managedPluginsRefreshInFlight) {
+      await this.managedPluginsRefreshInFlight;
+      return;
     }
+    this.managedPluginsRefreshInFlight = (async () => {
+      try {
+        this.managedCodexPluginCatalog = await listManagedCodexPluginsAsync(this.plugin.pluginDir);
+        this.managedCodexPlugins = this.managedCodexPluginCatalog.entries.slice();
+        this.managedPluginsRefreshedAt = Date.now();
+      } catch (error) {
+        this.managedCodexPluginCatalog = {
+          available: false,
+          runtimePath: null,
+          entries: [],
+          error: error instanceof Error ? error.message : String(error),
+        };
+        this.managedCodexPlugins = [];
+      } finally {
+        this.managedPluginsRefreshInFlight = null;
+      }
+    })();
+    await this.managedPluginsRefreshInFlight;
+  }
+
+  /** P0: 发送热路径 — 有缓存则跳过；后台去重刷新 plugin 列表 */
+  private ensureManagedCodexPluginsCached(): void {
+    const FRESH_MS = 60_000;
+    if (this.managedCodexPluginCatalog && Date.now() - this.managedPluginsRefreshedAt < FRESH_MS) {
+      return;
+    }
+    void this.refreshManagedCodexPlugins();
+  }
+
+  /** P0: Codex Skills 物化 — 缓存/去重，连续发送不重复全量执行 */
+  private async ensureCodexSkillsPreparedCached(vaultPath: string): Promise<{ ok: boolean; reason?: string }> {
+    const FRESH_MS = 5 * 60_000;
+    if (
+      this.codexSkillPrepCache
+      && this.codexSkillPrepCache.vaultPath === vaultPath
+      && this.codexSkillPrepCache.ok
+      && Date.now() - this.codexSkillPrepCache.preparedAt < FRESH_MS
+    ) {
+      return { ok: true };
+    }
+    if (this.codexSkillPrepInFlight) {
+      return this.codexSkillPrepInFlight;
+    }
+    this.codexSkillPrepInFlight = (async () => {
+      try {
+        await this.refreshAgentSkillsManifestOnly();
+        const codexSkillPrep = await prepareAgentSkillsForCodexRuntime(vaultPath);
+        const result = {
+          ok: codexSkillPrep.ok,
+          reason: codexSkillPrep.ok ? undefined : (codexSkillPrep.reason || "unknown error"),
+        };
+        this.codexSkillPrepCache = {
+          vaultPath,
+          preparedAt: Date.now(),
+          ok: result.ok,
+          reason: result.reason,
+        };
+        return result;
+      } finally {
+        this.codexSkillPrepInFlight = null;
+      }
+    })();
+    return this.codexSkillPrepInFlight;
+  }
+
+  private setAssistantWatchdogHint(assistantId: string, text: string): void {
+    const block = this.messagesEl.querySelector(`[data-msg-id="${assistantId}"]`) as HTMLElement | null;
+    const statusEl = block?.querySelector(".llm-bridge-run-status-text") as HTMLElement | null;
+    if (statusEl) {
+      statusEl.textContent = text;
+      return;
+    }
+    this.updateAssistantMessage(assistantId, { content: text });
+  }
+
+  private async failRunBeforeStart(
+    assistantId: string,
+    message: string,
+    startedAt: string,
+  ): Promise<void> {
+    this.runHandle = null;
+    this.updateAssistantMessage(assistantId, {
+      content: message,
+      status: "failed",
+      stderr: message,
+    });
+    this.setGlobalStatus("failed");
+    new Notice(message);
+    void startedAt;
   }
 
   private renderManagedCodexPluginsList(): void {
@@ -9433,36 +10713,17 @@ export class LLMBridgeView extends ItemView {
   }
 
   private async run(): Promise<void> {
+    // P0: 并发锁在开始时设置，避免重入（首帧 UI 之前就占住）
     if (this.runHandle) return;
     const userInput = this.inputEl.value.trim();
     if (!userInput) {
       new Notice("请输入请求");
       return;
     }
-    const installStatus = this.getManagedRuntimeInstallStatusForCurrentMode();
-    if (installStatus?.required) {
-      this.refreshManagedRuntimeInstallAction(installStatus);
-      this.statusLabelEl.textContent = "Codex runtime · install required";
-      this.statusDotEl.setAttribute("title", this.formatRuntimeInstallTitle(installStatus));
-      new Notice("Codex managed runtime needs to be installed first");
-      return;
-    }
 
     const settings = this.plugin.settings;
     const activeFile = this.getActiveFile();
     const selection = settings.includeSelection ? this.getSelection() : null;
-
-    // 导出状态
-    let vaultPath = "";
-    try {
-      const result = await exportState(this.app, this.app.vault, activeFile, { selection }, settings);
-      vaultPath = result.vaultPath;
-    } catch (e) {
-      new Notice("导出 Obsidian 状态失败：" + (e as Error).message);
-      return;
-    }
-
-    this.beforeFiles = await snapshotVaultMarkdownFiles(vaultPath);
     const messageRefsForRun = this.messageFileRefs.map((ref) => {
       const previewText = this.getFileRefPreviewText(ref);
       return {
@@ -9471,84 +10732,8 @@ export class LLMBridgeView extends ItemView {
         ...(previewText ? { previewText } : {}),
       };
     });
-    const promptFileRefsForRun = this.getPromptFileRefs(messageRefsForRun);
-    const promptAttachmentSnippetsForRun = this.getPromptAttachmentSnippets(promptFileRefsForRun);
 
-    // 构建 State Snapshot（用于 prompt package）
-    const snapshot: StateSnapshot = {
-      vaultPath,
-      activeFilePath: activeFile?.path || null,
-      activeFileContent: null,
-      selection,
-      fileRefIndex: buildPromptFileRefIndex({ refs: promptFileRefsForRun }),
-      attachmentTextSnippets: promptAttachmentSnippetsForRun,
-      attachmentPackingPolicy: DEFAULT_ATTACHMENT_PACKING_POLICY,
-      timestamp: new Date().toISOString(),
-    };
-
-    // 如果启用 includeActiveNote，读取活动笔记内容
-    if (settings.includeActiveNote && activeFile) {
-      try {
-        snapshot.activeFileContent = await this.app.vault.read(activeFile);
-      } catch (e) {
-        // 读取失败不阻断主流程
-        console.warn("Failed to read active file:", e);
-      }
-    }
-
-    // V2.17-A Completion: provider-neutral BridgePromptPackage 先构造（单一真相源）。
-    // buildSdkStreamingInput 从 promptPackage.userPrompt 派生 text block，不再使用
-    // 旧 buildPromptPackage 字符串（避免 prompt split 绕过）。
-    // bridge 系统附加内容只进入 systemPrompt / provider instructions 层，
-    // 不混入 SDK streaming text block。
-    // V16.5-E Task 0: session 必须在 buildRuntimeCapabilities 之前声明（修复 TDZ blocker）。
-    const session = this.getSession();
-    if (session.providerId === "codex-managed-app-server") {
-      await this.refreshManagedCodexPlugins();
-      await this.refreshAgentSkillsManifestOnly();
-      const codexSkillPrep = await prepareAgentSkillsForCodexRuntime(vaultPath);
-      if (!codexSkillPrep.ok) {
-        new Notice(`Codex Skills 物化失败：${codexSkillPrep.reason || "unknown error"}`);
-      }
-    }
-    const promptUserInput = this.buildUserInputWithRuntimeCapabilityHints(userInput);
-    // V16.5-D: 注入真实 runtime capabilities（从 session.providerId 派生），不再只用默认值。
-    const runtimeCapabilities = this.buildRuntimeCapabilities(session.providerId, settings);
-    const promptPackage = buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities);
-    const sdkStreamingInput = await this.buildSdkStreamingInput(promptPackage.userPrompt, promptFileRefsForRun);
-
-    // 旧 buildPromptPackage 仅作为 legacy CLI preview/log fallback（不进入 SDK streaming）
-    const prompt = buildPromptPackage(promptUserInput, snapshot, settings);
-
-    // V2.17-A Completion: 通过 BridgeSession 选择 provider 并构造 EffectiveRunPlan。
-    // UI 不再直接接触 SdkBackend/ClaudeCliBackend/MockAgentBackend；plan 由
-    // provider.buildPlan 从 RunInput 派生（单一真相源）。
-    const imageBlockCount = sdkStreamingInput?.content.filter((b) => b.type === "image").length ?? 0;
-    const attachmentPlan: AttachmentPlan = {
-      messageScopedRefs: messageRefsForRun.length,
-      pinnedRefs: this.pinnedFileRefs.length,
-      inlineSnippets: promptAttachmentSnippetsForRun.length,
-      imageStreamingBlocks: imageBlockCount,
-      nativeRefOnly: Math.max(0, promptFileRefsForRun.length - promptAttachmentSnippetsForRun.length - imageBlockCount),
-      // V2.17-A: entry-level 审计由 provider 内部从 promptPackage.attachmentEntries 构造；
-      // view 层仅保留 counts 供 commandPreview/log，entries 为空。
-      entries: [],
-    };
-    // 注：attachmentPlan 仅用于 UI 展示审计；provider 内部从 promptPackage.attachmentEntries
-    // 重新聚合（保证 provider-neutral）。这里保留供 commandPreview / log 用。
-
-    // V1.5: 构造命令预览（UI-only，展示本次实际执行的 command/args/cwd/上下文）
-    const commandPreviewRows = previewToRows(buildCommandPreview(settings, vaultPath, {
-      hasSelection: !!selection,
-      selectionLength: selection?.length ?? 0,
-      hasActiveNote: settings.includeActiveNote && !!activeFile,
-      activeFileName: activeFile?.path ?? null,
-      promptLength: prompt.length,
-      // V16.3: 传入活动笔记内容字符数用于 token 估算（与实际 prompt 注入一致）
-      activeNoteContentLength: snapshot.activeFileContent?.length ?? 0,
-    }));
-
-    // 渲染用户消息 + assistant 占位
+    // P0: 用户消息 + assistant 占位在第一段同步逻辑中立刻写入 UI（目标 <150ms）
     this.appendUserMessage(userInput, messageRefsForRun);
     const assistantId = this.appendAssistantPlaceholder();
     this.inputEl.value = "";
@@ -9558,7 +10743,6 @@ export class LLMBridgeView extends ItemView {
     this.selectedRuntimeCapabilities = [];
     this.renderComposerRuntimeCapabilityChips();
 
-    // V2.0: 首条用户消息生成会话标题 + 更新消息数
     if (this.sessionState.messageCount === 0) {
       this.sessionState = updateSession(this.sessionState, {
         title: generateSessionTitle(userInput),
@@ -9569,81 +10753,25 @@ export class LLMBridgeView extends ItemView {
       messageCount: this.sessionState.messageCount + 1,
     });
 
-    this.setGlobalStatus("running");
-    // V2.0: 运行流程区展示前 3 步
-    this.showRunFlowStarted(prompt.length);
-    // V1.2: 运行过程时间线 —— 收集中间事件（首次 stdout/stderr 各记录一条，保持简洁）
     const startedAt = new Date().toISOString();
-    const timelineEvents: Array<{ type: TimelineEventType; detail: string; timestamp: string }> = [];
-    // V1.5: Workflow Trace —— 收集中间事件（与 timeline 共享首次 stdout/stderr 记录）
-    const workflowEvents: WorkflowTraceEvent[] = [];
-    // V1.6: SDK 工作流事件（工具级：tool_start/tool_result/file_change/permission/error/message）
-    const sdkEvents: WorkflowEvent[] = [];
-    let sawStdout = false;
-    let sawStderr = false;
-
-    // V2.17-A Completion: 通过 provider.buildPlan 构造 EffectiveRunPlan（单一真相源）
-    const runInput: RunInput = {
-      userMessage: userInput,
-      cwd: vaultPath,
-      includeActiveNote: settings.includeActiveNote,
-      includeSelection: settings.includeSelection,
-      sdkStreamingInput: sdkStreamingInput ?? undefined,
-      promptPackage,
-      createdAt: startedAt,
-    };
-    const effectiveRunPlan = session.provider.buildPlan(runInput, settings);
-    this.updateAssistantMessage(assistantId, {
-      log: `$ ${this.commandLine()}\ncwd: ${vaultPath}\nprompt 通过 stdin 传入（${prompt.length} 字符）`,
-      commandPreview: commandPreviewRows,
-      effectiveRunPlan,
-      attachmentPlan, // P3: persist attachmentPlan for developerMode audit
-    });
-
-    // V2.14.0-K: runtime file tool adapter（provider 通过 RunContext 拿到）
-    const runtimeFileToolAdapter = createRuntimeFileToolAdapter(
-      session.providerId === "claude-sdk" ? "sdk" : "cli",
-      (request) => this.executeAgentFileToolRoute(request),
-    );
-    runInput.runtimeFileToolAdapter = runtimeFileToolAdapter;
-
-    // V2.17-A Completion: 通过 BridgeSession.start 启动 run，消费 NormalizedRuntimeEvent 流。
-    // 主渲染链路迁移到 AssistantTurnViewBuilder：UI 只消费 AssistantTurnView，
-    // 不再反向映射 WorkflowEvent 作为主流程。final answer 由 builder.finalAnswer 输出，
-    // 不再由 stdout_delta 旁路直接写 content。
-    // - stdout_delta/stderr_delta/completed/failed：builder 聚合 + 终态处理
-    // - 其余事件：builder 聚合后渲染 process/thoughts/tools/fileChanges/approvals
-    // - WorkflowEvent 映射仅保留为 legacy log（sdkEvents/timelineEvents），不作主 UI 数据源
+    const startedAtMs = Date.now();
+    let cancelled = false;
     let terminalStatus: RunStatus | null = null;
     let terminalResult: RunResult | null = null;
-    let cancelled = false; // F-03: cancel 标志，防止 cancel 后事件被 ingest
-    // latest native session only: 如果 activeNativeSessionRef 存在且 providerId 匹配 → resume（thread/resume）；否则 start（thread/start）
-    // 不同 agent 的 native session 不互通（providerId 不匹配时 transcript-only）
-    const activeRef = session.activeNativeSessionRef;
-    const canResume = activeRef && activeRef.providerId === session.providerId;
-    const runIter = canResume
-      ? session.resume(activeRef, runInput, settings)
-      : session.start(runInput, settings);
-    const turnBuilder = new AssistantTurnViewBuilder(assistantId, session.providerId, startedAt);
+    let sessionRef: ReturnType<LLMBridgeView["getSession"]> | null = null;
 
-    // runHandle：把 cancel 透传给 BridgeSession（stop 按钮用）
-    const view = this;
+    // 占位 runHandle：阻止重入；真正 cancel 在 session 就绪后绑定
     this.runHandle = {
       get running(): boolean { return terminalStatus === null; },
-      stop(): void {
-        // F-03: 立即标记取消，防止 cancel 后到终态事件到达之间的事件被 ingest
+      stop: () => {
         cancelled = true;
-        // BridgeSession.cancel 会调用 provider.cancel + permission.cancelAllPending
-        session.cancel("");
-        // F-03: 激活 markStopped — 用户取消应产生 stopped 状态（而非等 provider 的 failed 事件）
-        // 此前 markStopped 是死代码，用户取消始终表现为 failed；现在 UI 能正确显示"已停止"
-        turnBuilder.markStopped();
+        if (sessionRef) sessionRef.cancel("user-stop");
         if (!terminalStatus) {
           terminalStatus = "stopped";
           terminalResult = {
             exitCode: null,
             signal: null,
-            durationMs: Date.now() - new Date(startedAt).getTime(),
+            durationMs: Date.now() - startedAtMs,
             stdout: "",
             stderr: "",
             command: "",
@@ -9652,11 +10780,211 @@ export class LLMBridgeView extends ItemView {
         }
       },
     };
+    this.setGlobalStatus("running");
+
+    const timelineEvents: Array<{ type: TimelineEventType; detail: string; timestamp: string }> = [];
+    const workflowEvents: WorkflowTraceEvent[] = [];
+    const sdkEvents: WorkflowEvent[] = [];
+    let sawStdout = false;
+    let sawStderr = false;
+    let promptLength = 0;
+    let vaultPath = "";
 
     void (async () => {
+      const view = this;
+      let turnBuilder: AssistantTurnViewBuilder | null = null;
+      let watchdogTimer: ReturnType<typeof setInterval> | null = null;
       try {
+        // 安装探测只读缓存/stat，不阻塞在 323MB SHA 上；pending 显示「正在验证」
+        const installStatus = view.getManagedRuntimeInstallStatusForCurrentMode();
+        if (installStatus?.required) {
+          view.refreshManagedRuntimeInstallAction(installStatus);
+          await view.failRunBeforeStart(assistantId, "Codex managed runtime needs to be installed first", startedAt);
+          return;
+        }
+        if (installStatus?.integrityStatus === "pending" || installStatus?.status === "verifying") {
+          view.setAssistantWatchdogHint(assistantId, "正在验证 runtime…");
+        }
+
+        try {
+          const result = await exportState(view.app, view.app.vault, activeFile, { selection }, settings);
+          vaultPath = result.vaultPath;
+        } catch (e) {
+          await view.failRunBeforeStart(assistantId, "导出 Obsidian 状态失败：" + (e as Error).message, startedAt);
+          return;
+        }
+        if (cancelled) return;
+
+        // Vault 快照改为与后续准备并行，不挡首帧
+        const beforeFilesPromise = snapshotVaultMarkdownFiles(vaultPath);
+
+        const promptFileRefsForRun = view.getPromptFileRefs(messageRefsForRun);
+        const promptAttachmentSnippetsForRun = view.getPromptAttachmentSnippets(promptFileRefsForRun);
+
+        const snapshot: StateSnapshot = {
+          vaultPath,
+          activeFilePath: activeFile?.path || null,
+          activeFileContent: null,
+          selection,
+          fileRefIndex: buildPromptFileRefIndex({ refs: promptFileRefsForRun }),
+          attachmentTextSnippets: promptAttachmentSnippetsForRun,
+          attachmentPackingPolicy: DEFAULT_ATTACHMENT_PACKING_POLICY,
+          timestamp: new Date().toISOString(),
+        };
+
+        if (settings.includeActiveNote && activeFile) {
+          try {
+            snapshot.activeFileContent = await view.app.vault.read(activeFile);
+          } catch (e) {
+            console.warn("Failed to read active file:", e);
+          }
+        }
+
+        const session = view.getSession();
+        sessionRef = session;
+
+        // P0: plugin 列表 / Skill 物化 — 缓存去重，不每次发送全量 await
+        if (session.providerId === "codex-managed-app-server") {
+          view.ensureManagedCodexPluginsCached();
+          const skillPrep = await view.ensureCodexSkillsPreparedCached(vaultPath);
+          if (!skillPrep.ok) {
+            // 迁移后仍失败才 toast；不因重复冲突刷屏
+            new Notice(`Codex Skills 物化失败：${skillPrep.reason || "unknown error"}`);
+          }
+        }
+        if (cancelled) return;
+
+        const promptUserInput = view.buildUserInputWithRuntimeCapabilityHints(userInput);
+        const runtimeCapabilities = view.buildRuntimeCapabilities(session.providerId, settings);
+        const promptPackage = buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities);
+        const sdkStreamingInput = await view.buildSdkStreamingInput(promptPackage.userPrompt, promptFileRefsForRun);
+        const prompt = buildPromptPackage(promptUserInput, snapshot, settings);
+        promptLength = prompt.length;
+
+        const imageBlockCount = sdkStreamingInput?.content.filter((b) => b.type === "image").length ?? 0;
+        const attachmentPlan: AttachmentPlan = {
+          messageScopedRefs: messageRefsForRun.length,
+          pinnedRefs: view.pinnedFileRefs.length,
+          inlineSnippets: promptAttachmentSnippetsForRun.length,
+          imageStreamingBlocks: imageBlockCount,
+          nativeRefOnly: Math.max(0, promptFileRefsForRun.length - promptAttachmentSnippetsForRun.length - imageBlockCount),
+          entries: [],
+        };
+
+        const commandPreviewRows = previewToRows(buildCommandPreview(settings, vaultPath, {
+          hasSelection: !!selection,
+          selectionLength: selection?.length ?? 0,
+          hasActiveNote: settings.includeActiveNote && !!activeFile,
+          activeFileName: activeFile?.path ?? null,
+          promptLength: prompt.length,
+          activeNoteContentLength: snapshot.activeFileContent?.length ?? 0,
+        }));
+
+        view.showRunFlowStarted(prompt.length);
+
+        const runInput: RunInput = {
+          userMessage: userInput,
+          cwd: vaultPath,
+          includeActiveNote: settings.includeActiveNote,
+          includeSelection: settings.includeSelection,
+          sdkStreamingInput: sdkStreamingInput ?? undefined,
+          promptPackage,
+          createdAt: startedAt,
+        };
+        const effectiveRunPlan = session.provider.buildPlan(runInput, settings);
+        view.updateAssistantMessage(assistantId, {
+          log: `$ ${view.commandLine()}\ncwd: ${vaultPath}\nprompt 通过 stdin 传入（${prompt.length} 字符）`,
+          commandPreview: commandPreviewRows,
+          effectiveRunPlan,
+          attachmentPlan,
+        });
+        view.refreshPermissionModeChip();
+        view.refreshStatusBar();
+
+        const runtimeFileToolAdapter = createRuntimeFileToolAdapter(
+          session.providerId === "claude-sdk" ? "sdk" : "cli",
+          (request) => view.executeAgentFileToolRoute(request),
+        );
+        runInput.runtimeFileToolAdapter = runtimeFileToolAdapter;
+
+        view.beforeFiles = await beforeFilesPromise;
+
+        const activeRef = session.activeNativeSessionRef;
+        const canResume = activeRef && activeRef.providerId === session.providerId;
+        const runIter = canResume
+          ? session.resume(activeRef, runInput, settings)
+          : session.start(runInput, settings);
+        turnBuilder = new AssistantTurnViewBuilder(assistantId, session.providerId, startedAt);
+
+        view.runHandle = {
+          get running(): boolean { return terminalStatus === null; },
+          stop(): void {
+            cancelled = true;
+            session.cancel("");
+            turnBuilder?.markStopped();
+            if (!terminalStatus) {
+              terminalStatus = "stopped";
+              terminalResult = {
+                exitCode: null,
+                signal: null,
+                durationMs: Date.now() - startedAtMs,
+                stdout: "",
+                stderr: "",
+                command: "",
+                args: [],
+              };
+            }
+          },
+        };
+
+        // P1: 流式 watchdog — 12s 提示等待；90s 无事件则取消并落盘失败
+        const WATCHDOG_SOFT_MS = 12_000;
+        const WATCHDOG_HARD_MS = 90_000;
+        let lastEventAt = Date.now();
+        let lastEventKind = "none";
+        let softWarned = false;
+        watchdogTimer = setInterval(() => {
+          if (terminalStatus || cancelled) return;
+          const idleMs = Date.now() - lastEventAt;
+          if (idleMs >= WATCHDOG_HARD_MS) {
+            const threadId = session.activeNativeSessionRef?.threadId
+              || session.activeNativeSessionRef?.sessionId
+              || "";
+            const detail = [
+              `流式超时：${Math.round(idleMs / 1000)}s 无原生事件`,
+              `lastEvent=${lastEventKind}`,
+              `provider=${session.providerId}`,
+              threadId ? `thread=${threadId}` : "",
+              `elapsedMs=${Date.now() - startedAtMs}`,
+            ].filter(Boolean).join(" · ");
+            console.warn("[llm-cli-bridge] stream watchdog hard timeout", detail);
+            cancelled = true;
+            session.cancel("watchdog-timeout");
+            turnBuilder?.markStopped();
+            terminalStatus = "failed";
+            terminalResult = {
+              exitCode: null,
+              signal: null,
+              durationMs: Date.now() - startedAtMs,
+              stdout: "",
+              stderr: detail,
+              command: "",
+              args: [],
+            };
+            view.setAssistantWatchdogHint(assistantId, "连接超时，已取消。可重试发送。");
+            return;
+          }
+          if (idleMs >= WATCHDOG_SOFT_MS && !softWarned) {
+            softWarned = true;
+            view.setAssistantWatchdogHint(assistantId, "连接仍在等待响应…");
+          }
+        }, 1000);
+
         for await (const ev of runIter) {
-          if (cancelled || terminalStatus) break; // F-03: cancelled 也立即退出，不再 ingest 迟到事件
+          if (cancelled || terminalStatus) break;
+          lastEventAt = Date.now();
+          lastEventKind = ev.payload?.kind || "unknown";
+          softWarned = false;
           view.handleNormalizedEvent(ev, {
             assistantId,
             vaultPath,
@@ -9668,8 +10996,8 @@ export class LLMBridgeView extends ItemView {
             setSawStdout: (v: boolean) => { sawStdout = v; },
             sawStderrRef: () => sawStderr,
             setSawStderr: (v: boolean) => { sawStderr = v; },
-            promptLength: prompt.length,
-            turnBuilder,
+            promptLength,
+            turnBuilder: turnBuilder!,
             onTerminal: (status: RunStatus, result: RunResult) => {
               terminalStatus = status;
               terminalResult = result;
@@ -9677,39 +11005,39 @@ export class LLMBridgeView extends ItemView {
           });
         }
       } catch (e) {
-        // 异常兜底：构造 failed 终态
         const errMsg = (e as Error)?.message || String(e);
         terminalStatus = "failed";
         terminalResult = {
           exitCode: null,
           signal: null,
-          durationMs: Date.now() - new Date(startedAt).getTime(),
+          durationMs: Date.now() - startedAtMs,
           stdout: "",
           stderr: errMsg,
           command: "",
           args: [],
         };
       } finally {
+        if (watchdogTimer) clearInterval(watchdogTimer);
         view.runHandle = null;
-        // F-03: 流无终态事件兜底 — provider 迭代器静默结束时，terminalStatus 仍为 null
-        // cancel 路径视为 stopped（用户主动取消），异常静默结束视为 failed
         if (!terminalStatus) {
           terminalStatus = cancelled ? "stopped" : "failed";
           terminalResult = terminalResult || {
             exitCode: null,
             signal: null,
-            durationMs: Date.now() - new Date(startedAt).getTime(),
+            durationMs: Date.now() - startedAtMs,
             stdout: "",
             stderr: cancelled ? "" : "Stream ended without terminal event",
             command: "",
             args: [],
           };
         }
-        if (terminalStatus && terminalResult) {
+        if (terminalStatus && terminalResult && vaultPath) {
           await view.onRunFinished(
             terminalResult, vaultPath, assistantId, terminalStatus,
-            startedAt, timelineEvents, workflowEvents, prompt.length, sdkEvents,
+            startedAt, timelineEvents, workflowEvents, promptLength, sdkEvents,
           );
+        } else if (terminalStatus === "failed" || terminalStatus === "stopped") {
+          view.setGlobalStatus(terminalStatus);
         }
       }
     })();
@@ -9776,16 +11104,40 @@ export class LLMBridgeView extends ItemView {
     // 2. ingest 到 turnBuilder（主 UI 状态源）
     const turnView = ctx.turnBuilder.ingest(ev);
 
-    // 3. 从 turnView 渲染到 ChatMessage（final answer + stderr + tools/files/approvals）
-    //    P3: 持久化 turnView 快照到 msg，使 appendMsgDetails 能从 turnView 渲染
-    //    process/thoughts/tools/fileChanges（普通用户态主链路）。
-    this.updateAssistantMessage(ctx.assistantId, {
-      content: turnView.finalAnswer,
-      stderr: this.plugin.settings.showStderr
-        ? turnView.warnings.filter((w) => w).join("\n")
-        : undefined,
-      assistantTurnView: turnView,
-    });
+    // 3. 从 turnView 渲染到 ChatMessage
+    //    运行中：文本走 rAF 局部更新；reasoning/timeline/imageView/活动等结构过程 150–250ms 批处理。
+    //    无 partial 流式时不伪造打字机，保持最后真实状态直到终态完整渲染。
+    //    完成态由 onTerminal → onRunFinished 做一次完整 Markdown 渲染。
+    const msg = this.messages.find((m) => m.id === ctx.assistantId);
+    const prevTurn = msg?.assistantTurnView;
+    const structuralChanged = this.isStructuralTurnChange(prevTurn, turnView);
+    if (msg) {
+      msg.content = turnView.finalAnswer;
+      msg.assistantTurnView = turnView;
+      if (this.plugin.settings.showStderr) {
+        msg.stderr = turnView.warnings.filter((w) => w).join("\n");
+      }
+    }
+
+    const isTerminal = p.kind === "completed" || p.kind === "failed";
+    if (isTerminal) {
+      this.flushStreamDetailsRefresh();
+      this.updateAssistantMessage(ctx.assistantId, {
+        content: turnView.finalAnswer,
+        stderr: this.plugin.settings.showStderr
+          ? turnView.warnings.filter((w) => w).join("\n")
+          : undefined,
+        assistantTurnView: turnView,
+      });
+    } else if (structuralChanged) {
+      this.scheduleStreamDetailsRefresh(ctx.assistantId);
+      // 同时刷新纯文本，避免等批处理时答案滞后
+      this.scheduleAssistantContentPaint(ctx.assistantId);
+      this.patchRunningStatusLine(ctx.assistantId);
+    } else {
+      this.scheduleAssistantContentPaint(ctx.assistantId);
+      this.patchRunningStatusLine(ctx.assistantId);
+    }
 
     // 4. approval pending 面板（从 turnView.approvals 驱动，替代旧 WorkflowEvent 路径）
     // V16.5-B: PermissionBoundary.pending 是主状态源；此处仅同步 UI 显示缓存。
@@ -9975,6 +11327,7 @@ export class LLMBridgeView extends ItemView {
     await new Promise((r) => setTimeout(r, 300));
     const afterFiles = await snapshotVaultMarkdownFiles(vaultPath);
     const newFiles = diffSnapshots(this.beforeFiles, afterFiles);
+    this.lastRunHadFileChanges = newFiles.length > 0;
     if (newFiles.length > 0) {
       this.updateAssistantMessage(assistantId, { generatedFiles: newFiles });
     }
@@ -10011,6 +11364,7 @@ export class LLMBridgeView extends ItemView {
         model: s.model,
         effortLevel: s.effortLevel,
         backendMode: s.backendMode,
+        approvalProfile: this.displayApprovalProfile(),
         permissionMode: s.claudePermissionMode,
         // latest native session only: 保存 nativeSessionRef 到 session 文件
         nativeSessionRef: this.session?.activeNativeSessionRef,

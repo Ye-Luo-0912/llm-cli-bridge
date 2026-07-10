@@ -37,11 +37,7 @@ import type {
 import type { ProviderLifecycleEvent } from "./providerLifecycleEvent";
 import { isInternalFilePath } from "../../timelineAdapter";
 import { CodexItemTimelineReducer } from "../providers/codex-app-server/codexItemTimeline";
-
-function isUserInputApprovalTool(toolName: string): boolean {
-  const normalized = toolName.trim().toLowerCase();
-  return normalized === "askuserquestion" || normalized === "request_user_input";
-}
+import { isUserInputApprovalTool } from "./approvalSemantics";
 
 /**
  * AssistantTurnView 聚合器：从 NormalizedRuntimeEvent 流增量构建 AssistantTurnView。

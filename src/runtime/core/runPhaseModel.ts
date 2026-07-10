@@ -20,6 +20,7 @@ import type {
   UserInputRequestSegment,
 } from "./types";
 import type { ProviderLifecycleEvent } from "./providerLifecycleEvent";
+import { isUserInputApprovalTool } from "./approvalSemantics";
 
 // ---------- Phase Types ----------
 
@@ -152,11 +153,6 @@ export function isUserVisibleTool(toolName: string): boolean {
   if (n === "askuserquestion" || n === "request_user_input") return false;
   if (n === "preparing tool input" || n.includes("preparing_tool_input") || n.includes("preparingtoolinput")) return false;
   return true;
-}
-
-function isUserInputApprovalTool(toolName: string): boolean {
-  const normalized = toolName.trim().toLowerCase();
-  return normalized === "askuserquestion" || normalized === "request_user_input";
 }
 
 /**

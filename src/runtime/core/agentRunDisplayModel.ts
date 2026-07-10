@@ -15,6 +15,7 @@ import { redactSecrets } from "../../workflowEvent";
 import { buildLifecycleEventsFromTurnView, type ProviderLifecycleEvent } from "./providerLifecycleEvent";
 import { buildRunPhaseModel, type RunPhaseModel } from "./runPhaseModel";
 import { toolLabelLegacy, toolIconCategoryLegacy, toolActivityLegacy } from "./toolPresentation";
+import { isUserInputApprovalTool } from "./approvalSemantics";
 
 // ---------- Card Types ----------
 
@@ -462,11 +463,6 @@ function looksLikeNeedsInput(finalAnswer: string): boolean {
   if (explicitPatterns.some((pattern) => pattern.test(trimmed))) return true;
   const lastLine = trimmed.split(/\r?\n/).filter(Boolean).pop() ?? trimmed;
   return /[?？]\s*$/.test(lastLine) && /(你|your|you|which|what|whether|要|希望|选择|确认)/i.test(lastLine);
-}
-
-function isUserInputApprovalTool(toolName: string): boolean {
-  const normalized = toolName.trim().toLowerCase();
-  return normalized === "askuserquestion" || normalized === "request_user_input";
 }
 
 function buildFileChangeSummary(

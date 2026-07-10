@@ -3,11 +3,18 @@
 // Provider-neutral presentation model for the compact Codex-style run UI.
 // It is derived from AgentRunDisplayModel / AssistantTurnView only; raw provider
 // events remain an opaque developer debug payload and are not inspected here.
+//
+// Layering (UI split):
+//   bridgeSession → NormalizedRuntimeEvent*
+//   AssistantTurnViewBuilder → AssistantTurnView
+//   buildAgentRunDisplayModel → AgentRunDisplayModel
+//   buildCodexRunViewModel (this file) → CodexRunViewModel
 
 import type {
   AgentRunDebugView,
   AgentRunDisplayModel,
   ApprovalCard,
+  AgentRunCard,
   FileChangeCard,
   ToolCallCard,
 } from "./agentRunDisplayModel";
@@ -108,6 +115,12 @@ export interface CodexRunFeedItem {
   readonly step?: CodexRunStepGroup;
   readonly change?: CodexRunChangeGroup;
   readonly sourceRef?: RuntimeSourceRef;
+  /**
+   * assistant 在单瀑布流中的语义（全部进入 feed，单 DOM 所有者）：
+   * - process：中间说明（有后续工具/下一条 message）；不冒充 reasoning
+   * - candidate：当前终端回答节点；流式为纯文本，turn 完成后原地升级 Markdown
+   */
+  readonly answerRole?: "candidate" | "process";
 }
 
 export interface CodexRunViewModel {
@@ -218,6 +231,9 @@ function normalizeActivity(
 
   const runningStep = [...steps].reverse().find((step) => step.status === "running");
   if (runningStep) {
+    if (/imageview|viewing image|\bimage\b/i.test(`${runningStep.label} ${runningStep.kind}`)) {
+      return { label: "Viewing image", kind: "running" };
+    }
     if (runningStep.kind === "command") return { label: "Running command", kind: "running" };
     if (runningStep.kind === "file") return { label: "Applying patch", kind: "running" };
     if (runningStep.kind === "thinking") return { label: "Thinking", kind: "running" };
@@ -237,6 +253,7 @@ function normalizeActivity(
   const activity = model.currentActivity || model.header || "Completed";
   if (/approval/i.test(activity)) return { label: "Waiting approval", kind: "blocked" };
   if (/input/i.test(activity)) return { label: "Waiting input", kind: "blocked" };
+  if (/imageview|viewing image|\bimage\b/i.test(activity)) return { label: "Viewing image", kind: "running" };
   if (/command|check|test|shell|bash/i.test(activity)) return { label: "Running command", kind: "running" };
   if (/edit|write|patch|file/i.test(activity)) return { label: "Editing file", kind: "running" };
   if (/thinking|reason/i.test(activity)) return { label: "Thinking", kind: "running" };
@@ -257,13 +274,16 @@ function stepIcon(kind: CodexRunStepKind): string {
 }
 
 function toolStepKind(card: ToolCallCard): CodexRunStepKind {
+  if (card.toolName === "imageView" || /imageview/i.test(card.toolName) || /imageview/i.test(card.label || "")) {
+    return "dynamic";
+  }
   if (card.toolName === "mcpToolCall" || card.summary.includes(".")) return "mcp";
   if (card.toolName === "dynamicToolCall") return "dynamic";
   if (card.command || /command|bash|shell|terminal|execute/i.test(card.toolName)) return "command";
   return "dynamic";
 }
 
-function thinkingSummary(card: Extract<import("./agentRunDisplayModel").AgentRunCard, { kind: "thinking" }>): string {
+function thinkingSummary(card: Extract<AgentRunCard, { kind: "thinking" }>): string {
   const value = (card.text || card.detail || card.summary || "").trim();
   const title = card.title.trim();
   if (value && value !== title) return value;
@@ -283,9 +303,24 @@ function assistantNarrativeDelta(currentText: string, previousText: string): str
   return current.slice(previous.length).trim();
 }
 
+/** 卡片之后是否还有工具/文件/授权/下一条 agent message（用于把候选回答降为过程说明） */
+function hasSubsequentProcessEvents(
+  cards: ReadonlyArray<TimelineCard>,
+  fromIndex: number,
+): boolean {
+  for (let i = fromIndex + 1; i < cards.length; i++) {
+    const card = cards[i];
+    if (card.kind === "tool-call" || card.kind === "file-change" || card.kind === "approval" || card.kind === "user-input") {
+      return true;
+    }
+    if (card.kind === "final-answer" && assistantNarrativeText(card).length > 0) return true;
+  }
+  return false;
+}
+
 function resolveCodexAssistantNarratives(
   model: AgentRunDisplayModel,
-  status: AssistantTurnView["status"] | string,
+  _status: AssistantTurnView["status"] | string,
 ): { finalAnswer: string; terminalAssistantCardId?: string; narrativeByCardId: ReadonlyMap<string, string> } {
   const assistantCards = model.timelineCards.filter((card): card is Extract<TimelineCard, { kind: "final-answer" }> =>
     card.kind === "final-answer" && assistantNarrativeText(card).length > 0,
@@ -301,10 +336,13 @@ function resolveCodexAssistantNarratives(
   if (assistantCards.length === 0) {
     return { finalAnswer: model.finalAnswer.trim(), narrativeByCardId };
   }
-  if (status !== "completed") {
+  // 终端 agent message：无后续工具时作为 candidate（仍进 feed，单所有者）；有后续工具则降为过程说明。
+  const terminal = assistantCards[assistantCards.length - 1];
+  const terminalIndex = model.timelineCards.indexOf(terminal);
+  const terminalDemoted = terminalIndex >= 0 && hasSubsequentProcessEvents(model.timelineCards, terminalIndex);
+  if (terminalDemoted) {
     return { finalAnswer: "", narrativeByCardId };
   }
-  const terminal = assistantCards[assistantCards.length - 1];
   const terminalDelta = (narrativeByCardId.get(terminal.id) || "").trim();
   return {
     finalAnswer: terminalDelta || model.finalAnswer.trim() || assistantNarrativeText(terminal),
@@ -387,11 +425,12 @@ function buildChangeGroups(model: AgentRunDisplayModel, turnView: AssistantTurnV
 
 function stepFromToolCard(card: ToolCallCard): CodexRunStepGroup {
   const kind = toolStepKind(card);
+  const isImage = card.toolName === "imageView" || /imageview/i.test(card.toolName) || /imageview/i.test(card.label || "");
   return {
     id: card.id,
     kind,
-    icon: stepIcon(kind),
-    label: card.label || card.title,
+    icon: isImage ? "image" : stepIcon(kind),
+    label: isImage ? "Viewing image" : (card.label || card.title),
     status: card.status,
     durationMs: card.durationMs,
     command: stringifyCommand(card.command),
@@ -474,19 +513,24 @@ function buildFeedItems(
   for (const card of model.timelineCards) {
     if (card.kind === "warning" || card.kind === "error" || card.kind === "debug-raw-event") continue;
     if (card.kind === "final-answer") {
-      if (card.id === terminalAssistantCardId) continue;
+      // 每个 agentMessage 都进瀑布流（稳定节点）；终端 candidate 不另建 Final Answer 副本。
       const text = (narrativeByCardId.get(card.id) || assistantNarrativeText(card)).trim();
       if (!text) continue;
+      const cardIndex = model.timelineCards.indexOf(card);
+      const demoted = hasSubsequentProcessEvents(model.timelineCards, cardIndex)
+        || (terminalAssistantCardId != null && card.id !== terminalAssistantCardId);
+      const answerRole: "candidate" | "process" = demoted ? "process" : "candidate";
       feed.push({
         id: `feed-${card.id}`,
         kind: "assistant",
         icon: "message-square",
-        label: "Thinking",
+        label: answerRole === "candidate" ? "Answer" : "说明",
         status: card.status,
         summary: text,
         detail: card.text,
         timestamp: card.timestamp,
         sourceRef: card.sourceRef,
+        answerRole,
       });
       continue;
     }
