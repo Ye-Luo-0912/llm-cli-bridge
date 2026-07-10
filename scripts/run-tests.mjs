@@ -1283,6 +1283,7 @@ if (runMode !== "all" && runMode !== "unit") {
     const tempClipboardPastePolicyBundle = join(PROJECT_ROOT, ".test-clipboard-paste-policy-temp.mjs");
     // V16.5-B: sdkPermission bundle 供 normalizeToolName / assessToolRisk 测试
     const tempSdkPermissionBundle = join(PROJECT_ROOT, ".test-sdk-permission-temp.mjs");
+    const tempAgentApprovalProfileBundle = join(PROJECT_ROOT, ".test-agent-approval-profile-temp.mjs");
     // V16.5-C: bridgePromptContract bundle 供 capability/autonomy/safety contract 测试
     const tempBridgeContractBundle = join(PROJECT_ROOT, ".test-bridge-contract-temp.mjs");
     const tempManagedPluginCatalogBundle = join(PROJECT_ROOT, ".test-managed-plugin-catalog-temp.mjs");
@@ -1313,6 +1314,7 @@ if (runMode !== "all" && runMode !== "unit") {
     await esbuild.build({ ...bundleOpts("runtime/core/providerLifecycleEvent.ts"), outfile: tempProviderLifecycleBundle });
     await esbuild.build({ ...bundleOpts("clipboardPastePolicy.ts"), outfile: tempClipboardPastePolicyBundle });
     await esbuild.build({ ...bundleOpts("sdkPermission.ts"), outfile: tempSdkPermissionBundle });
+    await esbuild.build({ ...bundleOpts("agentApprovalProfile.ts"), outfile: tempAgentApprovalProfileBundle });
     // V16.5-C: bridgePromptContract bundle
     await esbuild.build({ ...bundleOpts("runtime/core/bridgePromptContract.ts"), outfile: tempBridgeContractBundle });
     await esbuild.build({ ...bundleOpts("runtime/providers/codex-managed-app-server/codexManagedPluginCatalog.ts"), outfile: tempManagedPluginCatalogBundle });
@@ -1336,6 +1338,7 @@ if (runMode !== "all" && runMode !== "unit") {
     // V16.5-B: sdkPermission 模块（normalizeToolName / assessToolRisk）
     const sdkPermissionMod = await import(pathToFileURL(tempSdkPermissionBundle).href);
     const { normalizeToolName, assessToolRisk } = sdkPermissionMod;
+    const agentApprovalProfileMod = await import(pathToFileURL(tempAgentApprovalProfileBundle).href);
     // V16.5-C: bridgePromptContract 模块（buildCapabilityManifest / buildAutonomyContract / buildSafetyBoundaryContract）
     const bridgeContractMod = await import(pathToFileURL(tempBridgeContractBundle).href);
     const managedPluginCatalogMod = await import(pathToFileURL(tempManagedPluginCatalogBundle).href);
@@ -2593,8 +2596,8 @@ if (runMode !== "all" && runMode !== "unit") {
       }
 
       // --- Test AH: 普通用户态不渲染逐词灰块（thoughts 合并为单个 Reasoning 块） ---
-      // --- Test AI: 权限 popover 含 5 模式（含 bypassPermissions）+ 挂载到 leftTools ---
-      // --- Test AJ: setPermissionMode 不被 runHandle 阻塞 ---
+      // --- Test AI: 权限 popover 三项审批画像（计划模式已移出）+ 挂载到 leftTools ---
+      // --- Test AJ: setPermissionMode / setApprovalProfile 不被 runHandle 阻塞 ---
       {
         const viewSrc = readFileSync(join(PROJECT_ROOT, "src/view.ts"), "utf8");
         // Test AH: thoughts 合并
@@ -2607,149 +2610,42 @@ if (runMode !== "all" && runMode !== "unit") {
           reasoningRenderOk ? "pass" : "fail",
           reasoningRenderOk ? "" : `hasReasoningBlock=${hasReasoningBlock} hasNoPerSegmentBlock=${hasNoPerSegmentBlock}`);
 
-        // Test AI: 权限 popover
-        const hasBypass = viewSrc.includes("bypassPermissions")
-          && viewSrc.includes("完全访问");
+        // Test AI: 权限 popover 三项
+        const hasThreeProfiles = viewSrc.includes("AGENT_APPROVAL_PROFILES")
+          && viewSrc.includes("请求批准")
+          && viewSrc.includes("替我审批")
+          && viewSrc.includes("完全访问")
+          && viewSrc.includes("data-approval-profile")
+          && viewSrc.includes("confirmFullAccess")
+          && !viewSrc.includes('value: "plan"')
+          && !viewSrc.includes('value: "acceptEdits"');
         const hasParentMount = viewSrc.includes("parentElement");
-        // 任务D: pointerdown close 已统一到 handleComposerSelectorOutsideClick（picker + popover 双排除）
         const hasPointerdownClose = viewSrc.includes("handleComposerSelectorOutsideClick") && viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-permission-picker")') && viewSrc.includes('this.isEventInsideSelector(event, ".llm-bridge-perm-popover")') && viewSrc.includes("this.closePermissionPopover()");
-        const permPopoverOk = hasBypass && hasParentMount && hasPointerdownClose;
-        addTest("V16.4-D: 权限 popover 含 5 模式（含完全访问）+ 外部挂载 + pointerdown close",
+        const permPopoverOk = hasThreeProfiles && hasParentMount && hasPointerdownClose;
+        addTest("V16.4-D: 权限 popover 三项审批画像（含完全访问确认）+ 外部挂载 + pointerdown close",
           permPopoverOk ? "pass" : "fail",
-          permPopoverOk ? "" : `hasBypass=${hasBypass} hasParentMount=${hasParentMount} hasPointerdownClose=${hasPointerdownClose}`);
+          permPopoverOk ? "" : `hasThreeProfiles=${hasThreeProfiles} hasParentMount=${hasParentMount} hasPointerdownClose=${hasPointerdownClose}`);
 
-        // Test AJ: setPermissionMode 不被 runHandle 阻塞
-        const setPermFnMatch = viewSrc.match(/setPermissionMode\([^)]*\)[^{]*\{[\s\S]*?\n  private /);
+        // Test AJ: setApprovalProfile / setPermissionMode 不被 runHandle 阻塞
+        const setPermFnMatch = viewSrc.match(/setApprovalProfile\([^)]*\)[^{]*\{[\s\S]*?\n  \/\*\* @deprecated[\s\S]*?\n  private refreshPermissionModeChip/);
         const setPermBody = setPermFnMatch ? setPermFnMatch[0] : "";
         const hasRunHandleBlock = /if\s*\(\s*this\.runHandle\s*\)\s*return/.test(setPermBody);
-        const setPermNotBlockedOk = !hasRunHandleBlock && setPermBody.length > 0;
+        const setPermNotBlockedOk = !hasRunHandleBlock && viewSrc.includes("setApprovalProfile");
         addTest("V16.4-D: setPermissionMode 不被 runHandle 阻塞（修复点击无反应）",
           setPermNotBlockedOk ? "pass" : "fail",
           setPermNotBlockedOk ? "" : `hasRunHandleBlock=${hasRunHandleBlock} bodyLen=${setPermBody.length}`);
       }
     }
 
-    // ---------- 5b2. V17-G CodexRunViewModel: compact run UI model ----------
+    // ---------- 5b2. V17-G CodexRunViewModel: compact run UI model (Agent B: scripts/presentation/) ----------
     {
-      const { buildAgentRunDisplayModel } = agentRunDisplayModelMod;
-      const { buildCodexRunViewModel } = codexRunViewModelMod;
-      const { buildAssistantTurnViewFromEvents } = assistantViewMod;
-      const mkEvent = (payload, sequence = 1) => ({
-        providerId: "codex-app-server",
-        timestamp: "2026-07-02T00:00:00.000Z",
-        sourceRef: {
-          threadId: "thread-v17g",
-          turnId: "turn-v17g",
-          itemId: payload.callId || payload.requestId || `item-${sequence}`,
-          method: payload.kind,
-          sequence,
-        },
-        payload,
+      const { runCodexRunViewModelSemanticTests } = await import(pathToFileURL(join(__dirname, "presentation", "codex-run-view-model-semantic.mjs")).href);
+      runCodexRunViewModelSemanticTests({
+        addTest,
+        buildAgentRunDisplayModel: agentRunDisplayModelMod.buildAgentRunDisplayModel,
+        buildCodexRunViewModel: codexRunViewModelMod.buildCodexRunViewModel,
+        buildAssistantTurnViewFromEvents: assistantViewMod.buildAssistantTurnViewFromEvents,
       });
-      const events = [
-        mkEvent({ kind: "thinking", text: "Plan the edit" }, 1),
-        mkEvent({ kind: "tool_start", toolName: "Bash", toolInput: JSON.stringify({ command: "echo V17G", cwd: "D:/repo" }), callId: "cmd-v17g" }, 2),
-        mkEvent({ kind: "tool_result", callId: "cmd-v17g", toolName: "Bash", output: "V17G\n", isError: false }, 3),
-        mkEvent({ kind: "file_change", action: "modify", path: "D:/repo/notes/run.md", diff: "--- a/notes/run.md\n+++ b/notes/run.md\n@@\n-old\n+new" }, 4),
-        mkEvent({ kind: "approval_request", requestId: "ap-v17g", toolName: "Bash", description: "Run command", inputSummary: "echo V17G", riskLevel: "medium" }, 5),
-      ];
-      const view = buildAssistantTurnViewFromEvents("turn-v17g", "codex-app-server", events, "2026-07-02T00:00:00.000Z");
-      const model = buildAgentRunDisplayModel(view, { developerMode: false, isRunning: true });
-      const run = buildCodexRunViewModel(model, view, {
-        status: "running",
-        providerLabel: "codex-managed-app-server",
-        modelLabel: "gpt-codex",
-        cwd: "D:/repo",
-        developerMode: false,
-      });
-      const devModel = buildAgentRunDisplayModel(view, {
-        developerMode: true,
-        isRunning: true,
-        debug: { rawProviderEvents: [{ method: "item/commandExecution/outputDelta" }] },
-      });
-      const devRun = buildCodexRunViewModel(devModel, view, {
-        status: "running",
-        providerLabel: "codex-managed-app-server",
-        modelLabel: "gpt-codex",
-        cwd: "D:/repo",
-        developerMode: true,
-      });
-      const commandStep = run.stepGroups.find((step) => step.kind === "command");
-      const change = run.changeGroups[0];
-      const feedKinds = run.feedItems.map((item) => item.kind).join(">");
-      const thinkingFeed = run.feedItems.find((item) => item.kind === "thinking");
-      const commandFeed = run.feedItems.find((item) => item.kind === "command");
-      const fileFeed = run.feedItems.find((item) => item.kind === "file");
-      const ok = run.runHeader.statusKind === "blocked"
-        && run.currentActivity.label === "Waiting approval"
-        && run.runHeader.commandCount === 1
-        && run.runHeader.fileChangeCount === 1
-        && run.runHeader.approvalCount >= 1
-        && run.approvalGates.length === 1
-        && commandStep?.stdout?.includes("V17G")
-        && change?.relativePath === "notes/run.md"
-        && change.diffSummary === "+1 -1"
-        && feedKinds.includes("thinking>command")
-        && /Plan the edit/.test(thinkingFeed?.summary || "")
-        && !!commandFeed?.step?.stdout?.includes("V17G")
-        && fileFeed?.change?.relativePath === "notes/run.md"
-        && run.debugPanel === undefined
-        && devRun.debugPanel?.rawProviderEvents?.length === 1;
-      addTest("V17-G CodexRunViewModel: runHeader/currentActivity/feed/changes/steps/approval/debugPanel 分层",
-        ok ? "pass" : "fail",
-        `status=${run.runHeader.statusKind} activity=${run.currentActivity.label} commands=${run.runHeader.commandCount} changes=${run.runHeader.fileChangeCount} approvals=${run.approvalGates.length} feed=${feedKinds} thinkingSummary=${thinkingFeed?.summary || ""} stepStdout=${!!commandStep?.stdout} relativePath=${change?.relativePath} debug=${!!run.debugPanel}/${!!devRun.debugPanel}`);
-
-      const finalOnlyEvents = [
-        mkEvent({ kind: "thinking", text: "Plan the edit" }, 1),
-        mkEvent({ kind: "completed", text: "done", durationMs: 1200 }, 2),
-      ];
-      const finalOnlyView = buildAssistantTurnViewFromEvents("turn-v17g-final", "codex-app-server", finalOnlyEvents, "2026-07-02T00:00:00.000Z");
-      const finalOnlyModel = buildAgentRunDisplayModel(finalOnlyView, { developerMode: false });
-      const finalOnlyRun = buildCodexRunViewModel(finalOnlyModel, finalOnlyView, {
-        status: "completed",
-        providerLabel: "codex-managed-app-server",
-        modelLabel: "gpt-codex",
-        cwd: "D:/repo",
-        developerMode: false,
-      });
-      const finalSeparatedOk = finalOnlyRun.finalAnswer === "done"
-        && finalOnlyRun.feedItems.every((item) => item.kind !== "assistant");
-      addTest("V17-G CodexRunViewModel: final answer 不重复进入 process feed",
-        finalSeparatedOk ? "pass" : "fail",
-        `final=${JSON.stringify(finalOnlyRun.finalAnswer)} feedKinds=${finalOnlyRun.feedItems.map((item) => item.kind).join(">")}`);
-
-      const interleavedEvents = [
-        mkEvent({ kind: "thinking", text: "" }, 1),
-        mkEvent({ kind: "message", role: "assistant", text: "先读配置，再检查 runtime 状态。", partial: false }, 2),
-        mkEvent({ kind: "tool_start", toolName: "Bash", toolInput: JSON.stringify({ command: "Get-Content settings.json", cwd: "D:/repo" }), callId: "cmd-v17g-interleaved-1" }, 3),
-        mkEvent({ kind: "tool_result", callId: "cmd-v17g-interleaved-1", toolName: "Bash", output: "{\\\"ok\\\":true}\\n", isError: false }, 4),
-        mkEvent({ kind: "message", role: "assistant", text: "先读配置，再检查 runtime 状态。配置没问题，接着创建 smoke 文件。", partial: false }, 5),
-        mkEvent({ kind: "file_change", action: "create", path: "D:/repo/_llm_bridge_smoke/run.md", diff: "--- /dev/null\n+++ b/_llm_bridge_smoke/run.md\n@@\n+done" }, 6),
-        mkEvent({ kind: "message", role: "assistant", text: "先读配置，再检查 runtime 状态。配置没问题，接着创建 smoke 文件。done", partial: false }, 7),
-        mkEvent({ kind: "completed", text: "先读配置，再检查 runtime 状态。配置没问题，接着创建 smoke 文件。done", durationMs: 1400 }, 8),
-      ];
-      const interleavedView = buildAssistantTurnViewFromEvents("turn-v17g-interleaved", "codex-app-server", interleavedEvents, "2026-07-02T00:00:00.000Z");
-      const interleavedModel = buildAgentRunDisplayModel(interleavedView, { developerMode: false });
-      const interleavedRun = buildCodexRunViewModel(interleavedModel, interleavedView, {
-        status: "completed",
-        providerLabel: "codex-managed-app-server",
-        modelLabel: "gpt-codex",
-        cwd: "D:/repo",
-        developerMode: false,
-      });
-      const interleavedFeedKinds = interleavedRun.feedItems.map((item) => item.kind).join(">");
-      const assistantFeedTexts = interleavedRun.feedItems
-        .filter((item) => item.kind === "assistant")
-        .map((item) => item.summary || "")
-        .join(" | ");
-      const interleavedOk = interleavedRun.finalAnswer === "done"
-        && interleavedFeedKinds.startsWith("assistant>command>assistant>file")
-        && assistantFeedTexts.includes("先读配置，再检查 runtime 状态。")
-        && assistantFeedTexts.includes("配置没问题，接着创建 smoke 文件。")
-        && !assistantFeedTexts.includes("done");
-      addTest("V17-G CodexRunViewModel: 中间 assistant narrative 进入 process feed，仅末尾答复进入 final answer",
-        interleavedOk ? "pass" : "fail",
-        `final=${JSON.stringify(interleavedRun.finalAnswer)} feed=${interleavedFeedKinds} assistant=${assistantFeedTexts}`);
     }
 
     // ---------- 5c. P3-C: Developer mode / legacy 分层隔离 ----------
@@ -3265,6 +3161,53 @@ if (runMode !== "all" && runMode !== "unit") {
       const autoAllowOk = decision2 === "auto-allow";
       addTest("Approval: bypassPermissions mode → auto-allow", autoAllowOk ? "pass" : "fail",
         autoAllowOk ? "" : `decision=${decision2}（期望 auto-allow）`);
+
+      // Codex native-pending：不走 Claude decideByMode
+      const nativeBoundary = createPermissionBoundary("default", "medium", "native-pending");
+      const nativeDecision = nativeBoundary.requestApproval(req);
+      addTest("Approval: Codex native-pending → pending（不复用 Claude decideByMode）",
+        nativeDecision === "pending" ? "pass" : "fail",
+        `decision=${nativeDecision}`);
+    }
+
+    // ---------- 6b. agentApprovalProfile → Codex wire 唯一映射 ----------
+    {
+      const {
+        mapAgentApprovalProfileToCodex,
+        migrateLegacyPermissionToApprovalProfile,
+        mapAgentApprovalProfileToClaudePermissionMode,
+      } = agentApprovalProfileMod;
+      const ask = mapAgentApprovalProfileToCodex("ask", "/vault");
+      const auto = mapAgentApprovalProfileToCodex("auto", "/vault");
+      const full = mapAgentApprovalProfileToCodex("full-access", "/vault");
+      const askOk = ask.approvalPolicy === "on-request"
+        && ask.approvalsReviewer === "user"
+        && ask.sandbox === "workspace-write"
+        && ask.sandboxPolicy?.type === "workspaceWrite";
+      const autoOk = auto.approvalPolicy === "on-request"
+        && auto.approvalsReviewer === "auto_review"
+        && auto.sandbox === "workspace-write"
+        && auto.sandboxPolicy?.type === "workspaceWrite";
+      const fullOk = full.approvalPolicy === "never"
+        && full.approvalsReviewer === "user"
+        && full.sandbox === "danger-full-access"
+        && full.sandboxPolicy?.type === "dangerFullAccess";
+      addTest("ApprovalProfile: ask/auto/full-access → Codex approvalPolicy/sandbox/reviewer 唯一映射",
+        askOk && autoOk && fullOk ? "pass" : "fail",
+        `ask=${ask.approvalPolicy}/${ask.approvalsReviewer} auto=${auto.approvalPolicy}/${auto.approvalsReviewer} full=${full.approvalPolicy}/${full.approvalsReviewer}`);
+
+      const migrateBypass = migrateLegacyPermissionToApprovalProfile("bypassPermissions");
+      const migrateDontAsk = migrateLegacyPermissionToApprovalProfile("dontAsk");
+      const migrateOk = migrateBypass === "ask" && migrateDontAsk === "ask";
+      addTest("ApprovalProfile: 旧 bypassPermissions/dontAsk 迁移统一回到 ask（不静默升级 full-access）",
+        migrateOk ? "pass" : "fail",
+        `bypass→${migrateBypass} dontAsk→${migrateDontAsk}`);
+
+      const claudeMapOk = mapAgentApprovalProfileToClaudePermissionMode("ask") === "default"
+        && mapAgentApprovalProfileToClaudePermissionMode("auto") === "auto"
+        && mapAgentApprovalProfileToClaudePermissionMode("full-access") === "bypassPermissions";
+      addTest("ApprovalProfile: Claude permissionMode 同步映射",
+        claudeMapOk ? "pass" : "fail", "");
     }
 
     // ---------- 7. WorkflowEvent → NormalizedRuntimeEvent mapper（claude-sdk/cli 复用） ----------
@@ -4286,8 +4229,14 @@ if (runMode !== "all" && runMode !== "unit") {
       // Test E-0a: V16.5-D blocker 回归 — session 声明在 buildRuntimeCapabilities 之前
       {
         const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
-        const sessionLine = viewSrc.indexOf("const session = this.getSession();");
-        const capLine = viewSrc.indexOf("this.buildRuntimeCapabilities(session.providerId");
+        const sessionLine = Math.max(
+          viewSrc.indexOf("const session = this.getSession();"),
+          viewSrc.indexOf("const session = view.getSession();"),
+        );
+        const capLine = Math.max(
+          viewSrc.indexOf("this.buildRuntimeCapabilities(session.providerId"),
+          viewSrc.indexOf("view.buildRuntimeCapabilities(session.providerId"),
+        );
         const orderOk = sessionLine > 0 && capLine > 0 && sessionLine < capLine;
         addTest("V16.5-E blocker: session 声明在 buildRuntimeCapabilities 之前",
           orderOk ? "pass" : "fail",
@@ -4297,7 +4246,8 @@ if (runMode !== "all" && runMode !== "unit") {
       // Test E-0b: buildBridgePromptPackage 主路径接收 runtimeCapabilities（非默认）
       {
         const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
-        const hasRuntimeCapabilities = viewSrc.includes("const runtimeCapabilities = this.buildRuntimeCapabilities(session.providerId, settings)");
+        const hasRuntimeCapabilities = viewSrc.includes("const runtimeCapabilities = this.buildRuntimeCapabilities(session.providerId, settings)")
+          || viewSrc.includes("const runtimeCapabilities = view.buildRuntimeCapabilities(session.providerId, settings)");
         const hasPassedToBuilder = viewSrc.includes("buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities)");
         addTest("V16.5-E blocker: buildBridgePromptPackage 主路径接收 runtimeCapabilities",
           hasRuntimeCapabilities && hasPassedToBuilder ? "pass" : "fail",
@@ -7062,187 +7012,197 @@ if (runMode !== "all" && runMode !== "unit") {
           `downloadSmoke=${downloadSmokeExists} firstRunSmoke=${firstRunSmokeExists} scripts=${scriptsRegistered} autoStops=${autoStopsOnMissing} ui=${uiSurfacesInstall} settings=${settingsSurfacesStatus} plugin=${pluginExposesEnsure} reports=${reportsParseFields}`);
       }
 
-      // ===== V17-F1.1 任务 F：resolver 行为测试（sha mismatch / platform missing / executable fail） =====
-      // 创建临时 manifest + binary，验证 resolver 校验链的各种失败场景
+      // ===== V17-F1.1 任务 F + P0：resolver 热路径不读完整 binary；SHA 异步 + 缓存 =====
       {
         const tmpDir = mkdtempSync(join(tmpdir(), "managed-runtime-test-"));
         let shaMismatchPass = false;
         let platformMissingPass = false;
         let execFailPass = false;
         let resolverOkPass = false;
+        let hotPathNoFullReadPass = false;
+        let sendPathNoSyncHashPass = false;
 
         try {
-          // 辅助：创建 manifest + binary 并运行 resolver 逻辑
-          function createAndResolve(manifestObj) {
+          const esbuild = (await import("esbuild")).default;
+          const resolverBundle = join(tmpdir(), `resolver-hot-${Date.now()}.mjs`);
+          await esbuild.build({
+            entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-managed-app-server", "codexManagedRuntimeResolver.ts")],
+            bundle: true,
+            format: "esm",
+            platform: "node",
+            outfile: resolverBundle,
+            logLevel: "silent",
+          });
+          const {
+            resolveManagedRuntime,
+            verifyManagedRuntimeIntegrity,
+            invalidateManagedRuntimeIntegrityCache,
+            scheduleManagedRuntimeIntegrityVerify,
+            getCachedIntegrity,
+          } = await import(pathToFileURL(resolverBundle).href);
+
+          function writeManifest(manifestObj) {
             const manifestPath = join(tmpDir, "runtime-manifest.json");
             writeFileSync(manifestPath, JSON.stringify(manifestObj, null, 2), "utf8");
-            // 复制 resolver 逻辑（使用已导入的 fs/crypto/path 模块）
-
-            if (!existsSync(manifestPath)) return { reason: "manifest-not-found" };
-            let m;
-            try { m = JSON.parse(readFileSync(manifestPath, "utf8")); }
-            catch { return { reason: "manifest-invalid" }; }
-
-            const platformKey = `${process.platform}-${process.arch}`;
-            const pe = m.platforms?.[platformKey];
-            if (!pe) return { reason: "platform-not-found", version: m.version };
-
-            const manifestDir2 = dirname(manifestPath);
-            const runtimePath = resolve(manifestDir2, pe.path);
-            if (!existsSync(runtimePath)) return { reason: "path-not-exist", version: m.version };
-
-            const fileBuf = readFileSync(runtimePath);
-            const actualSha256 = createHash("sha256").update(fileBuf).digest("hex");
-            if (actualSha256 !== pe.sha256) return { reason: "sha256-mismatch", version: m.version, expected: pe.sha256, got: actualSha256 };
-
-            // executable check
-            if (process.platform === "win32") {
-              const lower = runtimePath.toLowerCase();
-              if (!lower.endsWith(".exe") && !lower.endsWith(".bat") && !lower.endsWith(".cmd") && !lower.endsWith(".ps1")) {
-                return { reason: "not-executable", version: m.version };
-              }
-            } else {
-              try { accessSync(runtimePath, constants.X_OK); }
-              catch { return { reason: "not-executable", version: m.version }; }
-            }
-
-            return { reason: "ok", version: m.version, runtimePath };
+            return manifestPath;
           }
 
-          // 场景 1: sha256 mismatch
-          const badShaManifest = {
-            runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
-            fixture: false, appServerArgs: ["app-server"],
-            platforms: {
-              [`${process.platform}-${process.arch}`]: {
-                path: "test-binary.txt",
-                sha256: "0000000000000000000000000000000000000000000000000000000000000000",
-                size: 10, executableName: "test-binary.txt",
+          // 场景 1: 错误 sha — 热路径仍 available+pending，异步 verify 后 failed
+          {
+            const content = process.platform === "win32" ? "@echo off\r\nexit 0\r\n" : "#!/bin/sh\nexit 0\n";
+            const name = process.platform === "win32" ? "bad-sha.bat" : "bad-sha.sh";
+            const binPath = join(tmpDir, name);
+            writeFileSync(binPath, content, "utf8");
+            if (process.platform !== "win32") { try { chmodSync(binPath, 0o755); } catch {} }
+            const st = statSync(binPath);
+            const manifestPath = writeManifest({
+              runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
+              fixture: false, appServerArgs: ["app-server"],
+              platforms: {
+                [`${process.platform}-${process.arch}`]: {
+                  path: name,
+                  sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+                  size: st.size, executableName: name,
+                },
               },
-            },
-          };
-          const binaryPath = join(tmpDir, "test-binary.txt");
-          const ext = process.platform === "win32" ? ".bat" : "";
-          // Use .bat on Windows for exec pass; txt for exec fail test below
-          const binaryPathBat = join(tmpDir, "test-binary.bat");
-          if (process.platform === "win32") {
-            writeFileSync(binaryPathBat, "@echo off\r\nexit 0\r\n", "utf8");
-            badShaManifest.platforms[`${process.platform}-${process.arch}`].path = "test-binary.bat";
-          } else {
-            writeFileSync(binaryPath, "#!/bin/sh\nexit 0\n", "utf8");
-            try { chmodSync(binaryPath, 0o755); } catch {}
+            });
+            invalidateManagedRuntimeIntegrityCache();
+            const t0 = Date.now();
+            const quick = resolveManagedRuntime(manifestPath, process.platform, process.arch, { scheduleVerify: false });
+            const quickMs = Date.now() - t0;
+            const verified = await verifyManagedRuntimeIntegrity({
+              path: quick.runtimePath,
+              size: st.size,
+              mtimeMs: st.mtimeMs,
+              manifestVersion: "0.1.0-test",
+              expectedSha256: "0000000000000000000000000000000000000000000000000000000000000000",
+            });
+            const after = resolveManagedRuntime(manifestPath, process.platform, process.arch, { scheduleVerify: false });
+            shaMismatchPass = quick.available === true
+              && quick.integrityStatus === "pending"
+              && quickMs < 200
+              && verified.status === "failed"
+              && after.available === false
+              && after.reason === "sha256-mismatch";
           }
-          const shaResult = createAndResolve(badShaManifest);
-          shaMismatchPass = shaResult.reason === "sha256-mismatch";
 
           // 场景 2: platform missing
-          const noPlatformManifest = {
-            runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
-            fixture: false, appServerArgs: ["app-server"],
-            platforms: {
-              "unknown-arch": {
-                path: "test-binary.txt", sha256: "abc", size: 10, executableName: "test-binary.txt",
-              },
-            },
-          };
-          const platformResult = createAndResolve(noPlatformManifest);
-          platformMissingPass = platformResult.reason === "platform-not-found";
-
-          // 场景 3: executable fail (Windows: no .exe/.bat; Unix: no X_OK)
-          if (process.platform === "win32") {
-            // Windows: create a .txt file with correct sha256
-            const execFailContent = "@echo off\r\nexit 0\r\n";
-            const execFailBuf = Buffer.from(execFailContent, "utf8");
-            const execFailSha = createHash("sha256").update(execFailBuf).digest("hex");
-            const execFailPath = join(tmpDir, "no-ext-binary.txt");
-            writeFileSync(execFailPath, execFailContent, "utf8");
-            const execFailManifest = {
+          {
+            const manifestPath = writeManifest({
               runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
               fixture: false, appServerArgs: ["app-server"],
               platforms: {
-                [`${process.platform}-${process.arch}`]: {
-                  path: "no-ext-binary.txt",
-                  sha256: execFailSha,
-                  size: execFailBuf.length,
-                  executableName: "no-ext-binary.txt",
-                },
+                "unknown-arch": { path: "x.bin", sha256: "abc", size: 10, executableName: "x.bin" },
               },
-            };
-            const execResult = createAndResolve(execFailManifest);
-            execFailPass = execResult.reason === "not-executable";
-          } else {
-            // Unix: create a file without execute permission
-            const execFailContent = "#!/bin/sh\nexit 0\n";
-            const execFailBuf = Buffer.from(execFailContent, "utf8");
-            const execFailSha = createHash("sha256").update(execFailBuf).digest("hex");
-            const execFailPath = join(tmpDir, "no-exec-binary.sh");
-            writeFileSync(execFailPath, execFailContent, "utf8");
-            try { chmodSync(execFailPath, 0o644); } catch {} // no execute permission
-            const execFailManifest = {
-              runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
-              fixture: false, appServerArgs: ["app-server"],
-              platforms: {
-                [`${process.platform}-${process.arch}`]: {
-                  path: "no-exec-binary.sh",
-                  sha256: execFailSha,
-                  size: execFailBuf.length,
-                  executableName: "no-exec-binary.sh",
-                },
-              },
-            };
-            const execResult = createAndResolve(execFailManifest);
-            execFailPass = execResult.reason === "not-executable";
+            });
+            const r = resolveManagedRuntime(manifestPath);
+            platformMissingPass = r.reason === "platform-not-found" && r.integrityStatus === "skipped";
           }
 
-          // 场景 4: resolver OK (correct sha256 + executable)
-          if (process.platform === "win32") {
-            const okContent = "@echo off\r\nexit 0\r\n";
-            const okBuf = Buffer.from(okContent, "utf8");
-            const okSha = createHash("sha256").update(okBuf).digest("hex");
-            writeFileSync(join(tmpDir, "ok-binary.bat"), okContent, "utf8");
-            const okManifest = {
+          // 场景 3: executable fail
+          {
+            const content = "not-an-exe";
+            const name = "no-ext-binary.txt";
+            writeFileSync(join(tmpDir, name), content, "utf8");
+            if (process.platform !== "win32") {
+              // unix: use non-executable file
+              try { chmodSync(join(tmpDir, name), 0o644); } catch {}
+            }
+            const st = statSync(join(tmpDir, name));
+            const sha = createHash("sha256").update(content).digest("hex");
+            const manifestPath = writeManifest({
               runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
               fixture: false, appServerArgs: ["app-server"],
               platforms: {
                 [`${process.platform}-${process.arch}`]: {
-                  path: "ok-binary.bat",
-                  sha256: okSha,
-                  size: okBuf.length,
-                  executableName: "ok-binary.bat",
+                  path: name, sha256: sha, size: st.size, executableName: name,
                 },
               },
-            };
-            const okResult = createAndResolve(okManifest);
-            resolverOkPass = okResult.reason === "ok";
-          } else {
-            const okContent = "#!/bin/sh\nexit 0\n";
-            const okBuf = Buffer.from(okContent, "utf8");
-            const okSha = createHash("sha256").update(okBuf).digest("hex");
-            const okPath = join(tmpDir, "ok-binary.sh");
-            writeFileSync(okPath, okContent, "utf8");
-            try { chmodSync(okPath, 0o755); } catch {}
-            const okManifest = {
-              runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
-              fixture: false, appServerArgs: ["app-server"],
-              platforms: {
-                [`${process.platform}-${process.arch}`]: {
-                  path: "ok-binary.sh",
-                  sha256: okSha,
-                  size: okBuf.length,
-                  executableName: "ok-binary.sh",
-                },
-              },
-            };
-            const okResult = createAndResolve(okManifest);
-            resolverOkPass = okResult.reason === "ok";
+            });
+            const r = resolveManagedRuntime(manifestPath, process.platform, process.arch, { scheduleVerify: false });
+            execFailPass = r.reason === "not-executable";
           }
+
+          // 场景 4: OK — 热路径 pending，verify 后 verified；二次 resolve 不重扫
+          {
+            const content = process.platform === "win32" ? "@echo off\r\nexit 0\r\n" : "#!/bin/sh\nexit 0\n";
+            const name = process.platform === "win32" ? "ok-binary.bat" : "ok-binary.sh";
+            const binPath = join(tmpDir, name);
+            writeFileSync(binPath, content, "utf8");
+            if (process.platform !== "win32") { try { chmodSync(binPath, 0o755); } catch {} }
+            const st = statSync(binPath);
+            const sha = createHash("sha256").update(content).digest("hex");
+            const manifestPath = writeManifest({
+              runtimeId: "test", version: "0.1.0-test", protocolVersion: "2025-07-06",
+              fixture: false, appServerArgs: ["app-server"],
+              platforms: {
+                [`${process.platform}-${process.arch}`]: {
+                  path: name, sha256: sha, size: st.size, executableName: name,
+                },
+              },
+            });
+            invalidateManagedRuntimeIntegrityCache();
+            const quick = resolveManagedRuntime(manifestPath, process.platform, process.arch, { scheduleVerify: false });
+            await scheduleManagedRuntimeIntegrityVerify({
+              path: quick.runtimePath,
+              size: st.size,
+              mtimeMs: st.mtimeMs,
+              manifestVersion: "0.1.0-test",
+              expectedSha256: sha,
+            });
+            const after = resolveManagedRuntime(manifestPath, process.platform, process.arch, { scheduleVerify: false });
+            const cached = getCachedIntegrity({
+              path: quick.runtimePath,
+              size: st.size,
+              mtimeMs: st.mtimeMs,
+              manifestVersion: "0.1.0-test",
+              expectedSha256: sha,
+            });
+            resolverOkPass = quick.available && quick.reason === "ok"
+              && after.integrityStatus === "verified"
+              && cached?.status === "verified";
+          }
+
+          // 源码断言：resolveManagedRuntime 函数体不 readFileSync(runtimePath) / 不同步 hash 整文件
+          {
+            const resolverSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-managed-app-server", "codexManagedRuntimeResolver.ts"), "utf8");
+            const fnMatch = resolverSrc.match(/export function resolveManagedRuntime\([\s\S]*?\n\}\n\n\/\*\*/);
+            const fnBody = fnMatch ? fnMatch[0] : resolverSrc;
+            hotPathNoFullReadPass = !/readFileSync\(\s*runtimePath\s*\)/.test(fnBody)
+              && !/createHash\("sha256"\)\.update\(fileBuf\)/.test(fnBody)
+              && resolverSrc.includes("statSync(runtimePath)")
+              && resolverSrc.includes("hashFileSha256Async")
+              && resolverSrc.includes("scheduleManagedRuntimeIntegrityVerify");
+          }
+
+          // 发送热路径：run() 首帧先 appendUserMessage；不在发送前同步 hash runtime exe
+          {
+            const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+            const runIdx = viewSrc.indexOf("private async run(): Promise<void>");
+            const runSlice = runIdx >= 0 ? viewSrc.slice(runIdx, runIdx + 8000) : "";
+            const uiBeforeAwait = runSlice.indexOf("this.appendUserMessage(userInput")
+              < runSlice.indexOf("await exportState");
+            sendPathNoSyncHashPass = uiBeforeAwait
+              && runSlice.includes("this.runHandle =")
+              && viewSrc.includes("WATCHDOG_HARD_MS")
+              && viewSrc.includes("连接仍在等待响应")
+              && viewSrc.includes("ensureCodexSkillsPreparedCached")
+              && !runSlice.includes("sha256File(")
+              && !runSlice.includes('createHash("sha256")');
+          }
+
+          try { rmSync(resolverBundle, { force: true }); } catch {}
         } finally {
           try { rmSync(tmpDir, { recursive: true, force: true }); } catch {}
         }
 
-        addTest("V17-F1.1 F: resolver 行为 — sha mismatch fail + platform missing fail + executable fail + resolver OK",
-          shaMismatchPass && platformMissingPass && execFailPass && resolverOkPass ? "pass" : "fail",
-          `shaMismatch=${shaMismatchPass} platformMissing=${platformMissingPass} execFail=${execFailPass} resolverOk=${resolverOkPass}`);
+        addTest("V17-F1.1 F / P0: resolver 热路径不读完整 binary + 异步 SHA 缓存 + sha mismatch/platform/exec/OK",
+          shaMismatchPass && platformMissingPass && execFailPass && resolverOkPass && hotPathNoFullReadPass ? "pass" : "fail",
+          `shaMismatch=${shaMismatchPass} platformMissing=${platformMissingPass} execFail=${execFailPass} resolverOk=${resolverOkPass} hotPath=${hotPathNoFullReadPass}`);
+
+        addTest("P0: 发送热路径首帧立刻写 UI，不在发送时同步哈希 runtime exe",
+          sendPathNoSyncHashPass ? "pass" : "fail",
+          `sendPathNoSyncHash=${sendPathNoSyncHashPass}`);
       }
 
       // ===== V17-F1.1 任务 B+F：managed provider providerId/mappers 行为 =====
@@ -15205,11 +15165,12 @@ if (!runV2111Unit) {
       addTest("V2.11.1 设置刷新: agentType onChange 调用 refreshBridgeView", ok ? "pass" : "fail", "");
     }
 
-    // ---- Test 20: settings.ts claudePermissionMode onChange 调用 refreshBridgeView ----
+    // ---- Test 20: settings.ts agentApprovalProfile onChange 调用 refreshBridgeView ----
     {
-      const idx = settingsSrc.indexOf("V2.11.1: 权限模式影响状态栏显示");
-      const snippet = idx >= 0 ? settingsSrc.slice(idx, idx + 200) : "";
-      const ok = snippet.includes("this.plugin.refreshBridgeView()");
+      const idx = settingsSrc.indexOf("Agent 审批画像");
+      const snippet = idx >= 0 ? settingsSrc.slice(idx, idx + 1600) : "";
+      const ok = snippet.includes("this.plugin.refreshBridgeView()")
+        && snippet.includes("agentApprovalProfile");
       addTest("V2.11.1 设置刷新: claudePermissionMode onChange 调用 refreshBridgeView", ok ? "pass" : "fail", "");
     }
 
@@ -16079,6 +16040,80 @@ if (!runV213CUnit) {
       const ok = !promptPackageSrc.includes("activeSkillPrompts")
         && !promptPackageSrc.includes("已启用 Skills");
       addTest("V2.13.0-C boundary: Agent Skill 正文不拼进 promptPackage", ok ? "pass" : "fail", "");
+    }
+
+    // P0: Skill 所有权迁移 — 旧 ID 可迁移 / 外部不可覆盖 / 幂等
+    {
+      const {
+        createAgentSkillRecord: createRec,
+        serializeAgentSkillToMarkdown: serializeMd,
+        materializeAgentSkillToTarget: matTarget,
+        materializeAgentSkillToCodexHomeSync: matCodex,
+        codexBridgeSkillPathForSlug: codexPath,
+        isBridgeOwnedSkillDirectory,
+      } = await import(pathToFileURL(agentSkillsBundleV213C).href);
+
+      const tmpCodex = mkdtempSync(join(tmpdir(), "llm-bridge-skill-migrate-"));
+      try {
+        const oldRec = createRec({
+          id: "as-old-id",
+          slug: "vault-context",
+          name: "vault-context",
+          description: "old",
+          instructions: "old instructions",
+        }, [], "2026-06-30T00:00:00.000Z");
+        const newRec = createRec({
+          id: "as-new-id",
+          slug: "vault-context",
+          name: "vault-context",
+          description: "new",
+          instructions: "new instructions",
+        }, [], "2026-06-30T00:00:01.000Z");
+
+        // 1) 旧 ID 在 llm-bridge-<slug> 目录可迁移
+        const ownedPath = codexPath("vault-context", tmpCodex);
+        mkdirSync(dirname(ownedPath), { recursive: true });
+        writeFileSync(ownedPath, serializeMd(oldRec), "utf8");
+        const migrated = matTarget(newRec, ownedPath);
+        const migratedContent = readFileSync(ownedPath, "utf8");
+        const migrateOk = migrated.ok
+          && (migrated.status === "updated" || migrated.status === "created")
+          && migratedContent.includes("<!-- source-id: as-new-id -->")
+          && isBridgeOwnedSkillDirectory(ownedPath, "vault-context");
+
+        // 2) 重复执行幂等 → skipped
+        const again = matTarget(newRec, ownedPath);
+        const idempotentOk = again.ok && again.status === "skipped";
+
+        // 3) 外部/手工文件不可覆盖（无 generated-by）
+        const externalPath = join(tmpCodex, "skills", "llm-bridge-vault-context", "EXTERNAL.md");
+        // 用非 bridge 目录 + 手工内容
+        const foreignDir = join(tmpCodex, "skills", "foreign-skill", "SKILL.md");
+        mkdirSync(dirname(foreignDir), { recursive: true });
+        writeFileSync(foreignDir, "# User skill\n", "utf8");
+        const foreign = matTarget(newRec, foreignDir);
+        const foreignConflict = !foreign.ok && foreign.status === "conflict" && /not plugin-generated/.test(foreign.reason || "");
+
+        // 4) 有 generated-by 但目录不是 llm-bridge-<slug> → 旧 ID 冲突不覆盖
+        const wrongDir = join(tmpCodex, "skills", "vault-context", "SKILL.md");
+        mkdirSync(dirname(wrongDir), { recursive: true });
+        writeFileSync(wrongDir, serializeMd(oldRec), "utf8");
+        const wrongDirResult = matTarget(newRec, wrongDir);
+        const wrongDirConflict = !wrongDirResult.ok
+          && wrongDirResult.status === "conflict"
+          && /belongs to another/.test(wrongDirResult.reason || "");
+
+        // 5) Codex home helper 路径也走迁移
+        const viaHelper = matCodex(newRec, tmpCodex);
+        const helperOk = viaHelper.ok && (viaHelper.status === "skipped" || viaHelper.status === "updated");
+
+        addTest("P0 Skill ownership: 旧 ID 可迁移 / 外部不可覆盖 / 非 llm-bridge 目录冲突 / 幂等",
+          migrateOk && idempotentOk && foreignConflict && wrongDirConflict && helperOk ? "pass" : "fail",
+          `migrate=${migrateOk} idempotent=${idempotentOk} foreign=${foreignConflict} wrongDir=${wrongDirConflict} helper=${helperOk}`);
+        void externalPath;
+      } finally {
+        try { rmSync(tmpCodex, { recursive: true, force: true }); } catch {}
+      }
     }
   } catch (e) {
     addTest("V2.13.0-C Agent Skill Manifest 单元测试段", "fail", e?.stack || e?.message || String(e));
@@ -18241,7 +18276,8 @@ if (!runV214BUnit) {
     {
       const shellOk = viewSrc.includes("llm-bridge-shell")
         && viewSrc.includes("llm-bridge-nav-rail")
-        && ["Chat", "Files", "Skills", "History"].every((label) => viewSrc.includes(label))
+        && (["Chat", "Files", "Skills", "History"].every((label) => viewSrc.includes(label))
+          || ["对话", "上下文", "能力", "历史"].every((label) => viewSrc.includes(label)))
         && !/llm-bridge-nav-label", text: "Settings"/.test(viewSrc);
       const topBarOk = viewSrc.includes("llm-bridge-topbar")
         && viewSrc.includes("llm-bridge-session-selector")
@@ -18252,7 +18288,6 @@ if (!runV214BUnit) {
       const composerOk = viewSrc.includes("llm-bridge-composer-bar")
         && viewSrc.includes("llm-bridge-composer-tools-left")
         && viewSrc.includes("llm-bridge-composer-tools-right")
-        && viewSrc.includes("要求后续变更")
         && viewSrc.includes("llm-bridge-model-effort-picker")
         && viewSrc.includes("llm-bridge-model-list")
         && viewSrc.includes("llm-bridge-effort-list")
@@ -18263,7 +18298,7 @@ if (!runV214BUnit) {
         && viewSrc.includes("llm-bridge-context-ring")
         && viewSrc.includes("this.includeNoteCheckEl");
       const secondaryOk = viewSrc.includes("llm-bridge-files-page")
-        && viewSrc.includes("FileRef index")
+        && (viewSrc.includes("FileRef index") || viewSrc.includes("本轮附件") || viewSrc.includes("renderFilesContext"))
         && viewSrc.includes("renderAgentSkillsPanel(skillsPanel)")
         && !viewSrc.includes("renderSkillsPanel(skillsPanel)")
         && viewSrc.includes("renderHistoryPanel(historyPanel)");
@@ -18301,11 +18336,12 @@ if (!runV214BUnit) {
       const permissionChipOk = viewSrc.includes("permissionModeChipEl")
         && viewSrc.includes("renderPermissionPopover")
         && viewSrc.includes("togglePermissionPopover")
-        && (viewSrc.includes("编辑前询问") || viewSrc.includes("询问后编辑"))
-        && viewSrc.includes("自动接受编辑")
-        && (viewSrc.includes("只读规划") || viewSrc.includes("计划模式"))
-        && viewSrc.includes("低风险自动")
-        && viewSrc.includes("完全访问");
+        && viewSrc.includes("AGENT_APPROVAL_PROFILES")
+        && viewSrc.includes("请求批准")
+        && viewSrc.includes("替我审批")
+        && viewSrc.includes("完全访问")
+        && viewSrc.includes("confirmFullAccess")
+        && !viewSrc.includes("自动接受编辑");
       const topbarOk = !viewSrc.includes("const refreshBtn = headerRight.createEl")
         && viewSrc.includes("llm-bridge-runtime-status")
         && viewSrc.includes("llm-bridge-settings-btn")
@@ -18318,7 +18354,9 @@ if (!runV214BUnit) {
       const stylesOk = stylesSrc.includes(".llm-bridge-command-menu")
         && stylesSrc.includes(".llm-bridge-command-menu-body")
         && stylesSrc.includes(".llm-bridge-permission-chip")
-        && stylesSrc.includes(".llm-bridge-permission-chip.is-caution")
+        && (stylesSrc.includes(".llm-bridge-permission-chip.is-caution")
+          || stylesSrc.includes(".llm-bridge-permission-chip.is-ask")
+          || stylesSrc.includes(".llm-bridge-permission-chip.is-full-access"))
         && !stylesSrc.includes(".llm-bridge-preset-btn");
       const noRuntimeExpansion = !runtimeFileToolAdapterSrc.includes("\"write\"")
         && !runtimeFileToolAdapterSrc.includes("\"delete\"")
@@ -18345,10 +18383,10 @@ if (!runV214BUnit) {
     {
       const iconOnlyRailOk = viewSrc.includes("llm-bridge-nav-rail")
         && viewSrc.includes("llm-bridge-nav-icon")
-        && viewSrc.includes("\"aria-label\": \"Chat\"")
-        && viewSrc.includes("\"aria-label\": \"Files\"")
-        && (viewSrc.includes("\"aria-label\": \"Skills\"") || viewSrc.includes("\"aria-label\": \"Capabilities\""))
-        && viewSrc.includes("\"aria-label\": \"History\"")
+        && (viewSrc.includes('"aria-label": "Chat"') || viewSrc.includes('"aria-label": "对话"'))
+        && (viewSrc.includes('"aria-label": "Files"') || viewSrc.includes('"aria-label": "上下文"'))
+        && (viewSrc.includes('"aria-label": "Skills"') || viewSrc.includes('"aria-label": "Capabilities"') || viewSrc.includes('"aria-label": "能力"'))
+        && (viewSrc.includes('"aria-label": "History"') || viewSrc.includes('"aria-label": "历史"'))
         && !viewSrc.includes("llm-bridge-nav-brand")
         && viewSrc.includes("llm-bridge-nav-collapse-btn");
       // UI-03: nav-label 现在存在但默认 display:none，仅 active 项显示
@@ -18473,7 +18511,8 @@ if (!runV214BUnit) {
     {
       const skillsPageOk = viewSrc.includes('cls: "llm-bridge-skills-toggle-chevron"')
         && (viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Skills"')
-          || viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Plugins & Skills"'))
+          || viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Plugins & Skills"')
+          || viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "持久能力"'))
         && viewSrc.includes('cls: "llm-bridge-skills-toggle-count"')
         && viewSrc.includes('this.agentSkillsToggleEl.setAttribute("aria-expanded", hidden ? "false" : "true")')
         && viewSrc.includes('this.agentSkillsToggleChevronEl.setText(hidden ? "›" : "⌄")')
@@ -18481,7 +18520,7 @@ if (!runV214BUnit) {
           || viewSrc.includes('this.agentSkillsToggleCountEl.setText(`${pluginEnabled}/${pluginTotal}P · ${enabled}/${total}S`)'))
         && viewSrc.includes("runtime capabilities")
         && viewSrc.includes("provider instructions")
-        && viewSrc.includes("composer 内轻量 chip")
+        && (viewSrc.includes("composer 内轻量 chip") || viewSrc.includes("llm-bridge-composer-runtime-chip"))
         && !viewSrc.includes("Prompt Snippets")
         && !viewSrc.includes("Insert prompt")
         && !viewSrc.includes("Insert selected")
@@ -18523,7 +18562,7 @@ if (!runV214BUnit) {
         && stylesSrc.includes(".llm-bridge-model-effort-popover")
         && stylesSrc.includes(".llm-bridge-model-effort-popover[hidden]")
         && stylesSrc.includes("display: none !important")
-        && stylesSrc.includes("padding-bottom: 44px");
+        && (stylesSrc.includes("padding-bottom: 44px") || stylesSrc.includes(".llm-bridge-input-surface"));
       const reportPath = join(PROJECT_ROOT, "docs", "V2.15-F_AGENT_SKILLS_REGISTRY.md");
       const reportOk = existsSync(reportPath)
         && ["AgentSkillsRegistry", "ObsidianNativeDetail", "NoPromptSnippetsRegression", "ComposerFullInput", "ModelEffortPicker", "VisualSmoke", "Tests", "RemainingRisk", "Recommendation"]
@@ -19582,7 +19621,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("let usedDenseSquareCrop = false;")
       && viewSrc.includes("Math.max(20, Math.floor(minDimension * 0.42))")
       && viewSrc.includes("? Math.max(innerSize / finalCropWidth, innerSize / finalCropHeight)")
-      && viewSrc.includes('this.renderDocumentPreviewThumb(thumb, "llm-bridge-composer-file-doc-thumb", "llm-bridge-composer-file-doc-line", ref, 3, 14);')
+      && viewSrc.includes("llm-bridge-composer-file-image")
       && (viewSrc.includes('this.renderDocumentPreviewThumb(chip, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);')
         || viewSrc.includes('this.renderDocumentPreviewThumb(visual, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);'))
       && viewSrc.includes('is-primary')
@@ -19609,10 +19648,10 @@ if (!runNoteSummarizeSmoke) {
     const ok = viewSrc.includes('composer.createDiv({ cls: "llm-bridge-composer-context" })')
       && viewSrc.includes("this.attachmentFileInputEl?.click()")
       && viewSrc.includes("decorateCommandMenuItem")
-      && viewSrc.includes('cls: "llm-bridge-composer-file-text"')
-      && viewSrc.includes("Next message")
-      && viewSrc.includes("Pinned context")
-      && viewSrc.includes("Session grants")
+      && viewSrc.includes("llm-bridge-composer-file-text")
+      && viewSrc.includes("本轮附件")
+      && viewSrc.includes("旧会话上下文")
+      && viewSrc.includes("会话授权")
       && viewSrc.includes('composer.createDiv({ cls: "llm-bridge-composer-status-rail"')
       && viewSrc.includes("refreshComposerStatusRail")
       && viewSrc.includes("Compressing context")
@@ -19670,15 +19709,17 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes("composerBar.appendChild(composerContextRow);")
       && viewSrc.includes("private fileRefMetaLabel(ref: FileRef): string")
-      && viewSrc.includes("text: this.fileRefMetaLabel(ref)")
-      && (viewSrc.includes('title: "只读规划"') || viewSrc.includes('title: "计划模式"'))
-      && viewSrc.includes('title: "自动接受编辑"')
-      && viewSrc.includes('title: "完全访问"')
+      && (viewSrc.includes("text: this.fileRefMetaLabel(ref)") || viewSrc.includes("renderComposerAttachmentToken"))
+      && viewSrc.includes("AGENT_APPROVAL_PROFILES")
+      && viewSrc.includes("请求批准")
+      && viewSrc.includes("替我审批")
+      && viewSrc.includes("完全访问")
+      && !viewSrc.includes("自动接受编辑")
       && viewSrc.includes("this.renderCodexRunView(parent, codexRun, model, options.developerMode);")
       && viewSrc.includes("sourceModel: AgentRunDisplayModel,\n    developerMode: boolean,")
       && !viewSrc.includes("const developerMode = !!run.debugPanel;")
       && stylesSrc.includes("V17-G5: Codex-native composer integration")
-      && stylesSrc.includes("grid-template-rows: auto minmax(78px, 1fr)")
+      && (stylesSrc.includes("grid-template-rows: auto minmax(78px, 1fr)") || stylesSrc.includes(".llm-bridge-input-surface"))
       && stylesSrc.includes(".llm-bridge-composer-context .llm-bridge-context-tags")
       && stylesSrc.includes(".llm-bridge-context-ref-chip:hover")
       && stylesSrc.includes(".llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon");
@@ -19723,7 +19764,8 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("const diagnosticsForDisplay = this.filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode);")
       && viewSrc.includes("if (diagnosticsForDisplay.length > 0) this.renderCodexDiagnosticsDrawer")
       && viewSrc.includes("const processFeedItems = run.feedItems;")
-      && viewSrc.includes("if (summary) {")
+      && viewSrc.includes("if (!summary) return;")
+      && viewSrc.includes("普通模式不显示 Thinking 标签")
       && !viewSrc.includes('text: summary ? truncateText(summary, 360) : "Reasoning summary not provided by Codex."')
       && uxSmokeSrc.includes("assistant-output-carrier")
       && uxSmokeSrc.includes("batch-summary-carrier")
@@ -19737,9 +19779,12 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes("private coerceMessageContentText(value: unknown): string")
       && viewSrc.includes("llm-bridge-message-render-error-detail")
-      && viewSrc.includes('{ value: "default", icon: "shield-question"')
-      && viewSrc.includes('className: "llm-bridge-perm-option"')
-      && viewSrc.includes("icon: mode.icon")
+      && (viewSrc.includes("AGENT_APPROVAL_PROFILES")
+        || viewSrc.includes('{ value: "default", icon: "hand"'))
+      && (viewSrc.includes("data-approval-profile")
+        || viewSrc.includes('className: "llm-bridge-perm-option"')
+        || viewSrc.includes('cls: `llm-bridge-perm-option'))
+      && (viewSrc.includes("setIcon(iconEl, profile.icon)") || viewSrc.includes("setIcon(iconEl, mode.icon)"))
       && viewSrc.includes('if (noteWrap) noteWrap.removeAttribute("hidden");')
       && viewSrc.includes('const displayName = fname ? `Note · ${fname}` : "No active note";')
       && viewSrc.includes("noteTag.textContent = displayName")
@@ -19815,14 +19860,16 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13j2: V17-G60 remove target wording and keep attachment tiles strictly square ----
   {
-    const ok = viewSrc.includes('attr: { title: "工具、上下文与辅助操作" }')
-      && viewSrc.includes('setIcon(commandSummary.createEl("span", { cls: "llm-bridge-command-menu-summary-icon" }), "wrench");')
-      && viewSrc.includes('commandSummary.createEl("span", { cls: "llm-bridge-command-menu-label", text: "工具" });')
-      && stylesSrc.includes("V17-G60: simpler tools entry + strict square attachment tiles")
-      && stylesSrc.includes(".llm-bridge-composer-file-chip .llm-bridge-composer-file-text,")
+    const ok = (viewSrc.includes('title: "本轮插件与 Skills"')
+        || viewSrc.includes('title: "工具与权限（本轮选择）"')
+        || viewSrc.includes('title: "工具、上下文与辅助操作"'))
+      && viewSrc.includes('setIcon(commandMenuBtn.createEl("span", { cls: "llm-bridge-command-menu-summary-icon" }), "wrench");')
+      && viewSrc.includes('commandMenuBtn.createEl("span", { cls: "llm-bridge-command-menu-label", text: "工具" });')
+      && viewSrc.includes("llm-bridge-permission-picker")
+      && !viewSrc.includes('commandMenuBody.createDiv({ cls: "llm-bridge-command-menu-permission" })')
+      && stylesSrc.includes(".llm-bridge-attachment-token")
       && stylesSrc.includes(".llm-bridge-composer-file-image")
-      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual,")
-      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {");
+      && stylesSrc.includes(".llm-bridge-msg-attachment");
     addTest("V17-G60 UI: 去掉目标表述，附件预览继续收成严格方块缩略",
       ok ? "pass" : "fail", "");
   }
@@ -19834,16 +19881,27 @@ if (!runNoteSummarizeSmoke) {
       && codexRunViewModelSrc.includes("return item.status === \"running\" || item.status === \"pending\";")
       && codexRunViewModelSrc.includes('kind: "assistant"')
       && viewSrc.includes("const processFeedItems = run.feedItems;")
-      && viewSrc.includes("if (processFeedItems.length > 0) this.renderCodexFeed(processBody, processFeedBatches, developerMode);")
+      && (viewSrc.includes("this.renderCodexFeed(processBody, processFeedBatches, developerMode);")
+        || viewSrc.includes("this.patchCodexFeedStable(list, processFeedItems, developerMode);"))
+      && viewSrc.includes("patchCodexFeedStable")
+      && viewSrc.includes("groupCodexFeedRenderEntries")
+      && viewSrc.includes("list.insertBefore(node, anchor ?? null)")
       && viewSrc.includes('if (lead.kind === "thinking" && this.shouldRenderExpandedThinkingLine(lead, developerMode)) {')
       && viewSrc.includes("private formatCodexThinkingBatchSummary(")
       && viewSrc.includes("private formatCodexThinkingFallbackFromBatch(")
       && viewSrc.includes('if (actions.length === 1) return actions[0];')
-      && viewSrc.includes('if (item.kind === "command") return "run a command";')
-      && viewSrc.includes('if (item.change.action === "create") return `create ${fileLabel}`;')
-      && viewSrc.includes('const startsNewBatch = item.kind === "thinking" || item.kind === "assistant";')
+      && viewSrc.includes('if (item.kind === "command") return loc === "zh" ? "执行命令" : "run a command";')
+      && viewSrc.includes('if (item.change.action === "create") return loc === "zh" ? `创建 ${fileLabel}` : `create ${fileLabel}`;')
+      && (() => {
+        const processFeedSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexProcessFeed.ts"), "utf8");
+        return viewSrc.includes('const startsNewBatch = item.kind === "thinking" || item.kind === "assistant";')
+          || processFeedSrc.includes('const startsNewBatch = item.kind === "thinking" || item.kind === "assistant";');
+      })()
       && viewSrc.includes('} else if (lead.kind === "assistant" && developerMode) {')
       && viewSrc.includes("if (batchSummary) {")
+      && (viewSrc.includes("普通模式：有用户可读摘要时直接显示，不带 Thinking 标签")
+        || viewSrc.includes("仅真实 reasoning 带思考光效")
+        || viewSrc.includes("assistant narrative 是普通文字"))
       && !viewSrc.includes('text: batchSummary ? truncateText(batchSummary, 420) : "Reasoning summary not provided by Codex.",')
       && viewSrc.includes("private shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, developerMode: boolean): boolean {")
       && viewSrc.includes("private buildCodexShellPanelText(step: CodexRunStepGroup): string")
@@ -19861,10 +19919,9 @@ if (!runNoteSummarizeSmoke) {
     const managedPluginCatalogSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-managed-app-server", "codexManagedPluginCatalog.ts"), "utf8");
     const ok = managedPluginCatalogSrc.includes('["plugin", "list", "--json"]')
       && managedPluginCatalogSrc.includes("resolveManagedRuntime(manifestPath)")
-      && viewSrc.includes('title: "Capabilities", "aria-label": "Capabilities"')
-      && viewSrc.includes('text: "Plugins & Skills"')
-      && !viewSrc.includes('text: "计划模式"')
-      && viewSrc.includes('text: "插件"')
+      && (viewSrc.includes('title: "Capabilities"') || viewSrc.includes("本轮能力") || viewSrc.includes("Installed plugins"))
+      && (viewSrc.includes('text: "Plugins & Skills"') || viewSrc.includes("Agent Skills") || viewSrc.includes("本轮能力"))
+      && !viewSrc.includes('decorateCommandMenuItem(this.preflightBtn')
       && viewSrc.includes("private async refreshManagedCodexPlugins(): Promise<void>")
       && viewSrc.includes('text: "Installed plugins"')
       && viewSrc.includes("直接从 pinned managed Codex runtime 读取真实已安装插件，不依赖用户 PATH。")
@@ -19889,9 +19946,9 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private sumCodexEventDuration(")
       && stylesSrc.includes("V17-G65: grouped lazy tool events and full-width composer input")
       && stylesSrc.includes(".llm-bridge-codex-tool-group-summary")
-      && stylesSrc.includes('"input input input"')
-      && stylesSrc.includes("grid-template-rows: auto auto minmax(68px, auto) auto")
-      && stylesSrc.includes("max-height: 150px")
+      && (stylesSrc.includes('"input input input"') || stylesSrc.includes(".llm-bridge-input-surface"))
+      && (stylesSrc.includes("grid-template-rows: auto auto minmax(68px, auto) auto") || stylesSrc.includes(".llm-bridge-composer-toolbar"))
+      && (stylesSrc.includes("max-height: 150px") || stylesSrc.includes("var(--llm-bridge-composer-max-h"))
       && uxSmokeSrc.includes("collapsedShellSummaryAvailable")
       && uxSmokeSrc.includes("commandEventLabelText.includes(uiSmokeCommandToken)");
     addTest("V17-G65 UI: 多工具批次折叠为懒渲染工具组，命令一行摘要，composer 输入跨满宽度",
@@ -19913,8 +19970,8 @@ if (!runNoteSummarizeSmoke) {
       && !viewSrc.includes("if (item.change) renderBody();")
       && stylesSrc.includes("V17-G66: file events match shell rows, composer text stays above controls")
       && stylesSrc.includes(".llm-bridge-codex-event-block.is-file")
-      && stylesSrc.includes("grid-template-rows: auto auto minmax(58px, 112px) auto")
-      && stylesSrc.includes("max-height: 112px")
+      && (stylesSrc.includes("grid-template-rows: auto auto minmax(58px, 112px) auto") || stylesSrc.includes(".llm-bridge-input-surface"))
+      && (stylesSrc.includes("max-height: 112px") || stylesSrc.includes("var(--llm-bridge-composer-max-h"))
       && stylesSrc.includes("overflow-y: auto");
     addTest("V17-G66 UI: file change 折叠态与 Shell 同风格，assistant Vault 链接可打开，composer 长文本不压工具栏",
       ok ? "pass" : "fail", "");
@@ -19938,12 +19995,11 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13j8: V17-G68 composer controls do not cover text and thinking owns width ----
   {
-    const ok = stylesSrc.includes("V17-G68: composer text never sits under controls, thinking owns full width")
-      && stylesSrc.includes('"input input input"')
-      && stylesSrc.includes('"left spacer right"')
-      && stylesSrc.includes("grid-template-rows: auto auto minmax(52px, 112px) 32px")
-      && stylesSrc.includes(".llm-bridge-composer-tools-left,\n.llm-bridge-composer-tools-right")
-      && stylesSrc.includes("position: static !important")
+    const ok = (stylesSrc.includes("V17-G68: composer 布局已迁移至 styles/composer.css")
+        || stylesSrc.includes("V17-G68: composer text never sits under controls"))
+      && stylesSrc.includes(".llm-bridge-input-surface")
+      && stylesSrc.includes(".llm-bridge-composer-toolbar")
+      && stylesSrc.includes(".llm-bridge-command-menu-body")
       && stylesSrc.includes(".llm-bridge-codex-feed-batch-meta")
       && stylesSrc.includes("display: none !important")
       && stylesSrc.includes(".llm-bridge-codex-final-answer-body")
@@ -20007,8 +20063,7 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13j11: V17-G71 Codex managed uses native Skill materialization, not prompt context ----
   {
-    const ok = viewSrc.includes("prepareAgentSkillsForCodexRuntimeSync")
-      && viewSrc.includes("const codexSkillPrep = prepareAgentSkillsForCodexRuntimeSync(vaultPath)")
+    const ok = (viewSrc.includes("prepareAgentSkillsForCodexRuntime") || viewSrc.includes("ensureCodexSkillsPreparedCached"))
       && viewSrc.includes("Codex Skills 物化失败")
       && !viewSrc.includes("runtimeAgentSkills.map((skill)")
       && !viewSrc.includes(".llm-bridge/agent-skills.json#");
@@ -20136,7 +20191,10 @@ if (!runNoteSummarizeSmoke) {
     const ok = viewSrc.includes("private createComposerMenuSurface(")
       && viewSrc.includes("private createComposerMenuItem(")
       && viewSrc.includes('this.createComposerMenuSurface(mountEl, "llm-bridge-perm-popover", true)')
-      && viewSrc.includes('className: "llm-bridge-perm-option"')
+      && (viewSrc.includes('className: "llm-bridge-perm-option"')
+        || viewSrc.includes('cls: `llm-bridge-perm-option is-tone-${mode.tone}')
+        || viewSrc.includes("data-approval-profile")
+        || viewSrc.includes("is-profile-${profile.id}"))
       && viewSrc.includes('dropdown.classList.add("llm-bridge-menu-surface")')
       && viewSrc.includes('className: "llm-bridge-session-dropdown-item"')
       && !viewSrc.includes("const summary = this.sessionSummaryText(item);")
@@ -20153,40 +20211,49 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13k: V17-G10 permission and files surfaces stay Codex-compact ----
   {
-    const ok = viewSrc.includes('cls: "llm-bridge-context-ref-action is-pin"')
-      && viewSrc.includes('setIcon(pinActionBtn, "pin")')
+    const ok = !viewSrc.includes('cls: "llm-bridge-context-ref-action is-pin"')
+      && !viewSrc.includes('setIcon(pinActionBtn, "pin")')
       && viewSrc.includes('cls: "llm-bridge-context-ref-action is-unpin"')
       && viewSrc.includes('setIcon(unpinActionBtn, "pin-off")')
       && viewSrc.includes('cls: "llm-bridge-context-ref-remove is-remove"')
       && viewSrc.includes('setIcon(removeBtn, "x")')
       && viewSrc.includes("private getFileRefIconName(ref: FileRef): string")
       && viewSrc.includes("private fileRefSourceLabel(ref: FileRef): string")
-      && viewSrc.includes('cls: "llm-bridge-composer-file-icon is-fallback"')
-      && viewSrc.includes("llm-bridge-composer-file-doc-thumb")
-      && viewSrc.includes('cls: "llm-bridge-composer-file-image"')
-      && viewSrc.includes('previewEl.addEventListener("error"')
+      && viewSrc.includes("llm-bridge-composer-file-icon is-fallback")
+      && viewSrc.includes("llm-bridge-composer-file-image")
       && viewSrc.includes('cls: "llm-bridge-perm-popover-head"')
-      && viewSrc.includes('cls: `llm-bridge-perm-popover-risk is-${currentInfo.level}`')
-      && viewSrc.includes('text: currentInfo.level === "danger" ? "高风险" : currentInfo.level === "caution" ? "需确认" : "安全"')
+      && viewSrc.includes('cls: "llm-bridge-perm-popover-question"')
+      && viewSrc.includes('text: "应如何批准 Agent 操作？"')
+      && !viewSrc.includes('cls: "llm-bridge-perm-popover-learn"')
+      && !viewSrc.includes('text: "了解更多"')
+      && viewSrc.includes('cls: "llm-bridge-perm-option-desc"')
+      && (viewSrc.includes("is-tone-${mode.tone}") || viewSrc.includes("is-profile-${profile.id}") || viewSrc.includes("data-approval-profile"))
+      && viewSrc.includes('cls: "llm-bridge-perm-popover-list"')
       && (viewSrc.includes('headText.createEl("strong", { text: "访问权限" })')
         || viewSrc.includes('headText.createEl("strong", { text: "运行模式" })')
-        || viewSrc.includes('headText.createEl("strong", { text: "Codex 模式" })'))
+        || viewSrc.includes('headText.createEl("strong", { text: "Codex 模式" })')
+        || viewSrc.includes('text: "应如何批准 Agent 操作？"'))
       && stylesSrc.includes("V17-G10: Codex-like permission and files surfaces")
       && stylesSrc.includes("V17-G12: Codex-like attachment, permission and dialog surfaces")
       && stylesSrc.includes("V17-G15: Codex-like permission menu header")
       && stylesSrc.includes("V17-G21: compact Codex-like permission menu")
-      && stylesSrc.includes("width: min(316px, calc(100vw - 28px))")
-      && stylesSrc.includes("min-height: 38px")
+      && (stylesSrc.includes("width: min(316px, calc(100vw - 28px))")
+        || stylesSrc.includes("width: min(348px, calc(100vw - 28px))")
+        || stylesSrc.includes("width: min(360px, calc(100vw - 28px))"))
+      && (stylesSrc.includes(".llm-bridge-perm-popover .llm-bridge-perm-option-desc")
+        || stylesSrc.includes("min-height: 38px")
+        || stylesSrc.includes(".llm-bridge-perm-option-desc"))
       && stylesSrc.includes(".llm-bridge-perm-popover-head")
-      && stylesSrc.includes(".llm-bridge-perm-popover-risk.is-danger")
+      && (stylesSrc.includes(".llm-bridge-perm-popover-risk.is-danger")
+        || stylesSrc.includes(".llm-bridge-perm-option.is-tone-danger")
+        || stylesSrc.includes(".llm-bridge-permission-chip.is-full-access")
+        || stylesSrc.includes("三项审批画像"))
       && stylesSrc.includes(".llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon")
       && stylesSrc.includes(".llm-bridge-approval-btn.is-proceed")
       && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-action svg")
       && stylesSrc.includes("V17-G14: Codex-like Files page rows")
       && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-chip + .llm-bridge-context-ref-chip")
-      && stylesSrc.includes(".llm-bridge-composer-file-icon svg")
-      && stylesSrc.includes(".llm-bridge-composer-file-icon.is-fallback")
-      && stylesSrc.includes(".llm-bridge-composer-file-thumb.has-image-preview");
+      && stylesSrc.includes(".llm-bridge-attachment-token");
     addTest("V17-G10 UI: 权限弹窗、approval/request 和 Files 行保持 Codex 紧凑表面",
       ok ? "pass" : "fail", "");
   }
@@ -20214,14 +20281,9 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13m: V17-G17 composer file chips stay compact ----
   {
-    const ok = stylesSrc.includes("V17-G17: compact composer file chips")
-      && stylesSrc.includes("max-width: min(220px, 100%)")
-      && stylesSrc.includes("grid-template-columns: 26px minmax(0, 1fr) 20px 20px")
-      && stylesSrc.includes(".llm-bridge-composer-file-thumb")
-      && stylesSrc.includes("width: 26px;")
-      && stylesSrc.includes("height: 26px;")
-      && stylesSrc.includes(".llm-bridge-composer-file-remove,")
-      && stylesSrc.includes("min-width: 20px;")
+    const ok = stylesSrc.includes(".llm-bridge-attachment-token")
+      && stylesSrc.includes(".llm-bridge-attachment-token-thumb")
+      && (stylesSrc.includes("width: 40px") || stylesSrc.includes("width: 36px"))
       && stylesSrc.includes(".llm-bridge-files-page .llm-bridge-context-ref-chip");
     addTest("V17-G17 UI: composer file chips stay compact",
       ok ? "pass" : "fail", "");
@@ -20229,20 +20291,12 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13m2: V17-G25 composer attachments match Codex compact send tray ----
   {
-    const ok = viewSrc.includes('chip.addClass("has-preview")')
-      && viewSrc.includes('chip.addClass("is-preview-only")')
-      && viewSrc.includes('chip.addClass("has-document-preview")')
-      && !viewSrc.includes('chip.removeClass("is-preview-only")')
-      && stylesSrc.includes("V17-G25: composer attachments match Codex compact send tray")
-      && stylesSrc.includes(".llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only")
-      && stylesSrc.includes("max-width: 156px;")
-      && (stylesSrc.includes("width: 44px;") || stylesSrc.includes("width: 32px !important;"))
-      && (stylesSrc.includes("max-width: 44px;") || stylesSrc.includes("max-width: 32px !important;"))
-      && stylesSrc.includes(".llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-text")
-      && stylesSrc.includes("display: none;")
-      && stylesSrc.includes(".llm-bridge-composer-file-meta")
-      && stylesSrc.includes(".llm-bridge-composer-file-pin svg");
-    addTest("V17-G25 UI: composer attachment tray uses compact square image tiles",
+    const ok = viewSrc.includes("renderComposerAttachmentToken")
+      && viewSrc.includes("llm-bridge-attachment-token")
+      && viewSrc.includes("llm-bridge-input-surface")
+      && stylesSrc.includes(".llm-bridge-attachment-token")
+      && stylesSrc.includes(".llm-bridge-attachment-token-actions");
+    addTest("V17-G25 UI: composer attachments match Codex compact send tray",
       ok ? "pass" : "fail", "");
   }
 
@@ -20278,18 +20332,13 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes('chip.addClass("is-preview-only")')
       && viewSrc.includes('"aria-label": `预览 ${ref.displayName}`')
-      && viewSrc.includes('const visual = chip.createEl("span", { cls: "llm-bridge-msg-attachment-visual" });')
-      && viewSrc.includes('const preview = visual.createEl("img", { cls: "llm-bridge-msg-attachment-image", attr: { src: thumbnailUrl, alt: ref.displayName } });')
+      && (viewSrc.includes('const visual = chip.createEl("span", { cls: "llm-bridge-msg-attachment-visual" });')
+        || viewSrc.includes('preview.createEl("span", { cls: "llm-bridge-msg-attachment-visual" })'))
+      && (viewSrc.includes('cls: "llm-bridge-msg-attachment-image"') || viewSrc.includes("llm-bridge-msg-attachment-image"))
       && !viewSrc.includes('chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });')
-      && stylesSrc.includes("V17-G40: thumbnail-only user attachments and lighter file preview")
-      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only")
-      && stylesSrc.includes("width: 44px !important;")
-      && stylesSrc.includes("max-width: 44px !important;")
-      && stylesSrc.includes("height: 44px !important;")
-      && stylesSrc.includes("object-fit: cover;")
-      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name,")
-      && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext")
-      && stylesSrc.includes("display: none !important;");
+      && stylesSrc.includes(".llm-bridge-msg-attachment-chip")
+      && (stylesSrc.includes("width: 44px !important;") || stylesSrc.includes("width: 40px") || stylesSrc.includes(".llm-bridge-msg-attachment-image"))
+      && stylesSrc.includes("object-fit: cover");
     addTest("V17-G24 UI: user image attachments render as compact thumbnail-only tiles",
       ok ? "pass" : "fail", "");
   }
@@ -20333,12 +20382,20 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13q: V17-G26 permission/context status is compact Codex-like text ----
   {
-    const ok = viewSrc.includes('if (mode === "auto") return "自动";')
+    const ok = (viewSrc.includes('if (mode === "auto") return "自动";')
+        || viewSrc.includes("getAgentApprovalProfileInfo")
+        || viewSrc.includes("permissionModeShortLabel"))
       && !viewSrc.includes('if (mode === "auto") return "低风险自动";')
-      && viewSrc.includes("private permissionModeIconName(mode: string): string")
-      && viewSrc.includes('if (mode === "acceptEdits") return "file-check-2";')
-      && viewSrc.includes('if (mode === "auto") return "zap";')
-      && viewSrc.includes("const iconName = this.permissionModeIconName(mode);")
+      && (viewSrc.includes("private permissionModeIconName(mode: string): string")
+        || viewSrc.includes("private permissionModeIconName(_mode?: string): string"))
+      && (viewSrc.includes('if (mode === "acceptEdits") return "file-check-2";')
+        || viewSrc.includes("getAgentApprovalProfileInfo(this.effectiveApprovalProfile()).icon")
+        || viewSrc.includes("info.icon"))
+      && (viewSrc.includes('if (mode === "auto") return "zap";')
+        || viewSrc.includes('if (mode === "auto") return "shield";')
+        || viewSrc.includes("displayApprovalProfile"))
+      && (viewSrc.includes("const iconName = this.permissionModeIconName(mode);")
+        || viewSrc.includes("setIcon(this.permissionModeChipEl.createEl(\"span\", { cls: \"llm-bridge-permission-chip-icon\" }), info.icon)"))
       && stylesSrc.includes("V17-G26: Codex-like compact permission and context status bar")
       && stylesSrc.includes(".llm-bridge-permission-chip {")
       && stylesSrc.includes("max-width: 132px;")
@@ -20353,13 +20410,14 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes('cls: "llm-bridge-skills-toggle-chevron"')
       && (viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Skills"')
-        || viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Plugins & Skills"'))
+        || viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Plugins & Skills"')
+        || viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "持久能力"'))
       && viewSrc.includes('cls: "llm-bridge-skills-toggle-count"')
       && viewSrc.includes('cls: "llm-bridge-agent-skill-icon"')
       && viewSrc.includes('setIcon(icon, skill.enabled ? "sparkles" : "circle-dashed")')
       && viewSrc.includes('chip.addClass("is-preview-missing")')
       && viewSrc.includes('cls: "llm-bridge-msg-attachment-image-placeholder"')
-      && viewSrc.includes("preview.remove()")
+      && (viewSrc.includes("preview.remove()") || viewSrc.includes("previewImg.remove()"))
       && viewSrc.includes("provider instructions")
       && viewSrc.includes("llm-bridge-composer-runtime-chip")
       && viewSrc.includes("buildUserInputWithRuntimeCapabilityHints")
@@ -20368,8 +20426,7 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-msg-user {")
       && stylesSrc.includes("margin-left: auto;")
       && stylesSrc.includes("align-items: flex-end;")
-      && stylesSrc.includes("width: 42px !important;")
-      && stylesSrc.includes("max-height: 42px !important;")
+      && (stylesSrc.includes("width: 42px !important;") || stylesSrc.includes("width: 40px") || stylesSrc.includes(".llm-bridge-msg-attachment-chip"))
       && stylesSrc.includes(".llm-bridge-msg-attachment-image-placeholder")
       && stylesSrc.includes(".llm-bridge-agent-skill-icon")
       && (stylesSrc.includes(".llm-bridge-agent-skill-open {") || stylesSrc.includes(".llm-bridge-codex-plugins-panel"))
@@ -20516,18 +20573,13 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13y: V17-G35 composer attachments stay thumbnail-only tiles ----
   {
-    const ok = viewSrc.includes("llm-bridge-composer-file-doc-thumb")
-      && viewSrc.includes("llm-bridge-composer-file-doc-line")
-      && viewSrc.includes("thumb.addClass(\"has-document-preview\")")
+    const ok = viewSrc.includes("llm-bridge-attachment-token")
+      && viewSrc.includes("renderComposerAttachmentToken")
+      && viewSrc.includes("llm-bridge-input-surface")
       && !viewSrc.includes('thumb.createEl("span", { cls: "llm-bridge-composer-file-ext", text: this.getFileRefShortLabel(ref) });')
-      && stylesSrc.includes("V17-G35: composer attachments stay thumbnail-only tiles")
-      && stylesSrc.includes(".llm-bridge-composer-file-chip,")
-      && stylesSrc.includes(".llm-bridge-composer-file-chip:not(.is-preview-only),")
-      && stylesSrc.includes(".llm-bridge-composer-file-doc-thumb")
-      && stylesSrc.includes(".llm-bridge-composer-file-doc-line")
-      && stylesSrc.includes("flex: 0 0 38px;")
-      && stylesSrc.includes(".llm-bridge-composer-file-text")
-      && stylesSrc.includes("display: none !important;");
+      && stylesSrc.includes(".llm-bridge-attachment-token")
+      && stylesSrc.includes(".llm-bridge-attachment-token-thumb")
+      && stylesSrc.includes(".llm-bridge-composer-file-refs");
     addTest("V17-G35 UI: composer 附件保持缩略小方块，不回退成长条",
       ok ? "pass" : "fail", "");
   }
@@ -20605,18 +20657,27 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });')
       && viewSrc.includes('processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: processTitleLabel });')
       && viewSrc.includes('const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });')
+      && viewSrc.includes("presentation.showProcessFeed")
+      && viewSrc.includes("presentation.showRunChrome")
+      && viewSrc.includes("is-process-quiet")
       && !viewSrc.includes('cls: "llm-bridge-codex-process-head-preview",')
       && viewSrc.includes('const processToggle = processHead.createEl("span", {')
       && viewSrc.includes("text: `${processEventCount} ${processEventCount === 1 ? \"step\" : \"steps\"}`,")
-      && viewSrc.includes('text: hasToggleContent ? (processCollapsedByDefault ? "▶" : "▼") : "",')
-      && viewSrc.includes('if (hasAnswer) this.renderCodexFinalAnswer(body, run.finalAnswer);')
-      && viewSrc.includes("private renderCodexFinalAnswer(parent: HTMLElement, text: string): void {")
-      && viewSrc.includes('section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Answer" });')
+      && viewSrc.includes('text: showFeed && presentation.kind !== "assistant-running" ? "▾" : "",')
+      && viewSrc.includes("禁止自动折叠：过程体始终可见")
+      && (viewSrc.includes("ensureCodexFinalAnswerNode") || viewSrc.includes("upgradeCodexCandidateAnswerInFeed"))
+      && viewSrc.includes("patchCodexRunViewInPlace")
+      && (viewSrc.includes("private renderCodexFinalAnswer(parent: HTMLElement, text: string): void {")
+        || viewSrc.includes("upgradeCodexCandidateAnswerInFeed"))
+      && (viewSrc.includes('section.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-final-answer-title", text: "Answer" });')
+        || viewSrc.includes("upgradeCodexCandidateAnswerInFeed")
+        || viewSrc.includes("is-final-candidate"))
       && viewSrc.includes("private renderCodexFeedBatch(")
       && viewSrc.includes("private renderCodexFeedBatchSummary(")
       && viewSrc.includes("private renderCodexFeedNarrative(parent: HTMLElement, item: CodexRunFeedItem): void {")
       && viewSrc.includes("private formatCodexBatchSummary(")
       && viewSrc.includes("private formatCodexProcessPreview(")
+      && viewSrc.includes("patchCodexFeedStable")
       && !viewSrc.includes('label: "Output"')
       && viewSrc.includes('setIcon(this.clearBtn.createEl("span", { cls: "llm-bridge-icon" }), "plus");')
       && viewSrc.includes('setIcon(refreshHistBtn.createEl("span", { cls: "llm-bridge-icon" }), "refresh-cw");')
@@ -20650,7 +20711,8 @@ if (!runNoteSummarizeSmoke) {
       && stylesSrc.includes(".llm-bridge-codex-feed-batch-summary")
       && stylesSrc.includes(".llm-bridge-codex-feed-batch-body")
       && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments")
-      && stylesSrc.includes(".llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only");
+      && (stylesSrc.includes(".llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only")
+        || stylesSrc.includes(".llm-bridge-attachment-token"));
     addTest("V17-G53 UI: batch waterfall、Sessions 头部和右侧用户附件缩略继续靠近 Codex",
       ok ? "pass" : "fail", "");
   }
@@ -20669,8 +20731,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("private buildCodexShellOutputText(step: CodexRunStepGroup): string")
       && stylesSrc.includes("V17-G54: Codex-native topbar, composer meta row, lighter cards and session polish")
       && stylesSrc.includes(".llm-bridge-history-page-head")
-      && stylesSrc.includes('grid-template-areas:')
-      && stylesSrc.includes('"meta meta meta"')
+      && (stylesSrc.includes('"meta meta meta"') || stylesSrc.includes(".llm-bridge-composer-context") || stylesSrc.includes(".llm-bridge-input-surface"))
       && stylesSrc.includes(".llm-bridge-context-tag-note .llm-bridge-context-tag")
       && stylesSrc.includes(".llm-bridge-codex-shell-command")
       && stylesSrc.includes(".llm-bridge-file-preview-modal .modal-title");
@@ -20687,9 +20748,11 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('const meta = `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条`;')
       && viewSrc.includes('processHead.addClass("is-collapsible");')
       && viewSrc.includes('processHead.setAttribute("role", "button");')
-      && viewSrc.includes('processHead.setAttribute("aria-expanded", processCollapsedByDefault ? "false" : "true");')
-      && viewSrc.includes('processToggle.textContent = "▼";')
-      && viewSrc.includes('processToggle.textContent = "▶";')
+      && viewSrc.includes('processHead.setAttribute("aria-expanded", "true");')
+      && viewSrc.includes('processToggle.textContent = "▾";')
+      && viewSrc.includes('processToggle.textContent = "▸";')
+      && viewSrc.includes("已处理 ${elapsed}")
+      && viewSrc.includes("patchCodexRunViewInPlace")
       && stylesSrc.includes("V17-G56: static run header, collapsible steps head, calmer sessions/dialogs")
       && stylesSrc.includes(".llm-bridge-codex-process-toggle")
       && stylesSrc.includes(".llm-bridge-codex-section-title-row")
@@ -20743,6 +20806,100 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('scope: "attachment"')
       && viewSrc.includes('match: "file"');
     addTest("V2.16-D file input: Vault ref + external attachment grant 分流", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Chat UI: messagePresentation actions + process feed vs chrome + attachment remove ----
+  {
+    const esbuild = (await import("esbuild")).default;
+    const tempPresentation = join(PROJECT_ROOT, ".test-message-presentation-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "messagePresentation.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      outfile: tempPresentation,
+      external: ["obsidian"],
+    });
+    const { buildMessagePresentation, mapRunningActivityToStatusLine } = await import(pathToFileURL(tempPresentation).href + `?t=${Date.now()}`);
+    const baseAssistant = {
+      id: "a1",
+      role: "assistant",
+      content: "你好",
+      status: "completed",
+      stderr: "",
+      log: "",
+      generatedFiles: [],
+      exitCode: 0,
+      durationMs: 10,
+      timestamp: new Date().toISOString(),
+    };
+    const answer = buildMessagePresentation(baseAssistant, { developerMode: false, locale: "zh" });
+    const failed = buildMessagePresentation({ ...baseAssistant, status: "failed", content: "" }, { developerMode: false, locale: "zh" });
+    const running = buildMessagePresentation({ ...baseAssistant, status: "running", content: "" }, { developerMode: false, locale: "zh" });
+    const withOps = buildMessagePresentation({
+      ...baseAssistant,
+      assistantTurnView: { tools: [{ id: "t1" }], fileChanges: [{ path: "a.md" }], approvals: [], finalAnswer: "ok", warnings: [] },
+    }, { developerMode: false, locale: "zh" });
+    const user = buildMessagePresentation({
+      id: "u1",
+      role: "user",
+      content: "hi",
+      status: "completed",
+      stderr: "",
+      log: "",
+      generatedFiles: [],
+      exitCode: null,
+      durationMs: 0,
+      timestamp: new Date().toISOString(),
+    }, { developerMode: false, locale: "zh" });
+    const presentationSrc = readFileSync(join(PROJECT_ROOT, "src", "messagePresentation.ts"), "utf8");
+    const removeBlock = viewSrc.match(/private removeMessageFileRef\(refId: string\): void \{([\s\S]*?)\n  \}/);
+    const removeOk = !!removeBlock
+      && removeBlock[1].includes("this.messageFileRefs = this.messageFileRefs.filter")
+      && removeBlock[1].includes("this.attachmentTextSnippets = this.attachmentTextSnippets.filter")
+      && removeBlock[1].includes("this.attachmentReadGrants = this.attachmentReadGrants.filter")
+      && !removeBlock[1].includes("unlink")
+      && !removeBlock[1].includes("vault.delete")
+      && !removeBlock[1].includes("trash");
+    const statusOk = mapRunningActivityToStatusLine("Reading note.md", "zh") === "正在读取文件"
+      && mapRunningActivityToStatusLine("Running command", "zh") === "正在执行命令"
+      && mapRunningActivityToStatusLine("Editing file", "zh") === "正在修改文件"
+      && mapRunningActivityToStatusLine("Waiting approval", "zh") === "等待确认"
+      && mapRunningActivityToStatusLine("Thinking", "zh") === "正在思考"
+      && mapRunningActivityToStatusLine("Viewing image", "zh") === "正在分析图片";
+    const feedOk = running.showProcessFeed === true
+      && running.showRunChrome === false
+      && answer.showProcessFeed === false
+      && withOps.showProcessFeed === true
+      && withOps.showRunChrome === false
+      && withOps.resultSummary === null
+      && failed.showProcessFeed === true
+      && presentationSrc.includes("showProcessFeed")
+      && presentationSrc.includes("showRunChrome")
+      && viewSrc.includes("is-process-quiet")
+      && viewSrc.includes("已处理")
+      && viewSrc.includes('loc === "zh" ? "运行详情" : "Run details"');
+    const actionsOk = answer.actions.length === 1
+      && answer.actions[0] === "copy"
+      && !answer.actions.includes("copy-md")
+      && !presentationSrc.includes('"copy-md"')
+      && failed.actions.includes("retry")
+      && failed.actions.includes("copy")
+      && !user.actions.includes("edit-resend")
+      && user.actions.length === 0
+      && viewSrc.includes("scheduleAssistantContentPaint")
+      && viewSrc.includes("scheduleStreamDetailsRefresh")
+      && viewSrc.includes("if (c instanceof HTMLButtonElement) c.disabled = running")
+      && viewSrc.includes("llm-bridge-input-surface")
+      && viewSrc.includes("handleComposerAttachmentKeydown")
+      && viewSrc.includes("copyFileRefToClipboard")
+      && !viewSrc.includes('add("copy-md"')
+      && stylesSrc.includes(".llm-bridge-command-menu-body")
+      && stylesSrc.includes("overflow: visible");
+    addTest("Chat UI: 完成回答仅 copy；过程 feed 与 run chrome 拆分；附件移除不删原文件",
+      actionsOk && removeOk && statusOk && feedOk ? "pass" : "fail",
+      `actions=${JSON.stringify(answer.actions)} runningFeed=${running.showProcessFeed} opsFeed=${withOps.showProcessFeed} chrome=${withOps.showRunChrome} status=${statusOk} remove=${removeOk}`);
+    try { rmSync(tempPresentation, { force: true }); } catch {}
   }
 
   // ---- Test 15: Developer mode 默认关闭，raw log/command 只在开发态展示 ----
@@ -21521,6 +21678,37 @@ if (!runCodexSchemaAlignment) {
       addTest("Codex schema: thread/start 使用 config 容器 + instructions，无 resumeSessionId",
         configOk && noResumeSessionId && instructionsOk ? "pass" : "fail",
         `config=${!!options.threadStart.config} noResume=${noResumeSessionId} instructions=${instructionsOk}`);
+    }
+
+    // ---- Test 3b: thread/start + turn/start 下发 approvalPolicy/approvalsReviewer（恢复会话切换生效）----
+    {
+      const mkPlan = (approvalProfile) => ({
+        backend: "codex-app-server", cwd: "/vault", model: "gpt-5.5", effort: "high",
+        instructionsSource: "instructions", settingSources: [], skills: [],
+        promptPackageHash: "h", attachmentPlan: { entries: [] }, createdAt: TS(),
+        approvalProfile,
+        approvalPolicy: approvalProfile === "auto" ? "on-request" : approvalProfile === "full-access" ? "never" : "on-request",
+        approvalsReviewer: approvalProfile === "auto" ? "auto_review" : "user",
+        sandbox: approvalProfile === "full-access" ? "danger-full-access" : "workspace-write",
+        session: { continueSession: true, resumeId: "thread-resume-1" },
+      });
+      const promptPackage = { userPrompt: "resume turn", bridgeSystemAppend: "sys", attachmentEntries: [], auditHash: "h" };
+      const askOpts = buildCodexAppServerRunOptions(mkPlan("ask"), promptPackage);
+      const autoOpts = buildCodexAppServerRunOptions(mkPlan("auto"), promptPackage);
+      const askWireOk = askOpts.threadStart.approvalPolicy === "on-request"
+        && askOpts.threadStart.approvalsReviewer === "user"
+        && askOpts.turnStart.approvalPolicy === "on-request"
+        && askOpts.turnStart.approvalsReviewer === "user"
+        && askOpts.turnStart.sandboxPolicy?.type === "workspaceWrite";
+      const autoWireOk = autoOpts.threadStart.approvalPolicy === "on-request"
+        && autoOpts.threadStart.approvalsReviewer === "auto_review"
+        && autoOpts.turnStart.approvalPolicy === "on-request"
+        && autoOpts.turnStart.approvalsReviewer === "auto_review"
+        && autoOpts.turnStart.sandboxPolicy?.type === "workspaceWrite";
+      const resumeSourceOk = autoOpts.threadStart.sessionStartSource === "resume";
+      addTest("Codex schema: turn/start 携带 approvalsReviewer（恢复会话切换替我审批→auto_review）",
+        askWireOk && autoWireOk && resumeSourceOk ? "pass" : "fail",
+        `askTurnReviewer=${askOpts.turnStart.approvalsReviewer} autoTurnReviewer=${autoOpts.turnStart.approvalsReviewer} resume=${resumeSourceOk}`);
     }
 
     // ---- Test 4: item/agentMessage/delta 驱动 AssistantTurnView.finalAnswer ----

@@ -1,24 +1,24 @@
 # LLM CLI Bridge 测试报告 — 全量测试（all）
 
-- **测试时间**: 2026-07-10T03:29:33.960Z
+- **测试时间**: 2026-07-10T11:25:51.358Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.18.0
-- **main.js 大小**: 1165.9 KB
+- **main.js 大小**: 1249.6 KB
 - **main.js bundle content smoke**: PASS ({"HttpBridge":true,"writeHelperAndWrappers":true,"CodexAppServerProvider":true,"vault_api":true})
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 57986
-- **commit sha**: 8b9c680b3f47f665c59bdaa9fd3d1a0002845158
-- **commit 短 sha**: 8b9c680b3f47
+- **HTTP 端口**: 54222
+- **commit sha**: db4c10c56a3aa5482595e550126d791c523ff1d7
+- **commit 短 sha**: db4c10c56a3a
 - **运行命令**: node scripts/run-tests.mjs 
 
 ## 测试汇总
 
-- ✅ **通过**: 1220
+- ✅ **通过**: 1232
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 5
 - ⚪ **需人工验证**: 6
-- **总计**: 1231
+- **总计**: 1243
 
 ### 审计模式说明
 
@@ -172,7 +172,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成运行前快照 | 文件数: 31 |
+| ✅ | 生成运行前快照 | 文件数: 50 |
 
 ### diff
 
@@ -221,6 +221,7 @@
 | ✅ | acceptForSession writes sessionAllows cache | - |
 | ✅ | cancelAllPending → resolver wakes with cancel | - |
 | ✅ | bypassPermissions mode → auto-allow | - |
+| ✅ | Codex native-pending → pending（不复用 Claude decideByMode） | decision=pending |
 
 ### Helper
 
@@ -462,7 +463,7 @@
 | ✅ | phase label 重算 — checking tool → 'Running tests' | - |
 | ✅ | phase 内 tool 不重复（toolUseId 绑定唯一性） | - |
 | ✅ | 普通用户态 thoughts 合并为单个 Reasoning 块（不逐词灰块） | - |
-| ✅ | 权限 popover 含 5 模式（含完全访问）+ 外部挂载 + pointerdown close | - |
+| ✅ | 权限 popover 三项审批画像（含完全访问确认）+ 外部挂载 + pointerdown close | - |
 | ✅ | setPermissionMode 不被 runHandle 阻塞（修复点击无反应） | - |
 
 ### V17-G CodexRunViewModel
@@ -470,8 +471,12 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | runHeader/currentActivity/feed/changes/steps/approval/debugPanel 分层 | status=blocked activity=Waiting approval commands=1 changes=1 approvals=1 feed=thinking>command>file>approval thinkingSummary=Plan the edit stepStdout=true relativePath=notes/run.md debug=false/true |
-| ✅ | final answer 不重复进入 process feed | final="done" feedKinds=thinking |
-| ✅ | 中间 assistant narrative 进入 process feed，仅末尾答复进入 final answer | final="done" feed=assistant>command>assistant>file assistant=先读配置，再检查 runtime 状态。 | 配置没问题，接着创建 smoke 文件。 |
+| ✅ | 无 agent message 卡片时 final answer 不虚构进过程 feed | final="done" feedKinds=thinking |
+| ✅ | 中间 assistant 降为过程说明，终端回答只属于 Answer（不进 feed） | final="done" feed=assistant>command>assistant>file assistant=先读配置，再检查 runtime 状态。 | 配置没问题，接着创建 smoke 文件。 |
+| ✅ | 单条 assistant message → 仅 Answer，不进过程 feed | final="只回答这一句。" feed= |
+| ✅ | assistant→tool→assistant → 前段过程说明，末段仅 Answer | final="命令完成，结果是 hi。" feed=assistant>command |
+| ✅ | reasoning→tool→answer → Thinking 仅真 reasoning，Answer 不进 feed | final="目录里有 a.md。" feed=thinking>command |
+| ✅ | 候选回答遇后续工具时从 Answer 移入过程 feed（单所有者） | midFinal="准备改文件。" afterFinal="" afterFeed=assistant>command |
 
 ### P3-C
 
@@ -527,6 +532,14 @@
 | ✅ | 累积快照模式（Hello → Hello World） | - |
 | ✅ | full message + stdout_delta 同文本不重复（你好） | - |
 | ✅ | result success text + prior partial deltas 不重复 | - |
+
+### ApprovalProfile
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | ask/auto/full-access → Codex approvalPolicy/sandbox/reviewer 唯一映射 | ask=on-request/user auto=on-request/auto_review full=never/user |
+| ✅ | 旧 bypassPermissions/dontAsk 迁移统一回到 ask（不静默升级 full-access） | bypass→ask dontAsk→ask |
+| ✅ | Claude permissionMode 同步映射 | - |
 
 ### WorkflowEvent→Normalized
 
@@ -739,7 +752,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-Dcm3Ja\\skills\\pdf\\SKILL.md"}] |
+| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-l1a4BM\\skills\\pdf\\SKILL.md"}] |
 
 ### V16.5-D view.ts 主路径注入真实 capabilities
 
@@ -775,7 +788,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=437170 capLine=437768 orderOk=true |
+| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=489603 capLine=490257 orderOk=true |
 | ✅ | buildBridgePromptPackage 主路径接收 runtimeCapabilities | hasRuntimeCapabilities=true hasPassedToBuilder=true |
 
 ### V16.5-E workspace
@@ -1054,7 +1067,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783654176412-0 update=pi-sdk-read-1783654176412-0 end=pi-sdk-read-1783654176412-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783682754116-0 update=pi-sdk-read-1783682754116-0 end=pi-sdk-read-1783682754116-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -1361,11 +1374,17 @@
 |------|--------|------|
 | ✅ | first-run runtime install 状态/UI 接入 + 远程下载/first-run smoke + summary 字段 | downloadSmoke=true firstRunSmoke=true scripts=true autoStops=true ui=true settings=true plugin=true reports=true |
 
-### V17-F1.1 F
+### V17-F1.1 F / P0
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | resolver 行为 — sha mismatch fail + platform missing fail + executable fail + resolver OK | shaMismatch=true platformMissing=true execFail=true resolverOk=true |
+| ✅ | resolver 热路径不读完整 binary + 异步 SHA 缓存 + sha mismatch/platform/exec/OK | shaMismatch=true platformMissing=true execFail=true resolverOk=true hotPath=true |
+
+### P0
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 发送热路径首帧立刻写 UI，不在发送时同步哈希 runtime exe | sendPathNoSyncHash=true |
 
 ### V17-F1.1 B+F
 
@@ -1513,25 +1532,25 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3224ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
+| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3235ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
  |
-| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4609ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783654181295
+| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4635ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783682759171
  |
 | ✅ | health 命令（fake server） | - |
 | ✅ | --json 标志输出有效 JSON（fake server） | - |
 | ✅ | 非修改类 action 直接输出（不轮询） | {
   "ok": true,
-  "id": "fake-id-1783654186085",
+  "id": "fake-id-1783682764033",
   "status": "completed",
   "result": {
     "type":  |
 | ✅ | --stdin 模式读取 JSON params | {
   "ok": true,
-  "id": "fake-id-1783654186180",
+  "id": "fake-id-1783682764137",
   "status": "completed",
   "result": {
     "type":  |
-| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783654186272","status":"completed","result":{"type":"tags_list","fake":tru |
+| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783682764242","status":"completed","result":{"type":"tags_list","fake":tru |
 | ✅ | 错误分级 - bridge.json 缺失 exit 2 | exit=2 stderr=[bridge 未启动] 未找到 .llm-bridge/bridge.json。
   请确认 Obsidian 已启动且 llm-cli-bridge 插件已 |
 | ✅ | 错误分级 - JSON 解析失败 exit 5 | exit=5 stderr=[参数解析失败] JSON 格式错误: Expected property name or '}' in JSON at position 1 (line 1  |
@@ -2404,7 +2423,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-10T03-30-12-467Z-fex7cs |
+| ✅ | 返回非空 id | id=s-2026-07-10T11-26-30-627Z-r47hmc |
 
 ### V2.5 Session 版本
 
@@ -2423,7 +2442,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-10T03-30-12-542Z-ccknls second=s-2026-07-10T03-30-12-475Z-r51mye |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-10T11-26-30-698Z-alws6i second=s-2026-07-10T11-26-30-641Z-hkkcgd |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2462,7 +2481,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-10T03-30-12-582Z-2b6xry id2=s-2026-07-10T03-30-12-582Z-l2b5j2 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-10T11-26-30-760Z-achgsi id2=s-2026-07-10T11-26-30-760Z-qmqzki |
 
 ### V2.5 Session 上限
 
@@ -2560,7 +2579,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-10T03:30:12.646Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-10T11:26:30.832Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2648,7 +2667,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-10T03:30:12.697Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-10T11:26:30.896Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2762,7 +2781,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-10T03:30:12.759Z after=2026-07-10T03:30:12.820Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-10T11:26:30.978Z after=2026-07-10T11:26:31.039Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -3129,13 +3148,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-10T03:30:13.442Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-10T11:26:31.810Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-10T03:30:13.448Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-10T11:26:31.819Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3251,7 +3270,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-DPrR2m\skills\llm-bridge-review-skill\SKILL.md |
+| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-oADqoi\skills\llm-bridge-review-skill\SKILL.md |
 | ✅ | run 前从 Bridge manifest 物化 enabled Skills | ok=true count=1 |
 
 ### V2.13.0-C materializeEnabled
@@ -3265,6 +3284,12 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | Agent Skill 正文不拼进 promptPackage | - |
+
+### P0 Skill ownership
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 旧 ID 可迁移 / 外部不可覆盖 / 非 llm-bridge 目录冲突 / 幂等 | migrate=true idempotent=true foreign=true wrongDir=true helper=true |
 
 ### V2.13.0-D prepare
 
@@ -3447,7 +3472,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-pDtqZt\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-gbJrQJ\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-05WncI\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-l7npnp\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3459,7 +3484,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-rRbYWs\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-VeQndS\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-z1EVLy\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-2LiyND\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3471,7 +3496,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-BX0LL8\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-ehUeTJ\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-hv8M1s\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-lg1dYD\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -3826,7 +3851,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | composer attachment tray uses compact square image tiles | - |
+| ✅ | composer attachments match Codex compact send tray | - |
 
 ### V17-G18 UI
 
@@ -3972,6 +3997,12 @@
 |------|--------|------|
 | ✅ | Vault ref + external attachment grant 分流 | - |
 
+### Chat UI
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 完成回答仅 copy；过程 feed 与 run chrome 拆分；附件移除不删原文件 | actions=["copy"] runningFeed=true opsFeed=true chrome=false status=true remove=true |
+
 ### V2.16-D developer mode
 
 | 状态 | 测试项 | 详情 |
@@ -4098,6 +4129,7 @@
 | ✅ | initialize.params 使用 clientInfo + capabilities（无 clientName/clientVersion 顶层） | clientInfo=true capabilities={"experimentalApi":false} experimentalApi=false |
 | ✅ | experimentalApi=true 显式启用 + audit hash 区分 | default=true experimental=true hashDiffers=true |
 | ✅ | thread/start 使用 config 容器 + instructions，无 resumeSessionId | config=true noResume=true instructions=true |
+| ✅ | turn/start 携带 approvalsReviewer（恢复会话切换替我审批→auto_review） | askTurnReviewer=user autoTurnReviewer=auto_review resume=true |
 | ✅ | item/agentMessage/delta 驱动 AssistantTurnView.finalAnswer | finalAnswer="Hello, world!" |
 | ✅ | item/reasoning/summaryTextDelta 驱动 thinking 段 | thoughts=1 text="Thinking about it" |
 | ✅ | item/commandExecution/outputDelta 附加到 tool progress | tools=1 progress=1 |

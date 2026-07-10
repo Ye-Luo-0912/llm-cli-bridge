@@ -1,0 +1,64 @@
+/* styles/shell.css — 插件壳 / 左 rail / 顶栏 / 页面栈 */
+
+.llm-bridge-view {
+  --llm-bridge-composer-empty-h: 56px;
+  --llm-bridge-composer-max-h: 128px;
+  --llm-bridge-rail-w: 48px;
+}
+
+.llm-bridge-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+
+.llm-bridge-nav-rail {
+  width: var(--llm-bridge-rail-w);
+  flex: 0 0 var(--llm-bridge-rail-w);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 0;
+  border-right: 1px solid var(--background-modifier-border);
+}
+
+/* 左 rail：固定图标模式，不显示 active 文本 */
+.llm-bridge-nav-item .llm-bridge-nav-label {
+  display: none;
+}
+
+.llm-bridge-nav-item.is-active .llm-bridge-nav-label {
+  display: none;
+}
+
+.llm-bridge-nav-item {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.llm-bridge-nav-item.is-active {
+  color: var(--text-normal);
+  background: var(--background-modifier-hover);
+}
+
+.llm-bridge-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.llm-bridge-page-title:not([hidden]) {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-normal);
+}

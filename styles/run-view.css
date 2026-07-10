@@ -1,0 +1,162 @@
+/* styles/run-view.css — 运行过程 / Codex 语义呈现 */
+
+/* 完成问答：隐藏 chrome / Answer 标题，但绝不隐藏已展示的过程区 */
+.llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-header,
+.llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-final-answer-title,
+.llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-provider,
+.llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-status,
+.llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-metrics {
+  display: none;
+}
+
+/* 运行中：隐藏 chrome，保留过程流与当前状态 */
+.llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-run-header,
+.llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-run-provider,
+.llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-run-metrics,
+.llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-final-answer-title {
+  display: none;
+}
+
+.llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-process {
+  display: block;
+}
+
+.llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-current-activity {
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+/* 有工具的完成态：隐藏 chrome / Answer 标题，保留过程流 */
+.llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-run-status,
+.llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-run-provider,
+.llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-final-answer-title,
+.llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-run-metrics,
+.llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-run-header {
+  display: none;
+}
+
+.llm-bridge-codex-run-view.is-semantic-failed .llm-bridge-codex-run-provider,
+.llm-bridge-codex-run-view.is-semantic-failed .llm-bridge-codex-final-answer-title,
+.llm-bridge-codex-run-view.is-semantic-failed .llm-bridge-codex-run-header {
+  display: none;
+}
+
+.llm-bridge-turn-view.is-semantic-answer .llm-bridge-timeline-head,
+.llm-bridge-turn-view.is-semantic-answer .llm-bridge-run-status-text {
+  display: none;
+}
+
+/* 普通模式 quiet：去掉 Thinking 标签、batch steps/status、工具组 raw status */
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-thinking-label,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-feed-batch-label,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-feed-batch-meta,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group-meta,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-step-status,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-step-exit,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head-meta {
+  display: none;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-feed-batch.is-empty-narrative > .llm-bridge-codex-feed-batch-summary {
+  display: none;
+}
+
+.llm-bridge-codex-process-quiet-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head.is-collapsible {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 0 6px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-feed-batch-text.is-quiet-narrative {
+  display: block;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-muted);
+  margin: 2px 0 6px;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-thinking-line {
+  margin: 2px 0 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-thinking-summary {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-final-answer-title {
+  display: none;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group-summary {
+  list-style: none;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group-title {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* 运行中思考：柔和光效；完成后弱化、不再发光 */
+.llm-bridge-codex-thinking-line.is-thinking-live .llm-bridge-codex-thinking-summary {
+  color: var(--text-muted);
+}
+
+.llm-bridge-codex-thinking-line.is-thinking-done .llm-bridge-codex-thinking-summary,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-thinking-line.is-completed .llm-bridge-codex-thinking-summary,
+.llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-thinking-summary {
+  color: var(--text-faint);
+  animation: none;
+  background: none;
+  -webkit-text-fill-color: unset;
+}
+
+/* keyed 时间线：回答候选 vs 过程说明（单瀑布流，无独立 Final Answer 副本） */
+.llm-bridge-codex-feed-entry {
+  min-width: 0;
+}
+
+.llm-bridge-codex-feed-entry.is-answer-candidate .llm-bridge-msg-stream-text,
+.llm-bridge-codex-thinking-line.is-final-candidate .llm-bridge-msg-stream-text {
+  color: var(--text-normal);
+}
+
+.llm-bridge-codex-feed-entry.is-answer-process .llm-bridge-msg-stream-text,
+.llm-bridge-codex-thinking-line.is-answer-process .llm-bridge-msg-stream-text,
+.llm-bridge-codex-feed-entry.is-answer-process .llm-bridge-codex-thinking-summary,
+.llm-bridge-codex-thinking-line.is-answer-process .llm-bridge-codex-thinking-summary {
+  color: var(--text-muted);
+}
+
+.llm-bridge-codex-thinking-summary.is-reasoning-text,
+.llm-bridge-msg-stream-text.is-reasoning-text,
+.llm-bridge-msg-stream-text.is-thinking-faded {
+  color: var(--text-muted);
+}
+
+.llm-bridge-codex-answer-body {
+  min-width: 0;
+  color: var(--text-normal);
+}
+
+.llm-bridge-codex-feed-entry.is-tool-group > .llm-bridge-codex-tool-group {
+  margin: 0;
+}

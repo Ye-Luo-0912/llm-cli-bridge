@@ -128,6 +128,7 @@ async function permissionPopoverSmoke(client) {
       const plugin = app.plugins.plugins[${JSON.stringify(PLUGIN_ID)}];
       const view = app.workspace.getLeavesOfType(${JSON.stringify(VIEW_TYPE)})[0].view;
       plugin.settings.developerMode = false;
+      plugin.settings.agentApprovalProfile = "ask";
       plugin.settings.claudePermissionMode = "default";
       await plugin.saveSettings();
       view.refreshAllChips();
@@ -140,35 +141,46 @@ async function permissionPopoverSmoke(client) {
         return true;
       };
 
-      const clickMode = async (modeValue) => {
+      const clickProfile = async (profileValue, { confirmFullAccess = false } = {}) => {
         triggerClick(view.permissionModeChipEl);
         await new Promise(r => setTimeout(r, 100));
         const popover = view.permissionPopoverEl;
         const beforeOpen = popover && !popover.hasAttribute("hidden");
-        const option = popover?.querySelector('[data-permission-mode="' + modeValue + '"]');
-        if (!option) return { beforeOpen, clicked: false, modeValue };
+        const option = popover?.querySelector('[data-approval-profile="' + profileValue + '"]');
+        if (!option) return { beforeOpen, clicked: false, profileValue };
+        // 完全访问会弹 Modal；冒烟时跳过确认路径，只验证选项存在
+        if (profileValue === "full-access" && !confirmFullAccess) {
+          return {
+            beforeOpen,
+            clicked: false,
+            profileValue,
+            optionPresent: true,
+            closed: false,
+          };
+        }
         triggerClick(option);
         await new Promise(r => setTimeout(r, 160));
         return {
           beforeOpen,
           clicked: true,
-          modeValue,
-          setting: plugin.settings.claudePermissionMode,
+          profileValue,
+          setting: plugin.settings.agentApprovalProfile,
           chip: view.permissionModeChipEl.textContent,
           closed: view.permissionPopoverEl?.hasAttribute("hidden") ?? false,
         };
       };
 
       const noRunHandle = [];
-      for (const modeValue of ["default", "acceptEdits", "plan", "auto", "bypassPermissions"]) {
-        noRunHandle.push(await clickMode(modeValue));
+      for (const profileValue of ["ask", "auto", "full-access"]) {
+        noRunHandle.push(await clickProfile(profileValue));
       }
 
       const fakeHandle = { stop() {} };
       view.runHandle = fakeHandle;
-      const withRunHandle = await clickMode("acceptEdits");
+      const withRunHandle = await clickProfile("auto");
       view.runHandle = null;
 
+      plugin.settings.agentApprovalProfile = "ask";
       plugin.settings.claudePermissionMode = "default";
       await plugin.saveSettings();
       view.refreshAllChips();
@@ -181,13 +193,15 @@ async function permissionPopoverSmoke(client) {
   const res = await client.evaluate(expr, true);
   const r = res.result.value;
   if (r.error) { fail("Permission popover", r.error); return; }
-  const allModesOk = Array.isArray(r.noRunHandle)
-    && r.noRunHandle.length === 5
-    && r.noRunHandle.every((item) => item.beforeOpen && item.clicked && item.setting === item.modeValue && item.closed);
+  const askAutoOk = Array.isArray(r.noRunHandle)
+    && r.noRunHandle.length === 3
+    && r.noRunHandle[0]?.beforeOpen && r.noRunHandle[0]?.clicked && r.noRunHandle[0]?.setting === "ask" && r.noRunHandle[0]?.closed
+    && r.noRunHandle[1]?.beforeOpen && r.noRunHandle[1]?.clicked && r.noRunHandle[1]?.setting === "auto" && r.noRunHandle[1]?.closed
+    && r.noRunHandle[2]?.beforeOpen && r.noRunHandle[2]?.optionPresent;
   const runHandleOk = r.withRunHandle?.beforeOpen && r.withRunHandle?.clicked
-    && r.withRunHandle?.setting === "acceptEdits" && r.withRunHandle?.closed;
-  if (allModesOk) pass("Permission popover: chip 打开 + 各 option 更新 setting 并关闭", "modes=4");
-  else fail("Permission popover: chip 打开 + 各 option 更新 setting 并关闭", JSON.stringify(r.noRunHandle));
+    && r.withRunHandle?.setting === "auto" && r.withRunHandle?.closed;
+  if (askAutoOk) pass("Permission popover: chip 打开 + 三项审批画像（完全访问需确认）", "profiles=3");
+  else fail("Permission popover: chip 打开 + 三项审批画像（完全访问需确认）", JSON.stringify(r.noRunHandle));
   if (runHandleOk) pass("Permission popover: runHandle 存在时 next-round setting 仍可切换", `setting=${r.withRunHandle.setting}`);
   else fail("Permission popover: runHandle 存在时 next-round setting 仍可切换", JSON.stringify(r.withRunHandle));
 }

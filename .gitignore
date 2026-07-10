@@ -48,6 +48,8 @@ release/
 
 # Codex managed runtime artifacts（由 pinned manifest/source 安装，不进代码提交）
 .tmp/
+.tmp-*.txt
+.tmp-*
 src/runtime/providers/codex-managed-app-server/runtime/win32-x64/codex.exe
 src/runtime/providers/codex-managed-app-server/runtime/win32-arm64/codex.exe
 src/runtime/providers/codex-managed-app-server/runtime/linux-x64/codex

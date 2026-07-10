@@ -1,0 +1,22 @@
+/* styles/secondary.css — 上下文 / 能力 / 历史 次级页 */
+
+.llm-bridge-files-page .llm-bridge-secondary-kicker,
+.llm-bridge-skills-page .llm-bridge-secondary-kicker,
+.llm-bridge-history-page .llm-bridge-secondary-kicker {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.llm-bridge-secondary-head strong {
+  display: block;
+  margin-top: 2px;
+  font-size: 16px;
+}
+
+.llm-bridge-secondary-head small {
+  display: block;
+  margin-top: 4px;
+  color: var(--text-muted);
+}
