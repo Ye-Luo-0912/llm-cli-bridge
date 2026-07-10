@@ -8,6 +8,7 @@ import { AgentSkillDocumentView, LLMBridgeView, VIEW_TYPE_AGENT_SKILL_DOCUMENT, 
 import { DEFAULT_SETTINGS, LLMBridgeSettings } from "./src/types";
 import {
   isAgentApprovalProfile,
+  mapAgentApprovalProfileToClaudePermissionMode,
   migrateLegacyPermissionToApprovalProfile,
 } from "./src/agentApprovalProfile";
 import { OutboxWatcher } from "./src/outbox";
@@ -546,15 +547,27 @@ export default class LLMBridgePlugin extends Plugin {
       this.settings.backendMode = "codex-app-server-external";
       await this.saveData(this.settings);
     }
-    // agentApprovalProfile：旧数据统一回到「请求批准」，不把 bypassPermissions 静默升级为完全访问
+    // agentApprovalProfile：旧数据统一回到「请求批准」，不把 bypassPermissions / full-access 静默持久化
     const raw = this.settings as { agentApprovalProfile?: unknown };
-    if (!isAgentApprovalProfile(raw.agentApprovalProfile)) {
+    if (!isAgentApprovalProfile(raw.agentApprovalProfile) || raw.agentApprovalProfile === "full-access") {
       this.settings.agentApprovalProfile = migrateLegacyPermissionToApprovalProfile(this.settings.claudePermissionMode);
+      this.settings.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode(this.settings.agentApprovalProfile);
       await this.saveData(this.settings);
     }
   }
 
   async saveSettings(): Promise<void> {
+    // full-access 仅当前 Bridge session 内存有效：落盘始终降级为 ask
+    const liveProfile = this.settings.agentApprovalProfile;
+    const liveClaude = this.settings.claudePermissionMode;
+    if (liveProfile === "full-access") {
+      this.settings.agentApprovalProfile = "ask";
+      this.settings.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode("ask");
+    }
     await this.saveData(this.settings);
+    if (liveProfile === "full-access") {
+      this.settings.agentApprovalProfile = liveProfile;
+      this.settings.claudePermissionMode = liveClaude;
+    }
   }
 }

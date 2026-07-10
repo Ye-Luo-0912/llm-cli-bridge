@@ -3,13 +3,14 @@
 // 解析我们管理的 pinned runtime binary（不依赖用户安装 Codex CLI / Desktop App）。
 //
 // 热路径（发送 / 状态栏 / Provider 创建 / 插件列表）只做轻量校验：
-//   manifest 合法 → 平台条目 → 文件存在 → size(stat) → executable
+//   manifest 合法 → 平台条目 → 文件存在 → size(stat) → executable → 完整性缓存命中
 // 禁止在热路径上 readFileSync(runtimePath) / 同步 SHA-256 / execFileSync。
 //
-// 完整 SHA-256 校验改为后台异步，并按 {路径、大小、mtime、manifest 版本} 缓存。
-// 安装完成或运行时文件变化时才重新校验；发送时只读缓存。
+// 只有 integrityStatus === "verified" 时 available=true 才可执行。
+// 完整 SHA-256 在安装阶段完成，并按 {路径、大小、mtime、manifest 版本、expectedSha} 写入
+// 磁盘缓存（runtime 旁 .integrity.json），避免插件重载后再次扫描大文件。
 
-import { createReadStream, existsSync, readFileSync, accessSync, constants, statSync } from "fs";
+import { createReadStream, existsSync, readFileSync, writeFileSync, unlinkSync, accessSync, constants, statSync } from "fs";
 import { createHash } from "crypto";
 import { join, resolve, dirname } from "path";
 import type { CodexManagedRuntimeManifest } from "../../../types";
@@ -30,10 +31,10 @@ export interface ManagedRuntimeResolverResult {
   error: string | null;
   /**
    * 完整性校验状态：
-   * - verified: 后台 SHA 已通过且缓存命中
-   * - pending: 轻量校验通过，SHA 正在/等待后台验证（不阻塞 UI）
+   * - verified: SHA 已通过（安装期或磁盘缓存命中）→ 才可执行
+   * - pending: 轻量校验通过，但尚未 verified（不可执行）
    * - failed: SHA/完整性失败
-   * - skipped: 未走到 binary 校验（manifest/platform/path 失败）
+   * - skipped: 未走到 binary 校验（manifest/platform/path 失败，或 fixture）
    */
   integrityStatus: RuntimeIntegrityStatus;
 }
@@ -47,7 +48,8 @@ export type ManagedRuntimeUnavailableReason =
   | "path-not-exist"
   | "size-mismatch"
   | "sha256-mismatch"
-  | "not-executable";
+  | "not-executable"
+  | "integrity-unverified";
 
 export interface RuntimeIntegrityCacheKey {
   readonly path: string;
@@ -187,6 +189,21 @@ export function resolveManagedRuntime(
     });
   }
 
+  // fixture runtime：跳过 SHA，允许执行（测试/开发桩）
+  if (fixture) {
+    return {
+      available: true,
+      runtimePath,
+      version,
+      protocolVersion,
+      appServerArgs,
+      fixture,
+      reason: "ok",
+      error: null,
+      integrityStatus: "skipped",
+    };
+  }
+
   const key: RuntimeIntegrityCacheKey = {
     path: runtimePath,
     size: st.size,
@@ -228,24 +245,70 @@ export function resolveManagedRuntime(
     void scheduleManagedRuntimeIntegrityVerify(key);
   }
 
-  return {
-    available: true,
+  // 未 verified：不可执行（安装期应完成校验并写入磁盘缓存）
+  return unavailable("integrity-unverified", {
     runtimePath,
     version,
     protocolVersion,
     appServerArgs,
     fixture,
-    reason: "ok",
-    error: null,
+    error: "runtime integrity not verified; install or wait for verification to finish",
     integrityStatus: "pending",
-  };
+  });
+}
+
+function integrityDiskPath(runtimePath: string): string {
+  return `${runtimePath}.integrity.json`;
+}
+
+function readIntegrityDiskCache(runtimePath: string): RuntimeIntegrityCacheEntry | null {
+  const diskPath = integrityDiskPath(runtimePath);
+  if (!existsSync(diskPath)) return null;
+  try {
+    const raw = readFileSync(diskPath, "utf8");
+    const parsed = JSON.parse(raw) as RuntimeIntegrityCacheEntry;
+    if (!parsed || typeof parsed.path !== "string" || typeof parsed.expectedSha256 !== "string") return null;
+    if (parsed.status !== "verified" && parsed.status !== "failed" && parsed.status !== "pending") return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeIntegrityDiskCache(entry: RuntimeIntegrityCacheEntry): void {
+  try {
+    writeFileSync(integrityDiskPath(entry.path), JSON.stringify(entry), "utf8");
+  } catch {
+    // best-effort：磁盘写入失败不阻断安装/校验主路径
+  }
+}
+
+function removeIntegrityDiskCache(runtimePath: string): void {
+  try {
+    const diskPath = integrityDiskPath(runtimePath);
+    if (existsSync(diskPath)) unlinkSync(diskPath);
+  } catch {
+    // ignore
+  }
+}
+
+function putIntegrityCache(entry: RuntimeIntegrityCacheEntry): void {
+  integrityCache.set(entry.path, entry);
+  if (entry.status === "verified" || entry.status === "failed") {
+    writeIntegrityDiskCache(entry);
+  }
 }
 
 /**
  * 读取完整性缓存（仅当 key 完全匹配时命中）。
+ * 内存未命中时尝试加载 runtime 旁磁盘缓存（跨插件重载保留 verified 结果）。
  */
 export function getCachedIntegrity(key: RuntimeIntegrityCacheKey): RuntimeIntegrityCacheEntry | null {
-  const entry = integrityCache.get(key.path);
+  let entry = integrityCache.get(key.path) ?? null;
+  if (!entry) {
+    entry = readIntegrityDiskCache(key.path);
+    if (entry) integrityCache.set(key.path, entry);
+  }
   if (!entry) return null;
   if (
     entry.size !== key.size
@@ -265,7 +328,11 @@ export function invalidateManagedRuntimeIntegrityCache(runtimePath?: string): vo
   if (runtimePath) {
     integrityCache.delete(runtimePath);
     verifyInFlight.delete(runtimePath);
+    removeIntegrityDiskCache(runtimePath);
     return;
+  }
+  for (const pathKey of [...integrityCache.keys()]) {
+    removeIntegrityDiskCache(pathKey);
   }
   integrityCache.clear();
   verifyInFlight.clear();
@@ -304,7 +371,6 @@ export function hashFileSha256Async(filePath: string): Promise<string> {
 
 export async function verifyManagedRuntimeIntegrity(key: RuntimeIntegrityCacheKey): Promise<RuntimeIntegrityCacheEntry> {
   try {
-    // 再次确认文件未变
     const s = statSync(key.path);
     if (s.size !== key.size || s.mtimeMs !== key.mtimeMs) {
       const entry: RuntimeIntegrityCacheEntry = {
@@ -312,9 +378,9 @@ export async function verifyManagedRuntimeIntegrity(key: RuntimeIntegrityCacheKe
         size: s.size,
         mtimeMs: s.mtimeMs,
         status: "failed",
-        error: `runtime file changed during verify (size/mtime)`,
+        error: "runtime file changed during verify (size/mtime)",
       };
-      integrityCache.set(key.path, entry);
+      putIntegrityCache(entry);
       return entry;
     }
 
@@ -326,7 +392,7 @@ export async function verifyManagedRuntimeIntegrity(key: RuntimeIntegrityCacheKe
         actualSha256,
         error: `sha256 mismatch: expected ${key.expectedSha256}, got ${actualSha256}`,
       };
-      integrityCache.set(key.path, entry);
+      putIntegrityCache(entry);
       return entry;
     }
 
@@ -336,7 +402,7 @@ export async function verifyManagedRuntimeIntegrity(key: RuntimeIntegrityCacheKe
       actualSha256,
       verifiedAt: Date.now(),
     };
-    integrityCache.set(key.path, entry);
+    putIntegrityCache(entry);
     return entry;
   } catch (e) {
     const entry: RuntimeIntegrityCacheEntry = {
@@ -344,21 +410,67 @@ export async function verifyManagedRuntimeIntegrity(key: RuntimeIntegrityCacheKe
       status: "failed",
       error: e instanceof Error ? e.message : String(e),
     };
-    integrityCache.set(key.path, entry);
+    putIntegrityCache(entry);
     return entry;
   }
 }
 
 /**
  * 标记已验证（安装器在刚写完并校验过 binary 后调用，避免立刻再扫一遍）。
+ * 同时写入磁盘缓存，插件重载后仍可命中。
  */
 export function markManagedRuntimeIntegrityVerified(key: RuntimeIntegrityCacheKey, actualSha256?: string): void {
-  integrityCache.set(key.path, {
+  putIntegrityCache({
     ...key,
     status: "verified",
     actualSha256: actualSha256 || key.expectedSha256,
     verifiedAt: Date.now(),
   });
+}
+
+/**
+ * 发送前确保 runtime 已 verified：命中缓存直接 true；否则等待一次异步校验。
+ */
+export async function ensureManagedRuntimeIntegrityVerified(
+  manifestPath: string,
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): Promise<{ ok: boolean; result: ManagedRuntimeResolverResult }> {
+  const quick = resolveManagedRuntime(manifestPath, platform, arch, { scheduleVerify: false });
+  if (quick.available && (quick.integrityStatus === "verified" || quick.fixture)) {
+    return { ok: true, result: quick };
+  }
+  if (quick.integrityStatus === "failed" || !quick.runtimePath) {
+    return { ok: false, result: quick };
+  }
+  let st: { size: number; mtimeMs: number };
+  try {
+    const s = statSync(quick.runtimePath);
+    st = { size: s.size, mtimeMs: s.mtimeMs };
+  } catch {
+    return { ok: false, result: quick };
+  }
+  let expectedSha256 = "";
+  let manifestVersion = "";
+  try {
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as CodexManagedRuntimeManifest;
+    const key = getPlatformKey(platform, arch);
+    expectedSha256 = manifest.platforms?.[key]?.sha256 || "";
+    manifestVersion = manifest.version || "";
+  } catch {
+    return { ok: false, result: quick };
+  }
+  if (!expectedSha256) return { ok: false, result: quick };
+
+  await scheduleManagedRuntimeIntegrityVerify({
+    path: quick.runtimePath,
+    size: st.size,
+    mtimeMs: st.mtimeMs,
+    manifestVersion,
+    expectedSha256,
+  });
+  const after = resolveManagedRuntime(manifestPath, platform, arch, { scheduleVerify: false });
+  return { ok: after.available && after.integrityStatus === "verified", result: after };
 }
 
 /** 测试钩子：窥视缓存大小 */

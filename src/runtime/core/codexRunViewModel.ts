@@ -334,6 +334,8 @@ function resolveCodexAssistantNarratives(
     previousNarrative = fullText;
   }
   if (assistantCards.length === 0) {
+    // completion-only：仅有 completed.text / model.finalAnswer，无 agentMessage 卡片。
+    // finalAnswer 仍作为投影；UI 候选节点由 ensureSyntheticCompletionCandidate 补齐。
     return { finalAnswer: model.finalAnswer.trim(), narrativeByCardId };
   }
   // 终端 agent message：无后续工具时作为 candidate（仍进 feed，单所有者）；有后续工具则降为过程说明。
@@ -462,6 +464,37 @@ function findMatchingChange(
       && change.fullPath.replace(/\\/g, "/").toLowerCase() === normalizedPath
       && (!diff || change.diff === diff);
   });
+}
+
+/**
+ * completion-only 兜底：有 finalAnswer 但 feed 中尚无 candidate 时，
+ * 注入稳定 synthetic candidate，维持单一 DOM 所有者（不另建 Final Answer 副本）。
+ */
+function ensureSyntheticCompletionCandidate(
+  feedItems: ReadonlyArray<CodexRunFeedItem>,
+  finalAnswer: string,
+  status: BuildCodexRunViewModelOptions["status"],
+): CodexRunFeedItem[] {
+  const text = finalAnswer.trim();
+  if (!text) return feedItems.slice();
+  const hasCandidate = feedItems.some(
+    (item) => item.kind === "assistant" && item.answerRole === "candidate",
+  );
+  if (hasCandidate) return feedItems.slice();
+  const running = typeof status === "string"
+    && (status === "running" || status.includes("waiting") || status.includes("pending"));
+  return [
+    ...feedItems,
+    {
+      id: "feed-synthetic-completion-answer",
+      kind: "assistant",
+      icon: "message-square",
+      label: "Answer",
+      status: running ? "running" : "completed",
+      summary: text,
+      answerRole: "candidate",
+    },
+  ];
 }
 
 function buildFeedItems(
@@ -738,7 +771,11 @@ export function buildCodexRunViewModel(
   const stepGroups = buildStepGroups(model);
   const changeGroups = buildChangeGroups(model, turnView, options.cwd);
   const { finalAnswer, terminalAssistantCardId, narrativeByCardId } = resolveCodexAssistantNarratives(model, options.status);
-  const feedItems = buildFeedItems(model, changeGroups, terminalAssistantCardId, narrativeByCardId);
+  const feedItems = ensureSyntheticCompletionCandidate(
+    buildFeedItems(model, changeGroups, terminalAssistantCardId, narrativeByCardId),
+    finalAnswer,
+    options.status,
+  );
   const approvalGates = buildApprovalGates(model);
   const diagnosticsGroups = buildDiagnosticsGroups(model);
   const kind = statusKind(options.status, model);

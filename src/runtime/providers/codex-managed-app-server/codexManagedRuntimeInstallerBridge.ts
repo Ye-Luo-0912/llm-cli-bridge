@@ -47,7 +47,7 @@ export interface ManagedRuntimeInstallStatus {
   runtimeExecutable?: boolean;
   requiresSystemNpm?: boolean;
   requiresSystemTar?: boolean;
-  /** 热路径完整性状态：pending 时 UI 显示「正在验证」，不阻塞发送 */
+  /** 热路径完整性状态：仅 verified（或 fixture skipped）才可执行；pending 时不可启动 */
   integrityStatus?: RuntimeIntegrityStatus;
 }
 
@@ -83,8 +83,9 @@ function readInstallMetadata(pluginDir?: string): ManagedRuntimeInstallStatus {
     const platformKey = `${process.platform}-${process.arch}`;
     const entry = manifest.platforms?.[platformKey];
     const installPath = entry ? resolve(dirname(manifestPath), entry.path) : null;
-    // 热路径：resolveManagedRuntime 只用 stat/size，不读完整 binary、不同步 SHA
+    // 热路径：resolveManagedRuntime 只用 stat + 完整性缓存，不读完整 binary
     const resolver = resolveManagedRuntime(manifestPath);
+    const unverified = resolver.integrityStatus === "pending" || resolver.reason === "integrity-unverified";
     return {
       required: resolver.reason === "path-not-exist" && manifest.fixture !== true,
       version: manifest.version || null,
@@ -92,7 +93,7 @@ function readInstallMetadata(pluginDir?: string): ManagedRuntimeInstallStatus {
       source: entry?.artifact?.tarball || entry?.artifact?.package || null,
       sha256: entry?.sha256 || null,
       installPath,
-      status: resolver.integrityStatus === "pending"
+      status: unverified
         ? "verifying"
         : resolver.available
           ? "installed"
@@ -269,17 +270,29 @@ async function installManagedRuntimeBundled(
   }
 
   if (existsSync(runtimePath)) {
-    // 已安装探测走热路径 resolver（stat + 缓存），避免同步读 323MB binary
+    // 已安装：仅 verified 视为可用；pending 时触发一次校验，仍返回 verifying（不可执行）
     const quick = resolveManagedRuntime(manifestPath, process.platform, process.arch, { scheduleVerify: true });
-    if (quick.available && quick.integrityStatus !== "failed") {
+    if (quick.available && (quick.integrityStatus === "verified" || quick.fixture)) {
       return {
         ...base,
         required: false,
-        status: quick.integrityStatus === "verified" ? "already-installed" : "verifying",
+        status: "already-installed",
         binarySizeValid: true,
-        binarySha256Valid: quick.integrityStatus === "verified",
+        binarySha256Valid: quick.integrityStatus === "verified" || quick.fixture,
         runtimeExecutable: true,
         integrityStatus: quick.integrityStatus,
+      };
+    }
+    if (quick.integrityStatus === "pending" || quick.reason === "integrity-unverified") {
+      return {
+        ...base,
+        required: false,
+        status: "verifying",
+        binarySizeValid: true,
+        binarySha256Valid: false,
+        runtimeExecutable: false,
+        integrityStatus: "pending",
+        error: quick.error,
       };
     }
   }

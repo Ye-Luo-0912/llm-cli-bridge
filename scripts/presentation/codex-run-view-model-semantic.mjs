@@ -62,6 +62,16 @@ export function runCodexRunViewModelSemanticTests(ctx) {
     ok ? "pass" : "fail",
     `status=${run.runHeader.statusKind} activity=${run.currentActivity.label} commands=${run.runHeader.commandCount} changes=${run.runHeader.fileChangeCount} approvals=${run.approvalGates.length} feed=${feedKinds} thinkingSummary=${thinkingFeed?.summary || ""} stepStdout=${!!commandStep?.stdout} relativePath=${change?.relativePath} debug=${!!run.debugPanel}/${!!devRun.debugPanel}`);
 
+  // V17-G61 行为：thinking 领头 + command stdout 合并进同一步（无独立 output 段）+ assistant 不冒充 thinking
+  const g61Ok = feedKinds.startsWith("thinking>command")
+    && !!commandStep?.stdout?.includes("V17G")
+    && !!commandFeed?.step?.stdout?.includes("V17G")
+    && thinkingFeed?.kind === "thinking"
+    && !run.feedItems.some((item) => item.kind === "assistant" && /thinking/i.test(item.label || ""));
+  addTest("V17-G61: thinking lead + shell/output 合并为单块瀑布，assistant 不冒充 Thinking",
+    g61Ok ? "pass" : "fail",
+    `feed=${feedKinds} stdoutMerged=${!!commandStep?.stdout?.includes("V17G")}`);
+
   const finalOnlyEvents = [
     mkCodexRunEvent({ kind: "thinking", text: "Plan the edit" }, 1),
     mkCodexRunEvent({ kind: "completed", text: "done", durationMs: 1200 }, 2),
@@ -73,8 +83,9 @@ export function runCodexRunViewModelSemanticTests(ctx) {
     ...DEFAULT_CODEX_RUN_VIEW_OPTS,
   });
   const finalSeparatedOk = finalOnlyRun.finalAnswer === "done"
-    && finalOnlyRun.feedItems.every((item) => item.kind !== "assistant");
-  addTest("V17-G CodexRunViewModel: 无 agent message 卡片时 final answer 不虚构进过程 feed",
+    && finalOnlyRun.feedItems.some((item) => item.kind === "assistant" && item.answerRole === "candidate" && (item.summary || "").includes("done"))
+    && finalOnlyRun.feedItems.filter((item) => item.kind === "assistant").length === 1;
+  addTest("V17-G CodexRunViewModel: completion-only → synthetic candidate（单一 DOM 所有者）",
     finalSeparatedOk ? "pass" : "fail",
     `final=${JSON.stringify(finalOnlyRun.finalAnswer)} feedKinds=${finalOnlyRun.feedItems.map((item) => item.kind).join(">")}`);
 

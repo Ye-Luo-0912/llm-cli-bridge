@@ -30,6 +30,10 @@ import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
 import { DEFAULT_PROVIDER_CAPABILITIES, type ProviderCapabilityInfo, type ObsidianCliAvailability, type ProviderRuntimeSkillEntry } from "./runtime/core/bridgePromptContract";
 import type { ManagedRuntimeInstallStatus } from "./runtime/providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge";
 import { listManagedCodexPluginsAsync, type CodexManagedPluginCatalog, type CodexManagedPluginEntry } from "./runtime/providers/codex-managed-app-server/codexManagedPluginCatalog";
+import {
+  ensureManagedRuntimeIntegrityVerified,
+  resolveManifestPath,
+} from "./runtime/providers/codex-managed-app-server/codexManagedRuntimeResolver";
 import { AssistantTurnViewBuilder } from "./runtime/core/assistantTurnView";
 import { mapNormalizedToWorkflowEvent } from "./runtime/providers/workflowEventMapper";
 import { getRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, findModelEntry, findEffortEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
@@ -2063,11 +2067,16 @@ export class LLMBridgeView extends ItemView {
 
   /**
    * 恢复会话审批画像。
-   * 有 approvalProfile 用其值；仅有旧 permissionMode 时统一回到「请求批准」，
-   * 不把 bypassPermissions 静默升级为完全访问。
+   * full-access 不从历史静默恢复，必须重新确认；旧 bypassPermissions 统一回到 ask。
    */
   private applySessionApprovalProfile(session: { approvalProfile?: string; permissionMode?: string }): void {
     const s = this.plugin.settings;
+    if (session.approvalProfile === "full-access") {
+      s.agentApprovalProfile = "ask";
+      s.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode("ask");
+      new Notice("历史会话含完全访问：已降级为请求批准，如需完全访问请重新确认。");
+      return;
+    }
     if (isAgentApprovalProfile(session.approvalProfile)) {
       s.agentApprovalProfile = session.approvalProfile;
       s.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode(session.approvalProfile);
@@ -6087,7 +6096,7 @@ export class LLMBridgeView extends ItemView {
       const activity = body.createDiv({ cls: "llm-bridge-codex-current-activity is-running" });
       activity.createEl("span", { cls: "llm-bridge-codex-current-activity-text llm-bridge-run-status-text is-running llm-bridge-run-glow", text: line });
     }
-    if (run.approvalGates.length > 0) this.renderCodexApprovalGates(body, run.approvalGates, developerMode);
+    if (run.approvalGates.length > 0) this.reconcileCodexApprovalGates(body, run.approvalGates, developerMode);
 
     const process = body.createDiv({ cls: "llm-bridge-codex-process" });
     if (showFeed) {
@@ -6133,11 +6142,12 @@ export class LLMBridgeView extends ItemView {
       });
       const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
       // 禁止自动折叠：过程体始终可见
-      // 初渲与增量共用同一套分组 + keyed reconciliation
+      // 初渲与增量共用 reconcileCodexRunWaterfall（keyed feed + candidate 原地升级）
       if (processFeedItems.length > 0) {
-        const section = processBody.createDiv({ cls: "llm-bridge-codex-feed llm-bridge-codex-changes-panel" });
-        const list = section.createDiv({ cls: "llm-bridge-codex-feed-list llm-bridge-codex-step-list" });
-        this.patchCodexFeedStable(list, processFeedItems, developerMode);
+        this.reconcileCodexRunWaterfall(processBody, run, {
+          streaming: presentation.kind === "assistant-running",
+          developerMode,
+        });
       }
       if (diagnosticsForDisplay.length > 0) this.renderCodexDiagnosticsDrawer(processBody, diagnosticsForDisplay, developerMode);
 
@@ -6173,8 +6183,8 @@ export class LLMBridgeView extends ItemView {
       process.setAttribute("hidden", "");
     }
 
-    if (hasAnswer) {
-      // 单瀑布流：终端回答已在 feed 的 candidate 节点；不另建 Final Answer 副本
+    // candidate 升级已并入 reconcileCodexRunWaterfall；无 feed 时仍兜底一次
+    if (hasAnswer && processFeedItems.length === 0) {
       this.upgradeCodexCandidateAnswerInFeed(body, run.finalAnswer, presentation.kind === "assistant-running");
     }
     if (hasDeveloperDebug) this.renderAgentRunDebugDrawer(body, run.debugPanel!);
@@ -6227,6 +6237,34 @@ export class LLMBridgeView extends ItemView {
     } catch {
       fallback();
     }
+  }
+
+  /** 复用固定 approval-gates-host，避免增量刷新堆积空 host */
+  private ensureCodexApprovalGatesHost(body: HTMLElement): HTMLElement {
+    let host = body.querySelector<HTMLElement>(":scope > .llm-bridge-codex-approval-gates-host");
+    if (!host) {
+      host = body.createDiv({ cls: "llm-bridge-codex-approval-gates-host" });
+      const process = body.querySelector(":scope > .llm-bridge-codex-process");
+      if (process) body.insertBefore(host, process);
+    }
+    return host;
+  }
+
+  private reconcileCodexApprovalGates(
+    body: HTMLElement,
+    gates: ReadonlyArray<CodexRunApprovalGate>,
+    developerMode: boolean,
+  ): void {
+    const host = this.ensureCodexApprovalGatesHost(body);
+    // 清掉历史直接挂在 body 上的 gates（旧初渲路径）
+    body.querySelectorAll(":scope > .llm-bridge-codex-approval-gates").forEach((el) => el.remove());
+    host.empty();
+    if (gates.length === 0) {
+      host.setAttribute("hidden", "");
+      return;
+    }
+    host.removeAttribute("hidden");
+    this.renderCodexApprovalGates(host, gates, developerMode);
   }
 
   private renderCodexApprovalGates(parent: HTMLElement, gates: ReadonlyArray<CodexRunApprovalGate>, developerMode: boolean): void {
@@ -8516,18 +8554,15 @@ export class LLMBridgeView extends ItemView {
   /** 流式正文：更新瀑布流中的 candidate 节点，不另建 Final Answer */
   private patchCodexFinalAnswerSurface(block: HTMLElement, msg: ChatMessage): void {
     const built = this.buildCodexRunForMessage(msg);
-    const text = (built?.run.finalAnswer || msg.content || "").trim();
-    if (!text) return;
+    if (!built) return;
     const wrap = block.querySelector<HTMLElement>(".llm-bridge-codex-run-view");
     if (!wrap) return;
-    const body = wrap.querySelector<HTMLElement>(".llm-bridge-codex-run-body");
-    if (!body) return;
-    // 先同步 feed（含 candidate 流式文本），再按需升级
-    const feedList = body.querySelector<HTMLElement>(".llm-bridge-codex-feed-list");
-    if (feedList && built) {
-      this.patchCodexFeedStable(feedList, built.run.feedItems, !!this.plugin.settings.developerMode);
-    }
-    this.upgradeCodexCandidateAnswerInFeed(body, text, msg.status === "running");
+    const processBody = wrap.querySelector<HTMLElement>(".llm-bridge-codex-process-body");
+    if (!processBody) return;
+    this.reconcileCodexRunWaterfall(processBody, built.run, {
+      streaming: msg.status === "running",
+      developerMode: !!this.plugin.settings.developerMode,
+    });
   }
 
   /**
@@ -8546,13 +8581,14 @@ export class LLMBridgeView extends ItemView {
     const developerMode = !!this.plugin.settings.developerMode;
     const loc = resolveUiLocale() === "en" ? "en" : "zh";
 
+    const showChrome = presentation.showRunChrome || developerMode;
     wrap.className = `llm-bridge-timeline-wrap llm-bridge-turn-view llm-bridge-codex-run-view is-${run.runHeader.statusKind}${developerMode ? " is-developer" : ""}${
       presentation.kind === "assistant-answer" ? " is-semantic-answer"
         : presentation.kind === "assistant-running" ? " is-semantic-running"
           : presentation.kind === "assistant-summary" ? " is-semantic-summary"
             : presentation.kind === "assistant-failed" || presentation.kind === "assistant-stopped" ? " is-semantic-failed"
               : ""
-    } is-process-quiet`;
+    }${showChrome ? " is-run-chrome" : " is-process-quiet"}`;
     wrap.setAttribute("data-final-answer-disposition", model.finalAnswerDisposition);
 
     // 终态：去掉运行光效
@@ -8569,17 +8605,8 @@ export class LLMBridgeView extends ItemView {
     const body = wrap.querySelector<HTMLElement>(".llm-bridge-codex-run-body");
     if (!body) return;
 
-    // 授权门：有则确保存在（简单替换授权区，不影响过程时间线）
-    const existingGates = body.querySelector(".llm-bridge-codex-approval-gates");
-    if (run.approvalGates.length > 0) {
-      if (existingGates) existingGates.remove();
-      const process = body.querySelector(".llm-bridge-codex-process");
-      const gatesHost = body.createDiv({ cls: "llm-bridge-codex-approval-gates-host" });
-      if (process) body.insertBefore(gatesHost, process);
-      this.renderCodexApprovalGates(gatesHost, run.approvalGates, developerMode);
-    } else if (existingGates) {
-      existingGates.remove();
-    }
+    // 授权门：复用固定 host，避免每次刷新遗留空 .approval-gates-host
+    this.reconcileCodexApprovalGates(body, run.approvalGates, developerMode);
 
     let process = body.querySelector<HTMLElement>(".llm-bridge-codex-process");
     if (!process) {
@@ -8612,15 +8639,10 @@ export class LLMBridgeView extends ItemView {
     // 禁止自动折叠：确保过程体可见
     processBody.removeAttribute("hidden");
 
-    let feedList = processBody.querySelector<HTMLElement>(".llm-bridge-codex-feed-list");
-    if (!feedList) {
-      const section = processBody.createDiv({ cls: "llm-bridge-codex-feed llm-bridge-codex-changes-panel" });
-      feedList = section.createDiv({ cls: "llm-bridge-codex-feed-list llm-bridge-codex-step-list" });
-    }
-    this.patchCodexFeedStable(feedList, run.feedItems, developerMode);
-
-    // 单瀑布流：在 feed 的 candidate 节点上原地升级，不另建 Final Answer
-    this.upgradeCodexCandidateAnswerInFeed(body, run.finalAnswer, msg.status === "running");
+    this.reconcileCodexRunWaterfall(processBody, run, {
+      streaming: msg.status === "running",
+      developerMode,
+    });
   }
 
   private codexFeedItemKey(item: CodexRunFeedItem): string {
@@ -8912,6 +8934,28 @@ export class LLMBridgeView extends ItemView {
     const active = items.some((item) => item.status === "running" || item.status === "pending");
     if (loc === "zh") return active ? "正在分析图片" : items.length > 1 ? `已查看 ${items.length} 张图片` : "已查看图片";
     return active ? "Viewing image" : items.length > 1 ? `Viewed ${items.length} images` : "Viewed image";
+  }
+
+  /**
+   * 初渲与增量共用的瀑布流 reconcile：
+   * 确保 feed list 存在 → keyed patch → candidate 原地升级 Markdown。
+   * 不创建独立 Final Answer 副本。
+   */
+  private reconcileCodexRunWaterfall(
+    processBody: HTMLElement,
+    run: CodexRunViewModel,
+    options: { streaming: boolean; developerMode: boolean },
+  ): void {
+    let feedList = processBody.querySelector<HTMLElement>(".llm-bridge-codex-feed-list");
+    if (!feedList) {
+      const section = processBody.createDiv({ cls: "llm-bridge-codex-feed llm-bridge-codex-changes-panel" });
+      feedList = section.createDiv({ cls: "llm-bridge-codex-feed-list llm-bridge-codex-step-list" });
+    }
+    this.patchCodexFeedStable(feedList, run.feedItems, options.developerMode);
+    const text = run.finalAnswer.trim();
+    if (!text) return;
+    const body = processBody.closest<HTMLElement>(".llm-bridge-codex-run-body") || processBody;
+    this.upgradeCodexCandidateAnswerInFeed(body, text, options.streaming);
   }
 
   /**
@@ -9923,9 +9967,9 @@ export class LLMBridgeView extends ItemView {
     // UI-03: 恢复时提示恢复了哪些状态
     const restoredParts: string[] = [`${session.messageCount} 条消息`];
     if (session.model) restoredParts.push(`模型 ${session.model}`);
-    const restoredProfile = isAgentApprovalProfile(session.approvalProfile)
+    const restoredProfile = isAgentApprovalProfile(session.approvalProfile) && session.approvalProfile !== "full-access"
       ? session.approvalProfile
-      : this.plugin.settings.agentApprovalProfile;
+      : (this.plugin.settings.agentApprovalProfile === "full-access" ? "ask" : this.plugin.settings.agentApprovalProfile);
     if (restoredProfile) restoredParts.push(`权限 ${getAgentApprovalProfileInfo(restoredProfile).shortLabel}`);
     if (session.pinnedContextRefs && session.pinnedContextRefs.length > 0) restoredParts.push(`${session.pinnedContextRefs.length} 个 Pin`);
     if (session.nativeSessionRef) restoredParts.push("原生会话");
@@ -10795,15 +10839,27 @@ export class LLMBridgeView extends ItemView {
       let turnBuilder: AssistantTurnViewBuilder | null = null;
       let watchdogTimer: ReturnType<typeof setInterval> | null = null;
       try {
-        // 安装探测只读缓存/stat，不阻塞在 323MB SHA 上；pending 显示「正在验证」
+        // 安装探测只读缓存/stat；未 verified 时等待一次校验，失败则阻止启动
         const installStatus = view.getManagedRuntimeInstallStatusForCurrentMode();
         if (installStatus?.required) {
           view.refreshManagedRuntimeInstallAction(installStatus);
           await view.failRunBeforeStart(assistantId, "Codex managed runtime needs to be installed first", startedAt);
           return;
         }
-        if (installStatus?.integrityStatus === "pending" || installStatus?.status === "verifying") {
+        if (installStatus && (installStatus.integrityStatus === "pending" || installStatus.status === "verifying")) {
           view.setAssistantWatchdogHint(assistantId, "正在验证 runtime…");
+          const pluginDir = view.plugin.pluginDir || "";
+          const manifestPath = resolveManifestPath(pluginDir);
+          const verified = await ensureManagedRuntimeIntegrityVerified(manifestPath);
+          if (!verified.ok) {
+            await view.failRunBeforeStart(
+              assistantId,
+              `Codex managed runtime integrity check failed: ${verified.result.error || verified.result.reason}`,
+              startedAt,
+            );
+            return;
+          }
+          view.setAssistantWatchdogHint(assistantId, "");
         }
 
         try {
@@ -11364,8 +11420,10 @@ export class LLMBridgeView extends ItemView {
         model: s.model,
         effortLevel: s.effortLevel,
         backendMode: s.backendMode,
-        approvalProfile: this.displayApprovalProfile(),
-        permissionMode: s.claudePermissionMode,
+        approvalProfile: this.displayApprovalProfile() === "full-access" ? "ask" : this.displayApprovalProfile(),
+        permissionMode: this.displayApprovalProfile() === "full-access"
+          ? mapAgentApprovalProfileToClaudePermissionMode("ask")
+          : s.claudePermissionMode,
         // latest native session only: 保存 nativeSessionRef 到 session 文件
         nativeSessionRef: this.session?.activeNativeSessionRef,
       };

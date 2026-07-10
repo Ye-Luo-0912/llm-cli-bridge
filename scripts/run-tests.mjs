@@ -7047,7 +7047,7 @@ if (runMode !== "all" && runMode !== "unit") {
             return manifestPath;
           }
 
-          // 场景 1: 错误 sha — 热路径仍 available+pending，异步 verify 后 failed
+          // 场景 1: 错误 sha — 热路径 available=false+pending，异步 verify 后 failed
           {
             const content = process.platform === "win32" ? "@echo off\r\nexit 0\r\n" : "#!/bin/sh\nexit 0\n";
             const name = process.platform === "win32" ? "bad-sha.bat" : "bad-sha.sh";
@@ -7078,8 +7078,9 @@ if (runMode !== "all" && runMode !== "unit") {
               expectedSha256: "0000000000000000000000000000000000000000000000000000000000000000",
             });
             const after = resolveManagedRuntime(manifestPath, process.platform, process.arch, { scheduleVerify: false });
-            shaMismatchPass = quick.available === true
+            shaMismatchPass = quick.available === false
               && quick.integrityStatus === "pending"
+              && quick.reason === "integrity-unverified"
               && quickMs < 200
               && verified.status === "failed"
               && after.available === false
@@ -7123,7 +7124,7 @@ if (runMode !== "all" && runMode !== "unit") {
             execFailPass = r.reason === "not-executable";
           }
 
-          // 场景 4: OK — 热路径 pending，verify 后 verified；二次 resolve 不重扫
+          // 场景 4: OK — 热路径 pending 不可执行，verify 后 verified；二次 resolve 不重扫；磁盘缓存跨内存失效仍命中
           {
             const content = process.platform === "win32" ? "@echo off\r\nexit 0\r\n" : "#!/bin/sh\nexit 0\n";
             const name = process.platform === "win32" ? "ok-binary.bat" : "ok-binary.sh";
@@ -7158,9 +7159,22 @@ if (runMode !== "all" && runMode !== "unit") {
               manifestVersion: "0.1.0-test",
               expectedSha256: sha,
             });
-            resolverOkPass = quick.available && quick.reason === "ok"
+            // 清内存缓存，仅留磁盘 .integrity.json，模拟插件重载
+            const diskPath = `${quick.runtimePath}.integrity.json`;
+            const diskOk = existsSync(diskPath);
+            const diskRaw = diskOk ? readFileSync(diskPath, "utf8") : "";
+            invalidateManagedRuntimeIntegrityCache(quick.runtimePath);
+            if (diskRaw) writeFileSync(diskPath, diskRaw, "utf8");
+            const afterReload = resolveManagedRuntime(manifestPath, process.platform, process.arch, { scheduleVerify: false });
+            resolverOkPass = quick.available === false
+              && quick.integrityStatus === "pending"
+              && quick.reason === "integrity-unverified"
+              && after.available === true
               && after.integrityStatus === "verified"
-              && cached?.status === "verified";
+              && cached?.status === "verified"
+              && diskOk
+              && afterReload.available === true
+              && afterReload.integrityStatus === "verified";
           }
 
           // 源码断言：resolveManagedRuntime 函数体不 readFileSync(runtimePath) / 不同步 hash 整文件
@@ -19874,44 +19888,32 @@ if (!runNoteSummarizeSmoke) {
       ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 13j3: V17-G61 process keeps thinking lead and command shell/output merged ----
+  // ---- Test 13j3: V17-G61 behavior — presentation semantic + shell/output merge invariants ----
   {
-    const ok = codexRunViewModelSrc.includes("function assistantNarrativeDelta(")
-      && codexRunViewModelSrc.includes("const terminalDelta = (narrativeByCardId.get(terminal.id) || \"\").trim();")
-      && codexRunViewModelSrc.includes("return item.status === \"running\" || item.status === \"pending\";")
-      && codexRunViewModelSrc.includes('kind: "assistant"')
-      && viewSrc.includes("const processFeedItems = run.feedItems;")
-      && (viewSrc.includes("this.renderCodexFeed(processBody, processFeedBatches, developerMode);")
-        || viewSrc.includes("this.patchCodexFeedStable(list, processFeedItems, developerMode);"))
-      && viewSrc.includes("patchCodexFeedStable")
-      && viewSrc.includes("groupCodexFeedRenderEntries")
-      && viewSrc.includes("list.insertBefore(node, anchor ?? null)")
-      && viewSrc.includes('if (lead.kind === "thinking" && this.shouldRenderExpandedThinkingLine(lead, developerMode)) {')
-      && viewSrc.includes("private formatCodexThinkingBatchSummary(")
-      && viewSrc.includes("private formatCodexThinkingFallbackFromBatch(")
-      && viewSrc.includes('if (actions.length === 1) return actions[0];')
-      && viewSrc.includes('if (item.kind === "command") return loc === "zh" ? "执行命令" : "run a command";')
-      && viewSrc.includes('if (item.change.action === "create") return loc === "zh" ? `创建 ${fileLabel}` : `create ${fileLabel}`;')
-      && (() => {
-        const processFeedSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexProcessFeed.ts"), "utf8");
-        return viewSrc.includes('const startsNewBatch = item.kind === "thinking" || item.kind === "assistant";')
-          || processFeedSrc.includes('const startsNewBatch = item.kind === "thinking" || item.kind === "assistant";');
-      })()
-      && viewSrc.includes('} else if (lead.kind === "assistant" && developerMode) {')
-      && viewSrc.includes("if (batchSummary) {")
-      && (viewSrc.includes("普通模式：有用户可读摘要时直接显示，不带 Thinking 标签")
-        || viewSrc.includes("仅真实 reasoning 带思考光效")
-        || viewSrc.includes("assistant narrative 是普通文字"))
-      && !viewSrc.includes('text: batchSummary ? truncateText(batchSummary, 420) : "Reasoning summary not provided by Codex.",')
-      && viewSrc.includes("private shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, developerMode: boolean): boolean {")
-      && viewSrc.includes("private buildCodexShellPanelText(step: CodexRunStepGroup): string")
-      && viewSrc.includes('text: panelText,')
-      && !viewSrc.includes('const outputDetails = parent.createEl("details", { cls: "llm-bridge-codex-detail llm-bridge-codex-detail-output llm-bridge-codex-shell-output-detail" });')
-      && stylesSrc.includes("V17-G61: stable thinking lead + merged shell/output waterfall blocks")
-      && stylesSrc.includes(".llm-bridge-codex-shell-pre {")
-      && uxSmokeSrc.includes("codexRunShellOutputMerged");
+    let ok = false;
+    let detail = "";
+    try {
+      const out = execSync("node scripts/presentation/run-presentation-tests.mjs --filter codex-run", {
+        cwd: PROJECT_ROOT,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      const presentationOk = /结果:\s*\d+ passed,\s*0 failed/.test(out);
+      // 行为门禁：单一 reconcile、shell/output 合并为单块（无独立 output details）、样式与 UX smoke 标记
+      const uiOk = viewSrc.includes("reconcileCodexRunWaterfall")
+        && viewSrc.includes("buildCodexShellPanelText")
+        && viewSrc.includes('text: panelText,')
+        && !viewSrc.includes("llm-bridge-codex-detail-output llm-bridge-codex-shell-output-detail")
+        && stylesSrc.includes("V17-G61: stable thinking lead + merged shell/output waterfall blocks")
+        && stylesSrc.includes(".llm-bridge-codex-shell-pre {")
+        && uxSmokeSrc.includes("codexRunShellOutputMerged");
+      ok = presentationOk && uiOk;
+      detail = `presentationOk=${presentationOk} uiOk=${uiOk}`;
+    } catch (e) {
+      detail = String(e?.stderr || e?.message || e).slice(0, 400);
+    }
     addTest("V17-G61 UI: assistant narrative 增量化，去掉假 thinking 占位，shell/output 合并为单块瀑布事件",
-      ok ? "pass" : "fail", "");
+      ok ? "pass" : "fail", detail);
   }
 
   // ---- Test 13j4: V17-G62 managed Codex plugins are surfaced from pinned runtime ----
