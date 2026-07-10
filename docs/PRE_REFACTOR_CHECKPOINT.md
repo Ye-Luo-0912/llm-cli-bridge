@@ -55,6 +55,7 @@ Structure-only first: **no visual/behavior change**, Obsidian native DOM only (n
 - **Round 1 done:** `reconcileCodexRunWaterfall` / `patchCodexFeedStable` / `upgradeCodexCandidateAnswerInFeed` → `src/ui/codexWaterfallRenderer.ts` (single reconcile entry; keys/expand/candidate identity preserved)
 - deleted dead `renderCodexFinalAnswer` + `ensureCodexFinalAnswerNode` shims
 - **Round 5 done:** `patchCodexFeedEntryItem` / `patchCodexFeedEntryToolGroup` / `patchCodexToolGroupBody` → `src/ui/codexWaterfallRenderer.ts` (View keeps `renderCodexFeedItem*` initial render helpers)
+- **Round 6 done:** `renderCodexFeedItem` / thinking / narrative / event-block / `formatCodexFeedSummary` → `src/ui/codexWaterfallRenderer.ts` (View keeps shell/diff/sourceRef helpers + batch summary)
 - **Round 2 done:** `renderMessage` / `renderMessageContent` / actions / error / suppress helpers → `src/ui/messageRenderer.ts` (View keeps thin wrappers + fileRefs/details/actions orchestration)
 - **Round 4 done:** `renderMessageFileRefs` / `appendMsgDetails` (+ tail) / presentation chrome → `src/ui/messageRenderer.ts` (View keeps run-display helpers, collapsibles, `updateAssistantMessage` orchestration)
 - Round 3: ComposerController

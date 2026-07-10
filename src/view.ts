@@ -89,7 +89,14 @@ import {
 import {
   reconcileCodexRunWaterfall as reconcileCodexRunWaterfallDom,
   upgradeCodexCandidateAnswerInFeed as upgradeCodexCandidateAnswerInFeedDom,
+  renderCodexFeedItem as renderCodexFeedItemDom,
+  renderCodexFeedThinking as renderCodexFeedThinkingDom,
+  renderCodexFeedNarrative as renderCodexFeedNarrativeDom,
+  renderCodexFeedEventBlock as renderCodexFeedEventBlockDom,
+  formatCodexFeedSummary as formatCodexFeedSummaryDom,
+  shouldRenderExpandedThinkingLine as shouldRenderExpandedThinkingLineDom,
   type CodexWaterfallPatchDeps,
+  type CodexFeedItemRenderDeps,
 } from "./ui/codexWaterfallRenderer";
 import {
   renderMessage as renderMessageDom,
@@ -6052,151 +6059,19 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderCodexFeedItem(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean, nestedEvent: boolean): void {
-    if (item.kind === "thinking" && !developerMode) {
-      this.renderCodexFeedThinking(parent, item);
-      return;
-    }
-    if (item.kind === "assistant" && !developerMode) {
-      this.renderCodexFeedNarrative(parent, item);
-      return;
-    }
-    if (nestedEvent && this.isCodexFeedEvent(item)) {
-      this.renderCodexFeedEventBlock(parent, item, developerMode);
-      return;
-    }
-    const changeCls = item.change ? ` llm-bridge-codex-change-row is-${item.change.action}` : "";
-    const nestedCls = nestedEvent ? " is-batch-event" : "";
-    const row = parent.createDiv({
-      cls: `llm-bridge-codex-feed-item llm-bridge-codex-step-row is-${item.kind} is-${item.status}${changeCls}${nestedCls}`,
-    });
-    row.setAttribute("data-step-kind", item.kind);
-    if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
-
-    const icon = row.createEl("span", { cls: "llm-bridge-codex-feed-icon llm-bridge-codex-step-icon" });
-    setIcon(icon, item.icon);
-
-    const main = row.createDiv({ cls: "llm-bridge-codex-feed-main" });
-    const title = main.createDiv({ cls: "llm-bridge-codex-feed-title" });
-    title.createEl("span", { cls: "llm-bridge-codex-feed-label llm-bridge-codex-step-label", text: item.label, attr: { title: item.label } });
-    if (item.change) {
-      title.createEl("span", {
-        cls: `llm-bridge-codex-change-approval is-${item.change.approvalStatus ?? "resolved"}`,
-        text: item.change.approvalStatus ?? "changed",
-      });
-      main.createDiv({ cls: "llm-bridge-codex-change-path", text: item.change.relativePath, attr: { title: item.change.fullPath } });
-    } else if (item.summary) {
-      const feedSummary = this.formatCodexFeedSummary(item, developerMode);
-      if (feedSummary) {
-        const summaryText = item.kind === "assistant" ? truncateText(feedSummary, 420) : truncateText(feedSummary, 180);
-        main.createDiv({ cls: "llm-bridge-codex-feed-summary", text: summaryText, attr: { title: feedSummary } });
-      }
-    }
-
-    const meta = row.createDiv({ cls: "llm-bridge-codex-feed-meta" });
-    meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${item.status}`, text: item.status });
-    if (item.durationMs) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(item.durationMs) });
-    if (item.step?.exitCode !== undefined) meta.createEl("span", { cls: "llm-bridge-codex-step-exit", text: `exit ${item.step.exitCode}` });
-    if (item.change) meta.createEl("span", { cls: "llm-bridge-codex-change-diff-summary", text: item.change.diffSummary });
-
-    if (item.change) {
-      const actions = row.createDiv({ cls: "llm-bridge-codex-change-actions" });
-      const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "复制路径" } });
-      setIcon(copyBtn, "copy");
-      copyBtn.addEventListener("click", async (event) => {
-        event.stopPropagation();
-        try {
-          await navigator.clipboard.writeText(item.change?.relativePath || item.change?.fullPath || "");
-          new Notice("路径已复制");
-        } catch {
-          new Notice("复制失败");
-        }
-      });
-      const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "打开文件" } });
-      setIcon(openBtn, "external-link");
-      openBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        if (!item.change) return;
-        const target = path.isAbsolute(item.change.fullPath) ? item.change.fullPath : path.join(this.getVaultPath(), item.change.fullPath || item.change.relativePath);
-        void this.openPathWithSystemDefault(target);
-      });
-      if (item.change.diff) {
-        this.renderCodexDiffPreview(row, item.change.diff, item.change.diffSummary);
-      }
-    }
-
-    if (item.step) {
-      this.renderCodexStepPayload(row, item.step, developerMode);
-    }
-
-    this.renderCodexSourceRef(row, item.sourceRef, developerMode);
+    renderCodexFeedItemDom(parent, item, developerMode, nestedEvent, this.codexFeedItemRenderDeps());
   }
 
   private renderCodexFeedThinking(parent: HTMLElement, item: CodexRunFeedItem, batch?: ReadonlyArray<CodexRunFeedItem>): void {
-    const summary = this.formatCodexFeedSummary(item, false).trim()
-      || (batch ? this.formatCodexThinkingFallbackFromBatch(batch) : "");
-    // 无真实 reasoning 文本时不渲染空泛「正在思考」行
-    if (!summary) return;
-    const isLive = item.status === "running" || item.status === "pending";
-    const row = parent.createDiv({
-      cls: `llm-bridge-codex-thinking-line is-${item.status}${isLive ? " is-thinking-live" : " is-thinking-done"}`,
-    });
-    row.setAttribute("data-step-kind", item.kind);
-    if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
-    // 普通模式不显示 Thinking 标签；开发者模式保留
-    if (this.plugin.settings.developerMode) {
-      row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: this.localizeRunStatus("Thinking") });
-    }
-    row.createEl("span", {
-      cls: `llm-bridge-codex-thinking-summary is-reasoning-text${isLive ? " llm-bridge-run-status-text is-running llm-bridge-run-glow is-thinking-faded" : ""}`,
-      text: truncateText(summary, 360),
-      attr: { title: summary },
-    });
+    renderCodexFeedThinkingDom(parent, item, this.codexFeedItemRenderDeps(), batch);
   }
 
   private shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, developerMode: boolean): boolean {
-    const summary = this.formatCodexFeedSummary(item, developerMode).trim();
-    const detail = (item.detail || "").trim();
-    if (developerMode) return !!(summary || detail);
-    // 运行中：有真实摘要或 live thinking 状态时展开
-    if (item.status === "running" || item.status === "pending") {
-      return !!(summary || detail);
-    }
-    // 普通完成态：仅在有用户可读摘要时展开；空泛「正在推理」不渲染
-    if (!summary) return false;
-    if (detail && detail !== summary) return true;
-    return summary.length > 40 || /\r?\n/.test(summary);
+    return shouldRenderExpandedThinkingLineDom(item, developerMode);
   }
 
   private renderCodexFeedNarrative(parent: HTMLElement, item: CodexRunFeedItem): void {
-    const text = this.formatCodexFeedSummary(item, false).trim();
-    if (!text) return;
-    const isReasoning = item.kind === "thinking";
-    const role = item.answerRole || "process";
-    const isCandidate = role === "candidate";
-    const isLive = isReasoning && (item.status === "running" || item.status === "pending");
-    const row = parent.createDiv({
-      cls: `llm-bridge-codex-thinking-line is-${item.status} is-narrative is-answer-${role}${isLive ? " is-thinking-live" : ""}${isCandidate ? " is-final-candidate" : ""}`,
-    });
-    row.setAttribute("data-step-kind", item.kind);
-    row.setAttribute("data-answer-role", role);
-    if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
-    if (this.plugin.settings.developerMode) {
-      row.createEl("span", {
-        cls: "llm-bridge-codex-thinking-label",
-        text: isReasoning ? this.localizeRunStatus("Thinking") : (item.label || (isCandidate ? "Answer" : "说明")),
-      });
-    }
-    if (isCandidate && (item.status === "completed" || item.status === "failed")) {
-      const md = row.createDiv({ cls: "llm-bridge-codex-answer-body llm-bridge-msg-markdown" });
-      this.renderMarkdownInto(md, text);
-      return;
-    }
-    // 流式 / 过程说明：普通文字，无外框底色（仅 white-space: pre-wrap）
-    row.createEl("span", {
-      cls: `llm-bridge-msg-stream-text llm-bridge-codex-thinking-summary is-multiline${isLive ? " llm-bridge-run-status-text is-running llm-bridge-run-glow is-thinking-faded" : ""}${isReasoning ? " is-reasoning-text" : ""}`,
-      text: text.length > 1200 ? `${text.slice(0, 1200).trimEnd()}...` : text,
-      attr: { title: text },
-    });
+    renderCodexFeedNarrativeDom(parent, item, this.codexFeedItemRenderDeps());
   }
 
   private renderMarkdownInto(host: HTMLElement, text: string): void {
@@ -6219,100 +6094,28 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderCodexFeedEventBlock(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean): void {
-    const changeCls = item.change ? ` llm-bridge-codex-change-row is-${item.change.action}` : "";
-    const block = parent.createEl("details", {
-      cls: `llm-bridge-codex-feed-item llm-bridge-codex-event-block is-batch-event is-${item.kind} is-${item.status}${changeCls}`,
-    });
-    block.setAttribute("data-step-kind", item.kind);
-    if (item.sourceRef?.itemId) block.setAttribute("data-item-id", item.sourceRef.itemId);
-
-    const isCommandEvent = item.kind === "command" && !!item.step;
-    const summary = block.createEl("summary", { cls: "llm-bridge-codex-event-summary" });
-    const icon = summary.createEl("span", { cls: "llm-bridge-codex-feed-icon llm-bridge-codex-step-icon" });
-    setIcon(icon, item.icon);
-    const main = summary.createDiv({ cls: "llm-bridge-codex-event-main" });
-    const title = main.createDiv({ cls: "llm-bridge-codex-event-title" });
-    const label = item.change
-      ? "已编辑 1 个文件"
-      : item.kind === "command"
-        ? "已运行 1 条命令"
-        : item.label;
-    title.createEl("span", { cls: "llm-bridge-codex-feed-label llm-bridge-codex-step-label", text: label, attr: { title: label } });
-    if (item.change?.approvalStatus) {
-      title.createEl("span", {
-        cls: `llm-bridge-codex-change-approval is-${item.change.approvalStatus}`,
-        text: item.change.approvalStatus,
-      });
-    }
-    const summaryText = item.change
-      ? ""
-      : isCommandEvent
-        ? ""
-        : this.formatCodexFeedSummary(item, developerMode);
-    if (summaryText) {
-      main.createDiv({ cls: "llm-bridge-codex-event-hint", text: truncateText(summaryText, developerMode ? 260 : 150), attr: { title: summaryText } });
-    }
-
-    const meta = summary.createDiv({ cls: "llm-bridge-codex-feed-meta llm-bridge-codex-event-meta" });
-    if (developerMode) {
-      meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${item.status}`, text: item.status });
-      if (item.durationMs) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(item.durationMs) });
-      if (item.step?.exitCode !== undefined) meta.createEl("span", { cls: "llm-bridge-codex-step-exit", text: `exit ${item.step.exitCode}` });
-    }
-    if (item.change) meta.createEl("span", { cls: "llm-bridge-codex-change-diff-summary", text: item.change.diffSummary });
-
-    const renderBody = () => {
-      if (block.querySelector(":scope > .llm-bridge-codex-event-body")) return;
-      const body = block.createDiv({ cls: "llm-bridge-codex-event-body" });
-      if (item.change) {
-        const changeInfo = body.createDiv({ cls: "llm-bridge-codex-event-change-info" });
-        changeInfo.createDiv({ cls: "llm-bridge-codex-change-path", text: item.change.relativePath, attr: { title: item.change.fullPath } });
-        const actions = changeInfo.createDiv({ cls: "llm-bridge-codex-change-actions" });
-        const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "复制路径" } });
-        setIcon(copyBtn, "copy");
-        copyBtn.addEventListener("click", async (event) => {
-          event.stopPropagation();
-          try {
-            await navigator.clipboard.writeText(item.change?.relativePath || item.change?.fullPath || "");
-            new Notice("路径已复制");
-          } catch {
-            new Notice("复制失败");
-          }
-        });
-        const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "打开文件" } });
-        setIcon(openBtn, "external-link");
-        openBtn.addEventListener("click", (event) => {
-          event.stopPropagation();
-          if (!item.change) return;
-          const target = path.isAbsolute(item.change.fullPath) ? item.change.fullPath : path.join(this.getVaultPath(), item.change.fullPath || item.change.relativePath);
-          void this.openPathWithSystemDefault(target);
-        });
-        if (item.change.diff) {
-          this.renderCodexDiffPreview(body, item.change.diff, item.change.diffSummary);
-        }
-      }
-      if (item.step) {
-        this.renderCodexStepPayload(body, item.step, developerMode, { inlineShellPanel: item.kind === "command" });
-      } else if (!item.change && (item.summary || item.detail)) {
-        body.createDiv({ cls: "llm-bridge-codex-event-text", text: truncateText([item.summary, item.detail].filter(Boolean).join("\n"), 420) });
-      }
-      this.renderCodexSourceRef(body, item.sourceRef, developerMode);
-    };
-    block.addEventListener("toggle", () => {
-      if (block.open) renderBody();
-    });
+    renderCodexFeedEventBlockDom(parent, item, developerMode, this.codexFeedItemRenderDeps());
   }
 
   private formatCodexFeedSummary(item: CodexRunFeedItem, developerMode: boolean): string {
-    let summary = item.summary ?? "";
-    if (developerMode || !summary) return summary;
-    if (item.step) {
-      summary = summary
-        .split(" · ")
-        .filter((part) => !part.trim().startsWith("cwd="))
-        .join(" · ");
-    }
-    return summary.replace(/[A-Za-z]:\\[^\s·]+/g, (match) => path.basename(match));
+    return formatCodexFeedSummaryDom(item, developerMode);
+  }
+
+  private codexFeedItemRenderDeps(): CodexFeedItemRenderDeps {
+    return {
+      developerMode: !!this.plugin.settings.developerMode,
+      formatDurationMs: (ms) => this.formatDurationMs(ms),
+      formatCodexThinkingFallbackFromBatch: (batch) => this.formatCodexThinkingFallbackFromBatch(batch),
+      localizeRunStatus: (status) => this.localizeRunStatus(status),
+      renderMarkdownInto: (host, text) => this.renderMarkdownInto(host, text),
+      renderCodexDiffPreview: (parent, diff, diffSummary) => this.renderCodexDiffPreview(parent, diff, diffSummary),
+      renderCodexStepPayload: (parent, step, developerMode, options) =>
+        this.renderCodexStepPayload(parent, step, developerMode, options),
+      renderCodexSourceRef: (parent, sourceRef, developerMode) =>
+        this.renderCodexSourceRef(parent, sourceRef, developerMode),
+      getVaultPath: () => this.getVaultPath(),
+      openPathWithSystemDefault: (target) => { void this.openPathWithSystemDefault(target); },
+    };
   }
 
   private renderCodexChangesPanel(parent: HTMLElement, changes: ReadonlyArray<CodexRunChangeGroup>, developerMode: boolean): void {
