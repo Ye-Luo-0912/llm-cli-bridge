@@ -1,13 +1,16 @@
 // LLM CLI Bridge — Message renderer (structure extract, no visual change)
 //
-// Owns message block shell, content, actions, and error fallback.
-// LLMBridgeView supplies markdown, file-ref, details, and action callbacks.
+// Owns message block shell, content, actions, error fallback, file-ref chips,
+// and process-details shell. LLMBridgeView supplies markdown, run-display,
+// collapsible helpers, and action callbacks.
 
 import { setIcon } from "obsidian";
-import type { ChatMessage } from "../types";
+import type { ChatMessage, EffectiveRunPlan, RunStatus } from "../types";
 import type { FileRef } from "../fileRefs";
 import type { AssistantTurnView, TurnTimelineNode } from "../runtime/core/types";
+import type { AgentRunDebugView } from "../runtime/core/agentRunDisplayModel";
 import type { MessageActionId, MessagePresentation } from "../messagePresentation";
+import type { WorkflowEvent } from "../workflowEvent";
 
 export interface MessageRendererDeps {
   developerMode: boolean;
@@ -16,6 +19,64 @@ export interface MessageRendererDeps {
   onMessageAction: (action: MessageActionId, msg: ChatMessage) => void;
   appendMsgDetails: (block: HTMLElement, msg: ChatMessage, beforeEl?: Element | null) => void;
   scrollToBottom: (force?: boolean) => void;
+}
+
+export interface MessageFileRefsDeps {
+  getFileRefThumbnailUrl: (ref: FileRef) => string | null;
+  getSmartImageThumbnailCacheKey: (ref: FileRef, url: string) => string;
+  maybeApplySmartImageThumbnail: (img: HTMLImageElement, cacheKey: string) => void;
+  renderDocumentPreviewThumb: (
+    parent: HTMLElement,
+    thumbClass: string,
+    lineClass: string,
+    ref: FileRef,
+    maxLines: number,
+    maxChars: number,
+  ) => void;
+  shortAttachmentName: (name: string) => string;
+  closeAttachmentContextMenu: () => void;
+  openFileRefPreview: (ref: FileRef) => void;
+  showAttachmentContextMenu: (
+    event: MouseEvent,
+    ref: FileRef,
+    options: { allowRemove: boolean; allowOpen: boolean },
+  ) => void;
+}
+
+export interface MessageDetailsDeps {
+  developerMode: boolean;
+  buildDebugView: (msg: ChatMessage) => AgentRunDebugView | undefined;
+  hasLiveAggregatorRawEvents: () => boolean;
+  renderAgentRunDisplayModel: (
+    parent: HTMLElement,
+    turnView: AssistantTurnView,
+    status: RunStatus,
+    options: { developerMode: boolean; debug?: AgentRunDebugView },
+  ) => void;
+  appendRunningProcessPlaceholder: (parent: HTMLElement) => void;
+  appendCommandPreview: (parent: HTMLElement, rows: ReadonlyArray<{ label: string; value: string }>) => void;
+  appendEffectiveRunPlan: (parent: HTMLElement, plan: EffectiveRunPlan) => void;
+  appendWorkflowTrace: (
+    parent: HTMLElement,
+    trace: ReadonlyArray<{ stage: string; timestamp: string; detail: string; status: string }>,
+  ) => void;
+  appendTimeline: (
+    parent: HTMLElement,
+    timeline: ReadonlyArray<{ type: string; timestamp: string; detail: string }>,
+  ) => void;
+  appendSdkWorkflow: (parent: HTMLElement, events: ReadonlyArray<WorkflowEvent>) => void;
+  updateLastSdkStats: (events: ReadonlyArray<WorkflowEvent>) => void;
+  appendCollapsible: (
+    parent: HTMLElement,
+    title: string,
+    text: string,
+    textCls: string,
+    startOpen: boolean,
+    emphasize: boolean,
+  ) => void;
+  createCollapsibleSection: (parent: HTMLElement, title: string, cls: string, startOpen?: boolean) => HTMLElement;
+  appendDebugLogPath: (parent: HTMLElement, logPath: string) => void;
+  openGeneratedFile: (name: string) => void;
 }
 
 export function coerceMessageContentText(value: unknown): string {
@@ -271,5 +332,239 @@ export function renderMessage(
     deps.scrollToBottom(true);
   } catch (e) {
     renderMessageError(messagesEl, msg, e, deps);
+  }
+}
+
+export function renderMessageFileRefs(
+  parent: HTMLElement,
+  refs: ReadonlyArray<FileRef>,
+  deps: MessageFileRefsDeps,
+): void {
+  const wrap = parent.createDiv({ cls: "llm-bridge-msg-attachments" });
+  parent.addClass("has-attachments");
+  parent.prepend(wrap);
+  for (const ref of refs) {
+    const chip = wrap.createDiv({
+      cls: `llm-bridge-msg-attachment-chip is-${ref.kind} is-${ref.fileType}`,
+      attr: { title: `${ref.displayName}\n${ref.resolvedPath}` },
+    });
+    const preview = chip.createEl("button", {
+      cls: "llm-bridge-msg-attachment-preview",
+      attr: {
+        type: "button",
+        title: `预览 ${ref.displayName}`,
+        "aria-label": `预览 ${ref.displayName}`,
+      },
+    });
+    const visual = preview.createEl("span", { cls: "llm-bridge-msg-attachment-visual" });
+    const thumbnailUrl = ref.fileType === "image" ? deps.getFileRefThumbnailUrl(ref) : null;
+    if (thumbnailUrl) {
+      chip.addClass("has-preview");
+      chip.addClass("is-preview-only");
+      visual.addClass("has-image-preview");
+      const previewImg = visual.createEl("img", {
+        cls: "llm-bridge-msg-attachment-image",
+        attr: { src: thumbnailUrl, alt: ref.displayName },
+      });
+      previewImg.addEventListener("load", () => {
+        deps.maybeApplySmartImageThumbnail(
+          previewImg,
+          deps.getSmartImageThumbnailCacheKey(ref, thumbnailUrl),
+        );
+      });
+      previewImg.addEventListener("error", () => {
+        chip.addClass("is-preview-missing");
+        visual.removeClass("has-image-preview");
+        visual.addClass("is-image-placeholder");
+        previewImg.remove();
+        const placeholder = visual.createEl("span", { cls: "llm-bridge-msg-attachment-image-placeholder" });
+        setIcon(placeholder, "image");
+      });
+    } else if (ref.fileType === "image") {
+      chip.addClass("is-preview-only");
+      chip.addClass("is-preview-missing");
+      visual.addClass("is-image-placeholder");
+      const placeholder = visual.createEl("span", { cls: "llm-bridge-msg-attachment-image-placeholder" });
+      setIcon(placeholder, "image");
+    } else {
+      chip.addClass("is-preview-only");
+      chip.addClass("has-document-preview");
+      visual.addClass("has-document-preview");
+      deps.renderDocumentPreviewThumb(
+        visual,
+        "llm-bridge-msg-attachment-doc-thumb",
+        "llm-bridge-msg-attachment-doc-line",
+        ref,
+        3,
+        16,
+      );
+      preview.createEl("span", {
+        cls: "llm-bridge-attachment-token-name",
+        text: deps.shortAttachmentName(ref.displayName),
+      });
+    }
+    preview.addEventListener("click", () => {
+      deps.closeAttachmentContextMenu();
+      void deps.openFileRefPreview(ref);
+    });
+    // 已发送附件：左键预览；右键复制/打开；不提供删除
+    chip.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      deps.showAttachmentContextMenu(event, ref, {
+        allowRemove: false,
+        allowOpen: true,
+      });
+    });
+  }
+}
+
+/**
+ * P3: appendMsgDetails 尾部共享逻辑（stderr + debug log + log + generatedFiles）。
+ * 被 turnView 分支和回退分支共同调用，避免重复代码。
+ */
+export function appendMsgDetailsTail(
+  details: HTMLElement,
+  msg: ChatMessage,
+  failed: boolean,
+  developerMode: boolean,
+  deps: MessageDetailsDeps,
+): void {
+  if (msg.stderr && (failed || developerMode)) {
+    const startOpen = false;
+    deps.appendCollapsible(details, failed ? "查看详情" : "stderr", msg.stderr, "llm-bridge-stderr-text", startOpen, failed);
+    // V1.2/V1.5: 失败时提取 debug log 路径，提供可点击/复制/打开按钮
+    if (failed && developerMode) {
+      const logPathMatch = msg.stderr.match(/Debug log:\s*(.+)/);
+      if (logPathMatch && logPathMatch[1]) {
+        const debugLogBody = deps.createCollapsibleSection(details, "debug log", "llm-bridge-debug-log-collapse", false);
+        deps.appendDebugLogPath(debugLogBody, logPathMatch[1].trim());
+      }
+    }
+  }
+  if (developerMode && msg.log) {
+    deps.appendCollapsible(details, "log", msg.log, "llm-bridge-log-text", false, false);
+  }
+  if (msg.generatedFiles.length > 0 && (developerMode || !msg.assistantTurnView)) {
+    const filesWrap = details.createDiv({ cls: "llm-bridge-gen-wrap" });
+    filesWrap.createEl("div", { cls: "llm-bridge-gen-title", text: "新增/修改的 Markdown 文件" });
+    const files = filesWrap.createDiv({ cls: "llm-bridge-gen-list" });
+    for (const name of msg.generatedFiles) {
+      const item = files.createDiv({ cls: "llm-bridge-gen-item" });
+      item.createEl("span", { cls: "llm-bridge-gen-name", text: name });
+      item.addEventListener("click", () => void deps.openGeneratedFile(name));
+    }
+  }
+}
+
+// stderr / log / 生成文件，默认折叠；失败或有新文件时显著
+export function appendMsgDetails(
+  block: HTMLElement,
+  msg: ChatMessage,
+  beforeEl: Element | null | undefined,
+  deps: MessageDetailsDeps,
+): void {
+  const failed = msg.status === "failed";
+  const developerMode = deps.developerMode;
+  const terminalSuccess = msg.status === "completed" || msg.status === "stopped";
+
+  // P3: 普通用户态 + developer mode 都优先从 AgentRunDisplayModel 渲染
+  if (msg.role === "assistant" && (terminalSuccess || msg.status === "running") && msg.assistantTurnView) {
+    block.querySelector<HTMLElement>(".llm-bridge-timeline-live")?.remove();
+    const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
+    if (beforeEl) block.insertBefore(details, beforeEl);
+
+    // P3-C: debugView 是 developer mode 的唯一调试入口。
+    // 汇总 rawProviderEvents / effectiveRunPlan / provider session / attachmentPlan /
+    // commandPreview / workflowTrace / sdkEvents，不散落在 appendMsgDetails。
+    // 普通用户态不显示 nativeSessionRef / raw events / effectiveRunPlan。
+    const debug = deps.buildDebugView(msg);
+
+    deps.renderAgentRunDisplayModel(details, msg.assistantTurnView, msg.status, { developerMode, debug });
+
+    appendMsgDetailsTail(details, msg, failed, developerMode, deps);
+    return;
+  }
+
+  // HISTORICAL FALLBACK: 无 assistantTurnView 时走旧路径（向后兼容历史消息）。
+  // fallback 不得影响新 run；新 run 必须写入 assistantTurnView。
+  // legacy renderer 仅在 developerMode 下调用；普通用户态只显示 placeholder。
+  const details = block.createDiv({ cls: "llm-bridge-msg-details llm-bridge-msg-process" });
+  if (beforeEl) block.insertBefore(details, beforeEl);
+  if (msg.role === "assistant" && msg.status === "running") {
+    if (!developerMode) {
+      // 普通用户态：不调用 legacy renderer，只显示 placeholder
+      deps.appendRunningProcessPlaceholder(details);
+    } else if (!msg.sdkEvents || msg.sdkEvents.length === 0) {
+      // developerMode 运行中无 turnView：保留 liveAggregator live timeline 路径
+      // (keep as developer log; remove or migrate in P4)
+      if (!deps.hasLiveAggregatorRawEvents()) {
+        deps.appendRunningProcessPlaceholder(details);
+      }
+    }
+  }
+
+  // historical fallback: developer mode legacy（无 turnView 时才走到这里）
+  // (keep as developer log; remove or migrate in P4)
+  if (developerMode && msg.role === "assistant" && msg.commandPreview && msg.commandPreview.length > 0) {
+    deps.appendCommandPreview(details, msg.commandPreview);
+  }
+  if (developerMode && msg.role === "assistant" && msg.effectiveRunPlan) {
+    deps.appendEffectiveRunPlan(details, msg.effectiveRunPlan);
+  }
+  // historical fallback: Workflow Trace（keep as developer log; remove or migrate in P4）
+  if (developerMode && msg.role === "assistant" && msg.workflowTrace && msg.workflowTrace.length > 0) {
+    deps.appendWorkflowTrace(details, msg.workflowTrace);
+  } else if (developerMode && msg.role === "assistant" && msg.timeline && msg.timeline.length > 0) {
+    deps.appendTimeline(details, msg.timeline);
+  }
+  // historical fallback: SDK events（keep as developer log; remove or migrate in P4）
+  // 普通用户态不得调用 appendSdkWorkflow 作为主 UI
+  if (developerMode && msg.role === "assistant" && msg.sdkEvents && msg.sdkEvents.length > 0) {
+    deps.appendSdkWorkflow(details, msg.sdkEvents);
+    deps.updateLastSdkStats(msg.sdkEvents);
+  }
+
+  appendMsgDetailsTail(details, msg, failed, developerMode, deps);
+}
+
+/** updateAssistantMessage 的 presentation chrome（class / status / statusLine），不含过程区 patch。 */
+export function applyAssistantMessagePresentationChrome(
+  block: HTMLElement,
+  msg: ChatMessage,
+  presentation: MessagePresentation,
+  developerMode: boolean,
+  statusLabel: string,
+): void {
+  block.removeClass("is-idle", "is-running", "is-completed", "is-failed", "is-stopped", "is-answer", "is-summary");
+  if (presentation.kind === "assistant-answer") block.addClass("is-answer", "is-completed");
+  else if (presentation.kind === "assistant-summary") block.addClass("is-summary", "is-completed");
+  else block.addClass(`is-${msg.status}`);
+
+  const statusEl = block.querySelector(".llm-bridge-msg-status");
+  if (statusEl) {
+    if (developerMode) {
+      statusEl.textContent = statusLabel;
+      statusEl.className = `llm-bridge-msg-status is-${msg.status}`;
+    } else {
+      statusEl.remove();
+    }
+  }
+  const existingRunStatus = block.querySelector(".llm-bridge-msg-status-line, .llm-bridge-run-status-text");
+  if (presentation.statusLine) {
+    if (existingRunStatus) {
+      existingRunStatus.textContent = presentation.statusLine;
+      existingRunStatus.classList.add("is-running", "llm-bridge-run-glow");
+    } else {
+      const head = block.querySelector(".llm-bridge-msg-head");
+      if (head) {
+        head.createEl("span", {
+          cls: "llm-bridge-msg-status-line llm-bridge-run-status-text is-running llm-bridge-run-glow",
+          text: presentation.statusLine,
+        });
+      }
+    }
+  } else if (existingRunStatus) {
+    existingRunStatus.remove();
   }
 }

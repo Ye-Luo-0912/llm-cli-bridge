@@ -2705,21 +2705,27 @@ if (runMode !== "all" && runMode !== "unit") {
         noWfImport ? "" : "agentRunDisplayModel.ts import 了 WorkflowEvent 或 RunStateAggregator");
 
       // 4. 普通用户态 renderer 不调用 legacy workflow renderer
-      // 验证 view.ts: appendSdkWorkflow / appendWorkflowTrace 在 turnView 分支只通过 debugView 调用
+      // 验证 appendMsgDetails: appendSdkWorkflow / appendWorkflowTrace 在 turnView 分支只通过 debugView 调用
       const viewSrc = readFileSync(join(PROJECT_ROOT, "src/view.ts"), "utf8");
+      const messageRendererSrcP3 = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+      const detailsSrc = messageRendererSrcP3.includes("HISTORICAL FALLBACK") ? messageRendererSrcP3 : viewSrc;
       // turnView 分支不应直接调用 appendSdkWorkflow/appendWorkflowTrace（应通过 debugView）
       // 检查：turnView 分支（msg.assistantTurnView 存在时）不包含直接 appendSdkWorkflow 调用
-      const turnViewBranchIdx = viewSrc.indexOf("msg.assistantTurnView");
-      const fallbackBranchIdx = viewSrc.indexOf("HISTORICAL FALLBACK");
-      const turnViewRegion = viewSrc.slice(turnViewBranchIdx, fallbackBranchIdx);
-      const noLegacyInTurnView = !turnViewRegion.includes("this.appendSdkWorkflow(") && !turnViewRegion.includes("this.appendWorkflowTrace(");
+      const turnViewBranchIdx = detailsSrc.indexOf("msg.assistantTurnView");
+      const fallbackBranchIdx = detailsSrc.indexOf("HISTORICAL FALLBACK");
+      const turnViewRegion = detailsSrc.slice(turnViewBranchIdx, fallbackBranchIdx);
+      const noLegacyInTurnView = !turnViewRegion.includes("this.appendSdkWorkflow(")
+        && !turnViewRegion.includes("deps.appendSdkWorkflow(")
+        && !turnViewRegion.includes("this.appendWorkflowTrace(")
+        && !turnViewRegion.includes("deps.appendWorkflowTrace(");
       addTest("P3-C: turnView 分支不直接调用 appendSdkWorkflow/appendWorkflowTrace（通过 debugView）", noLegacyInTurnView ? "pass" : "fail",
         noLegacyInTurnView ? "" : "turnView 分支中发现直接调用 legacy renderer");
 
       // 5. historical fallback 分支 sdkEvents 必须 developerMode gated
       // 验证：fallback 分支中 appendSdkWorkflow 前有 developerMode 检查
-      const fallbackRegion = viewSrc.slice(fallbackBranchIdx, fallbackBranchIdx + 3000);
-      const sdkGateOk = fallbackRegion.includes("if (developerMode && msg.role === \"assistant\" && msg.sdkEvents");
+      const fallbackRegion = detailsSrc.slice(fallbackBranchIdx, fallbackBranchIdx + 3000);
+      const sdkGateOk = fallbackRegion.includes("if (developerMode && msg.role === \"assistant\" && msg.sdkEvents")
+        || fallbackRegion.includes("if (developerMode && msg.role === \"assistant\" && msg.sdkEvents && msg.sdkEvents.length > 0)");
       addTest("P3-C: historical fallback 分支 sdkEvents 必须 developerMode gated", sdkGateOk ? "pass" : "fail",
         sdkGateOk ? "" : "fallback 分支中 sdkEvents 未 developerMode gate");
     }
@@ -18367,10 +18373,15 @@ if (!runV214BUnit) {
         && viewSrc.includes("llm-bridge-settings-btn")
         && viewSrc.includes('cls: "llm-bridge-new-chat-label", text: "新聊天"')
         && viewSrc.includes('setIcon(this.clearBtn.createEl("span", { cls: "llm-bridge-icon" }), "plus");');
-      const collapsedDetailsOk = viewSrc.includes("failed ? \"查看详情\" : \"stderr\"")
-        && viewSrc.includes("const startOpen = false")
-        && viewSrc.includes("this.createCollapsibleSection(details, \"debug log\"")
-        && viewSrc.includes("this.appendDebugLogPath(debugLogBody");
+      const messageRendererSrcDetails = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+      const collapsedDetailsOk = (viewSrc.includes("failed ? \"查看详情\" : \"stderr\"")
+          || messageRendererSrcDetails.includes("failed ? \"查看详情\" : \"stderr\""))
+        && (viewSrc.includes("const startOpen = false")
+          || messageRendererSrcDetails.includes("const startOpen = false"))
+        && (viewSrc.includes("this.createCollapsibleSection(details, \"debug log\"")
+          || messageRendererSrcDetails.includes("deps.createCollapsibleSection(details, \"debug log\""))
+        && (viewSrc.includes("this.appendDebugLogPath(debugLogBody")
+          || messageRendererSrcDetails.includes("deps.appendDebugLogPath(debugLogBody"));
       const stylesOk = stylesSrc.includes(".llm-bridge-command-menu")
         && stylesSrc.includes(".llm-bridge-command-menu-body")
         && stylesSrc.includes(".llm-bridge-permission-chip")
@@ -19634,6 +19645,7 @@ if (!runNoteSummarizeSmoke) {
   }
 
   {
+    const messageRendererSrcG47 = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
     const ok = viewSrc.includes("private maybeApplySmartImageThumbnail")
       && viewSrc.includes("private buildSmartImageThumbnailDataUrl")
       && viewSrc.includes('previewEl.dataset.smartThumbApplied = "true"')
@@ -19644,10 +19656,12 @@ if (!runNoteSummarizeSmoke) {
       && (viewSrc.includes("llm-bridge-composer-file-image")
         || readFileSync(join(PROJECT_ROOT, "src", "ui", "composerController.ts"), "utf8").includes("llm-bridge-composer-file-image"))
       && (viewSrc.includes('this.renderDocumentPreviewThumb(chip, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);')
-        || viewSrc.includes('this.renderDocumentPreviewThumb(visual, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);'))
-      && viewSrc.includes('is-primary')
-      && viewSrc.includes('is-secondary')
-      && viewSrc.includes('is-placeholder')
+        || viewSrc.includes('this.renderDocumentPreviewThumb(visual, "llm-bridge-msg-attachment-doc-thumb", "llm-bridge-msg-attachment-doc-line", ref, 3, 16);')
+        || messageRendererSrcG47.includes('deps.renderDocumentPreviewThumb(')
+        || messageRendererSrcG47.includes("llm-bridge-msg-attachment-doc-thumb"))
+      && (viewSrc.includes('is-primary') || messageRendererSrcG47.includes("is-primary"))
+      && (viewSrc.includes('is-secondary') || messageRendererSrcG47.includes("is-secondary"))
+      && (viewSrc.includes('is-placeholder') || messageRendererSrcG47.includes("is-placeholder") || viewSrc.includes("is-image-placeholder"))
       && stylesSrc.includes("V17-G47: smart image thumbnails and calmer document preview tiles")
       && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-primary")
       && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-secondary")
@@ -20357,9 +20371,12 @@ if (!runNoteSummarizeSmoke) {
     const ok = (viewSrc.includes("this.renderMessageFileRefs(content, msg.fileRefs)")
         || messageRendererSrc.includes("deps.renderFileRefs(content, msg.fileRefs)"))
       && !viewSrc.includes("this.renderMessageFileRefs(block, msg.fileRefs)")
-      && viewSrc.includes('chip.addClass("has-preview")')
-      && viewSrc.includes('chip.addClass("is-preview-only")')
-      && viewSrc.includes('"aria-label": `预览 ${ref.displayName}`')
+      && (viewSrc.includes('chip.addClass("has-preview")')
+        || messageRendererSrc.includes('chip.addClass("has-preview")'))
+      && (viewSrc.includes('chip.addClass("is-preview-only")')
+        || messageRendererSrc.includes('chip.addClass("is-preview-only")'))
+      && (viewSrc.includes('"aria-label": `预览 ${ref.displayName}`')
+        || messageRendererSrc.includes('"aria-label": `预览 ${ref.displayName}`'))
       && viewSrc.includes("private async openFileRefExternally(ref: FileRef): Promise<void>")
       && viewSrc.includes("private async readFileRefPreviewText(ref: FileRef): Promise<string | null>")
       && viewSrc.includes('modal.contentEl.addClass("llm-bridge-file-preview-modal")')
@@ -20383,12 +20400,19 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13n2: V17-G24 image attachments are square preview-only tiles ----
   {
-    const ok = viewSrc.includes('chip.addClass("is-preview-only")')
-      && viewSrc.includes('"aria-label": `预览 ${ref.displayName}`')
+    const messageRendererSrcG24 = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+    const ok = (viewSrc.includes('chip.addClass("is-preview-only")')
+        || messageRendererSrcG24.includes('chip.addClass("is-preview-only")'))
+      && (viewSrc.includes('"aria-label": `预览 ${ref.displayName}`')
+        || messageRendererSrcG24.includes('"aria-label": `预览 ${ref.displayName}`'))
       && (viewSrc.includes('const visual = chip.createEl("span", { cls: "llm-bridge-msg-attachment-visual" });')
-        || viewSrc.includes('preview.createEl("span", { cls: "llm-bridge-msg-attachment-visual" })'))
-      && (viewSrc.includes('cls: "llm-bridge-msg-attachment-image"') || viewSrc.includes("llm-bridge-msg-attachment-image"))
+        || viewSrc.includes('preview.createEl("span", { cls: "llm-bridge-msg-attachment-visual" })')
+        || messageRendererSrcG24.includes('preview.createEl("span", { cls: "llm-bridge-msg-attachment-visual" })'))
+      && (viewSrc.includes('cls: "llm-bridge-msg-attachment-image"')
+        || viewSrc.includes("llm-bridge-msg-attachment-image")
+        || messageRendererSrcG24.includes("llm-bridge-msg-attachment-image"))
       && !viewSrc.includes('chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });')
+      && !messageRendererSrcG24.includes('chip.createEl("span", { cls: "llm-bridge-msg-attachment-name", text: ref.displayName });')
       && stylesSrc.includes(".llm-bridge-msg-attachment-chip")
       && (stylesSrc.includes("width: 44px !important;") || stylesSrc.includes("width: 40px") || stylesSrc.includes(".llm-bridge-msg-attachment-image"))
       && stylesSrc.includes("object-fit: cover");
@@ -20462,6 +20486,7 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13r: V17-G27 right user bubbles, square attachments and modern Skills registry ----
   {
+    const messageRendererSrcG27 = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
     const ok = viewSrc.includes('cls: "llm-bridge-skills-toggle-chevron"')
       && (viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Skills"')
         || viewSrc.includes('cls: "llm-bridge-skills-toggle-label", text: "Plugins & Skills"')
@@ -20469,9 +20494,12 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('cls: "llm-bridge-skills-toggle-count"')
       && viewSrc.includes('cls: "llm-bridge-agent-skill-icon"')
       && viewSrc.includes('setIcon(icon, skill.enabled ? "sparkles" : "circle-dashed")')
-      && viewSrc.includes('chip.addClass("is-preview-missing")')
-      && viewSrc.includes('cls: "llm-bridge-msg-attachment-image-placeholder"')
-      && (viewSrc.includes("preview.remove()") || viewSrc.includes("previewImg.remove()"))
+      && (viewSrc.includes('chip.addClass("is-preview-missing")')
+        || messageRendererSrcG27.includes('chip.addClass("is-preview-missing")'))
+      && (viewSrc.includes('cls: "llm-bridge-msg-attachment-image-placeholder"')
+        || messageRendererSrcG27.includes('cls: "llm-bridge-msg-attachment-image-placeholder"'))
+      && (viewSrc.includes("preview.remove()") || viewSrc.includes("previewImg.remove()")
+        || messageRendererSrcG27.includes("previewImg.remove()"))
       && viewSrc.includes("provider instructions")
       && viewSrc.includes("llm-bridge-composer-runtime-chip")
       && viewSrc.includes("buildUserInputWithRuntimeCapabilityHints")
@@ -20546,10 +20574,15 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13u: V17-G31 user attachments appear above text and image tiles do not expose format labels ----
   {
-    const ok = viewSrc.includes("parent.prepend(wrap);")
-      && viewSrc.includes('cls: "llm-bridge-msg-attachment-image-placeholder"')
-      && viewSrc.includes('setIcon(placeholder, "image")')
+    const messageRendererSrcG31 = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+    const ok = (viewSrc.includes("parent.prepend(wrap);")
+        || messageRendererSrcG31.includes("parent.prepend(wrap);"))
+      && (viewSrc.includes('cls: "llm-bridge-msg-attachment-image-placeholder"')
+        || messageRendererSrcG31.includes('cls: "llm-bridge-msg-attachment-image-placeholder"'))
+      && (viewSrc.includes('setIcon(placeholder, "image")')
+        || messageRendererSrcG31.includes('setIcon(placeholder, "image")'))
       && !viewSrc.includes('cls: "llm-bridge-msg-attachment-ext is-fallback"')
+      && !messageRendererSrcG31.includes('cls: "llm-bridge-msg-attachment-ext is-fallback"')
       && stylesSrc.includes("V17-G31: user attachments sit above text and image tiles hide format labels")
       && stylesSrc.includes("order: -1;")
       && stylesSrc.includes("margin: 0 0 8px;")
@@ -20561,9 +20594,13 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13v: V17-G32 non-image user attachments render as thumbnail-like document tiles ----
   {
-    const ok = viewSrc.includes("llm-bridge-msg-attachment-doc-thumb")
-      && viewSrc.includes("llm-bridge-msg-attachment-doc-line")
+    const messageRendererSrcG32 = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+    const ok = (viewSrc.includes("llm-bridge-msg-attachment-doc-thumb")
+        || messageRendererSrcG32.includes("llm-bridge-msg-attachment-doc-thumb"))
+      && (viewSrc.includes("llm-bridge-msg-attachment-doc-line")
+        || messageRendererSrcG32.includes("llm-bridge-msg-attachment-doc-line"))
       && !viewSrc.includes('chip.createEl("span", { cls: "llm-bridge-msg-attachment-ext", text: this.getFileRefShortLabel(ref) });')
+      && !messageRendererSrcG32.includes('chip.createEl("span", { cls: "llm-bridge-msg-attachment-ext", text: this.getFileRefShortLabel(ref) });')
       && stylesSrc.includes("V17-G32: non-image user attachments use document thumbnails instead of format labels")
       && stylesSrc.includes(".llm-bridge-msg-attachment-doc-thumb")
       && stylesSrc.includes(".llm-bridge-msg-attachment-doc-line")
@@ -20827,12 +20864,16 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13ag2: V17-G57 plain paste stays text; user attachment tiles keep preview surface ----
   {
+    const messageRendererSrcG57 = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
     const ok = clipboardPastePolicySrc.includes("export const CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS = 20000;")
       && clipboardPastePolicySrc.includes("export const CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES = 240;")
       && viewSrc.includes("普通复制文本保持 textarea 默认粘贴行为；只有真实文件 / 图片 / 超大文本才接管为附件。")
-      && viewSrc.includes('visual.addClass("has-image-preview");')
-      && viewSrc.includes('visual.addClass("is-image-placeholder");')
-      && viewSrc.includes('visual.addClass("has-document-preview");')
+      && (viewSrc.includes('visual.addClass("has-image-preview");')
+        || messageRendererSrcG57.includes('visual.addClass("has-image-preview");'))
+      && (viewSrc.includes('visual.addClass("is-image-placeholder");')
+        || messageRendererSrcG57.includes('visual.addClass("is-image-placeholder");'))
+      && (viewSrc.includes('visual.addClass("has-document-preview");')
+        || messageRendererSrcG57.includes('visual.addClass("has-document-preview");'))
       && stylesSrc.includes("V17-G57: stricter paste policy and steadier user attachment previews")
       && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.has-image-preview")
       && stylesSrc.includes(".llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb")
@@ -20843,7 +20884,9 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13ad: V17-G40 user attachments stay thumbnail-only and file preview is lighter ----
   {
-    const ok = viewSrc.includes('chip.addClass("has-document-preview")')
+    const messageRendererSrcG40 = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+    const ok = (viewSrc.includes('chip.addClass("has-document-preview")')
+        || messageRendererSrcG40.includes('chip.addClass("has-document-preview")'))
       && viewSrc.includes('cls: "llm-bridge-file-preview-path"')
       && !viewSrc.includes('meta.createEl("span", { text: this.getFileRefShortLabel(ref).toLowerCase() });')
       && !viewSrc.includes('const text = data.getData("text/plain")')
@@ -21070,13 +21113,17 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 17: completed 用户态显示最终输出，并在结果前保留 processOnly 折叠过程 ----
   {
     const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
-    const ok = viewSrc.includes("terminalSuccess")
-      && viewSrc.includes('msg.status === "completed" || msg.status === "stopped"')
-      && viewSrc.includes('block.querySelector<HTMLElement>(".llm-bridge-timeline-live")?.remove()')
+    const ok = (viewSrc.includes("terminalSuccess")
+        || messageRendererSrc.includes("terminalSuccess"))
+      && (viewSrc.includes('msg.status === "completed" || msg.status === "stopped"')
+        || messageRendererSrc.includes('msg.status === "completed" || msg.status === "stopped"'))
+      && (viewSrc.includes('block.querySelector<HTMLElement>(".llm-bridge-timeline-live")?.remove()')
+        || messageRendererSrc.includes('block.querySelector<HTMLElement>(".llm-bridge-timeline-live")?.remove()'))
       && (viewSrc.includes("this.appendMsgDetails(block, msg, content)")
         || viewSrc.includes("this.appendMsgDetails(block, msg, contentEl)")
         || messageRendererSrc.includes("deps.appendMsgDetails(block, msg, content)"))
-      && viewSrc.includes("block.insertBefore(details, beforeEl)")
+      && (viewSrc.includes("block.insertBefore(details, beforeEl)")
+        || messageRendererSrc.includes("block.insertBefore(details, beforeEl)"))
       && (viewSrc.includes("processOnly") || messageRendererSrc.includes("processOnly"))
       && viewSrc.includes("const visibleNodes = nodes;")
       && !viewSrc.includes('node.kind !== "agent" && node.kind !== "final_message" && node.kind !== "completed"')
