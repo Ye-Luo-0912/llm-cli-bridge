@@ -13748,7 +13748,9 @@ if (!runV27Unit) {
 
     // ---- Test 38: view.ts 含 renderMessageError fallback ----
     {
-      const ok = viewSrc.includes("renderMessageError") && viewSrc.includes("llm-bridge-msg-error");
+      const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+      const ok = viewSrc.includes("renderMessageError")
+        && (viewSrc.includes("llm-bridge-msg-error") || messageRendererSrc.includes("llm-bridge-msg-error"));
       addTest("V2.7 view.ts: 含 renderMessageError 错误 fallback", ok ? "pass" : "fail", "");
     }
 
@@ -19699,9 +19701,12 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13d: V17-G4 message render fallback is non-raw in normal mode ----
   {
-    const ok = viewSrc.includes("Message render fallback")
-      && viewSrc.includes("This response could not be rendered inline. The answer text is still preserved.")
-      && !viewSrc.includes("text: `[消息渲染失败]");
+    const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+    const ok = (viewSrc.includes("Message render fallback") || messageRendererSrc.includes("Message render fallback"))
+      && (viewSrc.includes("This response could not be rendered inline. The answer text is still preserved.")
+        || messageRendererSrc.includes("This response could not be rendered inline. The answer text is still preserved."))
+      && !viewSrc.includes("text: `[消息渲染失败]")
+      && !messageRendererSrc.includes("text: `[消息渲染失败]");
     addTest("V17-G4 UI: 普通态消息渲染兜底不暴露内部异常横幅",
       ok ? "pass" : "fail", "");
   }
@@ -19791,8 +19796,11 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13i: V17-G7 composer/request surfaces stay Codex-compact ----
   {
-    const ok = viewSrc.includes("private coerceMessageContentText(value: unknown): string")
-      && viewSrc.includes("llm-bridge-message-render-error-detail")
+    const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+    const ok = (viewSrc.includes("private coerceMessageContentText(value: unknown): string")
+        || messageRendererSrc.includes("export function coerceMessageContentText"))
+      && (viewSrc.includes("llm-bridge-message-render-error-detail")
+        || messageRendererSrc.includes("llm-bridge-message-render-error-detail"))
       && (viewSrc.includes("AGENT_APPROVAL_PROFILES")
         || viewSrc.includes('{ value: "default", icon: "hand"'))
       && (viewSrc.includes("data-approval-profile")
@@ -19814,9 +19822,13 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13j: V17-G8 Codex run/composer consolidation avoids duplicate output ----
   {
-    const ok = viewSrc.includes("private shouldSuppressCodexStandaloneAnswer(")
-      && viewSrc.includes("private codexTurnHasFinalAnswerCarrier(")
-      && viewSrc.includes('content.addClass("llm-bridge-msg-content-suppressed")')
+    const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+    const ok = (viewSrc.includes("private shouldSuppressCodexStandaloneAnswer(")
+        || messageRendererSrc.includes("export function shouldSuppressCodexStandaloneAnswer"))
+      && (viewSrc.includes("private codexTurnHasFinalAnswerCarrier(")
+        || messageRendererSrc.includes("export function codexTurnHasFinalAnswerCarrier"))
+      && (viewSrc.includes('content.addClass("llm-bridge-msg-content-suppressed")')
+        || messageRendererSrc.includes('content.addClass("llm-bridge-msg-content-suppressed")'))
       && viewSrc.includes("private getVisibleMarkdownFile(): TFile | null")
       && viewSrc.includes('this.app.workspace.getLeavesOfType("markdown")')
       && viewSrc.includes('text: "工具"')
@@ -19838,8 +19850,10 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("this.activeFileLabelEl.dataset.value = activeFileName")
       && viewSrc.includes('if (selWrap) selWrap.toggleAttribute("hidden", !selectionText);')
       && viewSrc.includes('selTag.textContent = selectionText ? `Selection ${selectionText}` : "Selection";')
-      && viewSrc.includes("private renderUserMessageContent(content: HTMLElement, text: string): void")
-      && viewSrc.includes('cls: "llm-bridge-user-prompt-collapse"')
+      && (viewSrc.includes("private renderUserMessageContent(content: HTMLElement, text: string): void")
+        || messageRendererSrc.includes("export function renderUserMessageContent"))
+      && (viewSrc.includes('cls: "llm-bridge-user-prompt-collapse"')
+        || messageRendererSrc.includes('cls: "llm-bridge-user-prompt-collapse"'))
       && viewSrc.includes("private formatComposerStepText(")
       && viewSrc.includes('`${Math.max(1, currentIndex + 1)}/${total} · ${label}`')
       && stylesSrc.includes("V17-G8: Codex desktop-style run stream")
@@ -20308,7 +20322,9 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13n: V17-G18/G19 user bubble attachments use inline previews and lightbox ----
   {
-    const ok = viewSrc.includes("this.renderMessageFileRefs(content, msg.fileRefs)")
+    const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+    const ok = (viewSrc.includes("this.renderMessageFileRefs(content, msg.fileRefs)")
+        || messageRendererSrc.includes("deps.renderFileRefs(content, msg.fileRefs)"))
       && !viewSrc.includes("this.renderMessageFileRefs(block, msg.fileRefs)")
       && viewSrc.includes('chip.addClass("has-preview")')
       && viewSrc.includes('chip.addClass("is-preview-only")')
@@ -20654,6 +20670,7 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13ac: V17-G39 run hierarchy separates process from final answer ----
   {
     const waterfallSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
+    const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
     const ok = viewSrc.includes('const processFeedItems = run.feedItems;')
       && viewSrc.includes('const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);')
       && viewSrc.includes('const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;')
@@ -20664,7 +20681,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });')
       && viewSrc.includes('processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: processTitleLabel });')
       && viewSrc.includes('const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });')
-      && viewSrc.includes("presentation.showProcessFeed")
+      && (viewSrc.includes("presentation.showProcessFeed") || messageRendererSrc.includes("presentation.showProcessFeed"))
       && viewSrc.includes("presentation.showRunChrome")
       && viewSrc.includes("is-process-quiet")
       && !viewSrc.includes('cls: "llm-bridge-codex-process-head-preview",')
@@ -20728,9 +20745,12 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13af: V17-G54 topbar/composer/history shell surfaces continue converging to Codex ----
   {
+    const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
     const ok = viewSrc.includes('const historyHead = historyPanel.createDiv({ cls: "llm-bridge-secondary-head llm-bridge-history-page-head" });')
-      && viewSrc.includes('const lineCount = normalized.split(/\\r?\\n/).length;')
-      && viewSrc.includes("const shouldCollapse = normalized.length > 1200 || lineCount > 12;")
+      && (viewSrc.includes('const lineCount = normalized.split(/\\r?\\n/).length;')
+        || messageRendererSrc.includes('const lineCount = normalized.split(/\\r?\\n/).length;'))
+      && (viewSrc.includes("const shouldCollapse = normalized.length > 1200 || lineCount > 12;")
+        || messageRendererSrc.includes("const shouldCollapse = normalized.length > 1200 || lineCount > 12;"))
       && viewSrc.includes('if (label === "Thinking") return batchSummary ? `Thinking · ${batchSummary}` : "Thinking";')
       && viewSrc.includes('? "Shell"')
       && viewSrc.includes("private formatCodexShellCommandPreview(command?: string): string")
@@ -21015,12 +21035,15 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 17: completed 用户态显示最终输出，并在结果前保留 processOnly 折叠过程 ----
   {
+    const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
     const ok = viewSrc.includes("terminalSuccess")
       && viewSrc.includes('msg.status === "completed" || msg.status === "stopped"')
       && viewSrc.includes('block.querySelector<HTMLElement>(".llm-bridge-timeline-live")?.remove()')
-      && viewSrc.includes("this.appendMsgDetails(block, msg, content)")
+      && (viewSrc.includes("this.appendMsgDetails(block, msg, content)")
+        || viewSrc.includes("this.appendMsgDetails(block, msg, contentEl)")
+        || messageRendererSrc.includes("deps.appendMsgDetails(block, msg, content)"))
       && viewSrc.includes("block.insertBefore(details, beforeEl)")
-      && viewSrc.includes("processOnly")
+      && (viewSrc.includes("processOnly") || messageRendererSrc.includes("processOnly"))
       && viewSrc.includes("const visibleNodes = nodes;")
       && !viewSrc.includes('node.kind !== "agent" && node.kind !== "final_message" && node.kind !== "completed"')
       && viewSrc.includes("formatProcessSummary")
@@ -21031,10 +21054,16 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 18: assistant 正文使用 MarkdownRenderer，运行中有 process placeholder，默认不渲染全局 Run Flow ----
   {
-    const ok = viewSrc.includes("private renderMessageContent")
-      && viewSrc.includes("MarkdownRenderer.render(this.app, text, content")
-      && viewSrc.includes("private renderStreamingMessageContent")
-      && viewSrc.includes("llm-bridge-msg-stream-text")
+    const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+    const ok = (viewSrc.includes("private renderMessageContent")
+        || messageRendererSrc.includes("export function renderMessageContent"))
+      && (viewSrc.includes("MarkdownRenderer.render(this.app, text, content")
+        || viewSrc.includes("MarkdownRenderer.render(this.app, normalized, host")
+        || messageRendererSrc.includes("deps.renderMarkdownInto"))
+      && (viewSrc.includes("private renderStreamingMessageContent")
+        || messageRendererSrc.includes("export function renderStreamingMessageContent"))
+      && (viewSrc.includes("llm-bridge-msg-stream-text")
+        || messageRendererSrc.includes("llm-bridge-msg-stream-text"))
       && viewSrc.includes("private appendAssistantContentDelta")
       && viewSrc.includes("appendRunningProcessPlaceholder")
       && viewSrc.includes("llm-bridge-turn-header-spinner")

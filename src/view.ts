@@ -94,6 +94,20 @@ import {
   type CodexWaterfallPatchDeps,
 } from "./ui/codexWaterfallRenderer";
 import {
+  renderMessage as renderMessageDom,
+  renderMessageContent as renderMessageContentDom,
+  renderMessageActions as renderMessageActionsDom,
+  renderMessageError as renderMessageErrorDom,
+  renderUserMessageContent as renderUserMessageContentDom,
+  renderStreamingMessageContent as renderStreamingMessageContentDom,
+  coerceMessageContentText as coerceMessageContentTextDom,
+  compactPreviewText as compactPreviewTextDom,
+  shouldSuppressCodexStandaloneAnswer as shouldSuppressCodexStandaloneAnswerDom,
+  codexTurnHasFinalAnswerCarrier as codexTurnHasFinalAnswerCarrierDom,
+  flattenTurnTimelineNodes,
+  type MessageRendererDeps,
+} from "./ui/messageRenderer";
+import {
   approvePendingExternalReadRequest,
   createFileAccessPolicy,
   createPendingExternalReadRequest,
@@ -5229,117 +5243,33 @@ export class LLMBridgeView extends ItemView {
     return id;
   }
 
+  private messageRendererDeps(): MessageRendererDeps {
+    return {
+      developerMode: !!this.plugin.settings.developerMode,
+      renderMarkdownInto: (host, text) => {
+        // 消息正文可能先 empty()；清掉 waterfall 用的 finalRendered 缓存以免跳过重渲
+        delete host.dataset.finalRendered;
+        this.renderMarkdownInto(host, text);
+      },
+      renderFileRefs: (parent, refs) => this.renderMessageFileRefs(parent, refs),
+      onMessageAction: (action, msg) => { void this.handleMessageAction(action, msg); },
+      appendMsgDetails: (block, msg, beforeEl) => this.appendMsgDetails(block, msg, beforeEl),
+      scrollToBottom: (force) => this.scrollToBottom(force),
+    };
+  }
+
   private renderMessage(msg: ChatMessage): void {
-    try {
-      const empty = this.messagesEl.querySelector(".llm-bridge-empty");
-      if (empty) empty.remove();
-
-      const loc = resolveUiLocale() === "en" ? "en" : "zh";
-      const presentation = buildMessagePresentation(msg, {
-        developerMode: !!this.plugin.settings.developerMode,
-        locale: loc,
-        runtimeLabel: this.actualRuntimeLabel,
-      });
-      const kindClass = presentation.kind === "user"
-        ? ""
-        : presentation.kind === "assistant-running"
-          ? " is-running"
-          : presentation.kind === "assistant-answer"
-            ? " is-answer is-completed"
-            : presentation.kind === "assistant-summary"
-              ? " is-summary is-completed"
-              : presentation.kind === "assistant-failed"
-                ? " is-failed"
-                : presentation.kind === "assistant-stopped"
-                  ? " is-stopped"
-                  : ` is-${msg.status}`;
-
-      const block = this.messagesEl.createDiv({
-        cls: `llm-bridge-msg llm-bridge-msg-${msg.role}${kindClass}`,
-        attr: { "data-msg-id": msg.id },
-      });
-
-      const head = block.createDiv({ cls: "llm-bridge-msg-head" });
-      if (presentation.showRole) {
-        head.createEl("span", { cls: "llm-bridge-msg-role", text: presentation.roleLabel });
-      }
-      if (presentation.statusLine) {
-        head.createEl("span", { cls: "llm-bridge-msg-status-line llm-bridge-run-status-text is-running llm-bridge-run-glow", text: presentation.statusLine });
-      }
-      if (presentation.showTime) {
-        head.createEl("span", {
-          cls: `llm-bridge-msg-time${presentation.timeFaded ? " is-faded" : ""}`,
-          text: new Date(msg.timestamp).toLocaleTimeString(),
-        });
-      }
-
-      const content = block.createEl("div", { cls: "llm-bridge-msg-content" });
-      this.renderMessageContent(content, msg);
-
-      if (presentation.errorSummary) {
-        block.createDiv({ cls: "llm-bridge-msg-error-summary", text: presentation.errorSummary });
-      }
-
-      if (msg.role === "assistant") {
-        if (presentation.resultSummary) {
-          const summaryBtn = block.createEl("button", {
-            cls: "llm-bridge-msg-result-summary",
-            attr: { type: "button" },
-            text: `▸ ${presentation.resultSummary}`,
-          });
-          summaryBtn.addEventListener("click", () => {
-            const details = block.querySelector(".llm-bridge-msg-details") as HTMLElement | null;
-            if (!details) return;
-            const hidden = details.hasAttribute("hidden");
-            if (hidden) {
-              details.removeAttribute("hidden");
-              summaryBtn.textContent = `▾ ${presentation.resultSummary}`;
-            } else {
-              details.setAttribute("hidden", "");
-              summaryBtn.textContent = `▸ ${presentation.resultSummary}`;
-            }
-          });
-        }
-        this.appendMsgDetails(block, msg, content);
-        const details = block.querySelector(".llm-bridge-msg-details") as HTMLElement | null;
-        if (details && presentation.kind === "assistant-answer" && !presentation.showProcessFeed) {
-          // 无工具的普通问答：过程区可空
-          const processOnly = details.querySelector(".llm-bridge-codex-process, .llm-bridge-timeline-body");
-          if (processOnly && !msg.content && !msg.assistantTurnView) {
-            details.setAttribute("hidden", "");
-          }
-        }
-        // 有工具调用时过程流默认可见（工具组自身折叠），不再用 resultSummary 把 details 整块藏起
-        if (details && presentation.kind === "assistant-running" && !presentation.showProcessFeed) {
-          // 兼容旧路径
-        }
-      }
-
-      this.renderMessageActions(block, msg, presentation);
-      this.scrollToBottom(true);
-    } catch (e) {
-      this.renderMessageError(msg, e);
-    }
+    const loc = resolveUiLocale() === "en" ? "en" : "zh";
+    const presentation = buildMessagePresentation(msg, {
+      developerMode: !!this.plugin.settings.developerMode,
+      locale: loc,
+      runtimeLabel: this.actualRuntimeLabel,
+    });
+    renderMessageDom(this.messagesEl, msg, presentation, this.messageRendererDeps());
   }
 
   private renderMessageActions(block: HTMLElement, msg: ChatMessage, presentation: MessagePresentation): void {
-    if (!presentation.actions.length) return;
-    const actions = block.createDiv({ cls: "llm-bridge-msg-actions" });
-    const addIcon = (id: MessageActionId, iconName: string, title: string) => {
-      const btn = actions.createEl("button", {
-        cls: "llm-bridge-msg-action-btn",
-        attr: { type: "button", title, "aria-label": title, "data-action": id },
-      });
-      setIcon(btn, iconName);
-      btn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        void this.handleMessageAction(id, msg);
-      });
-    };
-    for (const action of presentation.actions) {
-      if (action === "copy") addIcon("copy", "copy", "复制回答");
-      if (action === "retry") addIcon("retry", "refresh-cw", "再次运行");
-    }
+    renderMessageActionsDom(block, msg, presentation, this.messageRendererDeps());
   }
 
   private async handleMessageAction(action: MessageActionId, msg: ChatMessage): Promise<void> {
@@ -5397,44 +5327,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderMessageContent(content: HTMLElement, msg: ChatMessage): void {
-    const text = this.coerceMessageContentText(msg.content) || (msg.role === "assistant" && msg.status === "running" ? "" : "");
-    content.empty();
-    content.removeClass("llm-bridge-msg-content-suppressed");
-    content.removeAttribute("hidden");
-    if (this.shouldSuppressCodexStandaloneAnswer(msg, text)) {
-      content.addClass("llm-bridge-msg-content-suppressed");
-      content.setAttribute("hidden", "");
-      return;
-    }
-    if (msg.role === "user" && msg.fileRefs && msg.fileRefs.length > 0) {
-      this.renderMessageFileRefs(content, msg.fileRefs);
-    }
-    if (!text) {
-      // P4-D: 不显示 "正在等待首次输出..."，spinner + currentActivity 已提供反馈
-      return;
-    }
-    if (msg.role !== "assistant") {
-      this.renderUserMessageContent(content, text);
-      return;
-    }
-
-    if (msg.status === "running") {
-      this.renderStreamingMessageContent(content, text);
-      return;
-    }
-
-    content.addClass("llm-bridge-msg-markdown");
-    const fallback = () => {
-      content.empty();
-      content.textContent = text;
-    };
-    try {
-      void MarkdownRenderer.render(this.app, text, content, "", this)
-        .then(() => this.bindAssistantMarkdownVaultLinks(content))
-        .catch(fallback);
-    } catch {
-      fallback();
-    }
+    renderMessageContentDom(content, msg, this.messageRendererDeps());
   }
 
   private bindAssistantMarkdownVaultLinks(content: HTMLElement): void {
@@ -5515,31 +5408,15 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderUserMessageContent(content: HTMLElement, text: string): void {
-    const normalized = text.trim();
-    const lineCount = normalized.split(/\r?\n/).length;
-    const shouldCollapse = normalized.length > 1200 || lineCount > 12;
-    if (!shouldCollapse) {
-      content.createEl("span", { cls: "llm-bridge-user-message-text", text: normalized });
-      return;
-    }
-    const details = content.createEl("details", { cls: "llm-bridge-user-prompt-collapse" });
-    const summary = details.createEl("summary", { cls: "llm-bridge-user-prompt-summary" });
-    summary.createEl("span", { cls: "llm-bridge-user-prompt-label", text: "Request" });
-    summary.createEl("span", { cls: "llm-bridge-user-prompt-preview", text: this.compactPreviewText(normalized, 180) });
-    summary.createEl("span", { cls: "llm-bridge-user-prompt-count", text: `${lineCount} lines · ${normalized.length} chars` });
-    details.createEl("div", { cls: "llm-bridge-user-prompt-body", text: normalized });
+    renderUserMessageContentDom(content, text);
   }
 
   private compactPreviewText(text: string, maxChars: number): string {
-    const oneLine = text.replace(/\s+/g, " ").trim();
-    if (oneLine.length <= maxChars) return oneLine;
-    return `${oneLine.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
+    return compactPreviewTextDom(text, maxChars);
   }
 
   private renderStreamingMessageContent(content: HTMLElement, text: string): void {
-    content.removeClass("llm-bridge-msg-markdown");
-    content.empty();
-    content.createEl("span", { cls: "llm-bridge-msg-stream-text", text });
+    renderStreamingMessageContentDom(content, text);
   }
 
   private renderMessageFileRefs(parent: HTMLElement, refs: ReadonlyArray<FileRef>): void {
@@ -5611,52 +5488,19 @@ export class LLMBridgeView extends ItemView {
 
   // V2.7: 消息渲染失败的 fallback 块（避免单条消息异常导致整个列表白屏）
   private renderMessageError(msg: ChatMessage, error: unknown): void {
-    try {
-      const block = this.messagesEl.createDiv({
-        cls: "llm-bridge-msg llm-bridge-msg-error",
-        attr: { "data-msg-id": msg.id },
-      });
-      const developerMode = !!this.plugin.settings.developerMode;
-      block.createEl("div", {
-        cls: "llm-bridge-msg-content",
-        text: developerMode
-          ? `Message render fallback · ${msg.role} · ${msg.timestamp}`
-          : "This response could not be rendered inline. The answer text is still preserved.",
-      });
-      if (developerMode && error instanceof Error && error.message) {
-        const details = block.createEl("details", { cls: "llm-bridge-message-render-error-detail" });
-        details.createEl("summary", { text: "Render error detail" });
-        details.createEl("pre", { cls: "llm-bridge-error-detail", text: error.message });
-      }
-      this.scrollToBottom(true);
-    } catch {
-      // 连错误块都渲染失败，静默忽略（避免无限抛出）
-    }
+    renderMessageErrorDom(this.messagesEl, msg, error, this.messageRendererDeps());
   }
 
   private coerceMessageContentText(value: unknown): string {
-    if (typeof value === "string") return value;
-    if (value === null || value === undefined) return "";
-    if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
-    try {
-      return JSON.stringify(value, null, 2);
-    } catch {
-      return String(value);
-    }
+    return coerceMessageContentTextDom(value);
   }
 
   private shouldSuppressCodexStandaloneAnswer(msg: ChatMessage, text: string): boolean {
-    if (msg.role !== "assistant" || !text.trim() || this.plugin.settings.developerMode) return false;
-    const turnView = msg.assistantTurnView;
-    if (!turnView || !/codex/i.test(turnView.providerId)) return false;
-    return this.codexTurnHasFinalAnswerCarrier(turnView);
+    return shouldSuppressCodexStandaloneAnswerDom(msg, text, !!this.plugin.settings.developerMode);
   }
 
   private codexTurnHasFinalAnswerCarrier(turnView: AssistantTurnView): boolean {
-    if (turnView.finalAnswer.trim().length > 0) return true;
-    return this.flattenTurnTimeline(turnView.turnTimeline).some((node) =>
-      node.kind === "agentMessage" && [node.text, node.summary, node.detail].some((value) => (value ?? "").trim().length > 0)
-    );
+    return codexTurnHasFinalAnswerCarrierDom(turnView);
   }
 
   private assistantTurnHasVisibleRunContent(turnView: AssistantTurnView): boolean {
@@ -9268,15 +9112,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   private flattenTurnTimeline(nodes: ReadonlyArray<TurnTimelineNode>): TurnTimelineNode[] {
-    const flattened: TurnTimelineNode[] = [];
-    const visit = (items: ReadonlyArray<TurnTimelineNode>) => {
-      for (const item of items) {
-        flattened.push(item);
-        if (item.children?.length) visit(item.children);
-      }
-    };
-    visit(nodes);
-    return flattened;
+    return flattenTurnTimelineNodes(nodes);
   }
 
   private getComposerTurnStatus(turn: AssistantTurnView): { label: string; stepText: string; kind: string; isActive: boolean; isContextCompaction: boolean } | null {

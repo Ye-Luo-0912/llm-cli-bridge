@@ -54,7 +54,9 @@ Structure-only first: **no visual/behavior change**, Obsidian native DOM only (n
 - `renderCodexFeed*`, `patchCodexFeed*` item/tool-group patches remain on `LLMBridgeView` for now
 - **Round 1 done:** `reconcileCodexRunWaterfall` / `patchCodexFeedStable` / `upgradeCodexCandidateAnswerInFeed` → `src/ui/codexWaterfallRenderer.ts` (single reconcile entry; keys/expand/candidate identity preserved)
 - deleted dead `renderCodexFinalAnswer` + `ensureCodexFinalAnswerNode` shims
-- `renderMessage*`, `renderMessageContent`, `appendUserMessage` → Round 2 MessageRenderer
+- **Round 2 done:** `renderMessage` / `renderMessageContent` / actions / error / suppress helpers → `src/ui/messageRenderer.ts` (View keeps thin wrappers + fileRefs/details/actions orchestration)
+- `appendMsgDetails` / `updateAssistantMessage` / `renderMessageFileRefs` remain on View for now
+- Round 3: ComposerController
 
 **Agent C (Composer)**
 
