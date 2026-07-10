@@ -24,6 +24,7 @@
     "smoke:ui-02": "node scripts/ui-02-smoke.mjs",
     "smoke:ui-03": "node scripts/ui-03-smoke.mjs",
     "smoke:f03": "node scripts/f03-smoke.mjs",
+    "smoke:ui-package": "node scripts/ui-smoke-package.mjs",
     "test:summary": "node scripts/generate-test-summary.mjs",
     "codex:schema": "node scripts/generate-codex-schema.mjs",
     "release": "node scripts/build-release.mjs",
