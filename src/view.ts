@@ -89,7 +89,6 @@ import {
 import {
   reconcileCodexRunWaterfall as reconcileCodexRunWaterfallDom,
   upgradeCodexCandidateAnswerInFeed as upgradeCodexCandidateAnswerInFeedDom,
-  codexFeedItemKey,
   type CodexWaterfallPatchDeps,
 } from "./ui/codexWaterfallRenderer";
 import {
@@ -378,11 +377,6 @@ export class LLMBridgeView extends ItemView {
   private activeComposerPopup: "command" | "model" | "permission" | "attachment" | "session" | "mention" | null = null;
   private attachmentContextMenuEl: HTMLElement | null = null;
   private closeCommandMenuPopover: (() => void) | null = null;
-  /** 工具组懒展开时读取最新成员（保留 details 身份） */
-  private codexToolGroupMembers = new WeakMap<HTMLElement, {
-    items: ReadonlyArray<CodexRunFeedItem>;
-    developerMode: boolean;
-  }>();
   private liveTimelineTimerId: number | null = null;
   // V2.5: 历史会话列表
   private historyListEl!: HTMLElement;
@@ -5869,7 +5863,7 @@ export class LLMBridgeView extends ItemView {
     const icon = summary.createEl("span", { cls: "llm-bridge-codex-tool-group-icon" });
     setIcon(icon, "terminal");
     const main = summary.createDiv({ cls: "llm-bridge-codex-tool-group-main" });
-    const groupTitle = this.formatCodexToolGroupTitle(events);
+    const groupTitle = formatCodexToolGroupTitle(events);
     main.createEl("span", {
       cls: "llm-bridge-codex-tool-group-title",
       text: groupTitle,
@@ -5878,11 +5872,11 @@ export class LLMBridgeView extends ItemView {
     const meta = summary.createDiv({ cls: "llm-bridge-codex-tool-group-meta" });
     if (developerMode) {
       meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${groupStatus}`, text: groupStatus });
-      const totalDuration = this.sumCodexEventDuration(events);
+      const totalDuration = sumCodexEventDuration(events);
       if (totalDuration) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(totalDuration) });
       meta.createEl("span", {
         cls: "llm-bridge-codex-tool-group-count",
-        text: this.formatCodexToolGroupCount(events),
+        text: formatCodexToolGroupCount(events),
       });
     }
 
@@ -5896,37 +5890,6 @@ export class LLMBridgeView extends ItemView {
     group.addEventListener("toggle", () => {
       if (group.open) renderBody();
     });
-  }
-
-  private formatCodexToolGroupTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
-    const commandCount = items.filter((item) => item.kind === "command").length;
-    const fileCount = items.filter((item) => item.kind === "file" || !!item.change).length;
-    const approvalCount = items.filter((item) => item.kind === "approval").length;
-    const toolCount = items.length - commandCount - fileCount - approvalCount;
-    if (commandCount > 0 && fileCount === 0 && approvalCount === 0 && toolCount === 0) {
-      return `已运行 ${commandCount} 条命令`;
-    }
-    if (fileCount > 0 && commandCount === 0 && approvalCount === 0 && toolCount === 0) {
-      return `已编辑 ${fileCount} 个文件`;
-    }
-    const parts: string[] = [];
-    if (commandCount) parts.push(`${commandCount} 条命令`);
-    if (fileCount) parts.push(`${fileCount} 个文件`);
-    if (approvalCount) parts.push(`${approvalCount} 个确认`);
-    if (toolCount) parts.push(`${toolCount} 个工具`);
-    return parts.length > 0 ? `已处理 ${parts.join(" · ")}` : `已处理 ${items.length} 个操作`;
-  }
-
-  private formatCodexToolGroupCount(items: ReadonlyArray<CodexRunFeedItem>): string {
-    const commandCount = items.filter((item) => item.kind === "command").length;
-    const fileCount = items.filter((item) => item.kind === "file" || !!item.change).length;
-    if (commandCount > 0 && fileCount === 0) return `${commandCount} commands`;
-    if (fileCount > 0 && commandCount === 0) return `${fileCount} files`;
-    return `${items.length} events`;
-  }
-
-  private sumCodexEventDuration(items: ReadonlyArray<CodexRunFeedItem>): number {
-    return items.reduce((total, item) => total + (item.durationMs || item.step?.durationMs || 0), 0);
   }
 
   private renderCodexFeedBatchSummary(
@@ -8122,10 +8085,10 @@ export class LLMBridgeView extends ItemView {
 
   private codexWaterfallDeps(): CodexWaterfallPatchDeps {
     return {
-      patchEntryItem: (entry, item, developerMode) => this.patchCodexFeedEntryItem(entry, item, developerMode),
-      patchEntryToolGroup: (entry, groupKind, items, developerMode) =>
-        this.patchCodexFeedEntryToolGroup(entry, groupKind, items, developerMode),
+      renderCodexFeedItem: (parent, item, developerMode, nestedEvent) =>
+        this.renderCodexFeedItem(parent, item, developerMode, nestedEvent),
       renderMarkdownInto: (host, text) => this.renderMarkdownInto(host, text),
+      formatDurationMs: (ms) => this.formatDurationMs(ms),
     };
   }
 
@@ -8138,192 +8101,6 @@ export class LLMBridgeView extends ItemView {
     options: { streaming: boolean; developerMode: boolean },
   ): void {
     reconcileCodexRunWaterfallDom(processBody, run, options, this.codexWaterfallDeps());
-  }
-
-  private patchCodexFeedEntryItem(
-    entry: HTMLElement,
-    item: CodexRunFeedItem,
-    developerMode: boolean,
-  ): void {
-    const answerRole = item.kind === "assistant" ? (item.answerRole || "process") : "";
-    const roleClass = answerRole ? ` is-answer-${answerRole}` : "";
-    entry.className = `llm-bridge-codex-feed-entry is-item is-${item.kind} is-${item.status}${roleClass}`;
-    entry.setAttribute("data-feed-kind", item.kind);
-    if (item.sourceRef?.itemId) entry.setAttribute("data-item-id", item.sourceRef.itemId);
-    if (item.sourceRef?.sequence !== undefined) {
-      entry.setAttribute("data-sequence", String(item.sourceRef.sequence));
-    }
-    if (answerRole) entry.setAttribute("data-answer-role", answerRole);
-    else entry.removeAttribute("data-answer-role");
-
-    const text = (item.summary || "").trim();
-    const isCandidate = item.kind === "assistant" && answerRole === "candidate";
-    const isComplete = item.status === "completed" || item.status === "failed";
-
-    // candidate 完成后原地升级 Markdown（不重建节点）
-    if (isCandidate && isComplete && text) {
-      let line = entry.querySelector<HTMLElement>(".llm-bridge-codex-thinking-line.is-final-candidate");
-      if (!line) {
-        entry.empty();
-        entry.dataset.renderItemKey = `${item.id}|${item.kind}|${answerRole}|md`;
-        this.renderCodexFeedItem(entry, item, developerMode, false);
-      } else {
-        line.classList.remove("is-thinking-live");
-        line.classList.add("is-thinking-done");
-        let md = line.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
-        const stream = line.querySelector<HTMLElement>(".llm-bridge-msg-stream-text");
-        if (stream) stream.remove();
-        if (!md) {
-          md = line.createDiv({ cls: "llm-bridge-codex-answer-body llm-bridge-msg-markdown" });
-        }
-        this.renderMarkdownInto(md, text);
-      }
-      return;
-    }
-
-    const renderedKey = entry.dataset.renderItemKey;
-    const nextRenderKey = `${item.id}|${item.kind}|${answerRole}`;
-    if (renderedKey !== nextRenderKey || entry.childElementCount === 0) {
-      entry.empty();
-      entry.dataset.renderItemKey = nextRenderKey;
-      this.renderCodexFeedItem(entry, item, developerMode, false);
-    } else {
-      const streamEl = entry.querySelector<HTMLElement>(".llm-bridge-msg-stream-text, .llm-bridge-codex-thinking-summary");
-      const nextSummary = text || (item.label || "").trim();
-      if (streamEl && nextSummary) {
-        const clipped = streamEl.classList.contains("llm-bridge-msg-stream-text")
-          || streamEl.classList.contains("llm-bridge-codex-thinking-summary")
-          ? (nextSummary.length > 1200 ? `${nextSummary.slice(0, 1200).trimEnd()}...` : nextSummary)
-          : truncateText(nextSummary, 180);
-        if (streamEl.textContent !== clipped) {
-          streamEl.textContent = clipped;
-          streamEl.setAttribute("title", nextSummary);
-        }
-      }
-    }
-
-    if (isComplete) {
-      entry.querySelectorAll(".llm-bridge-run-glow").forEach((el) => {
-        el.classList.remove("llm-bridge-run-glow", "is-running");
-      });
-      entry.querySelectorAll(".is-thinking-live").forEach((el) => {
-        el.classList.remove("is-thinking-live");
-        el.classList.add("is-thinking-done");
-      });
-    }
-  }
-
-  private patchCodexFeedEntryToolGroup(
-    entry: HTMLElement,
-    groupKind: "command" | "image",
-    items: ReadonlyArray<CodexRunFeedItem>,
-    developerMode: boolean,
-  ): void {
-    const hasActive = items.some((item) => item.status === "running" || item.status === "pending");
-    const hasFailed = items.some((item) => item.status === "failed");
-    const groupStatus = hasActive ? "running" : hasFailed ? "failed" : "completed";
-    entry.className = `llm-bridge-codex-feed-entry is-tool-group is-${groupKind} is-${groupStatus}`;
-    entry.setAttribute("data-feed-kind", "tool-group");
-    entry.setAttribute("data-group-kind", groupKind);
-    entry.setAttribute("data-step-count", String(items.length));
-
-    let group = entry.querySelector<HTMLDetailsElement>(":scope > details.llm-bridge-codex-tool-group");
-    const wasOpen = !!group?.open;
-    if (!group) {
-      group = entry.createEl("details", { cls: `llm-bridge-codex-tool-group is-${groupStatus}` });
-      const summary = group.createEl("summary", { cls: "llm-bridge-codex-tool-group-summary" });
-      const icon = summary.createEl("span", { cls: "llm-bridge-codex-tool-group-icon" });
-      setIcon(icon, groupKind === "image" ? "image" : "terminal");
-      const main = summary.createDiv({ cls: "llm-bridge-codex-tool-group-main" });
-      main.createEl("span", { cls: "llm-bridge-codex-tool-group-title", text: "" });
-      summary.createDiv({ cls: "llm-bridge-codex-tool-group-meta" });
-      group.addEventListener("toggle", () => {
-        if (!group?.open) return;
-        if (group.querySelector(":scope > .llm-bridge-codex-tool-group-body")) return;
-        const cached = this.codexToolGroupMembers.get(group);
-        if (!cached) return;
-        const nextBody = group.createDiv({ cls: "llm-bridge-codex-tool-group-body" });
-        this.patchCodexToolGroupBody(nextBody, cached.items, cached.developerMode);
-      });
-    }
-    group.className = `llm-bridge-codex-tool-group is-${groupStatus}`;
-    if (wasOpen) group.open = true;
-
-    const titleEl = group.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-title");
-    const title = groupKind === "image"
-      ? this.formatCodexImageGroupTitle(items)
-      : this.formatCodexToolGroupTitle(items);
-    if (titleEl && titleEl.textContent !== title) {
-      titleEl.textContent = title;
-      titleEl.setAttribute("title", title);
-    }
-
-    const meta = group.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-meta");
-    if (meta && developerMode) {
-      meta.empty();
-      meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${groupStatus}`, text: groupStatus });
-      const totalDuration = this.sumCodexEventDuration(items);
-      if (totalDuration) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(totalDuration) });
-      meta.createEl("span", {
-        cls: "llm-bridge-codex-tool-group-count",
-        text: this.formatCodexToolGroupCount(items),
-      });
-    }
-
-    this.codexToolGroupMembers.set(group, { items, developerMode });
-    group.setAttribute("data-member-ids", items.map((item) => codexFeedItemKey(item)).join("|"));
-
-    // 已展开：局部更新 body 成员（keyed），保留已渲染内容身份
-    if (group.open) {
-      let body = group.querySelector<HTMLElement>(":scope > .llm-bridge-codex-tool-group-body");
-      if (!body) body = group.createDiv({ cls: "llm-bridge-codex-tool-group-body" });
-      this.patchCodexToolGroupBody(body, items, developerMode);
-    }
-
-    if (groupStatus === "completed" || groupStatus === "failed") {
-      entry.querySelectorAll(".llm-bridge-run-glow").forEach((el) => {
-        el.classList.remove("llm-bridge-run-glow", "is-running");
-      });
-    }
-  }
-
-  private patchCodexToolGroupBody(
-    body: HTMLElement,
-    items: ReadonlyArray<CodexRunFeedItem>,
-    developerMode: boolean,
-  ): void {
-    const desiredKeys = items.map((item) => codexFeedItemKey(item));
-    const existingByKey = new Map<string, HTMLElement>();
-    Array.from(body.children).forEach((child) => {
-      if (!(child instanceof HTMLElement)) return;
-      const key = child.getAttribute("data-feed-key") || child.getAttribute("data-item-id");
-      if (key) existingByKey.set(key, child);
-    });
-    for (let index = 0; index < items.length; index++) {
-      const item = items[index];
-      const key = codexFeedItemKey(item);
-      const anchor = body.children[index] as HTMLElement | undefined;
-      let node = existingByKey.get(key);
-      if (!node) {
-        node = body.createDiv({ cls: "llm-bridge-codex-tool-group-member", attr: { "data-feed-key": key } });
-        if (item.sourceRef?.itemId) node.setAttribute("data-item-id", item.sourceRef.itemId);
-        this.renderCodexFeedItem(node, item, developerMode, true);
-        existingByKey.set(key, node);
-      }
-      if (anchor !== node) body.insertBefore(node, anchor ?? null);
-    }
-    Array.from(body.children).forEach((child) => {
-      if (!(child instanceof HTMLElement)) return;
-      const key = child.getAttribute("data-feed-key") || child.getAttribute("data-item-id");
-      if (!key || !desiredKeys.includes(key)) child.remove();
-    });
-  }
-
-  private formatCodexImageGroupTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
-    const loc = resolveUiLocale() === "en" ? "en" : "zh";
-    const active = items.some((item) => item.status === "running" || item.status === "pending");
-    if (loc === "zh") return active ? "正在分析图片" : items.length > 1 ? `已查看 ${items.length} 张图片` : "已查看图片";
-    return active ? "Viewing image" : items.length > 1 ? `Viewed ${items.length} images` : "Viewed image";
   }
 
   private appendAssistantContentDelta(id: string, delta: string): void {

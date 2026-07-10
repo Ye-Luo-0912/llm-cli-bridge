@@ -19976,16 +19976,25 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13j5: V17-G65 grouped lazy tools and full-width composer input ----
   {
+    const processFeedSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexProcessFeed.ts"), "utf8");
+    const waterfallSrcG65 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
     const ok = viewSrc.includes("private shouldGroupCodexToolEvents(")
       && viewSrc.includes("private renderCodexToolGroup(")
-      && viewSrc.includes("private formatCodexToolGroupTitle(")
-      && viewSrc.includes("llm-bridge-codex-tool-group")
-      && viewSrc.includes('if (group.open) renderBody();')
+      && (viewSrc.includes("private formatCodexToolGroupTitle(")
+        || processFeedSrc.includes("export function formatCodexToolGroupTitle("))
+      && (viewSrc.includes("llm-bridge-codex-tool-group")
+        || waterfallSrcG65.includes("llm-bridge-codex-tool-group"))
+      && (viewSrc.includes('if (group.open) renderBody();')
+        || waterfallSrcG65.includes("if (group.open)"))
       && viewSrc.includes('block.querySelector(":scope > .llm-bridge-codex-event-body")')
       && viewSrc.includes('item.kind === "command"')
-      && viewSrc.includes("return `已运行 ${commandCount} 条命令`;")
-      && viewSrc.includes("return `已编辑 ${fileCount} 个文件`;")
-      && viewSrc.includes("private sumCodexEventDuration(")
+      && (viewSrc.includes("return `已运行 ${commandCount} 条命令`;")
+        || processFeedSrc.includes("return `已运行 ${commandCount} 条命令`;"))
+      && (viewSrc.includes("return `已编辑 ${fileCount} 个文件`;")
+        || processFeedSrc.includes("return `已编辑 ${fileCount} 个文件`;"))
+      && (viewSrc.includes("private sumCodexEventDuration(")
+        || processFeedSrc.includes("export function sumCodexEventDuration(")
+        || waterfallSrcG65.includes("sumCodexEventDuration("))
       && stylesSrc.includes("V17-G65: grouped lazy tool events and full-width composer input")
       && stylesSrc.includes(".llm-bridge-codex-tool-group-summary")
       && (stylesSrc.includes('"input input input"') || stylesSrc.includes(".llm-bridge-input-surface"))
