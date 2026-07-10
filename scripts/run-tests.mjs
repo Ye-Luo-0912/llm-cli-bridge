@@ -19741,7 +19741,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('className: "llm-bridge-perm-option"')
       && viewSrc.includes("icon: mode.icon")
       && viewSrc.includes('if (noteWrap) noteWrap.removeAttribute("hidden");')
-      && viewSrc.includes('const displayName = fname || "No active note";')
+      && viewSrc.includes('const displayName = fname ? `Note · ${fname}` : "No active note";')
       && viewSrc.includes("noteTag.textContent = displayName")
       && stylesSrc.includes("V17-G7: Codex-like run waterfall, composer, files and request polish")
       && stylesSrc.includes(".llm-bridge-context-tag.is-empty")
@@ -19773,7 +19773,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('text: kind === "note" ? "" : "Selection"')
       && viewSrc.includes('"data-context-kind": kind')
       && viewSrc.includes('if (noteWrap) noteWrap.removeAttribute("hidden");')
-      && viewSrc.includes('const displayName = fname || "No active note";')
+      && viewSrc.includes('const displayName = fname ? `Note · ${fname}` : "No active note";')
       && viewSrc.includes("noteTag.textContent = displayName")
       && viewSrc.includes('cls: `llm-bridge-context-tag ${kind === "note" ? "is-active-file" : "is-selection-ref"}`')
       && viewSrc.includes("this.activeFileLabelEl.dataset.value = activeFileName")
@@ -20313,7 +20313,7 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13p: V17-G23 context note and composer step status are plain text ----
   {
     const ok = viewSrc.includes('if (noteWrap) noteWrap.removeAttribute("hidden");')
-      && viewSrc.includes('const displayName = fname || "No active note";')
+      && viewSrc.includes('const displayName = fname ? `Note · ${fname}` : "No active note";')
       && viewSrc.includes('noteTag.setAttribute("aria-pressed", String(on && !!fname));')
       && viewSrc.includes('`${Math.max(1, currentIndex + 1)}/${total} · ${label}`')
       && stylesSrc.includes("V17-G23: plain Codex-like context and step status text")

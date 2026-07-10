@@ -15828,6 +15828,155 @@
   color: var(--text-muted) !important;
 }
 
+/* ============================================================
+ * UI-02: Composer 与上下文工作台重做
+ * 紧凑态输入框 + 自动增高 + 分组上下文 + 响应式修复
+ * ============================================================ */
+
+/* UI-02: 紧凑态输入框 — 空输入 52-64px，随内容增高，上限 180px */
+.llm-bridge-composer-bar {
+  min-height: auto;
+  /* 允许输入行增高到 180px（覆盖 V17-G68 的 minmax(52px, 112px)） */
+  grid-template-rows: auto auto minmax(52px, 180px) 32px !important;
+}
+
+/* UI-02: 左侧工具防竖排 — nowrap + ellipsis */
+.llm-bridge-composer-tools-left {
+  flex-wrap: nowrap !important;
+  overflow: hidden;
+}
+
+.llm-bridge-composer-tools-left .llm-bridge-command-menu-label,
+.llm-bridge-composer-tools-left .llm-bridge-permission-chip-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.llm-bridge-input-row,
+.llm-bridge-input {
+  min-height: 52px;
+}
+
+.llm-bridge-input {
+  height: auto;
+  min-height: 52px;
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 7px 112px 30px 13px;
+  transition: min-height 0.12s ease;
+}
+
+/* UI-02: 有内容时输入框增高（由 JS auto-grow 控制 height） */
+.llm-bridge-input.is-auto-grown {
+  min-height: 64px;
+}
+
+/* UI-02: 上下文分组标签 */
+.llm-bridge-composer-context-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 2px 3px;
+}
+
+.llm-bridge-composer-context-group-label {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  margin-right: 2px;
+  user-select: none;
+}
+
+/* UI-02: 文件 chip 键盘可操作的删除按钮 */
+.llm-bridge-composer-file-remove:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
+/* UI-02: 窄宽度响应式 — 360/480px 下防止文字竖排和按钮遮挡 */
+@media (max-width: 480px) {
+  .llm-bridge-composer-bar {
+    padding: 6px 8px;
+    border-radius: 18px;
+  }
+
+  .llm-bridge-input {
+    padding: 7px 88px 30px 11px;
+    font-size: var(--font-ui-small);
+  }
+
+  .llm-bridge-composer-tools-left {
+    left: 6px;
+    bottom: 6px;
+    gap: 2px;
+  }
+
+  .llm-bridge-composer-tools-right {
+    right: 6px;
+    bottom: 6px;
+    gap: 4px;
+  }
+
+  /* 窄宽度下隐藏模型选择器，优先保留发送与权限 */
+  .llm-bridge-model-effort-picker {
+    display: none;
+  }
+
+  /* 工具菜单文案隐藏，仅保留图标 */
+  .llm-bridge-command-menu-summary .llm-bridge-command-menu-label {
+    display: none;
+  }
+
+  .llm-bridge-composer-file-chip {
+    max-width: 160px;
+  }
+}
+
+/* UI-02: 360px 极窄宽度 */
+@media (max-width: 360px) {
+  .llm-bridge-input {
+    padding: 7px 72px 30px 9px;
+  }
+
+  .llm-bridge-composer-tool-btn,
+  .llm-bridge-command-menu-summary.llm-bridge-composer-tool-btn,
+  .llm-bridge-permission-chip {
+    min-height: 28px;
+    padding: 2px 6px;
+  }
+
+  .llm-bridge-send-btn,
+  .llm-bridge-stop-btn {
+    width: 32px;
+    height: 32px;
+  }
+}
+
+/* UI-02: 760px 中等宽度 — 权限模式移到右侧时的布局调整 */
+@media (max-width: 760px) {
+  .llm-bridge-composer-tools-left .llm-bridge-permission-picker {
+    display: none;
+  }
+  .llm-bridge-composer-tools-right .llm-bridge-permission-picker-compact {
+    display: inline-flex;
+  }
+}
+
+/* UI-02: "需要你操作"状态 — approval/clarification 卡片加 accent 左边框，
+   让用户一眼看出当前需要操作的入口（composer bar 此时已隐藏） */
+.llm-bridge-composer .llm-bridge-approval-card,
+.llm-bridge-composer .llm-bridge-clarification-card {
+  border-left: 3px solid var(--interactive-accent) !important;
+}
+
+.llm-bridge-composer-tools-right .llm-bridge-permission-picker-compact {
+  display: none;
+}
+
 .llm-bridge-approval-card-row-risk,
 .llm-bridge-approval-card-row-highrisk,
 .llm-bridge-approval-card-row-subagent {

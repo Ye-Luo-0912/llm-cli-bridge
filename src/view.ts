@@ -794,7 +794,7 @@ export class LLMBridgeView extends ItemView {
     const inputRow = composerBar.createDiv({ cls: "llm-bridge-input-row" });
     this.inputEl = inputRow.createEl("textarea", {
       cls: "llm-bridge-input",
-      attr: { placeholder: "要求后续变更", rows: "3" },
+      attr: { placeholder: "要求后续变更", rows: "1" },
     });
     this.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
       if (this.mentionPickerEl && !this.mentionPickerEl.hasAttribute("hidden")) {
@@ -806,7 +806,11 @@ export class LLMBridgeView extends ItemView {
       }
     });
     // V2.15-H: 监听 input 事件，检测 @ 提及触发 inline 文件选择器
-    this.inputEl.addEventListener("input", () => this.handleMentionInput());
+    // UI-02: 同时触发自动增高
+    this.inputEl.addEventListener("input", () => {
+      this.handleMentionInput();
+      this.autoGrowInput();
+    });
     this.inputEl.addEventListener("paste", (event) => {
       void this.handleComposerPaste(event);
     });
@@ -1137,6 +1141,9 @@ export class LLMBridgeView extends ItemView {
       return;
     }
     container.removeAttribute("hidden");
+    // UI-02: 分组标签 — Skill
+    const loc = resolveUiLocale();
+    container.createDiv({ cls: "llm-bridge-composer-context-group-label", text: loc === "zh" ? "Skill" : "Skill" });
     for (const selection of this.selectedRuntimeCapabilities) {
       const chip = container.createEl("button", {
         cls: "llm-bridge-composer-runtime-chip",
@@ -1372,7 +1379,8 @@ export class LLMBridgeView extends ItemView {
       noteTag.classList.toggle("is-path-only", on && this.activeNoteAttachState === "path-only");
       noteTag.setAttribute("aria-pressed", String(on && !!fname));
       // V17-G2: 活动笔记 tag 只显示当前文件名；状态通过颜色/删除线表达。
-      const displayName = fname || "No active note";
+      // UI-02: 加 "Note ·" 前缀让用户一眼区分上下文类型
+      const displayName = fname ? `Note · ${fname}` : "No active note";
       noteTag.textContent = displayName;
       if (!fname) {
         noteTag.setAttribute("title", "No active note. Open a markdown file and it will appear here.");
@@ -3028,6 +3036,21 @@ export class LLMBridgeView extends ItemView {
     this.openMentionPicker(match[1]);
   }
 
+  // UI-02: 输入框自动增高 — 空态 52px，有内容 ≥64px，上限 180px
+  private autoGrowInput(): void {
+    const el = this.inputEl;
+    if (!el) return;
+    el.style.height = "auto";
+    const max = 180;
+    const next = Math.min(el.scrollHeight, max);
+    el.style.height = `${next}px`;
+    if (el.value.trim().length > 0) {
+      el.addClass("is-auto-grown");
+    } else {
+      el.removeClass("is-auto-grown");
+    }
+  }
+
   private openMentionPicker(query: string): void {
     const inputRow = this.inputEl.parentElement as HTMLElement | null;
     if (!inputRow) return;
@@ -3128,6 +3151,7 @@ export class LLMBridgeView extends ItemView {
       this.inputEl.value = value.slice(0, range.start) + value.slice(range.end);
       this.inputEl.setSelectionRange(range.start, range.start);
     }
+    this.autoGrowInput();
     this.inputEl.focus();
     void this.addAttachmentPathWithNotice(filePath);
   }
@@ -3666,7 +3690,17 @@ export class LLMBridgeView extends ItemView {
       return;
     }
     container.removeAttribute("hidden");
-    for (const ref of refs) {
+    // UI-02: 分组展示 — Pin / External / File，让用户一眼看出上下文类型
+    const loc = resolveUiLocale();
+    const groups: Array<{ label: string; refs: typeof refs }> = [
+      { label: "Pin", refs: refs.filter((r) => r.scope === "pinned") },
+      { label: loc === "zh" ? "外部读取" : "External", refs: refs.filter((r) => r.kind === "external" && r.scope !== "pinned") },
+      { label: loc === "zh" ? "文件" : "File", refs: refs.filter((r) => (r.kind === "vault" || r.kind === "attachment") && r.scope !== "pinned") },
+    ];
+    for (const group of groups) {
+      if (group.refs.length === 0) continue;
+      container.createDiv({ cls: "llm-bridge-composer-context-group-label", text: group.label });
+      for (const ref of group.refs) {
       const chip = container.createEl("button", {
         cls: `llm-bridge-composer-file-chip is-${ref.kind} is-${ref.fileType}`,
         attr: { type: "button", title: `预览：${ref.displayName}\n${ref.resolvedPath}`, "aria-label": `预览 ${ref.displayName}` },
@@ -3716,12 +3750,19 @@ export class LLMBridgeView extends ItemView {
         event.stopPropagation();
         void this.openFileRefPreview(ref);
       });
-      const remove = chip.createEl("span", { cls: "llm-bridge-composer-file-remove", text: "×", attr: { title: "移除" } });
+      const remove = chip.createEl("span", { cls: "llm-bridge-composer-file-remove", text: "×", attr: { title: "移除", tabindex: "0", role: "button", "aria-label": `移除 ${ref.displayName}` } });
       remove.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
         this.removeMessageFileRef(ref.id);
       });
+      // UI-02: 键盘可操作的删除按钮
+      remove.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        this.removeMessageFileRef(ref.id);
+      });
+      }
     }
   }
 
@@ -9328,6 +9369,7 @@ export class LLMBridgeView extends ItemView {
   // 供外部 command 调用：填充输入框
   setInput(text: string): void {
     this.inputEl.value = text;
+    this.autoGrowInput();
     this.inputEl.focus();
     // 光标移到末尾
     this.inputEl.selectionStart = this.inputEl.selectionEnd = this.inputEl.value.length;
@@ -9462,6 +9504,7 @@ export class LLMBridgeView extends ItemView {
     this.appendUserMessage(userInput, messageRefsForRun);
     const assistantId = this.appendAssistantPlaceholder();
     this.inputEl.value = "";
+    this.autoGrowInput();
     this.closeMentionPicker();
     this.clearMessageContext();
     this.selectedRuntimeCapabilities = [];

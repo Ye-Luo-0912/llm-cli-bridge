@@ -21,6 +21,7 @@
     "smoke:user-package": "node scripts/user-package-smoke.mjs",
     "smoke:tool-presentation": "node scripts/tool-presentation-smoke.mjs",
     "smoke:ui-01": "node scripts/ui-01-smoke.mjs",
+    "smoke:ui-02": "node scripts/ui-02-smoke.mjs",
     "test:summary": "node scripts/generate-test-summary.mjs",
     "codex:schema": "node scripts/generate-codex-schema.mjs",
     "release": "node scripts/build-release.mjs",
