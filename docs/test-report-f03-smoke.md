@@ -1,7 +1,7 @@
 # F-03 Smoke: 交互状态机收口验收
 
-- **generatedAt**: 2026-07-10T03:33:15.257Z
-- **testedCodeCommitSha**: e537b1032cc884a0ff7acdc04eaa82a36b6e7d4b
+- **generatedAt**: 2026-07-10T03:35:38.746Z
+- **testedCodeCommitSha**: fd951b1eb32c89b3213b4c2ab4e135ed904f84cb
 - **f03SmokeStatus**: pass
 - **totalChecks**: 16
 

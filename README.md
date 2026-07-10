@@ -1,166 +1,43 @@
 # LLM CLI Bridge
 
-LLM CLI Bridge is an Obsidian desktop plugin that turns a Vault into a compact Claude Code / Claude SDK workbench.
+> Obsidian 插件：将 Vault 桥接到本地 LLM CLI agent。
+> **平台支持：仅 Windows x64**（跨平台支持留到下个版本）
 
-The plugin is a context and permission bridge: it manages the chat UI, message attachments, pinned context, Agent Skills status, external read approvals, and native handoff guidance. Claude Code / SDK keep responsibility for native file execution inside the Vault.
+## 当前版本
 
-Current release candidate: `2.15.0`.
+v2.18.0
 
----
+## 运行时
 
-## Quick Start
+| 运行时 | 说明 | 首次下载 |
+|--------|------|----------|
+| Managed Codex（默认） | 内置 Codex runtime，首次运行下载约 323 MB Windows binary | 是，约 323 MB |
+| Claude CLI | 需用户自行安装 Claude Code | 否 |
+| Claude SDK | 需用户自行配置 Claude SDK | 否 |
+| Pi（高级） | 实验性 Pi runtime | 否 |
 
-1. Install Claude Code and confirm `claude --version` works.
-2. Download `llm-cli-bridge-<version>.zip`.
-3. Copy the 6 release files into `<Vault>/.obsidian/plugins/llm-cli-bridge/`.
-4. Restart Obsidian and enable `LLM CLI Bridge` in Community plugins.
-5. Open the Bridge view and send a message from the bottom composer.
+- 默认包大小：约 98 MB（不含 runtime binary）
+- 离线包：另行提供（含预装 runtime binary，约 406 MB）
+- Managed Codex runtime 需要用户级 Codex/OpenAI 凭据（`~/.codex` 或环境变量）
 
-Release zip contents:
+## 安装
 
-```text
-llm-cli-bridge-<version>/
-├── main.js
-├── manifest.json
-├── styles.css
-├── README.md
-├── RELEASE_CHECKLIST.md
-└── USER_GUIDE.md
-```
+1. 下载 `llm-cli-bridge-<version>-win32-x64.zip`
+2. 解压到 `<vault>/.obsidian/plugins/llm-cli-bridge/`
+3. 在 Obsidian 中启用插件（Settings → Community plugins）
+4. 首次运行时，Managed Codex runtime 会自动下载约 323 MB binary
+5. 配置 Codex/OpenAI 登录凭据
 
-For end-user steps, see [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
-
----
-
-## UI Structure
-
-V2.15 uses a compact Obsidian panel shell:
-
-- Left rail: icon-only navigation for `Chat`, `Files`, `Skills`, and `History`.
-- Topbar: `Bridge`, current session selector, new chat, settings gear, and compact runtime status.
-- Chat: message stream, thinking/status cards, collapsed command/workflow/debug details, and concise error cards.
-- Composer: upload, command menu, permission chip, input, model/effort selector, and send/stop.
-- Context toggles: lightweight `Note` / `Selection` controls.
-- Composer attachments: current-message FileRefs shown inside the input area.
-- Files page: current attachments, pinned context, FileRef index, and external read requests.
-- Skills page: Agent Skills runtime capabilities only. Clicking a skill previews/toggles state and never inserts text into the composer.
-- History page: session list, preview, restore, rename, and delete.
-
-Settings stay in the topbar gear and the normal Obsidian plugin settings modal.
-
----
-
-## Claude Runtime Config
-
-Use project-local Claude configuration through `CLAUDE_CONFIG_DIR`.
-
-Recommended project config file:
-
-```json
-{
-  "claudeConfigDir": "D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-AgentRuntime\\private\\claude-config"
-}
-```
-
-Store it at:
-
-```text
-<Vault>/.llm-bridge/claude-runtime.json
-```
-
-Rules:
-
-- `CLAUDE_CONFIG_DIR` is the supported runtime config variable.
-- `ANTHROPIC_CONFIG_DIR` is not used.
-- Do not rely on shell launcher scripts to inject Claude config.
-- Tokens remain in the local Claude config directory and are not copied into plugin settings or release artifacts.
-
----
-
-## Native Handoff Boundary
-
-The plugin does not try to replace Claude Code / SDK file capabilities.
-
-Allowed direction:
-
-- Claude Code / SDK handle native Vault file reads and edits.
-- The plugin tells the runtime the Vault root, message attachments, pinned context paths, and boundary guidance.
-- Small user-added text / markdown / json attachments are bounded into the current run only.
-- Image attachments use SDK Streaming Input image blocks when SDK direct attachment input is available; otherwise they stay as refs / native handoff paths. PDF, binary, and unknown files stay as refs unless explicitly supported and tested.
-
-Closed direction:
-
-- No plugin-owned Vault write executor.
-- No backup / rollback / audit transaction layer.
-- No external write / delete / rename.
-- No OCR, PDF parser, or plugin-side PDF/image parser.
-- No complex custom runtime tool registration expansion.
-
-External reads require explicit approval. Sensitive paths such as `.env`, credentials, `.ssh`, private keys, `.git/config`, `.obsidian`, and credential-bearing `.llm-bridge` paths remain denied or strong-risk gated.
-
----
-
-## Commands
-
-Obsidian command palette:
-
-| Command | Purpose |
-| --- | --- |
-| Open LLM CLI Bridge panel | Open the Bridge view |
-| Ask Claude about selection | Put selected text into context |
-| Rewrite selection with Claude | Ask Claude to rewrite and use the existing selection action |
-| Summarize active note to pending note | Summarize current note into the configured output directory |
-| Create pending note from selection | Create a pending note from selected text |
-| Open last generated note | Open the newest generated Markdown file |
-
-The composer command menu contains runtime checks, context refresh, and attachment fallback controls without spreading buttons across the main panel.
-
----
-
-## Build, Test, Release
+## 开发
 
 ```bash
 npm install
-npm run build
-npm run test:unit
-npm run test:process
-npm run test:claude
-npm run release
+npm run build       # TypeScript 编译 + esbuild 打包
+npm test            # 运行测试
+npm run build:user-package  # 构建用户发行包
+npm run release     # 构建发行 zip
 ```
 
-`npm run release` builds the plugin, stages exactly the 6 release files, scans the stage for sensitive data, and writes `release/llm-cli-bridge-<version>.zip`.
-
----
-
-## Logs And Local Files
-
-Runtime data lives under the Vault-local `.llm-bridge/` directory:
-
-| Path | Purpose |
-| --- | --- |
-| `.llm-bridge/bridge.json` | Local bridge port/token metadata |
-| `.llm-bridge/claude-runtime.json` | Project-local Claude config pointer |
-| `.llm-bridge/logs/` | Debug and action logs |
-| `.llm-bridge/sessions/` | Saved sessions |
-| `.llm-bridge/skills.md` | Legacy file from older releases; no longer read or modified by V2.15 |
-| `.llm-bridge/agent-skills.json` | Agent Skill manifest state |
-
-Logs record env key presence and operational metadata, not secret values.
-
-V2.15 does not automatically delete old `.llm-bridge/skills.md` or `.llm-bridge/skills/` data, but these legacy prompt-template paths are no longer part of the UI or runtime flow.
-
----
-
-## Known Limitations
-
-- Image/PDF/binary attachments are refs only in the plugin UI; ask Claude Code / SDK to inspect them natively.
-- External reads require approval and may need a retry after approval.
-- External writes, deletes, and renames are intentionally unavailable.
-- SDK runtime availability depends on the local portable runtime package and network/auth state.
-- Visual smoke should use a single unambiguous test Vault path to avoid same-name Vault selection.
-
----
-
-## License
+## 许可证
 
 MIT

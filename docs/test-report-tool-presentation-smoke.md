@@ -1,7 +1,7 @@
 # ToolPresentation Smoke 报告 (F-01)
 
-- 生成时间: 2026-07-10T02:58:08.960Z
-- commit sha: 94adf85594dd6ce502490b207dacae98d6ff1601
+- 生成时间: 2026-07-10T03:35:38.241Z
+- commit sha: fd951b1eb32c89b3213b4c2ab4e135ed904f84cb
 - 结果: 14 passed, 0 failed, 0 skipped
 
 ## 验收项

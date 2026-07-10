@@ -1,7 +1,7 @@
 # UI-03 Smoke: 导航、会话与页面层级验收
 
-- **generatedAt**: 2026-07-10T03:15:30.572Z
-- **testedCodeCommitSha**: 9d0cca8d8a1e5d063810e3bc3cb7867de988244f
+- **generatedAt**: 2026-07-10T03:35:38.556Z
+- **testedCodeCommitSha**: fd951b1eb32c89b3213b4c2ab4e135ed904f84cb
 - **ui03SmokeStatus**: pass
 - **totalChecks**: 14
 

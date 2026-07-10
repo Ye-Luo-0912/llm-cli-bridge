@@ -1,7 +1,7 @@
 # UI-01 Smoke: 对话与运行过程重做验收
 
-- **generatedAt**: 2026-07-10T02:58:09.026Z
-- **testedCodeCommitSha**: 94adf85594dd6ce502490b207dacae98d6ff1601
+- **generatedAt**: 2026-07-10T03:35:38.299Z
+- **testedCodeCommitSha**: fd951b1eb32c89b3213b4c2ab4e135ed904f84cb
 - **ui01SmokeStatus**: pass
 - **totalChecks**: 19
 

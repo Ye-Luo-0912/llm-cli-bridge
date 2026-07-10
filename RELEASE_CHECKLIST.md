@@ -2,6 +2,8 @@
 
 每次发布前按此清单逐项检查。所有项必须 ✅ 才能发布。
 
+> **平台验证：仅 Windows x64**
+
 ---
 
 ## 1. 代码与构建
@@ -13,74 +15,65 @@
 
 ## 2. 测试
 
-- [ ] `npm run test:unit` 全绿（0 failed，skipped 项有合理原因）
-- [ ] `npm run test:process` 全绿（0 failed，skipped 项有合理原因）
-- [ ] `npm run test:claude` 全绿或正确 skip（缺 claude 时 skip）
+- [ ] `npm test` 全绿（0 failed，skipped 项有合理原因）
 - [ ] `docs/test-report.md` 已重新生成，含测试时间、环境、插件版本
 
-## 3. 手工 Smoke（manual required）
+## 3. User Package 构建（build:user-package）
 
-- [ ] Obsidian bridge online，`bridge.json` 存在且 `GET /state` 成功
-- [ ] Chat / Files / Skills / History 页面可切换
-- [ ] 左侧 compact rail 只显示图标，不显示 Settings / brand / collapse
-- [ ] 顶部栏显示 Bridge、当前会话、新聊天、设置齿轮、compact runtime status
-- [ ] Composer 显示上传、命令菜单、权限 chip、输入框、model/effort/send
-- [ ] Skills 页只显示 Agent Skills runtime capabilities，不显示 Prompt Snippets / Insert prompt / Insert selected / Append
-- [ ] 点击 Agent Skill 只更新预览，不改变 composer
-- [ ] 失败卡片只显示摘要，stderr / command / workflow / debug log 默认折叠
-- [ ] Working Set strip 显示 AGENTS.md / Note / Selection / FileRefs compact chips
-- [ ] Claude Code minimal prompt 通过
-- [ ] Claude Code native read/edit Vault 内普通文件通过
-- [ ] SDK minimal prompt 通过或明确记录环境阻断
-- [ ] external absolute write 被拒绝
-- [ ] sensitive `.env` write 被拒绝
+- [ ] `npm run build:user-package` 成功生成 `dist/user-package`
+- [ ] 产物含 `main.js` / `manifest.json` / `styles.css` / `README.md`
+- [ ] 产物含 `node_modules/@earendil-works/pi-coding-agent` 及运行依赖
+- [ ] 产物含 `codex-managed-runtime/runtime-manifest.json`
+- [ ] 产物含 `codex-managed-runtime/install-codex-managed-runtime.mjs`
+- [ ] 默认包不含 runtime binary（download-on-first-run）
+- [ ] 默认包总大小约 98 MB
+- [ ] `llm-cli-bridge-user-package.json` 元数据已写入
+- [ ] 敏感信息扫描通过
 
-### 3.1 V1.6 SDK Experimental Smoke（manual required，详见 docs/manual-smoke-v1.6.md）
+## 4. Release zip 构建（基于 user-package）
 
-- [ ] sdk-experimental 模式：发送消息 → 显示 SDK Workflow 区域（工具时间线 + 非工具事件）
-- [ ] SDK 不可用时 fallback：sdk-experimental 仍产出 mock workflow 事件 + AgentEvent v0.1
-- [ ] sdk-experimental 事件已脱敏：无完整 sk-ant / Bearer / password 明文
-- [ ] sdk-experimental stop() 可中断：状态 → Stopped
-- [ ] SDK 不影响 CLI：切回 auto 模式后 claude CLI 正常，无 SDK Workflow 区域
-- [ ] auto/mock-success/mock-failure 不产生 SDK Workflow 区域（CLI 主线不回归）
+发行流程：`build` → `build:user-package` → `release`（基于 user-package 打包）。
 
-## 4. 敏感信息扫描
+- [ ] `npm run release` 成功，基于 user-package 打包
+- [ ] zip 命名：`llm-cli-bridge-<version>-win32-x64.zip`
+- [ ] zip 不含：源码 / .llm-bridge / 测试临时文件 / .git
+- [ ] zip 内 `main.js` 与本地构建产物一致（大小或哈希核对）
+
+## 5. 干净目录解压验证（仅 Windows x64）
+
+- [ ] 在干净 Windows x64 环境解压 zip
+- [ ] 解压后含 `main.js`
+- [ ] 解压后含 `codex-managed-runtime/`
+- [ ] 解压后含 `node_modules/`
+- [ ] `manifest.json` 版本号正确
+- [ ] 解压目录可直接复制到 `<Vault>/.obsidian/plugins/llm-cli-bridge/`
+
+## 6. 首次运行与登录验证
+
+- [ ] 插件启用后，Managed Codex runtime 触发首次下载约 323 MB binary
+- [ ] 下载完成后 runtime 状态显示已就绪
+- [ ] Codex/OpenAI 凭据已配置（`~/.codex` 或环境变量）
+- [ ] 至少完成一次端到端消息流
+
+## 7. 敏感信息扫描
 
 - [ ] `node scripts/scan-sensitive.mjs` 通过（无 token / API key / .env / credentials）
-- [ ] `git log --all -p | grep -iE "sk-ant|api[_-]?key|token="` 无敏感值命中
+- [ ] `git log --all -p` 无敏感值命中
 - [ ] `.llm-bridge/` 未入库（`.gitignore` 已排除）
 - [ ] `bridge.json` / `.bridge-token` 未入库
 
-## 5. Release zip 构建
+## 8. 文档
 
-- [ ] `npm run release` 成功生成 `release/llm-cli-bridge-<version>.zip`
-- [ ] zip 内容只含 6 个文件：`main.js` / `manifest.json` / `styles.css` / `README.md` / `RELEASE_CHECKLIST.md` / `USER_GUIDE.md`
-- [ ] zip 不含：源码 / node_modules / .llm-bridge / docs/test-report.md / 测试临时文件 / .git
-- [ ] zip 内 `main.js` 与本地构建产物一致（大小或哈希核对）
-
-## 6. 文档
-
-- [ ] `README.md` 普通用户章节与当前功能一致（无已移除的按钮名称）
+- [ ] `README.md` 与当前功能一致（平台、运行时、包大小、登录要求）
 - [ ] `docs/USER_GUIDE.md` 步骤可走通
-- [ ] 文档只说明 `CLAUDE_CONFIG_DIR`，不再要求 `ANTHROPIC_CONFIG_DIR`
-- [ ] 文档说明 native handoff boundary：Claude Code / SDK 执行文件能力，插件负责上下文与权限边界
-- [ ] 文档说明 V2.15 UI：Chat / Files / Skills / History
-- [ ] 文档说明 legacy `.llm-bridge/skills.md` 不再使用但不会自动删除
-- [ ] `docs/BACKLOG.md` 已更新已知问题
-- [ ] `docs/test-report.md` 已重新生成
+- [ ] 文档无 2.15.0 RC / Claude-only 过时描述
+- [ ] `manifest.json` description 反映当前能力
 
-## 7. 提交与推送
+## 9. 提交与推送
 
 - [ ] 改动已提交（commit message 含版本号与变更摘要）
 - [ ] 已推送到 `origin/master`
 - [ ] 可选：打 tag `v<version>` 并推送
-
-## 8. 发布后验证
-
-- [ ] 在干净 Vault 中按 USER_GUIDE 步骤安装
-- [ ] Preflight 通过
-- [ ] 至少完成一次「总结当前笔记」端到端流程
-- [ ] 至少完成一次「解释选区」端到端流程
 
 ---
 
@@ -113,3 +106,4 @@
 | v2.12.1 | 2026-06-29 | 941d452 | Skill Rename Meta Runtime Patch，修复 ManualId 13 blocker(导入 skill 重命名后 pinned/applyCount/lastUsedAt/groupOverride 未迁移到新名称)，根因两层(第一层 scheduleSkillsStateSave 500ms 防抖定时器 + refreshSkills 立即从磁盘重载 state 时序冲突导致内存迁移被覆盖 + 第二层 CDP 验证发现 flushSkillsStateSave 内部 if(timer===null) return 提前返回导致 renameSkillMeta 后 flush 不落盘)，修复(view.ts 新增 flushSkillsStateSave() 方法抽取自原 onClose flush 逻辑 + openEditSkillDialog 改为 renameSkillMeta 后 await flushSkillsStateSave() 立即落盘再 refreshSkills + onClose 复用 flushSkillsStateSave 消除内联重复 + 二次修复移除 flushSkillsStateSave 的 timer===null 提前返回改为总是落盘)，新增 8.21 测试段 20 个测试覆盖(flushSkillsStateSave 代码级存在/总是落盘移除 timer===null 提前返回/saveSkillsState 落盘 + openEditSkillDialog 调用链路/renameSkillMeta 后 flush/flush 在 refresh 之前/不再调用 scheduleSkillsStateSave + onClose 复用/不再内联 + 真实保存路径集成测试 导入→pin/apply/groupOverride→updateImportedSkill→renameSkillMeta→flush→reload 验证新名 meta 完整 + 旧名孤儿清理 + 磁盘 skills 文件重命名 + 字段完整性 pinned/applyCount/lastUsedAt/groupOverride 全部迁移 + 时序冲突回归 重现 bug scheduleSkillsStateSave 路径丢失迁移 + 验证修复 flushSkillsStateSave 路径保留迁移 + EditSkillModal 保存按钮触发 onConfirm + openEditSkillDialog updateImportedSkill/checkImportConflict/newName!==skill.name + 约束确认 AgentEvent v0.1 不变/sdk-experimental 默认关闭/schema 不变/CLI 主线不回归)，CDP 真实 Obsidian 1.12.7 runtime 验证通过(8 项 checks 全绿 newMetaExists/pinnedMigrated/applyCountMigrated/lastUsedAtMigrated/groupOverrideMigrated/oldMetaCleaned/oldSkillFileGone/newSkillFileExists)，不修改 AgentEvent v0.1，CLI 主线不变，sdk-experimental 仍默认关闭，SESSION_SCHEMA_VERSION 不变(仍为 1)，SKILLS_STATE_VERSION 不变(仍为 1)，新增 20 个 V2.12.1 单元测试 |
 | v2.15.0-rc | 2026-06-30 | pending | Compact Plugin Shell / Release Candidate Freeze，版本提升到 2.15.0，冻结 Chat / Files / Skills / History compact UI、composer command menu、permission chip、Claude Code / SDK native handoff boundary、CLAUDE_CONFIG_DIR-only runtime config 文档；不新增自研 write executor、backup/rollback/audit、PDF/OCR/image parser、SDK image streaming 或复杂 runtime tool registration。 |
 | v2.16.0 | 2026-07-01 | pending | SDK Primary Runtime & RC Stabilization，V2.16-A 解决 AbortSignal 兼容性 blocker（installNodeCompatibleAbortController，EventEmitter-based override），SDK 真实 prompt/read/edit/working-set/boundary/skills/UI events smoke 5/5 PASS，CLI fallback 无回归；V2.16-B 把 SDK 推进为主要 runtime 候选：BackendMode 新增 cli/sdk，auto=SDK-first+CLI fallback，显式 sdk 不可用时不静默 fallback，顶部 runtime status 显示实际 backend（SDK/Claude Code fallback/SDK unavailable），旧 sdk-experimental 自动迁移为 sdk，文案清理 Codex CLI 改为 Claude Code/SDK local agents。 |
+| v2.18.0 | 2026-07-10 | pending | Codex Managed Runtime 主线发行 / Windows x64，平台收敛为仅 Windows x64（跨平台支持留到下个版本）；新增 Managed Codex 默认运行时（首次运行下载约 323 MB Windows binary）+ Codex/OpenAI 凭据登录要求（`~/.codex` 或环境变量）；user-package 发行流程（build → build:user-package → release 基于 user-package 打包）；默认包约 98 MB，离线包约 406 MB；README / USER_GUIDE / RELEASE_CHECKLIST 文档更新为当前事实，移除 Claude-only 与 2.15.0 RC 过时描述。 |
