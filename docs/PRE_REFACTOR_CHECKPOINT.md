@@ -57,6 +57,7 @@ Structure-only first: **no visual/behavior change**, Obsidian native DOM only (n
 - **Round 5 done:** `patchCodexFeedEntryItem` / `patchCodexFeedEntryToolGroup` / `patchCodexToolGroupBody` → `src/ui/codexWaterfallRenderer.ts` (View keeps `renderCodexFeedItem*` initial render helpers)
 - **Round 6 done:** `renderCodexFeedItem` / thinking / narrative / event-block / `formatCodexFeedSummary` → `src/ui/codexWaterfallRenderer.ts` (View keeps shell/diff/sourceRef helpers + batch summary)
 - **Round 7 done:** `renderCodexFeedBatch` / tool-group / batch summary + thinking-fallback formatters → `src/ui/codexWaterfallRenderer.ts`; composer status-rail apply + file-drag surface → `src/ui/composerController.ts` (View keeps paste/drop ingest + turn-status computation)
+- **Round 8 done:** `mountOrReconcileCodexRun` / mount + in-place patch + approval gates + diagnostics → `src/ui/codexRunRenderer.ts`; command tool-groups always keyed `group:command:…`; deleted dead View feed/SDK/permission helpers
 - **Round 2 done:** `renderMessage` / `renderMessageContent` / actions / error / suppress helpers → `src/ui/messageRenderer.ts` (View keeps thin wrappers + fileRefs/details/actions orchestration)
 - **Round 4 done:** `renderMessageFileRefs` / `appendMsgDetails` (+ tail) / presentation chrome → `src/ui/messageRenderer.ts` (View keeps run-display helpers, collapsibles, `updateAssistantMessage` orchestration)
 - Round 3: ComposerController

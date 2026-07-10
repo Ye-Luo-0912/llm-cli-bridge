@@ -24,7 +24,7 @@ import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/brid
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment, AssistantTurnView, TurnTimelineNode, NativeSessionRef } from "./runtime/core/types";
 import { buildAgentRunDisplayModel, getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, toolDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
 import { presentProvider, resolveUiLocale, type Locale } from "./runtime/core/toolPresentation";
-import { buildCodexRunViewModel, formatCodexRunValue, type CodexRunApprovalGate, type CodexRunChangeGroup, type CodexRunDiagnosticsGroup, type CodexRunFeedItem, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
+import { buildCodexRunViewModel, formatCodexRunValue, type CodexRunFeedItem, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
 import { DEFAULT_PROVIDER_CAPABILITIES, type ProviderCapabilityInfo, type ObsidianCliAvailability, type ProviderRuntimeSkillEntry } from "./runtime/core/bridgePromptContract";
@@ -37,7 +37,7 @@ import {
 import { AssistantTurnViewBuilder } from "./runtime/core/assistantTurnView";
 import { mapNormalizedToWorkflowEvent } from "./runtime/providers/workflowEventMapper";
 import { getRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, type RuntimeModelCatalog } from "./runtimeModelCatalog";
-import { WorkflowEvent, PermissionEvent, buildToolTimeline, workflowEventLabel, workflowEventIcon, workflowEventClass, truncateText, extractFileChanges } from "./workflowEvent";
+import { WorkflowEvent, PermissionEvent, truncateText, extractFileChanges } from "./workflowEvent";
 import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, truncatePath, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
 import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscript";
 import { computeContextMetrics, formatTokens, formatCompressionRatio, type ContextMetrics, type CompressionInfo } from "./contextMetrics";
@@ -62,8 +62,6 @@ import {
 } from "./agentSkills";
 import {
   buildMessagePresentation,
-  buildPresentationFromCodexRun,
-  mapRunningActivityToStatusLine,
   shouldShowContextOccupancyChip,
   NAV_TAB_LABELS,
   type MessagePresentation,
@@ -78,29 +76,16 @@ import {
   type AgentApprovalProfile,
 } from "./agentApprovalProfile";
 import {
-  groupCodexFeedBatches,
-  isCodexFeedEvent,
-  shouldGroupCodexToolEvents,
-} from "./ui/codexProcessFeed";
-import {
   reconcileCodexRunWaterfall as reconcileCodexRunWaterfallDom,
   upgradeCodexCandidateAnswerInFeed as upgradeCodexCandidateAnswerInFeedDom,
   renderCodexFeedItem as renderCodexFeedItemDom,
-  renderCodexFeedThinking as renderCodexFeedThinkingDom,
-  renderCodexFeedNarrative as renderCodexFeedNarrativeDom,
-  renderCodexFeedEventBlock as renderCodexFeedEventBlockDom,
-  renderCodexFeedBatch as renderCodexFeedBatchDom,
-  renderCodexFeedBatchSummary as renderCodexFeedBatchSummaryDom,
-  renderCodexToolGroup as renderCodexToolGroupDom,
-  formatCodexFeedSummary as formatCodexFeedSummaryDom,
-  formatCodexBatchSummary as formatCodexBatchSummaryDom,
-  formatCodexThinkingBatchSummary as formatCodexThinkingBatchSummaryDom,
-  formatCodexThinkingFallbackFromBatch as formatCodexThinkingFallbackFromBatchDom,
-  formatCodexProcessPreview as formatCodexProcessPreviewDom,
-  shouldRenderExpandedThinkingLine as shouldRenderExpandedThinkingLineDom,
   type CodexWaterfallPatchDeps,
   type CodexFeedItemRenderDeps,
 } from "./ui/codexWaterfallRenderer";
+import {
+  mountOrReconcileCodexRun,
+  type CodexRunRenderDeps,
+} from "./ui/codexRunRenderer";
 import {
   renderMessage as renderMessageDom,
   renderMessageContent as renderMessageContentDom,
@@ -1870,15 +1855,6 @@ export class LLMBridgeView extends ItemView {
     );
   }
 
-  private permissionModeShortLabel(): string {
-    const profile = this.effectiveApprovalProfile();
-    return getAgentApprovalProfileInfo(profile).shortLabel;
-  }
-
-  private permissionModeIconName(_mode?: string): string {
-    return getAgentApprovalProfileInfo(this.effectiveApprovalProfile()).icon;
-  }
-
   private effectiveApprovalProfile(): AgentApprovalProfile {
     const fromSettings = this.plugin.settings.agentApprovalProfile;
     if (isAgentApprovalProfile(fromSettings)) return fromSettings;
@@ -1969,30 +1945,9 @@ export class LLMBridgeView extends ItemView {
     this.session?.rebuildPermissionBoundary(this.plugin.settings);
   }
 
-  /** @deprecated 兼容旧调用；统一走 setApprovalProfile */
-  private async setPermissionMode(mode: string): Promise<void> {
-    if (mode === "bypassPermissions" || mode === "dontAsk") {
-      await this.setApprovalProfile("full-access");
-      return;
-    }
-    if (mode === "auto" || mode === "acceptEdits") {
-      await this.setApprovalProfile("auto");
-      return;
-    }
-    await this.setApprovalProfile("ask");
-  }
-
   private refreshPermissionModeChip(): void {
     if (!this.permissionModeChipEl) return;
     refreshPermissionModeChipDom(this.permissionModeChipEl, this.displayApprovalProfile());
-  }
-
-  private async cyclePermissionMode(): Promise<void> {
-    const modes: AgentApprovalProfile[] = ["ask", "auto", "full-access"];
-    const current = this.effectiveApprovalProfile();
-    const index = modes.indexOf(current);
-    const next = modes[(index + 1 + modes.length) % modes.length];
-    await this.setApprovalProfile(next);
   }
 
   /**
@@ -5310,51 +5265,6 @@ export class LLMBridgeView extends ItemView {
     appendMsgDetailsDom(block, msg, beforeEl, this.messageDetailsDeps());
   }
 
-
-  private appendWorkflowProcess(
-    parent: HTMLElement,
-    trace: ReadonlyArray<{ stage: string; timestamp: string; detail: string; status: string }>,
-    status: RunStatus,
-  ): void {
-    const visible = trace.filter((entry) => entry.stage !== "preflight" && entry.stage !== "build_prompt");
-    if (visible.length === 0) return;
-    const summary = `过程 · ${status === "completed" ? "Completed" : STATUS_LABEL[status]} · ${visible.length} steps`;
-    const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap" });
-    const head = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
-    const toggle = head.createEl("span", { cls: "llm-bridge-timeline-toggle", text: "▶ " });
-    head.createEl("span", { cls: "llm-bridge-timeline-summary", text: summary });
-    const body = wrap.createDiv({ cls: "llm-bridge-timeline-body", attr: { hidden: "" } });
-    const timeline = body.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-final" });
-    const stepLabels: Record<string, string> = {
-      spawn: "启动 agent",
-      stdout: "读取输出",
-      stderr: "读取错误",
-      file_diff_scan: "检测文件变化",
-      completed: "完成",
-      failed: "失败",
-      stopped: "停止",
-    };
-    for (const entry of visible) {
-      const item = timeline.createDiv({ cls: `llm-bridge-tl-node llm-bridge-tl-${entry.status}` });
-      item.createDiv({ cls: "llm-bridge-tl-dot" });
-      const content = item.createDiv({ cls: "llm-bridge-tl-content" });
-      content.createEl("div", { cls: "llm-bridge-tl-title", text: stepLabels[entry.stage] ?? workflowStageLabel(entry.stage as WorkflowTraceStage) });
-      if (entry.detail) {
-        content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(entry.detail, 160), attr: { title: entry.detail } });
-      }
-    }
-    head.addEventListener("click", () => {
-      const hidden = body.hasAttribute("hidden");
-      if (hidden) {
-        body.removeAttribute("hidden");
-        toggle.textContent = "▼ ";
-      } else {
-        body.setAttribute("hidden", "");
-        toggle.textContent = "▶ ";
-      }
-    });
-  }
-
   private appendRunningProcessPlaceholder(parent: HTMLElement): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap llm-bridge-process-placeholder" });
     const head = wrap.createDiv({ cls: "llm-bridge-timeline-head llm-bridge-timeline-head-noclick" });
@@ -5535,353 +5445,20 @@ export class LLMBridgeView extends ItemView {
     sourceModel: AgentRunDisplayModel,
     developerMode: boolean,
   ): void {
-    const loc = resolveUiLocale() === "en" ? "en" : "zh";
-    const presentation = buildPresentationFromCodexRun(run, {
-      developerMode,
-      locale: loc,
-      runtimeLabel: this.actualRuntimeLabel,
-    });
-    const diagnosticsForDisplay = this.filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode);
-    const processFeedItems = run.feedItems;
-    const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);
-    const hasDeveloperDebug = developerMode && !!run.debugPanel;
-    const hasProcessContent = processFeedItems.length > 0
-      || diagnosticsForDisplay.length > 0;
-    const hasAnswer = !!run.finalAnswer.trim();
-    // 终态禁止自动折叠过程：运行中看到的节点完成后原样保留
-    const showFeed = hasProcessContent; // 有过程内容就展示，不因 presentation 标志清空
-    const showChrome = presentation.showRunChrome || developerMode;
-    const hasBodyContent = run.approvalGates.length > 0
-      || showFeed
-      || hasDeveloperDebug
-      || hasAnswer;
-
-    const semanticClass = presentation.kind === "assistant-answer"
-      ? " is-semantic-answer"
-      : presentation.kind === "assistant-running"
-        ? " is-semantic-running"
-        : presentation.kind === "assistant-summary"
-          ? " is-semantic-summary"
-          : presentation.kind === "assistant-failed" || presentation.kind === "assistant-stopped"
-            ? " is-semantic-failed"
-            : "";
-
-    const wrap = parent.createDiv({
-      cls: `llm-bridge-timeline-wrap llm-bridge-turn-view llm-bridge-codex-run-view is-${run.runHeader.statusKind}${developerMode ? " is-developer" : ""}${semanticClass}${showChrome ? " is-run-chrome" : " is-process-quiet"}`,
-    });
-    wrap.setAttribute("data-final-answer-disposition", sourceModel.finalAnswerDisposition);
-    wrap.addClass(`is-disposition-${sourceModel.finalAnswerDisposition}`);
-
-    const head = wrap.createDiv({ cls: "llm-bridge-timeline-head llm-bridge-codex-run-header" });
-    const summary = head.createDiv({ cls: "llm-bridge-codex-run-summary" });
-    if (showChrome && (presentation.showCompletedBadge || developerMode)) {
-      const statusEl = summary.createEl("span", {
-        cls: `llm-bridge-codex-run-status llm-bridge-timeline-summary is-${run.runHeader.statusKind}`,
-        text: this.localizeRunStatus(run.runHeader.status),
-      });
-      statusEl.setAttribute("data-run-status", run.runHeader.statusKind);
-    }
-    if (showChrome && (presentation.showProviderBadge || developerMode)) {
-      const providerText = [run.runHeader.provider, run.runHeader.model].filter(Boolean).join(" · ");
-      if (providerText) summary.createEl("span", { cls: "llm-bridge-codex-run-provider", text: providerText, attr: { title: providerText } });
-    }
-
-    const hasMeaningfulMetrics = run.runHeader.fileChangeCount > 0
-      || run.runHeader.commandCount > 0
-      || run.runHeader.approvalCount > 0;
-    if (showChrome && developerMode && (hasMeaningfulMetrics || true)) {
-      const metrics = head.createDiv({ cls: "llm-bridge-codex-run-metrics" });
-      this.renderCodexMetric(metrics, "clock", run.runHeader.elapsed || "0s", "Elapsed time");
-      if (run.runHeader.fileChangeCount > 0 || developerMode) {
-        this.renderCodexMetric(metrics, "file-text", String(run.runHeader.fileChangeCount), "File changes");
-      }
-      if (run.runHeader.commandCount > 0 || developerMode) {
-        this.renderCodexMetric(metrics, "terminal", String(run.runHeader.commandCount), "Commands");
-      }
-      if (run.runHeader.approvalCount > 0 || developerMode) {
-        this.renderCodexMetric(metrics, "shield", String(run.runHeader.approvalCount), "Approvals");
-      }
-    }
-
-    const body = wrap.createDiv({ cls: "llm-bridge-timeline-body llm-bridge-codex-run-body" });
-    // 普通模式运行态：状态行已在 msg-head；此处仅在 blocked / 开发者模式重复展示
-    if (run.runHeader.statusKind === "blocked") {
-      this.renderCodexCurrentActivity(body, run);
-    } else if (presentation.kind === "assistant-running" && developerMode) {
-      const line = mapRunningActivityToStatusLine(run.currentActivity?.label || "", loc);
-      const activity = body.createDiv({ cls: "llm-bridge-codex-current-activity is-running" });
-      activity.createEl("span", { cls: "llm-bridge-codex-current-activity-text llm-bridge-run-status-text is-running llm-bridge-run-glow", text: line });
-    }
-    if (run.approvalGates.length > 0) this.reconcileCodexApprovalGates(body, run.approvalGates, developerMode);
-
-    const process = body.createDiv({ cls: "llm-bridge-codex-process" });
-    if (showFeed) {
-      const processHead = process.createDiv({ cls: "llm-bridge-codex-section-head llm-bridge-codex-process-head" });
-      const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
-      if (showChrome) {
-        const processTitleLabel = loc === "zh" ? "运行详情" : "Run details";
-        processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: processTitleLabel });
-        const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });
-        if (run.runHeader.elapsed) {
-          processMeta.createEl("span", { cls: "llm-bridge-codex-process-head-meta-item", text: run.runHeader.elapsed });
-        }
-        if (processFeedBatches.length > 1) {
-          processMeta.createEl("span", {
-            cls: "llm-bridge-codex-process-head-meta-item",
-            text: `${processFeedBatches.length} batches`,
-          });
-        }
-        const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;
-        if (processEventCount > 0) {
-          processMeta.createEl("span", {
-            cls: "llm-bridge-codex-process-head-meta-item",
-            text: `${processEventCount} ${processEventCount === 1 ? "step" : "steps"}`,
-          });
-        }
-      } else if (presentation.kind !== "assistant-running") {
-        // 普通完成态：每轮最多一个简短状态入口，例如「已处理 6m42s」
-        const elapsed = (run.runHeader.elapsed || "").trim();
-        const quietLabel = loc === "zh"
-          ? (elapsed ? `已处理 ${elapsed}` : "已处理")
-          : (elapsed ? `Processed ${elapsed}` : "Processed");
-        processTitle.createDiv({
-          cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title",
-          text: quietLabel,
-        });
-      } else {
-        // 运行中：不显示「运行详情」标题，过程流直接铺开
-        processHead.setAttribute("hidden", "");
-      }
-      const processToggle = processHead.createEl("span", {
-        cls: "llm-bridge-codex-process-toggle",
-        text: showFeed && presentation.kind !== "assistant-running" ? "▾" : "",
-      });
-      const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
-      // 禁止自动折叠：过程体始终可见
-      // 初渲与增量共用 reconcileCodexRunWaterfall（keyed feed + candidate 原地升级）
-      if (processFeedItems.length > 0) {
-        this.reconcileCodexRunWaterfall(processBody, run, {
-          streaming: presentation.kind === "assistant-running",
-          developerMode,
-        });
-      }
-      if (diagnosticsForDisplay.length > 0) this.renderCodexDiagnosticsDrawer(processBody, diagnosticsForDisplay, developerMode);
-
-      const canToggle = showFeed && presentation.kind !== "assistant-running" && !processHead.hasAttribute("hidden");
-      if (canToggle) {
-        processHead.addClass("is-collapsible");
-        processHead.setAttribute("role", "button");
-        processHead.setAttribute("tabindex", "0");
-        processHead.setAttribute("aria-expanded", "true");
-        const toggleProcessBody = () => {
-          const hidden = processBody.hasAttribute("hidden");
-          if (hidden) {
-            processBody.removeAttribute("hidden");
-            processHead.setAttribute("aria-expanded", "true");
-            processToggle.textContent = "▾";
-          } else {
-            processBody.setAttribute("hidden", "");
-            processHead.setAttribute("aria-expanded", "false");
-            processToggle.textContent = "▸";
-          }
-        };
-        processHead.addEventListener("click", (event) => {
-          if ((event.target as HTMLElement | null)?.closest?.("button")) return;
-          toggleProcessBody();
-        });
-        processHead.addEventListener("keydown", (event) => {
-          if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          toggleProcessBody();
-        });
-      }
-    } else {
-      process.setAttribute("hidden", "");
-    }
-
-    // candidate 升级已并入 reconcileCodexRunWaterfall；无 feed 时仍兜底一次
-    if (hasAnswer && processFeedItems.length === 0) {
-      upgradeCodexCandidateAnswerInFeedDom(body, run.finalAnswer, presentation.kind === "assistant-running", this.codexWaterfallDeps());
-    }
-    if (hasDeveloperDebug) this.renderAgentRunDebugDrawer(body, run.debugPanel!);
-
-    // 普通模式始终隐藏 run header chrome
-    if (!showChrome || !hasBodyContent || presentation.kind === "assistant-answer" || presentation.kind === "assistant-running") {
-      head.removeClass("llm-bridge-timeline-head");
-      head.addClass("llm-bridge-timeline-head-noclick");
-      if (!showChrome || presentation.kind === "assistant-answer" || presentation.kind === "assistant-running") {
-        head.setAttribute("hidden", "");
-      }
-    }
-  }
-
-  private filterCodexDiagnosticsForDisplay(
-    diagnostics: ReadonlyArray<CodexRunDiagnosticsGroup>,
-    developerMode: boolean,
-  ): ReadonlyArray<CodexRunDiagnosticsGroup> {
-    if (developerMode) return diagnostics;
-    return diagnostics.filter((diagnostic) => diagnostic.severity === "error");
-  }
-
-  private renderCodexMetric(parent: HTMLElement, icon: string, value: string, title: string): void {
-    const chip = parent.createEl("span", { cls: "llm-bridge-codex-run-metric", attr: { title } });
-    const iconEl = chip.createEl("span", { cls: "llm-bridge-codex-run-metric-icon" });
-    setIcon(iconEl, icon);
-    chip.createEl("span", { cls: "llm-bridge-codex-run-metric-value", text: value });
-  }
-
-  private renderCodexCurrentActivity(parent: HTMLElement, run: CodexRunViewModel): void {
-    const activity = parent.createDiv({ cls: `llm-bridge-codex-current-activity is-${run.currentActivity.kind}` });
-    const text = activity.createEl("span", { cls: "llm-bridge-codex-current-activity-text" });
-    this.renderRunStatusText(text, run.currentActivity.label, run.currentActivity.kind === "blocked" ? "blocked" : run.currentActivity.kind === "running" ? "running" : "completed");
-  }
-
-  /** 复用固定 approval-gates-host，避免增量刷新堆积空 host */
-  private ensureCodexApprovalGatesHost(body: HTMLElement): HTMLElement {
-    let host = body.querySelector<HTMLElement>(":scope > .llm-bridge-codex-approval-gates-host");
-    if (!host) {
-      host = body.createDiv({ cls: "llm-bridge-codex-approval-gates-host" });
-      const process = body.querySelector(":scope > .llm-bridge-codex-process");
-      if (process) body.insertBefore(host, process);
-    }
-    return host;
-  }
-
-  private reconcileCodexApprovalGates(
-    body: HTMLElement,
-    gates: ReadonlyArray<CodexRunApprovalGate>,
-    developerMode: boolean,
-  ): void {
-    const host = this.ensureCodexApprovalGatesHost(body);
-    // 清掉历史直接挂在 body 上的 gates（旧初渲路径）
-    body.querySelectorAll(":scope > .llm-bridge-codex-approval-gates").forEach((el) => el.remove());
-    host.empty();
-    if (gates.length === 0) {
-      host.setAttribute("hidden", "");
-      return;
-    }
-    host.removeAttribute("hidden");
-    this.renderCodexApprovalGates(host, gates, developerMode);
-  }
-
-  private renderCodexApprovalGates(parent: HTMLElement, gates: ReadonlyArray<CodexRunApprovalGate>, developerMode: boolean): void {
-    const section = parent.createDiv({ cls: "llm-bridge-codex-approval-gates" });
-    section.createDiv({ cls: "llm-bridge-codex-section-title", text: "Approvals" });
-    for (const gate of gates) {
-      const card = section.createDiv({ cls: `llm-bridge-codex-approval-gate is-risk-${gate.risk}` });
-      card.setAttribute("data-request-id", gate.requestId);
-      const head = card.createDiv({ cls: "llm-bridge-codex-approval-gate-head" });
-      const icon = head.createEl("span", { cls: "llm-bridge-codex-approval-gate-icon" });
-      setIcon(icon, gate.risk === "high" ? "shield-alert" : "shield");
-      head.createEl("span", { cls: "llm-bridge-codex-approval-gate-action", text: gate.action, attr: { title: gate.action } });
-      head.createEl("span", { cls: `llm-bridge-codex-approval-gate-risk is-${gate.risk}`, text: gate.risk === "high" ? "高风险" : gate.risk === "medium" ? "需确认" : "低风险" });
-      if (gate.summary) card.createDiv({ cls: "llm-bridge-codex-approval-gate-summary", text: truncateText(gate.summary, 220), attr: { title: gate.summary } });
-      if (gate.riskReason) card.createDiv({ cls: "llm-bridge-codex-approval-gate-reason", text: gate.riskReason });
-      const actions = card.createDiv({ cls: "llm-bridge-codex-approval-gate-actions" });
-      const addButton = (label: string, choice: PermissionChoice, cls: string) => {
-        const button = actions.createEl("button", { cls: `llm-bridge-codex-approval-btn ${cls}`, text: label, attr: { type: "button", "data-decision": choice } });
-        button.addEventListener("click", (event) => {
-          event.stopPropagation();
-          this.resolvePermissionRequests([gate.requestId], choice);
-        });
-      };
-      addButton("允许一次", "allow_once", "is-allow-once");
-      addButton("本会话允许", "allow_session", "is-allow-session");
-      addButton("拒绝", "deny_once", "is-deny");
-      this.renderCodexSourceRef(card, gate.sourceRef, developerMode);
-    }
-  }
-
-  private renderCodexFeed(
-    parent: HTMLElement,
-    batches: ReadonlyArray<ReadonlyArray<CodexRunFeedItem>>,
-    developerMode: boolean,
-  ): void {
-    const section = parent.createDiv({ cls: "llm-bridge-codex-feed llm-bridge-codex-changes-panel" });
-    const list = section.createDiv({ cls: "llm-bridge-codex-feed-list llm-bridge-codex-step-list" });
-    for (const batch of batches) {
-      this.renderCodexFeedBatch(list, batch, developerMode);
-    }
-  }
-
-  private groupCodexFeedBatches(items: ReadonlyArray<CodexRunFeedItem>): CodexRunFeedItem[][] {
-    return groupCodexFeedBatches(items);
-  }
-
-  private isCodexFeedEvent(item: CodexRunFeedItem): boolean {
-    return isCodexFeedEvent(item);
-  }
-
-  private renderCodexFeedBatch(
-    parent: HTMLElement,
-    batch: ReadonlyArray<CodexRunFeedItem>,
-    developerMode: boolean,
-  ): void {
-    renderCodexFeedBatchDom(parent, batch, developerMode, this.codexFeedItemRenderDeps());
-  }
-
-  private shouldGroupCodexToolEvents(items: ReadonlyArray<CodexRunFeedItem>): boolean {
-    return shouldGroupCodexToolEvents(items);
-  }
-
-  private renderCodexToolGroup(
-    parent: HTMLElement,
-    items: ReadonlyArray<CodexRunFeedItem>,
-    developerMode: boolean,
-  ): void {
-    renderCodexToolGroupDom(parent, items, developerMode, this.codexFeedItemRenderDeps());
-  }
-
-  private renderCodexFeedBatchSummary(
-    parent: HTMLElement,
-    batch: ReadonlyArray<CodexRunFeedItem>,
-    developerMode: boolean,
-    eventCount: number,
-  ): void {
-    renderCodexFeedBatchSummaryDom(parent, batch, developerMode, eventCount);
-  }
-
-  private formatCodexBatchSummary(
-    batch: ReadonlyArray<CodexRunFeedItem>,
-    developerMode: boolean,
-  ): string {
-    return formatCodexBatchSummaryDom(batch, developerMode);
-  }
-
-  private formatCodexThinkingBatchSummary(
-    batch: ReadonlyArray<CodexRunFeedItem>,
-    developerMode: boolean,
-  ): string {
-    return formatCodexThinkingBatchSummaryDom(batch, developerMode);
-  }
-
-  private formatCodexThinkingFallbackFromBatch(
-    batch: ReadonlyArray<CodexRunFeedItem>,
-  ): string {
-    return formatCodexThinkingFallbackFromBatchDom(batch);
-  }
-
-  private formatCodexProcessPreview(
-    batches: ReadonlyArray<ReadonlyArray<CodexRunFeedItem>>,
-    developerMode: boolean,
-  ): string {
-    return formatCodexProcessPreviewDom(batches, developerMode);
+    mountOrReconcileCodexRun(
+      { mode: "mount", parent },
+      {
+        run,
+        developerMode,
+        sourceModel,
+        runtimeLabel: this.actualRuntimeLabel,
+      },
+      this.codexRunRenderDeps(),
+    );
   }
 
   private renderCodexFeedItem(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean, nestedEvent: boolean): void {
     renderCodexFeedItemDom(parent, item, developerMode, nestedEvent, this.codexFeedItemRenderDeps());
-  }
-
-  private renderCodexFeedThinking(parent: HTMLElement, item: CodexRunFeedItem, batch?: ReadonlyArray<CodexRunFeedItem>): void {
-    renderCodexFeedThinkingDom(parent, item, this.codexFeedItemRenderDeps(), batch);
-  }
-
-  private shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, developerMode: boolean): boolean {
-    return shouldRenderExpandedThinkingLineDom(item, developerMode);
-  }
-
-  private renderCodexFeedNarrative(parent: HTMLElement, item: CodexRunFeedItem): void {
-    renderCodexFeedNarrativeDom(parent, item, this.codexFeedItemRenderDeps());
   }
 
   private renderMarkdownInto(host: HTMLElement, text: string): void {
@@ -5903,14 +5480,6 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  private renderCodexFeedEventBlock(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean): void {
-    renderCodexFeedEventBlockDom(parent, item, developerMode, this.codexFeedItemRenderDeps());
-  }
-
-  private formatCodexFeedSummary(item: CodexRunFeedItem, developerMode: boolean): string {
-    return formatCodexFeedSummaryDom(item, developerMode);
-  }
-
   private codexFeedItemRenderDeps(): CodexFeedItemRenderDeps {
     return {
       developerMode: !!this.plugin.settings.developerMode,
@@ -5927,118 +5496,6 @@ export class LLMBridgeView extends ItemView {
     };
   }
 
-  private renderCodexChangesPanel(parent: HTMLElement, changes: ReadonlyArray<CodexRunChangeGroup>, developerMode: boolean): void {
-    const section = parent.createDiv({ cls: "llm-bridge-codex-changes-panel" });
-    const head = section.createDiv({ cls: "llm-bridge-codex-section-head" });
-    head.createDiv({ cls: "llm-bridge-codex-section-title", text: "Changes" });
-    head.createDiv({ cls: "llm-bridge-codex-section-count", text: String(changes.length) });
-    const list = section.createDiv({ cls: "llm-bridge-codex-change-list" });
-    for (const change of changes) {
-      const row = list.createDiv({ cls: `llm-bridge-codex-change-row is-${change.action}` });
-      const icon = row.createEl("span", { cls: "llm-bridge-codex-change-icon" });
-      setIcon(icon, change.action === "create" ? "file-plus" : change.action === "delete" ? "file-minus" : "file-pen-line");
-      const main = row.createDiv({ cls: "llm-bridge-codex-change-main" });
-      const title = main.createDiv({ cls: "llm-bridge-codex-change-title" });
-      const actionText = change.action === "create" ? "Created" : change.action === "delete" ? "Deleted" : "Modified";
-      title.createEl("span", { cls: "llm-bridge-codex-change-action", text: actionText });
-      title.createEl("span", { cls: "llm-bridge-codex-change-name", text: change.fileName, attr: { title: change.relativePath } });
-      main.createDiv({ cls: "llm-bridge-codex-change-path", text: change.relativePath, attr: { title: change.fullPath } });
-      const meta = row.createDiv({ cls: "llm-bridge-codex-change-meta" });
-      meta.createEl("span", { cls: "llm-bridge-codex-change-diff-summary", text: change.diffSummary });
-      if (change.approvalStatus) meta.createEl("span", { cls: `llm-bridge-codex-change-approval is-${change.approvalStatus}`, text: change.approvalStatus });
-      if (change.durationMs) meta.createEl("span", { cls: "llm-bridge-codex-change-duration", text: this.formatDurationMs(change.durationMs) });
-      const actions = row.createDiv({ cls: "llm-bridge-codex-change-actions" });
-      const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "复制路径" } });
-      setIcon(copyBtn, "copy");
-      copyBtn.addEventListener("click", async (event) => {
-        event.stopPropagation();
-        try {
-          await navigator.clipboard.writeText(change.relativePath || change.fullPath);
-          new Notice("路径已复制");
-        } catch {
-          new Notice("复制失败");
-        }
-      });
-      const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "打开文件" } });
-      setIcon(openBtn, "external-link");
-      openBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        const target = path.isAbsolute(change.fullPath) ? change.fullPath : path.join(this.getVaultPath(), change.fullPath || change.relativePath);
-        void this.openPathWithSystemDefault(target);
-      });
-      if (change.diff) {
-        this.renderCodexDiffPreview(row, change.diff, change.diffSummary);
-      }
-      this.renderCodexSourceRef(row, change.sourceRef, developerMode);
-    }
-  }
-
-  private renderCodexDiffPreview(parent: HTMLElement, diff: string, diffSummary?: string): void {
-    const summaryText = diffSummary?.trim();
-    const details = parent.createEl("details", { cls: "llm-bridge-codex-diff-preview" });
-    const label = summaryText ? `Diff · ${truncateText(summaryText, 72)}` : "Diff";
-    details.createEl("summary", {
-      text: label,
-      attr: { title: summaryText ? `Diff preview: ${summaryText}` : "Diff preview" },
-    });
-    details.createEl("pre", { cls: "llm-bridge-codex-diff-pre", text: diff });
-  }
-
-  private renderCodexStepsTimeline(parent: HTMLElement, steps: ReadonlyArray<CodexRunStepGroup>, developerMode: boolean): void {
-    const section = parent.createDiv({ cls: "llm-bridge-codex-steps" });
-    const head = section.createDiv({ cls: "llm-bridge-codex-section-head" });
-    head.createDiv({ cls: "llm-bridge-codex-section-title", text: `Steps · ${steps.length}` });
-    const list = section.createDiv({ cls: "llm-bridge-codex-step-list" });
-    for (const step of steps) {
-      const row = list.createDiv({ cls: `llm-bridge-codex-step-row is-${step.kind} is-${step.status}` });
-      row.setAttribute("data-step-kind", step.kind);
-      if (step.sourceRef?.itemId) row.setAttribute("data-item-id", step.sourceRef.itemId);
-      const icon = row.createEl("span", { cls: "llm-bridge-codex-step-icon" });
-      setIcon(icon, step.icon);
-      const label = row.createDiv({ cls: "llm-bridge-codex-step-label", text: step.label, attr: { title: step.label } });
-      const status = row.createDiv({ cls: `llm-bridge-codex-step-status is-${step.status}`, text: step.status });
-      if (step.durationMs) row.createDiv({ cls: "llm-bridge-codex-step-duration", text: this.formatDurationMs(step.durationMs) });
-      if (step.exitCode !== undefined) row.createDiv({ cls: "llm-bridge-codex-step-exit", text: `exit ${step.exitCode}` });
-      this.renderCodexStepPayload(row, step, developerMode);
-      if (developerMode) this.renderCodexSourceRef(row, step.sourceRef, developerMode);
-      label.toggleClass("is-running", step.status === "running");
-      status.toggleClass("is-hidden", false);
-    }
-  }
-
-  private renderCodexDiagnosticsDrawer(
-    parent: HTMLElement,
-    diagnostics: ReadonlyArray<CodexRunDiagnosticsGroup>,
-    developerMode: boolean,
-  ): void {
-    const total = diagnostics.reduce((sum, group) => sum + group.count, 0);
-    const hasError = diagnostics.some((group) => group.severity === "error");
-    const section = parent.createDiv({ cls: "llm-bridge-codex-diagnostics" });
-    const head = section.createDiv({ cls: "llm-bridge-codex-diagnostics-head" });
-    const toggle = head.createEl("span", { cls: "llm-bridge-codex-diagnostics-toggle", text: "▶" });
-    const icon = head.createEl("span", { cls: "llm-bridge-codex-diagnostics-icon" });
-    setIcon(icon, "triangle-alert");
-    head.createEl("span", { cls: "llm-bridge-codex-diagnostics-summary", text: `${hasError ? "Issues" : "Warnings"} · ${total}` });
-    const body = section.createDiv({ cls: "llm-bridge-codex-diagnostics-body", attr: { hidden: "" } });
-    for (const diagnostic of diagnostics) {
-      const item = body.createDiv({ cls: `llm-bridge-codex-diagnostic-item is-${diagnostic.severity}` });
-      item.createDiv({ cls: "llm-bridge-codex-diagnostic-message", text: diagnostic.count > 1 ? `${diagnostic.message} (${diagnostic.count})` : diagnostic.message });
-      if (developerMode) {
-        this.renderCodexCollapsedText(item, "raw", formatCodexRunValue(diagnostic.raw ?? diagnostic));
-      }
-    }
-    head.addEventListener("click", () => {
-      const hidden = body.hasAttribute("hidden");
-      if (hidden) {
-        body.removeAttribute("hidden");
-        toggle.textContent = "▼";
-      } else {
-        body.setAttribute("hidden", "");
-        toggle.textContent = "▶";
-      }
-    });
-  }
-
   private renderCodexCollapsedText(parent: HTMLElement, label: string, value?: string): void {
     if (!value) return;
     const slug = label.replace(/\s+/g, "-");
@@ -6052,6 +5509,17 @@ export class LLMBridgeView extends ItemView {
     const panel = details.createDiv({ cls: "llm-bridge-codex-detail-panel" });
     panel.createDiv({ cls: "llm-bridge-codex-detail-panel-title", text: displayLabel });
     panel.createEl("pre", { cls: "llm-bridge-codex-detail-pre", text: bodyText });
+  }
+
+  private renderCodexDiffPreview(parent: HTMLElement, diff: string, diffSummary?: string): void {
+    const summaryText = diffSummary?.trim();
+    const details = parent.createEl("details", { cls: "llm-bridge-codex-diff-preview" });
+    const label = summaryText ? `Diff · ${truncateText(summaryText, 72)}` : "Diff";
+    details.createEl("summary", {
+      text: label,
+      attr: { title: summaryText ? `Diff preview: ${summaryText}` : "Diff preview" },
+    });
+    details.createEl("pre", { cls: "llm-bridge-codex-diff-pre", text: diff });
   }
 
   private renderCodexStepPayload(
@@ -7248,171 +6716,6 @@ export class LLMBridgeView extends ItemView {
     return parts.join(" · ");
   }
 
-  // V2.3: 从事件中提取 agent 实例列表（主 agent + subagent）
-  private extractAgentInstances(events: ReadonlyArray<WorkflowEvent>): ReadonlyArray<{
-    readonly sessionId: string | undefined;
-    readonly parentToolUseId: string | undefined;
-    readonly isMain: boolean;
-    readonly eventCount: number;
-  }> {
-    const map = new Map<string, { sessionId: string | undefined; parentToolUseId: string | undefined; isMain: boolean; eventCount: number }>();
-    for (const event of events) {
-      // 仅 MessageEvent 和 ToolStartEvent 携带 agent 标识
-      if (event.type !== "message" && event.type !== "tool_start") continue;
-      const sessionId = event.sessionId;
-      const parentToolUseId = event.parentToolUseId;
-      // 主 agent 键：sessionId 或 "main"；subagent 键：sessionId + parentToolUseId
-      const isMain = !parentToolUseId;
-      const key = isMain ? `main:${sessionId ?? ""}` : `sub:${sessionId ?? ""}:${parentToolUseId ?? ""}`;
-      const existing = map.get(key);
-      if (existing) {
-        existing.eventCount += 1;
-      } else {
-        map.set(key, { sessionId, parentToolUseId, isMain, eventCount: 1 });
-      }
-    }
-    // 主 agent 排在前
-    return Array.from(map.values()).sort((a, b) => {
-      if (a.isMain && !b.isMain) return -1;
-      if (!a.isMain && b.isMain) return 1;
-      return 0;
-    });
-  }
-
-  // V2.9: findToolParentAgent 已移除——buildToolTimeline 现将 parentToolUseId 直接写入 ToolTimelineEntry，
-  // appendSdkWorkflow 用 entry.parentToolUseId 做 O(1) 分组，无需再对每个 tool 线性扫描 events。
-
-  // V2.3: 渲染工具时间线分组（用于 main / subagent 分组展示）
-  private renderToolTimelineGroup(body: HTMLElement, title: string, tools: ReadonlyArray<import("./workflowEvent").ToolTimelineEntry>): void {
-    const groupBody = this.createSdkGroup(body, title, tools.length);
-    const toolList = groupBody.createDiv({ cls: "llm-bridge-sdk-tool-list" });
-    for (const tool of tools) {
-      const item = toolList.createDiv({ cls: `llm-bridge-sdk-tool-item is-${tool.status}` });
-      item.createEl("span", { cls: "llm-bridge-sdk-tool-icon", text: tool.status === "error" ? "✗" : tool.status === "done" ? "✓" : "…" });
-      const text = item.createDiv({ cls: "llm-bridge-sdk-tool-text" });
-      text.createEl("span", { cls: "llm-bridge-sdk-tool-name", text: tool.toolName });
-      if (tool.durationMs !== null) {
-        text.createEl("span", { cls: "llm-bridge-sdk-tool-duration", text: this.formatDurationMs(tool.durationMs) });
-      }
-      if (tool.input) {
-        text.createEl("span", { cls: "llm-bridge-sdk-tool-input", text: truncateText(tool.input, 80), attr: { title: tool.input } });
-      }
-      if (tool.output) {
-        text.createEl("span", { cls: "llm-bridge-sdk-tool-output", text: truncateText(tool.output, 80), attr: { title: tool.output } });
-      }
-    }
-  }
-
-  // V2.0: 创建 SDK workflow 分组容器（带标题 + 计数）
-  private createSdkGroup(body: HTMLElement, title: string, count: number): HTMLElement {
-    const group = body.createDiv({ cls: "llm-bridge-sdk-group" });
-    group.createEl("div", { cls: "llm-bridge-sdk-group-title", text: `${title} (${count})` });
-    return group.createDiv({ cls: "llm-bridge-sdk-group-items" });
-  }
-
-  // V2.0: 渲染一个事件分组（空则跳过）
-  private appendSdkEventGroup(body: HTMLElement, title: string, groupEvents: ReadonlyArray<WorkflowEvent>): void {
-    if (groupEvents.length === 0) return;
-    const groupBody = this.createSdkGroup(body, title, groupEvents.length);
-    for (const event of groupEvents) {
-      this.appendSdkEventItem(groupBody, event);
-    }
-  }
-
-  // V2.3s: 渲染权限事件历史（展示工具名/风险等级/决策来源/来源 agent/参数摘要/高风险标记）
-  private renderPermissionHistory(body: HTMLElement, permEvents: ReadonlyArray<PermissionEvent>): void {
-    if (permEvents.length === 0) return;
-    const groupBody = this.createSdkGroup(body, "Permissions", permEvents.length);
-    for (const ev of permEvents) {
-      const item = groupBody.createDiv({ cls: `llm-bridge-sdk-event-item is-permission is-risk-${ev.riskLevel ?? "low"} ${ev.granted ? "is-perm-granted" : "is-perm-denied"}` });
-
-      // 第一行：图标 + 工具名 + 决策结果 + 来源 agent
-      const row1 = item.createDiv({ cls: "llm-bridge-perm-hist-row1" });
-      row1.createEl("span", { cls: "llm-bridge-sdk-event-icon", text: ev.granted ? "🔓" : "🔒" });
-      row1.createEl("span", { cls: "llm-bridge-perm-hist-tool", text: ev.toolName });
-      // 决策来源标签
-      const sourceLabel = ev.source === "session_allow" ? "会话允许"
-        : ev.source === "session_deny" ? "会话拒绝"
-        : ev.source === "mode" ? "模式自动"
-        : ev.pending ? "待决策"
-        : "用户决策";
-      row1.createEl("span", { cls: `llm-bridge-perm-hist-source is-${ev.source ?? "user"}`, text: sourceLabel });
-      // 来源 agent
-      if (ev.parentToolUseId) {
-        row1.createEl("span", { cls: "llm-bridge-perm-hist-agent is-subagent", text: "Subagent", attr: { title: `parent: ${ev.parentToolUseId}` } });
-      } else {
-        row1.createEl("span", { cls: "llm-bridge-perm-hist-agent is-main", text: "Main" });
-      }
-      const time = new Date(ev.timestamp).toLocaleTimeString();
-      row1.createEl("span", { cls: "llm-bridge-sdk-event-time", text: time });
-
-      // 第二行：风险等级 + 风险说明
-      if (ev.riskLevel || ev.riskReason) {
-        const row2 = item.createDiv({ cls: "llm-bridge-perm-hist-row2" });
-        if (ev.riskLevel) {
-          row2.createEl("span", { cls: `llm-bridge-perm-risk-level is-${ev.riskLevel}`, text: ev.riskLevel });
-        }
-        if (ev.riskReason) {
-          row2.createEl("span", { cls: "llm-bridge-perm-risk-reason", text: ev.riskReason });
-        }
-      }
-
-      // 高风险标记
-      if (ev.highRiskFlags && ev.highRiskFlags.length > 0) {
-        const flagsEl = item.createDiv({ cls: "llm-bridge-perm-hist-flags" });
-        flagsEl.createEl("span", { cls: "llm-bridge-perm-flags-label", text: "高风险：" });
-        for (const flag of ev.highRiskFlags) {
-          flagsEl.createEl("span", { cls: "llm-bridge-perm-flag", text: flag });
-        }
-      }
-
-      // 参数摘要
-      if (ev.inputSummary) {
-        item.createDiv({ cls: "llm-bridge-perm-hist-input", text: ev.inputSummary, attr: { title: ev.inputSummary } });
-      }
-
-      // subagent 权限继承风险提示
-      if (ev.subagentRisk) {
-        item.createDiv({ cls: "llm-bridge-perm-hist-subagent-warn", text: ev.subagentRisk });
-      }
-    }
-  }
-
-  // V2.0: 渲染单个 SDK workflow 事件项（error/failed 含复制按钮）
-  private appendSdkEventItem(parent: HTMLElement, event: WorkflowEvent): void {
-    const item = parent.createDiv({ cls: `llm-bridge-sdk-event-item ${workflowEventClass(event)}` });
-    item.createEl("span", { cls: "llm-bridge-sdk-event-icon", text: workflowEventIcon(event) });
-    const text = item.createDiv({ cls: "llm-bridge-sdk-event-text" });
-    text.createEl("span", { cls: "llm-bridge-sdk-event-label", text: workflowEventLabel(event) });
-    // 事件详情
-    let detail = "";
-    if (event.type === "thinking") detail = truncateText(event.text, 120);
-    else if (event.type === "message") detail = truncateText(event.text, 120);
-    else if (event.type === "file_change") detail = `${event.action}: ${event.path}`;
-    else if (event.type === "permission") detail = event.description;
-    else if (event.type === "error") detail = event.message;
-    else if (event.type === "completed") detail = event.text;
-    else if (event.type === "failed") detail = event.message;
-    if (detail) {
-      text.createEl("span", { cls: "llm-bridge-sdk-event-detail", text: detail, attr: { title: detail } });
-    }
-    const time = new Date(event.timestamp).toLocaleTimeString();
-    text.createEl("span", { cls: "llm-bridge-sdk-event-time", text: time });
-    // V2.0: error / failed 事件加复制按钮（便于复制错误信息用于诊断）
-    if (event.type === "error" || event.type === "failed") {
-      const copyText = event.message;
-      const copyBtn = item.createEl("button", { cls: "llm-bridge-sdk-event-copy", text: "复制", attr: { title: "复制错误信息" } });
-      copyBtn.addEventListener("click", async () => {
-        try {
-          await navigator.clipboard.writeText(copyText);
-          new Notice("已复制错误信息");
-        } catch {
-          new Notice("复制失败");
-        }
-      });
-    }
-  }
-
   // V2.0: 格式化耗时（ms → 可读字符串）
   private formatDurationMs(ms: number): string {
     if (ms < 1000) return `${ms}ms`;
@@ -7628,71 +6931,34 @@ export class LLMBridgeView extends ItemView {
     const built = this.buildCodexRunForMessage(msg);
     if (!built) return;
     const { run, model } = built;
-    const developerMode = !!this.plugin.settings.developerMode;
-    const loc = resolveUiLocale() === "en" ? "en" : "zh";
+    mountOrReconcileCodexRun(
+      { mode: "patch", wrap },
+      {
+        run,
+        developerMode: !!this.plugin.settings.developerMode,
+        sourceModel: model,
+        presentation,
+        streaming: msg.status === "running",
+        messageStatus: msg.status,
+      },
+      this.codexRunRenderDeps(),
+    );
+  }
 
-    const showChrome = presentation.showRunChrome || developerMode;
-    wrap.className = `llm-bridge-timeline-wrap llm-bridge-turn-view llm-bridge-codex-run-view is-${run.runHeader.statusKind}${developerMode ? " is-developer" : ""}${
-      presentation.kind === "assistant-answer" ? " is-semantic-answer"
-        : presentation.kind === "assistant-running" ? " is-semantic-running"
-          : presentation.kind === "assistant-summary" ? " is-semantic-summary"
-            : presentation.kind === "assistant-failed" || presentation.kind === "assistant-stopped" ? " is-semantic-failed"
-              : ""
-    }${showChrome ? " is-run-chrome" : " is-process-quiet"}`;
-    wrap.setAttribute("data-final-answer-disposition", model.finalAnswerDisposition);
-
-    // 终态：去掉运行光效
-    if (msg.status !== "running") {
-      wrap.querySelectorAll(".llm-bridge-run-glow").forEach((el) => {
-        el.classList.remove("llm-bridge-run-glow", "is-running");
-      });
-      wrap.querySelectorAll(".llm-bridge-codex-thinking-line.is-thinking-live").forEach((el) => {
-        el.classList.remove("is-thinking-live");
-        el.classList.add("is-thinking-done");
-      });
-    }
-
-    const body = wrap.querySelector<HTMLElement>(".llm-bridge-codex-run-body");
-    if (!body) return;
-
-    // 授权门：复用固定 host，避免每次刷新遗留空 .approval-gates-host
-    this.reconcileCodexApprovalGates(body, run.approvalGates, developerMode);
-
-    let process = body.querySelector<HTMLElement>(".llm-bridge-codex-process");
-    if (!process) {
-      process = body.createDiv({ cls: "llm-bridge-codex-process" });
-    }
-    process.removeAttribute("hidden");
-
-    // 完成态过程头：更新「已处理 Xs」，不自动折叠
-    if (presentation.kind !== "assistant-running" && run.feedItems.length > 0) {
-      let processHead = process.querySelector<HTMLElement>(".llm-bridge-codex-process-head");
-      if (!processHead) {
-        processHead = process.createDiv({ cls: "llm-bridge-codex-section-head llm-bridge-codex-process-head" });
-        const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
-        processTitle.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title", text: "" });
-      }
-      processHead.removeAttribute("hidden");
-      const quietTitle = processHead.querySelector(".llm-bridge-codex-process-quiet-title");
-      if (quietTitle) {
-        const elapsed = (run.runHeader.elapsed || "").trim();
-        quietTitle.textContent = loc === "zh"
-          ? (elapsed ? `已处理 ${elapsed}` : "已处理")
-          : (elapsed ? `Processed ${elapsed}` : "Processed");
-      }
-    }
-
-    let processBody = process.querySelector<HTMLElement>(".llm-bridge-codex-process-body");
-    if (!processBody) {
-      processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
-    }
-    // 禁止自动折叠：确保过程体可见
-    processBody.removeAttribute("hidden");
-
-    this.reconcileCodexRunWaterfall(processBody, run, {
-      streaming: msg.status === "running",
-      developerMode,
-    });
+  private codexRunRenderDeps(): CodexRunRenderDeps {
+    return {
+      localizeRunStatus: (status) => this.localizeRunStatus(status),
+      renderRunStatusText: (el, label, kind) => this.renderRunStatusText(el, label, kind),
+      resolvePermissionRequests: (requestIds, choice) => this.resolvePermissionRequests(requestIds, choice),
+      renderCodexSourceRef: (parent, sourceRef, developerMode) =>
+        this.renderCodexSourceRef(parent, sourceRef, developerMode),
+      renderCodexCollapsedText: (parent, label, value) => this.renderCodexCollapsedText(parent, label, value),
+      renderAgentRunDebugDrawer: (parent, debug) => this.renderAgentRunDebugDrawer(parent, debug),
+      reconcileCodexRunWaterfall: (processBody, run, options) =>
+        this.reconcileCodexRunWaterfall(processBody, run, options),
+      upgradeCodexCandidateAnswerInFeed: (body, finalAnswer, streaming) =>
+        upgradeCodexCandidateAnswerInFeedDom(body, finalAnswer, streaming, this.codexWaterfallDeps()),
+    };
   }
 
   private codexWaterfallDeps(): CodexWaterfallPatchDeps {

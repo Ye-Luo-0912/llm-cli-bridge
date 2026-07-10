@@ -91,11 +91,9 @@ export function groupCodexFeedRenderEntries(
         group.push(items[i]);
         i += 1;
       }
-      if (group.length >= 2) {
-        entries.push({ kind: "tool-group", key: `group:command:${startKey}`, groupKind: "command", items: group });
-      } else {
-        entries.push({ kind: "item", key: startKey, item: group[0] });
-      }
+      // Always use tool-group key (even for a single command) so a later sibling
+      // command does not remount the first row under a different keyed entry.
+      entries.push({ kind: "tool-group", key: `group:command:${startKey}`, groupKind: "command", items: group });
       continue;
     }
     if (isCodexImageFeedItem(item)) {

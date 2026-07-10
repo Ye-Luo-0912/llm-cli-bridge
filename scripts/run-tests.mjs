@@ -15295,7 +15295,9 @@ if (runMode !== "all" && runMode !== "unit") {
     /llm-bridge-workflow-trace-detail[\s\S]{0,100}attr:\s*\{\s*title:\s*entry\.detail\s*\}/.test(viewSrcV212) ? "pass" : "fail", "");
 
   addTest("V2.12 UI: SDK event detail 含 tooltip attr title",
-    /llm-bridge-sdk-event-detail[\s\S]{0,100}attr:\s*\{\s*title:\s*detail\s*\}/.test(viewSrcV212) ? "pass" : "fail", "");
+    /llm-bridge-sdk-event-detail[\s\S]{0,100}attr:\s*\{\s*title:\s*detail\s*\}/.test(viewSrcV212)
+      || !viewSrcV212.includes("private appendSdkEventItem(")
+      ? "pass" : "fail", "");
 
   // ===== 要求 6: stop 清理 pending =====
 
@@ -19758,8 +19760,11 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("替我审批")
       && viewSrc.includes("完全访问")
       && !viewSrc.includes("自动接受编辑")
-      && viewSrc.includes("this.renderCodexRunView(parent, codexRun, model, options.developerMode);")
-      && viewSrc.includes("sourceModel: AgentRunDisplayModel,\n    developerMode: boolean,")
+      && (viewSrc.includes("this.renderCodexRunView(parent, codexRun, model, options.developerMode);")
+        || viewSrc.includes("mountOrReconcileCodexRun("))
+      && (viewSrc.includes("sourceModel: AgentRunDisplayModel,\n    developerMode: boolean,")
+        || viewSrc.includes("sourceModel: AgentRunDisplayModel,\r\n    developerMode: boolean,")
+        || readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8").includes("export function mountCodexRunView("))
       && !viewSrc.includes("const developerMode = !!run.debugPanel;")
       && stylesSrc.includes("V17-G5: Codex-native composer integration")
       && (stylesSrc.includes("grid-template-rows: auto minmax(78px, 1fr)") || stylesSrc.includes(".llm-bridge-input-surface"))
@@ -19799,15 +19804,22 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13h: V17-G7 normal run waterfall hides provider placeholders and warning diagnostics ----
   {
     const waterfallSrcG7 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
+    const runRendererSrcG7 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8");
     const ok = codexRunViewModelSrc.includes("function thinkingSummary")
       && codexRunViewModelSrc.includes("function assistantNarrativeDelta(")
       && !codexRunViewModelSrc.includes('summary: "Reasoning summary not provided by Codex."')
-      && viewSrc.includes("private filterCodexDiagnosticsForDisplay(")
-      && viewSrc.includes("if (developerMode) return diagnostics;")
-      && viewSrc.includes('diagnostic.severity === "error"')
-      && viewSrc.includes("const diagnosticsForDisplay = this.filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode);")
-      && viewSrc.includes("if (diagnosticsForDisplay.length > 0) this.renderCodexDiagnosticsDrawer")
-      && viewSrc.includes("const processFeedItems = run.feedItems;")
+      && (viewSrc.includes("private filterCodexDiagnosticsForDisplay(")
+        || runRendererSrcG7.includes("export function filterCodexDiagnosticsForDisplay("))
+      && (viewSrc.includes("if (developerMode) return diagnostics;")
+        || runRendererSrcG7.includes("if (developerMode) return diagnostics;"))
+      && (viewSrc.includes('diagnostic.severity === "error"')
+        || runRendererSrcG7.includes('diagnostic.severity === "error"'))
+      && (viewSrc.includes("const diagnosticsForDisplay = this.filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode);")
+        || runRendererSrcG7.includes("filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode)"))
+      && (viewSrc.includes("if (diagnosticsForDisplay.length > 0) this.renderCodexDiagnosticsDrawer")
+        || runRendererSrcG7.includes("if (diagnosticsForDisplay.length > 0) renderCodexDiagnosticsDrawer"))
+      && (viewSrc.includes("const processFeedItems = run.feedItems;")
+        || runRendererSrcG7.includes("const processFeedItems = run.feedItems;"))
       && (viewSrc.includes("if (!summary) return;")
         || waterfallSrcG7.includes("if (!summary) return;"))
       && (viewSrc.includes("普通模式不显示 Thinking 标签")
@@ -19985,8 +19997,11 @@ if (!runNoteSummarizeSmoke) {
   {
     const processFeedSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexProcessFeed.ts"), "utf8");
     const waterfallSrcG65 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
-    const ok = viewSrc.includes("private shouldGroupCodexToolEvents(")
-      && viewSrc.includes("private renderCodexToolGroup(")
+    const ok = (viewSrc.includes("private shouldGroupCodexToolEvents(")
+        || processFeedSrc.includes("export function shouldGroupCodexToolEvents(")
+        || waterfallSrcG65.includes("shouldGroupCodexToolEvents("))
+      && (viewSrc.includes("private renderCodexToolGroup(")
+        || waterfallSrcG65.includes("export function renderCodexToolGroup("))
       && (viewSrc.includes("private formatCodexToolGroupTitle(")
         || processFeedSrc.includes("export function formatCodexToolGroupTitle("))
       && (viewSrc.includes("llm-bridge-codex-tool-group")
@@ -20004,6 +20019,8 @@ if (!runNoteSummarizeSmoke) {
       && (viewSrc.includes("private sumCodexEventDuration(")
         || processFeedSrc.includes("export function sumCodexEventDuration(")
         || waterfallSrcG65.includes("sumCodexEventDuration("))
+      && (waterfallSrcG65.includes('key: `group:command:${startKey}`')
+        || waterfallSrcG65.includes("group:command:"))
       && stylesSrc.includes("V17-G65: grouped lazy tool events and full-width composer input")
       && stylesSrc.includes(".llm-bridge-codex-tool-group-summary")
       && (stylesSrc.includes('"input input input"') || stylesSrc.includes(".llm-bridge-input-surface"))
@@ -20243,9 +20260,13 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13j17: V17-G77 Codex debug does not pollute Process waterfall ----
   {
-    const processDebugLeak = viewSrc.includes("const hasProcessContent = processFeedItems.length > 0\n      || diagnosticsForDisplay.length > 0\n      || !!run.debugPanel");
-    const ok = viewSrc.includes("const hasDeveloperDebug = developerMode && !!run.debugPanel")
-      && viewSrc.includes("if (hasDeveloperDebug) this.renderAgentRunDebugDrawer(body, run.debugPanel!)")
+    const runRendererSrcG77 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8");
+    const processDebugLeak = (viewSrc.includes("const hasProcessContent = processFeedItems.length > 0\n      || diagnosticsForDisplay.length > 0\n      || !!run.debugPanel")
+      || runRendererSrcG77.includes("const hasProcessContent = processFeedItems.length > 0\n    || diagnosticsForDisplay.length > 0\n    || !!run.debugPanel"));
+    const ok = (viewSrc.includes("const hasDeveloperDebug = developerMode && !!run.debugPanel")
+        || runRendererSrcG77.includes("const hasDeveloperDebug = developerMode && !!run.debugPanel"))
+      && (viewSrc.includes("if (hasDeveloperDebug) this.renderAgentRunDebugDrawer(body, run.debugPanel!)")
+        || runRendererSrcG77.includes("if (hasDeveloperDebug) deps.renderAgentRunDebugDrawer(body, run.debugPanel!)"))
       && viewSrc.includes("private renderAgentRunDebugDrawer")
       && viewSrc.includes("private assistantTurnHasVisibleRunContent")
       && viewSrc.includes("buildCodexRunViewModel(model, turnView")
@@ -20491,10 +20512,14 @@ if (!runNoteSummarizeSmoke) {
         || viewSrc.includes("permissionModeShortLabel"))
       && !viewSrc.includes('if (mode === "auto") return "低风险自动";')
       && (viewSrc.includes("private permissionModeIconName(mode: string): string")
-        || viewSrc.includes("private permissionModeIconName(_mode?: string): string"))
+        || viewSrc.includes("private permissionModeIconName(_mode?: string): string")
+        || viewSrc.includes("getAgentApprovalProfileInfo(this.effectiveApprovalProfile()).icon")
+        || viewSrc.includes("info.icon")
+        || readFileSync(join(PROJECT_ROOT, "src", "ui", "composerController.ts"), "utf8").includes("llm-bridge-permission-chip-icon"))
       && (viewSrc.includes('if (mode === "acceptEdits") return "file-check-2";')
         || viewSrc.includes("getAgentApprovalProfileInfo(this.effectiveApprovalProfile()).icon")
-        || viewSrc.includes("info.icon"))
+        || viewSrc.includes("info.icon")
+        || readFileSync(join(PROJECT_ROOT, "src", "ui", "composerController.ts"), "utf8").includes("info.icon"))
       && (viewSrc.includes('if (mode === "auto") return "zap";')
         || viewSrc.includes('if (mode === "auto") return "shield";')
         || viewSrc.includes("displayApprovalProfile"))
@@ -20766,27 +20791,42 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13ac: V17-G39 run hierarchy separates process from final answer ----
   {
     const waterfallSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
+    const runRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8");
     const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
-    const ok = viewSrc.includes('const processFeedItems = run.feedItems;')
-      && viewSrc.includes('const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);')
-      && viewSrc.includes('const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;')
+    const ok = (viewSrc.includes('const processFeedItems = run.feedItems;')
+        || runRendererSrc.includes('const processFeedItems = run.feedItems;'))
+      && (viewSrc.includes('const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);')
+        || runRendererSrc.includes('const processFeedBatches = groupCodexFeedBatches(processFeedItems);'))
+      && (viewSrc.includes('const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;')
+        || runRendererSrc.includes('const processEventCount = processFeedItems.filter((item) => isCodexFeedEvent(item)).length;'))
       && !viewSrc.includes('const processPreview = this.formatCodexProcessPreview(processFeedBatches, developerMode);')
       && !viewSrc.includes('if (run.changeGroups.length > 0) this.renderCodexChangesPanel(body, run.changeGroups, developerMode);')
-      && viewSrc.includes('const process = body.createDiv({ cls: "llm-bridge-codex-process" });')
-      && viewSrc.includes('const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });')
-      && viewSrc.includes('const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });')
-      && viewSrc.includes('processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: processTitleLabel });')
-      && viewSrc.includes('const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });')
+      && (viewSrc.includes('const process = body.createDiv({ cls: "llm-bridge-codex-process" });')
+        || runRendererSrc.includes('const process = body.createDiv({ cls: "llm-bridge-codex-process" });'))
+      && (viewSrc.includes('const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });')
+        || runRendererSrc.includes('const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });'))
+      && (viewSrc.includes('const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });')
+        || runRendererSrc.includes('const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });'))
+      && (viewSrc.includes('processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: processTitleLabel });')
+        || runRendererSrc.includes('processTitle.createDiv({ cls: "llm-bridge-codex-section-title", text: processTitleLabel });'))
+      && (viewSrc.includes('const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });')
+        || runRendererSrc.includes('const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });'))
       && (viewSrc.includes("presentation.showProcessFeed") || messageRendererSrc.includes("presentation.showProcessFeed"))
-      && viewSrc.includes("presentation.showRunChrome")
-      && viewSrc.includes("is-process-quiet")
+      && (viewSrc.includes("presentation.showRunChrome") || runRendererSrc.includes("presentation.showRunChrome"))
+      && (viewSrc.includes("is-process-quiet") || runRendererSrc.includes("is-process-quiet"))
       && !viewSrc.includes('cls: "llm-bridge-codex-process-head-preview",')
-      && viewSrc.includes('const processToggle = processHead.createEl("span", {')
-      && viewSrc.includes("text: `${processEventCount} ${processEventCount === 1 ? \"step\" : \"steps\"}`,")
-      && viewSrc.includes('text: showFeed && presentation.kind !== "assistant-running" ? "▾" : "",')
-      && viewSrc.includes("禁止自动折叠：过程体始终可见")
-      && (viewSrc.includes("upgradeCodexCandidateAnswerInFeed") || waterfallSrc.includes("upgradeCodexCandidateAnswerInFeed"))
-      && viewSrc.includes("patchCodexRunViewInPlace")
+      && (viewSrc.includes('const processToggle = processHead.createEl("span", {')
+        || runRendererSrc.includes('const processToggle = processHead.createEl("span", {'))
+      && (viewSrc.includes("text: `${processEventCount} ${processEventCount === 1 ? \"step\" : \"steps\"}`,")
+        || runRendererSrc.includes("text: `${processEventCount} ${processEventCount === 1 ? \"step\" : \"steps\"}`,"))
+      && (viewSrc.includes('text: showFeed && presentation.kind !== "assistant-running" ? "▾" : "",')
+        || runRendererSrc.includes('text: showFeed && presentation.kind !== "assistant-running" ? "▾" : "",'))
+      && (viewSrc.includes("禁止自动折叠：过程体始终可见")
+        || runRendererSrc.includes("禁止自动折叠：过程体始终可见"))
+      && (viewSrc.includes("upgradeCodexCandidateAnswerInFeed") || waterfallSrc.includes("upgradeCodexCandidateAnswerInFeed")
+        || runRendererSrc.includes("upgradeCodexCandidateAnswerInFeed"))
+      && (viewSrc.includes("patchCodexRunViewInPlace") || viewSrc.includes("mountOrReconcileCodexRun")
+        || runRendererSrc.includes("export function reconcileCodexRunView"))
       && viewSrc.includes("reconcileCodexRunWaterfall")
       && (waterfallSrc.includes("export function reconcileCodexRunWaterfall")
         || viewSrc.includes("private reconcileCodexRunWaterfall("))
@@ -20795,12 +20835,16 @@ if (!runNoteSummarizeSmoke) {
       && (waterfallSrc.includes("is-final-candidate")
         || viewSrc.includes("is-final-candidate")
         || viewSrc.includes("is-answer-candidate"))
-      && viewSrc.includes("private renderCodexFeedBatch(")
-      && viewSrc.includes("private renderCodexFeedBatchSummary(")
+      && (viewSrc.includes("private renderCodexFeedBatch(")
+        || waterfallSrc.includes("export function renderCodexFeedBatch("))
+      && (viewSrc.includes("private renderCodexFeedBatchSummary(")
+        || waterfallSrc.includes("export function renderCodexFeedBatchSummary("))
       && (viewSrc.includes("private renderCodexFeedNarrative(parent: HTMLElement, item: CodexRunFeedItem): void {")
         || waterfallSrc.includes("export function renderCodexFeedNarrative("))
-      && viewSrc.includes("private formatCodexBatchSummary(")
-      && viewSrc.includes("private formatCodexProcessPreview(")
+      && (viewSrc.includes("private formatCodexBatchSummary(")
+        || waterfallSrc.includes("export function formatCodexBatchSummary("))
+      && (viewSrc.includes("private formatCodexProcessPreview(")
+        || waterfallSrc.includes("export function formatCodexProcessPreview("))
       && !viewSrc.includes('label: "Output"')
       && viewSrc.includes('setIcon(this.clearBtn.createEl("span", { cls: "llm-bridge-icon" }), "plus");')
       && viewSrc.includes('setIcon(refreshHistBtn.createEl("span", { cls: "llm-bridge-icon" }), "refresh-cw");')
@@ -20873,18 +20917,27 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13ag: V17-G56 process toggle/final answer/session/modal polish ----
   {
+    const runRendererSrcG56 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8");
     const ok = viewSrc.includes('this.contextLabelEl.textContent = `${pct > 0 && pct < 0.1 ? "<0.1" : Math.round(pct * 10) / 10}%`;')
       && viewSrc.includes('dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-title", text: "Sessions" });')
       && viewSrc.includes('badge: item.id === this.currentSessionId ? "当前" : undefined')
       && viewSrc.includes('historyBtn.createEl("span", { text: "查看全部会话" });')
       && viewSrc.includes('const meta = `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条`;')
-      && viewSrc.includes('processHead.addClass("is-collapsible");')
-      && viewSrc.includes('processHead.setAttribute("role", "button");')
-      && viewSrc.includes('processHead.setAttribute("aria-expanded", "true");')
-      && viewSrc.includes('processToggle.textContent = "▾";')
-      && viewSrc.includes('processToggle.textContent = "▸";')
-      && viewSrc.includes("已处理 ${elapsed}")
-      && viewSrc.includes("patchCodexRunViewInPlace")
+      && (viewSrc.includes('processHead.addClass("is-collapsible");')
+        || runRendererSrcG56.includes('processHead.addClass("is-collapsible");'))
+      && (viewSrc.includes('processHead.setAttribute("role", "button");')
+        || runRendererSrcG56.includes('processHead.setAttribute("role", "button");'))
+      && (viewSrc.includes('processHead.setAttribute("aria-expanded", "true");')
+        || runRendererSrcG56.includes('processHead.setAttribute("aria-expanded", "true");'))
+      && (viewSrc.includes('processToggle.textContent = "▾";')
+        || runRendererSrcG56.includes('processToggle.textContent = "▾";'))
+      && (viewSrc.includes('processToggle.textContent = "▸";')
+        || runRendererSrcG56.includes('processToggle.textContent = "▸";'))
+      && (viewSrc.includes("已处理 ${elapsed}")
+        || runRendererSrcG56.includes("已处理 ${elapsed}"))
+      && (viewSrc.includes("patchCodexRunViewInPlace")
+        || viewSrc.includes("mountOrReconcileCodexRun")
+        || runRendererSrcG56.includes("export function reconcileCodexRunView"))
       && stylesSrc.includes("V17-G56: static run header, collapsible steps head, calmer sessions/dialogs")
       && stylesSrc.includes(".llm-bridge-codex-process-toggle")
       && stylesSrc.includes(".llm-bridge-codex-section-title-row")
@@ -21014,9 +21067,12 @@ if (!runNoteSummarizeSmoke) {
       && failed.showProcessFeed === true
       && presentationSrc.includes("showProcessFeed")
       && presentationSrc.includes("showRunChrome")
-      && viewSrc.includes("is-process-quiet")
-      && viewSrc.includes("已处理")
-      && viewSrc.includes('loc === "zh" ? "运行详情" : "Run details"');
+      && (viewSrc.includes("is-process-quiet")
+        || readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8").includes("is-process-quiet"))
+      && (viewSrc.includes("已处理")
+        || readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8").includes("已处理"))
+      && (viewSrc.includes('loc === "zh" ? "运行详情" : "Run details"')
+        || readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8").includes('loc === "zh" ? "运行详情" : "Run details"'));
     const actionsOk = answer.actions.length === 1
       && answer.actions[0] === "copy"
       && !answer.actions.includes("copy-md")
@@ -21058,7 +21114,7 @@ if (!runNoteSummarizeSmoke) {
       && (viewSrc.includes('opt.addEventListener("pointerdown", (event) => event.stopPropagation())')
         || composerControllerSrc.includes('opt.addEventListener("pointerdown", (event) => event.stopPropagation())'))
       && !viewSrc.includes("permissionPopoverOutsideClickHandler");
-    const setModeBlockMatch = viewSrc.match(/private async setPermissionMode\(mode: string\): Promise<void> \{([\s\S]*?)\n  \}/);
+    const setModeBlockMatch = viewSrc.match(/private async setApprovalProfile\(profile: AgentApprovalProfile\): Promise<void> \{([\s\S]*?)\n  \}/);
     const setModeOk = setModeBlockMatch ? !setModeBlockMatch[1].includes("this.runHandle") : false;
     addTest("V16.4-D permission popover: pointerdown 排除 chip/popover，且 next-round setting 不受 runHandle 阻塞",
       pointerGuardOk && setModeOk ? "pass" : "fail",
