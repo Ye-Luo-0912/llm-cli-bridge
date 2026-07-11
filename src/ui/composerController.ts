@@ -356,6 +356,22 @@ export function renderComposerAttachmentToken(
   });
 }
 
+/**
+ * 附件删除过渡：先给 token 加 is-removing 触发淡出，150ms 后再实际移除。
+ * 找不到 token 元素（或已在移除中）时直接移除，保持原有行为。
+ */
+function fadeOutAttachmentTokenThen(refId: string, onRemove: () => void): void {
+  const tokenEl = document.querySelector<HTMLElement>(
+    `.llm-bridge-attachment-token[data-ref-id="${refId}"]`,
+  );
+  if (!tokenEl || tokenEl.classList.contains("is-removing")) {
+    onRemove();
+    return;
+  }
+  tokenEl.classList.add("is-removing");
+  window.setTimeout(onRemove, 150);
+}
+
 export function showAttachmentContextMenu(
   event: MouseEvent,
   ref: FileRef,
@@ -397,7 +413,7 @@ export function showAttachmentContextMenu(
   if (options.allowRemove) {
     addItem("从本轮移除", () => {
       if (deps.getSelectedAttachmentId() === ref.id) deps.setSelectedAttachmentId(null);
-      deps.removeMessageFileRef(ref.id);
+      fadeOutAttachmentTokenThen(ref.id, () => deps.removeMessageFileRef(ref.id));
     });
   }
   const x = Math.min(event.clientX, window.innerWidth - 160);
@@ -494,7 +510,7 @@ export function handleComposerAttachmentKeydown(
     if (deps.getSelectedAttachmentId()) {
       const id = deps.getSelectedAttachmentId()!;
       deps.setSelectedAttachmentId(null);
-      deps.removeMessageFileRef(id);
+      fadeOutAttachmentTokenThen(id, () => deps.removeMessageFileRef(id));
       return true;
     }
     if (e.key === "Backspace") {

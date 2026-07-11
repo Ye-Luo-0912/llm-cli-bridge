@@ -267,14 +267,31 @@ function patchCodexFeedEntryToolGroup(
 
   const meta = group.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-meta");
   if (meta && developerMode) {
-    meta.empty();
-    meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${groupStatus}`, text: groupStatus });
+    // keyed 更新：避免 empty() + 重建导致的微小闪动
+    let statusEl = meta.querySelector<HTMLElement>(".llm-bridge-codex-step-status");
+    if (!statusEl) statusEl = meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${groupStatus}` });
+    else statusEl.className = `llm-bridge-codex-step-status is-${groupStatus}`;
+    if (statusEl.textContent !== groupStatus) statusEl.textContent = groupStatus;
+
     const totalDuration = sumCodexEventDuration(items);
-    if (totalDuration) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: deps.formatDurationMs(totalDuration) });
-    meta.createEl("span", {
-      cls: "llm-bridge-codex-tool-group-count",
-      text: formatCodexToolGroupCount(items),
-    });
+    const durationEl = meta.querySelector<HTMLElement>(".llm-bridge-codex-step-duration");
+    if (totalDuration) {
+      const durationText = deps.formatDurationMs(totalDuration);
+      if (!durationEl) {
+        const inserted = meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: durationText });
+        const countEl = meta.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-count");
+        if (countEl) meta.insertBefore(inserted, countEl);
+      } else if (durationEl.textContent !== durationText) {
+        durationEl.textContent = durationText;
+      }
+    } else if (durationEl) {
+      durationEl.remove();
+    }
+
+    const countText = formatCodexToolGroupCount(items);
+    let countEl = meta.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-count");
+    if (!countEl) countEl = meta.createEl("span", { cls: "llm-bridge-codex-tool-group-count", text: countText });
+    else if (countEl.textContent !== countText) countEl.textContent = countText;
   }
 
   codexToolGroupMembers.set(group, { items, developerMode, deps });
