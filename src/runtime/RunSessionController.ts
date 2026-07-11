@@ -55,6 +55,7 @@ import {
   type CodexRunViewModel,
 } from "./core/viewModels";
 import { autoMaintainVaultContext } from "./vaultContextAutoMaintainer";
+import { retrieveVaultContextOnDemand } from "./vaultContextRetriever";
 
 // Status label lookup (mirrors view.ts STATUS_LABEL)
 const STATUS_LABEL: Record<RunStatus, string> = {
@@ -158,6 +159,8 @@ export interface RunSessionHost {
   buildSdkStreamingInput(userPrompt: string, refs: ReadonlyArray<FileRef>): Promise<SdkStreamingInput | undefined>;
   ensureManagedCodexPluginsCached(): void;
   ensureCodexSkillsPreparedCached(vaultPath: string): Promise<{ ok: boolean; reason?: string }>;
+  /** VC-3: 清除 Codex Skills 物化缓存，确保下次 turn start 重新物化（如 VC-2 自动维护后） */
+  invalidateCodexSkillPrepCache(): void;
   getManagedRuntimeInstallStatusForCurrentMode(): ManagedRuntimeInstallStatus | null;
   refreshManagedRuntimeInstallAction(status: ManagedRuntimeInstallStatus | null): void;
 
@@ -453,7 +456,18 @@ export class RunSessionController {
         }
         if (cancelled) return;
 
-        const promptUserInput = host.buildUserInputWithRuntimeCapabilityHints(userInput);
+        // VC-3: 按需检索 vault-context 条目（安全规则始终注入，其他按需）
+        // 失败不阻断主流程；用户当前指令始终优先于 vault-context 偏好
+        let vaultContextHints = "";
+        try {
+          vaultContextHints = await retrieveVaultContextOnDemand(vaultPath, userInput);
+        } catch {
+          /* 检索失败不阻断 */
+        }
+        const enhancedUserInput = vaultContextHints
+          ? `${vaultContextHints}\n\n---\n\n${userInput}`
+          : userInput;
+        const promptUserInput = host.buildUserInputWithRuntimeCapabilityHints(enhancedUserInput);
         const runtimeCapabilities = host.buildRuntimeCapabilities(session.providerId, settings);
         const promptPackage = buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities);
         const sdkStreamingInput = await host.buildSdkStreamingInput(promptPackage.userPrompt, promptFileRefsForRun);
@@ -975,6 +989,7 @@ export class RunSessionController {
 
       // VC-2: Vault Context 自动维护（后台 fire-and-forget，不阻塞主流程）
       // 只在 completed 状态下执行；提取稳定候选 → 去重冲突检查 → 安全写入 → 异步更新索引
+      // VC-3: 维护后清除物化缓存，确保下次 turn start 重新物化更新后的 skill
       if (finalStatus === "completed") {
         const turnView = msg?.assistantTurnView;
         void autoMaintainVaultContext({
@@ -982,6 +997,10 @@ export class RunSessionController {
           turnView,
           generatedFiles: newFiles,
           status: "completed",
+        }).then((result) => {
+          if (result.updatedFiles.length > 0) {
+            host.invalidateCodexSkillPrepCache();
+          }
         }).catch(() => { /* 后台维护失败静默 */ });
       }
     } finally {

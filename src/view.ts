@@ -2058,6 +2058,7 @@ export class LLMBridgeView extends ItemView {
       buildSdkStreamingInput: (userPrompt, refs) => view.buildSdkStreamingInput(userPrompt, refs),
       ensureManagedCodexPluginsCached: () => view.ensureManagedCodexPluginsCached(),
       ensureCodexSkillsPreparedCached: (vaultPath) => view.ensureCodexSkillsPreparedCached(vaultPath),
+      invalidateCodexSkillPrepCache: () => view.invalidateCodexSkillPrepCache(),
       getManagedRuntimeInstallStatusForCurrentMode: () => view.getManagedRuntimeInstallStatusForCurrentMode(),
       refreshManagedRuntimeInstallAction: (status) => view.refreshManagedRuntimeInstallAction(status),
       commandLine: () => view.commandLine(),
@@ -8182,6 +8183,11 @@ export class LLMBridgeView extends ItemView {
       }
     })();
     return this.codexSkillPrepInFlight;
+  }
+
+  /** VC-3: 清除 Codex Skills 物化缓存，确保下次 turn start 重新物化（如 VC-2 自动维护后） */
+  private invalidateCodexSkillPrepCache(): void {
+    this.codexSkillPrepCache = null;
   }
 
   private renderManagedCodexPluginsList(): void {
