@@ -1,24 +1,24 @@
 # LLM CLI Bridge 测试报告 — 全量测试（all）
 
-- **测试时间**: 2026-07-10T11:25:51.358Z
+- **测试时间**: 2026-07-11T04:01:33.124Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.18.0
-- **main.js 大小**: 1249.6 KB
+- **main.js 大小**: 1236.3 KB
 - **main.js bundle content smoke**: PASS ({"HttpBridge":true,"writeHelperAndWrappers":true,"CodexAppServerProvider":true,"vault_api":true})
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 54222
-- **commit sha**: db4c10c56a3aa5482595e550126d791c523ff1d7
-- **commit 短 sha**: db4c10c56a3a
-- **运行命令**: node scripts/run-tests.mjs 
+- **HTTP 端口**: 52524
+- **commit sha**: 53a903079f252012d31b69897f5ab5272dfb9158
+- **commit 短 sha**: 53a903079f25
+- **运行命令**: node scripts/run-tests.mjs all
 
 ## 测试汇总
 
-- ✅ **通过**: 1232
+- ✅ **通过**: 1228
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 5
-- ⚪ **需人工验证**: 6
-- **总计**: 1243
+- ⏭️ **跳过**: 23
+- ⚪ **需人工验证**: 0
+- **总计**: 1251
 
 ### 审计模式说明
 
@@ -193,29 +193,23 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | /health 探测成功 | - |
-| ✅ | GET /state | vault: N/A |
-| ✅ | token 错误返回 401 | status: 401 |
-| ✅ | POST /action show_notice | - |
-| ✅ | get_active_note | status: completed |
-| ✅ | get_selection | status: completed |
-| ✅ | open_note 不存在的文件返回错误 | open_note: 文件不存在 __non_existent_test_file__.md |
-
-### Dev mode
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ⚪ | 未启用 | 需在 settings 中设置 devTestMode=true 并重启 Obsidian |
+| ⏭️ | /health 探测 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | GET /state | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | POST /action show_notice | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | POST /action open_note | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | POST /action get_active_note | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | POST /action get_selection | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | token 错误返回 401 | Obsidian 未运行，跳过 integration 测试 |
 
 ### Approval
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⚪ | create_note approve 流程 | 需要 devTestMode=true |
-| ⚪ | create_note reject 流程 | 需要 devTestMode=true |
-| ⚪ | append_to_note approve 流程 | 需要 devTestMode=true |
-| ⚪ | insert_at_cursor 完整流程 | 需要 devTestMode + 活动编辑器 |
-| ⚪ | replace_selection 完整流程 | 需要 devTestMode + 活动编辑器 + 选区 |
+| ⏭️ | create_note approve 流程 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | create_note reject 流程 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | append_to_note approve 流程 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | insert_at_cursor 完整流程 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | replace_selection 完整流程 | Obsidian 未运行，跳过 integration 测试 |
 | ✅ | default mode + high risk → pending | - |
 | ✅ | resolveApproval(accept) → waitForApproval resolves | - |
 | ✅ | acceptForSession writes sessionAllows cache | - |
@@ -223,17 +217,22 @@
 | ✅ | bypassPermissions mode → auto-allow | - |
 | ✅ | Codex native-pending → pending（不复用 Claude decideByMode） | decision=pending |
 
+### Dev mode
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ⏭️ | /dev/approve 端点 | Obsidian 未运行，跳过 integration 测试 |
+
 ### Helper
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | obsidian-action.mjs 存在 | - |
-| ✅ | health 命令 | - |
-| ✅ | state 命令 | - |
-| ✅ | show_notice 命令 | - |
-| ✅ | --json 标志输出有效 JSON | - |
-| ⏭️ | --wait --timeout 超时行为（真实 bridge） | devTestMode 不可用；fake server 段已覆盖 |
-| ✅ | bridge.json 缺失时错误提示 | 正确提示 bridge.json 缺失 |
+| ⏭️ | health 命令 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | state 命令 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | show_notice 命令 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | --json 标志 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | --wait --timeout | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | bridge.json 缺失错误提示 | Obsidian 未运行，跳过 integration 测试 |
 
 ### Clipboard paste policy
 
@@ -471,12 +470,18 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | runHeader/currentActivity/feed/changes/steps/approval/debugPanel 分层 | status=blocked activity=Waiting approval commands=1 changes=1 approvals=1 feed=thinking>command>file>approval thinkingSummary=Plan the edit stepStdout=true relativePath=notes/run.md debug=false/true |
-| ✅ | 无 agent message 卡片时 final answer 不虚构进过程 feed | final="done" feedKinds=thinking |
-| ✅ | 中间 assistant 降为过程说明，终端回答只属于 Answer（不进 feed） | final="done" feed=assistant>command>assistant>file assistant=先读配置，再检查 runtime 状态。 | 配置没问题，接着创建 smoke 文件。 |
-| ✅ | 单条 assistant message → 仅 Answer，不进过程 feed | final="只回答这一句。" feed= |
-| ✅ | assistant→tool→assistant → 前段过程说明，末段仅 Answer | final="命令完成，结果是 hi。" feed=assistant>command |
-| ✅ | reasoning→tool→answer → Thinking 仅真 reasoning，Answer 不进 feed | final="目录里有 a.md。" feed=thinking>command |
-| ✅ | 候选回答遇后续工具时从 Answer 移入过程 feed（单所有者） | midFinal="准备改文件。" afterFinal="" afterFeed=assistant>command |
+| ✅ | completion-only → synthetic candidate（单一 DOM 所有者） | final="done" feedKinds=thinking>assistant |
+| ✅ | 单瀑布流 — 中间过程说明 + 终端 candidate 同在 feed（无独立 Answer 副本） | final="done" feed=assistant>command>assistant>file>assistant assistant=先读配置，再检查 runtime 状态。 | 配置没问题，接着创建 smoke 文件。 | done |
+| ✅ | 单条 assistant message → feed 内唯一 candidate 节点 | final="只回答这一句。" feed=assistant |
+| ✅ | assistant→tool→assistant → 前段过程说明，末段 candidate 同瀑布流 | final="命令完成，结果是 hi。" feed=assistant>command>assistant |
+| ✅ | reasoning→tool→answer → Thinking 仅真 reasoning，answer 为 candidate | final="目录里有 a.md。" feed=thinking>command>assistant |
+| ✅ | 候选回答遇后续工具时从 candidate 降为 process（单所有者） | midFinal="准备改文件。" afterFinal="" afterFeed=assistant>command |
+
+### V17-G61
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | thinking lead + shell/output 合并为单块瀑布，assistant 不冒充 Thinking | feed=thinking>command>file>approval stdoutMerged=true |
 
 ### P3-C
 
@@ -752,7 +757,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-l1a4BM\\skills\\pdf\\SKILL.md"}] |
+| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-DdZi15\\skills\\pdf\\SKILL.md"}] |
 
 ### V16.5-D view.ts 主路径注入真实 capabilities
 
@@ -788,7 +793,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=489603 capLine=490257 orderOk=true |
+| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=17300 capLine=17916 orderOk=true |
 | ✅ | buildBridgePromptPackage 主路径接收 runtimeCapabilities | hasRuntimeCapabilities=true hasPassedToBuilder=true |
 
 ### V16.5-E workspace
@@ -1067,7 +1072,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783682754116-0 update=pi-sdk-read-1783682754116-0 end=pi-sdk-read-1783682754116-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783742495345-0 update=pi-sdk-read-1783742495345-0 end=pi-sdk-read-1783742495345-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -1532,25 +1537,25 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3235ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
+| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3276ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
  |
-| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4635ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783682759171
+| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4747ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783742501584
  |
 | ✅ | health 命令（fake server） | - |
 | ✅ | --json 标志输出有效 JSON（fake server） | - |
 | ✅ | 非修改类 action 直接输出（不轮询） | {
   "ok": true,
-  "id": "fake-id-1783682764033",
+  "id": "fake-id-1783742506559",
   "status": "completed",
   "result": {
     "type":  |
 | ✅ | --stdin 模式读取 JSON params | {
   "ok": true,
-  "id": "fake-id-1783682764137",
+  "id": "fake-id-1783742506706",
   "status": "completed",
   "result": {
     "type":  |
-| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783682764242","status":"completed","result":{"type":"tags_list","fake":tru |
+| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783742506937","status":"completed","result":{"type":"tags_list","fake":tru |
 | ✅ | 错误分级 - bridge.json 缺失 exit 2 | exit=2 stderr=[bridge 未启动] 未找到 .llm-bridge/bridge.json。
   请确认 Obsidian 已启动且 llm-cli-bridge 插件已 |
 | ✅ | 错误分级 - JSON 解析失败 exit 5 | exit=5 stderr=[参数解析失败] JSON 格式错误: Expected property name or '}' in JSON at position 1 (line 1  |
@@ -2423,7 +2428,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-10T11-26-30-627Z-r47hmc |
+| ✅ | 返回非空 id | id=s-2026-07-11T04-02-13-438Z-9qifgb |
 
 ### V2.5 Session 版本
 
@@ -2442,7 +2447,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-10T11-26-30-698Z-alws6i second=s-2026-07-10T11-26-30-641Z-hkkcgd |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-11T04-02-13-513Z-7ji1u7 second=s-2026-07-11T04-02-13-447Z-bhdl43 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2481,7 +2486,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-10T11-26-30-760Z-achgsi id2=s-2026-07-10T11-26-30-760Z-qmqzki |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-11T04-02-13-568Z-zuhvpe id2=s-2026-07-11T04-02-13-568Z-2rq80h |
 
 ### V2.5 Session 上限
 
@@ -2579,7 +2584,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-10T11:26:30.832Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-11T04:02:13.630Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2667,7 +2672,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-10T11:26:30.896Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-11T04:02:13.685Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2746,11 +2751,16 @@
 | ✅ | 删除 Prompt Snippet EditSkillModal | - |
 | ✅ | 删除 Prompt Snippet combo 插入 | - |
 
-### V2.7 view.ts
+### V2.7 messageRenderer
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | 含 renderMessageError 错误 fallback | - |
+
+### V2.7 view.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
 | ✅ | 含 renderListError 列表 fallback | - |
 | ✅ | 含长会话折叠（MAX_EXPANDED + 展开按钮） | - |
 | ✅ | doNewSession/restoreSession 重置折叠状态 | - |
@@ -2781,7 +2791,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-10T11:26:30.978Z after=2026-07-10T11:26:31.039Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-11T04:02:13.748Z after=2026-07-11T04:02:13.808Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -3148,13 +3158,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-10T11:26:31.810Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-11T04:02:14.707Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-10T11:26:31.819Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-11T04:02:14.713Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3270,7 +3280,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-oADqoi\skills\llm-bridge-review-skill\SKILL.md |
+| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-qGtKnx\skills\llm-bridge-review-skill\SKILL.md |
 | ✅ | run 前从 Bridge manifest 物化 enabled Skills | ok=true count=1 |
 
 ### V2.13.0-C materializeEnabled
@@ -3472,7 +3482,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-05WncI\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-l7npnp\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-pt1LoS\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-ajYdL6\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3484,7 +3494,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-z1EVLy\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-2LiyND\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-DuHaQA\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-4vjtmk\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3496,7 +3506,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-hv8M1s\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-lg1dYD\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-wVt0VU\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-CMGHh1\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -3737,7 +3747,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | assistant narrative 增量化，去掉假 thinking 占位，shell/output 合并为单块瀑布事件 | - |
+| ✅ | assistant narrative 增量化，去掉假 thinking 占位，shell/output 合并为单块瀑布事件 | presentationOk=true uiOk=true |
 
 ### V17-G62 UI
 
@@ -4051,6 +4061,54 @@
 |------|--------|------|
 | ✅ | 隐藏复制按钮并压缩 Context 文案 | - |
 
+### Phase 1.4-DOM-1
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | mount 与 reconcile 使用同一节点（不重建） | - |
+
+### Phase 1.4-DOM-2
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | candidate 流式升级 Markdown 不重建节点 | - |
+
+### Phase 1.4-DOM-3
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | command 1→2 条时 group key 不变 | - |
+
+### Phase 1.4-DOM-4
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | approval host 不重复（ensureCodexApprovalGatesHost 复用） | - |
+
+### Phase 1.4-DOM-5
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 完成后思考与工具过程保留（终态不自动折叠） | - |
+
+### Phase 1.4-DOM-6
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Composer popup 互斥 + outside-click + 附件键盘删除 | - |
+
+### Phase 1.4-DOM-7
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | RunSessionController 不直接操作 DOM（通过 host 接口） | - |
+
+### Phase 1.4-DOM-8
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | view.ts 不再直接导入 view-model builders（消费 RunSessionController） | - |
+
 ### V2.17-A EffectiveRunPlan
 
 | 状态 | 测试项 | 详情 |
@@ -4243,12 +4301,7 @@
 
 ## 需人工验证项
 
-- **Dev mode: 未启用**: 需在 settings 中设置 devTestMode=true 并重启 Obsidian
-- **Approval: create_note approve 流程**: 需要 devTestMode=true
-- **Approval: create_note reject 流程**: 需要 devTestMode=true
-- **Approval: append_to_note approve 流程**: 需要 devTestMode=true
-- **Approval: insert_at_cursor 完整流程**: 需要 devTestMode + 活动编辑器
-- **Approval: replace_selection 完整流程**: 需要 devTestMode + 活动编辑器 + 选区
+无。
 
 ---
 
