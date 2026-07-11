@@ -63,6 +63,22 @@ export function codexFeedItemKey(item: CodexRunFeedItem): string {
   return seq !== undefined ? `seq:${seq}:${itemId}` : itemId;
 }
 
+/** 单 item 的轻量签名：捕获 status / summary 长度 / duration 变化 */
+function codexFeedItemSignature(item: CodexRunFeedItem): string {
+  return `${item.status}|${(item.summary || "").length}|${item.durationMs ?? ""}|${item.step?.durationMs ?? ""}`;
+}
+
+/** 整个 feed 的签名：key + per-item signature，用于快速判断是否有变化 */
+function computeFeedSignature(items: ReadonlyArray<CodexRunFeedItem>): string {
+  return items.map((i) => `${codexFeedItemKey(i)}\t${codexFeedItemSignature(i)}`).join("\n");
+}
+
+/** 单个 entry（item 或 tool-group）的签名，用于判断该 entry 是否需要 patch */
+function computeEntrySignature(entry: CodexWaterfallFeedEntry): string {
+  if (entry.kind === "item") return codexFeedItemSignature(entry.item);
+  return entry.items.map(codexFeedItemSignature).join("||");
+}
+
 export function isCodexImageFeedItem(item: CodexRunFeedItem): boolean {
   if (item.icon === "image") return true;
   const blob = `${item.label} ${item.summary || ""} ${item.step?.label || ""}`;
@@ -140,16 +156,21 @@ export function patchCodexFeedEntryItem(
       entry.empty();
       entry.dataset.renderItemKey = `${item.id}|${item.kind}|${answerRole}|md`;
       deps.renderCodexFeedItem(entry, item, developerMode, false);
+      const newMd = entry.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
+      if (newMd) newMd.setAttribute("data-final-text", text);
     } else {
+      let md = line.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
+      // 终态 Markdown 只渲染一次：相同文本不重复 renderMarkdownInto
+      if (md && md.getAttribute("data-final-text") === text) return;
       line.classList.remove("is-thinking-live");
       line.classList.add("is-thinking-done");
-      let md = line.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
       const stream = line.querySelector<HTMLElement>(".llm-bridge-msg-stream-text");
       if (stream) stream.remove();
       if (!md) {
         md = line.createDiv({ cls: "llm-bridge-codex-answer-body llm-bridge-msg-markdown" });
       }
       deps.renderMarkdownInto(md, text);
+      md.setAttribute("data-final-text", text);
     }
     return;
   }
@@ -367,6 +388,7 @@ function patchCodexFeedStable(
     } else {
       patchCodexFeedEntryToolGroup(node, entry.groupKind, entry.items, developerMode, deps);
     }
+    node.setAttribute("data-entry-sig", computeEntrySignature(entry));
   }
 
   Array.from(list.children).forEach((child) => {
@@ -374,6 +396,42 @@ function patchCodexFeedStable(
     const key = child.getAttribute("data-feed-key");
     if (!key || !desiredKeys.has(key)) child.remove();
   });
+}
+
+/**
+ * 非结构变化的增量 patch：仅更新 signature 变化的 entry。
+ * 若检测到 key 顺序/数量不一致（结构变化），返回 false 以触发 full reconcile。
+ * answer 变化（candidate summary 增长）→ 只 patch candidate entry 的 stream-text；
+ * 状态变化（running→completed 等）→ 只 patch 对应 entry。
+ */
+function patchChangedFeedEntries(
+  feedList: HTMLElement,
+  items: ReadonlyArray<CodexRunFeedItem>,
+  developerMode: boolean,
+  deps: CodexWaterfallPatchDeps,
+): boolean {
+  const entries = groupCodexFeedRenderEntries(items);
+  const domChildren = Array.from(feedList.children).filter(
+    (child): child is HTMLElement => child instanceof HTMLElement,
+  );
+  // key 顺序与数量必须完全一致，否则视为结构变化
+  if (domChildren.length !== entries.length) return false;
+  for (let i = 0; i < entries.length; i++) {
+    if (domChildren[i].getAttribute("data-feed-key") !== entries[i].key) return false;
+  }
+  for (let i = 0; i < entries.length; i++) {
+    const entry = entries[i];
+    const node = domChildren[i];
+    const sig = computeEntrySignature(entry);
+    if (sig === node.getAttribute("data-entry-sig")) continue;
+    node.setAttribute("data-entry-sig", sig);
+    if (entry.kind === "item") {
+      patchCodexFeedEntryItem(node, entry.item, developerMode, deps);
+    } else {
+      patchCodexFeedEntryToolGroup(node, entry.groupKind, entry.items, developerMode, deps);
+    }
+  }
+  return true;
 }
 
 /**
@@ -415,13 +473,18 @@ export function upgradeCodexCandidateAnswerInFeed(
   line.classList.remove("is-thinking-live");
   line.classList.add("is-thinking-done");
   let md = line.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
+  // 终态 Markdown 只渲染一次：相同文本不重复 renderMarkdownInto
+  if (md && md.getAttribute("data-final-text") === normalized) return;
   if (!md) md = line.createDiv({ cls: "llm-bridge-codex-answer-body llm-bridge-msg-markdown" });
   deps.renderMarkdownInto(md, normalized);
+  md.setAttribute("data-final-text", normalized);
 }
 
 /**
  * 初渲与增量共用的瀑布流 reconcile 主入口：
- * 确保 feed list 存在 → keyed patch → candidate 原地升级 Markdown。
+ * 确保 feed list 存在 → 增量 patch（非结构变化）/ full keyed patch（结构变化）→ candidate 原地升级 Markdown。
+ * 渲染粒度拆分：answer 变化只更新 candidate stream-text；状态变化只 patch 对应 entry；
+ * 结构变化（新增/删除 item）才 full reconcile；终态 Markdown 只渲染一次。
  */
 export function reconcileCodexRunWaterfall(
   processBody: HTMLElement,
@@ -434,7 +497,15 @@ export function reconcileCodexRunWaterfall(
     const section = processBody.createDiv({ cls: "llm-bridge-codex-feed llm-bridge-codex-changes-panel" });
     feedList = section.createDiv({ cls: "llm-bridge-codex-feed-list llm-bridge-codex-step-list" });
   }
-  patchCodexFeedStable(feedList, run.feedItems, options.developerMode, deps);
+  const items = run.feedItems;
+  const sig = computeFeedSignature(items);
+  if (sig !== (feedList.dataset.lastSig || "")) {
+    feedList.dataset.lastSig = sig;
+    // 非结构变化时仅 patch 变化 entry；结构变化回退到 full keyed reconcile
+    if (!patchChangedFeedEntries(feedList, items, options.developerMode, deps)) {
+      patchCodexFeedStable(feedList, items, options.developerMode, deps);
+    }
+  }
   const text = run.finalAnswer.trim();
   if (!text) return;
   const body = processBody.closest<HTMLElement>(".llm-bridge-codex-run-body") || processBody;
@@ -520,6 +591,7 @@ function renderCodexFeedNarrative(
   if (isCandidate && (item.status === "completed" || item.status === "failed")) {
     const md = row.createDiv({ cls: "llm-bridge-codex-answer-body llm-bridge-msg-markdown" });
     deps.renderMarkdownInto(md, text);
+    md.setAttribute("data-final-text", text);
     return;
   }
   // 流式 / 过程说明：普通文字，无外框底色（仅 white-space: pre-wrap）
