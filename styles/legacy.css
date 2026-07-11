@@ -5468,7 +5468,9 @@
 }
 
 /* V16.4-G: Codex-style run status glow text（取代旧 spinner 旋转圈） */
-.llm-bridge-run-status-text {
+/* .llm-bridge-codex-thinking-status 复用相同光效，但语义独立于顶部状态行 */
+.llm-bridge-run-status-text,
+.llm-bridge-codex-thinking-status {
   display: inline-flex;
   align-items: center;
   font-size: var(--font-smallest);
@@ -5477,12 +5479,14 @@
   margin-right: 6px;
 }
 
-.llm-bridge-run-status-text.is-running {
+.llm-bridge-run-status-text.is-running,
+.llm-bridge-codex-thinking-status.is-running {
   color: var(--interactive-accent);
   font-weight: 500;
 }
 
-.llm-bridge-run-status-text.is-running.llm-bridge-run-glow {
+.llm-bridge-run-status-text.is-running.llm-bridge-run-glow,
+.llm-bridge-codex-thinking-status.is-running.llm-bridge-run-glow {
   background: linear-gradient(
     90deg,
     var(--interactive-accent) 0%,
@@ -5512,7 +5516,8 @@
 
 /* V16.4-G: prefers-reduced-motion 降级为静态文字（无 shimmer） */
 @media (prefers-reduced-motion: reduce) {
-  .llm-bridge-run-status-text.is-running.llm-bridge-run-glow {
+  .llm-bridge-run-status-text.is-running.llm-bridge-run-glow,
+  .llm-bridge-codex-thinking-status.is-running.llm-bridge-run-glow {
     background: none;
     -webkit-text-fill-color: var(--interactive-accent);
     animation: none;

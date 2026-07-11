@@ -21419,6 +21419,130 @@ if (!runPhase14) {
   }
 }
 
+// --- FakeElement: 最小 DOM 模拟，支持节点身份跟踪（Phase 2 / Phase 3 共用） ---
+class FakeElement {
+  constructor(tag = "div") {
+    this.tagName = tag.toUpperCase();
+    this.children = [];
+    this.parent = null;
+    this.attrs = {};
+    this._cls = new Set();
+    this.textContent = "";
+    this._listeners = {};
+    this._dataset = {};
+  }
+  get className() { return Array.from(this._cls).join(" "); }
+  set className(v) {
+    this._cls = new Set(v.trim().split(/\s+/).filter(Boolean));
+  }
+  addClass(c) { this._cls.add(c); return this; }
+  removeClass(c) { this._cls.delete(c); return this; }
+  classList = {
+    add: (...cs) => cs.forEach((c) => this._cls.add(c)),
+    remove: (...cs) => cs.forEach((c) => this._cls.delete(c)),
+    toggle: (c, force) => {
+      if (force === true) this._cls.add(c);
+      else if (force === false) this._cls.delete(c);
+      else if (this._cls.has(c)) this._cls.delete(c);
+      else this._cls.add(c);
+    },
+    contains: (c) => this._cls.has(c),
+  };
+  get dataset() { return this._dataset; }
+  setAttribute(k, v) { this.attrs[k] = String(v); }
+  getAttribute(k) { return this.attrs[k] ?? null; }
+  removeAttribute(k) { delete this.attrs[k]; }
+  hasAttribute(k) { return k in this.attrs; }
+  createDiv(opts) { return this._create("div", opts); }
+  createEl(tag, opts) { return this._create(tag, opts); }
+  _create(tag, opts = {}) {
+    const el = new FakeElement(tag);
+    if (opts.cls) el.className = opts.cls;
+    if (opts.text) el.textContent = opts.text;
+    if (opts.attr) for (const [k, v] of Object.entries(opts.attr)) el.setAttribute(k, v);
+    el.parent = this;
+    this.children.push(el);
+    return el;
+  }
+  appendChild(child) {
+    if (child.parent) child.parent.children = child.parent.children.filter((c) => c !== child);
+    child.parent = this;
+    this.children.push(child);
+    return child;
+  }
+  insertBefore(node, ref) {
+    if (node.parent) node.parent.children = node.parent.children.filter((c) => c !== node);
+    node.parent = this;
+    const idx = ref ? this.children.indexOf(ref) : -1;
+    if (idx >= 0) this.children.splice(idx, 0, node);
+    else this.children.push(node);
+    return node;
+  }
+  remove() {
+    if (this.parent) {
+      this.parent.children = this.parent.children.filter((c) => c !== this);
+      this.parent = null;
+    }
+  }
+  empty() { this.children = []; }
+  querySelector(sel) {
+    return this._queryAll(sel)[0] ?? null;
+  }
+  querySelectorAll(sel) {
+    return this._queryAll(sel);
+  }
+  _queryAll(sel) {
+    const results = [];
+    const walk = (el) => {
+      for (const child of el.children) {
+        if (FakeElement._matches(child, sel, el)) results.push(child);
+        walk(child);
+      }
+    };
+    walk(this);
+    return results;
+  }
+  static _matches(el, sel, parent) {
+    // Support: .class, [attr], :scope > .class, tag
+    if (sel.startsWith(":scope > ")) {
+      const sub = sel.slice(9);
+      return el.parent === parent && FakeElement._matchesSimple(el, sub);
+    }
+    return FakeElement._matchesSimple(el, sel);
+  }
+  static _matchesSimple(el, sel) {
+    // Support compound selectors: .class1.class2, tag.class, .class[attr]
+    // Split into tokens: tag, .class, [attr]
+    const tokens = sel.match(/(\.?[A-Za-z][\w-]*)|\[[^\]]+\]/g) || [];
+    for (const token of tokens) {
+      if (token.startsWith(".")) {
+        if (!el._cls.has(token.slice(1))) return false;
+      } else if (token.startsWith("[")) {
+        const m = token.match(/^\[([^\]]+)\]$/);
+        if (!m || !el.hasAttribute(m[1])) return false;
+      } else {
+        if (el.tagName !== token.toUpperCase()) return false;
+      }
+    }
+    return tokens.length > 0;
+  }
+  addEventListener(type, handler) {
+    (this._listeners[type] ??= []).push(handler);
+  }
+  triggerEvent(type, event) {
+    for (const h of (this._listeners[type] ?? [])) h(event);
+  }
+  closest(sel) {
+    let el = this;
+    while (el) {
+      if (FakeElement._matchesSimple(el, sel)) return el;
+      el = el.parent;
+    }
+    return null;
+  }
+  matches(sel) { return FakeElement._matchesSimple(this, sel); }
+}
+
 // ============================================================
 // 9.9.2 Phase 2 — 真实 DOM harness 行为测试
 //   使用 FakeElement 模拟真实 DOM，验证节点身份保持（非字符串匹配）：
@@ -21438,131 +21562,7 @@ const runPhase2Dom = runMode === "all" || runMode === "unit";
 if (!runPhase2Dom) {
   addTest("Phase 2 DOM harness 测试段", "skip", "当前模式不运行 unit");
 } else {
-  // --- FakeElement: 最小 DOM 模拟，支持节点身份跟踪 ---
-  class FakeElement {
-    constructor(tag = "div") {
-      this.tagName = tag.toUpperCase();
-      this.children = [];
-      this.parent = null;
-      this.attrs = {};
-      this._cls = new Set();
-      this.textContent = "";
-      this._listeners = {};
-      this._dataset = {};
-    }
-    get className() { return Array.from(this._cls).join(" "); }
-    set className(v) {
-      this._cls = new Set(v.trim().split(/\s+/).filter(Boolean));
-    }
-    addClass(c) { this._cls.add(c); return this; }
-    removeClass(c) { this._cls.delete(c); return this; }
-    classList = {
-      add: (...cs) => cs.forEach((c) => this._cls.add(c)),
-      remove: (...cs) => cs.forEach((c) => this._cls.delete(c)),
-      toggle: (c, force) => {
-        if (force === true) this._cls.add(c);
-        else if (force === false) this._cls.delete(c);
-        else if (this._cls.has(c)) this._cls.delete(c);
-        else this._cls.add(c);
-      },
-      contains: (c) => this._cls.has(c),
-    };
-    get dataset() { return this._dataset; }
-    setAttribute(k, v) { this.attrs[k] = String(v); }
-    getAttribute(k) { return this.attrs[k] ?? null; }
-    removeAttribute(k) { delete this.attrs[k]; }
-    hasAttribute(k) { return k in this.attrs; }
-    createDiv(opts) { return this._create("div", opts); }
-    createEl(tag, opts) { return this._create(tag, opts); }
-    _create(tag, opts = {}) {
-      const el = new FakeElement(tag);
-      if (opts.cls) el.className = opts.cls;
-      if (opts.text) el.textContent = opts.text;
-      if (opts.attr) for (const [k, v] of Object.entries(opts.attr)) el.setAttribute(k, v);
-      el.parent = this;
-      this.children.push(el);
-      return el;
-    }
-    appendChild(child) {
-      if (child.parent) child.parent.children = child.parent.children.filter((c) => c !== child);
-      child.parent = this;
-      this.children.push(child);
-      return child;
-    }
-    insertBefore(node, ref) {
-      if (node.parent) node.parent.children = node.parent.children.filter((c) => c !== node);
-      node.parent = this;
-      const idx = ref ? this.children.indexOf(ref) : -1;
-      if (idx >= 0) this.children.splice(idx, 0, node);
-      else this.children.push(node);
-      return node;
-    }
-    remove() {
-      if (this.parent) {
-        this.parent.children = this.parent.children.filter((c) => c !== this);
-        this.parent = null;
-      }
-    }
-    empty() { this.children = []; }
-    querySelector(sel) {
-      return this._queryAll(sel)[0] ?? null;
-    }
-    querySelectorAll(sel) {
-      return this._queryAll(sel);
-    }
-    _queryAll(sel) {
-      const results = [];
-      const walk = (el) => {
-        for (const child of el.children) {
-          if (FakeElement._matches(child, sel, el)) results.push(child);
-          walk(child);
-        }
-      };
-      walk(this);
-      return results;
-    }
-    static _matches(el, sel, parent) {
-      // Support: .class, [attr], :scope > .class, tag
-      if (sel.startsWith(":scope > ")) {
-        const sub = sel.slice(9);
-        return el.parent === parent && FakeElement._matchesSimple(el, sub);
-      }
-      return FakeElement._matchesSimple(el, sel);
-    }
-    static _matchesSimple(el, sel) {
-      // Support compound selectors: .class1.class2, tag.class, .class[attr]
-      // Split into tokens: tag, .class, [attr]
-      const tokens = sel.match(/(\.?[A-Za-z][\w-]*)|\[[^\]]+\]/g) || [];
-      for (const token of tokens) {
-        if (token.startsWith(".")) {
-          if (!el._cls.has(token.slice(1))) return false;
-        } else if (token.startsWith("[")) {
-          const m = token.match(/^\[([^\]]+)\]$/);
-          if (!m || !el.hasAttribute(m[1])) return false;
-        } else {
-          if (el.tagName !== token.toUpperCase()) return false;
-        }
-      }
-      return tokens.length > 0;
-    }
-    addEventListener(type, handler) {
-      (this._listeners[type] ??= []).push(handler);
-    }
-    triggerEvent(type, event) {
-      for (const h of (this._listeners[type] ?? [])) h(event);
-    }
-    closest(sel) {
-      let el = this;
-      while (el) {
-        if (FakeElement._matchesSimple(el, sel)) return el;
-        el = el.parent;
-      }
-      return null;
-    }
-    matches(sel) { return FakeElement._matchesSimple(this, sel); }
-  }
-
-  // --- DOM-1: keyed feed reconciliation 不重建节点 ---
+  // --- DOM-1: keyed feed reconciliation 不重建节点（算法复制，生产函数验证见 Phase 3） ---
   {
     // 模拟 patchCodexFeedStable: 按 data-feed-key 做增量更新
     const list = new FakeElement("div");
@@ -21607,7 +21607,7 @@ if (!runPhase2Dom) {
     const sameA = entries2[1].node === firstRunNodes[0];
     // 验证：顺序变为 [b, a]
     const orderCorrect = list.children[0] === firstRunNodes[1] && list.children[1] === firstRunNodes[0];
-    addTest("Phase 2-DOM-1: keyed feed reconciliation 节点身份保持（不重建）", (sameA && sameB && orderCorrect) ? "pass" : "fail", `sameA=${sameA} sameB=${sameB} order=${orderCorrect}`);
+    addTest("Phase 2-DOM-1: keyed feed reconciliation 节点身份保持（不重建）（算法复制，生产函数验证见 Phase 3-DOM-1）", (sameA && sameB && orderCorrect) ? "pass" : "fail", `sameA=${sameA} sameB=${sameB} order=${orderCorrect}`);
   }
 
   // --- DOM-2: candidate 完成后原地升级，entry 身份不变 ---
@@ -21649,7 +21649,7 @@ if (!runPhase2Dom) {
     const hasFinalText = !!body && body.textContent === "final answer";
     // 验证：thinking-line 仍在同一节点
     const lineStillThere = entry.querySelector(".llm-bridge-codex-thinking-line.is-final-candidate") === line;
-    addTest("Phase 2-DOM-2: candidate 原地升级 Markdown（entry 身份不变）", (sameEntry && streamRemoved && hasFinalText && lineStillThere) ? "pass" : "fail", `same=${sameEntry} streamRemoved=${streamRemoved} hasText=${hasFinalText} line=${lineStillThere}`);
+    addTest("Phase 2-DOM-2: candidate 原地升级 Markdown（entry 身份不变）（算法复制，生产函数验证见 Phase 3-DOM-2）", (sameEntry && streamRemoved && hasFinalText && lineStillThere) ? "pass" : "fail", `same=${sameEntry} streamRemoved=${streamRemoved} hasText=${hasFinalText} line=${lineStillThere}`);
   }
 
   // --- DOM-3: command 1→2 条时 group 节点身份不变 ---
@@ -21682,7 +21682,7 @@ if (!runPhase2Dom) {
     const sameNode = groupNode1 === groupNode2;
     // 验证：summary 文本更新
     const summaryUpdated = summary.textContent === "2 commands";
-    addTest("Phase 2-DOM-3: command 1→2 条时 group 节点身份不变", (sameGroupKey && sameNode && summaryUpdated) ? "pass" : "fail", `keyOk=${sameGroupKey} sameNode=${sameNode} updated=${summaryUpdated}`);
+    addTest("Phase 2-DOM-3: command 1→2 条时 group 节点身份不变（算法复制，生产函数验证见 Phase 3-DOM-3）", (sameGroupKey && sameNode && summaryUpdated) ? "pass" : "fail", `keyOk=${sameGroupKey} sameNode=${sameNode} updated=${summaryUpdated}`);
   }
 
   // --- DOM-4: approval host 复用（二次调用返回同一节点）---
@@ -21784,7 +21784,7 @@ if (!runPhase2Dom) {
     inputValue = "hello";
     const r3 = handleKeydown({ key: "Backspace" }, deps);
     const textPriority = r3 === false;
-    addTest("Phase 2-DOM-6: composer 附件 Backspace 选中→删除 + 文本优先", (selectedOk && removedOk && textPriority) ? "pass" : "fail", `selected=${selectedOk} removed=${removedOk} textPriority=${textPriority}`);
+    addTest("Phase 2-DOM-6: composer 附件 Backspace 选中→删除 + 文本优先（算法复制，生产函数验证见 Phase 3-DOM-6）", (selectedOk && removedOk && textPriority) ? "pass" : "fail", `selected=${selectedOk} removed=${removedOk} textPriority=${textPriority}`);
   }
 
   // --- DOM-7: isEventInsideSelector 正确区分内外 ---
@@ -21809,7 +21809,7 @@ if (!runPhase2Dom) {
     }
     const insideResult = isInside(insideEvent, ".llm-bridge-perm-popover");
     const outsideResult = isInside(outsideEvent, ".llm-bridge-perm-popover");
-    addTest("Phase 2-DOM-7: isEventInsideSelector 区分内外点击", (insideResult === true && outsideResult === false) ? "pass" : "fail", `inside=${insideResult} outside=${outsideResult}`);
+    addTest("Phase 2-DOM-7: isEventInsideSelector 区分内外点击（算法复制，生产函数验证见 Phase 3-DOM-7）", (insideResult === true && outsideResult === false) ? "pass" : "fail", `inside=${insideResult} outside=${outsideResult}`);
   }
 
   // --- DOM-8: session traversal: deleteSession 拒绝 ../ 路径 ---
@@ -21838,7 +21838,7 @@ if (!runPhase2Dom) {
       && !validateSessionId("C:\\evil")
       && validateSessionId("s-2026-01-01-abc123");
     const ok = deleteUsesResolve && listUsesBasename && hasResolve && blocksTraversal;
-    addTest("Phase 2-DOM-8: session traversal 防护（deleteSession 走 resolveSessionFilePath + id 校验）", ok ? "pass" : "fail", `deleteResolve=${deleteUsesResolve} listBasename=${listUsesBasename} hasResolve=${hasResolve} blocksTraversal=${blocksTraversal}`);
+    addTest("Phase 2-DOM-8: session traversal 防护（deleteSession 走 resolveSessionFilePath + id 校验）（算法复制，生产函数验证见 Phase 3-DOM-8）", ok ? "pass" : "fail", `deleteResolve=${deleteUsesResolve} listBasename=${listUsesBasename} hasResolve=${hasResolve} blocksTraversal=${blocksTraversal}`);
   }
 
   // --- DOM-9: provider bookkeeping 在 finally/cancel 清理 ---
@@ -21850,6 +21850,266 @@ if (!runPhase2Dom) {
     const clearCount = (providerSrc.match(/serverRequestBookkeeping\.clear\(\)/g) || []).length;
     const ok = runFinallyClears && clearCount >= 3;
     addTest("Phase 2-DOM-9: provider bookkeeping 在 finally + cancel 清理", ok ? "pass" : "fail", `clearCount=${clearCount}`);
+  }
+}
+
+// ============================================================
+// 9.9.3 Phase 3 — 生产函数 DOM 测试
+//   通过 esbuild 打包生产 TS 源码（obsidian 以桩模块替代），
+//   在 Node.js 中直接导入并调用真实生产函数，避免在测试中
+//   重新实现算法（keyed reconciliation / candidate upgrade 等）。
+//   FakeElement 仅作为 DOM 节点 mock，传给接收 HTMLElement 的生产函数。
+// ============================================================
+console.log("\n=== Phase 3 — 生产函数 DOM 测试 ===");
+
+const runPhase3Prod = runMode === "all" || runMode === "unit";
+
+if (!runPhase3Prod) {
+  addTest("Phase 3 生产函数测试段", "skip", "当前模式不运行 unit");
+} else {
+  let waterfallBundleP3 = null;
+  let composerBundleP3 = null;
+  let sessionsBundleP3 = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    // esbuild 插件：将 obsidian 替换为桩模块，避免 Node.js 解析失败
+    const obsidianStubPlugin = {
+      name: "obsidian-stub",
+      setup(build) {
+        build.onResolve({ filter: /^obsidian$/ }, () => ({ path: "obsidian-stub", namespace: "obsidian-stub" }));
+        build.onLoad({ filter: /.*/, namespace: "obsidian-stub" }, () => ({
+          contents: [
+            "export class Notice { constructor(){} close(){} setMessage(){} hide(){} }",
+            "export function setIcon(){}",
+            "export function normalizePath(p){return p;}",
+            "export class TFile {}",
+            "export class App {}",
+            "export class Modal { constructor(){} open(){} close(){} }",
+            "export class Vault {}",
+            "export class Workspace {}",
+            "export class FuzzySuggestModal {}",
+            "export class ItemView {}",
+            "export class Setting {}",
+          ].join("\n"),
+          loader: "js",
+        }));
+      },
+    };
+    const p3BundleOpts = (entry) => ({
+      entryPoints: [join(PROJECT_ROOT, "src", entry)],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      logLevel: "silent",
+      plugins: [obsidianStubPlugin],
+    });
+    waterfallBundleP3 = join(PROJECT_ROOT, ".test-phase3-waterfall-temp.mjs");
+    composerBundleP3 = join(PROJECT_ROOT, ".test-phase3-composer-temp.mjs");
+    sessionsBundleP3 = join(PROJECT_ROOT, ".test-phase3-sessions-temp.mjs");
+    await esbuild.build({ ...p3BundleOpts("ui/codexWaterfallRenderer.ts"), outfile: waterfallBundleP3 });
+    await esbuild.build({ ...p3BundleOpts("ui/composerController.ts"), outfile: composerBundleP3 });
+    await esbuild.build({ ...p3BundleOpts("sessions.ts"), outfile: sessionsBundleP3 });
+
+    const waterfallModP3 = await import(pathToFileURL(waterfallBundleP3).href);
+    const composerModP3 = await import(pathToFileURL(composerBundleP3).href);
+    const sessionsModP3 = await import(pathToFileURL(sessionsBundleP3).href);
+
+    const { codexFeedItemKey, groupCodexFeedRenderEntries, patchCodexFeedEntryItem, isCodexImageFeedItem, formatCodexImageGroupTitle } = waterfallModP3;
+    const { isEventInsideSelector, handleComposerAttachmentKeydown } = composerModP3;
+    const { validateSessionId } = sessionsModP3;
+
+    // --- Phase 3-DOM-1: 真实 groupCodexFeedRenderEntries + codexFeedItemKey 验证 key 稳定性 ---
+    {
+      const items1 = [
+        { id: "a", kind: "thinking", icon: "brain", label: "Thinking", status: "running", sourceRef: { sequence: 1, itemId: "a" } },
+        { id: "b", kind: "thinking", icon: "brain", label: "Thinking", status: "running", sourceRef: { sequence: 2, itemId: "b" } },
+      ];
+      // 调用真实生产函数获取 entries（不重新实现 key 逻辑）
+      const entries1 = groupCodexFeedRenderEntries(items1);
+      const keys1 = entries1.map((e) => e.key);
+      // 验证：entry key 与真实 codexFeedItemKey 一致
+      const keysMatchReal = keys1[0] === codexFeedItemKey(items1[0]) && keys1[1] === codexFeedItemKey(items1[1]);
+      // 反序 items 再次调用：key 仍由真实函数计算，保持稳定
+      const items2 = [items1[1], items1[0]];
+      const entries2 = groupCodexFeedRenderEntries(items2);
+      const keys2 = entries2.map((e) => e.key);
+      const keysStable = keys2[0] === codexFeedItemKey(items1[1]) && keys2[1] === codexFeedItemKey(items1[0]);
+      // 用真实 key 做 FakeElement reconciliation（节点身份保持，key 来自生产函数而非复制算法）
+      const list = new FakeElement("div");
+      const nodeA = list.createDiv({ attr: { "data-feed-key": keys1[0] } });
+      const nodeB = list.createDiv({ attr: { "data-feed-key": keys1[1] } });
+      const existingByKey = new Map([[keys1[0], nodeA], [keys1[1], nodeB]]);
+      for (const entry of entries2) {
+        const node = existingByKey.get(entry.key);
+        if (node) list.insertBefore(node, null);
+      }
+      const sameB = list.children[0] === nodeB;
+      const sameA = list.children[1] === nodeA;
+      addTest("Phase 3-DOM-1: 真实 groupCodexFeedRenderEntries key 稳定性 + reconciliation（生产函数）",
+        (keysMatchReal && keysStable && sameA && sameB) ? "pass" : "fail",
+        `keysMatch=${keysMatchReal} stable=${keysStable} sameA=${sameA} sameB=${sameB}`);
+    }
+
+    // --- Phase 3-DOM-2: 真实 patchCodexFeedEntryItem candidate 原地升级 ---
+    {
+      const entry = new FakeElement("div");
+      entry.addClass("llm-bridge-codex-feed-entry");
+      entry.addClass("is-assistant");
+      entry.addClass("is-running");
+      entry.setAttribute("data-answer-role", "candidate");
+      const line = entry.createDiv({ cls: "llm-bridge-codex-thinking-line is-thinking-live is-final-candidate" });
+      const stream = line.createDiv({ cls: "llm-bridge-msg-stream-text" });
+      stream.textContent = "partial...";
+      const entryRef = entry;
+      const lineRef = line;
+      // mock deps：renderMarkdownInto 写入 textContent（模拟 Markdown 渲染）；其余 noop
+      let renderedMarkdownInto = null;
+      const mockDeps = {
+        renderCodexFeedItem: () => {},
+        renderMarkdownInto: (host, text) => { host.textContent = text; renderedMarkdownInto = text; },
+        formatDurationMs: (ms) => `${ms}ms`,
+      };
+      // 调用真实生产函数：candidate 完成后原地升级 Markdown
+      const completedCandidate = {
+        id: "c1", kind: "assistant", icon: "", label: "Answer",
+        status: "completed", summary: "final answer", answerRole: "candidate",
+      };
+      patchCodexFeedEntryItem(entry, completedCandidate, false, mockDeps);
+      // 验证：entry 身份不变
+      const sameEntry = entry === entryRef;
+      // 验证：stream-text 被移除
+      const streamRemoved = !entry.querySelector(".llm-bridge-msg-stream-text");
+      // 验证：answer-body 存在并含最终文本（由真实 renderMarkdownInto 回调写入）
+      const body = entry.querySelector(".llm-bridge-codex-answer-body");
+      const hasFinalText = !!body && body.textContent === "final answer" && renderedMarkdownInto === "final answer";
+      // 验证：thinking-line 仍在同一节点，且升级为 is-thinking-done
+      const lineStillThere = entry.querySelector(".llm-bridge-codex-thinking-line.is-final-candidate") === lineRef;
+      const lineDone = lineRef.classList.contains("is-thinking-done") && !lineRef.classList.contains("is-thinking-live");
+      addTest("Phase 3-DOM-2: 真实 patchCodexFeedEntryItem candidate 原地升级（生产函数）",
+        (sameEntry && streamRemoved && hasFinalText && lineStillThere && lineDone) ? "pass" : "fail",
+        `same=${sameEntry} streamRemoved=${streamRemoved} hasText=${hasFinalText} line=${lineStillThere} done=${lineDone}`);
+    }
+
+    // --- Phase 3-DOM-3: 真实 groupCodexFeedRenderEntries command group key 稳定性 ---
+    {
+      const cmd1 = { id: "cmd1", kind: "command", icon: "terminal", label: "Run", status: "running", sourceRef: { sequence: 1, itemId: "cmd1" } };
+      // 1 条 command
+      const entries1 = groupCodexFeedRenderEntries([cmd1]);
+      const key1 = entries1[0].key;
+      const isGroup1 = entries1[0].kind === "tool-group" && entries1[0].groupKind === "command";
+      // 2 条 command（第一条不变）
+      const cmd2 = { id: "cmd2", kind: "command", icon: "terminal", label: "Run", status: "running", sourceRef: { sequence: 2, itemId: "cmd2" } };
+      const entries2 = groupCodexFeedRenderEntries([cmd1, cmd2]);
+      const key2 = entries2[0].key;
+      const stillOneGroup = entries2.length === 1 && entries2[0].items.length === 2;
+      // 验证：group:command:${startKey} 在 1→2 条时 key 不变
+      const sameGroupKey = key1 === key2 && key1 === `group:command:${codexFeedItemKey(cmd1)}`;
+      addTest("Phase 3-DOM-3: 真实 groupCodexFeedRenderEntries command 1→2 条 group key 不变（生产函数）",
+        (isGroup1 && sameGroupKey && stillOneGroup) ? "pass" : "fail",
+        `isGroup=${isGroup1} sameKey=${sameGroupKey} oneGroup=${stillOneGroup} key=${key1}`);
+    }
+
+    // --- Phase 3-DOM-6: 真实 handleComposerAttachmentKeydown ---
+    {
+      let inputValue = "";
+      let selectedAttachmentId = null;
+      const refs = [{ id: "ref1", kind: "vault", displayName: "note.md" }];
+      let removedId = null;
+      const deps = {
+        getInputValue: () => inputValue,
+        getSelectionRange: () => ({ start: 0, end: 0 }),
+        getMessageFileRefs: () => refs,
+        getSelectedAttachmentId: () => selectedAttachmentId,
+        setSelectedAttachmentId: (id) => { selectedAttachmentId = id; },
+        removeMessageFileRef: (id) => { removedId = id; const i = refs.findIndex((r) => r.id === id); if (i >= 0) refs.splice(i, 1); },
+        renderComposerFileRefs: () => {},
+      };
+      const mkEvent = (key) => ({ key, preventDefault: () => {} });
+      // fadeOutAttachmentTokenThen 使用 document.querySelector；返回 null 时立即调用 onRemove（无需 window.setTimeout）
+      const prevDocument = globalThis.document;
+      globalThis.document = { querySelector: () => null };
+      try {
+        // 第一次 Backspace：选中最后一个附件
+        const r1 = handleComposerAttachmentKeydown(mkEvent("Backspace"), deps);
+        const selectedOk = r1 === true && selectedAttachmentId === "ref1";
+        // 第二次 Backspace：删除选中的附件（fadeOut → querySelector 返回 null → onRemove 立即执行）
+        const r2 = handleComposerAttachmentKeydown(mkEvent("Backspace"), deps);
+        const removedOk = r2 === true && removedId === "ref1" && refs.length === 0;
+        // 有文本时 Backspace 不拦截（文本输入优先）
+        inputValue = "hello";
+        const r3 = handleComposerAttachmentKeydown(mkEvent("Backspace"), deps);
+        const textPriority = r3 === false;
+        addTest("Phase 3-DOM-6: 真实 handleComposerAttachmentKeydown 选中→删除 + 文本优先（生产函数）",
+          (selectedOk && removedOk && textPriority) ? "pass" : "fail",
+          `selected=${selectedOk} removed=${removedOk} textPriority=${textPriority}`);
+      } finally {
+        globalThis.document = prevDocument;
+      }
+    }
+
+    // --- Phase 3-DOM-7: 真实 isEventInsideSelector ---
+    {
+      // isEventInsideSelector 使用 instanceof HTMLElement；临时将全局 HTMLElement 指向 FakeElement
+      // 使 FakeElement 实例通过 instanceof 检查，复用其 matches/closest 方法
+      const prevHtmlElement = globalThis.HTMLElement;
+      globalThis.HTMLElement = FakeElement;
+      try {
+        const popover = new FakeElement("div");
+        popover.addClass("llm-bridge-perm-popover");
+        const child = popover.createDiv({ cls: "llm-bridge-perm-option" });
+        const outside = new FakeElement("button");
+        const insideEvent = { composedPath: () => [child, popover], target: child };
+        const outsideEvent = { composedPath: () => [outside], target: outside };
+        const insideResult = isEventInsideSelector(insideEvent, ".llm-bridge-perm-popover");
+        const outsideResult = isEventInsideSelector(outsideEvent, ".llm-bridge-perm-popover");
+        addTest("Phase 3-DOM-7: 真实 isEventInsideSelector 区分内外点击（生产函数）",
+          (insideResult === true && outsideResult === false) ? "pass" : "fail",
+          `inside=${insideResult} outside=${outsideResult}`);
+      } finally {
+        globalThis.HTMLElement = prevHtmlElement;
+      }
+    }
+
+    // --- Phase 3-DOM-8: 真实 validateSessionId ---
+    {
+      // 调用真实生产函数（抛异常 = 拒绝；正常返回 = 接受）
+      const rejects = (id) => { try { validateSessionId(id); return false; } catch { return true; } };
+      const accepts = (id) => { try { validateSessionId(id); return true; } catch { return false; } };
+      const blocksTraversal = rejects("../../../etc/passwd")
+        && rejects("..\\..\\windows\\system32")
+        && rejects("/etc/passwd")
+        && rejects("C:\\evil")
+        && rejects("")
+        && rejects("a\tb")
+        && accepts("s-2026-01-01-abc123");
+      addTest("Phase 3-DOM-8: 真实 validateSessionId 拒绝 traversal / 控制字符（生产函数）",
+        blocksTraversal ? "pass" : "fail",
+        `blocksTraversal=${blocksTraversal}`);
+    }
+
+    // --- Phase 3-DOM-10: 真实 isCodexImageFeedItem + formatCodexImageGroupTitle ---
+    {
+      const imageItem = { id: "img1", kind: "file", icon: "image", label: "Viewing image", status: "completed" };
+      const textItem = { id: "f1", kind: "file", icon: "file", label: "Edit file", status: "completed" };
+      const isImageOk = isCodexImageFeedItem(imageItem) === true && isCodexImageFeedItem(textItem) === false;
+      // formatCodexImageGroupTitle 依赖 resolveUiLocale（Node 无 window.moment，fallback en）
+      const singleDone = formatCodexImageGroupTitle([imageItem]);
+      const multiDone = formatCodexImageGroupTitle([imageItem, { ...imageItem, id: "img2" }]);
+      const activeTitle = formatCodexImageGroupTitle([{ ...imageItem, status: "running" }]);
+      const titleOk = typeof singleDone === "string" && singleDone.length > 0
+        && typeof multiDone === "string" && multiDone.length > 0
+        && typeof activeTitle === "string" && activeTitle.length > 0;
+      addTest("Phase 3-DOM-10: 真实 isCodexImageFeedItem + formatCodexImageGroupTitle（生产函数）",
+        (isImageOk && titleOk) ? "pass" : "fail",
+        `isImage=${isImageOk} title=${titleOk} single="${singleDone}" active="${activeTitle}"`);
+    }
+
+  } catch (e) {
+    addTest("Phase 3 生产函数测试段", "fail", `加载/执行异常: ${e?.stack || e?.message || e}`);
+  } finally {
+    try { if (waterfallBundleP3) rmSync(waterfallBundleP3, { force: true }); } catch {}
+    try { if (composerBundleP3) rmSync(composerBundleP3, { force: true }); } catch {}
+    try { if (sessionsBundleP3) rmSync(sessionsBundleP3, { force: true }); } catch {}
   }
 }
 

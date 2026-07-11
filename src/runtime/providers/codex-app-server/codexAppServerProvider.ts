@@ -346,6 +346,20 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
         rawProviderEvent: developerMode ? { stream: "stderr", line } : undefined,
         payload: { kind: "stderr_delta", data: line },
       });
+      // spawn 失败（如 ENOENT）：AppServerProcessManager 把 child 'error' 事件作为 `[spawn error]` stderr 行暴露。
+      // 若 'exit' 未可靠触发，事件流将无终态信号，调用方只能等 watchdog 超时。这里立即补 failed 终态并结束流。
+      if (!done && line.startsWith("[spawn error]")) {
+        push({
+          providerId: this.providerId,
+          timestamp: new Date().toISOString(),
+          payload: {
+            kind: "failed",
+            message: `codex app-server spawn error: ${line.slice("[spawn error]".length).trim()}`,
+            recoverable: false,
+          },
+        });
+        signalDone();
+      }
     }));
 
     try {
@@ -524,6 +538,19 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
         rawProviderEvent: developerMode ? { stream: "stderr", line } : undefined,
         payload: { kind: "stderr_delta", data: line },
       });
+      // spawn 失败（如 ENOENT）：与 run() 一致，立即补 failed 终态并结束流，避免等 watchdog 超时
+      if (!done && line.startsWith("[spawn error]")) {
+        push({
+          providerId: this.providerId,
+          timestamp: new Date().toISOString(),
+          payload: {
+            kind: "failed",
+            message: `codex app-server spawn error: ${line.slice("[spawn error]".length).trim()}`,
+            recoverable: false,
+          },
+        });
+        signalDone();
+      }
     }));
 
     try {

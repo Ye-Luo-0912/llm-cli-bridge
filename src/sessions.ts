@@ -20,7 +20,7 @@ import type { NativeSessionRef } from "./runtime/core/types";
  * 校验 session id：防止 path traversal / 控制字符 / 空值进入文件路径。
  * session id 直接拼入 `${sessionId}.json`，必须保证不含路径分隔符、`..`、盘符等危险字符。
  */
-function validateSessionId(sessionId: string): string {
+export function validateSessionId(sessionId: string): string {
   if (!sessionId || typeof sessionId !== "string") {
     throw new Error("Invalid session id: must be a non-empty string");
   }
@@ -444,6 +444,10 @@ export async function deleteSessionWithProviderArtifacts(vaultPath: string, sess
   const session = await loadSession(vaultPath, sessionId);
   const providerIds = providerIdsFromSession(session);
   const bridgeSessionDeleted = await deleteSession(vaultPath, sessionId);
+  // bridge session 文件删除失败时不继续删除全局 Codex 历史，避免本地仍存在 session 却丢失 provider 侧映射
+  if (!bridgeSessionDeleted) {
+    return { bridgeSessionDeleted, codexSessionFilesDeleted: 0, codexSessionIndexEntriesDeleted: 0, providerIds };
+  }
   const codexSessionFilesDeleted = await deleteCodexSessionFilesByProviderIds(providerIds);
   const codexSessionIndexEntriesDeleted = await deleteCodexSessionIndexEntriesByProviderIds(providerIds);
   return { bridgeSessionDeleted, codexSessionFilesDeleted, codexSessionIndexEntriesDeleted, providerIds };

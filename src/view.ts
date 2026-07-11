@@ -1905,9 +1905,9 @@ export class LLMBridgeView extends ItemView {
       setRuntimeInstallUi: (state, title) => view.setRuntimeInstallUi(state, title),
       isRuntimeInstallActionAvailable: () => !!view.runtimeInstallBtnEl && !view.runtimeInstallBtnEl.disabled,
       setAssistantWatchdogHint: (assistantId, text) => view.setAssistantWatchdogHint(assistantId, text),
-      messages: view.messages,
-      messageFileRefs: view.messageFileRefs,
-      pinnedFileRefs: view.pinnedFileRefs,
+      get messages() { return view.messages; },
+      get messageFileRefs() { return view.messageFileRefs; },
+      get pinnedFileRefs() { return view.pinnedFileRefs; },
       get currentAssistantId() { return view.currentAssistantId; },
       get lastPreflightResult() { return view.lastPreflightResult; },
       pendingPermissions: view.pendingPermissions,
@@ -2016,7 +2016,8 @@ export class LLMBridgeView extends ItemView {
   /** RunSessionHost callback: update assistant watchdog status text in-place (no rebuild). */
   private setAssistantWatchdogHint(assistantId: string, text: string): void {
     const block = this.messagesEl.querySelector(`[data-msg-id="${assistantId}"]`) as HTMLElement | null;
-    const statusEl = block?.querySelector(".llm-bridge-run-status-text") as HTMLElement | null;
+    // 限定在 msg-head 内查询，避免命中瀑布流里的 Thinking 过程节点
+    const statusEl = block?.querySelector(".llm-bridge-msg-head .llm-bridge-run-status-text") as HTMLElement | null;
     if (statusEl) {
       statusEl.textContent = text;
       return;
@@ -6494,7 +6495,8 @@ export class LLMBridgeView extends ItemView {
     });
     const block = this.messagesEl.querySelector(`[data-msg-id="${id}"]`);
     if (!block) return;
-    const existingRunStatus = block.querySelector(".llm-bridge-msg-status-line, .llm-bridge-run-status-text");
+    // 限定在 msg-head 内查询，避免命中瀑布流里复用同 class 的 Thinking 过程节点
+    const existingRunStatus = block.querySelector(".llm-bridge-msg-head .llm-bridge-msg-status-line, .llm-bridge-msg-head .llm-bridge-run-status-text");
     if (presentation.statusLine) {
       if (existingRunStatus) {
         existingRunStatus.textContent = presentation.statusLine;
@@ -6509,7 +6511,7 @@ export class LLMBridgeView extends ItemView {
         }
       }
     } else if (existingRunStatus) {
-      // 首段回答到来：结束光效状态行
+      // 首段回答到来：结束光效状态行（仅 head 内，不影响过程节点）
       existingRunStatus.remove();
     }
   }

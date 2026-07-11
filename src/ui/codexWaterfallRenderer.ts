@@ -57,19 +57,19 @@ const codexToolGroupMembers = new WeakMap<HTMLElement, {
   deps: CodexWaterfallPatchDeps;
 }>();
 
-function codexFeedItemKey(item: CodexRunFeedItem): string {
+export function codexFeedItemKey(item: CodexRunFeedItem): string {
   const itemId = item.sourceRef?.itemId || item.id;
   const seq = item.sourceRef?.sequence;
   return seq !== undefined ? `seq:${seq}:${itemId}` : itemId;
 }
 
-function isCodexImageFeedItem(item: CodexRunFeedItem): boolean {
+export function isCodexImageFeedItem(item: CodexRunFeedItem): boolean {
   if (item.icon === "image") return true;
   const blob = `${item.label} ${item.summary || ""} ${item.step?.label || ""}`;
   return /imageview|viewing image|viewed image|分析图片|查看图片/i.test(blob);
 }
 
-function formatCodexImageGroupTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
+export function formatCodexImageGroupTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
   const loc = resolveUiLocale() === "en" ? "en" : "zh";
   const active = items.some((item) => item.status === "running" || item.status === "pending");
   if (loc === "zh") return active ? "正在分析图片" : items.length > 1 ? `已查看 ${items.length} 张图片` : "已查看图片";
@@ -77,7 +77,7 @@ function formatCodexImageGroupTitle(items: ReadonlyArray<CodexRunFeedItem>): str
 }
 
 /** 初渲/增量共用：按时间线顺序分组，不按类型重排 */
-function groupCodexFeedRenderEntries(
+export function groupCodexFeedRenderEntries(
   items: ReadonlyArray<CodexRunFeedItem>,
 ): CodexWaterfallFeedEntry[] {
   const entries: CodexWaterfallFeedEntry[] = [];
@@ -112,7 +112,7 @@ function groupCodexFeedRenderEntries(
   return entries;
 }
 
-function patchCodexFeedEntryItem(
+export function patchCodexFeedEntryItem(
   entry: HTMLElement,
   item: CodexRunFeedItem,
   developerMode: boolean,
@@ -204,11 +204,19 @@ function patchCodexToolGroupBody(
     const key = codexFeedItemKey(item);
     const anchor = body.children[index] as HTMLElement | undefined;
     let node = existingByKey.get(key);
+    // 成员状态签名：status / summary / duration 变化时需重新渲染
+    const memberRev = `${item.status}|${item.summary || ""}|${item.durationMs ?? ""}|${item.step?.durationMs ?? ""}`;
     if (!node) {
       node = body.createDiv({ cls: "llm-bridge-codex-tool-group-member", attr: { "data-feed-key": key } });
       if (item.sourceRef?.itemId) node.setAttribute("data-item-id", item.sourceRef.itemId);
       deps.renderCodexFeedItem(node, item, developerMode, true);
+      node.setAttribute("data-member-rev", memberRev);
       existingByKey.set(key, node);
+    } else if (node.getAttribute("data-member-rev") !== memberRev) {
+      // 已存在成员：status/summary/duration 变化时重新渲染（running → completed 等）
+      node.empty();
+      deps.renderCodexFeedItem(node, item, developerMode, true);
+      node.setAttribute("data-member-rev", memberRev);
     }
     if (anchor !== node) body.insertBefore(node, anchor ?? null);
   }
@@ -297,11 +305,20 @@ function patchCodexFeedEntryToolGroup(
   codexToolGroupMembers.set(group, { items, developerMode, deps });
   group.setAttribute("data-member-ids", items.map((item) => codexFeedItemKey(item)).join("|"));
 
+  // revision：成员状态签名，用于判断是否需要重新 patch body
+  const memberRevision = items.map((item) => `${codexFeedItemKey(item)}:${item.status}`).join("|");
+  const prevRevision = entry.getAttribute("data-revision");
+  const revisionChanged = prevRevision !== memberRevision;
+  entry.setAttribute("data-revision", memberRevision);
+
   // 已展开：局部更新 body 成员（keyed），保留已渲染内容身份
+  // 仅在 revision 变化或 body 尚未填充时才 patch，避免无谓重渲染
   if (group.open) {
     let body = group.querySelector<HTMLElement>(":scope > .llm-bridge-codex-tool-group-body");
     if (!body) body = group.createDiv({ cls: "llm-bridge-codex-tool-group-body" });
-    patchCodexToolGroupBody(body, items, developerMode, deps);
+    if (revisionChanged || !body.childElementCount) {
+      patchCodexToolGroupBody(body, items, developerMode, deps);
+    }
   }
 
   if (groupStatus === "completed" || groupStatus === "failed") {
@@ -471,7 +488,7 @@ function renderCodexFeedThinking(
     row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: deps.localizeRunStatus("Thinking") });
   }
   row.createEl("span", {
-    cls: `llm-bridge-codex-thinking-summary is-reasoning-text${isLive ? " llm-bridge-run-status-text is-running llm-bridge-run-glow is-thinking-faded" : ""}`,
+    cls: `llm-bridge-codex-thinking-summary is-reasoning-text${isLive ? " llm-bridge-codex-thinking-status is-running llm-bridge-run-glow is-thinking-faded" : ""}`,
     text: truncateText(summary, 360),
     attr: { title: summary },
   });
@@ -507,7 +524,7 @@ function renderCodexFeedNarrative(
   }
   // 流式 / 过程说明：普通文字，无外框底色（仅 white-space: pre-wrap）
   row.createEl("span", {
-    cls: `llm-bridge-msg-stream-text llm-bridge-codex-thinking-summary is-multiline${isLive ? " llm-bridge-run-status-text is-running llm-bridge-run-glow is-thinking-faded" : ""}${isReasoning ? " is-reasoning-text" : ""}`,
+    cls: `llm-bridge-msg-stream-text llm-bridge-codex-thinking-summary is-multiline${isLive ? " llm-bridge-codex-thinking-status is-running llm-bridge-run-glow is-thinking-faded" : ""}${isReasoning ? " is-reasoning-text" : ""}`,
     text: text.length > 1200 ? `${text.slice(0, 1200).trimEnd()}...` : text,
     attr: { title: text },
   });
@@ -824,7 +841,7 @@ function renderCodexFeedBatchSummary(
     const isLiveThinking = leadIsThinking
       && (lead.status === "running" || lead.status === "pending");
     textWrap.createEl("span", {
-      cls: `llm-bridge-codex-feed-batch-text is-quiet-narrative${isLiveThinking ? " llm-bridge-run-status-text is-running llm-bridge-run-glow" : ""}${lead.kind === "assistant" ? " is-assistant-narrative" : ""}`,
+      cls: `llm-bridge-codex-feed-batch-text is-quiet-narrative${isLiveThinking ? " llm-bridge-codex-thinking-status is-running llm-bridge-run-glow" : ""}${lead.kind === "assistant" ? " is-assistant-narrative" : ""}`,
       text: truncateText(batchSummary, 420),
       attr: { title: batchSummary },
     });

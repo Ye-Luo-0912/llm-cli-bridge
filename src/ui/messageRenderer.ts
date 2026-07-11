@@ -550,7 +550,8 @@ export function applyAssistantMessagePresentationChrome(
       statusEl.remove();
     }
   }
-  const existingRunStatus = block.querySelector(".llm-bridge-msg-status-line, .llm-bridge-run-status-text");
+  // 限定在 msg-head 内查询，避免命中瀑布流里复用同 class 的 Thinking 过程节点
+  const existingRunStatus = block.querySelector(".llm-bridge-msg-head .llm-bridge-msg-status-line, .llm-bridge-msg-head .llm-bridge-run-status-text");
   if (presentation.statusLine) {
     if (existingRunStatus) {
       existingRunStatus.textContent = presentation.statusLine;
@@ -565,6 +566,7 @@ export function applyAssistantMessagePresentationChrome(
       }
     }
   } else if (existingRunStatus) {
+    // 终态：仅移除 head 内的状态行，不影响过程节点
     existingRunStatus.remove();
   }
 }

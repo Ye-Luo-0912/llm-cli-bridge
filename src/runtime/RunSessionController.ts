@@ -186,6 +186,9 @@ export class RunSessionController {
   private _finishingRun = false;
   private _beforeFiles: Map<string, FileSnapshot> = new Map();
   private _lastRunHadFileChanges = false;
+  // 运行生命周期状态：idle → preparing → running → finalizing → idle
+  // _runHandle 在 finalizing 阶段不清空，直到所有收尾工作完成，避免下一轮覆盖上一轮共享状态
+  private _lifecycleState: "idle" | "preparing" | "running" | "finalizing" = "idle";
 
   constructor(host: RunSessionHost) {
     this.host = host;
@@ -291,11 +294,13 @@ export class RunSessionController {
   // ===========================================================================
 
   async run(): Promise<void> {
-    // P0: 并发锁在开始时设置，避免重入（首帧 UI 之前就占住）
-    if (this._runHandle) return;
+    // P0: 生命周期锁——仅在 idle 时允许新一轮，覆盖 preparing/running/finalizing 全程
+    if (this._lifecycleState !== "idle") return;
+    this._lifecycleState = "preparing";
     const userInput = this.host.getComposerInput().trim();
     if (!userInput) {
       new Notice("请输入请求");
+      this._lifecycleState = "idle";
       return;
     }
 
@@ -337,6 +342,8 @@ export class RunSessionController {
     let terminalStatus: RunStatus | null = null;
     let terminalResult: RunResult | null = null;
     let sessionRef: BridgeSessionImpl | null = null;
+    // stop/watchdog 已落入终态时置位，避免后续 catch 覆盖成 failed
+    let settledByStop = false;
 
     // 占位 runHandle：阻止重入；真正 cancel 在 session 就绪后绑定
     this._runHandle = {
@@ -355,6 +362,7 @@ export class RunSessionController {
             command: "",
             args: [],
           };
+          settledByStop = true;
         }
       },
     };
@@ -522,9 +530,12 @@ export class RunSessionController {
                 command: "",
                 args: [],
               };
+              settledByStop = true;
             }
           },
         };
+        // session 已启动并进入流式阶段
+        this._lifecycleState = "running";
 
         // P1: 流式 watchdog — 12s 提示等待；90s 无事件则取消并落盘失败
         const WATCHDOG_SOFT_MS = 12_000;
@@ -560,6 +571,7 @@ export class RunSessionController {
               command: "",
               args: [],
             };
+            settledByStop = true;
             this.setAssistantWatchdogHint(assistantId, "连接超时，已取消。可重试发送。");
             return;
           }
@@ -594,20 +606,24 @@ export class RunSessionController {
           });
         }
       } catch (e) {
-        const errMsg = (e as Error)?.message || String(e);
-        terminalStatus = "failed";
-        terminalResult = {
-          exitCode: null,
-          signal: null,
-          durationMs: Date.now() - startedAtMs,
-          stdout: "",
-          stderr: errMsg,
-          command: "",
-          args: [],
-        };
+        // stop/watchdog 已落入终态时，不覆盖其结果（避免把 stopped/超时 detail 改写成 failed）
+        if (!settledByStop) {
+          const errMsg = (e as Error)?.message || String(e);
+          terminalStatus = "failed";
+          terminalResult = {
+            exitCode: null,
+            signal: null,
+            durationMs: Date.now() - startedAtMs,
+            stdout: "",
+            stderr: errMsg,
+            command: "",
+            args: [],
+          };
+        }
       } finally {
         if (watchdogTimer) clearInterval(watchdogTimer);
-        this._runHandle = null;
+        // 进入收尾阶段：_runHandle 保留至 onRunFinished 全部完成，防止下一轮覆盖共享状态
+        this._lifecycleState = "finalizing";
         if (!terminalStatus) {
           terminalStatus = cancelled ? "stopped" : "failed";
           terminalResult = terminalResult || {
@@ -625,8 +641,13 @@ export class RunSessionController {
             terminalResult, vaultPath, assistantId, terminalStatus,
             startedAt, timelineEvents, workflowEvents, promptLength, sdkEvents,
           );
-        } else if (terminalStatus === "failed" || terminalStatus === "stopped") {
-          this.host.setGlobalStatus(terminalStatus);
+        } else {
+          if (terminalStatus === "failed" || terminalStatus === "stopped") {
+            this.host.setGlobalStatus(terminalStatus);
+          }
+          // onRunFinished 未执行（无 vaultPath 的早期失败）：直接回到 idle 并清空 _runHandle
+          this._lifecycleState = "idle";
+          this._runHandle = null;
         }
       }
     })();
@@ -828,7 +849,6 @@ export class RunSessionController {
     // F-03: 标记收尾中，防止 restore 在 onRunFinished 的 await 期间竞态
     this._finishingRun = true;
     try {
-      this._runHandle = null;
       host.clearApprovalUiState();
 
       const msg = host.messages.find((m) => m.id === assistantId);
@@ -952,6 +972,10 @@ export class RunSessionController {
       }
     } finally {
       this._finishingRun = false;
+      // 所有收尾工作完成（文件扫描、历史保存等）后才回到 idle 并清空 _runHandle，
+      // 确保下一轮 run() 不会在收尾期间覆盖上一轮共享状态
+      this._lifecycleState = "idle";
+      this._runHandle = null;
     }
   }
 

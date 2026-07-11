@@ -150,18 +150,43 @@ if ($failedTargets.Count -gt 0) {
 
 if ($Reload -and $successCount -gt 0) {
   Write-Step "Auto-reload plugin via Obsidian local HTTP API"
-  # Try to hit the plugin's local HTTP reload endpoint (if httpServer is running)
+  # The plugin's HTTP server (if running) serves approval endpoints on a configurable port.
+  # Check if the server is reachable and supports /api/reload-plugin.
   $reloadPort = 42167  # default port, adjust if configured differently
+  $reloadOk = $false
   try {
-    $response = Invoke-RestMethod -Uri "http://127.0.0.1:$reloadPort/api/reload-plugin" -Method POST -TimeoutSec 5 -ErrorAction Stop
-    Write-Ok "Reload triggered: $($response | ConvertTo-Json -Compress)"
+    # First check if the server is running at all
+    $healthResponse = Invoke-RestMethod -Uri "http://127.0.0.1:$reloadPort/api/health" -Method GET -TimeoutSec 3 -ErrorAction Stop
+    if ($healthResponse.ok) {
+      # Server is running — try reload
+      try {
+        $response = Invoke-RestMethod -Uri "http://127.0.0.1:$reloadPort/api/reload-plugin" -Method POST -TimeoutSec 5 -ErrorAction Stop
+        if ($response.ok) {
+          Write-Ok "Reload triggered"
+          $reloadOk = $true
+        } else {
+          Write-Warn "Reload endpoint returned non-ok: $($response | ConvertTo-Json -Compress)"
+        }
+      } catch {
+        $statusCode = $_.Exception.Response.StatusCode.value__
+        if ($statusCode -eq 404) {
+          Write-Warn "Reload endpoint not found (plugin version too old or HTTP server doesn't support reload)"
+        } else {
+          Write-Warn "Reload request failed: $($_.Exception.Message)"
+        }
+      }
+    } else {
+      Write-Warn "Health check returned non-ok"
+    }
   } catch {
-    Write-Warn "Auto-reload failed (is Obsidian running with plugin enabled?): $($_.Exception.Message)"
-    Write-Host "  Manual reload: Settings > Community plugins > disable/enable LLM CLI Bridge" -ForegroundColor Cyan
+    Write-Warn "Obsidian HTTP server not reachable on port $reloadPort (is Obsidian running with plugin enabled?)"
+  }
+  if (-not $reloadOk) {
+    Write-Host "  Manual reload required: Settings > Community plugins > disable/enable LLM CLI Bridge" -ForegroundColor Yellow
   }
 } elseif ($successCount -gt 0) {
   Write-Host "  Next: Reload plugin in Obsidian (Settings > Community plugins > disable/enable LLM CLI Bridge)" -ForegroundColor Cyan
-  Write-Host "  Or re-run with -Reload to auto-reload via HTTP API" -ForegroundColor DarkGray
+  Write-Host "  Or re-run with -Reload to attempt auto-reload via HTTP API" -ForegroundColor DarkGray
 }
 
 # Exit non-zero if any target failed

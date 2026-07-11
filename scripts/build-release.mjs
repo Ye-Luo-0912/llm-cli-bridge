@@ -101,32 +101,42 @@ if (fs.existsSync(staleStageDir)) {
     console.warn(`  ⚠ 清理 stage 目录失败: ${e.message}`);
   }
 }
-// 4b. 删除同名旧 zip（覆盖前清理；Compress-Archive -Force 亦可，但显式删除更稳妥）
-if (fs.existsSync(zipPath)) {
+// 4b. 删除残留的 .partial 文件（上次中断可能留下）
+const partialPath = `${zipPath}.partial`;
+if (fs.existsSync(partialPath)) {
   try {
-    fs.rmSync(zipPath, { force: true });
-    console.log(`  ✓ 清理旧 zip: ${path.basename(zipPath)}`);
+    fs.rmSync(partialPath, { force: true });
+    console.log(`  ✓ 清理残留 .partial: ${path.basename(partialPath)}`);
   } catch (e) {
-    console.warn(`  ⚠ 清理旧 zip 失败: ${e.message}`);
+    console.warn(`  ⚠ 清理 .partial 失败: ${e.message}`);
   }
 }
 fs.mkdirSync(releaseDir, { recursive: true });
 
-// 5. 打包 zip（内容置于 zip 根：main.js 等在 zip 顶层，可直接解压到 .obsidian/plugins/llm-cli-bridge/）
-console.log("\n[release] 步骤 5: 打包 zip...");
-zipDirectory(USER_PKG_DIR, zipPath);
-const zipStat = fs.statSync(zipPath);
-console.log(`  ✓ ${path.basename(zipPath)} (${(zipStat.size / 1024 / 1024).toFixed(1)} MB)`);
+// 5. 打包到 .partial 文件（atomic：失败或中断不会损坏正式产物）
+console.log("\n[release] 步骤 5: 打包 zip (atomic: .partial → 验证 → 改名)...");
+zipDirectory(USER_PKG_DIR, partialPath);
+const partialStat = fs.statSync(partialPath);
+console.log(`  ✓ ${path.basename(partialPath)} (${(partialStat.size / 1024 / 1024).toFixed(1)} MB)`);
 
-// 6. 干净目录解压验证
+// 6. 干净目录解压验证 .partial
 console.log("\n[release] 步骤 6: 干净目录解压验证...");
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "llm-cli-bridge-release-"));
 try {
-  extractZip(zipPath, tmpDir);
+  extractZip(partialPath, tmpDir);
   assertPackageIntegrity(tmpDir, "解压目录", { requireMainJs: true });
 } finally {
   try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
 }
+
+// 7. 验证通过 → 原子改名：删除旧正式 zip → rename .partial → 正式 zip
+console.log("\n[release] 步骤 7: 原子改名 .partial → 正式产物...");
+if (fs.existsSync(zipPath)) {
+  fs.rmSync(zipPath, { force: true });
+}
+fs.renameSync(partialPath, zipPath);
+const zipStat = fs.statSync(zipPath);
+console.log(`  ✓ ${path.basename(zipPath)} (${(zipStat.size / 1024 / 1024).toFixed(1)} MB)`);
 
 console.log(`\n[release] 完成。产物: ${path.relative(PROJECT_ROOT, zipPath)}`);
 console.log(`[release] 解压后即可直接复制到 .obsidian/plugins/llm-cli-bridge/（无需 npm install）。`);
