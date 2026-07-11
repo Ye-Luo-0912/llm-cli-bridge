@@ -8897,9 +8897,6 @@
   white-space: nowrap !important;
 }
 
-.llm-bridge-codex-process-body[hidden] {
-  display: none !important;
-}
 
 .llm-bridge-codex-final-answer {
   display: grid !important;
@@ -9547,27 +9544,6 @@
   font-weight: 620 !important;
 }
 
-.llm-bridge-codex-run-header {
-  gap: 10px !important;
-  padding: 0 0 2px !important;
-}
-
-.llm-bridge-codex-run-summary {
-  gap: 7px !important;
-}
-
-.llm-bridge-codex-run-provider {
-  font-size: 10px !important;
-}
-
-.llm-bridge-codex-run-metrics {
-  gap: 7px !important;
-}
-
-.llm-bridge-codex-run-metric {
-  gap: 4px !important;
-  font-size: 10px !important;
-}
 
 .llm-bridge-codex-process,
 .llm-bridge-codex-approval-gates,
@@ -9576,48 +9552,22 @@
   gap: 7px !important;
 }
 
-.llm-bridge-codex-section-head {
-  gap: 6px !important;
-}
-
-.llm-bridge-codex-section-title {
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
-  font-weight: 650 !important;
-  letter-spacing: 0.05em !important;
-  text-transform: uppercase !important;
-}
-
-.llm-bridge-codex-section-count {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  min-width: 18px !important;
-  min-height: 18px !important;
-  padding: 0 6px !important;
-  border-radius: 999px !important;
-  background: color-mix(in srgb, var(--background-modifier-hover) 56%, transparent) !important;
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
-  font-variant-numeric: tabular-nums !important;
-}
 
 .llm-bridge-codex-change-row,
-.llm-bridge-codex-feed-item,
 .llm-bridge-codex-event-block.llm-bridge-codex-feed-item {
+
   box-shadow: none !important;
 }
 
-.llm-bridge-codex-change-actions,
-.llm-bridge-codex-feed-item .llm-bridge-codex-change-actions {
+.llm-bridge-codex-change-actions {
+
   opacity: 0 !important;
   transition: opacity 120ms ease !important;
 }
 
 .llm-bridge-codex-change-row:hover .llm-bridge-codex-change-actions,
-.llm-bridge-codex-change-row:focus-within .llm-bridge-codex-change-actions,
-.llm-bridge-codex-feed-item:hover .llm-bridge-codex-change-actions,
-.llm-bridge-codex-feed-item:focus-within .llm-bridge-codex-change-actions {
+.llm-bridge-codex-change-row:focus-within .llm-bridge-codex-change-actions {
+
   opacity: 1 !important;
 }
 
@@ -9635,10 +9585,6 @@
   background: color-mix(in srgb, var(--background-secondary) 34%, transparent) !important;
 }
 
-.llm-bridge-codex-final-answer-body {
-  font-size: var(--font-ui-small) !important;
-  line-height: 1.58 !important;
-}
 
 /* ===== V17-G43: stable square attachment tiles and plain-text-first paste UX ===== */
 
@@ -9844,48 +9790,6 @@
   font-size: 10px !important;
 }
 
-.llm-bridge-codex-run-header {
-  gap: 10px !important;
-  padding-bottom: 2px !important;
-}
-
-.llm-bridge-codex-run-summary {
-  gap: 6px !important;
-}
-
-.llm-bridge-codex-run-status {
-  font-size: 13px !important;
-  font-weight: 620 !important;
-}
-
-.llm-bridge-codex-run-provider {
-  font-size: 10px !important;
-  color: var(--text-faint) !important;
-}
-
-.llm-bridge-codex-run-metrics {
-  gap: 6px !important;
-}
-
-.llm-bridge-codex-run-metric {
-  font-size: 10px !important;
-}
-
-.llm-bridge-codex-current-activity {
-  margin: 0 !important;
-  padding: 0 1px 1px !important;
-  min-height: 0 !important;
-}
-
-.llm-bridge-codex-current-activity-text {
-  display: flex !important;
-  align-items: center !important;
-  min-height: 16px !important;
-}
-
-.llm-bridge-codex-current-activity-icon {
-  display: none !important;
-}
 
 .llm-bridge-codex-process,
 .llm-bridge-codex-approval-gates,
@@ -9894,50 +9798,6 @@
   gap: 8px !important;
 }
 
-.llm-bridge-codex-process-head {
-  padding: 0 1px !important;
-}
-
-.llm-bridge-codex-section-title {
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
-  font-weight: 650 !important;
-  letter-spacing: 0.04em !important;
-}
-
-.llm-bridge-codex-section-count {
-  min-width: 16px !important;
-  min-height: 16px !important;
-  padding: 0 5px !important;
-  background: color-mix(in srgb, var(--background-modifier-hover) 58%, transparent) !important;
-  font-size: 10px !important;
-}
-
-.llm-bridge-codex-feed-batch {
-  gap: 6px !important;
-  padding-left: 12px !important;
-  border-left: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent) !important;
-}
-
-.llm-bridge-codex-thinking-line {
-  gap: 8px !important;
-  padding: 1px 0 4px !important;
-}
-
-.llm-bridge-codex-thinking-label {
-  font-size: 11px !important;
-  font-weight: 620 !important;
-}
-
-.llm-bridge-codex-thinking-summary {
-  font-size: 12px !important;
-  line-height: 1.45 !important;
-}
-
-.llm-bridge-codex-thinking-summary.is-placeholder {
-  color: color-mix(in srgb, var(--text-faint) 92%, transparent) !important;
-  font-style: italic !important;
-}
 
 .llm-bridge-codex-event-block,
 .llm-bridge-codex-change-row,
@@ -9959,24 +9819,24 @@
   padding: 0 10px 10px !important;
 }
 
-.llm-bridge-codex-feed-label,
 .llm-bridge-codex-change-name,
 .llm-bridge-codex-change-action,
 .llm-bridge-codex-approval-gate-action {
+
   font-size: 12px !important;
 }
 
 .llm-bridge-codex-event-hint,
-.llm-bridge-codex-feed-output-text,
 .llm-bridge-codex-change-path,
 .llm-bridge-codex-approval-gate-summary,
 .llm-bridge-codex-approval-gate-reason {
+
   font-size: 11px !important;
   line-height: 1.5 !important;
 }
 
-.llm-bridge-codex-feed-meta,
 .llm-bridge-codex-change-meta {
+
   gap: 6px !important;
   font-size: 10px !important;
 }
@@ -10020,14 +9880,6 @@
   margin-top: 2px !important;
 }
 
-.llm-bridge-codex-diagnostics-head {
-  gap: 7px !important;
-  padding: 0 2px !important;
-}
-
-.llm-bridge-codex-diagnostics-summary {
-  font-size: 11px !important;
-}
 
 .llm-bridge-codex-final-answer {
   gap: 7px !important;
@@ -10037,14 +9889,6 @@
   background: color-mix(in srgb, var(--background-primary) 94%, var(--background-secondary)) !important;
 }
 
-.llm-bridge-codex-final-answer-title {
-  color: var(--text-faint) !important;
-}
-
-.llm-bridge-codex-final-answer-body {
-  font-size: 12px !important;
-  line-height: 1.62 !important;
-}
 
 .llm-bridge-perm-popover,
 .llm-bridge-clarification-card,
@@ -10312,111 +10156,6 @@
   color: var(--text-faint) !important;
   font-size: 10px !important;
   font-weight: 600 !important;
-}
-
-.llm-bridge-codex-process-head .llm-bridge-codex-section-title,
-.llm-bridge-codex-final-answer-title {
-  text-transform: none !important;
-  letter-spacing: 0 !important;
-}
-
-.llm-bridge-codex-feed-list {
-  display: grid !important;
-  gap: 8px !important;
-}
-
-.llm-bridge-codex-feed-batch {
-  margin: 0 !important;
-  padding: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-}
-
-.llm-bridge-codex-feed-batch-summary {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto !important;
-  align-items: start !important;
-  gap: 10px !important;
-  padding: 2px 0 4px 12px !important;
-  border-left: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent) !important;
-  list-style: none !important;
-  cursor: pointer !important;
-}
-
-.llm-bridge-codex-feed-batch-summary::-webkit-details-marker,
-.llm-bridge-codex-feed-batch-summary::marker {
-  display: none !important;
-}
-
-.llm-bridge-codex-feed-batch-summary::before {
-  content: "▾" !important;
-  position: absolute !important;
-  margin-left: -12px !important;
-  color: var(--text-faint) !important;
-  font-size: 11px !important;
-}
-
-.llm-bridge-codex-feed-batch:not([open]) > .llm-bridge-codex-feed-batch-summary::before {
-  content: "▸" !important;
-}
-
-.llm-bridge-codex-feed-batch.is-summary-only > .llm-bridge-codex-feed-batch-summary {
-  cursor: default !important;
-}
-
-.llm-bridge-codex-feed-batch.is-summary-only > .llm-bridge-codex-feed-batch-summary::before {
-  content: "" !important;
-}
-
-.llm-bridge-codex-feed-batch-summary-main {
-  display: flex !important;
-  align-items: baseline !important;
-  gap: 8px !important;
-  min-width: 0 !important;
-}
-
-.llm-bridge-codex-feed-batch-label {
-  flex: 0 0 auto !important;
-  color: var(--text-normal) !important;
-  font-size: 12px !important;
-  font-weight: 620 !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-codex-feed-batch-text {
-  min-width: 0 !important;
-  color: color-mix(in srgb, var(--text-muted) 88%, transparent) !important;
-  font-size: 12px !important;
-  line-height: 1.45 !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-codex-feed-batch-text.is-placeholder {
-  color: color-mix(in srgb, var(--text-faint) 92%, transparent) !important;
-  font-style: italic !important;
-}
-
-.llm-bridge-codex-feed-batch-meta {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-codex-feed-batch-count {
-  color: color-mix(in srgb, var(--text-muted) 78%, transparent) !important;
-}
-
-.llm-bridge-codex-feed-batch-body {
-  display: grid !important;
-  gap: 8px !important;
-  margin-left: 12px !important;
-  padding: 0 0 4px 16px !important;
-  border-left: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
 }
 
 
@@ -10747,44 +10486,6 @@
   background: color-mix(in srgb, var(--background-modifier-hover) 18%, transparent) !important;
 }
 
-.llm-bridge-codex-run-header {
-  gap: 8px !important;
-  padding-bottom: 3px !important;
-}
-
-.llm-bridge-codex-run-status {
-  font-size: 12px !important;
-  font-weight: 620 !important;
-}
-
-.llm-bridge-codex-run-provider,
-.llm-bridge-codex-run-metric {
-  font-size: 10px !important;
-}
-
-.llm-bridge-codex-current-activity {
-  padding: 0 1px 2px !important;
-}
-
-.llm-bridge-codex-current-activity-text {
-  min-height: 15px !important;
-}
-
-.llm-bridge-codex-feed-batch-summary {
-  padding: 1px 0 4px 12px !important;
-}
-
-.llm-bridge-codex-feed-batch-label,
-.llm-bridge-codex-thinking-label {
-  font-size: 11px !important;
-  font-weight: 620 !important;
-}
-
-.llm-bridge-codex-feed-batch-text,
-.llm-bridge-codex-thinking-summary {
-  font-size: 12px !important;
-  line-height: 1.45 !important;
-}
 
 .llm-bridge-codex-event-block,
 .llm-bridge-codex-change-row {
@@ -10803,8 +10504,8 @@
 }
 
 .llm-bridge-codex-event-hint,
-.llm-bridge-codex-change-path,
-.llm-bridge-codex-feed-output-text {
+.llm-bridge-codex-change-path {
+
   font-size: 11px !important;
   line-height: 1.5 !important;
 }
@@ -10879,83 +10580,12 @@
 
 
 /* ===== V17-G56: static run header, collapsible steps head, calmer sessions/dialogs ===== */
-.llm-bridge-codex-run-header {
-  align-items: flex-start !important;
-  cursor: default !important;
-}
 
-.llm-bridge-codex-run-summary {
-  display: grid !important;
-  gap: 2px !important;
-}
-
-.llm-bridge-codex-run-provider {
-  color: var(--text-faint) !important;
-}
 
 .llm-bridge-codex-process {
   gap: 6px !important;
 }
 
-.llm-bridge-codex-section-title-row {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 8px !important;
-  min-width: 0 !important;
-}
-
-.llm-bridge-codex-process-head {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  gap: 10px !important;
-  padding: 0 2px !important;
-}
-
-.llm-bridge-codex-process-head.is-collapsible {
-  cursor: pointer !important;
-}
-
-.llm-bridge-codex-process-head.is-collapsible:hover .llm-bridge-codex-process-toggle,
-.llm-bridge-codex-process-head.is-collapsible:hover .llm-bridge-codex-section-title {
-  color: var(--text-normal) !important;
-}
-
-.llm-bridge-codex-process-head:focus-visible {
-  outline: 0 !important;
-}
-
-.llm-bridge-codex-process-head:focus-visible .llm-bridge-codex-section-title-row,
-.llm-bridge-codex-process-head:focus-visible .llm-bridge-codex-process-toggle {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--interactive-accent) 18%, transparent) !important;
-}
-
-.llm-bridge-codex-process-toggle {
-  flex: 0 0 auto !important;
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
-  font-weight: 620 !important;
-  letter-spacing: 0.03em !important;
-  text-transform: uppercase !important;
-}
-
-.llm-bridge-codex-section-count {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  min-width: 18px !important;
-  height: 18px !important;
-  padding: 0 6px !important;
-  border-radius: 999px !important;
-  background: color-mix(in srgb, var(--background-modifier-hover) 48%, transparent) !important;
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
-  font-weight: 600 !important;
-}
-
-.llm-bridge-codex-process-body {
-  gap: 8px !important;
-}
 
 .llm-bridge-codex-final-answer {
   gap: 9px !important;
@@ -10970,23 +10600,6 @@
     ) !important;
 }
 
-.llm-bridge-codex-final-answer-title {
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
-  font-weight: 650 !important;
-  letter-spacing: 0.04em !important;
-  text-transform: uppercase !important;
-}
-
-.llm-bridge-codex-final-answer-body {
-  color: var(--text-normal) !important;
-  font-size: 13px !important;
-  line-height: 1.6 !important;
-}
-
-.llm-bridge-codex-current-activity {
-  padding: 0 2px 3px !important;
-}
 
 .llm-bridge-session-selector,
 .llm-bridge-new-chat-btn,
@@ -11296,68 +10909,6 @@
   padding-right: 0 !important;
 }
 
-.llm-bridge-codex-run-header {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto !important;
-  align-items: start !important;
-  gap: 8px 14px !important;
-  padding-bottom: 1px !important;
-}
-
-.llm-bridge-codex-run-summary {
-  gap: 1px !important;
-}
-
-.llm-bridge-codex-run-provider {
-  font-size: 10.5px !important;
-  line-height: 1.35 !important;
-}
-
-.llm-bridge-codex-run-metrics {
-  gap: 10px !important;
-  align-items: center !important;
-}
-
-.llm-bridge-codex-run-metric {
-  gap: 4px !important;
-  min-height: 0 !important;
-  padding: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-  color: var(--text-faint) !important;
-}
-
-.llm-bridge-codex-run-metric-icon,
-.llm-bridge-codex-run-metric-icon svg {
-  width: 11px !important;
-  height: 11px !important;
-}
-
-.llm-bridge-codex-run-metric-value {
-  font-size: 10px !important;
-  font-weight: 560 !important;
-}
-
-.llm-bridge-codex-current-activity {
-  padding: 0 1px 2px !important;
-}
-
-.llm-bridge-codex-process-head {
-  padding: 0 1px !important;
-}
-
-.llm-bridge-codex-section-count {
-  min-width: 0 !important;
-  height: auto !important;
-  padding: 0 !important;
-  background: transparent !important;
-  font-variant-numeric: tabular-nums !important;
-}
-
-.llm-bridge-codex-process-toggle {
-  letter-spacing: 0 !important;
-  text-transform: none !important;
-}
 
 .llm-bridge-codex-final-answer {
   gap: 7px !important;
@@ -11368,14 +10919,6 @@
   background: transparent !important;
 }
 
-.llm-bridge-codex-final-answer-title {
-  letter-spacing: 0.03em !important;
-}
-
-.llm-bridge-codex-final-answer-body {
-  font-size: 12.5px !important;
-  line-height: 1.62 !important;
-}
 
 .llm-bridge-prompt-modal .llm-bridge-prompt-input {
   min-height: 36px !important;
@@ -11777,16 +11320,7 @@
 
 
 /* ===== V17-G61: stable thinking lead + merged shell/output waterfall blocks ===== */
-.llm-bridge-codex-feed-output {
-  margin: 0 0 0 19px !important;
-  padding: 1px 0 0 !important;
-}
 
-.llm-bridge-codex-feed-output-text,
-.llm-bridge-codex-thinking-summary {
-  font-size: 11.5px !important;
-  line-height: 1.58 !important;
-}
 
 .llm-bridge-codex-shell-panel {
   gap: 7px !important;
@@ -12031,123 +11565,7 @@
 }
 
 /* ===== V17-G64: one collapsible process block + static waterfall batches ===== */
-.llm-bridge-codex-process-head {
-  gap: 8px !important;
-}
 
-.llm-bridge-codex-process-head .llm-bridge-codex-section-title-row {
-  align-items: center !important;
-  gap: 9px !important;
-}
-
-.llm-bridge-codex-process-head-meta {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 5px !important;
-  min-width: 0 !important;
-}
-
-.llm-bridge-codex-process-head-meta-item {
-  color: color-mix(in srgb, var(--text-muted) 82%, transparent) !important;
-  font-size: 10px !important;
-  font-weight: 500 !important;
-  line-height: 1.3 !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-codex-process-head-preview {
-  min-width: 0 !important;
-  overflow: hidden !important;
-  color: color-mix(in srgb, var(--text-muted) 86%, transparent) !important;
-  font-size: 10.5px !important;
-  line-height: 1.35 !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-codex-process-toggle {
-  min-width: 14px !important;
-  color: var(--text-faint) !important;
-  font-size: 11px !important;
-  text-align: right !important;
-}
-
-.llm-bridge-codex-feed-list {
-  gap: 10px !important;
-}
-
-.llm-bridge-codex-feed-batch {
-  display: grid !important;
-  gap: 6px !important;
-  padding: 0 0 0 13px !important;
-  border-left: 1px solid color-mix(in srgb, var(--interactive-accent) 22%, var(--background-modifier-border)) !important;
-}
-
-.llm-bridge-codex-feed-batch-summary {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto !important;
-  gap: 8px !important;
-  align-items: start !important;
-  min-height: 0 !important;
-  padding: 0 !important;
-  cursor: default !important;
-  list-style: none !important;
-}
-
-.llm-bridge-codex-feed-batch-summary::before,
-.llm-bridge-codex-feed-batch:not([open]) > .llm-bridge-codex-feed-batch-summary::before {
-  display: none !important;
-  content: none !important;
-}
-
-.llm-bridge-codex-feed-batch-body {
-  display: grid !important;
-  gap: 4px !important;
-  padding: 0 0 0 12px !important;
-}
-
-.llm-bridge-codex-feed-batch.is-summary-only .llm-bridge-codex-feed-batch-summary {
-  padding-bottom: 1px !important;
-}
-
-.llm-bridge-codex-thinking-line.is-narrative {
-  align-items: start !important;
-}
-
-.llm-bridge-codex-thinking-summary.is-multiline {
-  white-space: pre-wrap !important;
-  overflow: visible !important;
-  text-overflow: clip !important;
-}
-
-.llm-bridge-codex-process-head .llm-bridge-codex-section-title {
-  font-size: 11px !important;
-  font-weight: 620 !important;
-}
-
-.llm-bridge-codex-run-header {
-  padding-bottom: 6px !important;
-}
-
-.llm-bridge-codex-run-status {
-  font-size: 11px !important;
-  font-weight: 620 !important;
-}
-
-.llm-bridge-codex-run-provider {
-  font-size: 10.5px !important;
-  color: color-mix(in srgb, var(--text-muted) 82%, transparent) !important;
-}
-
-.llm-bridge-codex-run-metrics {
-  gap: 8px !important;
-}
-
-.llm-bridge-codex-run-metric {
-  gap: 3px !important;
-  font-size: 10px !important;
-  color: var(--text-faint) !important;
-}
 
 .llm-bridge-composer-bar {
   border-radius: 18px !important;
@@ -12195,16 +11613,7 @@
 }
 
 /* ===== V17-G65: grouped lazy tool events and full-width composer input ===== */
-.llm-bridge-codex-thinking-line {
-  align-items: start !important;
-}
 
-.llm-bridge-codex-thinking-summary,
-.llm-bridge-codex-feed-batch-text {
-  white-space: normal !important;
-  overflow: visible !important;
-  text-overflow: clip !important;
-}
 
 .llm-bridge-codex-tool-group {
   display: block !important;
@@ -12215,87 +11624,11 @@
   overflow: hidden !important;
 }
 
-.llm-bridge-codex-tool-group-summary {
-  display: grid !important;
-  grid-template-columns: 18px minmax(0, 1fr) auto !important;
-  gap: 8px !important;
-  align-items: center !important;
-  min-height: 42px !important;
-  padding: 9px 11px !important;
-  cursor: pointer !important;
-  list-style: none !important;
-}
-
-.llm-bridge-codex-tool-group-summary::-webkit-details-marker {
-  display: none !important;
-}
-
-.llm-bridge-codex-tool-group-summary::before {
-  content: "›" !important;
-  position: absolute !important;
-  margin-left: -1px !important;
-  color: var(--text-faint) !important;
-  transform: translateX(-14px) !important;
-}
 
 .llm-bridge-codex-tool-group[open] > .llm-bridge-codex-tool-group-summary::before {
   transform: translateX(-14px) rotate(90deg) !important;
 }
 
-.llm-bridge-codex-tool-group-icon {
-  color: color-mix(in srgb, var(--text-muted) 80%, transparent) !important;
-}
-
-.llm-bridge-codex-tool-group-icon,
-.llm-bridge-codex-tool-group-icon svg {
-  width: 15px !important;
-  height: 15px !important;
-}
-
-.llm-bridge-codex-tool-group-main {
-  display: flex !important;
-  min-width: 0 !important;
-  align-items: baseline !important;
-  gap: 8px !important;
-}
-
-.llm-bridge-codex-tool-group-title {
-  min-width: 0 !important;
-  color: var(--text-muted) !important;
-  font-size: 12px !important;
-  font-weight: 560 !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-codex-tool-group-preview {
-  min-width: 0 !important;
-  color: color-mix(in srgb, var(--text-muted) 74%, transparent) !important;
-  font-size: 11px !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-codex-tool-group-meta {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 7px !important;
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-codex-tool-group-body {
-  display: grid !important;
-  gap: 5px !important;
-  padding: 0 8px 9px 18px !important;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block {
-  margin-left: 0 !important;
-}
 
 .llm-bridge-codex-event-summary {
   min-height: 38px !important;
@@ -12374,45 +11707,14 @@
 /* input 尺寸由 styles/composer.css 接管 */
 
 /* ===== V17-G67: responsive run process/answer and non-duplicated thinking lead ===== */
-.llm-bridge-codex-run-view,
-.llm-bridge-codex-run-body,
 .llm-bridge-codex-process,
-.llm-bridge-codex-process-body,
-.llm-bridge-codex-feed-list,
-.llm-bridge-codex-feed-batch,
-.llm-bridge-codex-feed-batch-body,
-.llm-bridge-codex-final-answer,
-.llm-bridge-codex-final-answer-body {
+.llm-bridge-codex-final-answer {
+
   min-width: 0 !important;
   max-width: 100% !important;
   box-sizing: border-box !important;
 }
 
-.llm-bridge-codex-process-head-preview {
-  display: none !important;
-}
-
-.llm-bridge-codex-feed-batch-summary {
-  min-width: 0 !important;
-}
-
-.llm-bridge-codex-feed-batch-summary-main {
-  min-width: 0 !important;
-  max-width: 100% !important;
-  flex-wrap: wrap !important;
-  row-gap: 2px !important;
-}
-
-.llm-bridge-codex-feed-batch-text {
-  white-space: normal !important;
-  overflow: visible !important;
-  text-overflow: clip !important;
-  overflow-wrap: anywhere !important;
-}
-
-.llm-bridge-codex-feed-batch-meta {
-  min-width: max-content !important;
-}
 
 .llm-bridge-codex-tool-group,
 .llm-bridge-codex-event-block.llm-bridge-codex-feed-item,
@@ -12423,42 +11725,30 @@
   box-sizing: border-box !important;
 }
 
-.llm-bridge-codex-tool-group-summary,
 .llm-bridge-codex-event-summary {
+
   min-width: 0 !important;
   max-width: 100% !important;
 }
 
-.llm-bridge-codex-tool-group-title,
-.llm-bridge-codex-tool-group-preview,
 .llm-bridge-codex-event-title,
-.llm-bridge-codex-event-hint,
-.llm-bridge-codex-feed-label {
+.llm-bridge-codex-event-hint {
+
   min-width: 0 !important;
 }
 
-.llm-bridge-codex-event-title .llm-bridge-codex-feed-label,
-.llm-bridge-codex-tool-group-preview {
+.llm-bridge-codex-event-title .llm-bridge-codex-feed-label {
+
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
 }
 
-.llm-bridge-codex-final-answer-body,
-.llm-bridge-codex-final-answer-body * {
-  overflow-wrap: anywhere !important;
-}
 
 @media (max-width: 760px) {
-  .llm-bridge-codex-run-view {
-    margin-left: 0 !important;
-    margin-right: 0 !important;
-  }
+  
 
-  .llm-bridge-codex-feed-batch-body {
-    margin-left: 6px !important;
-    padding-left: 10px !important;
-  }
+  
 
   .llm-bridge-codex-tool-group,
   .llm-bridge-codex-event-block.is-file,
@@ -12469,116 +11759,17 @@
 
 /* ===== V17-G68: composer 布局已迁移至 styles/composer.css（inputSurface + toolbar） ===== */
 
-.llm-bridge-codex-feed-batch-summary {
-  grid-template-columns: minmax(0, 1fr) !important;
-}
-
-.llm-bridge-codex-feed-batch-meta {
-  display: none !important;
-}
-
-.llm-bridge-codex-feed-batch-summary-main {
-  width: 100% !important;
-}
 
 .llm-bridge-msg-assistant,
 .llm-bridge-codex-final-answer,
-.llm-bridge-codex-final-answer-body,
-.llm-bridge-codex-feed-output-text,
-.llm-bridge-codex-thinking-summary,
 .llm-bridge-msg-markdown {
+
   user-select: text !important;
   -webkit-user-select: text !important;
 }
 
 /* ===== V17-G69: compact tool substeps, inline installed plugins and Codex-like send row ===== */
 
-.llm-bridge-codex-tool-group-body {
-  gap: 1px !important;
-  padding: 0 10px 8px 22px !important;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block {
-  margin: 0 !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-  overflow: visible !important;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.llm-bridge-codex-feed-item,
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.is-batch-event,
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.is-command,
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.is-file,
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-change-row.llm-bridge-codex-event-block {
-  background: transparent !important;
-  background-color: transparent !important;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block[open] {
-  border: 0 !important;
-  background: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-summary {
-  display: grid !important;
-  grid-template-columns: 18px minmax(0, 1fr) auto !important;
-  gap: 7px !important;
-  min-height: 29px !important;
-  padding: 3px 0 !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  background-color: transparent !important;
-  box-shadow: none !important;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-summary::before {
-  margin-left: -3px !important;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-main {
-  min-width: 0 !important;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-title {
-  display: flex !important;
-  align-items: baseline !important;
-  gap: 7px !important;
-  min-width: 0 !important;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-label {
-  color: var(--text-muted) !important;
-  font-size: 12px !important;
-  font-weight: 560 !important;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-hint {
-  display: block !important;
-  min-width: 0 !important;
-  color: var(--text-faint) !important;
-  font-size: 11px !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-meta {
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-body {
-  margin: 2px 0 8px 18px !important;
-  padding: 6px 0 0 10px !important;
-  border-left: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent) !important;
-  background: transparent !important;
-}
 
 .llm-bridge-composer-tools-right,
 .llm-bridge-model-effort-picker,
@@ -12595,29 +11786,6 @@
   z-index: 120 !important;
 }
 
-.llm-bridge-codex-process-head-meta,
-.llm-bridge-codex-feed-batch-count,
-.llm-bridge-codex-tool-group-count {
-  display: none !important;
-}
-
-.llm-bridge-codex-feed-batch-summary-main {
-  display: block !important;
-}
-
-.llm-bridge-codex-thinking-line {
-  display: block !important;
-  width: 100% !important;
-}
-
-.llm-bridge-codex-thinking-label {
-  margin-right: 8px !important;
-}
-
-.llm-bridge-codex-thinking-summary {
-  display: inline !important;
-  white-space: pre-wrap !important;
-}
 
 .llm-bridge-codex-tool-group {
   margin: 5px 0 6px 12px !important;
@@ -12627,35 +11795,6 @@
   box-shadow: none !important;
 }
 
-.llm-bridge-codex-tool-group-summary {
-  grid-template-columns: 18px minmax(0, 1fr) auto !important;
-  min-height: 30px !important;
-  padding: 2px 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-}
-
-.llm-bridge-codex-tool-group-main {
-  gap: 6px !important;
-}
-
-.llm-bridge-codex-tool-group-title {
-  font-size: 12px !important;
-  color: var(--text-muted) !important;
-}
-
-.llm-bridge-codex-tool-group-preview {
-  font-size: 11.5px !important;
-}
-
-.llm-bridge-codex-tool-group-meta {
-  font-size: 9.5px !important;
-}
-
-.llm-bridge-codex-tool-group-body {
-  padding: 0 0 3px 20px !important;
-  gap: 0 !important;
-}
 
 .llm-bridge-composer-tools-right {
   gap: 12px !important;
