@@ -378,6 +378,7 @@ export class LLMBridgeView extends ItemView {
   private includeNoteCheckEl!: HTMLInputElement;
   private includeSelectionCheckEl!: HTMLInputElement;
   private messagesEl!: HTMLElement;
+  private scrollBottomBtnEl!: HTMLElement;
   // V2.15-A: Chat shell 页面分区。Files 只展示 refs/approval 状态，不执行文件 runtime。
   private tabPanels!: { chat: HTMLElement; files: HTMLElement; skills: HTMLElement; history: HTMLElement };
   private activeTab: "chat" | "files" | "skills" | "history" = "chat";
@@ -523,7 +524,7 @@ export class LLMBridgeView extends ItemView {
     });
     this.statusLabelEl = runtimeStatus.createEl("span", {
       cls: "llm-bridge-status-text",
-      text: "SDK · ready",
+      text: "正在初始化…",
     });
     this.runtimeInstallBtnEl = headerRight.createEl("button", {
       cls: "llm-bridge-runtime-install-btn",
@@ -724,6 +725,16 @@ export class LLMBridgeView extends ItemView {
     this.messagesEl = chatPanel.createDiv({ cls: "llm-bridge-messages" });
     this.renderEmptyState();
 
+    // 回到底部浮动按钮
+    this.scrollBottomBtnEl = chatPanel.createDiv({ cls: "llm-bridge-scroll-bottom-btn", attr: { title: "回到底部", "aria-label": "回到底部" } });
+    setIcon(this.scrollBottomBtnEl.createEl("span", { cls: "llm-bridge-scroll-bottom-icon" }), "arrow-down");
+    this.scrollBottomBtnEl.style.display = "none";
+    this.scrollBottomBtnEl.addEventListener("click", () => this.scrollToBottom(true));
+    this.messagesEl.addEventListener("scroll", () => {
+      const show = !this.isNearBottom(160);
+      this.scrollBottomBtnEl.style.display = show ? "" : "none";
+    });
+
     // V2.14.0-E: 外部读取授权请求面板（只管理授权，不读取文件内容）
     this.externalReadPanelEl = filesPanel.createDiv({ cls: "llm-bridge-external-read-panel" });
     this.externalReadPanelEl.style.display = "none";
@@ -909,9 +920,12 @@ export class LLMBridgeView extends ItemView {
         if (this.handleMentionKeydown(e)) return;
       }
       if (this.handleComposerAttachmentKeydown(e)) return;
-      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        void this.runSession.run();
+      // Enter 发送 / Shift+Enter 换行；兼容中文输入法（isComposing 或 keyCode 229 时不触发）
+      if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+        if (e.ctrlKey || e.metaKey || !e.altKey) {
+          e.preventDefault();
+          void this.runSession.run();
+        }
       }
     });
     this.inputEl.addEventListener("input", () => {
@@ -946,7 +960,7 @@ export class LLMBridgeView extends ItemView {
     this.stopBtn.addEventListener("click", () => this.runSession.stop());
     this.sendBtn = actionCol.createEl("button", {
       cls: "llm-bridge-send-btn",
-      attr: { title: "发送 (Ctrl/Cmd+Enter)", "aria-label": "发送" },
+      attr: { title: "发送 (Enter)", "aria-label": "发送" },
     });
     setIcon(this.sendBtn.createEl("span", { cls: "llm-bridge-send-icon" }), "arrow-up");
     this.sendBtn.addEventListener("click", () => void this.runSession.run());
@@ -1901,7 +1915,18 @@ export class LLMBridgeView extends ItemView {
       plugin: view.plugin,
       app: view.app,
       getComposerInput: () => view.inputEl.value,
-      clearComposerInput: () => { view.inputEl.value = ""; },
+      clearComposerInput: () => {
+        view.inputEl.value = "";
+        // 清空发送框时同步清除附件高亮残留（input 事件不会自动触发）
+        if (view.composerController.selectedAttachmentId) {
+          view.composerController.selectedAttachmentId = null;
+          view.renderComposerFileRefs();
+        }
+      },
+      clearRuntimeCapabilitySelection: () => {
+        view.selectedRuntimeCapabilities = [];
+        view.renderComposerRuntimeCapabilityChips();
+      },
       setRuntimeInstallUi: (state, title) => view.setRuntimeInstallUi(state, title),
       isRuntimeInstallActionAvailable: () => !!view.runtimeInstallBtnEl && !view.runtimeInstallBtnEl.disabled,
       setAssistantWatchdogHint: (assistantId, text) => view.setAssistantWatchdogHint(assistantId, text),
@@ -7979,6 +8004,13 @@ export class LLMBridgeView extends ItemView {
     }
     this.agentSkills = skills;
     this.renderAgentSkillsList();
+    // Skill 启停后立即刷新物化缓存（清除旧缓存 + 重新物化）
+    this.codexSkillPrepCache = null;
+    void this.ensureCodexSkillsPreparedCached(vaultPath).then((r) => {
+      if (!r.ok) {
+        new Notice(`Skill 物化${enabled ? "（启用）" : "（禁用）"}失败: ${r.reason || "unknown"}`, 6000);
+      }
+    });
     new Notice(`${enabled ? "已启用" : "已禁用"} Agent Skill`);
   }
 

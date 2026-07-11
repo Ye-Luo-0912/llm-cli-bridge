@@ -269,6 +269,7 @@ export interface ChatMessage {
 }
 
 export interface LLMBridgeSettings {
+  settingsVersion: number;
   agentType: AgentType;
   claudeCommand: string;
   claudeArgs: string;
@@ -328,6 +329,7 @@ export interface LLMBridgeSettings {
 }
 
 export const DEFAULT_SETTINGS: LLMBridgeSettings = {
+  settingsVersion: 1,
   agentType: "claude",
   claudeCommand: "claude",
   claudeArgs: "-p",
@@ -348,7 +350,7 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   piApiBaseUrl: "",
   customCommand: "",
   customArgs: "",
-  includeActiveNote: true,
+  includeActiveNote: false,
   includeSelection: true,
   maxActiveNoteChars: 6000,
   maxSelectionChars: 3000,

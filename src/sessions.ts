@@ -24,6 +24,9 @@ export function validateSessionId(sessionId: string): string {
   if (!sessionId || typeof sessionId !== "string") {
     throw new Error("Invalid session id: must be a non-empty string");
   }
+  if (sessionId.length > 200) {
+    throw new Error("Invalid session id: exceeds 200 characters");
+  }
   if (/[\r\n\t\0]/.test(sessionId)) {
     throw new Error("Invalid session id: contains control characters");
   }
@@ -559,6 +562,9 @@ function resolveCodexHome(): string {
 }
 
 async function deleteCodexSessionFilesByProviderIds(providerIds: string[]): Promise<number> {
+  // Phase 2: 不再模糊扫描全局 Codex 历史。仅删除文件名以 provider id 结尾的 .jsonl 文件
+  // （Codex 命名约定：rollout-<timestamp>-<sessionId>.jsonl），避免 includes 子串匹配
+  // 误删前缀相同但实际不同的会话文件，并完全移除内容扫描逻辑。
   const safeIds = Array.from(new Set(providerIds.filter(isSafeProviderSessionId)));
   if (safeIds.length === 0) return 0;
   const sessionsDir = path.join(resolveCodexHome(), "sessions");
@@ -571,10 +577,10 @@ async function deleteCodexSessionFilesByProviderIds(providerIds: string[]): Prom
 
   let deleted = 0;
   for (const filePath of candidates) {
-    const fileName = path.basename(filePath);
-    const nameMatches = safeIds.some((id) => fileName.includes(id));
-    const contentMatches = nameMatches ? false : await codexSessionFileContainsProviderId(filePath, safeIds);
-    if (!nameMatches && !contentMatches) continue;
+    const baseName = path.basename(filePath, ".jsonl");
+    // 精确匹配 basename 或以 -<id> / _<id> 结尾（符合 Codex rollout-<ts>-<sessionId> 命名）
+    const matches = safeIds.some((id) => baseName === id || baseName.endsWith("-" + id) || baseName.endsWith("_" + id));
+    if (!matches) continue;
     try {
       await fs.promises.unlink(filePath);
       deleted += 1;
@@ -586,8 +592,11 @@ async function deleteCodexSessionFilesByProviderIds(providerIds: string[]): Prom
 }
 
 async function deleteCodexSessionIndexEntriesByProviderIds(providerIds: string[]): Promise<number> {
+  // Phase 2: 不再模糊扫描行内容。解析每行 JSON 并检查 session id 字段是否精确匹配，
+  // 避免子串匹配误删包含相同子串的其他会话索引条目。
   const safeIds = Array.from(new Set(providerIds.filter(isSafeProviderSessionId)));
   if (safeIds.length === 0) return 0;
+  const safeIdSet = new Set(safeIds);
   const indexPath = path.join(resolveCodexHome(), "session_index.jsonl");
   let raw: string;
   try {
@@ -603,7 +612,7 @@ async function deleteCodexSessionIndexEntriesByProviderIds(providerIds: string[]
   const kept: string[] = [];
   let removed = 0;
   for (const line of lines) {
-    if (safeIds.some((id) => line.includes(id))) {
+    if (codexIndexLineMatchesProviderId(line, safeIdSet)) {
       removed += 1;
     } else {
       kept.push(line);
@@ -627,6 +636,30 @@ async function deleteCodexSessionIndexEntriesByProviderIds(providerIds: string[]
   return removed;
 }
 
+/**
+ * 解析 Codex session_index.jsonl 的单行 JSON，检查 session id 字段是否精确匹配。
+ * JSON 解析失败的行保留（不删除），避免误删。
+ */
+function codexIndexLineMatchesProviderId(line: string, safeIdSet: Set<string>): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    return false;
+  }
+  if (!parsed || typeof parsed !== "object") return false;
+  const record = parsed as Record<string, unknown>;
+  // 检查常见的 session id 字段（精确匹配）
+  const candidateFields = ["session_id", "id", "sessionId", "thread_id", "threadId"];
+  for (const field of candidateFields) {
+    const value = record[field];
+    if (typeof value === "string" && safeIdSet.has(value)) return true;
+  }
+  return false;
+}
+
 async function collectFilesRecursive(root: string, extension: string): Promise<string[]> {
   const out: string[] = [];
   const stack = [root];
@@ -648,20 +681,4 @@ async function collectFilesRecursive(root: string, extension: string): Promise<s
     }
   }
   return out;
-}
-
-async function codexSessionFileContainsProviderId(filePath: string, providerIds: string[]): Promise<boolean> {
-  try {
-    const handle = await fs.promises.open(filePath, "r");
-    try {
-      const buffer = Buffer.alloc(8192);
-      const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
-      const head = buffer.toString("utf8", 0, bytesRead);
-      return providerIds.some((id) => head.includes(id));
-    } finally {
-      await handle.close();
-    }
-  } catch {
-    return false;
-  }
 }

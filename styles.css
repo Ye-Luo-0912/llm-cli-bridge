@@ -12665,21 +12665,21 @@
 
 .llm-bridge-input {
   width: 100%;
-  min-height: var(--llm-bridge-composer-empty-h, 52px);
-  max-height: var(--llm-bridge-composer-max-h, 180px);
-  height: var(--llm-bridge-composer-empty-h, 52px);
+  min-height: var(--llm-bridge-composer-empty-h, 44px);
+  max-height: var(--llm-bridge-composer-max-h, 160px);
+  height: var(--llm-bridge-composer-empty-h, 44px);
   resize: none;
   overflow-y: auto;
   border: none;
   background: transparent;
   box-shadow: none;
-  padding: 4px 4px 6px;
+  padding: 3px 4px 4px;
   font-size: 14px;
   line-height: 1.45;
 }
 
 .llm-bridge-input.is-auto-grown {
-  min-height: 64px;
+  min-height: 56px;
 }
 
 .llm-bridge-composer-toolbar {
@@ -12794,17 +12794,7 @@
   white-space: nowrap;
 }
 
-@media (max-width: 720px) {
-  .llm-bridge-permission-chip.llm-bridge-composer-tool-btn {
-    max-width: 32px;
-    padding: 0 6px;
-    gap: 0;
-  }
-
-  .llm-bridge-permission-chip-label {
-    display: none;
-  }
-}
+/* 窄屏下权限按钮保持完整显示（旧规则会隐藏标签文字，已移除） */
 
 /* 权限弹层：三项列表（样式权威来源；legacy 中重复规则已收敛） */
 .llm-bridge-perm-popover.llm-bridge-menu-surface,
@@ -14836,6 +14826,37 @@
 .llm-bridge-command-menu-plugin-icon, .llm-bridge-command-menu-plugin-icon svg {
   width: 15px;
   height: 15px;
+}
+
+/* 回到底部浮动按钮 */
+.llm-bridge-scroll-bottom-btn {
+  position: absolute;
+  right: 16px;
+  bottom: 140px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-secondary);
+  color: var(--text-normal);
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transition: opacity 0.15s, transform 0.15s;
+  opacity: 0.85;
+}
+
+.llm-bridge-scroll-bottom-btn:hover {
+  opacity: 1;
+  transform: scale(1.08);
+}
+
+.llm-bridge-scroll-bottom-icon svg {
+  width: 16px;
+  height: 16px;
 }
 
 .llm-bridge-command-menu-plugin-icon {

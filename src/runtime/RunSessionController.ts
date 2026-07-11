@@ -80,6 +80,8 @@ export interface RunSessionHost {
   getComposerInput(): string;
   /** Clear the composer input (called after a run starts). */
   clearComposerInput(): void;
+  /** Clear Tool/Skill selection for this turn (called after a run starts). */
+  clearRuntimeCapabilitySelection(): void;
 
   // --- Runtime install UI (replaces runtimeInstallBtnEl) ---
   /** Disable the install button and show the installing state. */
@@ -323,8 +325,7 @@ export class RunSessionController {
     this.host.autoGrowInput();
     this.host.closeMentionPicker();
     this.host.clearMessageContext();
-    this.host.selectedRuntimeCapabilities = [];
-    this.host.renderComposerRuntimeCapabilityChips();
+    this.host.clearRuntimeCapabilitySelection();
 
     if (this.host.sessionState.messageCount === 0) {
       this.host.sessionState = updateSession(this.host.sessionState, {

@@ -5111,9 +5111,10 @@ if (runMode !== "all" && runMode !== "unit") {
           const codexAllOk = codexPrep.results.every((r) => r.ok);
           const codexVaultApiOk = codexVaultApi && codexVaultApi.ok;
           const codexVaultContextOk = codexVaultContext && codexVaultContext.ok;
-          // 验证文件存在
-          const codexVaultApiPath = pathMod.join(tmpCodexHome, "skills", "llm-bridge-vault-api", "SKILL.md");
-          const codexVaultContextPath = pathMod.join(tmpCodexHome, "skills", "llm-bridge-vault-context", "SKILL.md");
+          // 验证文件存在（路径含 vault hash 前缀：llm-bridge-<vaultHash>-<slug>）
+          const codexVaultHash = agentSkillsMod.computeVaultHash(v17aTmpRoot);
+          const codexVaultApiPath = pathMod.join(tmpCodexHome, "skills", `llm-bridge-${codexVaultHash}-vault-api`, "SKILL.md");
+          const codexVaultContextPath = pathMod.join(tmpCodexHome, "skills", `llm-bridge-${codexVaultHash}-vault-context`, "SKILL.md");
           const codexVaultApiFileExists = fsMod.existsSync(codexVaultApiPath);
           const codexVaultContextFileExists = fsMod.existsSync(codexVaultContextPath);
           // 验证名称带前缀
@@ -12806,6 +12807,38 @@ if (!runV25Unit) {
       }
     }
 
+    // ===== Phase 2: Bridge 历史删除边界 + Skills 同步/清理入口 =====
+
+    // ---- Phase 2 Test A: 不再模糊扫描 Codex session 文件内容 ----
+    {
+      const sessionsSrcLocal = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
+      const ok = !sessionsSrcLocal.includes("codexSessionFileContainsProviderId")
+        && sessionsSrcLocal.includes('baseName.endsWith("-" + id)')
+        && !sessionsSrcLocal.includes("fileName.includes(id)");
+      addTest("Phase 2: Bridge 历史删除不再模糊扫描文件内容（endsWith + 移除 content scan）",
+        ok ? "pass" : "fail", "");
+    }
+
+    // ---- Phase 2 Test B: Codex index 条目精确 JSON 字段匹配 ----
+    {
+      const sessionsSrcLocal = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf-8");
+      const ok = sessionsSrcLocal.includes("codexIndexLineMatchesProviderId")
+        && sessionsSrcLocal.includes('candidateFields = ["session_id", "id", "sessionId", "thread_id", "threadId"]')
+        && !sessionsSrcLocal.includes("line.includes(id)");
+      addTest("Phase 2: Codex session index 使用 JSON 精确字段匹配（非 line.includes 子串）",
+        ok ? "pass" : "fail", "");
+    }
+
+    // ---- Phase 2 Test C: Skills 同步/清理命令入口存在 ----
+    {
+      const mainSrcLocal = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf-8");
+      const ok = mainSrcLocal.includes('id: "sync-skills"')
+        && mainSrcLocal.includes('id: "clean-plugin-generated-skills"')
+        && mainSrcLocal.includes("cleanupCodexBridgeSkillsForVaultSync");
+      addTest("Phase 2: 提供 Sync Skills + Clean Plugin-Generated Skills 命令入口",
+        ok ? "pass" : "fail", "");
+    }
+
     // ===== Session 安全写入 / secret 脱敏 =====
 
     // ---- Test 20: saveSession 失败不抛异常（只读目录）----
@@ -15866,6 +15899,7 @@ if (!runV213CUnit) {
       saveAgentSkillsManifestSync,
       slugifyAgentSkillName,
       materializedSkillPathForSlug,
+      computeVaultHash,
       codexBridgeSkillPathForSlug,
       serializeAgentSkillToMarkdown,
       computeAgentSkillSourceHash,
@@ -15968,13 +16002,14 @@ if (!runV213CUnit) {
 
     {
       const codexHome = mkdtempSync(join(tmpdir(), "llm-bridge-codex-home-"));
-      const result = materializeAgentSkillToCodexHomeSync(record, codexHome);
-      const expectedPath = codexBridgeSkillPathForSlug(record.slug, codexHome);
+      const result = materializeAgentSkillToCodexHomeSync(record, codexHome, tempAgentSkillVault);
+      const expectedPath = codexBridgeSkillPathForSlug(tempAgentSkillVault, record.slug, codexHome);
       const content = readFileSync(expectedPath, "utf8");
+      const vaultHash = computeVaultHash(tempAgentSkillVault);
       const ok = result.ok
         && result.status === "created"
         && result.filePath === expectedPath
-        && expectedPath.includes(`${sep}skills${sep}llm-bridge-review-skill${sep}SKILL.md`)
+        && expectedPath.includes(`${sep}skills${sep}llm-bridge-${vaultHash}-review-skill${sep}SKILL.md`)
         && content.includes("name: \"llm-bridge-Review Skill\"")
         && content.includes("Bridge plugin Skill")
         && !expectedPath.includes(`${sep}.claude${sep}`);
@@ -15985,7 +16020,7 @@ if (!runV213CUnit) {
       const codexHome = mkdtempSync(join(tmpdir(), "llm-bridge-codex-home-prep-"));
       saveAgentSkillsManifestSync(tempAgentSkillVault, { version: 1, skills: [record] });
       const result = prepareAgentSkillsForCodexRuntimeSync(tempAgentSkillVault, codexHome);
-      const expectedPath = codexBridgeSkillPathForSlug(record.slug, codexHome);
+      const expectedPath = codexBridgeSkillPathForSlug(tempAgentSkillVault, record.slug, codexHome);
       const ok = result.ok
         && result.enabledCount === 1
         && result.results.length === 1
@@ -16076,6 +16111,7 @@ if (!runV213CUnit) {
       } = await import(pathToFileURL(agentSkillsBundleV213C).href);
 
       const tmpCodex = mkdtempSync(join(tmpdir(), "llm-bridge-skill-migrate-"));
+      const tmpVault = tempAgentSkillVault;
       try {
         const oldRec = createRec({
           id: "as-old-id",
@@ -16092,23 +16128,22 @@ if (!runV213CUnit) {
           instructions: "new instructions",
         }, [], "2026-06-30T00:00:01.000Z");
 
-        // 1) 旧 ID 在 llm-bridge-<slug> 目录可迁移
-        const ownedPath = codexPath("vault-context", tmpCodex);
+        // 1) 旧 ID 在 llm-bridge-<vaultHash>-<slug> 目录可迁移
+        const ownedPath = codexPath(tmpVault, "vault-context", tmpCodex);
         mkdirSync(dirname(ownedPath), { recursive: true });
         writeFileSync(ownedPath, serializeMd(oldRec), "utf8");
-        const migrated = matTarget(newRec, ownedPath);
+        const migrated = matTarget(newRec, ownedPath, { vaultPath: tmpVault });
         const migratedContent = readFileSync(ownedPath, "utf8");
         const migrateOk = migrated.ok
           && (migrated.status === "updated" || migrated.status === "created")
           && migratedContent.includes("<!-- source-id: as-new-id -->")
-          && isBridgeOwnedSkillDirectory(ownedPath, "vault-context");
+          && isBridgeOwnedSkillDirectory(ownedPath, tmpVault, "vault-context");
 
         // 2) 重复执行幂等 → skipped
-        const again = matTarget(newRec, ownedPath);
+        const again = matTarget(newRec, ownedPath, { vaultPath: tmpVault });
         const idempotentOk = again.ok && again.status === "skipped";
 
         // 3) 外部/手工文件不可覆盖（无 generated-by）
-        const externalPath = join(tmpCodex, "skills", "llm-bridge-vault-context", "EXTERNAL.md");
         // 用非 bridge 目录 + 手工内容
         const foreignDir = join(tmpCodex, "skills", "foreign-skill", "SKILL.md");
         mkdirSync(dirname(foreignDir), { recursive: true });
@@ -16116,23 +16151,22 @@ if (!runV213CUnit) {
         const foreign = matTarget(newRec, foreignDir);
         const foreignConflict = !foreign.ok && foreign.status === "conflict" && /not plugin-generated/.test(foreign.reason || "");
 
-        // 4) 有 generated-by 但目录不是 llm-bridge-<slug> → 旧 ID 冲突不覆盖
+        // 4) 有 generated-by 但目录不是 llm-bridge-<vaultHash>-<slug> → 旧 ID 冲突不覆盖
         const wrongDir = join(tmpCodex, "skills", "vault-context", "SKILL.md");
         mkdirSync(dirname(wrongDir), { recursive: true });
         writeFileSync(wrongDir, serializeMd(oldRec), "utf8");
-        const wrongDirResult = matTarget(newRec, wrongDir);
+        const wrongDirResult = matTarget(newRec, wrongDir, { vaultPath: tmpVault });
         const wrongDirConflict = !wrongDirResult.ok
           && wrongDirResult.status === "conflict"
           && /belongs to another/.test(wrongDirResult.reason || "");
 
         // 5) Codex home helper 路径也走迁移
-        const viaHelper = matCodex(newRec, tmpCodex);
+        const viaHelper = matCodex(newRec, tmpCodex, tmpVault);
         const helperOk = viaHelper.ok && (viaHelper.status === "skipped" || viaHelper.status === "updated");
 
         addTest("P0 Skill ownership: 旧 ID 可迁移 / 外部不可覆盖 / 非 llm-bridge 目录冲突 / 幂等",
           migrateOk && idempotentOk && foreignConflict && wrongDirConflict && helperOk ? "pass" : "fail",
           `migrate=${migrateOk} idempotent=${idempotentOk} foreign=${foreignConflict} wrongDir=${wrongDirConflict} helper=${helperOk}`);
-        void externalPath;
       } finally {
         try { rmSync(tmpCodex, { recursive: true, force: true }); } catch {}
       }
@@ -19535,11 +19569,15 @@ if (!runNoteSummarizeSmoke) {
     addTest("V2.16-D styles.css: context strip + runtime pill 样式", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 8: view.ts runtime status 改为英文 pill 格式 ----
+  // ---- Test 8: view.ts runtime status 英文 pill 格式 + Phase1 初始文案 ----
   {
+    // Phase 1: 初始状态文案改为 "正在初始化…"，不再提前显示假 "SDK · ready"
+    // 运行时检测后仍使用英文短标签 pill（ready/running/error）
     const ok = viewSrc.includes('"error" : this.sessionState.status === "running" ? "running" : "ready"')
-      && viewSrc.includes('"SDK · ready"');
-    addTest("V2.16-D view.ts: runtime status 英文 pill 格式", ok ? "pass" : "fail", "");
+      && viewSrc.includes('"正在初始化…"')
+      && !viewSrc.includes('"SDK · ready"')
+      && viewSrc.includes("· ${runtimeState}");
+    addTest("V2.16-D view.ts: runtime status 英文 pill 格式 + Phase1 初始文案", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 9: view.ts saveSession 传入 SessionExtras ----

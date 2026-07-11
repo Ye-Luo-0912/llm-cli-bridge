@@ -11,6 +11,7 @@ import { buildCommandLine } from "./commandProfile";
 import { AgentSkillsRuntimePreparationResult, prepareAgentSkillsForClaudeRuntimeSync } from "./agentSkills";
 import { resolveClaudeRuntimeConfig } from "./claudeRuntimeConfig";
 import { RuntimeFileToolAdapterResult, RuntimeFileToolCall, describeRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
+import { redactSecrets } from "./workflowEvent";
 
 // ---------- PATH 增强工具函数（从 runner.ts 迁移） ----------
 
@@ -190,14 +191,17 @@ function buildMissingRuntimeFileToolAdapterResult(kind: "cli", toolName: string)
 /**
  * 写入调试日志到 .llm-bridge/logs/debug-<timestamp>.log
  * 只写本地文件，不通过 stderr_delta 推送（避免污染 UI）
+ * 非开发者模式不写入；开发者模式写入时对敏感信息脱敏
  */
-function writeDebugLog(cwd: string, content: string): void {
+function writeDebugLog(cwd: string, content: string, developerMode: boolean): void {
+  if (!developerMode) return;
   try {
     const logDir = path.join(cwd, ".llm-bridge", "logs");
     fs.mkdirSync(logDir, { recursive: true });
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
     const logPath = path.join(logDir, `debug-${ts}.log`);
-    fs.writeFileSync(logPath, content, "utf8");
+    const redacted = redactSecrets(content);
+    fs.writeFileSync(logPath, redacted, "utf8");
   } catch {
     // 写日志失败不影响主流程
   }
@@ -358,7 +362,7 @@ export class ClaudeCliBackend implements AgentBackend {
       spawnFailed = true;
       const reason = `cwd 不存在: ${task.cwd}\n`;
       debugLog += `[pre-spawn check failed] ${reason}`;
-      writeDebugLog(task.cwd, debugLog);
+      writeDebugLog(task.cwd, debugLog, !!settings.developerMode);
       // 用户可见的失败摘要
       const summary = buildFailureSummary(command, null, "", task.cwd);
       stderr = summary;
@@ -374,7 +378,7 @@ export class ClaudeCliBackend implements AgentBackend {
       debugLog += buildAgentSkillsRuntimeDiagnostic(agentSkillsRuntime);
       if (!agentSkillsRuntime.ok) {
         spawnFailed = true;
-        writeDebugLog(task.cwd, debugLog);
+        writeDebugLog(task.cwd, debugLog, !!settings.developerMode);
         stderr = buildAgentSkillsRuntimeFailureSummary(agentSkillsRuntime);
         onEvent({ type: "failed", exitCode: null, durationMs: 0, stdout, stderr, command, args });
         return {
@@ -402,7 +406,7 @@ export class ClaudeCliBackend implements AgentBackend {
       const err = e as Error;
       const errMsg = `[spawn exception] ${err.message}\n`;
       debugLog += errMsg;
-      writeDebugLog(task.cwd, debugLog);
+      writeDebugLog(task.cwd, debugLog, !!settings.developerMode);
       const summary = buildFailureSummary(command, null, errMsg, task.cwd);
       stderr = summary;
       onEvent({ type: "failed", exitCode: null, durationMs: 0, stdout, stderr, command, args });
@@ -425,7 +429,7 @@ export class ClaudeCliBackend implements AgentBackend {
       debugLog += `stdout length: ${stdout.length}\n`;
       debugLog += `stderr length: ${stderr.length}\n`;
       debugLog += `---- stderr (full) ----\n${stderr}\n`;
-      writeDebugLog(task.cwd, debugLog);
+      writeDebugLog(task.cwd, debugLog, !!settings.developerMode);
 
       // 根据退出状态发出对应事件
       if (stopped) {

@@ -1263,7 +1263,7 @@ export function materializeAllSkillsToAllTargets(vaultPath: string): Materialize
     });
     results.push({ ...piResult, target: "pi", slug: record.slug });
 
-    // codex target（~/.codex/skills/llm-bridge-<slug>/SKILL.md，带 name/desc override）
+    // codex target（~/.codex/skills/llm-bridge-<vaultHash>-<slug>/SKILL.md，带 name/desc override）
     const codexResult = materializeAgentSkillToCodexHomeSync(record, undefined, vaultPath);
     results.push({ ...codexResult, target: "codex", slug: record.slug });
   }

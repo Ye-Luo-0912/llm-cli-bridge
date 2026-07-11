@@ -412,6 +412,43 @@ export default class LLMBridgePlugin extends Plugin {
       },
     });
 
+    // Phase 2: 同步 Skills — 确保源存在 → compact → 物化到 claude/.agents/.pi/codex 四端
+    this.addCommand({
+      id: "sync-skills",
+      name: "Sync Skills (materialize to all targets)",
+      callback: async () => {
+        const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+        const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllSkillsToAllTargets } = await import("./src/agentRuntimeWorkspace");
+        await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
+        try { await compactOrSplitVaultSkill(vaultPath); } catch { /* compact 失败不阻塞物化 */ }
+        const result = materializeAllSkillsToAllTargets(vaultPath);
+        const okCount = result.results.filter((r) => r.ok).length;
+        const conflictCount = result.results.filter((r) => r.status === "conflict").length;
+        const msg = conflictCount > 0
+          ? `同步完成: ${okCount}/${result.results.length} (4 targets); ${conflictCount} conflict`
+          : `同步完成: ${okCount}/${result.results.length} (4 targets: claude/.agents/.pi/codex)`;
+        new Notice(msg);
+      },
+    });
+
+    // Phase 2: 清理插件生成 Skills — 删除 ~/.codex/skills/ 下本 vault 的 bridge-owned 目录
+    this.addCommand({
+      id: "clean-plugin-generated-skills",
+      name: "Clean Plugin-Generated Skills (Codex)",
+      callback: async () => {
+        const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+        const { cleanupCodexBridgeSkillsForVaultSync } = await import("./src/agentSkills");
+        // keepSlugs=[] 删除当前 vault 的所有 bridge-owned skill 目录（旧格式 + 当前 vault 失效目录）
+        const result = cleanupCodexBridgeSkillsForVaultSync(vaultPath, undefined, []);
+        const removedCount = result.removed.length;
+        const errorCount = result.errors.length;
+        const msg = errorCount > 0
+          ? `清理完成: 删除 ${removedCount} 个目录, ${errorCount} 个错误`
+          : `清理完成: 删除 ${removedCount} 个 bridge-owned skill 目录`;
+        new Notice(msg);
+      },
+    });
+
     // V17-C1 任务 B / V17-C2 任务 A：朋友版 preset 初始化命令
     this.addCommand({
       id: "enable-friend-preview",
@@ -535,23 +572,55 @@ export default class LLMBridgePlugin extends Plugin {
     workspace.revealLeaf(leaf);
   }
 
+  /**
+   * 集中 settings 迁移：版本号驱动，将旧版本设置升级到当前 schema。
+   * 返回 { settings, changed } — changed=true 表示发生了迁移需要落盘。
+   */
+  private migrateSettings(
+    current: LLMBridgeSettings,
+    raw: unknown,
+  ): { settings: LLMBridgeSettings; changed: boolean } {
+    let settings = { ...current };
+    let changed = false;
+    const rawRecord = raw as Record<string, unknown>;
+    const loadedVersion = typeof rawRecord?.settingsVersion === "number" ? rawRecord.settingsVersion : 0;
+
+    // v0 → v1: 旧版本数据（无 settingsVersion 字段）
+    if (loadedVersion < 1) {
+      // V2.16-B: 迁移旧的 "sdk-experimental" → "sdk"
+      if ((settings as { backendMode?: string }).backendMode === "sdk-experimental") {
+        settings.backendMode = "sdk";
+        changed = true;
+      }
+      // V17-F0 任务 C：迁移旧的 "codex" → "codex-app-server-external"
+      if ((settings as { backendMode?: string }).backendMode === "codex") {
+        settings.backendMode = "codex-app-server-external";
+        changed = true;
+      }
+      // agentApprovalProfile：旧数据统一回到「请求批准」
+      const rawProf = rawRecord as { agentApprovalProfile?: unknown };
+      if (!isAgentApprovalProfile(rawProf.agentApprovalProfile) || rawProf.agentApprovalProfile === "full-access") {
+        settings.agentApprovalProfile = migrateLegacyPermissionToApprovalProfile(settings.claudePermissionMode);
+        settings.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode(settings.agentApprovalProfile);
+        changed = true;
+      }
+      // v1 新增：includeActiveNote 默认改为 false（隐私保护）
+      // 旧版本 includeActiveNote=true 的用户保持原值（不强制改变已有行为）
+    }
+
+    if (changed || loadedVersion < 1) {
+      settings.settingsVersion = 1;
+    }
+    return { settings, changed };
+  }
+
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
-    // V2.16-B: 迁移旧的 "sdk-experimental" → "sdk"
-    if ((this.settings as { backendMode?: string }).backendMode === "sdk-experimental") {
-      this.settings.backendMode = "sdk";
-      await this.saveData(this.settings);
-    }
-    // V17-F0 任务 C：迁移旧的 "codex" → "codex-app-server-external"（保留用户选择，不强制改 auto）
-    if ((this.settings as { backendMode?: string }).backendMode === "codex") {
-      this.settings.backendMode = "codex-app-server-external";
-      await this.saveData(this.settings);
-    }
-    // agentApprovalProfile：旧数据统一回到「请求批准」，不把 bypassPermissions / full-access 静默持久化
-    const raw = this.settings as { agentApprovalProfile?: unknown };
-    if (!isAgentApprovalProfile(raw.agentApprovalProfile) || raw.agentApprovalProfile === "full-access") {
-      this.settings.agentApprovalProfile = migrateLegacyPermissionToApprovalProfile(this.settings.claudePermissionMode);
-      this.settings.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode(this.settings.agentApprovalProfile);
+    const loaded = await this.loadData();
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
+    // 集中 settings 迁移：版本号驱动，避免 ad-hoc 逻辑分散
+    const migrated = this.migrateSettings(this.settings, loaded);
+    if (migrated.changed) {
+      this.settings = migrated.settings;
       await this.saveData(this.settings);
     }
   }
@@ -564,7 +633,11 @@ export default class LLMBridgePlugin extends Plugin {
       this.settings.agentApprovalProfile = "ask";
       this.settings.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode("ask");
     }
+    // Pi API Key 不写入 data.json（仅在内存中保留，避免明文落盘）
+    const liveApiKey = this.settings.piApiKey;
+    this.settings.piApiKey = "";
     await this.saveData(this.settings);
+    this.settings.piApiKey = liveApiKey;
     if (liveProfile === "full-access") {
       this.settings.agentApprovalProfile = liveProfile;
       this.settings.claudePermissionMode = liveClaude;

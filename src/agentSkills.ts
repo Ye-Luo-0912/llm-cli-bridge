@@ -233,21 +233,41 @@ export function resolveCodexHome(): string {
   return path.join(os.homedir(), ".codex");
 }
 
-export function codexBridgeSkillDirName(slug: string): string {
-  return `${CODEX_BRIDGE_SKILL_PREFIX}${normalizeSlug(slug)}`;
-}
-
-export function codexBridgeSkillPathForSlug(slug: string, codexHome: string = resolveCodexHome()): string {
-  return path.join(codexHome, "skills", codexBridgeSkillDirName(slug), AGENT_SKILL_FILE_NAME);
+/**
+ * 计算 vaultPath 的 8 字符 hash 前缀，用于 codex home skill 目录命名隔离。
+ *
+ * 不同 vault 的同名 skill 在 codex home（用户级共享目录）中通过 vault hash 区分，
+ * 避免后物化的 vault 覆盖前一个。
+ * 标准化：resolve 为绝对路径 + 统一正斜杠 + 小写（Windows 路径不区分大小写）。
+ */
+export function computeVaultHash(vaultPath: string): string {
+  const normalized = path.resolve(vaultPath).replace(/\\/g, "/").toLowerCase();
+  return createHash("md5").update(normalized, "utf8").digest("hex").slice(0, 8);
 }
 
 /**
- * 仅当目标目录名严格等于 `llm-bridge-<slug>` 时，允许将旧 source-id 迁移到当前 manifest。
- * 其他插件或手工 Skill（目录名不符）必须继续报冲突、绝不覆盖。
+ * 返回 codex home 中 bridge skill 的目录名：`llm-bridge-<vaultHash>-<slug>`。
+ *
+ * vaultHash 来自 vaultPath，确保不同 vault 的同名 skill 目录互不冲突。
  */
-export function isBridgeOwnedSkillDirectory(filePath: string, slug: string): boolean {
+export function codexBridgeSkillDirName(vaultPath: string, slug: string): string {
+  const vaultHash = computeVaultHash(vaultPath);
+  return `${CODEX_BRIDGE_SKILL_PREFIX}${vaultHash}-${normalizeSlug(slug)}`;
+}
+
+export function codexBridgeSkillPathForSlug(vaultPath: string, slug: string, codexHome: string = resolveCodexHome()): string {
+  return path.join(codexHome, "skills", codexBridgeSkillDirName(vaultPath, slug), AGENT_SKILL_FILE_NAME);
+}
+
+/**
+ * 仅当目标目录名严格等于 `llm-bridge-<vaultHash>-<slug>` 时，允许将旧 source-id 迁移到当前 manifest。
+ * 其他插件或手工 Skill（目录名不符）必须继续报冲突、绝不覆盖。
+ * vaultPath 为空字符串时始终返回 false（非 codex target 不允许 ownership 迁移）。
+ */
+export function isBridgeOwnedSkillDirectory(filePath: string, vaultPath: string, slug: string): boolean {
+  if (!vaultPath) return false;
   const dirName = path.basename(path.dirname(filePath));
-  return dirName === codexBridgeSkillDirName(slug);
+  return dirName === codexBridgeSkillDirName(vaultPath, slug);
 }
 
 /**
@@ -256,13 +276,99 @@ export function isBridgeOwnedSkillDirectory(filePath: string, slug: string): boo
 export function canMigrateBridgeSkillOwnership(
   existingContent: string,
   filePath: string,
+  vaultPath: string,
   slug: string,
   nextSourceId: string,
 ): boolean {
   const marker = parseGeneratedMarker(existingContent);
   if (!marker || marker.generatedBy !== AGENT_SKILL_GENERATED_BY) return false;
   if (marker.sourceId === nextSourceId) return false; // 同 ID 走常规更新/跳过，不算迁移
-  return isBridgeOwnedSkillDirectory(filePath, slug);
+  return isBridgeOwnedSkillDirectory(filePath, vaultPath, slug);
+}
+
+/**
+ * 清理 Codex home skills 目录中属于当前 vault 的旧格式 / 失效 bridge skill 目录。
+ *
+ * 多 Vault 隔离策略：
+ * - 旧格式目录（`llm-bridge-<slug>`，无 vault hash）→ 识别为旧格式并删除（向后兼容迁移）
+ * - 当前 vault 的目录（`llm-bridge-<vaultHash>-<slug>`）且 slug 不在 keepSlugs 中 → 删除（失效 skill）
+ * - 其他 vault 的目录（不同 vault hash）→ 保留（多 vault 隔离，互不干扰）
+ * - 非 bridge 目录（不以 `llm-bridge-` 开头）→ 保留（用户手工或其他插件目录）
+ *
+ * @param vaultPath 当前 vault 路径，用于计算 vault hash
+ * @param codexHome Codex home 目录，默认 ~/.codex
+ * @param keepSlugs 当前 vault 需要保留的 skill slug 列表（enabled skills）；不传则只清理旧格式
+ */
+export interface CodexBridgeSkillCleanupResult {
+  readonly removed: readonly string[];
+  readonly kept: readonly string[];
+  readonly errors: readonly string[];
+}
+
+export function cleanupCodexBridgeSkillsForVaultSync(
+  vaultPath: string,
+  codexHome: string = resolveCodexHome(),
+  keepSlugs?: readonly string[],
+): CodexBridgeSkillCleanupResult {
+  const skillsDir = path.join(codexHome, "skills");
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(skillsDir);
+  } catch {
+    return { removed: [], kept: [], errors: [] };
+  }
+
+  const vaultHash = computeVaultHash(vaultPath);
+  const currentVaultPrefix = `${CODEX_BRIDGE_SKILL_PREFIX}${vaultHash}-`;
+  // 新格式检测：llm-bridge-<8位hex>-<slug>
+  const newFormatRe = new RegExp(`^${CODEX_BRIDGE_SKILL_PREFIX}[a-f0-9]{8}-`);
+  const keepSet = keepSlugs ? new Set(keepSlugs.map(normalizeSlug)) : null;
+
+  const removed: string[] = [];
+  const kept: string[] = [];
+  const errors: string[] = [];
+
+  for (const entry of entries) {
+    if (!entry.startsWith(CODEX_BRIDGE_SKILL_PREFIX)) {
+      // 非 bridge 目录 → 保留
+      kept.push(entry);
+      continue;
+    }
+
+    const isNewFormat = newFormatRe.test(entry);
+    if (isNewFormat) {
+      if (entry.startsWith(currentVaultPrefix)) {
+        // 当前 vault 的 skill 目录
+        const slug = entry.slice(currentVaultPrefix.length);
+        if (keepSet && !keepSet.has(slug)) {
+          // 不在 keepSlugs 中 → 删除（失效/已禁用 skill）
+          const fullPath = path.join(skillsDir, entry);
+          try {
+            fs.rmSync(fullPath, { recursive: true, force: true });
+            removed.push(entry);
+          } catch (e) {
+            errors.push(`${entry}: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        } else {
+          kept.push(entry);
+        }
+      } else {
+        // 其他 vault 的 skill 目录 → 保留（多 vault 隔离）
+        kept.push(entry);
+      }
+    } else {
+      // 旧格式：llm-bridge-<slug>（无 vault hash）→ 删除（向后兼容迁移）
+      const fullPath = path.join(skillsDir, entry);
+      try {
+        fs.rmSync(fullPath, { recursive: true, force: true });
+        removed.push(entry);
+      } catch (e) {
+        errors.push(`${entry}: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+  }
+
+  return { removed, kept, errors };
 }
 
 export function computeAgentSkillSourceHash(record: Pick<AgentSkillRecord, "name" | "description" | "instructions">): string {
@@ -308,6 +414,9 @@ export interface AgentSkillTargetOptions {
   readonly expectedHash?: string;
   /** 源目录绝对路径（包 skill 物化时读取附属 .md 文件的来源） */
   readonly sourceDir?: string;
+  /** codex home target 的 vaultPath，用于 bridge ownership 迁移检查；
+   * 非 codex target（claude/.agents/.pi）不需要传，不传时不允许 ownership 迁移。 */
+  readonly vaultPath?: string;
 }
 
 export function materializeAgentSkillToTarget(
@@ -341,8 +450,8 @@ export function materializeAgentSkillToTarget(
       if (marker && marker.generatedBy === AGENT_SKILL_GENERATED_BY) {
         // Agent Skill 格式（source-id marker）
         if (marker.sourceId !== normalized.id) {
-          // P0: 仅 llm-bridge-<slug> 目录允许旧 source-id → 当前 manifest 迁移
-          if (!isBridgeOwnedSkillDirectory(filePath, normalized.slug)) {
+          // P0: 仅 codex home 的 llm-bridge-<vaultHash>-<slug> 目录允许旧 source-id → 当前 manifest 迁移
+          if (!isBridgeOwnedSkillDirectory(filePath, options.vaultPath ?? "", normalized.slug)) {
             return conflict(nextRecord, filePath, "target SKILL.md belongs to another Agent Skill record");
           }
           // fall through → 覆盖写入（ownership migration）
@@ -413,15 +522,16 @@ export function materializeAgentSkillSync(vaultPath: string, record: AgentSkillR
 export function materializeAgentSkillToCodexHomeSync(
   record: AgentSkillRecord,
   codexHome: string = resolveCodexHome(),
-  vaultPath?: string,
+  vaultPath: string = "",
 ): AgentSkillMaterializeResult {
   const normalized = normalizeAgentSkillRecord(record);
-  const filePath = codexBridgeSkillPathForSlug(normalized.slug, codexHome);
+  const filePath = codexBridgeSkillPathForSlug(vaultPath, normalized.slug, codexHome);
   const sourceDir = (normalized.sourceDir && vaultPath) ? path.join(vaultPath, normalized.sourceDir) : undefined;
   return materializeAgentSkillToTarget(normalized, filePath, {
     nameOverride: `${CODEX_BRIDGE_SKILL_PREFIX}${normalized.name}`,
     descriptionOverride: `${normalized.description} (Bridge plugin Skill)`,
     sourceDir,
+    vaultPath,
   });
 }
 
@@ -513,12 +623,18 @@ export function prepareAgentSkillsForCodexRuntimeSync(
   const manifest = loadAgentSkillsManifestSync(vaultPath);
   const enabledCount = manifest.skills.filter((record) => record.enabled).length;
   if (enabledCount === 0) {
+    // 即使没有 enabled skill，也清理旧格式目录 + 当前 vault 的失效 skill
+    cleanupCodexBridgeSkillsForVaultSync(vaultPath, codexHome, []);
     return { ok: true, enabledCount, results: [], manifest, saved: false };
   }
 
+  // 清理旧格式目录（无 vault hash）+ 当前 vault 的失效 skill 目录（不在 enabled 列表中）
+  const enabledSlugs = manifest.skills.filter((r) => r.enabled).map((r) => r.slug);
+  cleanupCodexBridgeSkillsForVaultSync(vaultPath, codexHome, enabledSlugs);
+
   const results = manifest.skills
     .filter((record) => record.enabled)
-    .map((record) => materializeAgentSkillToCodexHomeSync(record, codexHome));
+    .map((record) => materializeAgentSkillToCodexHomeSync(record, codexHome, vaultPath));
   const failed = results.filter((result) => !result.ok);
   if (failed.length > 0) {
     return {
@@ -550,8 +666,14 @@ export async function prepareAgentSkillsForCodexRuntime(
   const manifest = await loadAgentSkillsManifest(vaultPath);
   const enabledCount = manifest.skills.filter((record) => record.enabled).length;
   if (enabledCount === 0) {
+    // 即使没有 enabled skill，也清理旧格式目录 + 当前 vault 的失效 skill
+    cleanupCodexBridgeSkillsForVaultSync(vaultPath, codexHome, []);
     return { ok: true, enabledCount, results: [], manifest, saved: false };
   }
+
+  // 清理旧格式目录（无 vault hash）+ 当前 vault 的失效 skill 目录（不在 enabled 列表中）
+  const enabledSlugs = manifest.skills.filter((r) => r.enabled).map((r) => r.slug);
+  cleanupCodexBridgeSkillsForVaultSync(vaultPath, codexHome, enabledSlugs);
 
   const results: AgentSkillMaterializeResult[] = [];
   for (const record of manifest.skills) {
@@ -582,15 +704,16 @@ export async function prepareAgentSkillsForCodexRuntime(
 export async function materializeAgentSkillToCodexHomeAsync(
   record: AgentSkillRecord,
   codexHome: string = resolveCodexHome(),
-  vaultPath?: string,
+  vaultPath: string = "",
 ): Promise<AgentSkillMaterializeResult> {
   const normalized = normalizeAgentSkillRecord(record);
-  const filePath = codexBridgeSkillPathForSlug(normalized.slug, codexHome);
+  const filePath = codexBridgeSkillPathForSlug(vaultPath, normalized.slug, codexHome);
   const sourceDir = (normalized.sourceDir && vaultPath) ? path.join(vaultPath, normalized.sourceDir) : undefined;
   return materializeAgentSkillToTargetAsync(normalized, filePath, {
     nameOverride: `${CODEX_BRIDGE_SKILL_PREFIX}${normalized.name}`,
     descriptionOverride: `${normalized.description} (Bridge plugin Skill)`,
     sourceDir,
+    vaultPath,
   });
 }
 
@@ -628,7 +751,7 @@ export async function materializeAgentSkillToTargetAsync(
       const marker = parseGeneratedMarker(existing);
       if (marker && marker.generatedBy === AGENT_SKILL_GENERATED_BY) {
         if (marker.sourceId !== normalized.id) {
-          if (!isBridgeOwnedSkillDirectory(filePath, normalized.slug)) {
+          if (!isBridgeOwnedSkillDirectory(filePath, options.vaultPath ?? "", normalized.slug)) {
             return conflict(nextRecord, filePath, "target SKILL.md belongs to another Agent Skill record");
           }
         } else if (options.expectedHash && sha256(existing) !== options.expectedHash) {
