@@ -12966,6 +12966,48 @@ if (!runV25Unit) {
         `runtimeLabel=${hasRuntimeLabel}, showsRuntime=${showsRuntimeLabel}, agentInAdvanced=${agentInAdvanced}`);
     }
 
+    // ===== Phase 5: 测试部署发布收口验证 =====
+
+    // ---- Phase 5 Test A: 部署脚本 reload 改用 CDP（不再用固定端口+不存在的路由）----
+    {
+      const deploySrc = readFileSync(join(PROJECT_ROOT, "scripts", "deploy-to-obsidian.ps1"), "utf-8");
+      const usesCdp = deploySrc.includes("cdp-reload.mjs") && deploySrc.includes("Chrome DevTools Protocol");
+      const noFixedPort = !deploySrc.includes("$reloadPort = 42167");
+      // 检查代码行中不再调用 /api/reload-plugin 或 /api/health（注释中提及是允许的）
+      const noInvokeReload = !deploySrc.includes('Invoke-RestMethod -Uri "http://127.0.0.1:$reloadPort/api/reload-plugin"');
+      const noInvokeHealth = !deploySrc.includes('Invoke-RestMethod -Uri "http://127.0.0.1:$reloadPort/api/health"');
+      const ok = usesCdp && noFixedPort && noInvokeReload && noInvokeHealth;
+      addTest("Phase 5: 部署脚本 reload 改用 CDP（移除固定端口 42167 和 /api/reload-plugin 调用）",
+        ok ? "pass" : "fail",
+        `cdp=${usesCdp}, noFixedPort=${noFixedPort}, noInvokeReload=${noInvokeReload}, noInvokeHealth=${noInvokeHealth}`);
+    }
+
+    // ---- Phase 5 Test B: 发布凭证生成脚本存在 ----
+    {
+      const receiptScriptExists = existsSync(join(PROJECT_ROOT, "scripts", "generate-release-receipt.mjs"));
+      const pkgJson = readFileSync(join(PROJECT_ROOT, "package.json"), "utf8");
+      const hasScript = pkgJson.includes('"release:receipt"');
+      const ok = receiptScriptExists && hasScript;
+      addTest("Phase 5: 发布凭证生成脚本存在（generate-release-receipt.mjs + npm run release:receipt）",
+        ok ? "pass" : "fail",
+        `script=${receiptScriptExists}, npmScript=${hasScript}`);
+    }
+
+    // ---- Phase 5 Test C: 发布凭证脚本包含三方 SHA 一致性校验 ----
+    {
+      const receiptSrc = readFileSync(join(PROJECT_ROOT, "scripts", "generate-release-receipt.mjs"), "utf-8");
+      const hasShaCheck = receiptSrc.includes("shaConsistency")
+        && receiptSrc.includes("source ↔ user-package")
+        && receiptSrc.includes("source ↔ vault");
+      const hasReceipt = receiptSrc.includes("release-receipt.json")
+        && receiptSrc.includes("version")
+        && receiptSrc.includes("commitSha");
+      const ok = hasShaCheck && hasReceipt;
+      addTest("Phase 5: 发布凭证包含三方 SHA 一致性校验（源码↔user-package↔Vault）+ 版本/提交/产物 SHA",
+        ok ? "pass" : "fail",
+        `shaCheck=${hasShaCheck}, receipt=${hasReceipt}`);
+    }
+
     // ===== Session 安全写入 / secret 脱敏 =====
 
     // ---- Test 20: saveSession 失败不抛异常（只读目录）----

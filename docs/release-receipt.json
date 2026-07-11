@@ -1,0 +1,136 @@
+{
+  "generatedAt": "2026-07-11T19:04:43.726Z",
+  "version": "2.18.0",
+  "git": {
+    "commitSha": "178f093a2a2f16b6b10ce02916c1d0d7a588fe71",
+    "branch": "master",
+    "workingTreeClean": false
+  },
+  "artifacts": {
+    "source": {
+      "main": {
+        "label": "source main.js",
+        "exists": true,
+        "sha256": "534cde8be1696da42edcce86e430e0213ef60e252a88f2e9313a794477bae3a4",
+        "size": 1296080
+      },
+      "styles": {
+        "label": "source styles.css",
+        "exists": true,
+        "sha256": "2fb4f9e623bec9a35466bf6487d3808b6c1a8bc3d323b5266cdb96bd31eb0ba8",
+        "size": 432416
+      },
+      "manifest": {
+        "label": "source manifest.json",
+        "exists": true,
+        "sha256": "36807fc12792e60122c615dc2f00c341179b9d3fd9ce0c3284d82bcb39ce30b6",
+        "size": 335
+      }
+    },
+    "userPackage": {
+      "main": {
+        "label": "user-package main.js",
+        "exists": true,
+        "sha256": "534cde8be1696da42edcce86e430e0213ef60e252a88f2e9313a794477bae3a4",
+        "size": 1296080
+      },
+      "styles": {
+        "label": "user-package styles.css",
+        "exists": true,
+        "sha256": "2fb4f9e623bec9a35466bf6487d3808b6c1a8bc3d323b5266cdb96bd31eb0ba8",
+        "size": 432416
+      },
+      "manifest": {
+        "label": "user-package manifest.json",
+        "exists": true,
+        "sha256": "36807fc12792e60122c615dc2f00c341179b9d3fd9ce0c3284d82bcb39ce30b6",
+        "size": 335
+      }
+    },
+    "vaults": [
+      {
+        "vaultPath": "D:\\Users\\Ye_Luo\\APP\\Obsidian\\LLM-Wiki\\.obsidian\\plugins\\llm-cli-bridge",
+        "main": {
+          "label": "vault main.js",
+          "exists": true,
+          "sha256": "534cde8be1696da42edcce86e430e0213ef60e252a88f2e9313a794477bae3a4",
+          "size": 1296080
+        },
+        "styles": {
+          "label": "vault styles.css",
+          "exists": true,
+          "sha256": "2fb4f9e623bec9a35466bf6487d3808b6c1a8bc3d323b5266cdb96bd31eb0ba8",
+          "size": 432416
+        },
+        "manifest": {
+          "label": "vault manifest.json",
+          "exists": true,
+          "sha256": "36807fc12792e60122c615dc2f00c341179b9d3fd9ce0c3284d82bcb39ce30b6",
+          "size": 335
+        }
+      },
+      {
+        "vaultPath": "D:\\Users\\Ye_Luo\\APP\\Test\\Obsidian\\LLM-Wiki\\.obsidian\\plugins\\llm-cli-bridge",
+        "main": {
+          "label": "vault main.js",
+          "exists": true,
+          "sha256": "534cde8be1696da42edcce86e430e0213ef60e252a88f2e9313a794477bae3a4",
+          "size": 1296080
+        },
+        "styles": {
+          "label": "vault styles.css",
+          "exists": true,
+          "sha256": "2fb4f9e623bec9a35466bf6487d3808b6c1a8bc3d323b5266cdb96bd31eb0ba8",
+          "size": 432416
+        },
+        "manifest": {
+          "label": "vault manifest.json",
+          "exists": true,
+          "sha256": "36807fc12792e60122c615dc2f00c341179b9d3fd9ce0c3284d82bcb39ce30b6",
+          "size": 335
+        }
+      }
+    ]
+  },
+  "shaConsistency": {
+    "allMatch": true,
+    "checks": [
+      {
+        "check": "source ↔ user-package main.js SHA",
+        "match": true,
+        "source": "534cde8be1696da42edcce86e430e0213ef60e252a88f2e9313a794477bae3a4",
+        "target": "534cde8be1696da42edcce86e430e0213ef60e252a88f2e9313a794477bae3a4"
+      },
+      {
+        "check": "source ↔ user-package styles.css SHA",
+        "match": true,
+        "source": "2fb4f9e623bec9a35466bf6487d3808b6c1a8bc3d323b5266cdb96bd31eb0ba8",
+        "target": "2fb4f9e623bec9a35466bf6487d3808b6c1a8bc3d323b5266cdb96bd31eb0ba8"
+      },
+      {
+        "check": "source ↔ vault(.obsidian) main.js SHA",
+        "match": true,
+        "source": "534cde8be1696da42edcce86e430e0213ef60e252a88f2e9313a794477bae3a4",
+        "target": "534cde8be1696da42edcce86e430e0213ef60e252a88f2e9313a794477bae3a4"
+      },
+      {
+        "check": "source ↔ vault(.obsidian) styles.css SHA",
+        "match": true,
+        "source": "2fb4f9e623bec9a35466bf6487d3808b6c1a8bc3d323b5266cdb96bd31eb0ba8",
+        "target": "2fb4f9e623bec9a35466bf6487d3808b6c1a8bc3d323b5266cdb96bd31eb0ba8"
+      },
+      {
+        "check": "source ↔ vault(.obsidian) main.js SHA",
+        "match": true,
+        "source": "534cde8be1696da42edcce86e430e0213ef60e252a88f2e9313a794477bae3a4",
+        "target": "534cde8be1696da42edcce86e430e0213ef60e252a88f2e9313a794477bae3a4"
+      },
+      {
+        "check": "source ↔ vault(.obsidian) styles.css SHA",
+        "match": true,
+        "source": "2fb4f9e623bec9a35466bf6487d3808b6c1a8bc3d323b5266cdb96bd31eb0ba8",
+        "target": "2fb4f9e623bec9a35466bf6487d3808b6c1a8bc3d323b5266cdb96bd31eb0ba8"
+      }
+    ]
+  }
+}
