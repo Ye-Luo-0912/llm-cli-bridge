@@ -12925,6 +12925,47 @@ if (!runV25Unit) {
         `method=${hasMethod}, usesRedact=${usesRedact}, command=${hasCommand}`);
     }
 
+    // ===== Phase 4: 产品一致性优化验证 =====
+
+    // ---- Phase 4 Test A: 设置页高级选项折叠到 <details> ----
+    {
+      const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
+      const hasDetails = settingsSrc.includes('createEl("details"')
+        && settingsSrc.includes("llm-bridge-advanced-settings");
+      const hasSummary = settingsSrc.includes("高级设置（命令参数、开发者选项、Runtime 详细配置）");
+      const ok = hasDetails && hasSummary;
+      addTest("Phase 4: 设置页高级选项折叠到 <details>（普通用户首屏只见基础配置+日志+首次提示）",
+        ok ? "pass" : "fail",
+        `details=${hasDetails}, summary=${hasSummary}`);
+    }
+
+    // ---- Phase 4 Test B: PDF/Office 附件显示"路径引用"标记 ----
+    {
+      const composerSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "composerController.ts"), "utf-8");
+      const hasBadge = composerSrc.includes("llm-bridge-attachment-token-badge")
+        && composerSrc.includes("路径引用")
+        && composerSrc.includes("不直接上传到 LLM");
+      const stylesSrc = readFileSync(join(PROJECT_ROOT, "styles", "composer.css"), "utf-8");
+      const hasStyle = stylesSrc.includes(".llm-bridge-attachment-token-badge");
+      const ok = hasBadge && hasStyle;
+      addTest("Phase 4: PDF/Office 附件显示「路径引用」标记（不伪装成直接上传）",
+        ok ? "pass" : "fail",
+        `badge=${hasBadge}, style=${hasStyle}`);
+    }
+
+    // ---- Phase 4 Test C: 状态栏以实际 Runtime 为中心（Backend→Runtime，Agent 移入高级区）----
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+      const hasRuntimeLabel = viewSrc.includes('text: "Runtime"')
+        && viewSrc.includes("实际 Runtime（由 provider 选择链决定）");
+      const showsRuntimeLabel = viewSrc.includes('this.statusBackendEl.querySelector(".llm-bridge-sb-value")!.textContent = runtimeLabel');
+      const agentInAdvanced = viewSrc.includes("Phase 4: Agent 类型移入高级指标区");
+      const ok = hasRuntimeLabel && showsRuntimeLabel && agentInAdvanced;
+      addTest("Phase 4: 状态栏以实际 Runtime 为中心（Backend→Runtime label，Agent 移入高级折叠区）",
+        ok ? "pass" : "fail",
+        `runtimeLabel=${hasRuntimeLabel}, showsRuntime=${showsRuntimeLabel}, agentInAdvanced=${agentInAdvanced}`);
+    }
+
     // ===== Session 安全写入 / secret 脱敏 =====
 
     // ---- Test 20: saveSession 失败不抛异常（只读目录）----

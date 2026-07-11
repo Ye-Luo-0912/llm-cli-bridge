@@ -12544,6 +12544,18 @@
   gap: 4px;
 }
 
+/* Phase 4: PDF/Office 等 binary 附件的"路径引用"标记 */
+.llm-bridge-attachment-token-badge {
+  font-size: 9px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 3px;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 .llm-bridge-attachment-token.is-selected {
   outline: 2px solid var(--interactive-accent);
   outline-offset: 1px;

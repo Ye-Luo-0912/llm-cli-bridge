@@ -656,12 +656,9 @@ export class LLMBridgeView extends ItemView {
     const sbTitleRow = this.statusBarEl.createDiv({ cls: "llm-bridge-sb-title-row" });
     sbTitleRow.createEl("span", { cls: "llm-bridge-sb-session-title-shadow", text: this.sessionState.title });
     const sbItems = this.statusBarEl.createDiv({ cls: "llm-bridge-sb-items" });
-    this.statusBackendEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item", attr: { title: "Backend 模式" } });
-    this.statusBackendEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Backend" });
+    this.statusBackendEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item", attr: { title: "实际 Runtime（由 provider 选择链决定）" } });
+    this.statusBackendEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Runtime" });
     this.statusBackendEl.createEl("span", { cls: "llm-bridge-sb-value" });
-    this.statusAgentEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item", attr: { title: "Agent 类型" } });
-    this.statusAgentEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Agent" });
-    this.statusAgentEl.createEl("span", { cls: "llm-bridge-sb-value" });
     this.statusCwdEl = sbItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-cwd", attr: { title: "当前 Vault / cwd" } });
     this.statusCwdEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Cwd" });
     this.statusCwdEl.createEl("span", { cls: "llm-bridge-sb-value" });
@@ -682,6 +679,10 @@ export class LLMBridgeView extends ItemView {
         sbAdvancedToggle.textContent = "▶ Advanced";
       }
     });
+    // Phase 4: Agent 类型移入高级指标区（普通状态栏以 Runtime 为中心）
+    this.statusAgentEl = sbAdvancedItems.createEl("span", { cls: "llm-bridge-sb-item", attr: { title: "Agent 类型（配置值）" } });
+    this.statusAgentEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Agent" });
+    this.statusAgentEl.createEl("span", { cls: "llm-bridge-sb-value" });
     this.statusPreflightEl = sbAdvancedItems.createEl("span", { cls: "llm-bridge-sb-item llm-bridge-sb-preflight", attr: { title: "最近一次 preflight 状态" } });
     this.statusPreflightEl.createEl("span", { cls: "llm-bridge-sb-label", text: "Preflight" });
     this.statusPreflightEl.createEl("span", { cls: "llm-bridge-sb-value", text: "未检测" });
@@ -2120,17 +2121,17 @@ export class LLMBridgeView extends ItemView {
   // V2.16-B: runtime status 显示实际 backend（SDK / Claude Code fallback / Claude Code / SDK unavailable）
   private refreshStatusBar(): void {
     const s = this.plugin.settings;
-    // Backend 模式（配置值）
-    const backendLabel = s.backendMode;
-    this.statusBackendEl.querySelector(".llm-bridge-sb-value")!.textContent = backendLabel;
-    // Agent 类型
-    const agentLabel = AGENT_OPTIONS.find((a) => a.value === s.agentType)?.label ?? s.agentType;
-    this.statusAgentEl.querySelector(".llm-bridge-sb-value")!.textContent = agentLabel;
     // V2.17-A Completion: runtime label 由 BridgeSession.selectProvider 决定
     // （codex-app-server 在 auto 模式下优先；不可用回退 SDK / CLI）。
     // 不再在 view.ts 直接探测 isSdkAvailable。
     const runtimeLabel = this.runSession.getSession().displayLabel;
     this.actualRuntimeLabel = runtimeLabel;
+    // Phase 4: 状态栏以实际 Runtime 为中心，显示 provider label 而非 backendMode 配置值
+    this.statusBackendEl.querySelector(".llm-bridge-sb-value")!.textContent = runtimeLabel;
+    this.statusBackendEl.setAttribute("title", `Runtime: ${runtimeLabel}（backend 模式: ${s.backendMode}）`);
+    // Agent 类型（移入高级指标区）
+    const agentLabel = AGENT_OPTIONS.find((a) => a.value === s.agentType)?.label ?? s.agentType;
+    this.statusAgentEl.querySelector(".llm-bridge-sb-value")!.textContent = agentLabel;
     // V2.16-D: runtime status pill — Phase 3 统一使用 computeRuntimeStateLabel
     const installStatus = this.getManagedRuntimeInstallStatusForCurrentMode();
     const stateInfo = this.computeRuntimeStateLabel(this.sessionState.status, installStatus);

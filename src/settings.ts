@@ -75,14 +75,51 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
+    // ===== 日志与显示 =====
+    containerEl.createEl("h3", { text: "日志与显示" });
+    new Setting(containerEl)
+      .setName("显示 stderr")
+      .setDesc("在面板中展示 stderr 流。默认开启——失败时错误摘要与 debug log 路径会显示在消息下方。")
+      .addToggle((t) =>
+        t.setValue(s.showStderr).onChange(async (v) => {
+          s.showStderr = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+    new Setting(containerEl)
+      .setName("保存运行日志")
+      .setDesc("将每次运行的 stdout/stderr/exit 信息写入 .llm-bridge/logs/。默认开启。")
+      .addToggle((t) =>
+        t.setValue(s.saveLogs).onChange(async (v) => {
+          s.saveLogs = v;
+          await this.plugin.saveSettings();
+        }),
+      );
+
+    // V2.10 (B-003): 重新显示首次使用提示
+    // 关闭后只能通过清除 localStorage 重新显示，现在在设置页提供按钮
+    new Setting(containerEl)
+      .setName("重新显示首次使用提示")
+      .setDesc("清除「不再显示首次使用提示」标记，下次打开面板时将重新显示 3 步引导。")
+      .addButton((b) =>
+        b.setButtonText("重新显示").onClick(() => {
+          localStorage.removeItem("llm-bridge-guide-dismissed");
+        }),
+      );
+
+    // ===== 高级设置（折叠） =====
+    const advancedDetails = containerEl.createEl("details", { cls: "llm-bridge-advanced-settings" });
+    advancedDetails.createEl("summary", { text: "高级设置（命令参数、开发者选项、Runtime 详细配置）" });
+    const advancedEl = advancedDetails.createDiv({ cls: "llm-bridge-advanced-settings-body" });
+
     // ===== 高级配置（命令/参数，普通用户一般不改） =====
-    containerEl.createEl("h3", { text: "高级配置（命令与参数）" });
-    containerEl.createEl("p", {
+    advancedEl.createEl("h3", { text: "高级配置（命令与参数）" });
+    advancedEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
       text: "默认值已经可用。只有在本地 CLI 名称不同或需要自定义参数时才修改。",
     });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Claude command")
       .setDesc("默认 claude")
       .addText((t) =>
@@ -91,7 +128,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Claude args")
       .setDesc("默认 -p（prompt 通过 stdin 传入）")
       .addText((t) =>
@@ -102,12 +139,12 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       );
 
     // V1.5: Claude Code command profile（continue / resume / permission / extra args）
-    containerEl.createEl("p", {
+    advancedEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
       text: "Claude Code 会话与权限参数。普通用户保持默认即可；需要在自动接受编辑或继续上次会话时再调整。",
     });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("继续上次会话 (--continue)")
       .setDesc("开启后每次运行追加 --continue，继续最近一次 Claude Code 会话。与下方 resume 互斥。默认关闭。")
       .addToggle((t) =>
@@ -119,7 +156,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("恢复指定会话 (--resume <id>)")
       .setDesc("填写会话 ID 后追加 --resume <id>。留空则不添加。开启「继续上次会话」时此项被忽略。")
       .addText((t) =>
@@ -129,7 +166,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("保持上次会话")
       .setDesc("插件重载、视图关闭再打开、Obsidian 重启后自动恢复上次活动会话（消息、Pinned context、模式、模型/effort、backend、权限模式）。新聊天按钮才创建新会话。")
       .addToggle((t) =>
@@ -140,7 +177,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Agent 审批画像")
       .setDesc("请求批准 / 替我审批 / 完全访问。Codex 由此映射 approvalPolicy、approvalsReviewer 与 sandbox；完全访问需在面板中显式确认。计划模式已移出权限菜单（Claude 可在下方单独设置）。")
       .addDropdown((d) => {
@@ -164,7 +201,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Claude 计划模式")
       .setDesc("仅 Claude：开启后使用 --permission-mode plan（只读规划）。不影响 Codex 审批画像。")
       .addToggle((t) =>
@@ -181,7 +218,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("额外参数 (extra args)")
       .setDesc("追加到 claude 命令末尾的自定义参数（按空白拆分）。例如 --no-cache。留空则不添加。")
       .addText((t) =>
@@ -191,7 +228,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Codex command")
       .setDesc("默认 codex")
       .addText((t) =>
@@ -200,7 +237,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Codex args")
       .setDesc('默认 "exec -"（从 stdin 读取）')
       .addText((t) =>
@@ -210,7 +247,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Custom command")
       .setDesc("自定义可执行命令（需能从 stdin 读取 prompt）")
       .addText((t) =>
@@ -219,7 +256,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Custom args")
       .addText((t) =>
         t.setValue(s.customArgs).onChange(async (v) => {
@@ -228,7 +265,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("最大 active note 导出字符数")
       .addText((t) => {
         t.setValue(String(s.maxActiveNoteChars));
@@ -241,7 +278,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           }
         });
       });
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("最大 selection 导出字符数")
       .addText((t) => {
         t.setValue(String(s.maxSelectionChars));
@@ -255,36 +292,15 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    // ===== 日志与显示 =====
-    containerEl.createEl("h3", { text: "日志与显示" });
-    new Setting(containerEl)
-      .setName("显示 stderr")
-      .setDesc("在面板中展示 stderr 流。默认开启——失败时错误摘要与 debug log 路径会显示在消息下方。")
-      .addToggle((t) =>
-        t.setValue(s.showStderr).onChange(async (v) => {
-          s.showStderr = v;
-          await this.plugin.saveSettings();
-        }),
-      );
-    new Setting(containerEl)
-      .setName("保存运行日志")
-      .setDesc("将每次运行的 stdout/stderr/exit 信息写入 .llm-bridge/logs/。默认开启。")
-      .addToggle((t) =>
-        t.setValue(s.saveLogs).onChange(async (v) => {
-          s.saveLogs = v;
-          await this.plugin.saveSettings();
-        }),
-      );
-
     // ===== 开发者区域（mock / devTestMode） =====
-    containerEl.createEl("h3", { text: "开发者区域" });
-    containerEl.createEl("p", {
+    advancedEl.createEl("h3", { text: "开发者区域" });
+    advancedEl.createEl("p", {
       cls: "llm-bridge-setting-hint llm-bridge-setting-hint-warn",
       text: "以下选项仅供开发与测试。日常使用请保持 Backend 模式为 auto，不要开启 Dev Test Mode。",
     });
 
     // V2.3: 权限策略（low / medium / high）
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("权限策略")
       .setDesc("low=宽松（读允许，medium 写操作自动允许）；medium=默认（读允许，Vault 内写操作本轮授权）；high=严格（所有操作需确认，包括读操作）")
       .addDropdown((d) => {
@@ -300,7 +316,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Backend 模式")
       .setDesc("V17-F1 任务 D：auto = Managed runtime first（codex-managed→codex-sdk→claude-sdk→pi-sdk→cli）。codex-managed-app-server=我们管理的 pinned runtime binary（主线，不依赖用户安装 Codex CLI）；codex-sdk=Codex Agent SDK（占位）；codex-app-server-external=外部 codex app-server（高级/开发者 fallback）；cli=Claude Code CLI；sdk=Claude Agent SDK；pi-sdk/pi-rpc=Pi（optional/advanced）；mock=离线测试。")
       .addDropdown((d) => {
@@ -327,7 +343,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
     const runtimeSize = typeof runtimeStatus.size === "number"
       ? `${(runtimeStatus.size / 1024 / 1024).toFixed(1)} MB`
       : "unknown";
-    const runtimeBox = containerEl.createDiv({ cls: "llm-bridge-managed-runtime-settings" });
+    const runtimeBox = advancedEl.createDiv({ cls: "llm-bridge-managed-runtime-settings" });
     runtimeBox.createEl("div", {
       cls: "llm-bridge-managed-runtime-settings-title",
       text: "Managed Codex Runtime",
@@ -367,7 +383,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           });
       });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Backend 配置档")
       .setDesc("V17-F0 任务 C：developer/portable 的 auto 均走 SDK-first 链；portable 仅 UI 精简不暴露实验选项。Pi 为 optional/advanced。")
       .addDropdown((d) => {
@@ -382,20 +398,20 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       });
 
     // V17-F0 任务 D：Codex Desktop App 不是集成目标 — 普通用户主线不出现 Codex CLI 安装引导
-    containerEl.createEl("h3", { text: "Codex Mainline Status (V17-F0 — SDK-first)" });
-    containerEl.createEl("p", {
+    advancedEl.createEl("h3", { text: "Codex Mainline Status (V17-F0 — SDK-first)" });
+    advancedEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
       text: "V17-F0 任务 D：Codex 线以 SDK-first 为主（与 Claude/Pi 一致）。Desktop App / codex CLI 不是集成目标，不作为普通用户默认主线。codex-sdk 为本轮占位，readiness 以 smoke 报告为准（codexSdkAvailable / codexSdkAuthAvailable）。Desktop App is not an integration target.",
     });
 
     // V17-E 任务 F：Pi SDK 降级为 optional/advanced backend — 普通用户无需配置
-    containerEl.createEl("h3", { text: "Pi Backend (Optional / Advanced — V17-E 任务 F)" });
-    containerEl.createEl("p", {
+    advancedEl.createEl("h3", { text: "Pi Backend (Optional / Advanced — V17-E 任务 F)" });
+    advancedEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
       text: "Pi SDK/RPC 是可选 advanced backend，仅 portable profile 或显式选择 pi-sdk/pi-rpc 时启用。普通用户无需配置，默认走 SDK-first 路径。friendReady 字段已废弃，改名为 piAdvancedReady。",
     });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Pi 命令")
       .setDesc("V17-A: Pi portable backend spike 命令（默认 pi；未安装时 unavailable，不崩溃）。")
       .addText((t) =>
@@ -405,7 +421,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Pi 参数")
       .setDesc("V17-A: pi 启动参数（默认 --mode rpc）。")
       .addText((t) =>
@@ -415,7 +431,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Pi SDK 工具模式")
       .setDesc("V17-C: pi-native=使用 Pi 默认 read/write/edit/bash（朋友版默认，首次需确认 trust）；bridge-controlled=bridge_* 走 Bridge approval；read-only=只启用 read。")
       .addDropdown((d) => {
@@ -430,7 +446,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Pi Native Trust 确认")
       .setDesc(
         s.piNativeTrustConfirmed
@@ -458,9 +474,9 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     // V17-D 任务 F：Pi SDK Auth 设置 section（runtime override，不写 ~/.pi/agent）
     // V17-E 任务 F：Pi SDK 为 optional/advanced backend，普通用户无需配置此 section
-    containerEl.createEl("h3", { text: "Pi SDK Auth (Runtime Override — Optional/Advanced)" });
+    advancedEl.createEl("h3", { text: "Pi SDK Auth (Runtime Override — Optional/Advanced)" });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Provider")
       .setDesc("V17-D 任务 F：API Key 所属 provider（默认 anthropic；可选 openai 等）。仅运行时注入，不写 ~/.pi/agent。")
       .addText((t) => {
@@ -471,7 +487,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Model")
       .setDesc("显式指定 model id（如 claude-haiku-4-5）。留空则用 SDK 默认选择。")
       .addText((t) => {
@@ -482,7 +498,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("API Key")
       .setDesc("Pi SDK runtime API key。仅运行时注入 session.authStorage，不写磁盘全局配置。留空则 fallback 到 ~/.pi/agent 或 ~/.claude/settings.json env。")
       .addText((t) => {
@@ -494,7 +510,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Base URL")
       .setDesc("自定义 API base URL（可选，如 https://us.pinai-cn.com）。留空则用 provider 默认。")
       .addText((t) => {
@@ -505,7 +521,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Test connection")
       .setDesc("V17-D 任务 F：探测当前 Pi SDK + auth override 是否可用。不发起真实请求，仅检查 auth/model 配置。")
       .addButton((b) => {
@@ -547,13 +563,13 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
     // V17-F0 任务 F：External App-Server Fallback（高级/开发者）
     // 保留 codex app-server external provider，但只在显式选择 codex-app-server-external 时启用
     // 不作为普通用户默认路线，不引导用户安装 Codex Desktop App
-    containerEl.createEl("h3", { text: "External Codex App-Server Fallback (Advanced / Developer — V17-F0 任务 F)" });
-    containerEl.createEl("p", {
+    advancedEl.createEl("h3", { text: "External Codex App-Server Fallback (Advanced / Developer — V17-F0 任务 F)" });
+    advancedEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
       text: "V17-F0 任务 F：外部 codex app-server 是高级/开发者 fallback，不是普通用户主线。需要本机已安装 codex CLI 并完成 codex login。Desktop App is not an integration target；仅当用户明确选择 codex-app-server-external 模式时启用。Ready 仅表示本地探测通过（heuristic），真实可用性以 codex smoke 报告为准（codexExternalExecutableAvailable / externalAppServerSpawnStatus）。",
     });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Codex External Command (Advanced)")
       .setDesc("V17-F0 任务 F：外部 codex 可执行文件名或绝对路径（默认 codex）。仅用于 codex-app-server-external 模式；普通用户无需配置。")
       .addText((t) => {
@@ -565,7 +581,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Codex External Args (Advanced)")
       .setDesc("V17-F0 任务 F：外部 codex app-server 启动参数（默认 app-server）。仅用于 codex-app-server-external 模式。")
       .addText((t) => {
@@ -610,7 +626,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           ? `已安装（${codexVersion}）但 app-server 不可用`
           : `heuristic-ready（${codexVersion}）`;
 
-      new Setting(containerEl)
+      new Setting(advancedEl)
         .setName("Codex External Status (Heuristic)")
         .setDesc(`V17-F0 任务 F：${extStatus} — 仅用于 codex-app-server-external 模式；真实可用性以 smoke 报告为准。`)
         .addButton((b) => {
@@ -619,7 +635,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
     }
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Dev Test Mode")
       .setDesc("启用开发测试端点 /dev/approve 和 /dev/reject，用于自动化测试。仅在开发测试时开启，正式使用请关闭。")
       .addToggle((t) =>
@@ -629,7 +645,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(containerEl)
+    new Setting(advancedEl)
       .setName("Developer mode")
       .setDesc("默认关闭。开启后在聊天消息中显示 raw command、workflow trace、debug log 与完整 SDK raw log。普通用户界面保持精简。")
       .addToggle((t) =>
@@ -637,17 +653,6 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           s.developerMode = v;
           await this.plugin.saveSettings();
           this.plugin.refreshBridgeView();
-        }),
-      );
-
-    // V2.10 (B-003): 重新显示首次使用提示
-    // 关闭后只能通过清除 localStorage 重新显示，现在在设置页提供按钮
-    new Setting(containerEl)
-      .setName("重新显示首次使用提示")
-      .setDesc("清除「不再显示首次使用提示」标记，下次打开面板时将重新显示 3 步引导。")
-      .addButton((b) =>
-        b.setButtonText("重新显示").onClick(() => {
-          localStorage.removeItem("llm-bridge-guide-dismissed");
         }),
       );
   }

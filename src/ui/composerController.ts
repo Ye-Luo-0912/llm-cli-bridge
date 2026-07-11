@@ -339,6 +339,12 @@ export function renderComposerAttachmentToken(
       text: shortAttachmentName(ref.displayName),
       attr: { title: ref.displayName },
     });
+    // Phase 4: PDF/Office 等 binary 附件以路径引用方式发送，不直接上传
+    token.createEl("span", {
+      cls: "llm-bridge-attachment-token-badge",
+      text: "路径引用",
+      attr: { title: "此文件以路径引用方式交给 agent，由工具读取，不直接上传到 LLM" },
+    });
   }
   preview.addEventListener("click", (event) => {
     event.preventDefault();
