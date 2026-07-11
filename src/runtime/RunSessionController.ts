@@ -54,6 +54,7 @@ import {
   type AgentRunDebugView,
   type CodexRunViewModel,
 } from "./core/viewModels";
+import { autoMaintainVaultContext } from "./vaultContextAutoMaintainer";
 
 // Status label lookup (mirrors view.ts STATUS_LABEL)
 const STATUS_LABEL: Record<RunStatus, string> = {
@@ -970,6 +971,18 @@ export class RunSessionController {
         }
       } catch {
         // 保存失败不阻断主流程
+      }
+
+      // VC-2: Vault Context 自动维护（后台 fire-and-forget，不阻塞主流程）
+      // 只在 completed 状态下执行；提取稳定候选 → 去重冲突检查 → 安全写入 → 异步更新索引
+      if (finalStatus === "completed") {
+        const turnView = msg?.assistantTurnView;
+        void autoMaintainVaultContext({
+          vaultPath,
+          turnView,
+          generatedFiles: newFiles,
+          status: "completed",
+        }).catch(() => { /* 后台维护失败静默 */ });
       }
     } finally {
       this._finishingRun = false;

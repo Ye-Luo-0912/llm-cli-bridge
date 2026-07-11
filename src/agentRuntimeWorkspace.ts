@@ -876,6 +876,35 @@ export async function ensureAgentRuntimeWorkspace(
   try {
     await fs.promises.access(vaultSkillAbs);
     skipped.push(VAULT_SKILL_SOURCE_REL);
+    // 旧结构迁移：SKILL.md 存在但子文件缺失时，补建 vault-rules/conventions/preferences/directories
+    try {
+      const skillDir = path.dirname(vaultSkillAbs);
+      const initial = await generateInitialVaultSkill(vaultPath);
+      let migrated = false;
+      for (const [name, content] of Object.entries(initial.subFiles)) {
+        const subAbs = path.join(skillDir, name);
+        try {
+          await fs.promises.access(subAbs);
+        } catch {
+          await fs.promises.writeFile(subAbs, content, "utf8");
+          created.push(`${VAULT_SKILL_SOURCE_DIR_REL}/${name}`);
+          migrated = true;
+        }
+      }
+      // INDEX.md 缺失时也补建
+      const indexAbs = path.join(skillDir, "INDEX.md");
+      try {
+        await fs.promises.access(indexAbs);
+      } catch {
+        await fs.promises.writeFile(indexAbs, initial.indexMd, "utf8");
+        created.push(`${VAULT_SKILL_SOURCE_DIR_REL}/INDEX.md`);
+        migrated = true;
+      }
+      if (migrated) {
+        // 迁移后重新生成索引，确保条目数和 mtime 正确
+        try { await regenerateVaultContextIndex(vaultPath); } catch { /* ignore */ }
+      }
+    } catch { /* migration failure non-fatal */ }
   } catch {
     if (options.createVaultSkillIfMissing ?? true) {
       try {
