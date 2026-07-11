@@ -17368,7 +17368,6 @@ if (!runV214BUnit) {
         && classifyFileTypeByPath("D:\\Repo\\.env.local") === "text"
         && classifyFileTypeByPath("D:\\Repo\\Dockerfile") === "text";
       const uiOk = viewSrc.includes("llm-bridge-attach-file-btn")
-        && viewSrc.includes("promptAndAddAttachmentFile")
         && viewSrc.includes("refreshContextRefs")
         && viewSrc.includes("removeMessageFileRef")
         && stylesSrc.includes(".llm-bridge-context-ref-chip");
@@ -17508,7 +17507,6 @@ if (!runV214BUnit) {
         && viewSrc.includes("this.attachmentFileInputEl?.click()")
         && (viewSrc.includes("llm-bridge-composer-file-text")
           || composerControllerSrcH.includes("llm-bridge-composer-file-text"))
-        && viewSrc.includes("fileRefModeLabel")
         && viewSrc.includes("ref.fileType");
       const policyOk = readPending.decision === "confirm"
         && readPending.pendingRequest?.operation === "read"
@@ -19614,8 +19612,6 @@ if (!runNoteSummarizeSmoke) {
   }
 
   {
-    const hasThresholdsInView = viewSrc.includes("CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS")
-      && viewSrc.includes("CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES");
     const hasPolicyImpl = clipboardPastePolicySrc.includes("export function shouldPersistLargeClipboardText")
       && clipboardPastePolicySrc.includes('const normalized = (text ?? "").replace(/\\r\\n?/g, "\\n").trim();')
       && clipboardPastePolicySrc.includes('const lineCount = normalized.split("\\n").length;')
@@ -19628,7 +19624,6 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("isClipboardTextBlob")
       && viewSrc.includes("persistClipboardTextToVault")
       && viewSrc.includes("defaultClipboardTextAttachmentFileName")
-      && hasThresholdsInView
       && hasPolicyImpl
       && viewSrc.includes('if (!/^paste$/i.test(source)) return true;')
       && viewSrc.includes("if (!this.isClipboardTextBlob(file)) return true;")
@@ -19775,7 +19770,6 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes("private renderFileContextSection(")
       && viewSrc.includes("private fileRefDisplayPath(ref: FileRef): string")
-      && viewSrc.includes("private fileRefModeLabel(ref: FileRef): string")
       && viewSrc.includes("private fileRefBadgeLabel(ref: FileRef): string")
       && viewSrc.includes("text: this.fileRefDisplayPath(ref)")
       && viewSrc.includes("text: this.fileRefBadgeLabel(ref)")
@@ -20320,7 +20314,6 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('cls: "llm-bridge-context-ref-remove is-remove"')
       && viewSrc.includes('setIcon(removeBtn, "x")')
       && viewSrc.includes("private getFileRefIconName(ref: FileRef): string")
-      && viewSrc.includes("private fileRefSourceLabel(ref: FileRef): string")
       && (viewSrc.includes("llm-bridge-composer-file-icon is-fallback")
         || composerControllerSrcG10.includes("llm-bridge-composer-file-icon is-fallback"))
       && (viewSrc.includes("llm-bridge-composer-file-image")
@@ -21234,11 +21227,11 @@ if (!runNoteSummarizeSmoke) {
         || messageRendererSrc.includes("function renderStreamingMessageContent"))
       && (viewSrc.includes("llm-bridge-msg-stream-text")
         || messageRendererSrc.includes("llm-bridge-msg-stream-text"))
-      && viewSrc.includes("private appendAssistantContentDelta")
       && viewSrc.includes("appendRunningProcessPlaceholder")
       && viewSrc.includes("llm-bridge-turn-header-spinner")
       && viewSrc.includes("Developer mode keeps the legacy global Run Flow")
-      && viewSrc.includes("if (this.plugin.settings.developerMode) {\n      this.renderRunFlowPanel(chatPanel);");
+      && (viewSrc.includes("if (this.plugin.settings.developerMode) {\n      this.renderRunFlowPanel(chatPanel);")
+        || viewSrc.includes("if (this.plugin.settings.developerMode) {\r\n      this.renderRunFlowPanel(chatPanel);"));
     addTest("V2.16-F assistant turn: Markdown 输出 + 内联过程 + 用户态无全局 Run Flow", ok ? "pass" : "fail", "");
   }
 

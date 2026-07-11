@@ -5,47 +5,38 @@ import * as fs from "fs";
 import * as path from "path";
 import { pathToFileURL } from "url";
 import type LLMBridgePlugin from "../main";
-import { buildPrompt } from "./prompt";
 import { buildPromptPackage, StateSnapshot } from "./promptPackage";
-import { AgentRunHandle, SdkImageContentBlock, SdkStreamingInput } from "./agentBackend";
-import { exportState } from "./state";
-import { diffSnapshots, extractRelPath, FileSnapshot, snapshotVaultMarkdownFiles } from "./fileDiff";
-import { AgentType, AttachmentPlan, BackendMode, ChatMessage, EffectiveRunPlan, RunResult, RunStatus, SessionMode } from "./types";
+import { SdkImageContentBlock, SdkStreamingInput } from "./agentBackend";
+import { extractRelPath } from "./fileDiff";
+import { AgentType, ChatMessage, EffectiveRunPlan, RunStatus } from "./types";
 import type { LLMBridgeSettings } from "./types";
 import type { PendingActionEntry } from "./httpServer";
-import { runPreflight, PreflightResult } from "./agentProfile";
-import { mapPreflightToStatus, buildErrorSummary } from "./preflightStatus";
+import { PreflightResult } from "./agentProfile";
+import { mapPreflightToStatus } from "./preflightStatus";
 import { buildFirstUseGuide, shouldShowFirstUseGuide } from "./firstUseGuide";
-import { buildTimeline, isTerminalTimelineType, timelineTypeClass, timelineTypeLabel, TimelineEventType } from "./runTimeline";
-import { buildCommandLine, buildCommandPreview, buildRedactedCommandDisplay, previewToRows, CommandPreview } from "./commandProfile";
-import { buildWorkflowTrace, workflowStageLabel, workflowStageClass, isTerminalWorkflowStage, WorkflowTraceStage, WorkflowTraceEvent } from "./workflowTrace";
+import { timelineTypeClass, timelineTypeLabel, TimelineEventType } from "./runTimeline";
+import { buildCommandLine } from "./commandProfile";
+import { workflowStageLabel, workflowStageClass, WorkflowTraceStage } from "./workflowTrace";
 import { formatEffectiveRunPlan } from "./effectiveRunPlan";
-import { createBridgeSession, type BridgeSessionImpl } from "./runtime/core/bridgeSession";
+import { type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment, AssistantTurnView, TurnTimelineNode, NativeSessionRef } from "./runtime/core/types";
 import { getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, toolDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
-import { presentProvider, resolveUiLocale, type Locale } from "./runtime/core/toolPresentation";
+import { resolveUiLocale, type Locale } from "./runtime/core/toolPresentation";
 import { formatCodexRunValue, type CodexRunFeedItem, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
-import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
-import { DEFAULT_PROVIDER_CAPABILITIES, type ProviderCapabilityInfo, type ObsidianCliAvailability, type ProviderRuntimeSkillEntry } from "./runtime/core/bridgePromptContract";
+import { type ProviderCapabilityInfo, type ObsidianCliAvailability, type ProviderRuntimeSkillEntry } from "./runtime/core/bridgePromptContract";
 import type { ManagedRuntimeInstallStatus } from "./runtime/providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge";
 import { listManagedCodexPluginsAsync, type CodexManagedPluginCatalog, type CodexManagedPluginEntry } from "./runtime/providers/codex-managed-app-server/codexManagedPluginCatalog";
-import {
-  ensureManagedRuntimeIntegrityVerified,
-  resolveManifestPath,
-} from "./runtime/providers/codex-managed-app-server/codexManagedRuntimeResolver";
 import { RunSessionController, type RunSessionHost } from "./runtime/RunSessionController";
 import { getRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, type RuntimeModelCatalog } from "./runtimeModelCatalog";
-import { WorkflowEvent, PermissionEvent, truncateText, extractFileChanges } from "./workflowEvent";
-import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, truncatePath, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
+import { WorkflowEvent, PermissionEvent, truncateText } from "./workflowEvent";
+import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
 import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscript";
 import { computeContextMetrics, formatTokens, formatCompressionRatio, type ContextMetrics, type CompressionInfo } from "./contextMetrics";
-import { SessionState, createNewSession, generateSessionTitle, sessionStatusLabel, sessionStatusClass, updateSession } from "./session";
+import { SessionState, createNewSession, sessionStatusClass, updateSession } from "./session";
 import {
   PersistedSession,
   SessionListItem,
-  SessionExtras,
-  saveSession,
   listSessions,
   loadSession,
   deleteSessionWithProviderArtifacts,
@@ -55,7 +46,6 @@ import {
 import {
   AgentSkillRecord,
   loadAgentSkillsManifest,
-  loadAgentSkillsManifestSync,
   prepareAgentSkillsForCodexRuntime,
   saveAgentSkillsManifest,
 } from "./agentSkills";
@@ -99,20 +89,16 @@ import {
 import {
   autoGrowInput as autoGrowInputDom,
   shortAttachmentName as shortAttachmentNameDom,
-  eventTargetElement as eventTargetElementDom,
-  isEventInsideSelector as isEventInsideSelectorDom,
   createComposerMenuItem as createComposerMenuItemDom,
   refreshPermissionModeChip as refreshPermissionModeChipDom,
-  renderPermissionPopover as renderPermissionPopoverDom,
-  renderModelEffortOptions as renderModelEffortOptionsDom,
   refreshModelEffortPickerLabels as refreshModelEffortPickerLabelsDom,
   renderComposerFileRefs as renderComposerFileRefsDom,
   renderComposerAttachmentToken as renderComposerAttachmentTokenDom,
-  showAttachmentContextMenu as showAttachmentContextMenuDom,
-  closeAttachmentContextMenu as closeAttachmentContextMenuDom,
-  handleComposerAttachmentKeydown as handleComposerAttachmentKeydownDom,
   applyComposerStatusRail as applyComposerStatusRailDom,
   bindComposerFileDragSurface as bindComposerFileDragSurfaceDom,
+  isEventInsideSelector as isEventInsideSelectorDom,
+  ComposerController,
+  type ComposerHost,
   type ComposerMenuItemOptions,
   type ComposerStatusRailState,
 } from "./ui/composerController";
@@ -137,13 +123,9 @@ import {
   FileRef,
 } from "./fileRefs";
 import { AttachmentTextSnippet, ingestAttachmentTextSnippet, isBoundedTextAttachmentType } from "./fileIngestion";
-import { DEFAULT_ATTACHMENT_PACKING_POLICY } from "./attachmentPackingPolicy";
 import { FileToolExecutionRequest, FileToolResult, executeFileTool } from "./fileToolExecutor";
 import { AgentFileToolRouteRequest, AgentFileToolRouteResult, executeAgentFileToolRoute as routeAgentFileTool } from "./agentFileToolBridge";
-import { createRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
 import {
-  CLIPBOARD_TEXT_ATTACHMENT_MIN_CHARS,
-  CLIPBOARD_TEXT_ATTACHMENT_MIN_LINES,
   defaultClipboardTextAttachmentFileName as chooseClipboardTextAttachmentFileName,
   isClipboardTextBlobDescriptor,
   shouldPersistLargeClipboardText as shouldPersistClipboardTextAttachment,
@@ -350,11 +332,8 @@ export class LLMBridgeView extends ItemView {
   /** 流式期间工具/授权/文件变化的批处理刷新（150–250ms） */
   private streamDetailsTimerId: number | null = null;
   private streamDetailsAssistantId: string | null = null;
-  private selectedComposerAttachmentId: string | null = null;
-  /** 当前激活的 composer 弹层（互斥；统一提升 composer 层级） */
-  private activeComposerPopup: "command" | "model" | "permission" | "attachment" | "session" | "mention" | null = null;
-  private attachmentContextMenuEl: HTMLElement | null = null;
-  private closeCommandMenuPopover: (() => void) | null = null;
+  /** Composer popup 状态控制器（互斥 / outside-click / mention / 附件选择） */
+  private composerController!: ComposerController;
   private liveTimelineTimerId: number | null = null;
   // V2.5: 历史会话列表
   private historyListEl!: HTMLElement;
@@ -390,15 +369,12 @@ export class LLMBridgeView extends ItemView {
   private modelEffortPickerEl!: HTMLElement;
   private modelEffortButtonEl!: HTMLButtonElement;
   private effortChipEl!: HTMLButtonElement;
-  private modelEffortPopoverEl!: HTMLElement;
   private modelOptionsEl!: HTMLElement;
   private effortOptionsEl!: HTMLElement;
   /** V2.16-C: 运行时模型目录（不再硬编码） */
   private modelCatalog: RuntimeModelCatalog = getRuntimeModelCatalogForAgent("claude");
   private permissionModePickerEl!: HTMLElement;
   private permissionModeChipEl!: HTMLButtonElement;
-  /** V2.16-C: permission mode popover 容器 */
-  private permissionPopoverEl!: HTMLDivElement;
   private includeNoteCheckEl!: HTMLInputElement;
   private includeSelectionCheckEl!: HTMLInputElement;
   private messagesEl!: HTMLElement;
@@ -411,10 +387,6 @@ export class LLMBridgeView extends ItemView {
   private inputEl!: HTMLTextAreaElement;
   private composerEl!: HTMLElement;
   private composerBarEl!: HTMLElement;
-  // V2.15-H: @ 提及文件选择器（输入框上方 inline popup）
-  private mentionPickerEl: HTMLElement | null = null;
-  private mentionPickerRange: { start: number; end: number } | null = null;
-  private mentionPickerActiveIndex = -1;
   private sendBtn!: HTMLButtonElement;
   private stopBtn!: HTMLButtonElement;
   private clearBtn!: HTMLButtonElement;
@@ -506,6 +478,8 @@ export class LLMBridgeView extends ItemView {
     const root = this.contentEl;
     root.empty();
     root.addClass("llm-bridge-view");
+
+    this.composerController = new ComposerController(this.buildComposerHost());
 
     const shell = root.createDiv({ cls: "llm-bridge-shell" });
     const nav = shell.createDiv({ cls: "llm-bridge-nav-rail" });
@@ -879,11 +853,11 @@ export class LLMBridgeView extends ItemView {
       commandMenuBody.setAttribute("hidden", "");
       commandMenuBtn.setAttribute("aria-expanded", "false");
       commandMenuWrap.classList.remove("is-open");
-      if (this.activeComposerPopup === "command") this.setActiveComposerPopup(null);
+      if (this.composerController.activePopup === "command") this.composerController.setActivePopup(null);
     };
     const openCommandMenu = () => {
       // 先提升 composer 层级，再显示弹层，消除打开瞬间闪动
-      this.setActiveComposerPopup("command");
+      this.composerController.setActivePopup("command");
       this.closePermissionPopover();
       this.closeModelEffortPopover();
       this.closeMentionPicker();
@@ -926,8 +900,12 @@ export class LLMBridgeView extends ItemView {
       cls: "llm-bridge-input",
       attr: { placeholder: "输入消息…", rows: "1" },
     });
+    const mentionPickerEl = inputRow.createDiv({ cls: "llm-bridge-mention-picker" });
+    mentionPickerEl.setAttribute("hidden", "");
+    this.composerController.setMentionPickerEl(mentionPickerEl);
     this.inputEl.addEventListener("keydown", (e: KeyboardEvent) => {
-      if (this.mentionPickerEl && !this.mentionPickerEl.hasAttribute("hidden")) {
+      const mentionPicker = this.composerController.mentionPickerEl;
+      if (mentionPicker && !mentionPicker.hasAttribute("hidden")) {
         if (this.handleMentionKeydown(e)) return;
       }
       if (this.handleComposerAttachmentKeydown(e)) return;
@@ -937,8 +915,8 @@ export class LLMBridgeView extends ItemView {
       }
     });
     this.inputEl.addEventListener("input", () => {
-      if (this.selectedComposerAttachmentId && this.inputEl.value.length > 0) {
-        this.selectedComposerAttachmentId = null;
+      if (this.composerController.selectedAttachmentId && this.inputEl.value.length > 0) {
+        this.composerController.selectedAttachmentId = null;
         this.renderComposerFileRefs();
       }
       this.handleMentionInput();
@@ -951,7 +929,7 @@ export class LLMBridgeView extends ItemView {
     commandMenuBody.addEventListener("pointerdown", (event) => event.stopPropagation());
     commandMenuBody.addEventListener("click", (event) => event.stopPropagation());
     // 供 outside-click / Escape 关闭
-    this.closeCommandMenuPopover = closeCommandMenu;
+    this.composerController.setCloseCommandMenuPopover(closeCommandMenu);
 
     const toolbar = composerBar.createDiv({ cls: "llm-bridge-composer-toolbar" });
     toolbar.appendChild(leftTools);
@@ -1432,26 +1410,6 @@ export class LLMBridgeView extends ItemView {
     return `Preferred runtime capabilities for this turn:\n${hints}\n\nUser request:\n${userInput}`;
   }
 
-  private insertComposerText(text: string): void {
-    const input = this.inputEl;
-    const value = input.value;
-    const start = input.selectionStart ?? value.length;
-    const end = input.selectionEnd ?? start;
-    const prefix = value.slice(0, start);
-    const suffix = value.slice(end);
-    const spacerBefore = prefix.length === 0 || /\s$/.test(prefix) ? "" : "\n";
-    const spacerAfter = suffix.length === 0 || /^\s/.test(suffix) ? "" : "\n";
-    const next = `${prefix}${spacerBefore}${text}${spacerAfter}${suffix}`;
-    const cursor = prefix.length + spacerBefore.length + text.length;
-    input.value = next;
-    input.setSelectionRange(cursor, cursor);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  }
-
-  private labelForValue(options: { value: string; label: string }[], v: string): string {
-    return options.find((o) => o.value === v)?.label ?? v;
-  }
-
   private refreshAllChips(): void {
     // composer agent 下拉
     (this.agentChipGroup as HTMLSelectElement).value = this.plugin.settings.agentType;
@@ -1502,14 +1460,6 @@ export class LLMBridgeView extends ItemView {
       selTag.classList.toggle("is-off", !on);
       selTag.setAttribute("aria-pressed", String(on));
     }
-  }
-
-  private eventTargetElement(event: Event): HTMLElement | null {
-    return eventTargetElementDom(event);
-  }
-
-  private isEventInsideSelector(event: Event, selector: string): boolean {
-    return isEventInsideSelectorDom(event, selector);
   }
 
   private sanitizeUserFacingSummaryText(text?: string): string | undefined {
@@ -1605,14 +1555,15 @@ export class LLMBridgeView extends ItemView {
       attr: { title: "选择推理等级", "aria-haspopup": "true", "aria-expanded": "false", hidden: "" },
     });
 
-    this.modelEffortPopoverEl = this.modelEffortPickerEl.createDiv({
+    const modelEffortPopoverEl = this.modelEffortPickerEl.createDiv({
       cls: "llm-bridge-model-effort-popover llm-bridge-model-effort-popover-single",
       attr: { hidden: "" },
     });
-    const modelSection = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-model-list" });
+    this.composerController.setModelEffortPopoverEl(modelEffortPopoverEl);
+    const modelSection = modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-model-list" });
     modelSection.createEl("div", { cls: "llm-bridge-model-effort-section-title", text: "Model" });
     this.modelOptionsEl = modelSection.createDiv({ cls: "llm-bridge-model-options" });
-    const effortSection = this.modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-effort-list" });
+    const effortSection = modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-effort-list" });
     effortSection.createEl("div", { cls: "llm-bridge-model-effort-section-title", text: "Effort" });
     this.effortOptionsEl = effortSection.createDiv({ cls: "llm-bridge-effort-options" });
     this.syncModelCatalogForCurrentAgent(false);
@@ -1620,96 +1571,10 @@ export class LLMBridgeView extends ItemView {
     this.modelEffortPickerEl.addEventListener("keydown", (event) => {
       if (event.key === "Escape") this.closeModelEffortPopover();
     });
-    this.registerDomEvent(document, "pointerdown", (event) => {
-      this.handleComposerSelectorOutsideClick(event);
-    });
+    this.registerDomEvent(document, "pointerdown", (event) => this.handleComposerSelectorOutsideClick(event));
     this.registerDomEvent(document, "keydown", (event) => {
       if (event.key === "Escape") this.closeAllComposerSelectors();
     });
-  }
-
-  /**
-   * 任务D: 统一外部点击关闭——所有会话框风格选择器共用一个抽象。
-   * 点击落在某选择器根容器内则保持其打开（让该选择器自身 toggle 处理），
-   * 点击落在所有选择器根容器之外则关闭全部已打开的下拉/弹出。
-   */
-  private handleComposerSelectorOutsideClick(event: Event): void {
-    // 附件右键菜单
-    if (this.attachmentContextMenuEl && !this.isEventInsideSelector(event, ".llm-bridge-attachment-context-menu")) {
-      this.closeAttachmentContextMenu();
-    }
-    // 工具菜单（button + popover）
-    if (!this.isEventInsideSelector(event, ".llm-bridge-command-menu")) {
-      this.closeCommandMenuPopover?.();
-    }
-    // 权限 popover（chip + popover 容器）
-    if (!this.isEventInsideSelector(event, ".llm-bridge-permission-picker")
-      && !this.isEventInsideSelector(event, ".llm-bridge-perm-popover")) {
-      this.closePermissionPopover();
-    }
-    // 模型 / effort popover
-    if (!this.isEventInsideSelector(event, ".llm-bridge-model-effort-picker")) {
-      this.closeModelEffortPopover();
-    }
-    // 会话下拉（header session selector + dropdown）
-    if (!this.isEventInsideSelector(event, ".llm-bridge-session-selector")
-      && !this.isEventInsideSelector(event, ".llm-bridge-session-dropdown")) {
-      document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
-        .forEach((el) => el.setAttribute("hidden", ""));
-      if (this.activeComposerPopup === "session") this.setActiveComposerPopup(null);
-    }
-    // @ 提及：点击输入框或选择器本身不关闭（保留输入体验）
-    if (this.mentionPickerEl && !this.mentionPickerEl.hasAttribute("hidden")) {
-      const target = this.eventTargetElement(event);
-      if (target !== this.inputEl && !target?.closest(".llm-bridge-mention-picker")) {
-        this.closeMentionPicker();
-        if (this.activeComposerPopup === "mention") this.setActiveComposerPopup(null);
-      }
-    }
-  }
-
-  /**
-   * 统一激活弹层：同一时刻只保留一个；提升 composer 层级，避免各自堆 z-index。
-   */
-  private setActiveComposerPopup(
-    kind: "command" | "model" | "permission" | "attachment" | "session" | "mention" | null,
-  ): void {
-    const applyOpenClass = () => {
-      const open = kind !== null;
-      this.composerEl?.classList.toggle("is-popup-open", open);
-      this.composerBarEl?.classList.toggle("is-popup-open", open);
-      this.composerBarEl?.classList.toggle("is-command-menu-open", kind === "command");
-    };
-    if (this.activeComposerPopup === kind) {
-      applyOpenClass();
-      return;
-    }
-    const prev = this.activeComposerPopup;
-    this.activeComposerPopup = kind;
-    if (prev === "attachment" && kind !== "attachment") this.closeAttachmentContextMenu(false);
-    if (prev === "command" && kind !== "command") this.closeCommandMenuPopover?.();
-    if (prev === "model" && kind !== "model") this.closeModelEffortPopover(false);
-    if (prev === "permission" && kind !== "permission") this.closePermissionPopover(false);
-    if (prev === "mention" && kind !== "mention") this.closeMentionPicker();
-    if (prev === "session" && kind !== "session") {
-      document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
-        .forEach((el) => el.setAttribute("hidden", ""));
-    }
-    applyOpenClass();
-  }
-
-  /**
-   * 任务D: 关闭所有会话框风格选择器（Escape 或互斥打开时调用）。
-   */
-  private closeAllComposerSelectors(): void {
-    this.setActiveComposerPopup(null);
-    this.closeCommandMenuPopover?.();
-    this.closePermissionPopover(false);
-    this.closeModelEffortPopover(false);
-    this.closeMentionPicker();
-    this.closeAttachmentContextMenu(false);
-    document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
-      .forEach((el) => el.setAttribute("hidden", ""));
   }
 
   private async setModelEffort(model: string, effort: string): Promise<void> {
@@ -1748,40 +1613,15 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderModelEffortOptions(): void {
-    if (!this.modelOptionsEl || !this.effortOptionsEl) return;
-    renderModelEffortOptionsDom(
-      this.modelOptionsEl,
-      this.effortOptionsEl,
-      this.modelCatalog,
-      this.plugin.settings.effortLevel,
-      this.plugin.settings.model,
-      {
-        close: () => this.closeModelEffortPopover(),
-        onSelect: (model, effort) => { void this.setModelEffort(model, effort); },
-      },
-    );
+    this.composerController.renderModelEffortOptions();
   }
 
   private toggleModelEffortPopover(): void {
-    if (!this.modelEffortPopoverEl) return;
-    if (this.modelEffortPopoverEl.hasAttribute("hidden")) {
-      this.setActiveComposerPopup("model");
-      this.modelEffortPopoverEl.removeAttribute("hidden");
-      this.modelEffortPopoverEl.classList.add("is-open");
-      this.modelEffortButtonEl?.setAttribute("aria-expanded", "true");
-      this.effortChipEl?.setAttribute("aria-expanded", "true");
-    } else {
-      this.closeModelEffortPopover();
-    }
+    this.composerController.toggleModelEffortPopover();
   }
 
   private closeModelEffortPopover(updateActive = true): void {
-    if (!this.modelEffortPopoverEl) return;
-    this.modelEffortPopoverEl.setAttribute("hidden", "");
-    this.modelEffortPopoverEl.classList.remove("is-open");
-    this.modelEffortButtonEl?.setAttribute("aria-expanded", "false");
-    this.effortChipEl?.setAttribute("aria-expanded", "false");
-    if (updateActive && this.activeComposerPopup === "model") this.setActiveComposerPopup(null);
+    this.composerController.closeModelEffortPopover(updateActive);
   }
 
   private refreshModelEffortPicker(): void {
@@ -1791,7 +1631,7 @@ export class LLMBridgeView extends ItemView {
     refreshModelEffortPickerLabelsDom(
       this.modelEffortButtonEl,
       this.effortChipEl,
-      this.modelEffortPopoverEl,
+      this.composerController.modelEffortPopoverEl,
       this.modelCatalog,
       this.plugin.settings.model,
       this.plugin.settings.effortLevel,
@@ -1823,36 +1663,31 @@ export class LLMBridgeView extends ItemView {
    * 权限菜单：请求批准 / 替我审批 / 完全访问（计划模式已移出）
    */
   private renderPermissionPopover(): void {
-    if (!this.permissionModePickerEl) return;
-    this.permissionPopoverEl?.remove();
-    const mountEl = this.permissionModePickerEl;
-    this.permissionPopoverEl = renderPermissionPopoverDom(mountEl, this.effectiveApprovalProfile(), {
-      close: () => this.closePermissionPopover(),
-      onSelectProfile: (profile) => this.setApprovalProfile(profile),
-    });
+    this.composerController.renderPermissionPopover();
   }
 
   private togglePermissionPopover(): void {
-    if (!this.permissionPopoverEl) this.renderPermissionPopover();
-    if (!this.permissionPopoverEl) return;
-    const hidden = this.permissionPopoverEl.hasAttribute("hidden");
-    if (hidden) {
-      this.setActiveComposerPopup("permission");
-      void this.composerEl?.offsetHeight;
-      this.renderPermissionPopover();
-      requestAnimationFrame(() => {
-        this.permissionPopoverEl?.removeAttribute("hidden");
-        this.permissionModeChipEl?.setAttribute("aria-expanded", "true");
-      });
-    } else {
-      this.closePermissionPopover();
-    }
+    this.composerController.togglePermissionPopover();
   }
 
   private closePermissionPopover(updateActive = true): void {
-    this.permissionPopoverEl?.setAttribute("hidden", "");
-    this.permissionModeChipEl?.setAttribute("aria-expanded", "false");
-    if (updateActive && this.activeComposerPopup === "permission") this.setActiveComposerPopup(null);
+    this.composerController.closePermissionPopover(updateActive);
+  }
+
+  private isEventInsideSelector(event: Event, selector: string): boolean {
+    return isEventInsideSelectorDom(event, selector);
+  }
+
+  private handleComposerSelectorOutsideClick(event: Event): void {
+    if (!this.isEventInsideSelector(event, ".llm-bridge-permission-picker")
+      && !this.isEventInsideSelector(event, ".llm-bridge-perm-popover")) {
+      this.closePermissionPopover();
+    }
+    this.composerController.handleSelectorOutsideClick(event);
+  }
+
+  private closeAllComposerSelectors(): void {
+    this.composerController.closeAllSelectors();
   }
 
   private confirmFullAccess(): Promise<boolean> {
@@ -1910,10 +1745,40 @@ export class LLMBridgeView extends ItemView {
     s.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode(s.agentApprovalProfile);
   }
 
+  private buildComposerHost(): ComposerHost {
+    const view = this;
+    return {
+      get inputEl() { return view.inputEl; },
+      get app() { return view.app; },
+      getComposerEl: () => view.composerEl,
+      getComposerBarEl: () => view.composerBarEl,
+      getModelEffortButtonEl: () => view.modelEffortButtonEl,
+      getEffortChipEl: () => view.effortChipEl,
+      getModelOptionsEl: () => view.modelOptionsEl,
+      getEffortOptionsEl: () => view.effortOptionsEl,
+      getPermissionModePickerEl: () => view.permissionModePickerEl,
+      getPermissionModeChipEl: () => view.permissionModeChipEl,
+      getModelCatalog: () => view.modelCatalog,
+      getEffortLevel: () => view.plugin.settings.effortLevel,
+      getModel: () => view.plugin.settings.model,
+      addAttachmentPathWithNotice: (filePath) => { void view.addAttachmentPathWithNotice(filePath); },
+      removeMessageFileRef: (id) => view.removeMessageFileRef(id),
+      renderComposerFileRefs: () => view.renderComposerFileRefs(),
+      copyFileRefToClipboard: (ref) => { void view.copyFileRefToClipboard(ref); },
+      openPathWithSystemDefault: (target) => { void view.openPathWithSystemDefault(target); },
+      setApprovalProfile: (profile) => { void view.setApprovalProfile(profile); },
+      setModelEffort: (model, effort) => { void view.setModelEffort(model, effort); },
+      effectiveApprovalProfile: () => view.effectiveApprovalProfile(),
+      autoGrowInput: () => view.autoGrowInput(),
+      getMessageFileRefs: () => view.messageFileRefs,
+    };
+  }
+
   async onClose(): Promise<void> {
     this.closeModelEffortPopover();
     this.closePermissionPopover();
     this.closeMentionPicker();
+    this.composerController.destroy();
     if (this.runSession.runHandle) {
       this.runSession.stop();
     }
@@ -3051,13 +2916,6 @@ export class LLMBridgeView extends ItemView {
     return (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
   }
 
-  private async promptAndAddAttachmentFile(): Promise<void> {
-    const input = await this.promptDialog("添加文件附件", "输入文件路径。小型 text / markdown / json 会进入 bounded text；图片/PDF/binary 只作为 native handoff 引用。", "");
-    const requestedPath = (input || "").trim();
-    if (!requestedPath) return;
-    await this.addAttachmentPathWithNotice(requestedPath);
-  }
-
   private async addAttachmentPathWithNotice(requestedPath: string): Promise<void> {
     const refs = await this.addUserFilePathsToContext([requestedPath], "path");
     const ref = refs[0];
@@ -3071,32 +2929,8 @@ export class LLMBridgeView extends ItemView {
     new Notice(snippet ? `已添加本轮${kindLabel}并读取 bounded snippet：${ref.displayName}` : `已添加本轮${kindLabel}：${ref.displayName} (${type})`);
   }
 
-  // V2.15-H: @ 提及文件选择器 —— 输入框上方 inline popup（替代独立 Modal）
-  private triggerMentionAtCursor(): void {
-    const ta = this.inputEl;
-    const start = ta.selectionStart ?? ta.value.length;
-    const value = ta.value;
-    const needSpace = start > 0 && !/\s$/.test(value.slice(0, start)) && value[start - 1] !== "@";
-    const insert = needSpace ? " @" : "@";
-    ta.value = value.slice(0, start) + insert + value.slice(start);
-    const cursor = start + insert.length;
-    ta.setSelectionRange(cursor, cursor);
-    ta.focus();
-    this.handleMentionInput();
-  }
-
   private handleMentionInput(): void {
-    const ta = this.inputEl;
-    const value = ta.value;
-    const cursor = ta.selectionStart ?? value.length;
-    const before = value.slice(0, cursor);
-    const match = before.match(/@([^\s@]*)$/);
-    if (!match) {
-      this.closeMentionPicker();
-      return;
-    }
-    this.mentionPickerRange = { start: cursor - match[0].length, end: cursor };
-    this.openMentionPicker(match[1]);
+    this.composerController.handleMentionInput();
   }
 
   // 空输入 52–64px；有内容最多 128px
@@ -3104,124 +2938,12 @@ export class LLMBridgeView extends ItemView {
     autoGrowInputDom(this.inputEl);
   }
 
-  private openMentionPicker(query: string): void {
-    const inputRow = this.inputEl.parentElement as HTMLElement | null;
-    if (!inputRow) return;
-    if (!this.mentionPickerEl) {
-      this.mentionPickerEl = inputRow.createDiv({ cls: "llm-bridge-mention-picker" });
-      this.mentionPickerEl.setAttribute("hidden", "");
-    }
-    this.renderMentionList(query);
-    if (this.mentionPickerEl.hasAttribute("hidden")) {
-      this.mentionPickerEl.removeAttribute("hidden");
-      this.mentionPickerEl.classList.add("is-open");
-    }
-  }
-
-  private renderMentionList(query: string): void {
-    const picker = this.mentionPickerEl;
-    if (!picker) return;
-    picker.empty();
-    const q = query.trim().toLowerCase();
-    const files = this.app.vault.getFiles()
-      .filter((file) => file instanceof TFile)
-      .sort((a, b) => a.path.localeCompare(b.path))
-      .filter((file) => !q || file.path.toLowerCase().includes(q))
-      .slice(0, 50);
-    if (files.length === 0) {
-      picker.createDiv({ cls: "llm-bridge-mention-picker-empty", text: "无匹配 Vault 文件" });
-      this.mentionPickerActiveIndex = -1;
-      return;
-    }
-    files.forEach((file, index) => {
-      const row = picker.createEl("button", {
-        cls: "llm-bridge-mention-picker-item",
-        text: file.path,
-        attr: { title: file.path, "data-index": String(index), "data-path": file.path },
-      });
-      row.addEventListener("click", (e) => {
-        e.preventDefault();
-        this.selectMention(file.path);
-      });
-      row.addEventListener("mouseenter", () => {
-        this.mentionPickerActiveIndex = index;
-        this.updateMentionActive();
-      });
-    });
-    this.mentionPickerActiveIndex = 0;
-    this.updateMentionActive();
-  }
-
-  private updateMentionActive(): void {
-    const picker = this.mentionPickerEl;
-    if (!picker) return;
-    picker.querySelectorAll<HTMLElement>(".llm-bridge-mention-picker-item").forEach((item, i) => {
-      item.classList.toggle("is-active", i === this.mentionPickerActiveIndex);
-    });
-  }
-
   private handleMentionKeydown(e: KeyboardEvent): boolean {
-    const picker = this.mentionPickerEl;
-    if (!picker || picker.hasAttribute("hidden")) return false;
-    const items = Array.from(picker.querySelectorAll<HTMLElement>(".llm-bridge-mention-picker-item"));
-    if (e.key === "ArrowDown") {
-      if (items.length === 0) return false;
-      e.preventDefault();
-      this.mentionPickerActiveIndex = (this.mentionPickerActiveIndex + 1) % items.length;
-      this.updateMentionActive();
-      items[this.mentionPickerActiveIndex]?.scrollIntoView({ block: "nearest" });
-      return true;
-    }
-    if (e.key === "ArrowUp") {
-      if (items.length === 0) return false;
-      e.preventDefault();
-      this.mentionPickerActiveIndex = (this.mentionPickerActiveIndex - 1 + items.length) % items.length;
-      this.updateMentionActive();
-      items[this.mentionPickerActiveIndex]?.scrollIntoView({ block: "nearest" });
-      return true;
-    }
-    if (e.key === "Enter" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
-      if (items.length === 0) return false;
-      e.preventDefault();
-      const active = items[this.mentionPickerActiveIndex];
-      const path = active?.getAttribute("data-path") ?? "";
-      if (path) this.selectMention(path);
-      return true;
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      this.closeMentionPicker();
-      return true;
-    }
-    return false;
-  }
-
-  private selectMention(filePath: string): void {
-    const range = this.mentionPickerRange;
-    this.closeMentionPicker();
-    if (range) {
-      const value = this.inputEl.value;
-      this.inputEl.value = value.slice(0, range.start) + value.slice(range.end);
-      this.inputEl.setSelectionRange(range.start, range.start);
-    }
-    this.autoGrowInput();
-    this.inputEl.focus();
-    void this.addAttachmentPathWithNotice(filePath);
+    return this.composerController.handleMentionKeydown(e);
   }
 
   private closeMentionPicker(): void {
-    const picker = this.mentionPickerEl;
-    if (!picker) return;
-    picker.setAttribute("hidden", "");
-    picker.classList.remove("is-open");
-    this.mentionPickerRange = null;
-    this.mentionPickerActiveIndex = -1;
-  }
-
-  private openNativeAttachmentPicker(): void {
-    if (!this.attachmentFileInputEl) return;
-    this.attachmentFileInputEl.value = "";
-    this.attachmentFileInputEl.click();
+    this.composerController.closeMentionPicker();
   }
 
   private async addNativeSelectedAttachments(): Promise<void> {
@@ -3735,8 +3457,8 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderComposerFileRefs(): void {
-    renderComposerFileRefsDom(this.composerFileRefsEl, this.messageFileRefs, this.selectedComposerAttachmentId, {
-      setSelectedAttachmentId: (id) => { this.selectedComposerAttachmentId = id; },
+    renderComposerFileRefsDom(this.composerFileRefsEl, this.messageFileRefs, this.composerController.selectedAttachmentId, {
+      setSelectedAttachmentId: (id) => { this.composerController.selectedAttachmentId = id; },
       renderToken: (container, ref, allowRemove) => this.renderComposerAttachmentToken(container, ref, allowRemove),
     });
   }
@@ -3747,7 +3469,7 @@ export class LLMBridgeView extends ItemView {
 
   private renderComposerAttachmentToken(container: HTMLElement, ref: FileRef, allowRemove: boolean): void {
     renderComposerAttachmentTokenDom(container, ref, allowRemove, {
-      selectedAttachmentId: this.selectedComposerAttachmentId,
+      selectedAttachmentId: this.composerController.selectedAttachmentId,
       getFileRefThumbnailUrl: (r) => this.getFileRefThumbnailUrl(r),
       getFileRefIconName: (r) => this.getFileRefIconName(r),
       getSmartImageThumbnailCacheKey: (r, url) => this.getSmartImageThumbnailCacheKey(r, url),
@@ -3763,40 +3485,16 @@ export class LLMBridgeView extends ItemView {
     ref: FileRef,
     options: { allowRemove: boolean; allowOpen: boolean },
   ): void {
-    const menuRef = { current: this.attachmentContextMenuEl };
-    showAttachmentContextMenuDom(event, ref, options, menuRef, {
-      setActivePopup: (kind) => this.setActiveComposerPopup(kind),
-      copyFileRefToClipboard: (r) => { void this.copyFileRefToClipboard(r); },
-      openPathWithSystemDefault: (target) => { void this.openPathWithSystemDefault(target); },
-      removeMessageFileRef: (id) => this.removeMessageFileRef(id),
-      getSelectedAttachmentId: () => this.selectedComposerAttachmentId,
-      setSelectedAttachmentId: (id) => { this.selectedComposerAttachmentId = id; },
-    });
-    this.attachmentContextMenuEl = menuRef.current;
+    this.composerController.showAttachmentContextMenu(event, ref, options);
   }
 
   private closeAttachmentContextMenu(updateActive = true): void {
-    const menuRef = { current: this.attachmentContextMenuEl };
-    closeAttachmentContextMenuDom(
-      menuRef,
-      updateActive,
-      this.activeComposerPopup,
-      () => this.setActiveComposerPopup(null),
-    );
-    this.attachmentContextMenuEl = menuRef.current;
+    this.composerController.closeAttachmentContextMenu(updateActive);
   }
 
   /** 空输入时 Backspace 选中/删除附件；有文本时优先删文字 */
   private handleComposerAttachmentKeydown(e: KeyboardEvent): boolean {
-    return handleComposerAttachmentKeydownDom(e, {
-      getInputValue: () => this.inputEl.value,
-      getSelectionRange: () => ({ start: this.inputEl.selectionStart, end: this.inputEl.selectionEnd }),
-      getMessageFileRefs: () => this.messageFileRefs,
-      getSelectedAttachmentId: () => this.selectedComposerAttachmentId,
-      setSelectedAttachmentId: (id) => { this.selectedComposerAttachmentId = id; },
-      removeMessageFileRef: (id) => this.removeMessageFileRef(id),
-      renderComposerFileRefs: () => this.renderComposerFileRefs(),
-    });
+    return this.composerController.handleComposerAttachmentKeydown(e);
   }
 
   private async copyFileRefToClipboard(ref: FileRef): Promise<void> {
@@ -4085,14 +3783,6 @@ export class LLMBridgeView extends ItemView {
     return thumbCanvas.toDataURL("image/png");
   }
 
-  private fileRefSourceLabel(ref: FileRef): string {
-    if (ref.scope === "pinned") return "pinned";
-    if (ref.scope === "session") return "session";
-    if (ref.kind === "external") return "external";
-    if (ref.kind === "attachment") return "attachment";
-    return "vault";
-  }
-
   private fileRefDisplayPath(ref: FileRef): string {
     const vaultRelPath = this.resolveFileRefVaultPath(ref);
     if (vaultRelPath) return vaultRelPath;
@@ -4100,13 +3790,6 @@ export class LLMBridgeView extends ItemView {
     const parts = raw.split("/").filter(Boolean);
     if (parts.length <= 3) return raw || ref.displayName;
     return `.../${parts.slice(-3).join("/")}`;
-  }
-
-  private fileRefModeLabel(ref: FileRef): string {
-    if (this.getFileRefPreviewText(ref)) return "text preview";
-    if (ref.scope === "pinned") return "pinned";
-    if (ref.scope === "session") return "session grant";
-    return "attached";
   }
 
   private filePathToUrl(filePath: string): string {
@@ -4374,19 +4057,6 @@ export class LLMBridgeView extends ItemView {
     this.sessionFileRefs = this.sessionFileRefs.filter((item) => item.id !== refId);
     this.attachmentTextSnippets = this.attachmentTextSnippets.filter((snippet) => snippet.refId !== refId);
     this.refreshContextRefs();
-  }
-
-  private pinFileRef(refId: string): void {
-    const ref = this.getAllContextFileRefs().find((item) => item.id === refId);
-    if (!ref) return;
-    const pinnedRef = this.withFileRefScope(ref, "pinned");
-    this.pinnedFileRefs = this.upsertFileRef(this.pinnedFileRefs, pinnedRef);
-    const snippet = this.attachmentTextSnippets.find((item) => item.refId === ref.id);
-    if (snippet && !this.attachmentTextSnippets.some((item) => item.refId === pinnedRef.id)) {
-      this.attachmentTextSnippets.push({ ...snippet, refId: pinnedRef.id });
-    }
-    this.refreshContextRefs();
-    new Notice(`已 Pin：${ref.displayName}`);
   }
 
   private unpinFileRef(refId: string): void {
@@ -6795,13 +6465,6 @@ export class LLMBridgeView extends ItemView {
     reconcileCodexRunWaterfallDom(processBody, run, options, this.codexWaterfallDeps());
   }
 
-  private appendAssistantContentDelta(id: string, delta: string): void {
-    const msg = this.messages.find((m) => m.id === id);
-    if (!msg) return;
-    msg.content += delta;
-    this.scheduleAssistantContentPaint(id);
-  }
-
   private scheduleAssistantContentPaint(id: string): void {
     this.streamContentAssistantId = id;
     if (this.streamContentRafId !== null) return;
@@ -6935,16 +6598,6 @@ export class LLMBridgeView extends ItemView {
       this.scrollRafId = null;
       this.messagesEl.scrollTop = this.messagesEl.scrollHeight;
     });
-  }
-
-  private clearMessages(): void {
-    if (this.runSession.runHandle) {
-      new Notice("运行中无法清空");
-      return;
-    }
-    this.messages = [];
-    this.currentAssistantId = null;
-    this.renderEmptyState();
   }
 
   // V2.0: 新建会话（清空消息 + 重置会话状态 + 清空运行流程区）
