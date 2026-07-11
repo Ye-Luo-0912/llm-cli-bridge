@@ -48,6 +48,24 @@ function assertPathWithinSessionsDir(dirPath: string, fullPath: string): void {
 /** sessions 目录相对 Vault 根的路径 */
 export const SESSIONS_DIR_REL = ".llm-bridge/sessions";
 
+/**
+ * 统一解析 session 文件路径：所有 save/load/delete/rename 必须走此函数。
+ * 先校验 sessionId（拒绝 `..`、斜杠、绝对路径、控制字符），
+ * 再拼路径并断言最终路径仍在 sessions 目录内。
+ */
+function resolveSessionFilePath(vaultPath: string, sessionId: string): string {
+  const safeId = validateSessionId(sessionId);
+  const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
+  const filePath = path.join(dirPath, `${safeId}.json`);
+  assertPathWithinSessionsDir(dirPath, filePath);
+  return filePath;
+}
+
+/** 统一解析 sessions 目录路径 */
+function resolveSessionsDir(vaultPath: string): string {
+  return path.join(vaultPath, SESSIONS_DIR_REL);
+}
+
 /** session 文件 schema 版本（升级时递增，配合迁移逻辑） */
 export const SESSION_SCHEMA_VERSION = 2;
 
@@ -246,12 +264,11 @@ export async function saveSession(
   extras?: SessionExtras,
 ): Promise<string | null> {
   try {
-    const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
+    const dirPath = resolveSessionsDir(vaultPath);
     await fs.promises.mkdir(dirPath, { recursive: true });
     const id = sessionId ? validateSessionId(sessionId) : generateSessionId();
+    const filePath = resolveSessionFilePath(vaultPath, id);
     const fileName = `${id}.json`;
-    const filePath = path.join(dirPath, fileName);
-    assertPathWithinSessionsDir(dirPath, filePath);
     const tmpPath = path.join(dirPath, `${fileName}.tmp`);
 
     const session: PersistedSession = {
@@ -299,7 +316,7 @@ export async function saveSession(
  * - 解析失败的文件跳过（不影响其他会话展示）
  */
 export async function listSessions(vaultPath: string): Promise<SessionListItem[]> {
-  const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
+  const dirPath = resolveSessionsDir(vaultPath);
   let files: string[];
   try {
     files = await fs.promises.readdir(dirPath);
@@ -309,16 +326,26 @@ export async function listSessions(vaultPath: string): Promise<SessionListItem[]
   const items: SessionListItem[] = [];
   for (const file of files) {
     if (!file.endsWith(".json")) continue;
+    // id 以文件名为准（basename 去扩展名），不信任 JSON 内部的 parsed.id
+    const fileId = path.basename(file, ".json");
+    // 文件名本身也要通过校验，防止异常文件名进入后续删除路径
+    try {
+      validateSessionId(fileId);
+    } catch {
+      continue;
+    }
     const filePath = path.join(dirPath, file);
+    assertPathWithinSessionsDir(dirPath, filePath);
     try {
       const stat = await fs.promises.stat(filePath);
       const content = await fs.promises.readFile(filePath, "utf8");
       const parsed = JSON.parse(content) as Partial<PersistedSession>;
-      // 基本字段校验
+      // 基本字段校验：JSON 内部 id 必须与文件名一致，否则跳过（防止被篡改的 JSON 注入危险 id）
       if (!parsed.id || typeof parsed.messageCount !== "number") continue;
+      if (parsed.id !== fileId) continue;
       const summaries = extractSessionSummaries(parsed.messages);
       items.push({
-        id: parsed.id,
+        id: fileId,
         title: parsed.title || "新会话",
         status: parsed.status || "idle",
         messageCount: parsed.messageCount,
@@ -344,10 +371,7 @@ export async function listSessions(vaultPath: string): Promise<SessionListItem[]
  */
 export async function loadSession(vaultPath: string, sessionId: string): Promise<PersistedSession | null> {
   try {
-    validateSessionId(sessionId);
-    const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
-    const filePath = path.join(dirPath, `${sessionId}.json`);
-    assertPathWithinSessionsDir(dirPath, filePath);
+    const filePath = resolveSessionFilePath(vaultPath, sessionId);
     const content = await fs.promises.readFile(filePath, "utf8");
     const parsed = JSON.parse(content);
     return migrateSession(parsed);
@@ -407,7 +431,7 @@ export function migrateSession(parsed: unknown): PersistedSession | null {
  */
 export async function deleteSession(vaultPath: string, sessionId: string): Promise<boolean> {
   try {
-    const filePath = path.join(vaultPath, SESSIONS_DIR_REL, `${sessionId}.json`);
+    const filePath = resolveSessionFilePath(vaultPath, sessionId);
     await fs.promises.unlink(filePath);
     return true;
   } catch {
@@ -426,7 +450,7 @@ export async function deleteSessionWithProviderArtifacts(vaultPath: string, sess
 }
 
 export async function clearSessionsWithProviderArtifacts(vaultPath: string): Promise<SessionsClearResult> {
-  const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
+  const dirPath = resolveSessionsDir(vaultPath);
   let files: string[] = [];
   try {
     files = await fs.promises.readdir(dirPath);
@@ -448,7 +472,9 @@ export async function clearSessionsWithProviderArtifacts(vaultPath: string): Pro
   let bridgeSessionsDeleted = 0;
   for (const file of sessionFiles) {
     try {
-      await fs.promises.unlink(path.join(dirPath, file));
+      const filePath = path.join(dirPath, file);
+      assertPathWithinSessionsDir(dirPath, filePath);
+      await fs.promises.unlink(filePath);
       bridgeSessionsDeleted += 1;
     } catch {
       // Continue clearing the rest of the local session store.
@@ -475,10 +501,10 @@ export async function renameSession(vaultPath: string, sessionId: string, newTit
       title: newTitle,
       savedAt: new Date().toISOString(),
     };
-    const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
-    const filePath = path.join(dirPath, `${sessionId}.json`);
-    assertPathWithinSessionsDir(dirPath, filePath);
+    const dirPath = resolveSessionsDir(vaultPath);
+    const filePath = resolveSessionFilePath(vaultPath, sessionId);
     const tmpPath = path.join(dirPath, `${sessionId}.json.tmp`);
+    assertPathWithinSessionsDir(dirPath, tmpPath);
     await fs.promises.writeFile(tmpPath, JSON.stringify(renamed, null, 2), "utf8");
     await fs.promises.rename(tmpPath, filePath);
     return true;
@@ -498,7 +524,8 @@ async function pruneOldSessions(vaultPath: string): Promise<void> {
   const toRemove = items.slice(MAX_SESSIONS_KEPT);
   for (const item of toRemove) {
     try {
-      await fs.promises.unlink(path.join(vaultPath, SESSIONS_DIR_REL, `${item.id}.json`));
+      const filePath = resolveSessionFilePath(vaultPath, item.id);
+      await fs.promises.unlink(filePath);
     } catch {
       // 单个删除失败不阻断
     }

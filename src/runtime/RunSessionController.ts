@@ -67,16 +67,29 @@ const STATUS_LABEL: Record<RunStatus, string> = {
 /**
  * Host interface implemented by LLMBridgeView. The controller accesses all
  * DOM/UI concerns through this interface — it never touches the DOM directly.
+ * No DOM element types or query methods appear here; all UI mutations go
+ * through semantic callbacks.
  */
 export interface RunSessionHost {
   // --- Plugin / App ---
   readonly plugin: LLMBridgePlugin;
   readonly app: App;
 
-  // --- DOM elements ---
-  readonly inputEl: HTMLTextAreaElement;
-  readonly messagesEl: HTMLElement;
-  readonly runtimeInstallBtnEl: HTMLButtonElement | null;
+  // --- Composer input (replaces inputEl) ---
+  /** Read the current composer input value. */
+  getComposerInput(): string;
+  /** Clear the composer input (called after a run starts). */
+  clearComposerInput(): void;
+
+  // --- Runtime install UI (replaces runtimeInstallBtnEl) ---
+  /** Disable the install button and show the installing state. */
+  setRuntimeInstallUi(state: "installing" | "idle", title?: string): void;
+  /** Returns true if the install button is currently interactive (not disabled). */
+  isRuntimeInstallActionAvailable(): boolean;
+
+  // --- Assistant watchdog hint (replaces messagesEl.querySelector) ---
+  /** Update the assistant watchdog status text in-place (no rebuild). */
+  setAssistantWatchdogHint(assistantId: string, text: string): void;
 
   // --- Data (read) ---
   readonly messages: ChatMessage[];
@@ -241,16 +254,13 @@ export class RunSessionController {
   // ===========================================================================
 
   async installManagedRuntimeFromUi(): Promise<void> {
-    const btn = this.host.runtimeInstallBtnEl;
-    if (!btn || btn.disabled) return;
+    if (!this.host.isRuntimeInstallActionAvailable()) return;
     const before = this.host.getManagedRuntimeInstallStatusForCurrentMode();
     if (!before?.required) {
       this.host.refreshStatusBar();
       return;
     }
-    btn.disabled = true;
-    btn.textContent = "Installing...";
-    btn.setAttribute("title", this.formatRuntimeInstallTitle(before));
+    this.host.setRuntimeInstallUi("installing", this.formatRuntimeInstallTitle(before));
     const result = await this.host.plugin.ensureManagedRuntimeInstalled({ confirm: true });
     if (result.status === "installed" || result.status === "already-installed") {
       this._session = null;
@@ -283,7 +293,7 @@ export class RunSessionController {
   async run(): Promise<void> {
     // P0: 并发锁在开始时设置，避免重入（首帧 UI 之前就占住）
     if (this._runHandle) return;
-    const userInput = this.host.inputEl.value.trim();
+    const userInput = this.host.getComposerInput().trim();
     if (!userInput) {
       new Notice("请输入请求");
       return;
@@ -304,7 +314,7 @@ export class RunSessionController {
     // P0: 用户消息 + assistant 占位在第一段同步逻辑中立刻写入 UI（目标 <150ms）
     this.host.appendUserMessage(userInput, messageRefsForRun);
     const assistantId = this.host.appendAssistantPlaceholder();
-    this.host.inputEl.value = "";
+    this.host.clearComposerInput();
     this.host.autoGrowInput();
     this.host.closeMentionPicker();
     this.host.clearMessageContext();
@@ -974,13 +984,7 @@ export class RunSessionController {
   // ===========================================================================
 
   private setAssistantWatchdogHint(assistantId: string, text: string): void {
-    const block = this.host.messagesEl.querySelector(`[data-msg-id="${assistantId}"]`) as HTMLElement | null;
-    const statusEl = block?.querySelector(".llm-bridge-run-status-text") as HTMLElement | null;
-    if (statusEl) {
-      statusEl.textContent = text;
-      return;
-    }
-    this.host.updateAssistantMessage(assistantId, { content: text });
+    this.host.setAssistantWatchdogHint(assistantId, text);
   }
 
   private async failRunBeforeStart(

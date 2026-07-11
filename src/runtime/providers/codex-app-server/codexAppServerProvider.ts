@@ -413,6 +413,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       this.currentProcess = null;
       this.currentClient = null;
       this.currentRunId = null;
+      // 任务2: 正常完成/异常时立即清理 approval bookkeeping，避免残留审批状态
+      this.serverRequestBookkeeping.clear();
     }
   }
 
@@ -428,6 +430,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     this.currentProcess = null;
     this.currentClient = null;
     this.currentRunId = null;
+    // 任务2: cancel 后立即清理 approval bookkeeping，避免残留审批状态
+    this.serverRequestBookkeeping.clear();
   }
 
   async *resume(ref: NativeSessionRef, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
@@ -614,6 +618,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       this.currentProcess = null;
       this.currentClient = null;
       this.currentRunId = null;
+      // 任务2: 正常完成/异常时立即清理 approval bookkeeping，避免残留审批状态
+      this.serverRequestBookkeeping.clear();
     }
   }
 

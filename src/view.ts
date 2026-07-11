@@ -2035,9 +2035,11 @@ export class LLMBridgeView extends ItemView {
     return {
       plugin: view.plugin,
       app: view.app,
-      inputEl: view.inputEl,
-      messagesEl: view.messagesEl,
-      runtimeInstallBtnEl: view.runtimeInstallBtnEl,
+      getComposerInput: () => view.inputEl.value,
+      clearComposerInput: () => { view.inputEl.value = ""; },
+      setRuntimeInstallUi: (state, title) => view.setRuntimeInstallUi(state, title),
+      isRuntimeInstallActionAvailable: () => !!view.runtimeInstallBtnEl && !view.runtimeInstallBtnEl.disabled,
+      setAssistantWatchdogHint: (assistantId, text) => view.setAssistantWatchdogHint(assistantId, text),
       messages: view.messages,
       messageFileRefs: view.messageFileRefs,
       pinnedFileRefs: view.pinnedFileRefs,
@@ -2130,6 +2132,31 @@ export class LLMBridgeView extends ItemView {
       this.runtimeInstallBtnEl.textContent = "Install Codex runtime";
       if (status) this.runtimeInstallBtnEl.setAttribute("title", this.formatRuntimeInstallTitle(status));
     }
+  }
+
+  /** RunSessionHost callback: manage install button state without exposing the element. */
+  private setRuntimeInstallUi(state: "installing" | "idle", title?: string): void {
+    if (!this.runtimeInstallBtnEl) return;
+    if (state === "installing") {
+      this.runtimeInstallBtnEl.disabled = true;
+      this.runtimeInstallBtnEl.textContent = "Installing...";
+      if (title) this.runtimeInstallBtnEl.setAttribute("title", title);
+    } else {
+      this.runtimeInstallBtnEl.disabled = false;
+      this.runtimeInstallBtnEl.textContent = "Install Codex runtime";
+      if (title) this.runtimeInstallBtnEl.setAttribute("title", title);
+    }
+  }
+
+  /** RunSessionHost callback: update assistant watchdog status text in-place (no rebuild). */
+  private setAssistantWatchdogHint(assistantId: string, text: string): void {
+    const block = this.messagesEl.querySelector(`[data-msg-id="${assistantId}"]`) as HTMLElement | null;
+    const statusEl = block?.querySelector(".llm-bridge-run-status-text") as HTMLElement | null;
+    if (statusEl) {
+      statusEl.textContent = text;
+      return;
+    }
+    this.updateAssistantMessage(assistantId, { content: text });
   }
 
   private setGlobalStatus(status: RunStatus): void {

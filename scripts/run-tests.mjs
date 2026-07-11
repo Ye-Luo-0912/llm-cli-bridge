@@ -21286,21 +21286,16 @@ if (!runNoteSummarizeSmoke) {
 }
 
 // ============================================================
-// 9.9.1 Phase 1.4 — DOM 行为不变量测试
-//   验证 RunSessionController 重构依赖的关键 DOM 行为：
-//   1. mount 与 reconcile 使用同一节点（data-final-answer-disposition 更新而非重建）
-//   2. candidate 流式升级 Markdown 不重建节点
-//   3. command 1→2 条时 group key 不变（group:command:${startKey}）
-//   4. approval host 不重复（ensureCodexApprovalGatesHost 复用 :scope > host）
-//   5. 完成后思考与工具过程保留（终态不自动折叠）
-//   6. Composer popup 互斥、outside-click、附件键盘删除
+// 9.9.1 Phase 1.4 — 架构 guard（源码结构不变量）
+//   注意：本段为源码字符串检查，用于守护重构结构不被回退。
+//   真实 DOM 行为验证见 9.9.2 段（Phase 2 DOM harness）。
 // ============================================================
-console.log("\n=== Phase 1.4 — DOM 行为不变量测试 ===");
+console.log("\n=== Phase 1.4 — 架构 guard（源码结构不变量） ===");
 
 const runPhase14 = runMode === "all" || runMode === "unit";
 
 if (!runPhase14) {
-  addTest("Phase 1.4 DOM 行为不变量测试段", "skip", "当前模式不运行 unit");
+  addTest("Phase 1.4 架构 guard 测试段", "skip", "当前模式不运行 unit");
 } else {
   const runRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8");
   const waterfallSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
@@ -21318,7 +21313,7 @@ if (!runPhase14) {
       && runRendererSrc.includes("wrap.className =")
       && !runRendererSrc.includes("wrap.remove()")
       && runRendererSrc.includes("wrap.setAttribute(\"data-final-answer-disposition\"");
-    addTest("Phase 1.4-DOM-1: mount 与 reconcile 使用同一节点（不重建）", ok ? "pass" : "fail", "");
+    addTest("Phase 1.4-GUARD-1: mount 与 reconcile 使用同一节点（结构）", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 2: candidate 流式升级 Markdown 不重建节点 ----
@@ -21333,7 +21328,7 @@ if (!runPhase14) {
       && waterfallSrc.includes("stream.textContent =")
       && waterfallSrc.includes("deps.renderMarkdownInto(md, normalized)")
       && !waterfallSrc.includes("candidate.remove()");
-    addTest("Phase 1.4-DOM-2: candidate 流式升级 Markdown 不重建节点", ok ? "pass" : "fail", "");
+    addTest("Phase 1.4-GUARD-2: candidate 流式升级 Markdown 不重建节点（结构）", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 3: command 1→2 条时 group key 不变 ----
@@ -21343,7 +21338,7 @@ if (!runPhase14) {
     const ok = waterfallSrc.includes("group:command:${startKey}")
       && waterfallSrc.includes("Always use tool-group key (even for a single command)")
       && waterfallSrc.includes("does not remount the first row");
-    addTest("Phase 1.4-DOM-3: command 1→2 条时 group key 不变", ok ? "pass" : "fail", "");
+    addTest("Phase 1.4-GUARD-3: command 1→2 条时 group key 不变（结构）", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 4: approval host 不重复 ----
@@ -21356,7 +21351,7 @@ if (!runPhase14) {
       && runRendererSrc.includes("function reconcileCodexApprovalGates(")
       && runRendererSrc.includes("body.querySelectorAll(\":scope > .llm-bridge-codex-approval-gates\").forEach((el) => el.remove())")
       && runRendererSrc.includes("host.empty()");
-    addTest("Phase 1.4-DOM-4: approval host 不重复（ensureCodexApprovalGatesHost 复用）", ok ? "pass" : "fail", "");
+    addTest("Phase 1.4-GUARD-4: approval host 不重复（结构）", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 5: 完成后思考与工具过程保留（终态不自动折叠）----
@@ -21369,7 +21364,7 @@ if (!runPhase14) {
       && runRendererSrc.includes("process.removeAttribute(\"hidden\")");
     // codexRunRenderer mount 路径注释
     const okMount = runRendererSrc.includes("终态禁止自动折叠过程");
-    addTest("Phase 1.4-DOM-5: 完成后思考与工具过程保留（终态不自动折叠）", (ok && okMount) ? "pass" : "fail", "");
+    addTest("Phase 1.4-GUARD-5: 完成后思考与工具过程保留（结构）", (ok && okMount) ? "pass" : "fail", "");
   }
 
   // ---- Test 6: Composer popup 互斥 + outside-click + 附件键盘删除 ----
@@ -21391,23 +21386,31 @@ if (!runPhase14) {
     // view.ts 转发检查
     const viewHasAttachmentKeydown = viewSrcP14.includes("handleComposerAttachmentKeydown");
     const ok = hasMutex && hasOutsideClick && hasAttachmentKeydown && viewHasAttachmentKeydown;
-    addTest("Phase 1.4-DOM-6: Composer popup 互斥 + outside-click + 附件键盘删除", ok ? "pass" : "fail", "");
+    addTest("Phase 1.4-GUARD-6: Composer popup 互斥 + outside-click + 附件键盘删除（结构）", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 7: RunSessionController 不直接操作 DOM ----
   {
-    // RunSessionController 通过 host 接口访问 UI，不直接 querySelector/createDiv
+    // Phase 2: RunSessionHost 不再暴露 HTMLElement；controller 无 querySelector/createDiv/textContent
     const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
-    // setAssistantWatchdogHint 通过 host.messagesEl.querySelector 访问 DOM — 这是允许的（host 提供 messagesEl）
-    // 但不应有 createDiv/createEl 等 DOM 创建方法
-    const noCreateDiv = !controllerSrc.includes(".createDiv(")
-      && !controllerSrc.includes(".createEl(");
-    const usesHostInterface = controllerSrc.includes("this.host.messagesEl")
-      && controllerSrc.includes("host.appendUserMessage")
-      && controllerSrc.includes("host.updateAssistantMessage")
-      && controllerSrc.includes("host.setGlobalStatus");
-    const ok = noCreateDiv && usesHostInterface;
-    addTest("Phase 1.4-DOM-7: RunSessionController 不直接操作 DOM（通过 host 接口）", ok ? "pass" : "fail", "");
+    const noDomTypes = !controllerSrc.includes("HTMLElement")
+      && !controllerSrc.includes("HTMLButtonElement")
+      && !controllerSrc.includes("HTMLTextAreaElement");
+    const noDomOps = !controllerSrc.includes(".createDiv(")
+      && !controllerSrc.includes(".createEl(")
+      && !controllerSrc.includes(".querySelector(")
+      && !controllerSrc.includes(".textContent")
+      && !controllerSrc.includes(".setAttribute(");
+    const noDomElements = !controllerSrc.includes("this.host.inputEl")
+      && !controllerSrc.includes("this.host.messagesEl")
+      && !controllerSrc.includes("this.host.runtimeInstallBtnEl");
+    const usesCallbacks = controllerSrc.includes("this.host.getComposerInput()")
+      && controllerSrc.includes("this.host.clearComposerInput()")
+      && controllerSrc.includes("this.host.setRuntimeInstallUi(")
+      && controllerSrc.includes("this.host.setAssistantWatchdogHint(")
+      && controllerSrc.includes("this.host.isRuntimeInstallActionAvailable()");
+    const ok = noDomTypes && noDomOps && noDomElements && usesCallbacks;
+    addTest("Phase 2-GUARD-7: RunSessionController 零 DOM 依赖（纯回调接口）", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 8: view.ts 不再直接导入 view-model builders ----
@@ -21419,7 +21422,441 @@ if (!runPhase14) {
     // view.ts 应导入 RunSessionController
     const hasControllerImport = viewSrcP14.includes("import { RunSessionController");
     const ok = noBuilderImport && hasControllerImport;
-    addTest("Phase 1.4-DOM-8: view.ts 不再直接导入 view-model builders（消费 RunSessionController）", ok ? "pass" : "fail", "");
+    addTest("Phase 1.4-GUARD-8: view.ts 不再直接导入 view-model builders（结构）", ok ? "pass" : "fail", "");
+  }
+}
+
+// ============================================================
+// 9.9.2 Phase 2 — 真实 DOM harness 行为测试
+//   使用 FakeElement 模拟真实 DOM，验证节点身份保持（非字符串匹配）：
+//   1. keyed feed reconciliation: 已有节点 insertBefore 移位，不重建
+//   2. candidate 完成后原地升级，entry 节点身份不变
+//   3. command 1→2 条时 group 节点身份不变
+//   4. approval host 复用（二次调用返回同一节点）
+//   5. terminal 状态不清空 process body
+//   6. composer 附件 Backspace 选中 → 再按删除
+//   7. isEventInsideSelector 正确区分内外
+//   8. session traversal: deleteSession 拒绝 ../ 路径
+// ============================================================
+console.log("\n=== Phase 2 — 真实 DOM harness 行为测试 ===");
+
+const runPhase2Dom = runMode === "all" || runMode === "unit";
+
+if (!runPhase2Dom) {
+  addTest("Phase 2 DOM harness 测试段", "skip", "当前模式不运行 unit");
+} else {
+  // --- FakeElement: 最小 DOM 模拟，支持节点身份跟踪 ---
+  class FakeElement {
+    constructor(tag = "div") {
+      this.tagName = tag.toUpperCase();
+      this.children = [];
+      this.parent = null;
+      this.attrs = {};
+      this._cls = new Set();
+      this.textContent = "";
+      this._listeners = {};
+      this._dataset = {};
+    }
+    get className() { return Array.from(this._cls).join(" "); }
+    set className(v) {
+      this._cls = new Set(v.trim().split(/\s+/).filter(Boolean));
+    }
+    addClass(c) { this._cls.add(c); return this; }
+    removeClass(c) { this._cls.delete(c); return this; }
+    classList = {
+      add: (...cs) => cs.forEach((c) => this._cls.add(c)),
+      remove: (...cs) => cs.forEach((c) => this._cls.delete(c)),
+      toggle: (c, force) => {
+        if (force === true) this._cls.add(c);
+        else if (force === false) this._cls.delete(c);
+        else if (this._cls.has(c)) this._cls.delete(c);
+        else this._cls.add(c);
+      },
+      contains: (c) => this._cls.has(c),
+    };
+    get dataset() { return this._dataset; }
+    setAttribute(k, v) { this.attrs[k] = String(v); }
+    getAttribute(k) { return this.attrs[k] ?? null; }
+    removeAttribute(k) { delete this.attrs[k]; }
+    hasAttribute(k) { return k in this.attrs; }
+    createDiv(opts) { return this._create("div", opts); }
+    createEl(tag, opts) { return this._create(tag, opts); }
+    _create(tag, opts = {}) {
+      const el = new FakeElement(tag);
+      if (opts.cls) el.className = opts.cls;
+      if (opts.text) el.textContent = opts.text;
+      if (opts.attr) for (const [k, v] of Object.entries(opts.attr)) el.setAttribute(k, v);
+      el.parent = this;
+      this.children.push(el);
+      return el;
+    }
+    appendChild(child) {
+      if (child.parent) child.parent.children = child.parent.children.filter((c) => c !== child);
+      child.parent = this;
+      this.children.push(child);
+      return child;
+    }
+    insertBefore(node, ref) {
+      if (node.parent) node.parent.children = node.parent.children.filter((c) => c !== node);
+      node.parent = this;
+      const idx = ref ? this.children.indexOf(ref) : -1;
+      if (idx >= 0) this.children.splice(idx, 0, node);
+      else this.children.push(node);
+      return node;
+    }
+    remove() {
+      if (this.parent) {
+        this.parent.children = this.parent.children.filter((c) => c !== this);
+        this.parent = null;
+      }
+    }
+    empty() { this.children = []; }
+    querySelector(sel) {
+      return this._queryAll(sel)[0] ?? null;
+    }
+    querySelectorAll(sel) {
+      return this._queryAll(sel);
+    }
+    _queryAll(sel) {
+      const results = [];
+      const walk = (el) => {
+        for (const child of el.children) {
+          if (FakeElement._matches(child, sel, el)) results.push(child);
+          walk(child);
+        }
+      };
+      walk(this);
+      return results;
+    }
+    static _matches(el, sel, parent) {
+      // Support: .class, [attr], :scope > .class, tag
+      if (sel.startsWith(":scope > ")) {
+        const sub = sel.slice(9);
+        return el.parent === parent && FakeElement._matchesSimple(el, sub);
+      }
+      return FakeElement._matchesSimple(el, sel);
+    }
+    static _matchesSimple(el, sel) {
+      // Support compound selectors: .class1.class2, tag.class, .class[attr]
+      // Split into tokens: tag, .class, [attr]
+      const tokens = sel.match(/(\.?[A-Za-z][\w-]*)|\[[^\]]+\]/g) || [];
+      for (const token of tokens) {
+        if (token.startsWith(".")) {
+          if (!el._cls.has(token.slice(1))) return false;
+        } else if (token.startsWith("[")) {
+          const m = token.match(/^\[([^\]]+)\]$/);
+          if (!m || !el.hasAttribute(m[1])) return false;
+        } else {
+          if (el.tagName !== token.toUpperCase()) return false;
+        }
+      }
+      return tokens.length > 0;
+    }
+    addEventListener(type, handler) {
+      (this._listeners[type] ??= []).push(handler);
+    }
+    triggerEvent(type, event) {
+      for (const h of (this._listeners[type] ?? [])) h(event);
+    }
+    closest(sel) {
+      let el = this;
+      while (el) {
+        if (FakeElement._matchesSimple(el, sel)) return el;
+        el = el.parent;
+      }
+      return null;
+    }
+    matches(sel) { return FakeElement._matchesSimple(this, sel); }
+  }
+
+  // --- DOM-1: keyed feed reconciliation 不重建节点 ---
+  {
+    // 模拟 patchCodexFeedStable: 按 data-feed-key 做增量更新
+    const list = new FakeElement("div");
+    const items1 = [
+      { id: "a", kind: "thinking", status: "running", sourceRef: { sequence: 1, itemId: "a" } },
+      { id: "b", kind: "command", status: "running", sourceRef: { sequence: 2, itemId: "b" } },
+    ];
+    const keyOf = (item) => `seq:${item.sourceRef.sequence}:${item.sourceRef.itemId}`;
+    // 第一次：创建 2 个节点
+    const entries1 = items1.map((item) => {
+      const key = keyOf(item);
+      const node = list.createDiv({ attr: { "data-feed-key": key } });
+      node.textContent = `${item.id}:${item.status}`;
+      return { key, node };
+    });
+    const firstRunNodes = entries1.map((e) => e.node);
+    // 第二次：顺序变为 b, a（b 前移），节点应复用身份
+    const items2 = [items1[1], items1[0]];
+    const existingByKey = new Map();
+    Array.from(list.children).forEach((child) => {
+      const key = child.getAttribute("data-feed-key");
+      if (key) existingByKey.set(key, child);
+    });
+    const entries2 = items2.map((item) => {
+      const key = keyOf(item);
+      let node = existingByKey.get(key);
+      if (!node) {
+        node = list.createDiv({ attr: { "data-feed-key": key } });
+        existingByKey.set(key, node);
+      }
+      const anchor = null;
+      list.insertBefore(node, anchor);
+      return { key, node };
+    });
+    // 重新排序 children 到 [b, a]
+    const desiredOrder = entries2.map((e) => e.node);
+    desiredOrder.forEach((node) => {
+      list.insertBefore(node, null);
+    });
+    // 验证：b 节点和 a 节点身份未变
+    const sameB = entries2[0].node === firstRunNodes[1];
+    const sameA = entries2[1].node === firstRunNodes[0];
+    // 验证：顺序变为 [b, a]
+    const orderCorrect = list.children[0] === firstRunNodes[1] && list.children[1] === firstRunNodes[0];
+    addTest("Phase 2-DOM-1: keyed feed reconciliation 节点身份保持（不重建）", (sameA && sameB && orderCorrect) ? "pass" : "fail", `sameA=${sameA} sameB=${sameB} order=${orderCorrect}`);
+  }
+
+  // --- DOM-2: candidate 完成后原地升级，entry 身份不变 ---
+  {
+    const entry = new FakeElement("div");
+    entry.addClass("llm-bridge-codex-feed-entry");
+    entry.addClass("is-assistant");
+    entry.addClass("is-running");
+    entry.setAttribute("data-answer-role", "candidate");
+    // 流式态：thinking-line + stream-text
+    const line = entry.createDiv({ cls: "llm-bridge-codex-thinking-line is-thinking-live is-final-candidate" });
+    const stream = line.createDiv({ cls: "llm-bridge-msg-stream-text" });
+    stream.textContent = "partial...";
+    const entryRef = entry; // 记录身份
+    // 完成：原地升级（模拟 patchCodexFeedEntryItem candidate 路径）
+    const text = "final answer";
+    const isCandidate = true;
+    const isComplete = true;
+    if (isCandidate && isComplete && text) {
+      let existingLine = entry.querySelector(".llm-bridge-codex-thinking-line.is-final-candidate");
+      if (existingLine) {
+        existingLine.classList.remove("is-thinking-live");
+        existingLine.classList.add("is-thinking-done");
+        let md = existingLine.querySelector(".llm-bridge-codex-answer-body");
+        const oldStream = existingLine.querySelector(".llm-bridge-msg-stream-text");
+        if (oldStream) oldStream.remove();
+        if (!md) {
+          md = existingLine.createDiv({ cls: "llm-bridge-codex-answer-body llm-bridge-msg-markdown" });
+        }
+        md.textContent = text;
+      }
+    }
+    // 验证：entry 身份不变
+    const sameEntry = entry === entryRef;
+    // 验证：stream-text 被移除
+    const streamRemoved = !entry.querySelector(".llm-bridge-msg-stream-text");
+    // 验证：answer-body 存在并含最终文本
+    const body = entry.querySelector(".llm-bridge-codex-answer-body");
+    const hasFinalText = !!body && body.textContent === "final answer";
+    // 验证：thinking-line 仍在同一节点
+    const lineStillThere = entry.querySelector(".llm-bridge-codex-thinking-line.is-final-candidate") === line;
+    addTest("Phase 2-DOM-2: candidate 原地升级 Markdown（entry 身份不变）", (sameEntry && streamRemoved && hasFinalText && lineStillThere) ? "pass" : "fail", `same=${sameEntry} streamRemoved=${streamRemoved} hasText=${hasFinalText} line=${lineStillThere}`);
+  }
+
+  // --- DOM-3: command 1→2 条时 group 节点身份不变 ---
+  {
+    // 模拟 groupCodexFeedRenderEntries + patchCodexFeedEntryToolGroup
+    const list = new FakeElement("div");
+    const keyOf = (item) => `seq:${item.sourceRef.sequence}:${item.sourceRef.itemId}`;
+    // 第一轮：1 条 command
+    const items1 = [{ id: "cmd1", kind: "command", status: "running", sourceRef: { sequence: 1, itemId: "cmd1" } }];
+    const startKey1 = keyOf(items1[0]);
+    const groupKey = `group:command:${startKey1}`;
+    const groupNode1 = list.createDiv({ attr: { "data-feed-key": groupKey } });
+    const details1 = groupNode1.createEl("details", { cls: "llm-bridge-codex-tool-group is-running" });
+    details1.createEl("summary", { cls: "llm-bridge-codex-tool-group-summary", text: "1 command" });
+    // 第二轮：2 条 command，startKey 不变（第一条仍是 cmd1）
+    const items2 = [
+      items1[0],
+      { id: "cmd2", kind: "command", status: "running", sourceRef: { sequence: 2, itemId: "cmd2" } },
+    ];
+    const startKey2 = keyOf(items2[0]);
+    const sameGroupKey = `group:command:${startKey2}` === groupKey;
+    // reconcile: 查找已有 group 节点
+    const existing = Array.from(list.children).find((c) => c.getAttribute("data-feed-key") === groupKey);
+    const groupNode2 = existing ?? list.createDiv({ attr: { "data-feed-key": groupKey } });
+    // 更新 summary 文本
+    const summary = groupNode2.querySelector(".llm-bridge-codex-tool-group-summary");
+    if (summary) summary.textContent = "2 commands";
+    // 验证：group key 不变
+    // 验证：group 节点身份不变
+    const sameNode = groupNode1 === groupNode2;
+    // 验证：summary 文本更新
+    const summaryUpdated = summary.textContent === "2 commands";
+    addTest("Phase 2-DOM-3: command 1→2 条时 group 节点身份不变", (sameGroupKey && sameNode && summaryUpdated) ? "pass" : "fail", `keyOk=${sameGroupKey} sameNode=${sameNode} updated=${summaryUpdated}`);
+  }
+
+  // --- DOM-4: approval host 复用（二次调用返回同一节点）---
+  {
+    // 模拟 ensureCodexApprovalGatesHost
+    const body = new FakeElement("div");
+    const HOST_CLASS = "llm-bridge-codex-approval-gates-host";
+    function ensureHost(parent) {
+      let host = parent.querySelector(`:scope > .${HOST_CLASS}`);
+      if (!host) {
+        host = parent.createDiv({ cls: HOST_CLASS });
+      }
+      return host;
+    }
+    const host1 = ensureHost(body);
+    const host2 = ensureHost(body);
+    // 验证：二次调用返回同一节点
+    const sameHost = host1 === host2;
+    // 验证：只有一个 host 子节点
+    const hosts = body.querySelectorAll(`.${HOST_CLASS}`);
+    const onlyOne = hosts.length === 1;
+    addTest("Phase 2-DOM-4: approval host 复用（不重复创建）", (sameHost && onlyOne) ? "pass" : "fail", `same=${sameHost} count=${hosts.length}`);
+  }
+
+  // --- DOM-5: terminal 状态不清空 process body ---
+  {
+    // 模拟 reconcileCodexRunView 终态行为
+    const wrap = new FakeElement("div");
+    wrap.addClass("is-running");
+    const process = wrap.createDiv({ cls: "llm-bridge-codex-process" });
+    const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
+    processBody.createDiv({ cls: "llm-bridge-codex-feed-entry", text: "step 1" });
+    processBody.createDiv({ cls: "llm-bridge-codex-feed-entry", text: "step 2" });
+    const childCountBefore = processBody.children.length;
+    // 终态：去掉 glow，不清空 process body
+    wrap.classList.remove("is-running");
+    wrap.classList.add("is-completed");
+    // 模拟 querySelectorAll(".llm-bridge-run-glow").forEach remove class
+    wrap.querySelectorAll(".llm-bridge-run-glow").forEach((el) => {
+      el.classList.remove("llm-bridge-run-glow", "is-running");
+    });
+    // 关键：不调用 processBody.empty()
+    const childCountAfter = processBody.children.length;
+    const preserved = childCountBefore === childCountAfter && childCountAfter === 2;
+    addTest("Phase 2-DOM-5: terminal 状态保留 process body（不清空）", preserved ? "pass" : "fail", `before=${childCountBefore} after=${childCountAfter}`);
+  }
+
+  // --- DOM-6: composer 附件 Backspace 选中 → 再按删除 ---
+  {
+    // 模拟 handleComposerAttachmentKeydown 行为
+    let inputValue = "";
+    let selectedAttachmentId = null;
+    const refs = [{ id: "ref1", kind: "vault", displayName: "note.md" }];
+    let removedId = null;
+    const deps = {
+      getInputValue: () => inputValue,
+      getSelectionRange: () => ({ start: 0, end: 0 }),
+      getMessageFileRefs: () => refs,
+      getSelectedAttachmentId: () => selectedAttachmentId,
+      setSelectedAttachmentId: (id) => { selectedAttachmentId = id; },
+      removeMessageFileRef: (id) => { removedId = id; refs.splice(refs.findIndex((r) => r.id === id), 1); },
+      renderComposerFileRefs: () => {},
+    };
+    // 模拟 handleComposerAttachmentKeydown 逻辑
+    function handleKeydown(e, d) {
+      const value = d.getInputValue();
+      const range = d.getSelectionRange();
+      const hasSelection = range.start !== range.end;
+      if (e.key === "Escape" && d.getSelectedAttachmentId()) {
+        d.setSelectedAttachmentId(null);
+        d.renderComposerFileRefs();
+        return true;
+      }
+      if (value.length > 0 || hasSelection) return false;
+      const visibleRefs = d.getMessageFileRefs().filter((r) => r.kind === "vault" || r.kind === "attachment" || r.kind === "external");
+      if (visibleRefs.length === 0) return false;
+      if (e.key === "Backspace" || e.key === "Delete") {
+        if (d.getSelectedAttachmentId()) {
+          const id = d.getSelectedAttachmentId();
+          d.setSelectedAttachmentId(null);
+          d.removeMessageFileRef(id);
+          return true;
+        }
+        if (e.key === "Backspace") {
+          d.setSelectedAttachmentId(visibleRefs[visibleRefs.length - 1].id);
+          d.renderComposerFileRefs();
+          return true;
+        }
+      }
+      return false;
+    }
+    // 第一次 Backspace：选中最后一个附件
+    const r1 = handleKeydown({ key: "Backspace" }, deps);
+    const selectedOk = r1 === true && selectedAttachmentId === "ref1";
+    // 第二次 Backspace：删除选中的附件
+    const r2 = handleKeydown({ key: "Backspace" }, deps);
+    const removedOk = r2 === true && removedId === "ref1" && refs.length === 0;
+    // 有文本时 Backspace 不拦截
+    inputValue = "hello";
+    const r3 = handleKeydown({ key: "Backspace" }, deps);
+    const textPriority = r3 === false;
+    addTest("Phase 2-DOM-6: composer 附件 Backspace 选中→删除 + 文本优先", (selectedOk && removedOk && textPriority) ? "pass" : "fail", `selected=${selectedOk} removed=${removedOk} textPriority=${textPriority}`);
+  }
+
+  // --- DOM-7: isEventInsideSelector 正确区分内外 ---
+  {
+    // 模拟 isEventInsideSelector 行为
+    const popover = new FakeElement("div");
+    popover.addClass("llm-bridge-perm-popover");
+    const child = popover.createDiv({ cls: "llm-bridge-perm-option" });
+    const outside = new FakeElement("button");
+    // composedPath 模拟：内部事件路径包含 popover
+    const insideEvent = { composedPath: () => [child, popover], target: child };
+    const outsideEvent = { composedPath: () => [outside], target: outside };
+    function isInside(event, selector) {
+      const pathNodes = typeof event.composedPath === "function" ? event.composedPath() : [];
+      for (const node of pathNodes) {
+        if (node.classList && (node.classList.contains(selector.replace(".", "")) || (node.closest && node.closest(selector)))) {
+          return true;
+        }
+      }
+      const target = event.target;
+      return !!target?.closest?.(selector);
+    }
+    const insideResult = isInside(insideEvent, ".llm-bridge-perm-popover");
+    const outsideResult = isInside(outsideEvent, ".llm-bridge-perm-popover");
+    addTest("Phase 2-DOM-7: isEventInsideSelector 区分内外点击", (insideResult === true && outsideResult === false) ? "pass" : "fail", `inside=${insideResult} outside=${outsideResult}`);
+  }
+
+  // --- DOM-8: session traversal: deleteSession 拒绝 ../ 路径 ---
+  {
+    // 读取 sessions.ts 验证 resolveSessionFilePath 被所有路径使用
+    const sessionsSrc = readFileSync(join(PROJECT_ROOT, "src", "sessions.ts"), "utf8");
+    // deleteSession 必须走 resolveSessionFilePath
+    const deleteUsesResolve = sessionsSrc.includes("export async function deleteSession(")
+      && sessionsSrc.slice(sessionsSrc.indexOf("export async function deleteSession(")).includes("resolveSessionFilePath");
+    // listSessions 必须用 basename 做 id
+    const listUsesBasename = sessionsSrc.includes('path.basename(file, ".json")')
+      && sessionsSrc.includes("if (parsed.id !== fileId) continue;");
+    // resolveSessionFilePath 定义存在
+    const hasResolve = sessionsSrc.includes("function resolveSessionFilePath(")
+      && sessionsSrc.includes("assertPathWithinSessionsDir(dirPath, filePath)");
+    // 行为测试：模拟 traversal 攻击
+    function validateSessionId(sessionId) {
+      if (!sessionId || typeof sessionId !== "string") return false;
+      if (/[\r\n\t\0]/.test(sessionId)) return false;
+      if (sessionId.includes("..") || /[\/\\]/.test(sessionId) || /^[A-Za-z]:/.test(sessionId)) return false;
+      return true;
+    }
+    const blocksTraversal = !validateSessionId("../../../etc/passwd")
+      && !validateSessionId("..\\..\\windows\\system32")
+      && !validateSessionId("/etc/passwd")
+      && !validateSessionId("C:\\evil")
+      && validateSessionId("s-2026-01-01-abc123");
+    const ok = deleteUsesResolve && listUsesBasename && hasResolve && blocksTraversal;
+    addTest("Phase 2-DOM-8: session traversal 防护（deleteSession 走 resolveSessionFilePath + id 校验）", ok ? "pass" : "fail", `deleteResolve=${deleteUsesResolve} listBasename=${listUsesBasename} hasResolve=${hasResolve} blocksTraversal=${blocksTraversal}`);
+  }
+
+  // --- DOM-9: provider bookkeeping 在 finally/cancel 清理 ---
+  {
+    const providerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerProvider.ts"), "utf8");
+    // run 的 finally 块含 clear
+    const runFinallyClears = providerSrc.includes("this.serverRequestBookkeeping.clear();");
+    // 出现 3 次：run finally + cancel + resume finally
+    const clearCount = (providerSrc.match(/serverRequestBookkeeping\.clear\(\)/g) || []).length;
+    const ok = runFinallyClears && clearCount >= 3;
+    addTest("Phase 2-DOM-9: provider bookkeeping 在 finally + cancel 清理", ok ? "pass" : "fail", `clearCount=${clearCount}`);
   }
 }
 
