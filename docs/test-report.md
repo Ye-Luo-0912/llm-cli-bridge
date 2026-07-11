@@ -1,24 +1,24 @@
 # LLM CLI Bridge 测试报告 — 全量测试（all）
 
-- **测试时间**: 2026-07-11T18:16:12.360Z
+- **测试时间**: 2026-07-11T18:40:56.317Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.18.0
-- **main.js 大小**: 1258.1 KB
+- **main.js 大小**: 1264.9 KB
 - **main.js bundle content smoke**: PASS ({"HttpBridge":true,"writeHelperAndWrappers":true,"CodexAppServerProvider":true,"vault_api":true})
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 55067
-- **commit sha**: 8644e27f29dc1f6e6f4bebd708b061921bcd8c79
-- **commit 短 sha**: 8644e27f29dc
+- **commit sha**: 98b9037aecac7905068eb272f9b86f7d98c8ab4b
+- **commit 短 sha**: 98b9037aecac
 - **运行命令**: node scripts/run-tests.mjs all
 
 ## 测试汇总
 
-- ✅ **通过**: 1260
+- ✅ **通过**: 1267
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 5
 - ⚪ **需人工验证**: 6
-- **总计**: 1271
+- **总计**: 1278
 
 ### 审计模式说明
 
@@ -652,7 +652,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | cancelAllPending 后立即返回 cancel | type=cancel elapsed=0ms |
+| ✅ | cancelAllPending 后立即返回 cancel | type=cancel elapsed=1ms |
 | ✅ | 不存在的 requestId 立即返回 cancel | type=cancel elapsed=0ms |
 
 ### V16.5-B view.ts
@@ -758,7 +758,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-wlsz5h\\skills\\pdf\\SKILL.md"}] |
+| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-VIXzU6\\skills\\pdf\\SKILL.md"}] |
 
 ### V16.5-D view.ts 主路径注入真实 capabilities
 
@@ -1073,7 +1073,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783793775383-0 update=pi-sdk-read-1783793775383-0 end=pi-sdk-read-1783793775383-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783795259301-0 update=pi-sdk-read-1783795259301-0 end=pi-sdk-read-1783795259301-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -1538,25 +1538,25 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3241ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
+| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3298ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
  |
-| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4706ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783793780564
+| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4676ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783795265526
  |
 | ✅ | health 命令（fake server） | - |
 | ✅ | --json 标志输出有效 JSON（fake server） | - |
 | ✅ | 非修改类 action 直接输出（不轮询） | {
   "ok": true,
-  "id": "fake-id-1783793785601",
+  "id": "fake-id-1783795270494",
   "status": "completed",
   "result": {
     "type":  |
 | ✅ | --stdin 模式读取 JSON params | {
   "ok": true,
-  "id": "fake-id-1783793785715",
+  "id": "fake-id-1783795270631",
   "status": "completed",
   "result": {
     "type":  |
-| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783793785823","status":"completed","result":{"type":"tags_list","fake":tru |
+| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783795270763","status":"completed","result":{"type":"tags_list","fake":tru |
 | ✅ | 错误分级 - bridge.json 缺失 exit 2 | exit=2 stderr=[bridge 未启动] 未找到 .llm-bridge/bridge.json。
   请确认 Obsidian 已启动且 llm-cli-bridge 插件已 |
 | ✅ | 错误分级 - JSON 解析失败 exit 5 | exit=5 stderr=[参数解析失败] JSON 格式错误: Expected property name or '}' in JSON at position 1 (line 1  |
@@ -2429,7 +2429,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-11T18-16-52-073Z-2xfjbp |
+| ✅ | 返回非空 id | id=s-2026-07-11T18-41-37-488Z-u3wjq1 |
 
 ### V2.5 Session 版本
 
@@ -2448,7 +2448,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-11T18-16-52-138Z-qsziok second=s-2026-07-11T18-16-52-083Z-iwsajz |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-11T18-41-37-565Z-dy4cv0 second=s-2026-07-11T18-41-37-501Z-tfc5ai |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2478,6 +2478,18 @@
 | ✅ | Codex session index 使用 JSON 精确字段匹配（非 line.includes 子串） | - |
 | ✅ | 提供 Sync Skills + Clean Plugin-Generated Skills 命令入口 | - |
 
+### Phase 3
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | Modal Esc/遮罩关闭正常结束 Promise（3 处 onClose 兜底 + resolved 守卫） | onCloseCount=3, hasResolvedGuard=true |
+| ✅ | Retry 同时恢复原消息文字、图片和文件附件（深拷贝 fileRefs） | - |
+| ✅ | 大图片大小限制（10MB）+ 格式检查 + 降级路径引用提示 | limit=true, format=true, downgrade=true |
+| ✅ | 自动恢复历史期间避免覆盖用户刚输入或发送的新消息（竞态保护） | - |
+| ✅ | 新建/恢复/删除会话在确认后重新检查运行状态 | - |
+| ✅ | Runtime 状态区分（未安装/准备中/运行中/失败/可用，computeRuntimeStateLabel 统一） | method=true, states=true |
+| ✅ | 一键复制脱敏诊断信息（copyDiagnosticsToClipboard + redactSecrets + 命令入口） | method=true, usesRedact=true, command=true |
+
 ### V2.5 Session 安全写入
 
 | 状态 | 测试项 | 详情 |
@@ -2495,7 +2507,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-11T18-16-52-182Z-r0qhq9 id2=s-2026-07-11T18-16-52-182Z-7qruo2 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-11T18-41-37-652Z-r5acbm id2=s-2026-07-11T18-41-37-652Z-abg4qw |
 
 ### V2.5 Session 上限
 
@@ -2593,7 +2605,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-11T18:16:52.231Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-11T18:41:37.719Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2681,7 +2693,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-11T18:16:52.284Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-11T18:41:37.785Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2800,7 +2812,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-11T18:16:52.347Z after=2026-07-11T18:16:52.401Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-11T18:41:37.867Z after=2026-07-11T18:41:37.934Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -3167,13 +3179,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-11T18:16:53.556Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-11T18:41:39.032Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-11T18:16:53.562Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-11T18:41:39.044Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3289,7 +3301,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-4Ij7mB\skills\llm-bridge-d23d8828-review-skill\SKILL.md |
+| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-sDf82p\skills\llm-bridge-c6e85b84-review-skill\SKILL.md |
 | ✅ | run 前从 Bridge manifest 物化 enabled Skills | ok=true count=1 |
 
 ### V2.13.0-C materializeEnabled
@@ -3491,7 +3503,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-UuEDRg\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-u1H9af\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-5pUkuX\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-q7VDj3\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3503,7 +3515,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-KNmUqW\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-ULtWTW\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-bVQqjZ\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-NCJ817\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3515,7 +3527,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-D2t4PT\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-bFUEJS\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-iN6yJg\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-lHKXeA\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -3643,7 +3655,7 @@
 |------|--------|------|
 | ✅ | context metrics UI 方法与元素存在 | - |
 | ✅ | 会话保持 restoreLastActiveSessionIfNeeded 存在 | - |
-| ✅ | runtime status 英文 pill 格式 + Phase1 初始文案 | - |
+| ✅ | runtime status pill 格式 + Phase1 初始文案 + Phase3 统一状态 | - |
 | ✅ | saveSession 传入运行时状态快照 | - |
 | ✅ | doNewSession 清除 lastActiveSessionId | - |
 
