@@ -438,19 +438,19 @@
 }
 
 .llm-bridge-perm-popover-question {
-  flex: 1 1 auto !important;
-  min-width: 0 !important;
-  color: var(--text-muted) !important;
-  font-size: 12px !important;
-  font-weight: 500 !important;
-  line-height: 1.35 !important;
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
 }
 
 .llm-bridge-perm-popover-list {
-  display: flex !important;
-  flex-direction: column !important;
-  gap: 2px !important;
-  min-width: 0 !important;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
 }
 
 .llm-bridge-perm-option {
@@ -501,8 +501,8 @@
 }
 
 .llm-bridge-perm-option-icon svg {
-  width: 18px !important;
-  height: 18px !important;
+  width: 18px;
+  height: 18px;
 }
 
 .llm-bridge-perm-option-text {
@@ -527,17 +527,17 @@
 }
 
 .llm-bridge-perm-popover .llm-bridge-perm-option-desc {
-  display: block !important;
-  min-width: 0 !important;
-  max-width: 100% !important;
-  color: var(--text-muted) !important;
-  font-size: 11.5px !important;
-  font-weight: 400 !important;
-  line-height: 1.4 !important;
-  overflow: visible !important;
-  white-space: normal !important;
-  text-overflow: clip !important;
-  word-break: break-word !important;
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--text-muted);
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.4;
+  overflow: visible;
+  white-space: normal;
+  text-overflow: clip;
+  word-break: break-word;
 }
 
 .llm-bridge-perm-option-check {
@@ -554,12 +554,12 @@
 }
 
 .llm-bridge-perm-option-check svg {
-  width: 16px !important;
-  height: 16px !important;
+  width: 16px;
+  height: 16px;
 }
 
 .llm-bridge-perm-option.is-active .llm-bridge-perm-option-check {
-  visibility: visible !important;
+  visibility: visible;
 }
 
 /* 三项审批画像：安静列表，不用五色大色块 */
@@ -573,7 +573,7 @@
 }
 
 .llm-bridge-perm-option.is-active .llm-bridge-perm-option-check {
-  color: var(--interactive-accent) !important;
+  color: var(--interactive-accent);
 }
 
 .llm-bridge-permission-chip.is-ask,
@@ -615,4 +615,2059 @@
   .llm-bridge-attachment-token.is-file {
     max-width: 96px;
   }
+}
+
+
+/* ===== 自 legacy.css 迁移而来的 Composer 规则（已去重合并） ===== */
+
+.llm-bridge-composer.is-dragging-file {
+  outline: 1px dashed var(--interactive-accent);
+  outline-offset: -5px;
+  background: var(--background-secondary);
+}
+
+.llm-bridge-composer-file-chip {
+  display: grid;
+  align-items: center;
+  justify-content: flex-start;
+  position: relative;
+  width: auto;
+  height: auto;
+  padding: 3px 4px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-secondary) 28%, transparent);
+  color: var(--text-normal);
+  cursor: pointer;
+  overflow: hidden;
+  max-width: 132px;
+  min-height: 30px;
+  gap: 5px;
+  border-color: color-mix(in srgb, var(--text-muted) 10%, transparent);
+  grid-template-columns: 22px minmax(0, 1fr) 16px 16px;
+  box-shadow: none;
+  min-width: 0;
+}
+
+.llm-bridge-composer-file-chip:hover {
+  border-color: color-mix(in srgb, var(--text-muted) 18%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 45%, transparent);
+}
+
+.llm-bridge-composer-file-chip.is-attachment {
+  border-color: rgba(var(--color-green-rgb), 0.35);
+}
+
+.llm-bridge-composer-file-chip.is-external {
+  border-color: rgba(var(--color-orange-rgb), 0.35);
+}
+
+.llm-bridge-composer-file-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 7px;
+  overflow: hidden;
+  display: inline-flex;
+  place-items: center;
+  background: color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary));
+  flex: 0 0 auto;
+  position: relative;
+  align-items: center;
+  justify-content: center;
+  background-position: center;
+  background-size: cover;
+  color: var(--text-muted);
+  min-width: 22px;
+  min-height: 22px;
+}
+
+.llm-bridge-composer-file-image {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: cover !important;
+  display: block !important;
+  min-width: 100% !important;
+  max-width: 100% !important;
+  min-height: 100% !important;
+  max-height: 100% !important;
+  box-sizing: border-box !important;
+  padding: 1px !important;
+  border-radius: inherit !important;
+  object-position: center !important;
+  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary)) !important;
+}
+
+.llm-bridge-composer-file-ext {
+  font-family: var(--font-monospace);
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0;
+  color: var(--text-faint);
+  text-transform: uppercase;
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  max-width: 24px;
+  padding: 1px 2px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--background-primary) 88%, transparent);
+  line-height: 1.1;
+}
+
+.llm-bridge-composer-file-remove {
+  position: absolute;
+  top: 2px;
+  right: -5px;
+  width: 15px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-muted);
+  font-weight: 700;
+  font-size: 10px;
+  line-height: 1;
+  opacity: 0.58;
+  transition: opacity 0.12s;
+  transform: translateY(-50%);
+}
+
+.llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-remove {
+  opacity: 1;
+}
+
+.llm-bridge-composer-file-remove:hover {
+  color: var(--text-error);
+  border-color: rgba(var(--color-red-rgb), 0.35);
+}
+
+.llm-bridge-composer-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.llm-bridge-composer-tool-btn:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+.llm-bridge-composer-tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.llm-bridge-command-menu-summary {
+  list-style: none;
+  gap: 5px !important;
+}
+
+.llm-bridge-command-menu-summary::-webkit-details-marker {
+  display: none;
+}
+
+.llm-bridge-command-menu[open] .llm-bridge-command-menu-summary {
+  border-color: rgba(var(--interactive-accent-rgb), 0.55);
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-command-menu-item {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-normal);
+  text-align: left;
+  font-size: var(--font-smallest);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 46px;
+}
+
+.llm-bridge-command-menu-item:hover:not(:disabled) {
+  border-color: rgba(var(--interactive-accent-rgb), 0.28);
+  background: var(--background-modifier-hover);
+}
+
+.llm-bridge-context-strip {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border-top: 0;
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
+  font-size: var(--font-smallest);
+  color: var(--text-faint);
+  align-self: flex-end;
+  width: fit-content;
+  max-width: calc(100% - 48px);
+  margin: 0 24px -3px auto;
+  margin-right: 0;
+  opacity: 0.78;
+  margin-left: auto;
+  border: 0;
+}
+
+.llm-bridge-context-strip:hover {
+  background: transparent;
+  color: var(--text-muted);
+  opacity: 1;
+}
+
+.llm-bridge-context-ring {
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--background-modifier-border);
+  border: 1.5px solid var(--background-primary);
+  box-shadow: 0 0 0 1px var(--background-modifier-border);
+  border-width: 1px;
+  opacity: 0.74;
+}
+
+.llm-bridge-context-ring.is-compressed {
+  box-shadow: 0 0 0 1px var(--background-modifier-border), 0 0 0 3px color-mix(in srgb, #f59e0b 40%, transparent);
+}
+
+.llm-bridge-context-label {
+  flex: 0 0 auto;
+  font-weight: 560;
+  white-space: nowrap;
+  color: var(--text-faint);
+  font-size: 10px;
+  line-height: 1;
+}
+
+.llm-bridge-context-detail {
+  flex: 1 1 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-left: auto;
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-context-detail[hidden] {
+  display: none;
+}
+
+.llm-bridge-context-detail-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 80%, transparent);
+}
+
+.llm-bridge-context-detail-label {
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.llm-bridge-context-detail-value {
+  color: var(--text-normal);
+  font-family: var(--font-monospace);
+}
+
+.llm-bridge-context-detail-chars {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.llm-bridge-context-compression {
+  border: 1px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.llm-bridge-context-tags {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-height: 20px;
+  padding: 2px 24px 0;
+  border-top: 0;
+  background: transparent;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.llm-bridge-context-tag-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+}
+
+.llm-bridge-context-tag-wrap[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-context-tag {
+  display: inline-block;
+  align-items: center;
+  gap: 3px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-small);
+  font-weight: 450;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  line-height: 1.35;
+  white-space: nowrap;
+  min-height: 18px;
+  box-shadow: none;
+  text-decoration: none;
+  text-underline-offset: 3px;
+  max-width: min(42ch, 46vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-decoration-thickness: 1px;
+}
+
+.llm-bridge-context-tag:hover {
+  background: transparent;
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-context-tag.is-active {
+  background: transparent;
+  border-color: var(--interactive-accent);
+  color: var(--text-normal);
+  border: 0;
+  box-shadow: none;
+  text-decoration: none;
+}
+
+.llm-bridge-context-tag-file {
+  font-size: var(--font-smallest);
+  color: var(--text-faint);
+  font-weight: 400;
+  display: none !important;
+}
+
+.llm-bridge-context-tag-file:empty {
+  display: none;
+}
+
+.llm-bridge-context-section {
+  display: grid;
+  width: 100%;
+  padding: 0;
+  border-bottom: 1px solid var(--background-modifier-border);
+  border: 1px solid color-mix(in srgb, var(--text-muted) 18%, var(--background-modifier-border));
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--background-primary) 95%, var(--background-secondary));
+  overflow: hidden;
+  gap: 0;
+  border-color: color-mix(in srgb, var(--text-muted) 16%, var(--background-modifier-border));
+}
+
+.llm-bridge-context-section:last-child {
+  border-bottom: none;
+}
+
+.llm-bridge-context-empty {
+  color: var(--text-faint);
+  font-size: var(--font-small);
+  display: block;
+  padding: 4px 1px;
+}
+
+.llm-bridge-context-ref-chip {
+  display: grid;
+  align-items: center;
+  gap: 9px;
+  max-width: 100%;
+  padding: 7px 9px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
+  border-radius: 13px;
+  background: color-mix(in srgb, var(--background-primary) 94%, var(--background-secondary));
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  cursor: pointer;
+  grid-template-columns: 30px minmax(0, 1fr) auto auto auto;
+  width: 100%;
+  text-align: left;
+  min-height: 48px;
+}
+
+.llm-bridge-context-ref-chip:hover {
+  background: color-mix(in srgb, var(--background-secondary) 48%, var(--background-primary));
+  border-color: color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
+}
+
+.llm-bridge-context-ref-name {
+  max-width: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-normal);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 580;
+}
+
+.llm-bridge-context-ref-meta, .llm-bridge-context-ref-mode {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.llm-bridge-context-ref-action, .llm-bridge-context-ref-remove {
+  border: none;
+  background: color-mix(in srgb, var(--background-secondary) 70%, transparent);
+  color: var(--interactive-accent);
+  cursor: pointer;
+  padding: 0 9px;
+  font-size: var(--font-smallest);
+  min-height: 28px;
+  border-radius: 999px;
+}
+
+.llm-bridge-context-ref-remove {
+  color: var(--text-faint);
+}
+
+.llm-bridge-context-ref-remove:hover {
+  color: var(--text-error);
+}
+
+.llm-bridge-composer-file-pin {
+  position: absolute;
+  left: -5px;
+  bottom: 2px;
+  width: 15px;
+  height: 15px;
+  display: none !important;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-primary);
+  color: var(--text-faint);
+  opacity: 0;
+  right: 2px;
+}
+
+.llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-pin {
+  opacity: 1;
+}
+
+.llm-bridge-composer-file-pin:hover {
+  color: var(--interactive-accent);
+  border-color: rgba(var(--interactive-accent-rgb), 0.45);
+}
+
+.llm-bridge-composer-bar.is-user-input-active, .llm-bridge-composer-bar.is-approval-active {
+  display: none;
+}
+
+.llm-bridge-model-effort-picker {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px !important;
+  flex: 0 0 auto;
+  height: 34px !important;
+}
+
+.llm-bridge-model-effort-chip:hover:not(:disabled) {
+  border-color: rgba(var(--interactive-accent-rgb), 0.45);
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline, .llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline {
+  max-width: 88px;
+  height: auto;
+  padding: 0 5px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  font-weight: 500;
+  line-height: 1.6;
+  cursor: pointer;
+  box-shadow: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 29px;
+}
+
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline:hover:not(:disabled), .llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline:hover:not(:disabled) {
+  border: none;
+  background: transparent;
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline[aria-expanded="true"], .llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline[aria-expanded="true"] {
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-model-effort-popover {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 25;
+  width: min(360px, calc(100vw - 32px));
+  display: grid;
+  grid-template-columns: minmax(130px, 1fr) minmax(110px, 0.8fr);
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  background: var(--background-secondary);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+}
+
+.llm-bridge-model-effort-popover[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-model-effort-popover-single {
+  width: min(220px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.llm-bridge-model-effort-section {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.llm-bridge-model-effort-section-title {
+  padding: 2px 4px;
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 2px;
+}
+
+.llm-bridge-model-effort-column {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.llm-bridge-model-effort-label {
+  padding: 0 4px 2px;
+  color: var(--text-faint);
+  font-size: var(--font-smallest);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.llm-bridge-mention-picker {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: calc(100% + 6px);
+  z-index: 30;
+  max-height: 280px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.22);
+}
+
+.llm-bridge-mention-picker[hidden] {
+  display: none;
+}
+
+.llm-bridge-mention-picker-item {
+  width: 100%;
+  padding: 5px 9px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-normal);
+  text-align: left;
+  font-size: var(--font-small);
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-mention-picker-item:hover, .llm-bridge-mention-picker-item.is-active {
+  background: var(--background-modifier-hover);
+  border-color: rgba(var(--interactive-accent-rgb), 0.45);
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-mention-picker-empty {
+  padding: 8px;
+  color: var(--text-muted);
+  font-size: var(--font-small);
+}
+
+.llm-bridge-composer-bar:focus-within {
+  border-color: color-mix(in srgb, var(--text-muted) 22%, var(--background-modifier-border));
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.09);
+}
+
+.llm-bridge-context-tag.is-off {
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  box-shadow: none;
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.llm-bridge-context-tag.is-path-only {
+  border: 0;
+  background: transparent;
+  color: var(--text-warning);
+  box-shadow: none;
+  text-decoration: underline dotted;
+}
+
+.llm-bridge-composer-status-rail {
+  display: flex;
+  justify-items: center;
+  gap: 6px;
+  padding: 0 2px 5px;
+  color: var(--text-muted);
+  pointer-events: none;
+  align-items: center;
+  justify-content: flex-start;
+  width: 100%;
+  max-width: none;
+  min-height: 18px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.llm-bridge-composer-status-rail[hidden] {
+  display: none;
+}
+
+.llm-bridge-composer-status-line {
+  display: inline-flex;
+  grid-template-columns: minmax(24px, 1fr) auto minmax(24px, 1fr);
+  align-items: center;
+  gap: 4px;
+  width: auto;
+  justify-content: flex-start;
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.llm-bridge-composer-status-rule {
+  height: 1px;
+  background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+  display: none;
+}
+
+.llm-bridge-composer-status-text {
+  color: color-mix(in srgb, var(--text-faint) 84%, transparent);
+  font-size: var(--font-smallest);
+  line-height: 1.25;
+  white-space: nowrap;
+  font-weight: 430;
+  letter-spacing: 0;
+  overflow: hidden;
+  max-width: 24ch;
+  text-overflow: ellipsis;
+}
+
+.llm-bridge-composer-status-rail.is-running .llm-bridge-composer-status-text {
+  color: color-mix(in srgb, var(--interactive-accent) 48%, var(--text-muted));
+  animation: llm-bridge-codex-working-shimmer 2.4s ease-in-out infinite;
+}
+
+.llm-bridge-composer-status-rail.is-blocked .llm-bridge-composer-status-text {
+  color: var(--text-warning);
+}
+
+.llm-bridge-composer-status-rail.is-failed .llm-bridge-composer-status-text {
+  color: var(--text-error);
+}
+
+.llm-bridge-composer-status-rail.is-compressed .llm-bridge-composer-status-text {
+  color: var(--text-muted);
+}
+
+.llm-bridge-composer-step-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: color-mix(in srgb, var(--text-faint) 88%, transparent);
+  font-size: var(--font-smallest);
+  line-height: 1.25;
+  grid-auto-flow: column;
+  gap: 5px;
+  font-weight: 430;
+  max-width: min(32ch, 44vw);
+}
+
+.llm-bridge-composer-step-pill[hidden] {
+  display: none;
+}
+
+.llm-bridge-composer-context .llm-bridge-context-tags {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 18px;
+  padding: 0;
+  border: 0;
+  gap: 10px;
+  display: flex;
+  align-items: center;
+}
+
+.llm-bridge-composer-context .llm-bridge-context-strip {
+  flex: 0 0 auto;
+  width: auto;
+  max-width: 34%;
+  margin: 0;
+  padding: 0;
+  gap: 4px;
+  align-self: center;
+  color: var(--text-faint);
+  justify-content: flex-end;
+}
+
+.llm-bridge-context-tag.is-empty {
+  color: var(--text-faint);
+  font-style: normal;
+  text-decoration: none;
+  opacity: 0.78;
+}
+
+.llm-bridge-composer-file-text {
+  display: none !important;
+  gap: 1px;
+  min-width: 0;
+  text-align: left;
+}
+
+.llm-bridge-composer-file-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 520;
+  max-width: 100%;
+}
+
+.llm-bridge-composer-file-meta {
+  color: var(--text-faint);
+  font-size: 9px;
+  line-height: 1.2;
+  display: none;
+}
+
+.llm-bridge-command-menu-item:hover {
+  background: var(--background-modifier-hover);
+}
+
+.llm-bridge-command-menu-item-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+}
+
+.llm-bridge-command-menu-item-icon svg {
+  width: 17px;
+  height: 17px;
+}
+
+.llm-bridge-command-menu-item-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.llm-bridge-command-menu-item-title {
+  color: var(--text-normal);
+  font-size: var(--font-small);
+  font-weight: 600;
+}
+
+.llm-bridge-command-menu-item-desc {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-context-refs-page {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+}
+
+.llm-bridge-context-section summary {
+  padding: 11px 13px;
+  color: var(--text-normal);
+  font-size: var(--font-small);
+}
+
+.llm-bridge-context-section-body {
+  display: grid;
+  gap: 7px;
+  padding: 9px 11px 11px;
+}
+
+.llm-bridge-context-ref-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: var(--background-secondary);
+  color: var(--text-muted);
+}
+
+.llm-bridge-context-ref-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.llm-bridge-context-ref-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.llm-bridge-composer-file-name, .llm-bridge-context-ref-name {
+  font-weight: 500;
+}
+
+.llm-bridge-composer-file-meta, .llm-bridge-context-ref-meta {
+  overflow: hidden;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-context-ref-mode {
+  color: var(--text-faint);
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 78%, transparent);
+  font-size: var(--font-smallest);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.llm-bridge-context-section-head {
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 13px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+}
+
+.llm-bridge-context-section-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--background-secondary) 72%, var(--background-primary));
+  color: var(--text-muted);
+}
+
+.llm-bridge-context-section-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.llm-bridge-context-section-title {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.llm-bridge-context-section-title strong {
+  color: var(--text-normal);
+  font-size: var(--font-small);
+  line-height: 1.2;
+}
+
+.llm-bridge-context-section-title span {
+  overflow: hidden;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-context-section-count {
+  min-width: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 80%, var(--background-primary));
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  text-align: center;
+}
+
+.llm-bridge-composer-tool-btn:hover:not(:disabled), .llm-bridge-command-menu[open] .llm-bridge-command-menu-summary {
+  background: color-mix(in srgb, var(--background-modifier-hover) 78%, transparent);
+  color: var(--text-normal);
+}
+
+.llm-bridge-composer-file-remove, .llm-bridge-composer-file-pin {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-primary) 96%, transparent);
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  color: var(--text-muted);
+  opacity: 0;
+  top: -5px;
+  font-size: 11px;
+  position: absolute;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.1);
+  z-index: 2;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.llm-bridge-composer-step-pill::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border: 0;
+  border-top-color: var(--interactive-accent);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--text-faint) 58%, transparent);
+  flex: 0 0 auto;
+}
+
+.llm-bridge-composer-status-rail.is-running .llm-bridge-composer-step-pill::before {
+  animation: llm-bridge-status-pulse 1.35s ease-in-out infinite;
+  background: color-mix(in srgb, var(--interactive-accent) 68%, var(--text-muted));
+}
+
+.llm-bridge-composer-status-rail.is-completed .llm-bridge-composer-step-pill::before, .llm-bridge-composer-status-rail.is-compressed .llm-bridge-composer-step-pill::before {
+  border-color: color-mix(in srgb, var(--text-success) 36%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--text-success) 50%, var(--text-muted));
+}
+
+.llm-bridge-composer-status-rail.is-blocked .llm-bridge-composer-step-pill::before, .llm-bridge-composer-status-rail.is-failed .llm-bridge-composer-step-pill::before {
+  border-color: color-mix(in srgb, var(--text-warning) 52%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--text-warning) 58%, var(--text-muted));
+}
+
+.llm-bridge-context-tag-note {
+  max-width: min(44ch, 44vw);
+}
+
+.llm-bridge-context-tag.is-active-file, .llm-bridge-context-tag.is-selection-ref {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+
+.llm-bridge-context-tag.is-active:not(.is-empty) {
+  color: var(--text-normal);
+}
+
+.llm-bridge-context-tag.is-active-file:focus-visible, .llm-bridge-context-tag.is-selection-ref:focus-visible {
+  outline: 1px solid color-mix(in srgb, var(--interactive-accent) 38%, transparent);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.llm-bridge-attach-file-btn.llm-bridge-composer-tool-btn {
+  border-color: transparent;
+  border-style: solid;
+  background: transparent;
+  color: color-mix(in srgb, var(--text-normal) 70%, var(--text-muted));
+}
+
+.llm-bridge-command-menu-summary.llm-bridge-composer-tool-btn {
+  width: auto;
+  min-width: 30px;
+  gap: 6px;
+  padding: 0 8px;
+  color: var(--text-muted);
+}
+
+.llm-bridge-command-menu-summary-icon {
+  display: inline-flex;
+  align-items: center;
+}
+
+.llm-bridge-command-menu-summary-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.llm-bridge-composer-file-name, .llm-bridge-composer-file-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-files-page .llm-bridge-context-refs-page {
+  display: grid;
+  gap: 10px;
+}
+
+.llm-bridge-files-page .llm-bridge-context-section-head {
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  padding: 11px 12px;
+}
+
+.llm-bridge-files-page .llm-bridge-context-section-body {
+  display: grid;
+  gap: 0;
+  padding: 0 8px 8px;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-chip {
+  min-height: 50px;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) max-content 24px 24px;
+  gap: 8px;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 9%, transparent) !important;
+  border-radius: 12px !important;
+  background: color-mix(in srgb, var(--background-modifier-hover) 18%, transparent) !important;
+  box-shadow: none;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-chip:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 34%, transparent);
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-name, .llm-bridge-files-page .llm-bridge-context-ref-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-mode {
+  color: color-mix(in srgb, var(--text-muted) 86%, transparent);
+  font-size: var(--font-smallest);
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 42%, transparent);
+  max-width: 16ch;
+  border: 0;
+  white-space: nowrap;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-action, .llm-bridge-files-page .llm-bridge-context-ref-remove {
+  min-height: 24px;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-faint);
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  box-shadow: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag {
+  max-width: min(52ch, 48vw);
+  color: color-mix(in srgb, var(--text-muted) 82%, transparent);
+  font-size: var(--font-smallest);
+  font-weight: 460;
+  opacity: 0.92;
+  cursor: pointer;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag.is-active:not(.is-empty) {
+  color: color-mix(in srgb, var(--text-normal) 68%, var(--text-muted));
+  opacity: 1;
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag.is-off {
+  color: var(--text-faint);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-faint) 72%, transparent);
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag:hover {
+  color: var(--text-normal);
+}
+
+.llm-bridge-attach-file-btn.llm-bridge-composer-tool-btn svg {
+  flex: 0 0 18px;
+  width: 18px;
+  min-width: 18px;
+  max-width: 18px;
+  height: 18px;
+  stroke-width: 2;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-action svg, .llm-bridge-files-page .llm-bridge-context-ref-remove svg {
+  width: 14px;
+  height: 14px;
+}
+
+.llm-bridge-composer-file-icon, .llm-bridge-composer-file-icon svg {
+  width: 13px;
+  height: 13px;
+}
+
+.llm-bridge-composer-file-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.llm-bridge-composer-file-icon.is-fallback {
+  color: color-mix(in srgb, var(--interactive-accent) 54%, var(--text-muted));
+}
+
+.llm-bridge-composer-file-thumb.has-image-preview .llm-bridge-composer-file-icon.is-fallback {
+  opacity: 0;
+}
+
+.llm-bridge-composer-file-thumb.is-preview-missing .llm-bridge-composer-file-icon.is-fallback {
+  opacity: 1;
+}
+
+.llm-bridge-composer-file-chip.is-image .llm-bridge-composer-file-ext {
+  display: none;
+}
+
+.llm-bridge-composer-file-remove:hover, .llm-bridge-composer-file-pin:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 82%, transparent);
+  color: var(--text-normal);
+  opacity: 1;
+}
+
+.llm-bridge-model-effort-popover {
+  border-radius: 16px;
+  background: color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary));
+}
+
+.llm-bridge-context-tag-note.is-empty {
+  display: inline-flex !important;
+}
+
+.llm-bridge-context-tag-note.is-empty .llm-bridge-context-tag {
+  color: color-mix(in srgb, var(--text-faint) 86%, transparent);
+  font-style: normal;
+  opacity: 1;
+  text-decoration: none;
+}
+
+.llm-bridge-context-tag-note.is-empty .llm-bridge-context-tag:hover {
+  color: var(--text-muted);
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-chip + .llm-bridge-context-ref-chip {
+  border-top: 1px solid color-mix(in srgb, var(--text-muted) 7%, transparent);
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-action:hover, .llm-bridge-files-page .llm-bridge-context-ref-remove:hover, .llm-bridge-files-page .llm-bridge-context-ref-action:focus-visible, .llm-bridge-files-page .llm-bridge-context-ref-remove:focus-visible {
+  background: color-mix(in srgb, var(--background-modifier-hover) 74%, transparent);
+  color: var(--text-normal);
+  opacity: 1;
+}
+
+.llm-bridge-perm-popover-head-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background-modifier-hover) 38%, transparent);
+  color: var(--text-muted);
+}
+
+.llm-bridge-perm-popover-head-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.llm-bridge-perm-popover-head-text {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.llm-bridge-perm-popover-head-text strong {
+  color: var(--text-normal);
+  font-size: var(--font-smallest);
+  font-weight: 620;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+}
+
+.llm-bridge-perm-popover-head-text span {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 11px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-perm-popover-risk {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-secondary) 52%, transparent);
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.2;
+  opacity: 0.78;
+  align-self: flex-start;
+}
+
+.llm-bridge-perm-popover-risk.is-danger {
+  color: var(--text-error);
+}
+
+.llm-bridge-perm-popover-risk.is-caution {
+  color: var(--text-warning);
+}
+
+.llm-bridge-context-ref-thumb {
+  position: relative;
+  overflow: hidden;
+  background-position: center;
+  background-size: cover;
+}
+
+.llm-bridge-context-ref-visual-icon, .llm-bridge-context-ref-visual-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.llm-bridge-context-ref-visual-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.llm-bridge-context-ref-visual-icon.is-fallback {
+  color: color-mix(in srgb, var(--interactive-accent) 54%, var(--text-muted));
+}
+
+.llm-bridge-context-ref-thumb.has-image-preview .llm-bridge-context-ref-visual-icon.is-fallback {
+  opacity: 0;
+}
+
+.llm-bridge-context-ref-thumb.is-preview-missing .llm-bridge-context-ref-visual-icon.is-fallback {
+  opacity: 1;
+}
+
+.llm-bridge-context-ref-ext {
+  position: absolute;
+  right: 2px;
+  bottom: 2px;
+  max-width: 26px;
+  padding: 1px 3px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--background-primary) 88%, transparent);
+  color: var(--text-faint);
+  font-size: 7.5px;
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-icon {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-chip.is-image .llm-bridge-context-ref-ext {
+  display: none;
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-chip.is-pending .llm-bridge-context-ref-thumb {
+  opacity: 0.62;
+}
+
+.llm-bridge-context-tag-note[hidden] {
+  display: none;
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag.is-off:not(.is-empty) {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag.is-empty {
+  color: var(--text-faint);
+  cursor: default;
+  opacity: 0.78;
+}
+
+.llm-bridge-composer-file-chip, .llm-bridge-composer-file-chip:not(.is-preview-only), .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
+  flex: 0 0 32px;
+  width: 32px;
+  min-width: 32px;
+  max-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1 / 1;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 8%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 34%, transparent);
+  position: relative;
+  box-shadow: none;
+}
+
+.llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
+  border-radius: inherit;
+  position: relative;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  margin: 0;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 14%, transparent);
+}
+
+.llm-bridge-context-ref-thumb.has-document-preview {
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--background-secondary) 68%, var(--background-primary));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 14%, transparent);
+}
+
+.llm-bridge-context-ref-doc-thumb {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  padding: 7px 6px;
+  border-radius: inherit;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--background-primary) 72%, var(--background-secondary)) 0%,
+    color-mix(in srgb, var(--background-secondary) 88%, var(--background-primary)) 100%
+  );
+}
+
+.llm-bridge-context-ref-doc-line {
+  display: block;
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 58%, var(--background-secondary));
+}
+
+.llm-bridge-context-ref-doc-line:nth-child(2) {
+  width: 76%;
+}
+
+.llm-bridge-context-ref-doc-line:nth-child(3) {
+  width: 90%;
+}
+
+.llm-bridge-context-ref-doc-line:nth-child(4) {
+  width: 58%;
+}
+
+.llm-bridge-context-ref-thumb.has-document-preview .llm-bridge-context-ref-ext {
+  display: none;
+}
+
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
+  display: inline-flex;
+  width: 38px;
+  min-width: 38px;
+  max-width: 38px;
+  height: 38px;
+  min-height: 38px;
+  padding: 0;
+  overflow: visible;
+  border-radius: 11px;
+  flex: 0 0 38px;
+  max-height: 38px;
+  aspect-ratio: 1 / 1;
+}
+
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
+  width: 38px;
+  min-width: 38px;
+  height: 38px;
+  min-height: 38px;
+  border-radius: 10px;
+  max-width: 38px;
+  max-height: 38px;
+  aspect-ratio: 1 / 1;
+}
+
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-text {
+  display: none;
+}
+
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-pin {
+  position: absolute;
+  top: -6px;
+  width: 18px;
+  min-width: 18px;
+  height: 18px;
+  min-height: 18px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-primary) 94%, transparent);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+  opacity: 0;
+}
+
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:hover .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:hover .llm-bridge-composer-file-pin, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:focus-within .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:focus-within .llm-bridge-composer-file-pin {
+  opacity: 1;
+}
+
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-remove {
+  right: -6px;
+}
+
+.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-pin {
+  left: -6px;
+}
+
+.llm-bridge-composer-file-pin svg {
+  width: 11px;
+  height: 11px;
+}
+
+.llm-bridge-context-tag-note.is-empty .llm-bridge-context-tag, .llm-bridge-context-tag-note .llm-bridge-context-tag.is-empty {
+  color: color-mix(in srgb, var(--text-faint) 76%, transparent) !important;
+  cursor: default !important;
+  opacity: 0.72 !important;
+  text-decoration: none !important;
+}
+
+.llm-bridge-composer-file-chip:not(.is-preview-only) {
+  grid-template-columns: 28px minmax(0, 1fr) 14px 14px;
+  max-width: 118px;
+  min-height: 32px;
+  padding: 3px 5px 3px 3px;
+}
+
+.llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb {
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  min-height: 28px;
+}
+
+.llm-bridge-composer-file-chip:hover, .llm-bridge-composer-file-chip:not(.is-preview-only):hover, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:hover {
+  border-color: color-mix(in srgb, var(--text-muted) 22%, transparent);
+  background: color-mix(in srgb, var(--background-secondary) 54%, var(--background-primary));
+}
+
+.llm-bridge-composer-file-chip.has-preview .llm-bridge-composer-file-thumb {
+  background-color: color-mix(in srgb, var(--background-secondary) 58%, var(--background-primary));
+  background-size: cover;
+  background-position: center;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 9%, transparent);
+}
+
+.llm-bridge-composer-file-doc-thumb {
+  display: grid;
+  align-content: center;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  padding: 8px 7px;
+  border-radius: inherit;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--background-primary) 82%, var(--background-secondary)) 0%,
+    color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary)) 100%
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 10%, transparent);
+}
+
+.llm-bridge-composer-file-doc-line {
+  display: block;
+  width: 100%;
+  height: 2px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--text-muted) 42%, transparent);
+}
+
+.llm-bridge-composer-file-doc-line:nth-child(2) {
+  width: 76%;
+}
+
+.llm-bridge-composer-file-doc-line:nth-child(3) {
+  width: 90%;
+}
+
+.llm-bridge-composer-file-doc-line:nth-child(4) {
+  width: 58%;
+}
+
+.llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-pin, .llm-bridge-composer-file-chip:focus-within .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip:focus-within .llm-bridge-composer-file-pin {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.llm-bridge-composer-status-rail.is-running .llm-bridge-composer-status-text, .llm-bridge-composer-status-rail.is-running .llm-bridge-composer-step-pill {
+  color: color-mix(in srgb, var(--text-muted) 82%, transparent);
+}
+
+.llm-bridge-files-page .llm-bridge-context-ref-chip:hover .llm-bridge-context-ref-action, .llm-bridge-files-page .llm-bridge-context-ref-chip:hover .llm-bridge-context-ref-remove, .llm-bridge-files-page .llm-bridge-context-ref-chip:focus-within .llm-bridge-context-ref-action, .llm-bridge-files-page .llm-bridge-context-ref-chip:focus-within .llm-bridge-context-ref-remove {
+  opacity: 1;
+}
+
+.llm-bridge-composer-file-chip, .llm-bridge-composer-file-chip:not(.is-preview-only), .llm-bridge-composer-file-chip.is-preview-only, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 28px;
+  width: 28px;
+  min-width: 28px;
+  max-width: 28px;
+  height: 28px;
+  min-height: 28px;
+  max-height: 28px;
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--background-secondary) 52%, transparent);
+  box-shadow: none;
+  font-size: 0;
+  line-height: 0;
+  grid-template-columns: none;
+}
+
+.llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip .llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
+  display: block;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 100%;
+  max-width: 100%;
+  height: 100%;
+  min-height: 100%;
+  max-height: 100%;
+  margin: 0;
+  border-radius: inherit;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--background-secondary) 48%, var(--background-primary));
+}
+
+.llm-bridge-composer-file-chip .llm-bridge-composer-file-text {
+  display: none !important;
+}
+
+.llm-bridge-composer-file-chip .llm-bridge-composer-file-doc-thumb, .llm-bridge-composer-file-chip .llm-bridge-composer-file-icon {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.llm-bridge-context-label, .llm-bridge-context-detail {
+  font-size: 10px;
+}
+
+.llm-bridge-composer-file-text, .llm-bridge-composer-file-meta, .llm-bridge-composer-file-name {
+  display: none !important;
+}
+
+.llm-bridge-composer-file-thumb.has-image-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary)) 0%,
+    color-mix(in srgb, var(--background-secondary) 50%, transparent) 100%
+  );
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 12%, transparent);
+}
+
+.llm-bridge-composer-file-thumb.has-image-preview .llm-bridge-composer-file-icon.is-fallback[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-context-tag-note, .llm-bridge-context-tag-note.is-empty {
+  display: inline-flex;
+}
+
+.llm-bridge-composer-status-text, .llm-bridge-composer-step-pill {
+  font-size: 10px;
+}
+
+.llm-bridge-context-tag-note, .llm-bridge-context-tag-selection {
+  min-width: 0;
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag, .llm-bridge-context-tag-selection .llm-bridge-context-tag {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: color-mix(in srgb, var(--text-muted) 90%, transparent);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.35;
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag.is-active, .llm-bridge-context-tag-selection .llm-bridge-context-tag.is-active {
+  color: var(--text-normal);
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag.is-off, .llm-bridge-context-tag-selection .llm-bridge-context-tag.is-off {
+  color: var(--text-faint);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.llm-bridge-context-tag-note .llm-bridge-context-tag:hover, .llm-bridge-context-tag-selection .llm-bridge-context-tag:hover {
+  color: var(--text-normal);
+}
+
+.llm-bridge-files-page .llm-bridge-context-section {
+  border: 1px solid color-mix(in srgb, var(--text-muted) 8%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--background-primary) 98%, transparent);
+  box-shadow: none;
+}
+
+.llm-bridge-composer-tools-left .llm-bridge-command-menu-label, .llm-bridge-composer-tools-left .llm-bridge-permission-chip-label {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.llm-bridge-composer-context-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  padding: 2px 3px;
+}
+
+.llm-bridge-composer-context-group-label {
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  margin-right: 2px;
+  user-select: none;
+}
+
+.llm-bridge-composer-file-remove:focus-visible {
+  outline: 2px solid var(--interactive-accent);
+  outline-offset: 1px;
+}
+
+.llm-bridge-composer .llm-bridge-approval-card, .llm-bridge-composer .llm-bridge-clarification-card {
+  border-left: 3px solid var(--interactive-accent);
+}
+
+.llm-bridge-composer-tools-right .llm-bridge-permission-picker-compact {
+  display: none;
+}
+
+.llm-bridge-command-menu-summary-icon, .llm-bridge-command-menu-summary-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.llm-bridge-composer-file-chip .llm-bridge-composer-file-text, .llm-bridge-composer-file-chip .llm-bridge-composer-file-name, .llm-bridge-composer-file-chip .llm-bridge-composer-file-meta, .llm-bridge-composer-file-chip .llm-bridge-composer-file-ext {
+  display: none !important;
+}
+
+.llm-bridge-command-menu-plugins {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 2px 2px;
+}
+
+.llm-bridge-command-menu-plugins-head, .llm-bridge-command-menu-plugin-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.llm-bridge-command-menu-section-title {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.llm-bridge-command-menu-section-hint, .llm-bridge-command-menu-plugin-state, .llm-bridge-command-menu-plugin-desc, .llm-bridge-command-menu-plugin-empty {
+  color: var(--text-faint);
+  font-size: 10px;
+}
+
+.llm-bridge-command-menu-plugin-empty {
+  padding: 8px 10px;
+}
+
+.llm-bridge-command-menu-plugin-empty.is-error {
+  color: var(--text-error);
+}
+
+.llm-bridge-command-menu-plugins-list {
+  display: grid;
+  gap: 5px;
+  max-height: 224px;
+  overflow-y: auto;
+}
+
+.llm-bridge-command-menu-plugin {
+  appearance: none;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  gap: 7px;
+  align-items: center;
+  min-height: 30px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.llm-bridge-command-menu-plugin:hover:not(:disabled), .llm-bridge-command-menu-plugin:focus-visible {
+  background: color-mix(in srgb, var(--background-modifier-hover) 56%, transparent);
+  outline: none;
+}
+
+.llm-bridge-command-menu-plugin.is-disabled {
+  opacity: 0.62;
+  cursor: default;
+}
+
+.llm-bridge-command-menu-plugin-icon, .llm-bridge-command-menu-plugin-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.llm-bridge-command-menu-plugin-icon {
+  color: var(--text-muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--text-muted) 10%, transparent);
+}
+
+.llm-bridge-command-menu-plugin-main {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+
+.llm-bridge-command-menu-plugin-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-normal);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.llm-bridge-command-menu-plugin-state.is-enabled {
+  color: var(--text-accent);
+}
+
+.llm-bridge-command-menu-plugin-desc {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 9px;
+}
+
+.llm-bridge-command-menu-plugins-head {
+  padding: 0 4px;
+}
+
+.llm-bridge-command-menu-runtime-section {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.llm-bridge-command-menu-runtime-section + .llm-bridge-command-menu-runtime-section {
+  padding-top: 5px;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 58%, transparent);
+}
+
+.llm-bridge-command-menu-subtitle {
+  padding: 2px 7px;
+  color: var(--text-faint);
+  font-size: 9.5px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.llm-bridge-command-menu-plugin-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="chrome"] .llm-bridge-command-menu-plugin-icon {
+  background: #4285f4;
+  color: white;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="documents"] .llm-bridge-command-menu-plugin-icon {
+  background: #2f80ed;
+  color: white;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="pdf"] .llm-bridge-command-menu-plugin-icon {
+  background: #ef4444;
+  color: white;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="spreadsheets"] .llm-bridge-command-menu-plugin-icon {
+  background: #2e9f5b;
+  color: white;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="presentations"] .llm-bridge-command-menu-plugin-icon {
+  background: #d99a2b;
+  color: white;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="template"] .llm-bridge-command-menu-plugin-icon {
+  background: #8b5cf6;
+  color: white;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="computer"] .llm-bridge-command-menu-plugin-icon {
+  background: #60a5fa;
+  color: white;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="github"] .llm-bridge-command-menu-plugin-icon {
+  background: #24292f;
+  color: white;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="gmail"] .llm-bridge-command-menu-plugin-icon {
+  background: #ea4335;
+  color: white;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="google-drive"] .llm-bridge-command-menu-plugin-icon {
+  background: #0f9d58;
+  color: white;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="imagegen"] .llm-bridge-command-menu-plugin-icon {
+  background: #ec4899;
+  color: white;
+}
+
+.llm-bridge-command-menu-plugin[data-plugin-key="skill"] .llm-bridge-command-menu-plugin-icon, .llm-bridge-command-menu-plugin.is-skill .llm-bridge-command-menu-plugin-icon {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.llm-bridge-model-effort-chip:hover, .llm-bridge-model-effort-button:hover {
+  color: var(--text-normal) !important;
+  background: transparent !important;
+}
+
+.llm-bridge-composer-runtime-capabilities {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+  padding: 0 6px 2px;
+  grid-column: 1 / -1;
+}
+
+.llm-bridge-composer-runtime-capabilities[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-composer-runtime-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  max-width: min(220px, 100%);
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  box-shadow: none;
+  color: var(--text-normal);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.llm-bridge-composer-runtime-chip:hover {
+  background: var(--background-modifier-hover);
+}
+
+.llm-bridge-composer-runtime-chip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  border-radius: 4px;
+  color: white;
+  background: var(--interactive-accent);
+}
+
+.llm-bridge-composer-runtime-chip-icon svg {
+  width: 11px;
+  height: 11px;
+}
+
+.llm-bridge-composer-runtime-chip-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 560;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="chrome"] .llm-bridge-composer-runtime-chip-icon {
+  background: #4285f4;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="documents"] .llm-bridge-composer-runtime-chip-icon {
+  background: #2f80ed;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="pdf"] .llm-bridge-composer-runtime-chip-icon {
+  background: #ef4444;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="spreadsheets"] .llm-bridge-composer-runtime-chip-icon {
+  background: #2e9f5b;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="presentations"] .llm-bridge-composer-runtime-chip-icon {
+  background: #d99a2b;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="template"] .llm-bridge-composer-runtime-chip-icon {
+  background: #8b5cf6;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="computer"] .llm-bridge-composer-runtime-chip-icon {
+  background: #60a5fa;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="github"] .llm-bridge-composer-runtime-chip-icon {
+  background: #24292f;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="gmail"] .llm-bridge-composer-runtime-chip-icon {
+  background: #ea4335;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="google-drive"] .llm-bridge-composer-runtime-chip-icon {
+  background: #0f9d58;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="imagegen"] .llm-bridge-composer-runtime-chip-icon {
+  background: #ec4899;
+}
+
+.llm-bridge-composer-runtime-chip[data-plugin-key="skill"] .llm-bridge-composer-runtime-chip-icon {
+  background: var(--interactive-accent);
+}
+
+.llm-bridge-command-menu-plugin-title {
+  min-width: 0;
+}
+
+.llm-bridge-command-menu-section-hint, .llm-bridge-command-menu-plugin-state {
+  display: none !important;
 }
