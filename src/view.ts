@@ -29,7 +29,7 @@ import type { ManagedRuntimeInstallStatus } from "./runtime/providers/codex-mana
 import { listManagedCodexPluginsAsync, type CodexManagedPluginCatalog, type CodexManagedPluginEntry } from "./runtime/providers/codex-managed-app-server/codexManagedPluginCatalog";
 import { RunSessionController, type RunSessionHost } from "./runtime/RunSessionController";
 import { getRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, type RuntimeModelCatalog } from "./runtimeModelCatalog";
-import { WorkflowEvent, PermissionEvent, truncateText } from "./workflowEvent";
+import { WorkflowEvent, PermissionEvent, truncateText, redactSecrets } from "./workflowEvent";
 import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
 import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscript";
 import { computeContextMetrics, formatTokens, formatCompressionRatio, type ContextMetrics, type CompressionInfo } from "./contextMetrics";
@@ -244,6 +244,10 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   failed: "Failed",
   stopped: "Stopped",
 };
+
+// Phase 3: 图片附件大小限制（超过则降级为路径引用，不直接上传）
+const MAX_IMAGE_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
+const SUPPORTED_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".avif", ".ico"];
 
 const AGENT_OPTIONS = [
   { value: "claude", label: "Claude Code" },
@@ -1706,6 +1710,7 @@ export class LLMBridgeView extends ItemView {
 
   private confirmFullAccess(): Promise<boolean> {
     return new Promise((resolve) => {
+      let resolved = false;
       const modal = new Modal(this.app);
       modal.titleEl.setText("启用完全访问？");
       modal.contentEl.createEl("p", {
@@ -1714,8 +1719,15 @@ export class LLMBridgeView extends ItemView {
       const row = modal.contentEl.createDiv({ cls: "modal-button-container" });
       const cancel = row.createEl("button", { text: "取消" });
       const ok = row.createEl("button", { cls: "mod-warning", text: "确认启用" });
-      cancel.addEventListener("click", () => { modal.close(); resolve(false); });
-      ok.addEventListener("click", () => { modal.close(); resolve(true); });
+      const done = (val: boolean): void => {
+        if (resolved) return;
+        resolved = true;
+        resolve(val);
+        modal.close();
+      };
+      cancel.addEventListener("click", () => done(false));
+      ok.addEventListener("click", () => done(true));
+      modal.onClose = () => done(false);
       modal.open();
     });
   }
@@ -2053,13 +2065,8 @@ export class LLMBridgeView extends ItemView {
   private setGlobalStatus(status: RunStatus): void {
     const runtimeLabel = this.actualRuntimeLabel;
     const installStatus = this.getManagedRuntimeInstallStatusForCurrentMode();
-    const verifying = installStatus?.integrityStatus === "pending" || installStatus?.status === "verifying";
-    const runtimeState = installStatus?.required
-      ? "install required"
-      : verifying
-        ? "正在验证"
-        : status === "failed" ? "失败" : status === "running" ? "运行中" : "已连接";
-    this.statusLabelEl.textContent = `${installStatus?.required ? "Codex runtime" : runtimeLabel} · ${runtimeState}`;
+    const stateInfo = this.computeRuntimeStateLabel(status, installStatus);
+    this.statusLabelEl.textContent = `${installStatus?.required ? "Codex runtime" : runtimeLabel} · ${stateInfo.label}`;
     this.statusDotEl.className = `llm-bridge-status-dot llm-bridge-status-dot-${status}`;
     this.statusDotEl.setAttribute("title", installStatus?.required ? this.formatRuntimeInstallTitle(installStatus) : STATUS_LABEL[status]);
     this.refreshManagedRuntimeInstallAction(installStatus);
@@ -2083,6 +2090,31 @@ export class LLMBridgeView extends ItemView {
     this.refreshSessionState();
   }
 
+  /**
+   * Phase 3: 统一 Runtime 状态标签计算。
+   * 区分：未安装 / 准备中 / 运行中 / 失败 / 可用
+   * 用于 setGlobalStatus 和 refreshStatusBar，消除中英文不一致。
+   */
+  private computeRuntimeStateLabel(
+    status: RunStatus,
+    installStatus: ManagedRuntimeInstallStatus | null,
+  ): { label: string; state: string } {
+    if (installStatus?.required) {
+      return { label: "未安装", state: "not-installed" };
+    }
+    const verifying = installStatus?.integrityStatus === "pending" || installStatus?.status === "verifying";
+    if (verifying) {
+      return { label: "准备中", state: "preparing" };
+    }
+    if (status === "failed") {
+      return { label: "失败", state: "failed" };
+    }
+    if (status === "running") {
+      return { label: "运行中", state: "running" };
+    }
+    return { label: "可用", state: "available" };
+  }
+
   // V1.1: 刷新状态栏（Backend 模式 / Agent / cwd / Preflight 状态）
   // V2.3: 新增权限策略 / 工具步骤 / agent 计数
   // V2.16-B: runtime status 显示实际 backend（SDK / Claude Code fallback / Claude Code / SDK unavailable）
@@ -2099,12 +2131,10 @@ export class LLMBridgeView extends ItemView {
     // 不再在 view.ts 直接探测 isSdkAvailable。
     const runtimeLabel = this.runSession.getSession().displayLabel;
     this.actualRuntimeLabel = runtimeLabel;
-    // V2.16-D: runtime status 缩成 pill（简短英文：SDK · ready / running / error）
+    // V2.16-D: runtime status pill — Phase 3 统一使用 computeRuntimeStateLabel
     const installStatus = this.getManagedRuntimeInstallStatusForCurrentMode();
-    const runtimeState = installStatus?.required
-      ? "install required"
-      : this.sessionState.status === "failed" ? "error" : this.sessionState.status === "running" ? "running" : "ready";
-    this.statusLabelEl.textContent = `${installStatus?.required ? "Codex runtime" : runtimeLabel} · ${runtimeState}`;
+    const stateInfo = this.computeRuntimeStateLabel(this.sessionState.status, installStatus);
+    this.statusLabelEl.textContent = `${installStatus?.required ? "Codex runtime" : runtimeLabel} · ${stateInfo.label}`;
     this.statusDotEl.setAttribute("title", installStatus?.required ? this.formatRuntimeInstallTitle(installStatus) : STATUS_LABEL[this.sessionState.status] || "Runtime status");
     this.refreshManagedRuntimeInstallAction(installStatus);
     // Cwd（Vault 根目录）— getBasePath 运行时存在但类型未声明，用 as 绕过
@@ -3140,6 +3170,20 @@ export class LLMBridgeView extends ItemView {
 
   private async persistBlobAttachmentToVault(file: File, source: string): Promise<string | null> {
     if (!file || file.size <= 0) return null;
+    // Phase 3: 图片大小限制 + 格式检查
+    const ext = "." + (file.name.split(".").pop() || "").toLowerCase();
+    const isImage = /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i.test(file.name) || /^image\//i.test(file.type);
+    if (isImage) {
+      if (!MAX_IMAGE_ATTACHMENT_BYTES || file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
+        const sizeMB = (file.size / 1024 / 1024).toFixed(1);
+        const limitMB = (MAX_IMAGE_ATTACHMENT_BYTES / 1024 / 1024).toFixed(0);
+        new Notice(`图片过大（${sizeMB}MB > ${limitMB}MB 限制），将以路径引用方式发送，不直接上传。`, 5000);
+      }
+      if (ext && !SUPPORTED_IMAGE_EXTENSIONS.includes(ext)) {
+        new Notice(`不支持的图片格式：${ext}（支持 PNG/JPG/GIF/WEBP/BMP/SVG）`, 5000);
+        return null;
+      }
+    }
     try {
       const folder = normalizePath("LLM-Bridge Attachments");
       await this.ensureVaultFolder(folder);
@@ -3180,6 +3224,13 @@ export class LLMBridgeView extends ItemView {
   }
 
   private async persistBinaryAttachmentToVault(data: ArrayBuffer | Uint8Array, fileName: string, source: string): Promise<string | null> {
+    const byteLength = data instanceof ArrayBuffer ? data.byteLength : data.length;
+    // Phase 3: 图片大小限制 + 降级提示
+    if (byteLength > MAX_IMAGE_ATTACHMENT_BYTES) {
+      const sizeMB = (byteLength / 1024 / 1024).toFixed(1);
+      const limitMB = (MAX_IMAGE_ATTACHMENT_BYTES / 1024 / 1024).toFixed(0);
+      new Notice(`图片过大（${sizeMB}MB > ${limitMB}MB 限制），将以路径引用方式发送，不直接上传。`, 5000);
+    }
     try {
       const folder = normalizePath("LLM-Bridge Attachments");
       await this.ensureVaultFolder(folder);
@@ -4668,9 +4719,11 @@ export class LLMBridgeView extends ItemView {
     // 找到该 assistant 之前最近一条 user 消息
     const idx = this.messages.findIndex((m) => m.id === msg.id);
     let userText = "";
+    let userFileRefs: ReadonlyArray<FileRef> = [];
     for (let i = idx - 1; i >= 0; i--) {
       if (this.messages[i].role === "user") {
         userText = this.messages[i].content || "";
+        userFileRefs = this.messages[i].fileRefs ?? [];
         break;
       }
     }
@@ -4684,6 +4737,10 @@ export class LLMBridgeView extends ItemView {
     }
     this.inputEl.value = userText;
     this.autoGrowInput();
+    // Phase 3: 恢复原消息的图片和文件附件（深拷贝避免修改原消息快照）
+    this.messageFileRefs = userFileRefs.map((ref) => ({ ...ref }));
+    this.composerController.selectedAttachmentId = null;
+    this.renderComposerFileRefs();
     await this.runSession.run();
   }
 
@@ -6272,6 +6329,75 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
+  /**
+   * Phase 3: 一键复制脱敏诊断信息到剪贴板。
+   * 聚合插件版本、Runtime 状态、设置、Bridge 信息，经 redactSecrets 脱敏后复制。
+   */
+  async copyDiagnosticsToClipboard(): Promise<void> {
+    try {
+      const s = this.plugin.settings;
+      const installStatus = this.getManagedRuntimeInstallStatusForCurrentMode();
+      const stateInfo = this.computeRuntimeStateLabel(this.sessionState.status, installStatus);
+      const session = this.runSession.getSession();
+      const httpBridge = this.plugin.getHttpBridge();
+      const lines: string[] = [
+        `=== LLM CLI Bridge 诊断信息 ===`,
+        `时间: ${new Date().toISOString()}`,
+        `插件版本: ${this.plugin.manifest.version}`,
+        ``,
+        `--- Runtime ---`,
+        `状态: ${stateInfo.label} (${stateInfo.state})`,
+        `显示标签: ${session.displayLabel}`,
+        `Provider ID: ${session.providerId}`,
+        `Backend 模式: ${s.backendMode}`,
+        `Agent 类型: ${s.agentType}`,
+        `模型: ${s.model}`,
+        `Effort: ${s.effortLevel}`,
+        `权限策略: ${s.permissionPolicy}`,
+        `审批画像: ${s.agentApprovalProfile}`,
+        ``,
+        `--- 运行状态 ---`,
+        `RunStatus: ${this.sessionState.status}`,
+        `当前会话 ID: ${this.currentSessionId ?? "(none)"}`,
+        `消息数: ${this.messages.length}`,
+        `sessionResumed: ${this.sessionResumed}`,
+        ``,
+      ];
+      if (installStatus) {
+        lines.push(
+          `--- Managed Runtime ---`,
+          `required: ${installStatus.required}`,
+          `status: ${installStatus.status}`,
+          `version: ${installStatus.version ?? "(unknown)"}`,
+          `integrityStatus: ${installStatus.integrityStatus ?? "N/A"}`,
+          `error: ${installStatus.error ?? "(none)"}`,
+          ``,
+        );
+      }
+      if (httpBridge) {
+        lines.push(
+          `--- HTTP Bridge ---`,
+          `状态: 运行中`,
+          ``,
+        );
+      }
+      lines.push(
+        `--- 设置摘要 ---`,
+        `backendProfile: ${s.backendProfile}`,
+        `keepLastSession: ${s.keepLastSession}`,
+        `includeActiveNote: ${s.includeActiveNote}`,
+        `developerMode: ${s.developerMode}`,
+        `settingsVersion: ${s.settingsVersion}`,
+      );
+      const raw = lines.join("\n");
+      const sanitized = redactSecrets(raw);
+      await navigator.clipboard.writeText(sanitized);
+      new Notice("诊断信息已复制到剪贴板（已脱敏）");
+    } catch (e) {
+      new Notice(`复制诊断信息失败：${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   // V1.2/V1.5: 渲染 debug log 路径（可点击复制 / 复制按钮 / 打开按钮）
   private appendDebugLogPath(parent: HTMLElement, logPath: string): void {
     const wrap = parent.createDiv({ cls: "llm-bridge-debug-path" });
@@ -7372,10 +7498,20 @@ export class LLMBridgeView extends ItemView {
       );
       if (!confirmed) return;
     }
+    // Phase 3: 确认后重新检查运行状态（await 期间用户可能启动了新 run）
+    if (this.runSession.runHandle || this.runSession.finishingRun) {
+      new Notice("运行状态已变化，取消恢复");
+      return;
+    }
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     const session = await loadSession(vaultPath, sessionId);
     if (!session) {
       new Notice("恢复失败：会话文件不存在或版本不兼容");
+      return;
+    }
+    // Phase 3: loadSession await 后再次检查（异步窗口内状态可能变化）
+    if (this.runSession.runHandle || this.runSession.finishingRun) {
+      new Notice("运行状态已变化，取消恢复");
       return;
     }
     // 恢复消息、状态、当前会话 id
@@ -7537,6 +7673,16 @@ export class LLMBridgeView extends ItemView {
       this.currentSessionId = session.id;
       return;
     }
+    // Phase 3: 恢复前检查用户是否已开始交互（输入文字、添加附件、启动运行）
+    // 若用户已交互，放弃恢复以避免覆盖用户刚输入或发送的新内容
+    if (this.runSession.runHandle
+      || (this.inputEl && this.inputEl.value.trim().length > 0)
+      || this.messageFileRefs.length > 0) {
+      // 用户已开始交互，仅回填 native session ref，不覆盖 transcript
+      this.runSession.setRestoredActiveNativeSessionRef(session.nativeSessionRef);
+      this.currentSessionId = session.id;
+      return;
+    }
     // 静默恢复（不弹确认对话框，因为 onOpen 时无消息）
     this.messages = session.messages.slice();
     this.currentAssistantId = null;
@@ -7617,6 +7763,11 @@ export class LLMBridgeView extends ItemView {
       `确认删除历史会话「${title}」？此操作不可恢复。`,
     );
     if (!confirmed) return;
+    // Phase 3: 确认后重新检查运行状态（避免删除正在运行的会话）
+    if (this.runSession.runHandle) {
+      new Notice("运行中无法删除会话，请先停止运行");
+      return;
+    }
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     const result = await deleteSessionWithProviderArtifacts(vaultPath, sessionId);
     if (result.bridgeSessionDeleted) {
@@ -7670,9 +7821,10 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  // V2.8: 通用输入对话框（返回输入值；取消返回 null）
+  // V2.8: 通用输入对话框（返回输入值；取消/Esc/遮罩关闭返回 null）
   private promptDialog(title: string, message: string, defaultValue: string): Promise<string | null> {
     return new Promise((resolve) => {
+      let resolved = false;
       const modal = new Modal(this.app);
       modal.titleEl.setText(title);
       modal.contentEl.empty();
@@ -7685,18 +7837,26 @@ export class LLMBridgeView extends ItemView {
       input.style.width = "100%";
       const btns = modal.contentEl.createDiv({ cls: "modal-button-container" });
       const cancel = btns.createEl("button", { text: "取消" });
-      cancel.addEventListener("click", () => { resolve(null); modal.close(); });
       const confirm = btns.createEl("button", { text: "确认", cls: "mod-warning" });
-      confirm.addEventListener("click", () => { resolve(input.value); modal.close(); });
+      const done = (val: string | null): void => {
+        if (resolved) return;
+        resolved = true;
+        resolve(val);
+        modal.close();
+      };
+      cancel.addEventListener("click", () => done(null));
+      confirm.addEventListener("click", () => done(input.value));
+      modal.onClose = () => done(null);
       modal.open();
       // 自动聚焦输入框并选中文本
       setTimeout(() => { input.focus(); input.select(); }, 50);
     });
   }
 
-  // V2.5: 通用确认对话框（返回 true=确认 / false=取消）
+  // V2.5: 通用确认对话框（返回 true=确认 / false=取消/Esc/遮罩关闭）
   private confirmDialog(title: string, message: string): Promise<boolean> {
     return new Promise((resolve) => {
+      let resolved = false;
       const modal = new Modal(this.app);
       modal.titleEl.setText(title);
       modal.contentEl.empty();
@@ -7704,9 +7864,16 @@ export class LLMBridgeView extends ItemView {
       modal.contentEl.createEl("p", { text: message, cls: "llm-bridge-confirm-msg" });
       const btns = modal.contentEl.createDiv({ cls: "modal-button-container" });
       const cancel = btns.createEl("button", { text: "取消" });
-      cancel.addEventListener("click", () => { resolve(false); modal.close(); });
       const confirm = btns.createEl("button", { text: "确认", cls: "mod-warning" });
-      confirm.addEventListener("click", () => { resolve(true); modal.close(); });
+      const done = (val: boolean): void => {
+        if (resolved) return;
+        resolved = true;
+        resolve(val);
+        modal.close();
+      };
+      cancel.addEventListener("click", () => done(false));
+      confirm.addEventListener("click", () => done(true));
+      modal.onClose = () => done(false);
       modal.open();
     });
   }

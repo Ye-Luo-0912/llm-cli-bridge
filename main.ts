@@ -449,6 +449,20 @@ export default class LLMBridgePlugin extends Plugin {
       },
     });
 
+    // Phase 3: 一键复制脱敏诊断信息
+    this.addCommand({
+      id: "copy-diagnostics",
+      name: "Copy Diagnostics (sanitized)",
+      callback: async () => {
+        const v = this.getBridgeView();
+        if (!v) {
+          new Notice("请先打开 LLM CLI Bridge 面板");
+          return;
+        }
+        await v.copyDiagnosticsToClipboard();
+      },
+    });
+
     // V17-C1 任务 B / V17-C2 任务 A：朋友版 preset 初始化命令
     this.addCommand({
       id: "enable-friend-preview",

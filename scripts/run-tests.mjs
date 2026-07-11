@@ -6991,7 +6991,7 @@ if (runMode !== "all" && runMode !== "unit") {
         const uiSurfacesInstall = viewSrc.includes("runtimeInstallBtnEl")
           && viewSrc.includes("installManagedRuntimeFromUi")
           && viewSrc.includes("getManagedRuntimeInstallStatusForCurrentMode")
-          && viewSrc.includes("install required");
+          && (viewSrc.includes("install required") || viewSrc.includes('"未安装"'));
         const settingsSurfacesStatus = settingsSrc.includes("Managed Codex Runtime")
           && settingsSrc.includes("version=")
           && settingsSrc.includes("sha256=")
@@ -12837,6 +12837,92 @@ if (!runV25Unit) {
         && mainSrcLocal.includes("cleanupCodexBridgeSkillsForVaultSync");
       addTest("Phase 2: 提供 Sync Skills + Clean Plugin-Generated Skills 命令入口",
         ok ? "pass" : "fail", "");
+    }
+
+    // ===== Phase 3: 常用功能补齐验证 =====
+
+    // ---- Phase 3 Test A: Modal Esc/遮罩关闭兜底（confirmFullAccess / promptDialog / confirmDialog）----
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+      // 三处 Modal 均使用 resolved 标志位 + modal.onClose 兜底，确保 Esc/遮罩关闭时 Promise 正常结束
+      const onCloseCount = (viewSrc.match(/modal\.onClose = \(\) => done\(/g) || []).length;
+      const hasResolvedGuard = viewSrc.includes("if (resolved) return") || viewSrc.includes("if (resolved) { return; }");
+      const ok = onCloseCount >= 3 && hasResolvedGuard;
+      addTest("Phase 3: Modal Esc/遮罩关闭正常结束 Promise（3 处 onClose 兜底 + resolved 守卫）",
+        ok ? "pass" : "fail",
+        `onCloseCount=${onCloseCount}, hasResolvedGuard=${hasResolvedGuard}`);
+    }
+
+    // ---- Phase 3 Test B: Retry 恢复原消息文字、图片和文件附件 ----
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+      // retryFromMessage 应从上一条 user 消息的 fileRefs 深拷贝到 this.messageFileRefs
+      const ok = viewSrc.includes("userFileRefs = this.messages[i].fileRefs ?? []")
+        && viewSrc.includes("this.messageFileRefs = userFileRefs.map((ref) => ({ ...ref }))");
+      addTest("Phase 3: Retry 同时恢复原消息文字、图片和文件附件（深拷贝 fileRefs）",
+        ok ? "pass" : "fail", "");
+    }
+
+    // ---- Phase 3 Test C: 大图片大小限制 + 格式检查 + 降级提示 ----
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+      const hasLimit = viewSrc.includes("const MAX_IMAGE_ATTACHMENT_BYTES = 10 * 1024 * 1024");
+      const hasFormatCheck = viewSrc.includes("SUPPORTED_IMAGE_EXTENSIONS")
+        && viewSrc.includes("不支持的图片格式");
+      const hasDowngrade = viewSrc.includes("将以路径引用方式发送，不直接上传");
+      const ok = hasLimit && hasFormatCheck && hasDowngrade;
+      addTest("Phase 3: 大图片大小限制（10MB）+ 格式检查 + 降级路径引用提示",
+        ok ? "pass" : "fail",
+        `limit=${hasLimit}, format=${hasFormatCheck}, downgrade=${hasDowngrade}`);
+    }
+
+    // ---- Phase 3 Test D: 恢复历史期间避免覆盖用户刚输入或发送的新消息 ----
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+      // 自动恢复前检查 runHandle / inputEl.value / messageFileRefs.length
+      const ok = viewSrc.includes("Phase 3: 恢复前检查用户是否已开始交互")
+        && viewSrc.includes("this.runSession.runHandle")
+        && viewSrc.includes("this.inputEl.value.trim().length > 0")
+        && viewSrc.includes("this.messageFileRefs.length > 0");
+      addTest("Phase 3: 自动恢复历史期间避免覆盖用户刚输入或发送的新消息（竞态保护）",
+        ok ? "pass" : "fail", "");
+    }
+
+    // ---- Phase 3 Test E: 新建/恢复/删除会话确认后重新检查运行状态 ----
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+      const ok = viewSrc.includes("运行状态已变化，取消恢复")
+        && viewSrc.includes("运行中无法删除会话，请先停止运行");
+      addTest("Phase 3: 新建/恢复/删除会话在确认后重新检查运行状态",
+        ok ? "pass" : "fail", "");
+    }
+
+    // ---- Phase 3 Test F: Runtime 状态区分（未安装/准备中/可用/失败）----
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+      const hasMethod = viewSrc.includes("private computeRuntimeStateLabel(");
+      const hasStates = viewSrc.includes('"not-installed"')
+        && viewSrc.includes('"preparing"')
+        && viewSrc.includes('"failed"')
+        && viewSrc.includes('"running"')
+        && viewSrc.includes('"available"');
+      const ok = hasMethod && hasStates;
+      addTest("Phase 3: Runtime 状态区分（未安装/准备中/运行中/失败/可用，computeRuntimeStateLabel 统一）",
+        ok ? "pass" : "fail",
+        `method=${hasMethod}, states=${hasStates}`);
+    }
+
+    // ---- Phase 3 Test G: 一键复制脱敏诊断信息 ----
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+      const mainSrc = readFileSync(join(PROJECT_ROOT, "main.ts"), "utf-8");
+      const hasMethod = viewSrc.includes("async copyDiagnosticsToClipboard(): Promise<void>");
+      const usesRedact = viewSrc.includes("const sanitized = redactSecrets(raw)");
+      const hasCommand = mainSrc.includes('id: "copy-diagnostics"');
+      const ok = hasMethod && usesRedact && hasCommand;
+      addTest("Phase 3: 一键复制脱敏诊断信息（copyDiagnosticsToClipboard + redactSecrets + 命令入口）",
+        ok ? "pass" : "fail",
+        `method=${hasMethod}, usesRedact=${usesRedact}, command=${hasCommand}`);
     }
 
     // ===== Session 安全写入 / secret 脱敏 =====
@@ -19569,15 +19655,17 @@ if (!runNoteSummarizeSmoke) {
     addTest("V2.16-D styles.css: context strip + runtime pill 样式", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 8: view.ts runtime status 英文 pill 格式 + Phase1 初始文案 ----
+  // ---- Test 8: view.ts runtime status pill 格式 + Phase1 初始文案 + Phase3 统一状态 ----
   {
     // Phase 1: 初始状态文案改为 "正在初始化…"，不再提前显示假 "SDK · ready"
-    // 运行时检测后仍使用英文短标签 pill（ready/running/error）
-    const ok = viewSrc.includes('"error" : this.sessionState.status === "running" ? "running" : "ready"')
-      && viewSrc.includes('"正在初始化…"')
+    // Phase 3: 状态标签统一由 computeRuntimeStateLabel 计算（未安装/准备中/运行中/失败/可用）
+    //          pill 格式改为 `· ${stateInfo.label}`（中文标签），不再使用英文 ready/error
+    const ok = viewSrc.includes('"正在初始化…"')
       && !viewSrc.includes('"SDK · ready"')
-      && viewSrc.includes("· ${runtimeState}");
-    addTest("V2.16-D view.ts: runtime status 英文 pill 格式 + Phase1 初始文案", ok ? "pass" : "fail", "");
+      && viewSrc.includes("private computeRuntimeStateLabel(")
+      && viewSrc.includes("· ${stateInfo.label}")
+      && !viewSrc.includes("· ${runtimeState}");
+    addTest("V2.16-D view.ts: runtime status pill 格式 + Phase1 初始文案 + Phase3 统一状态", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 9: view.ts saveSession 传入 SessionExtras ----
