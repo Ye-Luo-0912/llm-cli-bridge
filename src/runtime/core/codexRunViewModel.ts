@@ -467,6 +467,31 @@ function findMatchingChange(
 }
 
 /**
+ * V17-G39+: turn/started 后立即注入合成"正在思考"占位，确保用户始终有运行反馈。
+ * 条件：运行中 + feed 中无任何真实事件 + 尚无回答内容。
+ * 一旦首个真实事件到达（reasoning/tool/answer），占位被移除，由真实节点接管。
+ */
+function ensureSyntheticThinkingPlaceholder(
+  feedItems: CodexRunFeedItem[],
+  status: BuildCodexRunViewModelOptions["status"],
+  finalAnswer: string,
+): CodexRunFeedItem[] {
+  const running = typeof status === "string"
+    && (status === "running" || status.includes("waiting") || status.includes("pending"));
+  if (!running) return feedItems;
+  if (finalAnswer.trim()) return feedItems;
+  if (feedItems.length > 0) return feedItems;
+  return [{
+    id: "feed-synthetic-thinking",
+    kind: "thinking",
+    icon: "brain",
+    label: "Thinking",
+    status: "running",
+    summary: "",
+  }];
+}
+
+/**
  * completion-only 兜底：有 finalAnswer 但 feed 中尚无 candidate 时，
  * 注入稳定 synthetic candidate，维持单一 DOM 所有者（不另建 Final Answer 副本）。
  */
@@ -772,7 +797,11 @@ export function buildCodexRunViewModel(
   const changeGroups = buildChangeGroups(model, turnView, options.cwd);
   const { finalAnswer, terminalAssistantCardId, narrativeByCardId } = resolveCodexAssistantNarratives(model, options.status);
   const feedItems = ensureSyntheticCompletionCandidate(
-    buildFeedItems(model, changeGroups, terminalAssistantCardId, narrativeByCardId),
+    ensureSyntheticThinkingPlaceholder(
+      buildFeedItems(model, changeGroups, terminalAssistantCardId, narrativeByCardId),
+      options.status,
+      finalAnswer,
+    ),
     finalAnswer,
     options.status,
   );

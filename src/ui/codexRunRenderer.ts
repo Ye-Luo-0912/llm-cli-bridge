@@ -59,6 +59,71 @@ interface CodexRunMountOrPatchArgs {
   messageStatus?: string;
 }
 
+/**
+ * 统一确保过程头可交互（折叠箭头 + 事件绑定）。
+ * mount 和 reconcile 都调用，保证 running→completed 切换后仍可折叠。
+ * 保存用户当前展开状态：如果 processBody 已有 hidden 属性，保持折叠；否则保持展开。
+ */
+function ensureProcessHeadInteractive(
+  process: HTMLElement,
+  processBody: HTMLElement,
+  canToggle: boolean,
+): void {
+  let processHead = process.querySelector<HTMLElement>(".llm-bridge-codex-process-head");
+  if (!processHead) {
+    processHead = process.createDiv({ cls: "llm-bridge-codex-section-head llm-bridge-codex-process-head" });
+    process.insertBefore(processHead, processBody);
+  }
+  let processToggle = processHead.querySelector<HTMLElement>(".llm-bridge-codex-process-toggle");
+  if (!processToggle) {
+    processToggle = processHead.createEl("span", { cls: "llm-bridge-codex-process-toggle" });
+  }
+  if (canToggle) {
+    processHead.addClass("is-collapsible");
+    processHead.setAttribute("role", "button");
+    processHead.setAttribute("tabindex", "0");
+    const isCollapsed = processBody.hasAttribute("hidden");
+    processHead.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
+    processToggle.textContent = isCollapsed ? "▸" : "▾";
+    if (!processHead.hasAttribute("data-toggle-bound")) {
+      processHead.setAttribute("data-toggle-bound", "true");
+      processHead.addEventListener("click", (event) => {
+        if ((event.target as HTMLElement | null)?.closest?.("button")) return;
+        const hidden = processBody.hasAttribute("hidden");
+        if (hidden) {
+          processBody.removeAttribute("hidden");
+          processHead.setAttribute("aria-expanded", "true");
+          processToggle.textContent = "▾";
+        } else {
+          processBody.setAttribute("hidden", "");
+          processHead.setAttribute("aria-expanded", "false");
+          processToggle.textContent = "▸";
+        }
+      });
+      processHead.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        const hidden = processBody.hasAttribute("hidden");
+        if (hidden) {
+          processBody.removeAttribute("hidden");
+          processHead.setAttribute("aria-expanded", "true");
+          processToggle.textContent = "▾";
+        } else {
+          processBody.setAttribute("hidden", "");
+          processHead.setAttribute("aria-expanded", "false");
+          processToggle.textContent = "▸";
+        }
+      });
+    }
+  } else {
+    processHead.removeClass("is-collapsible");
+    processHead.removeAttribute("role");
+    processHead.removeAttribute("tabindex");
+    processHead.removeAttribute("aria-expanded");
+    processToggle.textContent = "";
+  }
+}
+
 export function mountOrReconcileCodexRun(
   target: CodexRunMountOrPatchTarget,
   args: CodexRunMountOrPatchArgs,
@@ -214,10 +279,6 @@ function mountCodexRunView(
       // 运行中：不显示「运行详情」标题，过程流直接铺开
       processHead.setAttribute("hidden", "");
     }
-    const processToggle = processHead.createEl("span", {
-      cls: "llm-bridge-codex-process-toggle",
-      text: showFeed && presentation.kind !== "assistant-running" ? "▾" : "",
-    });
     const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
     // 禁止自动折叠：过程体始终可见
     // 初渲与增量共用 reconcileCodexRunWaterfall（keyed feed + candidate 原地升级）
@@ -230,33 +291,7 @@ function mountCodexRunView(
     if (diagnosticsForDisplay.length > 0) renderCodexDiagnosticsDrawer(processBody, diagnosticsForDisplay, developerMode, deps);
 
     const canToggle = showFeed && presentation.kind !== "assistant-running" && !processHead.hasAttribute("hidden");
-    if (canToggle) {
-      processHead.addClass("is-collapsible");
-      processHead.setAttribute("role", "button");
-      processHead.setAttribute("tabindex", "0");
-      processHead.setAttribute("aria-expanded", "true");
-      const toggleProcessBody = () => {
-        const hidden = processBody.hasAttribute("hidden");
-        if (hidden) {
-          processBody.removeAttribute("hidden");
-          processHead.setAttribute("aria-expanded", "true");
-          processToggle.textContent = "▾";
-        } else {
-          processBody.setAttribute("hidden", "");
-          processHead.setAttribute("aria-expanded", "false");
-          processToggle.textContent = "▸";
-        }
-      };
-      processHead.addEventListener("click", (event) => {
-        if ((event.target as HTMLElement | null)?.closest?.("button")) return;
-        toggleProcessBody();
-      });
-      processHead.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter" && event.key !== " ") return;
-        event.preventDefault();
-        toggleProcessBody();
-      });
-    }
+    ensureProcessHeadInteractive(process, processBody, canToggle);
   } else {
     process.setAttribute("hidden", "");
   }
@@ -332,24 +367,6 @@ function reconcileCodexRunView(
   }
   process.removeAttribute("hidden");
 
-  // 完成态过程头：更新「已处理 Xs」，不自动折叠
-  if (presentation.kind !== "assistant-running" && run.feedItems.length > 0) {
-    let processHead = process.querySelector<HTMLElement>(".llm-bridge-codex-process-head");
-    if (!processHead) {
-      processHead = process.createDiv({ cls: "llm-bridge-codex-section-head llm-bridge-codex-process-head" });
-      const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
-      processTitle.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title", text: "" });
-    }
-    processHead.removeAttribute("hidden");
-    const quietTitle = processHead.querySelector(".llm-bridge-codex-process-quiet-title");
-    if (quietTitle) {
-      const elapsed = (run.runHeader.elapsed || "").trim();
-      quietTitle.textContent = loc === "zh"
-        ? (elapsed ? `已处理 ${elapsed}` : "已处理")
-        : (elapsed ? `Processed ${elapsed}` : "Processed");
-    }
-  }
-
   let processBody = process.querySelector<HTMLElement>(".llm-bridge-codex-process-body");
   if (!processBody) {
     processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
@@ -361,6 +378,31 @@ function reconcileCodexRunView(
     streaming: options.streaming,
     developerMode,
   });
+
+  // 完成态过程头：更新「已处理 Xs」+ 折叠交互
+  const isCompletedQuiet = presentation.kind !== "assistant-running" && run.feedItems.length > 0;
+  if (isCompletedQuiet) {
+    // ensureProcessHeadInteractive 会创建 processHead（插入到 processBody 之前）+ toggle + 事件
+    ensureProcessHeadInteractive(process, processBody, true);
+    const processHead = process.querySelector<HTMLElement>(".llm-bridge-codex-process-head");
+    processHead?.removeAttribute("hidden");
+    let quietTitle = processHead?.querySelector<HTMLElement>(".llm-bridge-codex-process-quiet-title");
+    if (processHead && !quietTitle) {
+      const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
+      quietTitle = processTitle.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title" });
+    }
+    if (quietTitle) {
+      const elapsed = (run.runHeader.elapsed || "").trim();
+      quietTitle.textContent = loc === "zh"
+        ? (elapsed ? `已处理 ${elapsed}` : "已处理")
+        : (elapsed ? `Processed ${elapsed}` : "Processed");
+    }
+  } else {
+    // 运行中：隐藏过程头，不可折叠
+    ensureProcessHeadInteractive(process, processBody, false);
+    const processHead = process.querySelector<HTMLElement>(".llm-bridge-codex-process-head");
+    processHead?.setAttribute("hidden", "");
+  }
 }
 
 function filterCodexDiagnosticsForDisplay(

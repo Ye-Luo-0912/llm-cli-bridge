@@ -2508,7 +2508,7 @@ export class LLMBridgeView extends ItemView {
       "Completed": "已完成",
       "Done": "已完成",
       "Running": "正在处理",
-      "Thinking": "正在处理",
+      "Thinking": "正在思考",
       "Failed": "失败",
       "Stopped": "已停止",
       "Idle": "空闲",
@@ -2516,10 +2516,13 @@ export class LLMBridgeView extends ItemView {
       "Needs input": "需要输入",
       "Waiting approval": "需要你的确认",
       "Waiting input": "需要输入",
-      "Running command": "正在执行命令",
+      "Running command": "正在运行命令",
       "Reading files": "正在读取文件",
       "Searching": "正在搜索",
       "Writing files": "正在写入文件",
+      "Viewing image": "正在查看图片",
+      "Applying patch": "正在应用补丁",
+      "Editing file": "正在编辑文件",
     };
     return map[text] ?? text;
   }

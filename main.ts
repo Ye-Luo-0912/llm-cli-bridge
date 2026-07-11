@@ -100,10 +100,10 @@ export default class LLMBridgePlugin extends Plugin {
       void this.materializeVaultSkillsOnload(vaultPath);
     }
 
-    // V17-F: 仅当 backendMode 涉及 Pi 时才预加载，避免 Codex 模式下产生 renderer 红错
-    // auto 模式也可能降级到 pi-sdk，所以 auto / pi-sdk / pi-rpc 三种模式都预加载
+    // V17-F: 仅显式选择 Pi backend 时才预加载，避免 auto/Codex 模式下产生 renderer 红错
+    // auto 模式不预加载 Pi；当 auto 链降级到 Pi 时由 bridgeSession 触发后台懒加载
     const mode = this.settings.backendMode;
-    if (mode === "auto" || mode === "pi-sdk" || mode === "pi-rpc") {
+    if (mode === "pi-sdk" || mode === "pi-rpc") {
       void this.preloadPiSdk(this.pluginDir);
     }
   }

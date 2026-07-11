@@ -150,6 +150,10 @@ export function selectProvider(
   if (piSdk.isAvailable(cwd)) {
     return { provider: piSdk, label: "Pi SDK" };
   }
+  // V17-F: auto 模式不预加载 Pi；到达此处时触发后台懒加载，下次运行可能可用
+  if (pluginDir) {
+    void PiSdkProvider.preload(false, pluginDir).catch(() => { /* ignore */ });
+  }
   return { provider: new ClaudeCliProvider(), label: "Claude Code fallback" };
 }
 
