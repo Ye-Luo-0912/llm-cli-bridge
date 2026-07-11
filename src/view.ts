@@ -999,7 +999,22 @@ export class LLMBridgeView extends ItemView {
     // Initialize RunSessionController after DOM is ready
     this.runSession = new RunSessionController(this.buildRunSessionHost());
 
-    // 初始化
+    // 两阶段初始化：DOM 已全部 mount，现在执行动态填充
+    try {
+      this.hydrateComposerRuntime();
+    } catch (e) {
+      console.error("[llm-cli-bridge] hydrateComposerRuntime failed:", e);
+      this.showInitErrorBoundary(e);
+    }
+  }
+
+  /**
+   * 两阶段初始化第二步：加载模型目录、权限、Runtime 状态和 Skills。
+   * 即使此方法抛异常，用户也不应得到半残界面 — mountComposerDom 已确保基础 DOM 存在。
+   */
+  private hydrateComposerRuntime(): void {
+    this.syncModelCatalogForCurrentAgent(false);
+    this.renderModelEffortOptions();
     this.syncControlsFromSettings();
     this.updateContextDisplay();
     this.setGlobalStatus("idle");
@@ -1028,6 +1043,40 @@ export class LLMBridgeView extends ItemView {
 
     // 注册 pending action 回调到 httpBridge
     this.registerPendingActionCallback();
+  }
+
+  /**
+   * 初始化错误边界：捕获异常后顶部显示"初始化失败"，提供重试或诊断入口。
+   * 不能永久停在"正在初始化…"。
+   */
+  private showInitErrorBoundary(error: unknown): void {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    // 更新状态标签为失败，而非永久停在"正在初始化…"
+    if (this.statusLabelEl) {
+      this.statusLabelEl.textContent = "初始化失败";
+      this.statusLabelEl.setAttribute("title", errMsg);
+    }
+    // 在消息流顶部显示错误卡片
+    if (this.messagesEl) {
+      const errCard = this.messagesEl.createDiv({ cls: "llm-bridge-init-error-card" });
+      errCard.createEl("div", { cls: "llm-bridge-init-error-title", text: "初始化失败" });
+      errCard.createEl("div", { cls: "llm-bridge-init-error-msg", text: errMsg });
+      const btnRow = errCard.createDiv({ cls: "llm-bridge-init-error-actions" });
+      const retryBtn = btnRow.createEl("button", { cls: "llm-bridge-init-error-retry-btn", text: "重试初始化" });
+      retryBtn.addEventListener("click", () => {
+        errCard.remove();
+        if (this.statusLabelEl) this.statusLabelEl.textContent = "正在初始化…";
+        try {
+          this.hydrateComposerRuntime();
+          if (this.statusLabelEl) this.statusLabelEl.textContent = "可用";
+        } catch (e2) {
+          console.error("[llm-cli-bridge] retry hydrateComposerRuntime failed:", e2);
+          this.showInitErrorBoundary(e2);
+        }
+      });
+      const diagBtn = btnRow.createEl("button", { cls: "llm-bridge-init-error-diag-btn", text: "复制诊断信息" });
+      diagBtn.addEventListener("click", () => void this.copyDiagnosticsToClipboard());
+    }
   }
 
   // 向 httpBridge 注册 pending action 确认 UI 回调
@@ -1585,8 +1634,8 @@ export class LLMBridgeView extends ItemView {
     const effortSection = modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-effort-list" });
     effortSection.createEl("div", { cls: "llm-bridge-model-effort-section-title", text: "Effort" });
     this.effortOptionsEl = effortSection.createDiv({ cls: "llm-bridge-effort-options" });
-    this.syncModelCatalogForCurrentAgent(false);
-    this.renderModelEffortOptions();
+    // 两阶段初始化：这里只创建静态 DOM，不立即访问 runSession。
+    // 模型目录和选项的动态填充在 hydrateComposerRuntime() 中统一执行。
     this.modelEffortPickerEl.addEventListener("keydown", (event) => {
       if (event.key === "Escape") this.closeModelEffortPopover();
     });
@@ -1623,6 +1672,12 @@ export class LLMBridgeView extends ItemView {
   }
 
   private getEffectiveModelCatalogAgent(): "claude" | "codex" | "custom" {
+    // 保险：runSession 尚未初始化时，仅基于配置推断 agent（不访问 providerId）
+    if (!this.runSession) {
+      const mode = this.plugin.settings.backendMode;
+      if (mode === "codex-managed-app-server" || mode === "codex-app-server-external" || mode === "codex-sdk") return "codex";
+      return this.plugin.settings.agentType;
+    }
     const providerId = this.runSession.session?.providerId;
     if (providerId && /codex/.test(providerId)) return "codex";
     const mode = this.plugin.settings.backendMode;

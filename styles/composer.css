@@ -2710,3 +2710,48 @@
 .llm-bridge-command-menu-section-hint, .llm-bridge-command-menu-plugin-state {
   display: none !important;
 }
+
+/* 初始化错误边界卡片 */
+.llm-bridge-init-error-card {
+  margin: 12px 16px;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid var(--background-modifier-error-border, #c0392b);
+  background: var(--background-modifier-error, rgba(192, 57, 43, 0.08));
+}
+
+.llm-bridge-init-error-title {
+  font-weight: 600;
+  color: var(--text-error, #c0392b);
+  margin-bottom: 8px;
+}
+
+.llm-bridge-init-error-msg {
+  font-size: var(--font-smaller);
+  color: var(--text-muted);
+  word-break: break-word;
+  margin-bottom: 12px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.llm-bridge-init-error-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.llm-bridge-init-error-retry-btn,
+.llm-bridge-init-error-diag-btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: var(--font-small);
+  cursor: pointer;
+  border: 1px solid var(--background-modifier-border);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.llm-bridge-init-error-retry-btn:hover,
+.llm-bridge-init-error-diag-btn:hover {
+  background: var(--background-modifier-active-hover);
+}

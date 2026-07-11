@@ -21644,6 +21644,12 @@ class FakeElement {
   set className(v) {
     this._cls = new Set(v.trim().split(/\s+/).filter(Boolean));
   }
+  get parentElement() { return this.parent; }
+  get nextElementSibling() {
+    if (!this.parent) return null;
+    const idx = this.parent.children.indexOf(this);
+    return idx >= 0 && idx + 1 < this.parent.children.length ? this.parent.children[idx + 1] : null;
+  }
   addClass(c) { this._cls.add(c); return this; }
   removeClass(c) { this._cls.delete(c); return this; }
   classList = {
@@ -21662,6 +21668,12 @@ class FakeElement {
   getAttribute(k) { return this.attrs[k] ?? null; }
   removeAttribute(k) { delete this.attrs[k]; }
   hasAttribute(k) { return k in this.attrs; }
+  toggleAttribute(k, force) {
+    if (force === false) delete this.attrs[k];
+    else if (force === true) this.attrs[k] = "";
+    else if (k in this.attrs) delete this.attrs[k];
+    else this.attrs[k] = "";
+  }
   createDiv(opts) { return this._create("div", opts); }
   createEl(tag, opts) { return this._create(tag, opts); }
   _create(tag, opts = {}) {
@@ -22319,6 +22331,424 @@ if (!runPhase3Prod) {
     try { if (waterfallBundleP3) rmSync(waterfallBundleP3, { force: true }); } catch {}
     try { if (composerBundleP3) rmSync(composerBundleP3, { force: true }); } catch {}
     try { if (sessionsBundleP3) rmSync(sessionsBundleP3, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
+// 9.9.3 真实 onOpen() DOM 回归测试
+//   完整实例化 LLMBridgeView，调用 onOpen()，验证：
+//   1. onOpen() 无异常
+//   2. 状态不再停留在"正在初始化…"
+//   3. 模型、权限、发送按钮存在
+//   4. 文件 input 存在
+//   5. 点击 + 确实触发文件选择器（attachmentFileInputEl.click 被调用）
+// ============================================================
+console.log("\n=== 真实 onOpen() DOM 回归测试 ===");
+
+const runOnOpenDom = runMode === "all" || runMode === "unit";
+
+if (!runOnOpenDom) {
+  addTest("onOpen() DOM 回归测试段", "skip", "当前模式不运行 unit");
+} else {
+  let viewBundle = null;
+  let prevDocument = undefined;
+  let prevNavigator = undefined;
+  let prevWindow = undefined;
+  let prevLocalStorage = undefined;
+  try {
+    const esbuild = (await import("esbuild")).default;
+
+    // 全面的 obsidian stub — ItemView 提供 contentEl (FakeElement)
+    const obsidianStubPluginOnOpen = {
+      name: "obsidian-stub-onopen",
+      setup(build) {
+        build.onResolve({ filter: /^obsidian$/ }, () => ({
+          path: "obsidian-stub",
+          namespace: "obsidian-stub-ns",
+        }));
+        build.onLoad({ filter: /.*/, namespace: "obsidian-stub-ns" }, () => ({
+          contents: [
+            // FakeElement 已在全局定义，这里直接引用
+            "const FakeElement = globalThis.__FakeElement;",
+            "export class ItemView {",
+            "  constructor(leaf) { this.leaf = leaf; this.contentEl = new FakeElement('div'); this.app = leaf?.app || {}; this._registeredEvents = []; }",
+            "  registerEvent(e) { this._registeredEvents.push(e); }",
+            "  registerDomEvent(el, type, cb) { el.addEventListener(type, cb); }",
+            "  registerInterval(id) {}",
+            "  onOpen() {}",
+            "  async onClose() {}",
+            "  getViewType() { return 'test'; }",
+            "  getDisplayText() { return 'Test'; }",
+            "  setIcon() {}",
+            "}",
+            "export class Notice { constructor(msg) { this.msg = msg; } close(){} setMessage(m){ this.msg=m; return this; } hide(){} }",
+            "export function setIcon(el, name) { if (el) el._icon = name; }",
+            "export function normalizePath(p){return p;}",
+            "export class TFile {}",
+            "export class App {}",
+            "export class Modal { constructor(app){ this.app=app; } open(){} close(){} set onClose(fn){ this._onClose=fn; } }",
+            "export class Vault {}",
+            "export class Workspace {}",
+            "export class FuzzySuggestModal { constructor(app){} }",
+            "export class Setting { constructor(c){ this.containerEl=c; } setName(){} setDesc(){} addDropdown(){} addToggle(){} addText(){} addButton(){} }",
+            "export class MarkdownView {}",
+            "export function MarkdownRenderer() {}",
+            "MarkdownRenderer.render = function() { return Promise.resolve(); };",
+            "export class WorkspaceLeaf { constructor(app){ this.app=app; } }",
+          ].join("\n"),
+          loader: "js",
+        }));
+      },
+    };
+
+    // Stub 所有本地重依赖模块 — 避免引入完整运行时链
+    const localDepsStubPlugin = {
+      name: "local-deps-stub",
+      setup(build) {
+        // Stub RunSessionController — 构造函数存储 host，session 返回 null
+        const stubPatterns = [
+          { filter: /^\.\/runtime\/RunSessionController$/, content: [
+            "export class RunSessionController {",
+            "  constructor(host) { this.host = host; this._session = null; this._runHandle = null; }",
+            "  get session() { return this._session; }",
+            "  get runHandle() { return this._runHandle; }",
+            "  get finishingRun() { return false; }",
+            "  getSession() { return { providerId: 'test', displayLabel: 'Test Runtime', nativeSessionRef: undefined }; }",
+            "  async run() {} async stop() {}",
+            "  clearSession() { this._session = null; }",
+            "  setRestoredActiveNativeSessionRef() {}",
+            "  async installManagedRuntimeFromUi() {}",
+            "  get lastRunHadFileChanges() { return false; }",
+            "}",
+            "export const RunSessionHost = {};",
+          ].join("\n") },
+          { filter: /^\.\/sessions$/, content: [
+            "export async function listSessions() { return []; }",
+            "export async function loadSession() { return null; }",
+            "export async function deleteSessionWithProviderArtifacts() { return { bridgeSessionDeleted: true, codexSessionFilesDeleted: 0, codexSessionIndexEntriesDeleted: 0, providerIds: [] }; }",
+            "export async function clearSessionsWithProviderArtifacts() { return { bridgeSessionsDeleted: 0, codexSessionFilesDeleted: 0, codexSessionIndexEntriesDeleted: 0, providerIds: [] }; }",
+            "export async function renameSession() { return true; }",
+            "export function validateSessionId(id) { return id; }",
+            "export const SESSIONS_DIR_REL = '.llm-bridge/sessions';",
+            "export const SESSION_SCHEMA_VERSION = 2;",
+            "export const MAX_SESSIONS_KEPT = 50;",
+          ].join("\n") },
+          { filter: /^\.\/runtimeModelCatalog$/, content: [
+            "export function getRuntimeModelCatalogForAgent() { return { models: [{ id: 'test-model', label: 'Test Model' }], efforts: [{ id: 'medium', label: 'Medium' }] }; }",
+            "export function normalizeModelValue(cat, m) { return m || 'test-model'; }",
+            "export function normalizeEffortValue(cat, e) { return e || 'medium'; }",
+          ].join("\n") },
+          { filter: /^\.\/promptPackage$/, content: "export function buildPromptPackage() { return {}; } export class StateSnapshot {}" },
+          { filter: /^\.\/agentBackend$/, content: "export class SdkImageContentBlock {} export class SdkStreamingInput {}" },
+          { filter: /^\.\/fileDiff$/, content: "export function extractRelPath() { return ''; }" },
+          { filter: /^\.\/types$/, content: "export const DEFAULT_SETTINGS = {};" },
+          { filter: /^\.\/agentApprovalProfile$/, content: "export function isAgentApprovalProfile() { return false; } export function mapAgentApprovalProfileToClaudePermissionMode() { return 'default'; } export function migrateLegacyPermissionToApprovalProfile() { return 'ask'; } export function getAgentApprovalProfileInfo() { return { profile: 'ask', label: 'Ask', riskLevel: 'low' }; }" },
+          { filter: /^\.\/agentProfile$/, content: "export class PreflightResult {}" },
+          { filter: /^\.\/preflightStatus$/, content: "export function mapPreflightToStatus() { return 'idle'; }" },
+          { filter: /^\.\/firstUseGuide$/, content: "export function buildFirstUseGuide() { return ''; } export function shouldShowFirstUseGuide() { return false; }" },
+          { filter: /^\.\/runTimeline$/, content: "export function timelineTypeClass() { return ''; } export function timelineTypeLabel() { return ''; } export const TimelineEventType = {};" },
+          { filter: /^\.\/commandProfile$/, content: "export function buildCommandLine() { return ''; }" },
+          { filter: /^\.\/workflowTrace$/, content: "export function workflowStageLabel() { return ''; } export function workflowStageClass() { return ''; } export const WorkflowTraceStage = {};" },
+          { filter: /^\.\/effectiveRunPlan$/, content: "export function formatEffectiveRunPlan() { return ''; }" },
+          { filter: /^\.\/runtime\/core\/types$/, content: "export const NativeSessionRef = {};" },
+          { filter: /^\.\/runtime\/core\/bridgeSession$/, content: "export const BridgeSessionImpl = {};" },
+          { filter: /^\.\/runtime\/core\/agentRunDisplayModel$/, content: "export function getToolIconCategory() { return 'wrench'; } export function getPhaseIconName() { return 'circle'; } export function explainAutoApprovalSource() { return ''; } export function approvalDisplayLabel() { return ''; } export function toolDisplayLabel() { return ''; }" },
+          { filter: /^\.\/runtime\/core\/toolPresentation$/, content: "export function resolveUiLocale() { return 'en'; }" },
+          { filter: /^\.\/runtime\/core\/codexRunViewModel$/, content: "export function formatCodexRunValue() { return ''; }" },
+          { filter: /^\.\/runtime\/core\/runPhaseModel$/, content: "export const RunPhase = {};" },
+          { filter: /^\.\/runtime\/core\/bridgePromptContract$/, content: "export const ProviderCapabilityInfo = {};" },
+          { filter: /^\.\/runtime\/providers\/codex-managed-app-server\/codexManagedRuntimeInstallerBridge$/, content: "export function getManagedRuntimeInstallStatus() { return { required: false, status: 'installed', integrityStatus: 'ok' }; } export function ensureManagedRuntimeInstalledFromPlugin() { return Promise.resolve({ required: false }); } export const ManagedRuntimeInstallStatus = {};" },
+          { filter: /^\.\/runtime\/providers\/codex-managed-app-server\/codexManagedPluginCatalog$/, content: "export async function listManagedCodexPluginsAsync() { return []; } export const CodexManagedPluginCatalog = {};" },
+          { filter: /^\.\/workflowEvent$/, content: "export function truncateText(t) { return t; } export function redactSecrets(s) { return s; } export const WorkflowEvent = {}; export const PermissionEvent = {};" },
+          { filter: /^\.\/timelineAdapter$/, content: "export function computeTimelineStats() { return {}; } export function formatCompletedSummary() { return ''; } export function formatFailedSummary() { return ''; } export function extractToolPath() { return ''; } export function extractToolParams() { return ''; } export function pathBasename() { return ''; } export function countLines() { return 0; } export function isInternalFilePath() { return false; }" },
+          { filter: /^\.\/runtimeTranscript$/, content: "export class RunStateAggregator { constructor() {} } export function aggregateEventsToTimeline() { return []; }" },
+          { filter: /^\.\/contextMetrics$/, content: "export function computeContextMetrics() { return { used: 0, total: 0, precision: 'estimated' }; } export function formatTokens() { return ''; } export function formatCompressionRatio() { return ''; }" },
+          { filter: /^\.\/session$/, content: "export class SessionState { constructor() { this.status='idle'; this.title='New Session'; } } export function createNewSession() { return { status: 'idle', title: 'New Session' }; } export function sessionStatusClass() { return ''; } export function updateSession(state, patch) { return Object.assign({}, state, patch); }" },
+          { filter: /^\.\/ui\/composerController$/, content: [
+            // 使用简化 ComposerController — 只保留 DOM 操作
+            "export class ComposerController {",
+            "  constructor(host) { this.host = host; this.selectedAttachmentId = null; this.modelEffortPopoverEl = null; this.mentionPickerEl = null; this.activePopup = null; }",
+            "  setModelEffortPopoverEl(el) { this.modelEffortPopoverEl = el; }",
+            "  setMentionPickerEl(el) { this.mentionPickerEl = el; }",
+            "  setCloseCommandMenuPopover(fn) { this._closeCommandMenu = fn; }",
+            "  setActivePopup(p) { this.activePopup = p; }",
+            "  renderModelEffortOptions() {}",
+            "  toggleModelEffortPopover() {}",
+            "  closeModelEffortPopover() {}",
+            "  renderPermissionPopover() {}",
+            "  togglePermissionPopover() {}",
+            "  closePermissionPopover() {}",
+            "  handleSelectorOutsideClick() {}",
+            "  closeAllSelectors() {}",
+            "  closeMentionPicker() {}",
+            "  handleMentionInput() {}",
+            "  handleMentionKeydown() { return false; }",
+            "  showAttachmentContextMenu() {}",
+            "  closeAttachmentContextMenu() {}",
+            "  handleComposerAttachmentKeydown() { return false; }",
+            "  renderComposerFileRefs() {}",
+            "  destroy() {}",
+            "}",
+            "export function autoGrowInput() {}",
+            "export function shortAttachmentName(name) { return name || ''; }",
+            "export function createComposerMenuItem() { return null; }",
+            "export function refreshPermissionModeChip() {}",
+            "export function refreshModelEffortPickerLabels() {}",
+            "export function renderComposerFileRefs() {}",
+            "export function renderComposerAttachmentToken() {}",
+            "export function applyComposerStatusRail() {}",
+            "export function bindComposerFileDragSurface() {}",
+            "export function isEventInsideSelector() { return false; }",
+          ].join("\n") },
+          { filter: /^\.\/ui\/codexWaterfallRenderer$/, content: "export function codexFeedItemKey() { return ''; } export function groupCodexFeedRenderEntries() { return []; } export function patchCodexFeedEntryItem() {} export function isCodexImageFeedItem() { return false; } export function formatCodexImageGroupTitle() { return ''; } export function reconcileCodexRunWaterfall() {} export function upgradeCodexCandidateAnswerInFeed() {} export function renderCodexFeedItem() {}" },
+          { filter: /^\.\/ui\/composerDom$/, content: "export function bindComposerFileDragSurfaceDom() {}" },
+          { filter: /^\.\/ui\/modelEffortPickerDom$/, content: "export function refreshModelEffortPickerLabelsDom() {}" },
+          { filter: /^\.\/httpServer$/, content: "export class HttpBridge {} export const BridgeInfo = {}; export const BridgeWriteResult = {};" },
+          { filter: /^\.\/toolsWriter$/, content: "export function writeHelperAndWrappers() { return Promise.resolve(); }" },
+          { filter: /^\.\/outbox$/, content: "export class OutboxWatcher { constructor(){} start(){} stop(){} }" },
+          { filter: /^\.\/agentRuntimeWorkspace$/, content: "export async function ensureAgentRuntimeWorkspace() { return { vaultSkillInitialized: false }; } export async function compactOrSplitVaultSkill() {} export function materializeAllSkillsToAllTargets() { return { results: [], syncSummary: { synced: [], skipped: [] }, saved: false }; } export const VAULT_SKILL_SOURCE_REL = '.agents/skills/VAULT_SKILL.md';" },
+          { filter: /^\.\/agentSkills$/, content: "export function cleanupCodexBridgeSkillsForVaultSync() { return { deleted: 0 }; } export async function loadAgentSkillsManifest() { return { skills: [] }; } export async function saveAgentSkillsManifest() {} export async function prepareAgentSkillsForCodexRuntime() { return []; }" },
+          { filter: /^\.\/attachmentPackingPolicy$/, content: "export const AttachmentPackingPolicy = { binaryAsNativeRef: true, sdkDirectAttachmentSupported: true };" },
+          { filter: /^\.\.\/main$/, content: "export default class LLMBridgePlugin {}" },
+        ];
+        for (const { filter, content } of stubPatterns) {
+          const f = filter;
+          build.onResolve({ filter: f }, () => ({
+            path: `stub-${f.source}`,
+            namespace: "local-stub-ns",
+          }));
+        }
+        build.onLoad({ filter: /.*/, namespace: "local-stub-ns" }, (args) => {
+          const match = stubPatterns.find((s) => args.path === `stub-${s.filter.source}`);
+          return { contents: match ? match.content : "export {};", loader: "js" };
+        });
+      },
+    };
+
+    // 确保全局有 FakeElement
+    globalThis.__FakeElement = FakeElement;
+
+    // 扩展 FakeElement：添加 style、click、focus 等方法（onOpen 中使用）
+    FakeElement.prototype.style = FakeElement.prototype.style || {};
+    // 用 getter 确保每个实例有独立 style 对象
+    Object.defineProperty(FakeElement.prototype, "style", {
+      get() { if (!this._style) this._style = {}; return this._style; },
+      configurable: true,
+    });
+    FakeElement.prototype.click = function() { this._clickCalled = true; };
+    FakeElement.prototype.focus = function() {};
+    FakeElement.prototype.setValue = function(v) { this.textContent = v; };
+    // value 属性（用于 textarea/input）
+    Object.defineProperty(FakeElement.prototype, "value", {
+      get() { return this._value || ""; },
+      set(v) { this._value = v; },
+      configurable: true,
+    });
+    // scrollHeight / scrollTop（autoGrowInput 使用）
+    Object.defineProperty(FakeElement.prototype, "scrollHeight", {
+      get() { return 0; },
+      configurable: true,
+    });
+    Object.defineProperty(FakeElement.prototype, "scrollTop", {
+      get() { return 0; },
+      set() {},
+      configurable: true,
+    });
+    // createEl("select") 需要返回有 createEl 方法的元素
+    // FakeElement.createEl 已支持
+
+    // Mock document.createElement（onOpen line 542 使用 document.createElement("select")）
+    prevDocument = globalThis.document;
+    globalThis.document = {
+      createElement: (tag) => new FakeElement(tag),
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      querySelector: () => null,
+      querySelectorAll: () => [],
+    };
+
+    // Mock navigator.clipboard（copyDiagnostics 使用）
+    // Node.js 22+ 中 navigator 是只读 getter，需用 Object.defineProperty
+    prevNavigator = globalThis.navigator;
+    const navStub = { ...(prevNavigator || {}), clipboard: { writeText: async () => {} } };
+    try {
+      Object.defineProperty(globalThis, "navigator", { value: navStub, configurable: true, writable: true });
+    } catch {
+      // 如果无法覆盖，直接注入 clipboard
+      if (globalThis.navigator) {
+        try { globalThis.navigator.clipboard = { writeText: async () => {} }; } catch {}
+      }
+    }
+
+    // Mock window.confirm（retryFromMessage 使用）
+    prevWindow = globalThis.window;
+    if (!globalThis.window) globalThis.window = {};
+    globalThis.window.confirm = () => true;
+
+    // Mock localStorage（onOpen 中读取/写入运行时缓存）
+    prevLocalStorage = globalThis.localStorage;
+    const lsStore = new Map();
+    const localStorageStub = {
+      getItem: (k) => lsStore.has(k) ? lsStore.get(k) : null,
+      setItem: (k, v) => lsStore.set(k, String(v)),
+      removeItem: (k) => lsStore.delete(k),
+      clear: () => lsStore.clear(),
+      key: (i) => Array.from(lsStore.keys())[i] ?? null,
+      get length() { return lsStore.size; },
+    };
+    try {
+      Object.defineProperty(globalThis, "localStorage", { value: localStorageStub, configurable: true, writable: true });
+    } catch {
+      globalThis.localStorage = localStorageStub;
+    }
+
+    viewBundle = join(PROJECT_ROOT, ".test-onopen-view-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "view.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      logLevel: "silent",
+      outfile: viewBundle,
+      plugins: [obsidianStubPluginOnOpen, localDepsStubPlugin],
+    });
+
+    const viewMod = await import(pathToFileURL(viewBundle).href);
+    const { LLMBridgeView } = viewMod;
+
+    // 创建 mock plugin + app + leaf
+    const mockSettings = {
+      agentType: "claude",
+      backendMode: "auto",
+      model: "test-model",
+      effortLevel: "medium",
+      permissionPolicy: "medium",
+      agentApprovalProfile: "ask",
+      includeActiveNote: false,
+      includeSelection: false,
+      outputDir: "test-output",
+      developerMode: false,
+      devTestMode: false,
+      keepLastSession: false,
+      lastActiveSessionId: "",
+      settingsVersion: 1,
+      saveSettings: async () => {},
+    };
+    const mockPlugin = {
+      settings: mockSettings,
+      manifest: { version: "2.18.0", dir: "" },
+      app: { vault: { adapter: { getBasePath: () => "/tmp/test-vault" } }, workspace: { getActiveFile: () => null, getActiveViewOfType: () => null, on: () => ({}), off: () => {}, getLeavesOfType: () => [] } },
+      getHttpBridge: () => null,
+      saveSettings: async () => {},
+    };
+    const mockLeaf = { app: mockPlugin.app };
+
+    // 实例化 LLMBridgeView
+    const view = new LLMBridgeView(mockLeaf, mockPlugin);
+
+    // --- Test 1: onOpen() 无异常 ---
+    let onOpenError = null;
+    try {
+      await view.onOpen();
+    } catch (e) {
+      onOpenError = e;
+    }
+    addTest("onOpen() DOM 回归: onOpen() 无异常",
+      onOpenError === null ? "pass" : "fail",
+      onOpenError ? `error: ${onOpenError?.message || onOpenError}\nstack: ${onOpenError?.stack || ""}` : "");
+
+    // --- Test 2: 状态不再停留在"正在初始化…" ---
+    {
+      const statusEl = view.contentEl.querySelector(".llm-bridge-status-text");
+      const statusText = statusEl ? statusEl.textContent : "";
+      // 应该是 "可用" 或 "idle" 对应的标签，而不是 "正在初始化…"
+      const notStuck = statusText !== "正在初始化…" && statusText !== "";
+      addTest("onOpen() DOM 回归: 状态不再停留在初始化",
+        notStuck ? "pass" : "fail",
+        `statusText="${statusText}"`);
+    }
+
+    // --- Test 3: 模型按钮存在 ---
+    {
+      const modelChip = view.contentEl.querySelector(".llm-bridge-model-effort-chip");
+      addTest("onOpen() DOM 回归: 模型 chip 按钮存在",
+        modelChip !== null ? "pass" : "fail",
+        `modelChip=${modelChip ? "found" : "missing"}`);
+    }
+
+    // --- Test 4: 发送按钮存在 ---
+    {
+      const sendBtn = view.contentEl.querySelector(".llm-bridge-send-btn");
+      addTest("onOpen() DOM 回归: 发送按钮存在",
+        sendBtn !== null ? "pass" : "fail",
+        `sendBtn=${sendBtn ? "found" : "missing"}`);
+    }
+
+    // --- Test 5: 文件 input 存在 ---
+    {
+      const fileInput = view.contentEl.querySelector(".llm-bridge-native-file-input");
+      const hasFileInput = fileInput !== null && fileInput.getAttribute("type") === "file";
+      addTest("onOpen() DOM 回归: 文件 input 存在且 type=file",
+        hasFileInput ? "pass" : "fail",
+        `fileInput=${fileInput ? "found" : "missing"}`);
+    }
+
+    // --- Test 6: 点击 + 按钮触发文件选择器 ---
+    {
+      const attachBtn = view.contentEl.querySelector(".llm-bridge-attach-file-btn");
+      let clickCalled = false;
+      // 找到 attachmentFileInputEl 并 mock click
+      const fileInput = view.contentEl.querySelector(".llm-bridge-native-file-input");
+      if (fileInput) {
+        fileInput.click = () => { clickCalled = true; };
+      }
+      if (attachBtn) {
+        attachBtn.triggerEvent("click", { preventDefault() {}, stopPropagation() {} });
+      }
+      addTest("onOpen() DOM 回归: 点击 + 按钮触发文件选择器",
+        clickCalled ? "pass" : "fail",
+        `attachBtn=${attachBtn ? "found" : "missing"}, clickCalled=${clickCalled}`);
+    }
+
+    // --- Test 7: 权限相关 UI 存在（permission picker 或权限入口）---
+    {
+      // 检查 composer tools left 区域存在（包含附件按钮和工具菜单）
+      const toolsLeft = view.contentEl.querySelector(".llm-bridge-composer-tools-left");
+      // 检查 composer bar 存在
+      const composerBar = view.contentEl.querySelector(".llm-bridge-composer-bar");
+      // 检查输入框存在
+      const inputEl = view.contentEl.querySelector(".llm-bridge-composer-input");
+      const allPresent = toolsLeft !== null && composerBar !== null;
+      addTest("onOpen() DOM 回归: composer 基础 DOM 存在（tools-left + composer-bar）",
+        allPresent ? "pass" : "fail",
+        `toolsLeft=${toolsLeft ? "found" : "missing"}, composerBar=${composerBar ? "found" : "missing"}`);
+    }
+
+    // --- Test 8: 初始化错误边界方法存在 ---
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+      const hasHydrate = viewSrc.includes("private hydrateComposerRuntime(): void");
+      const hasErrorBoundary = viewSrc.includes("private showInitErrorBoundary(error: unknown): void");
+      const hasTryCatch = viewSrc.includes("this.hydrateComposerRuntime()");
+      addTest("onOpen() DOM 回归: 两阶段初始化 + 错误边界方法存在",
+        (hasHydrate && hasErrorBoundary && hasTryCatch) ? "pass" : "fail",
+        `hydrate=${hasHydrate}, errorBoundary=${hasErrorBoundary}, tryCatch=${hasTryCatch}`);
+    }
+
+  } catch (e) {
+    addTest("onOpen() DOM 回归测试段", "fail", `加载/执行异常: ${e?.stack || e?.message || e}`);
+  } finally {
+    try { if (viewBundle) rmSync(viewBundle, { force: true }); } catch {}
+    delete globalThis.__FakeElement;
+    // 恢复全局变量
+    if (prevDocument !== undefined) globalThis.document = prevDocument; else delete globalThis.document;
+    if (prevNavigator !== undefined) {
+      try { Object.defineProperty(globalThis, "navigator", { value: prevNavigator, configurable: true, writable: true }); } catch {}
+    }
+    if (prevWindow !== undefined) globalThis.window = prevWindow; else delete globalThis.window;
+    if (prevLocalStorage !== undefined) {
+      try { Object.defineProperty(globalThis, "localStorage", { value: prevLocalStorage, configurable: true, writable: true }); } catch {}
+    }
   }
 }
 

@@ -11152,16 +11152,6 @@
   }
 }
 
-/* UI-02: 760px 中等宽度 — 权限模式移到右侧时的布局调整 */
-@media (max-width: 760px) {
-  .llm-bridge-composer-tools-left .llm-bridge-permission-picker {
-    display: none;
-  }
-  .llm-bridge-composer-tools-right .llm-bridge-permission-picker-compact {
-    display: inline-flex;
-  }
-}
-
 /* UI-02: "需要你操作"状态 — approval/clarification 卡片加 accent 左边框，
    让用户一眼看出当前需要操作的入口（composer bar 此时已隐藏） */
 

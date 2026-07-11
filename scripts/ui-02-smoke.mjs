@@ -152,12 +152,14 @@ function add(name, ok, detail = "") {
   add("UI-02 CSS 响应式 360px: 极窄宽度发送/停止按钮 32px", hasNarrow, hasNarrow ? "ok" : "极窄宽度 CSS 不完整");
 }
 
-// === 17. CSS: 响应式 760px 权限模式 ===
+// === 17. CSS: 响应式 760px 权限模式 — 旧 compact 规则已移除 ===
 {
-  const hasMidWidth = STYLES_SRC.includes("@media (max-width: 760px)")
-    && STYLES_SRC.includes(".llm-bridge-composer-tools-left .llm-bridge-permission-picker {")
-    && STYLES_SRC.includes(".llm-bridge-permission-picker-compact");
-  add("UI-02 CSS 响应式 760px: 权限模式紧凑切换", hasMidWidth, hasMidWidth ? "ok" : "760px 响应式不完整");
+  // 旧规则在窄栏下隐藏左侧权限入口并显示已取消的 compact 按钮，已移除。
+  // 权限入口应在所有宽度下保持可见；compact 按钮由 composer.css 统一隐藏。
+  const noOldHidingRule = !STYLES_SRC.includes(".llm-bridge-composer-tools-left .llm-bridge-permission-picker {\n    display: none;")
+    && !STYLES_SRC.includes(".llm-bridge-composer-tools-right .llm-bridge-permission-picker-compact {\n    display: inline-flex;");
+  const compactHidden = STYLES_SRC.includes(".llm-bridge-composer-tools-right .llm-bridge-permission-picker-compact {\n  display: none;\n}");
+  add("UI-02 CSS 响应式 760px: 旧 compact 隐藏规则已移除，权限入口不再被隐藏", noOldHidingRule && compactHidden, (noOldHidingRule && compactHidden) ? "ok" : "旧规则残留或 compact 未隐藏");
 }
 
 // === 18. resolveUiLocale 导入存在（UI-02 复用） ===
