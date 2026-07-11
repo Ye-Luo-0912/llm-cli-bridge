@@ -1,4 +1,62 @@
-/* LLM CLI Bridge — Codex / Claude Code 风格紧凑工作台 */
+.llm-bridge-msg-assistant,
+.llm-bridge-codex-final-answer,
+.llm-bridge-msg-markdown {
+
+  user-select: text !important;
+  -webkit-user-select: text !important;
+}.llm-bridge-codex-event-title .llm-bridge-codex-feed-label {
+
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+}.llm-bridge-codex-event-title,
+.llm-bridge-codex-event-hint {
+
+  min-width: 0 !important;
+}.llm-bridge-codex-event-summary {
+
+  min-width: 0 !important;
+  max-width: 100% !important;
+}.llm-bridge-codex-process,
+.llm-bridge-codex-final-answer {
+
+  min-width: 0 !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}.llm-bridge-codex-event-hint,
+.llm-bridge-codex-change-path {
+
+  font-size: 11px !important;
+  line-height: 1.5 !important;
+}.llm-bridge-codex-change-meta {
+
+  gap: 6px !important;
+  font-size: 10px !important;
+}.llm-bridge-codex-event-hint,
+.llm-bridge-codex-change-path,
+.llm-bridge-codex-approval-gate-summary,
+.llm-bridge-codex-approval-gate-reason {
+
+  font-size: 11px !important;
+  line-height: 1.5 !important;
+}.llm-bridge-codex-change-name,
+.llm-bridge-codex-change-action,
+.llm-bridge-codex-approval-gate-action {
+
+  font-size: 12px !important;
+}.llm-bridge-codex-change-row:hover .llm-bridge-codex-change-actions,
+.llm-bridge-codex-change-row:focus-within .llm-bridge-codex-change-actions {
+
+  opacity: 1 !important;
+}.llm-bridge-codex-change-actions {
+
+  opacity: 0 !important;
+  transition: opacity 120ms ease !important;
+}.llm-bridge-codex-change-row,
+.llm-bridge-codex-event-block.llm-bridge-codex-feed-item {
+
+  box-shadow: none !important;
+}/* LLM CLI Bridge — Codex / Claude Code 风格紧凑工作台 */
 
 .llm-bridge-view {
   display: flex;
@@ -350,105 +408,8 @@
   font-style: italic;
 }
 
-.llm-bridge-msg {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 100%;
-  word-break: break-word;
-}
-
-.llm-bridge-msg-user { align-self: flex-end; max-width: min(680px, 86%); }
-.llm-bridge-msg-assistant { align-self: flex-start; max-width: min(760px, 92%); }
-
-.llm-bridge-msg-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: var(--font-smallest);
-}
-.llm-bridge-msg-role { font-weight: 600; color: var(--text-muted); }
-.llm-bridge-msg-time { color: var(--text-muted); opacity: 0.7; margin-left: auto; }
-
-.llm-bridge-msg-status { font-weight: 500; color: var(--text-muted); }
-.llm-bridge-msg-status.is-running { color: var(--interactive-accent); }
-.llm-bridge-msg-status.is-completed { color: #4caf50; }
-.llm-bridge-msg-status.is-failed { color: #e53935; }
-.llm-bridge-msg-status.is-stopped { color: #fb8c00; }
-
-/* user 消息：浅背景块 */
-.llm-bridge-msg-user .llm-bridge-msg-content {
-  background: linear-gradient(135deg, var(--background-secondary), var(--background-secondary-alt));
-  padding: 12px 14px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 14px;
-  font-size: var(--font-small);
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
-  user-select: text;
-  cursor: text;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-}
-
-/* assistant 输出：默认无气泡框；过程与结果属于同一个 turn */
-.llm-bridge-msg-assistant .llm-bridge-msg-content {
-  font-family: var(--font-ui);
-  font-size: var(--font-small);
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
-  min-height: 14px;
-  padding: 4px 0;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  user-select: text;
-}
-.llm-bridge-msg-assistant .llm-bridge-msg-markdown {
-  white-space: normal;
-  user-select: text;
-}
-.llm-bridge-msg-markdown h1,
-.llm-bridge-msg-markdown h2,
-.llm-bridge-msg-markdown h3 {
-  line-height: 1.25;
-  margin: 0.7em 0 0.35em;
-}
-.llm-bridge-msg-markdown h1 { font-size: 1.34em; }
-.llm-bridge-msg-markdown h2 { font-size: 1.18em; }
-.llm-bridge-msg-markdown h3 { font-size: 1.05em; }
-.llm-bridge-msg-markdown p {
-  margin: 0.35em 0;
-}
-.llm-bridge-msg-markdown ul,
-.llm-bridge-msg-markdown ol {
-  margin-top: 0.35em;
-  margin-bottom: 0.35em;
-}
-.llm-bridge-msg-markdown pre {
-  white-space: pre-wrap;
-}
-.llm-bridge-msg-markdown .copy-code-button,
-.llm-bridge-msg-markdown button.copy-code-button,
-.llm-bridge-msg-markdown .markdown-rendered-copy-button {
-  display: none !important;
-}
-.llm-bridge-msg-pending-text {
-  color: var(--text-muted);
-  font-style: italic;
-}
 
 /* ===== 折叠区（stderr / log） ===== */
-.llm-bridge-msg-details {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin: 2px 0 4px;
-}
-.llm-bridge-msg-process {
-  order: 0;
-}
 
 .llm-bridge-collapse {
   border-left: 2px solid var(--background-modifier-border);
@@ -927,55 +888,6 @@
   font-weight: 600;
 }
 
-.llm-bridge-msg-attachments {
-  margin-top: 6px;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 5px;
-}
-
-.llm-bridge-msg-attachment-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 210px;
-  padding: 3px 6px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  cursor: pointer;
-}
-
-.llm-bridge-msg-attachment-image {
-  width: 24px;
-  height: 24px;
-  border-radius: 5px;
-  object-fit: cover;
-}
-
-.llm-bridge-msg-attachment-ext {
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 5px;
-  background: var(--background-primary);
-  color: var(--text-faint);
-  font-family: var(--font-monospace);
-  font-size: 8px;
-  font-weight: 700;
-}
-
-.llm-bridge-msg-attachment-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: var(--font-monospace);
-  font-size: var(--font-smallest);
-}
 
 /* ===== Pending Actions 区域 ===== */
 .llm-bridge-pending-wrap {
@@ -5125,9 +5037,6 @@
 .llm-bridge-tl-tool-duration {
   font-size: 11px;
 }
-.llm-bridge-msg-stream-text {
-  white-space: pre-wrap;
-}
 .llm-bridge-tl-thinking-title {
   display: flex;
   align-items: baseline;
@@ -5465,83 +5374,6 @@
   padding: 24px 26px 18px;
 }
 
-.llm-bridge-msg {
-  position: relative;
-}
-
-.llm-bridge-msg-user {
-  max-width: min(660px, 84%);
-}
-
-.llm-bridge-msg-assistant {
-  align-self: stretch;
-  max-width: 100%;
-  padding-left: 14px;
-}
-
-.llm-bridge-msg-assistant::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 20px;
-  bottom: 2px;
-  width: 1px;
-  background: var(--llm-agent-line);
-}
-
-.llm-bridge-msg-assistant.is-running::before {
-  background: linear-gradient(180deg, rgba(var(--interactive-accent-rgb), 0.72), var(--llm-agent-line));
-}
-
-.llm-bridge-msg-head {
-  min-height: 18px;
-  font-family: var(--font-monospace);
-  letter-spacing: 0.01em;
-}
-
-.llm-bridge-msg-role {
-  color: var(--text-normal);
-}
-
-.llm-bridge-msg-assistant .llm-bridge-msg-role::before {
-  content: "› ";
-  color: var(--interactive-accent);
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-role::before {
-  content: "$ ";
-  color: var(--text-muted);
-}
-
-.llm-bridge-msg-status {
-  padding: 1px 6px;
-  border: 1px solid var(--llm-agent-line);
-  border-radius: 999px;
-  background: var(--llm-agent-surface);
-  font-size: 10px;
-  line-height: 1.4;
-}
-
-.llm-bridge-msg-status.is-running { color: var(--interactive-accent); border-color: rgba(var(--interactive-accent-rgb), 0.36); }
-.llm-bridge-msg-status.is-completed { color: var(--llm-agent-success); border-color: color-mix(in srgb, var(--llm-agent-success) 32%, transparent); }
-.llm-bridge-msg-status.is-failed { color: var(--llm-agent-danger); border-color: color-mix(in srgb, var(--llm-agent-danger) 36%, transparent); }
-.llm-bridge-msg-status.is-stopped { color: var(--llm-agent-warning); border-color: color-mix(in srgb, var(--llm-agent-warning) 36%, transparent); }
-
-.llm-bridge-msg-time {
-  opacity: 0.55;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content {
-  border-color: var(--llm-agent-line);
-  border-radius: 12px;
-  background: var(--llm-agent-surface-raised);
-  box-shadow: none;
-}
-
-.llm-bridge-msg-assistant .llm-bridge-msg-content {
-  padding: 2px 0 0;
-  font-size: var(--font-small);
-}
 
 .llm-bridge-msg-markdown pre,
 .llm-bridge-collapse-text,
@@ -5551,9 +5383,6 @@
   background: var(--llm-agent-surface-muted);
 }
 
-.llm-bridge-msg-pending-text {
-  color: var(--text-muted);
-}
 
 .llm-bridge-composer {
   padding: 10px 22px 16px;
@@ -5621,20 +5450,6 @@
   overflow: hidden;
 }
 
-.llm-bridge-turn-current-activity {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 2px 0 8px;
-  padding: 5px 9px;
-  border: 1px solid var(--llm-agent-line);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--llm-agent-surface-raised) 88%, transparent);
-  color: var(--text-muted);
-  font-size: var(--font-smallest);
-  font-weight: 600;
-  letter-spacing: 0.01em;
-}
 
 .llm-bridge-timeline-head {
   padding: 7px 10px;
@@ -5707,11 +5522,6 @@
   }
 }
 
-/* P4-D legacy: spinner（developer-only，普通用户态不再使用，保留供 developerMode 调试） */
-.llm-bridge-msg-spinner,
-.llm-bridge-turn-header-spinner {
-  display: none;
-}
 
 @keyframes llm-bridge-spin {
   to { transform: rotate(360deg); }
@@ -5756,136 +5566,6 @@
   padding: 6px 10px 9px;
 }
 
-.llm-bridge-turn-section-label {
-  margin: 2px 0 6px;
-  color: var(--text-faint);
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.llm-bridge-turn-approvals {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.llm-bridge-turn-user-inputs {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 8px;
-}
-
-.llm-bridge-turn-approval-card {
-  padding: 7px 8px;
-  border: 1px solid var(--llm-agent-line);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--llm-agent-surface-raised) 82%, transparent);
-}
-
-.llm-bridge-turn-approval-card.is-risk-medium {
-  border-left: 2px solid color-mix(in srgb, var(--llm-agent-warning) 72%, transparent);
-}
-
-.llm-bridge-turn-approval-card.is-risk-high {
-  border-left: 2px solid color-mix(in srgb, var(--llm-agent-danger) 82%, transparent);
-  background: color-mix(in srgb, var(--llm-agent-danger) 6%, var(--llm-agent-surface-raised));
-}
-
-.llm-bridge-turn-approval-row,
-.llm-bridge-turn-approval-actions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-.llm-bridge-turn-approval-title,
-.llm-bridge-turn-approval-detail-item {
-  font-family: var(--font-monospace);
-}
-
-.llm-bridge-turn-approval-title {
-  min-width: 0;
-  color: var(--text-normal);
-  font-size: var(--font-smallest);
-  font-weight: 600;
-}
-
-.llm-bridge-turn-approval-risk {
-  padding: 1px 6px;
-  border-radius: 999px;
-  font-size: 10px;
-  font-weight: 600;
-  background: color-mix(in srgb, var(--background-secondary) 72%, transparent);
-  color: var(--text-muted);
-}
-
-.llm-bridge-turn-approval-risk.is-medium {
-  color: var(--llm-agent-warning);
-}
-
-.llm-bridge-turn-approval-risk.is-high {
-  color: var(--llm-agent-danger);
-}
-
-.llm-bridge-turn-approval-actions {
-  margin-top: 6px;
-}
-
-.llm-bridge-turn-approval-btn {
-  padding: 3px 9px;
-  border: 1px solid var(--llm-agent-line);
-  border-radius: 999px;
-  background: var(--llm-agent-surface);
-  color: var(--text-normal);
-  font-size: var(--font-smallest);
-  line-height: 1.3;
-}
-
-.llm-bridge-turn-approval-btn:hover {
-  border-color: rgba(var(--interactive-accent-rgb), 0.35);
-  background: var(--background-modifier-hover);
-}
-
-.llm-bridge-turn-approval-btn.is-allow-session {
-  color: var(--llm-agent-success);
-}
-
-.llm-bridge-turn-approval-btn.is-deny {
-  color: var(--llm-agent-danger);
-}
-
-.llm-bridge-turn-approval-details {
-  margin-top: 4px;
-}
-
-.llm-bridge-turn-approval-details-toggle {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 600;
-}
-
-.llm-bridge-turn-approval-details-body {
-  display: grid;
-  gap: 3px;
-  margin-top: 5px;
-  padding-top: 5px;
-  border-top: 1px dashed var(--llm-agent-line);
-}
-
-.llm-bridge-turn-approval-detail-item {
-  color: var(--text-muted);
-  font-size: 10px;
-  line-height: 1.35;
-  word-break: break-word;
-}
 
 .llm-bridge-tl-user-input .llm-bridge-tl-dot {
   background: var(--interactive-accent);
@@ -6534,32 +6214,6 @@
   padding-bottom: 20px;
 }
 
-.llm-bridge-msg-assistant {
-  padding-left: 12px;
-}
-
-.llm-bridge-msg-assistant::before {
-  left: 0;
-  top: 18px;
-  bottom: 0;
-  width: 1px;
-  background: color-mix(in srgb, var(--text-muted) 20%, transparent);
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content {
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--background-secondary) 58%, var(--background-primary));
-}
-
-.llm-bridge-message-render-error-detail {
-  margin-top: 6px;
-  color: var(--text-muted);
-}
-
-.llm-bridge-message-render-error-detail summary {
-  cursor: pointer;
-  font-size: var(--font-smallest);
-}
 
 .llm-bridge-codex-run-view {
   --llm-run-line: color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
@@ -6944,17 +6598,7 @@
 }
 
 /* ===== V17-G8: Codex desktop-style run stream, composer and file/request consolidation ===== */
-.llm-bridge-msg-content-suppressed {
-  display: none !important;
-}
 
-.llm-bridge-msg-assistant {
-  padding-left: 10px;
-}
-
-.llm-bridge-msg-assistant::before {
-  background: color-mix(in srgb, var(--text-muted) 14%, transparent);
-}
 
 .llm-bridge-codex-run-view {
   margin: 2px 0 8px;
@@ -7358,30 +7002,6 @@
   max-width: 68ch;
 }
 
-.llm-bridge-msg-user {
-  align-self: stretch;
-  max-width: min(920px, 100%);
-  margin-left: 28px;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-head {
-  justify-content: flex-start;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-role::before {
-  content: "";
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content {
-  padding: 1px 0 4px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-  color: var(--text-normal);
-  font-size: var(--font-ui-small);
-  line-height: 1.55;
-}
 
 .llm-bridge-user-prompt-collapse {
   display: block;
@@ -7762,65 +7382,7 @@
 }
 
 /* ===== V17-G18: user bubble attachment previews ===== */
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  max-width: min(520px, 100%);
-  margin-top: 8px;
-  justify-content: flex-start;
-  gap: 6px;
-}
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip {
-  display: inline-grid;
-  grid-template-columns: 42px minmax(0, 1fr);
-  align-items: center;
-  min-height: 50px;
-  max-width: 220px;
-  padding: 4px 8px 4px 4px;
-  gap: 7px;
-  border-color: color-mix(in srgb, var(--text-muted) 12%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--background-secondary) 44%, transparent);
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-preview {
-  grid-template-columns: 42px minmax(0, 1fr);
-  align-items: center;
-  width: auto;
-  max-width: 220px;
-  text-align: left;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image {
-  display: block;
-  width: 42px;
-  height: 42px;
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--background-secondary) 72%, var(--background-primary));
-  object-fit: cover;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext {
-  width: 42px;
-  height: 42px;
-  border-radius: 6px;
-  font-size: 8px;
-  letter-spacing: 0;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name {
-  min-width: 0;
-  color: var(--text-muted);
-  font-family: var(--font-ui);
-  font-size: var(--font-smallest);
-  line-height: 1.25;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-preview .llm-bridge-msg-attachment-name {
-  padding: 0;
-}
 
 /* ===== V17-G19: lightweight file preview modal ===== */
 .llm-bridge-file-preview-modal {
@@ -7891,37 +7453,7 @@
 }
 
 /* ===== V17-G20: Codex-like right-aligned user messages ===== */
-.llm-bridge-msg-user {
-  align-self: flex-end;
-  width: fit-content;
-  max-width: min(680px, 86%);
-  margin-left: auto;
-  margin-right: 8px;
-}
 
-.llm-bridge-msg-user .llm-bridge-msg-head {
-  justify-content: flex-end;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-time {
-  margin-left: 0;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content {
-  width: fit-content;
-  max-width: 100%;
-  margin-left: auto;
-  padding: 8px 12px;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 13%, transparent);
-  border-radius: 13px;
-  background: color-mix(in srgb, var(--background-secondary) 40%, transparent);
-  color: var(--text-normal);
-  text-align: left;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  justify-content: flex-end;
-}
 
 /* ===== V17-G21: compact Codex-like permission menu ===== */
 .llm-bridge-perm-popover {
@@ -8210,75 +7742,6 @@
   padding: 0 2px 6px;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  order: -1;
-  align-self: flex-end;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-  max-width: min(220px, 100%);
-  margin: 0 0 8px;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  box-sizing: border-box;
-  display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 44px !important;
-  width: 44px !important;
-  min-width: 44px !important;
-  max-width: 44px !important;
-  height: 44px !important;
-  min-height: 44px !important;
-  max-height: 44px !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--background-secondary) 42%, var(--background-primary));
-  box-shadow: none;
-  line-height: 0;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:hover {
-  border-color: color-mix(in srgb, var(--text-muted) 18%, transparent);
-  background: color-mix(in srgb, var(--background-secondary) 54%, var(--background-primary));
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
-  display: block !important;
-  width: 100% !important;
-  min-width: 100% !important;
-  max-width: 100% !important;
-  height: 100% !important;
-  min-height: 100% !important;
-  max-height: 100% !important;
-  margin: 0;
-  border-radius: inherit;
-  object-fit: cover;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image-placeholder {
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {
-  padding: 8px 7px;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext {
-  display: none !important;
-}
 
 .llm-bridge-file-preview-modal {
   gap: 10px;
@@ -8760,76 +8223,7 @@
 }
 
 /* ===== V17-G24: Codex-like user attachment tiles and light preview ===== */
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 6px;
-  max-width: min(360px, 100%);
-}
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip {
-  min-width: 0;
-  min-height: 36px;
-  max-width: 168px;
-  padding: 3px 7px 3px 3px;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--background-secondary) 36%, transparent);
-  box-shadow: none;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  display: inline-flex;
-  width: 44px;
-  min-width: 44px;
-  max-width: 44px;
-  height: 44px;
-  min-height: 44px;
-  padding: 0;
-  overflow: hidden;
-  border-radius: 11px;
-  background: color-mix(in srgb, var(--background-secondary) 48%, var(--background-primary));
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only:hover,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only):hover {
-  border-color: color-mix(in srgb, var(--text-muted) 18%, transparent);
-  background: color-mix(in srgb, var(--background-secondary) 54%, transparent);
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
-  display: block;
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
-  min-height: 44px;
-  border-radius: 10px;
-  object-fit: cover;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-name {
-  display: none;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only) {
-  display: inline-grid;
-  grid-template-columns: 30px minmax(0, 1fr);
-  gap: 6px;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only) .llm-bridge-msg-attachment-ext {
-  width: 30px;
-  height: 30px;
-  border-radius: 8px;
-  font-size: 7.5px;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name {
-  font-size: var(--font-smallest);
-  line-height: 1.2;
-}
 
 .llm-bridge-file-preview-modal .modal-title {
   font-size: var(--font-ui-large);
@@ -8908,114 +8302,7 @@
 }
 
 /* ===== V17-G27: Codex-like right user bubbles, square attachments and Skills registry ===== */
-.llm-bridge-msg-user {
-  align-self: flex-end;
-  width: fit-content;
-  max-width: min(680px, 86%);
-  margin-left: auto;
-  margin-right: 18px;
-  text-align: right;
-}
 
-.llm-bridge-msg-user .llm-bridge-msg-head {
-  justify-content: flex-end;
-  gap: 6px;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  width: fit-content;
-  max-width: min(620px, 100%);
-  margin-left: auto;
-  padding: 9px 11px;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--background-secondary) 34%, transparent);
-  text-align: left;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content > :not(.llm-bridge-msg-attachments) {
-  max-width: 100%;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  align-self: flex-end;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 6px;
-  max-width: min(260px, 100%);
-  margin-top: 8px;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip {
-  box-sizing: border-box;
-  min-width: 0;
-  min-height: 34px;
-  max-width: 136px;
-  padding: 3px 7px 3px 3px;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--background-secondary) 44%, transparent);
-  box-shadow: none;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  display: inline-flex !important;
-  align-items: center;
-  justify-content: center;
-  width: 42px !important;
-  min-width: 42px !important;
-  max-width: 42px !important;
-  height: 42px !important;
-  min-height: 42px !important;
-  max-height: 42px !important;
-  padding: 0 !important;
-  overflow: hidden;
-  border-radius: 11px;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
-  display: block;
-  width: 42px !important;
-  min-width: 42px !important;
-  max-width: 42px !important;
-  height: 42px !important;
-  min-height: 42px !important;
-  max-height: 42px !important;
-  border-radius: 10px;
-  object-fit: cover;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-ext.is-fallback,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-name {
-  display: none;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only) {
-  display: inline-grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  align-items: center;
-  gap: 6px;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only) .llm-bridge-msg-attachment-ext {
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  font-size: 7px;
-  letter-spacing: 0;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name {
-  max-width: 88px;
-  color: color-mix(in srgb, var(--text-normal) 76%, var(--text-muted));
-  font-family: var(--font-ui);
-  font-size: var(--font-smallest);
-  line-height: 1.15;
-}
 
 .llm-bridge-file-preview-modal {
   gap: 8px;
@@ -9157,75 +8444,7 @@
 }
 
 /* ===== V17-G28: lighter previews, dialogs and attachment tiles ===== */
-.llm-bridge-msg-user {
-  align-self: flex-end;
-  width: fit-content;
-  max-width: min(640px, 84%);
-  margin-left: auto;
-  margin-right: 14px;
-}
 
-.llm-bridge-msg-user .llm-bridge-msg-content {
-  align-items: flex-end;
-  width: fit-content;
-  max-width: min(580px, 100%);
-  padding: 8px 10px;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  align-items: flex-start;
-  justify-content: flex-end;
-  max-width: min(230px, 100%);
-  gap: 5px;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip {
-  appearance: none;
-  box-sizing: border-box;
-  min-width: 0;
-  box-shadow: none;
-  line-height: 1;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  flex: 0 0 40px !important;
-  width: 40px !important;
-  min-width: 40px !important;
-  max-width: 40px !important;
-  height: 40px !important;
-  min-height: 40px !important;
-  max-height: 40px !important;
-  aspect-ratio: 1 / 1;
-  padding: 0 !important;
-  overflow: hidden;
-  border-radius: 10px;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
-  flex: 0 0 40px;
-  width: 40px !important;
-  min-width: 40px !important;
-  max-width: 40px !important;
-  height: 40px !important;
-  min-height: 40px !important;
-  max-height: 40px !important;
-  aspect-ratio: 1 / 1;
-  border-radius: 9px;
-  object-fit: cover;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only) {
-  max-width: 132px;
-  min-height: 32px;
-  padding: 3px 7px 3px 3px;
-  grid-template-columns: 26px minmax(0, 1fr);
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only) .llm-bridge-msg-attachment-ext {
-  width: 26px;
-  height: 26px;
-  border-radius: 7px;
-}
 
 .llm-bridge-file-preview-modal {
   display: grid;
@@ -9380,78 +8599,7 @@
 /* ===== V17-G29: stable empty active-note placeholder ===== */
 
 /* ===== V17-G30: Codex-like right user input and square attachment previews ===== */
-.llm-bridge-msg-user {
-  align-self: flex-end !important;
-  width: fit-content;
-  max-width: min(620px, 82%);
-  margin-left: auto !important;
-  margin-right: 16px;
-}
 
-.llm-bridge-msg-user .llm-bridge-msg-head {
-  justify-content: flex-end;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content {
-  align-items: flex-end;
-  width: fit-content;
-  max-width: min(560px, 100%);
-  margin-left: auto;
-  user-select: text;
-  cursor: text;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  justify-content: flex-end;
-  gap: 6px;
-  max-width: 100%;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only),
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  display: inline-grid !important;
-  flex: 0 0 42px !important;
-  place-items: center;
-  width: 42px !important;
-  min-width: 42px !important;
-  max-width: 42px !important;
-  height: 42px !important;
-  min-height: 42px !important;
-  max-height: 42px !important;
-  aspect-ratio: 1 / 1;
-  padding: 0 !important;
-  overflow: hidden;
-  border-radius: 10px;
-  line-height: 1;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
-  display: block !important;
-  width: 100% !important;
-  min-width: 100% !important;
-  max-width: 100% !important;
-  height: 100% !important;
-  min-height: 100% !important;
-  max-height: 100% !important;
-  aspect-ratio: 1 / 1;
-  border-radius: inherit;
-  object-fit: cover;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext {
-  width: 100% !important;
-  height: 100% !important;
-  border-radius: inherit !important;
-  font-size: 8px;
-  letter-spacing: 0;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-preview .llm-bridge-msg-attachment-ext,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name {
-  display: none !important;
-}
 
 .llm-bridge-file-preview-container .modal-button-container,
 .llm-bridge-file-preview-modal .modal-button-container {
@@ -9459,68 +8607,10 @@
 }
 
 /* ===== V17-G31: user attachments sit above text and image tiles hide format labels ===== */
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  order: -1;
-  align-self: flex-end;
-  margin: 0 0 8px;
-}
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image .llm-bridge-msg-attachment-ext,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image .llm-bridge-msg-attachment-name {
-  display: none !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image-placeholder {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
-  background: color-mix(in srgb, var(--background-secondary) 58%, transparent);
-  color: color-mix(in srgb, var(--text-muted) 72%, transparent);
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image-placeholder svg {
-  width: 16px;
-  height: 16px;
-}
 
 /* ===== V17-G32: non-image user attachments use document thumbnails instead of format labels ===== */
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {
-  display: grid;
-  align-content: center;
-  gap: 3px;
-  width: 100%;
-  height: 100%;
-  padding: 9px 8px;
-  border-radius: inherit;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary)) 0%,
-    color-mix(in srgb, var(--background-secondary) 60%, transparent) 100%
-  );
-}
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line {
-  display: block;
-  width: 100%;
-  height: 2px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text-muted) 24%, transparent);
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line:nth-child(2) {
-  width: 78%;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line:nth-child(3) {
-  width: 88%;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line:nth-child(4) {
-  width: 56%;
-}
 
 /* ===== V17-G33: flatter Codex-like Skills, permission and approval surfaces ===== */
 .llm-bridge-skills-head {
@@ -9796,73 +8886,6 @@
   padding: 0 2px 6px !important;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  order: -1 !important;
-  align-self: flex-end !important;
-  justify-content: flex-end !important;
-  gap: 6px !important;
-  max-width: min(220px, 100%) !important;
-  margin: 0 0 8px !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  flex: 0 0 44px !important;
-  width: 44px !important;
-  min-width: 44px !important;
-  max-width: 44px !important;
-  height: 44px !important;
-  min-height: 44px !important;
-  max-height: 44px !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  border-radius: 11px !important;
-  line-height: 0 !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
-  display: block !important;
-  width: 100% !important;
-  min-width: 100% !important;
-  max-width: 100% !important;
-  height: 100% !important;
-  min-height: 100% !important;
-  max-height: 100% !important;
-  margin: 0 !important;
-  border-radius: inherit !important;
-  object-fit: cover !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image-placeholder {
-  width: 100% !important;
-  height: 100% !important;
-  border-radius: inherit !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-text,
-.llm-bridge-composer-file-doc-line.is-text {
-  min-height: 3px !important;
-  height: 3px !important;
-  padding: 0 !important;
-  border-radius: 999px !important;
-  background: color-mix(in srgb, var(--text-muted) 22%, transparent) !important;
-  color: transparent !important;
-  font-size: 0 !important;
-  line-height: 0 !important;
-  box-shadow: none !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext {
-  display: none !important;
-}
 
 .llm-bridge-file-preview-path {
   overflow: hidden !important;
@@ -10318,12 +9341,6 @@
 
 /* ===== V17-G76: attachment tray is current-message only, no pin affordance ===== */
 
-.llm-bridge-msg-user .llm-bridge-msg-content.has-attachments {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 7px;
-}
 
 .llm-bridge-user-message-text {
   display: block;
@@ -10625,84 +9642,6 @@
 
 /* ===== V17-G43: stable square attachment tiles and plain-text-first paste UX ===== */
 
-.llm-bridge-msg-user {
-  max-width: min(520px, 76%) !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content {
-  display: inline-flex !important;
-  flex-direction: column !important;
-  align-items: flex-end !important;
-  gap: 8px !important;
-  width: fit-content !important;
-  max-width: 100% !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content > :not(.llm-bridge-msg-attachments) {
-  align-self: flex-end !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  display: flex !important;
-  flex-wrap: wrap !important;
-  align-items: flex-start !important;
-  justify-content: flex-end !important;
-  gap: 6px !important;
-  max-width: min(240px, 100%) !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only),
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  position: relative !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  flex: 0 0 46px !important;
-  width: 46px !important;
-  min-width: 46px !important;
-  max-width: 46px !important;
-  height: 46px !important;
-  min-height: 46px !important;
-  max-height: 46px !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
-  border-radius: 12px !important;
-  background: color-mix(in srgb, var(--background-secondary) 52%, transparent) !important;
-  box-shadow: none !important;
-  font-size: 0 !important;
-  line-height: 0 !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
-  display: block !important;
-  flex: none !important;
-  width: 100% !important;
-  min-width: 100% !important;
-  max-width: 100% !important;
-  height: 100% !important;
-  min-height: 100% !important;
-  max-height: 100% !important;
-  margin: 0 !important;
-  border-radius: inherit !important;
-  object-fit: cover !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image-placeholder {
-  width: 100% !important;
-  height: 100% !important;
-  border-radius: inherit !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext {
-  display: none !important;
-}
 
 .llm-bridge-file-preview-modal .modal-button-container,
 .llm-bridge-file-preview-container .modal-button-container {
@@ -11185,76 +10124,7 @@
 }
 
 /* ===== V17-G45: explicit clipboard-text boundary and lighter attachment tiles ===== */
-.llm-bridge-msg-user .llm-bridge-msg-content.has-attachments {
-  gap: 0 !important;
-}
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  order: -1 !important;
-  align-self: flex-end !important;
-  justify-content: flex-end !important;
-  gap: 6px !important;
-  max-width: min(236px, 100%) !important;
-  margin: 0 0 8px !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  position: relative !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  flex: 0 0 44px !important;
-  width: 44px !important;
-  min-width: 44px !important;
-  max-width: 44px !important;
-  height: 44px !important;
-  min-height: 44px !important;
-  max-height: 44px !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 8%, transparent) !important;
-  border-radius: 11px !important;
-  background: color-mix(in srgb, var(--background-secondary) 36%, transparent) !important;
-  box-shadow: none !important;
-  line-height: 0 !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
-  display: block !important;
-  width: 100% !important;
-  min-width: 100% !important;
-  max-width: 100% !important;
-  height: 100% !important;
-  min-height: 100% !important;
-  max-height: 100% !important;
-  margin: 0 !important;
-  border-radius: inherit !important;
-  object-fit: cover !important;
-  object-position: center center !important;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 14%, transparent) !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
-.llm-bridge-composer-file-doc-thumb {
-  display: grid !important;
-  align-content: start !important;
-  gap: 2px !important;
-  width: 100% !important;
-  height: 100% !important;
-  padding: 5px !important;
-  overflow: hidden !important;
-  border-radius: inherit !important;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--background-primary) 94%, var(--background-secondary)) 0%,
-    color-mix(in srgb, var(--background-secondary) 46%, transparent) 100%
-  ) !important;
-  font-family: var(--font-monospace) !important;
-}
 
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb.is-icon-fallback,
 .llm-bridge-composer-file-doc-thumb.is-icon-fallback,
@@ -11278,16 +10148,6 @@
   height: 14px !important;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line,
-.llm-bridge-composer-file-doc-line {
-  display: block !important;
-  width: 100% !important;
-  max-width: 100% !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-  letter-spacing: 0 !important;
-}
 
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-text,
 .llm-bridge-composer-file-doc-line.is-text {
@@ -11312,10 +10172,6 @@
   background: color-mix(in srgb, var(--text-muted) 18%, transparent) !important;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext {
-  display: none !important;
-}
 
 .llm-bridge-composer-file-refs {
   gap: 4px !important;
@@ -11324,48 +10180,7 @@
 }
 
 /* ===== V17-G46: contained attachment thumbnails and lighter preview surfaces ===== */
-.llm-bridge-msg-user .llm-bridge-msg-content {
-  gap: 3px !important;
-}
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  align-self: stretch !important;
-  justify-content: flex-start !important;
-  gap: 5px !important;
-  max-width: 100% !important;
-  margin: 0 0 10px !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary)) 0%,
-    color-mix(in srgb, var(--background-secondary) 52%, transparent) 100%
-  ) !important;
-  border-color: color-mix(in srgb, var(--text-muted) 11%, transparent) !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
-  box-sizing: border-box !important;
-  padding: 1px !important;
-  object-fit: cover !important;
-  object-position: left top !important;
-  background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary)) !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
-.llm-bridge-composer-file-doc-thumb {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--background-primary) 95%, var(--background-secondary)) 0%,
-    color-mix(in srgb, var(--background-secondary) 40%, transparent) 100%
-  ) !important;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
-}
 
 .llm-bridge-file-preview-modal {
   gap: 10px !important;
@@ -11604,47 +10419,6 @@
   border-left: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
 }
 
-.llm-bridge-msg-user {
-  margin-left: auto !important;
-  max-width: min(560px, 72%) !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-head {
-  display: flex !important;
-  justify-content: flex-end !important;
-  gap: 8px !important;
-  text-align: right !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content {
-  margin-left: auto !important;
-  align-items: flex-end !important;
-  gap: 6px !important;
-  width: fit-content !important;
-  max-width: min(100%, 540px) !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  order: -1 !important;
-  justify-content: flex-end !important;
-  gap: 6px !important;
-  max-width: min(208px, 100%) !important;
-  margin: 0 0 2px !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  flex: 0 0 42px !important;
-  width: 42px !important;
-  min-width: 42px !important;
-  max-width: 42px !important;
-  height: 42px !important;
-  min-height: 42px !important;
-  max-height: 42px !important;
-  border-radius: 10px !important;
-}
 
 .llm-bridge-composer-file-refs {
   gap: 5px !important;
@@ -12102,79 +10876,7 @@
 }
 
 /* ===== V17-G55: stable square user attachment thumbnails ===== */
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  display: flex !important;
-  flex-wrap: wrap !important;
-  justify-content: flex-end !important;
-  gap: 6px !important;
-  width: fit-content !important;
-  max-width: min(232px, 100%) !important;
-  margin: 0 0 4px auto !important;
-}
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only),
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  display: inline-flex !important;
-  align-items: stretch !important;
-  justify-content: stretch !important;
-  flex: 0 0 42px !important;
-  width: 42px !important;
-  min-width: 42px !important;
-  max-width: 42px !important;
-  height: 42px !important;
-  min-height: 42px !important;
-  max-height: 42px !important;
-  padding: 0 !important;
-  overflow: hidden !important;
-  border-radius: 10px !important;
-  background: color-mix(in srgb, var(--background-secondary) 44%, transparent) !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual {
-  display: block !important;
-  width: 100% !important;
-  height: 100% !important;
-  overflow: hidden !important;
-  border-radius: inherit !important;
-  background: color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary)) !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image-placeholder {
-  display: block !important;
-  width: 100% !important;
-  min-width: 100% !important;
-  max-width: 100% !important;
-  height: 100% !important;
-  min-height: 100% !important;
-  max-height: 100% !important;
-  border-radius: inherit !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
-  padding: 0 !important;
-  object-fit: cover !important;
-  object-position: center center !important;
-  background: transparent !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {
-  display: grid !important;
-  align-content: start !important;
-  gap: 3px !important;
-  padding: 5px !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-ext,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-name {
-  display: none !important;
-}
 
 /* ===== V17-G56: static run header, collapsible steps head, calmer sessions/dialogs ===== */
 .llm-bridge-codex-run-header {
@@ -12701,42 +11403,7 @@
 }
 
 /* ===== V17-G57: stricter paste policy and steadier user attachment previews ===== */
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  align-items: flex-start !important;
-}
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  position: relative !important;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 8%, transparent) !important;
-  box-shadow: none !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual {
-  display: flex !important;
-  align-items: stretch !important;
-  justify-content: stretch !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.has-image-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.has-document-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.is-image-placeholder {
-  width: 100% !important;
-  height: 100% !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {
-  display: grid !important;
-  grid-template-rows: repeat(3, minmax(0, 1fr)) !important;
-  align-content: stretch !important;
-  justify-items: stretch !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line {
-  overflow: hidden !important;
-}
 
 .llm-bridge-file-preview-path {
   user-select: text !important;
@@ -12750,35 +11417,6 @@
   padding-bottom: 4px !important;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  gap: 5px !important;
-  max-width: min(184px, 100%) !important;
-  margin: 0 0 4px auto !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only),
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  flex: 0 0 40px !important;
-  width: 40px !important;
-  min-width: 40px !important;
-  max-width: 40px !important;
-  height: 40px !important;
-  min-height: 40px !important;
-  max-height: 40px !important;
-  border-radius: 10px !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {
-  padding: 4px !important;
-  gap: 2px !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line {
-  font-size: 7px !important;
-}
 
 .llm-bridge-file-preview-container .modal-button-container,
 .llm-bridge-file-preview-modal .modal-button-container {
@@ -13137,57 +11775,6 @@
   letter-spacing: 0 !important;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content {
-  display: flex !important;
-  flex-direction: column !important;
-  align-items: flex-start !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
-  order: -1 !important;
-  align-self: flex-end !important;
-  align-items: flex-start !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only),
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
-  overflow: hidden !important;
-  padding: 0 !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.has-image-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.has-document-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-visual.is-image-placeholder {
-  display: flex !important;
-  width: 100% !important;
-  height: 100% !important;
-  align-items: stretch !important;
-  justify-content: stretch !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only .llm-bridge-msg-attachment-image {
-  display: block !important;
-  width: 100% !important;
-  height: 100% !important;
-  object-fit: cover !important;
-  object-position: center !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-image-placeholder {
-  width: 100% !important;
-  height: 100% !important;
-  border-radius: inherit !important;
-}
-
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {
-  padding: 4px !important;
-}
 
 /* ===== V17-G61: stable thinking lead + merged shell/output waterfall blocks ===== */
 .llm-bridge-codex-feed-output {
