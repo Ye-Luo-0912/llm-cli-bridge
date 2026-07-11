@@ -1,4 +1,9 @@
 /* styles/message.css — 语义对话气泡 */
+/* 字体规范（三类，不再追加覆盖规则）：
+   - 回答/思考正文：var(--font-text)
+   - 状态/按钮/标题/消息头：var(--font-interface)
+   - 路径/命令/代码/附件名：var(--font-monospace)
+*/
 
 .llm-bridge-msg {
   position: relative;
@@ -223,7 +228,7 @@
 
 .llm-bridge-msg-head {
   min-height: 18px;
-  font-family: var(--font-monospace);
+  font-family: var(--font-interface);
   letter-spacing: 0.01em;
 }
 

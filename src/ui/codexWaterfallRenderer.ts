@@ -435,8 +435,9 @@ function patchChangedFeedEntries(
 }
 
 /**
- * 单瀑布流：在 feed 的 candidate 节点上更新/升级最终回答。
- * 不创建独立 Final Answer 副本。
+ * 独立最终回答区：在 process 之后的兄弟节点中渲染最终回答。
+ * 过程区只保留中间说明和工具调用；最终回答由独立节点持有。
+ * 流式期间更新纯文本，完成后原地升级 Markdown 一次。
  */
 export function upgradeCodexCandidateAnswerInFeed(
   body: HTMLElement,
@@ -446,45 +447,41 @@ export function upgradeCodexCandidateAnswerInFeed(
 ): void {
   const normalized = text.trim();
   if (!normalized) return;
+  // 清理旧版在 process body 内的 candidate 节点
   body.querySelectorAll(".llm-bridge-codex-final-answer").forEach((el) => el.remove());
 
-  const candidate = body.querySelector<HTMLElement>(
-    '.llm-bridge-codex-feed-entry.is-answer-candidate, .llm-bridge-codex-thinking-line.is-final-candidate, [data-answer-role="candidate"]',
-  );
-  if (!candidate) return;
-
-  const line = candidate.classList.contains("llm-bridge-codex-thinking-line")
-    ? candidate
-    : candidate.querySelector<HTMLElement>(".llm-bridge-codex-thinking-line") || candidate;
+  // 独立最终回答区：process 之后的兄弟节点
+  let answerSection = body.querySelector<HTMLElement>(".llm-bridge-codex-final-answer-section");
+  if (!answerSection) {
+    answerSection = body.createDiv({ cls: "llm-bridge-codex-final-answer-section" });
+  }
 
   if (streaming) {
-    let stream = line.querySelector<HTMLElement>(".llm-bridge-msg-stream-text");
-    const md = line.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
+    let stream = answerSection.querySelector<HTMLElement>(".llm-bridge-msg-stream-text");
+    const md = answerSection.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
     if (md) md.remove();
     if (!stream) {
-      stream = line.createEl("span", { cls: "llm-bridge-msg-stream-text llm-bridge-codex-thinking-summary is-multiline" });
+      stream = answerSection.createEl("span", { cls: "llm-bridge-msg-stream-text llm-bridge-codex-thinking-summary is-multiline" });
     }
     stream.textContent = normalized.length > 1200 ? `${normalized.slice(0, 1200).trimEnd()}...` : normalized;
     stream.setAttribute("title", normalized);
     return;
   }
 
-  line.querySelectorAll(".llm-bridge-msg-stream-text").forEach((el) => el.remove());
-  line.classList.remove("is-thinking-live");
-  line.classList.add("is-thinking-done");
-  let md = line.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
-  // 终态 Markdown 只渲染一次：相同文本不重复 renderMarkdownInto
+  // 终态：原地升级为 Markdown，只渲染一次
+  answerSection.querySelectorAll(".llm-bridge-msg-stream-text").forEach((el) => el.remove());
+  let md = answerSection.querySelector<HTMLElement>(".llm-bridge-codex-answer-body");
   if (md && md.getAttribute("data-final-text") === normalized) return;
-  if (!md) md = line.createDiv({ cls: "llm-bridge-codex-answer-body llm-bridge-msg-markdown" });
+  if (!md) md = answerSection.createDiv({ cls: "llm-bridge-codex-answer-body llm-bridge-msg-markdown" });
   deps.renderMarkdownInto(md, normalized);
   md.setAttribute("data-final-text", normalized);
 }
 
 /**
  * 初渲与增量共用的瀑布流 reconcile 主入口：
- * 确保 feed list 存在 → 增量 patch（非结构变化）/ full keyed patch（结构变化）→ candidate 原地升级 Markdown。
- * 渲染粒度拆分：answer 变化只更新 candidate stream-text；状态变化只 patch 对应 entry；
- * 结构变化（新增/删除 item）才 full reconcile；终态 Markdown 只渲染一次。
+ * 确保 feed list 存在 → 增量 patch（非结构变化）/ full keyed patch（结构变化）→ 独立最终回答区升级 Markdown。
+ * 过程区只渲染非 candidate 的 feed items（中间说明 + 工具调用）；
+ * candidate 的最终回答由独立兄弟节点 `.llm-bridge-codex-final-answer-section` 持有。
  */
 export function reconcileCodexRunWaterfall(
   processBody: HTMLElement,
@@ -497,7 +494,8 @@ export function reconcileCodexRunWaterfall(
     const section = processBody.createDiv({ cls: "llm-bridge-codex-feed llm-bridge-codex-changes-panel" });
     feedList = section.createDiv({ cls: "llm-bridge-codex-feed-list llm-bridge-codex-step-list" });
   }
-  const items = run.feedItems;
+  // 过程区排除 candidate：最终回答由独立最终回答区持有
+  const items = run.feedItems.filter((item) => item.answerRole !== "candidate");
   const sig = computeFeedSignature(items);
   if (sig !== (feedList.dataset.lastSig || "")) {
     feedList.dataset.lastSig = sig;
@@ -528,9 +526,9 @@ function shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, developerMode:
   const summary = formatCodexFeedSummary(item, developerMode).trim();
   const detail = (item.detail || "").trim();
   if (developerMode) return !!(summary || detail);
-  // 运行中：有真实摘要或 live thinking 状态时展开
+  // 运行中：始终展开，即使无 reasoning 文本也显示"正在思考"光效占位
   if (item.status === "running" || item.status === "pending") {
-    return !!(summary || detail);
+    return true;
   }
   // 普通完成态：仅在有用户可读摘要时展开；空泛「正在推理」不渲染
   if (!summary) return false;
@@ -544,11 +542,15 @@ function renderCodexFeedThinking(
   deps: CodexFeedItemRenderDeps,
   batch?: ReadonlyArray<CodexRunFeedItem>,
 ): void {
-  const summary = formatCodexFeedSummary(item, false).trim()
-    || (batch ? formatCodexThinkingFallbackFromBatch(batch) : "");
-  // 无真实 reasoning 文本时不渲染空泛「正在思考」行
-  if (!summary) return;
   const isLive = item.status === "running" || item.status === "pending";
+  let summary = formatCodexFeedSummary(item, false).trim()
+    || (batch ? formatCodexThinkingFallbackFromBatch(batch) : "");
+  // 运行中且无 reasoning 文本时，显示"正在思考"光效占位，确保用户始终有运行反馈
+  if (!summary && isLive) {
+    summary = deps.localizeRunStatus("Thinking");
+  }
+  // 终态且无文本时不渲染空行
+  if (!summary) return;
   const row = parent.createDiv({
     cls: `llm-bridge-codex-thinking-line is-${item.status}${isLive ? " is-thinking-live" : " is-thinking-done"}`,
   });
@@ -558,8 +560,9 @@ function renderCodexFeedThinking(
   if (deps.developerMode) {
     row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: deps.localizeRunStatus("Thinking") });
   }
+  const isPlaceholder = isLive && summary === deps.localizeRunStatus("Thinking");
   row.createEl("span", {
-    cls: `llm-bridge-codex-thinking-summary is-reasoning-text${isLive ? " llm-bridge-codex-thinking-status is-running llm-bridge-run-glow is-thinking-faded" : ""}`,
+    cls: `llm-bridge-codex-thinking-summary${isPlaceholder ? " llm-bridge-codex-thinking-placeholder" : " is-reasoning-text"}${isLive ? " llm-bridge-codex-thinking-status is-running llm-bridge-run-glow is-thinking-faded" : ""}`,
     text: truncateText(summary, 360),
     attr: { title: summary },
   });

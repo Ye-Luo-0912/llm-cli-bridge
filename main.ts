@@ -100,16 +100,19 @@ export default class LLMBridgePlugin extends Plugin {
       void this.materializeVaultSkillsOnload(vaultPath);
     }
 
-    // V17-D 任务 B：异步预加载 Pi SDK（不阻塞 onload）
-    // 加载完成后写入 probeCache，后续 PiSdkProvider constructor 同步读取 cache
-    void this.preloadPiSdk();
+    // V17-F: 仅当 backendMode 涉及 Pi 时才预加载，避免 Codex 模式下产生 renderer 红错
+    // auto 模式也可能降级到 pi-sdk，所以 auto / pi-sdk / pi-rpc 三种模式都预加载
+    const mode = this.settings.backendMode;
+    if (mode === "auto" || mode === "pi-sdk" || mode === "pi-rpc") {
+      void this.preloadPiSdk(this.pluginDir);
+    }
   }
 
-  /** V17-D 任务 B：异步预加载 Pi SDK 到 probeCache */
-  private async preloadPiSdk(): Promise<void> {
+  /** V17-D 任务 B：异步预加载 Pi SDK 到 probeCache（传入插件真实目录，不用 renderer __dirname） */
+  private async preloadPiSdk(pluginDir: string): Promise<void> {
     try {
       const { PiSdkProvider } = await import("./src/runtime/providers/pi-sdk/piSdkProvider");
-      await PiSdkProvider.preload();
+      await PiSdkProvider.preload(false, pluginDir);
       console.log("[llm-cli-bridge] Pi SDK preload 完成");
     } catch (e) {
       console.warn("[llm-cli-bridge] Pi SDK preload 失败（不阻塞）：", e);

@@ -21518,19 +21518,20 @@ if (!runPhase14) {
     addTest("Phase 1.4-GUARD-1: mount 与 reconcile 使用同一节点（结构）", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 2: candidate 流式升级 Markdown 不重建节点 ----
+  // ---- Test 2: 最终回答独立兄弟节点 + 原地升级 Markdown 不重建节点 ----
   {
-    // upgradeCodexCandidateAnswerInFeed: 找到 candidate 节点 → 原地升级
-    // streaming=true 时更新 stream-text；streaming=false 时渲染 Markdown
-    // 关键：不删除 candidate，只替换内部内容
+    // V17-G39+: 最终回答不再位于 process body 内的 candidate 节点，
+    // 而是由独立兄弟节点 .llm-bridge-codex-final-answer-section 持有。
+    // reconcileCodexRunWaterfall 过程区排除 answerRole=candidate；
+    // upgradeCodexCandidateAnswerInFeed 在 body（非 feed list）上创建/复用独立 section，
+    // 流式期间更新 stream-text，完成后原地升级 Markdown 一次（data-final-text 去重）。
     const ok = waterfallSrc.includes("export function upgradeCodexCandidateAnswerInFeed(")
-      && waterfallSrc.includes("is-answer-candidate")
-      && waterfallSrc.includes("is-final-candidate")
-      && waterfallSrc.includes('data-answer-role="candidate"')
+      && waterfallSrc.includes(".llm-bridge-codex-final-answer-section")
+      && waterfallSrc.includes('item.answerRole !== "candidate"')
       && waterfallSrc.includes("stream.textContent =")
       && waterfallSrc.includes("deps.renderMarkdownInto(md, normalized)")
-      && !waterfallSrc.includes("candidate.remove()");
-    addTest("Phase 1.4-GUARD-2: candidate 流式升级 Markdown 不重建节点（结构）", ok ? "pass" : "fail", "");
+      && waterfallSrc.includes('data-final-text');
+    addTest("Phase 1.4-GUARD-2: 最终回答独立兄弟节点 + 原地升级 Markdown 不重建节点（结构）", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 3: command 1→2 条时 group key 不变 ----
@@ -22135,7 +22136,7 @@ if (!runPhase3Prod) {
     const composerModP3 = await import(pathToFileURL(composerBundleP3).href);
     const sessionsModP3 = await import(pathToFileURL(sessionsBundleP3).href);
 
-    const { codexFeedItemKey, groupCodexFeedRenderEntries, patchCodexFeedEntryItem, isCodexImageFeedItem, formatCodexImageGroupTitle } = waterfallModP3;
+    const { codexFeedItemKey, groupCodexFeedRenderEntries, patchCodexFeedEntryItem, isCodexImageFeedItem, formatCodexImageGroupTitle, reconcileCodexRunWaterfall, upgradeCodexCandidateAnswerInFeed } = waterfallModP3;
     const { isEventInsideSelector, handleComposerAttachmentKeydown } = composerModP3;
     const { validateSessionId } = sessionsModP3;
 
@@ -22323,6 +22324,111 @@ if (!runPhase3Prod) {
       addTest("Phase 3-DOM-10: 真实 isCodexImageFeedItem + formatCodexImageGroupTitle（生产函数）",
         (isImageOk && titleOk) ? "pass" : "fail",
         `isImage=${isImageOk} title=${titleOk} single="${singleDone}" active="${activeTitle}"`);
+    }
+
+    // --- Phase 3-DOM-11: 真实 reconcileCodexRunWaterfall 最终回答不在 process body 内（生产函数）---
+    // V17-G39+: 验证最终回答由独立兄弟节点 .llm-bridge-codex-final-answer-section 持有，
+    //           process feed 排除 candidate，answer-body 不出现在 feed list 内。
+    {
+      // patchCodexFeedStable / patchChangedFeedEntries 使用 instanceof HTMLElement；临时指向 FakeElement
+      const prevHtmlElement = globalThis.HTMLElement;
+      globalThis.HTMLElement = FakeElement;
+      try {
+        const runBody = new FakeElement("div");
+        runBody.addClass("llm-bridge-codex-run-body");
+        const processBody = runBody.createDiv({ cls: "llm-bridge-codex-process-body" });
+
+        const finalAnswerText = "The answer is 42.";
+        const run = {
+          runHeader: {}, currentActivity: {}, changeGroups: [], stepGroups: [],
+          feedItems: [
+            { id: "t1", kind: "thinking", icon: "brain", label: "Thinking", status: "completed", summary: "Analyzing..." },
+            { id: "c1", kind: "assistant", icon: "message", label: "Answer", status: "completed", summary: finalAnswerText, answerRole: "candidate" },
+          ],
+          approvalGates: [], diagnosticsGroups: [],
+          finalAnswer: finalAnswerText,
+        };
+        let mdRenderedCount = 0;
+        const mockDeps = {
+          renderCodexFeedItem: (parent, item) => {
+            // 最小渲染：为 assistant 设置 data-answer-role，便于验证 candidate 是否泄漏到 feed
+            if (item.kind === "assistant") {
+              parent.setAttribute("data-answer-role", item.answerRole || "process");
+            }
+            parent.createDiv({ cls: "llm-bridge-codex-feed-item-content", text: item.summary || item.label || "" });
+          },
+          renderMarkdownInto: (host, text) => { host.textContent = text; mdRenderedCount++; },
+          formatDurationMs: (ms) => `${ms}ms`,
+        };
+
+        // 终态调用：streaming=false
+        reconcileCodexRunWaterfall(processBody, run, { streaming: false, developerMode: false }, mockDeps);
+
+        const feedList = processBody.querySelector(".llm-bridge-codex-feed-list");
+        const feedListExists = !!feedList;
+        // 过程区排除 candidate：feed list 内不应有 data-answer-role=candidate 的 entry
+        const candidateInFeed = feedList
+          ? feedList.querySelectorAll('[data-answer-role="candidate"]').length
+          : -1;
+        // 最终回答 body 不应在 feed list 内
+        const answerBodyInFeed = feedList
+          ? feedList.querySelectorAll(".llm-bridge-codex-answer-body").length
+          : -1;
+        // 独立最终回答区应在 runBody（processBody 的祖先）中，作为 processBody 的兄弟
+        const finalSection = runBody.querySelector(".llm-bridge-codex-final-answer-section");
+        const finalSectionExists = !!finalSection;
+        const finalSectionOutsideProcess = finalSection ? (finalSection.parent !== processBody) : false;
+        // 最终回答 body 应在独立 section 内，且文本正确
+        const answerBody = finalSection ? finalSection.querySelector(".llm-bridge-codex-answer-body") : null;
+        const answerBodyInSection = !!answerBody && answerBody.textContent === finalAnswerText;
+        // Markdown 只渲染一次
+        const mdRenderedOnce = mdRenderedCount === 1;
+
+        // 再次调用相同 finalAnswer：data-final-text 去重，不应重复渲染 Markdown
+        reconcileCodexRunWaterfall(processBody, run, { streaming: false, developerMode: false }, mockDeps);
+        const mdRenderedDedup = mdRenderedCount === 1;
+
+        // 流式调用：streaming=true，finalAnswer 变化
+        const streamText = "Streaming partial answer...";
+        reconcileCodexRunWaterfall(
+          processBody,
+          { ...run, finalAnswer: streamText },
+          { streaming: true, developerMode: false },
+          mockDeps,
+        );
+        const streamEl = finalSection ? finalSection.querySelector(".llm-bridge-msg-stream-text") : null;
+        const streamInSection = !!streamEl && streamEl.textContent.includes("Streaming partial");
+        // 流式期间不应出现 answer-body（Markdown 终态）
+        const answerBodyDuringStream = finalSection
+          ? finalSection.querySelectorAll(".llm-bridge-codex-answer-body").length
+          : -1;
+        // feed list 仍不应含 candidate/answer-body
+        const candidateInFeedStream = feedList
+          ? feedList.querySelectorAll('[data-answer-role="candidate"]').length
+          : -1;
+        const answerBodyInFeedStream = feedList
+          ? feedList.querySelectorAll(".llm-bridge-codex-answer-body").length
+          : -1;
+
+        const ok = feedListExists
+          && candidateInFeed === 0
+          && answerBodyInFeed === 0
+          && finalSectionExists
+          && finalSectionOutsideProcess
+          && answerBodyInSection
+          && mdRenderedOnce
+          && mdRenderedDedup
+          && streamInSection
+          && answerBodyDuringStream === 0
+          && candidateInFeedStream === 0
+          && answerBodyInFeedStream === 0;
+
+        addTest("Phase 3-DOM-11: 真实 reconcileCodexRunWaterfall 最终回答不在 process body 内（生产函数）",
+          ok ? "pass" : "fail",
+          `feedList=${feedListExists} candidateInFeed=${candidateInFeed} answerBodyInFeed=${answerBodyInFeed} section=${finalSectionExists} sectionOutsideProcess=${finalSectionOutsideProcess} answerInSection=${answerBodyInSection} mdOnce=${mdRenderedOnce} mdDedup=${mdRenderedDedup} streamInSection=${streamInSection} answerBodyDuringStream=${answerBodyDuringStream} candidateInFeedStream=${candidateInFeedStream} answerBodyInFeedStream=${answerBodyInFeedStream}`);
+      } finally {
+        globalThis.HTMLElement = prevHtmlElement;
+      }
     }
 
   } catch (e) {

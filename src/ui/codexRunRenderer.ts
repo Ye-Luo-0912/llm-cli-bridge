@@ -261,8 +261,8 @@ function mountCodexRunView(
     process.setAttribute("hidden", "");
   }
 
-  // candidate 升级已并入 reconcileCodexRunWaterfall；无 feed 时仍兜底一次
-  if (hasAnswer && processFeedItems.length === 0) {
+  // 独立最终回答区：process 之后的兄弟节点，确保 DOM 顺序在 debug drawer 之前
+  if (hasAnswer) {
     deps.upgradeCodexCandidateAnswerInFeed(body, run.finalAnswer, presentation.kind === "assistant-running");
   }
   if (hasDeveloperDebug) deps.renderAgentRunDebugDrawer(body, run.debugPanel!);

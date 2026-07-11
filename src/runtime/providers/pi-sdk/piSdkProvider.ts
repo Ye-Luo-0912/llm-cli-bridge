@@ -82,16 +82,31 @@ async function dynamicImportNode<T>(specifier: string): Promise<T | null> {
 // 1. 插件目录 node_modules/@earendil-works/pi-coding-agent
 // 2. 插件目录 vendor/pi-sdk
 // 3. bare specifier "@earendil-works/pi-coding-agent"（项目 node_modules / Obsidian 全局解析）
-function getCandidateSdkPaths(): { kind: "node_modules" | "vendor" | "bare"; specifier: string }[] {
+// V17-F: 优先使用传入的 pluginDir（插件真实安装目录），不依赖 renderer 的 globalThis.__dirname
+function getCandidateSdkPaths(pluginDir?: string): { kind: "node_modules" | "vendor" | "bare"; specifier: string }[] {
   const paths: { kind: "node_modules" | "vendor" | "bare"; specifier: string }[] = [];
-  const g = globalThis as unknown as { __dirname?: string };
-  const pluginDir = g.__dirname;
-  if (pluginDir) {
-    paths.push({ kind: "node_modules", specifier: pluginDir + "/node_modules/@earendil-works/pi-coding-agent" });
-    paths.push({ kind: "vendor", specifier: pluginDir + "/vendor/pi-sdk" });
+  // 优先使用传入的插件目录；回退到 globalThis.__dirname（仅在 Node 主进程有效）
+  const dir = pluginDir || (globalThis as unknown as { __dirname?: string }).__dirname;
+  if (dir) {
+    paths.push({ kind: "node_modules", specifier: dir + "/node_modules/@earendil-works/pi-coding-agent" });
+    paths.push({ kind: "vendor", specifier: dir + "/vendor/pi-sdk" });
   }
   paths.push({ kind: "bare", specifier: "@earendil-works/pi-coding-agent" });
   return paths;
+}
+
+/**
+ * V17-F: import 前检查候选路径是否存在（避免触发 renderer 的 "Not allowed to load local resource" 红错）
+ * 仅对 node_modules / vendor 路径检查；bare specifier 由 Node 解析器处理
+ */
+function candidatePathExists(specifier: string): boolean {
+  if (specifier.startsWith("@")) return true; // bare specifier，交给解析器
+  try {
+    const fs = requireNode<typeof import("fs")>("fs");
+    return !!fs && fs.existsSync(specifier);
+  } catch {
+    return true; // fs 不可用时降级为不检查
+  }
 }
 
 // ---------- Pi SDK 加载 ----------
@@ -226,16 +241,21 @@ export function tryLoadPiSdk(force = false): PiSdkProbeResult {
  * - import 失败时返回 available=false, reason=load-error
  * - 不抛错
  */
-export async function tryLoadPiSdkAsync(force = false): Promise<PiSdkProbeResult> {
+export async function tryLoadPiSdkAsync(force = false, pluginDir?: string): Promise<PiSdkProbeResult> {
   const now = Date.now();
   if (!force && probeCache.result && now - probeCache.ts < PROBE_CACHE_TTL_MS) {
     return { ...probeCache.result, loadedFrom: "cache" };
   }
 
-  const candidates = getCandidateSdkPaths();
+  const candidates = getCandidateSdkPaths(pluginDir);
   const triedPaths: string[] = [];
 
   for (const candidate of candidates) {
+    // V17-F: import 前检查候选路径是否存在，避免触发 renderer 红错
+    if (!candidatePathExists(candidate.specifier)) {
+      triedPaths.push(`${candidate.kind}:${candidate.specifier} (not found, skipped)`);
+      continue;
+    }
     triedPaths.push(`${candidate.kind}:${candidate.specifier}`);
     // 优先 dynamic import（SDK 是纯 ESM）
     const mod = await dynamicImportNode<PiSdkModule>(candidate.specifier);
@@ -1052,8 +1072,8 @@ export class PiSdkProvider implements RuntimeProvider {
    * V17-D 任务 B：异步预加载 Pi SDK。
    * 在 main.ts onload 或 view 初始化时调用，保证后续 constructor 拿到 cached probe。
    */
-  static async preload(force = false): Promise<PiSdkProbeResult> {
-    return await tryLoadPiSdkAsync(force);
+  static async preload(force = false, pluginDir?: string): Promise<PiSdkProbeResult> {
+    return await tryLoadPiSdkAsync(force, pluginDir);
   }
 
   /** V17-D 任务 B：在 run() 开始时若 probe 未加载，尝试重新加载一次（自愈） */

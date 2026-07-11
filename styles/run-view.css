@@ -1,4 +1,9 @@
 /* styles/run-view.css — 运行过程 / Codex 语义呈现 */
+/* 字体规范（三类，集中定义，不再追加覆盖规则）：
+   - 最终回答/思考正文：var(--font-text)，字号 14px / line-height 1.6
+   - 状态/按钮/标题/feed-label：var(--font-interface)，字号 12px
+   - 路径/命令/代码：var(--font-monospace)，字号 11px
+*/
 
 /* 完成问答：隐藏 chrome / Answer 标题，但绝不隐藏已展示的过程区 */
 .llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-header,
@@ -155,6 +160,9 @@
 .llm-bridge-codex-answer-body {
   min-width: 0;
   color: var(--text-normal);
+  font-family: var(--font-text);
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 .llm-bridge-codex-feed-entry.is-tool-group > .llm-bridge-codex-tool-group {
@@ -312,8 +320,9 @@
 }
 
 .llm-bridge-codex-thinking-summary {
-  font-size: 12px !important;
-  line-height: 1.45 !important;
+  font-family: var(--font-interface);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .llm-bridge-codex-thinking-summary.is-placeholder {
@@ -322,6 +331,7 @@
 }
 
 .llm-bridge-codex-feed-label {
+  font-family: var(--font-interface);
   font-size: 12px;
 }
 
@@ -491,10 +501,10 @@
   font-weight: 620;
 }
 
-.llm-bridge-codex-feed-batch-text,
-.llm-bridge-codex-thinking-summary {
-  font-size: 12px !important;
-  line-height: 1.45 !important;
+.llm-bridge-codex-feed-batch-text {
+  font-family: var(--font-interface);
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .llm-bridge-codex-feed-output-text {
@@ -848,8 +858,8 @@
 
 .llm-bridge-codex-tool-group-title {
   min-width: 0;
-  color: var(--text-muted) !important;
-  font-size: 12px !important;
+  color: var(--text-muted);
+  font-size: 12px;
   font-weight: 560;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1099,8 +1109,8 @@
 }
 
 .llm-bridge-codex-tool-group-title {
-  font-size: 12px !important;
-  color: var(--text-muted) !important;
+  font-size: 12px;
+  color: var(--text-muted);
 }
 
 .llm-bridge-codex-tool-group-preview {
