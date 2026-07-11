@@ -153,7 +153,7 @@ if ($Reload -and $successCount -gt 0) {
   # Phase 5: 旧的 HTTP API reload（/api/reload-plugin）路由不存在且端口硬编码 42167 不匹配实际随机端口。
   # 改用 CDP reload：通过 Obsidian 的 --remote-debugging-port=9223 禁用并重新启用插件。
   # 前置条件：Obsidian 必须以 --remote-debugging-port=9223 启动。
-  $cdpScript = Join-Path $PSScriptRoot "cdp-reload.mjs"
+  $cdpScript = Join-Path $src "scripts\cdp-reload.mjs"
   $reloadOk = $false
   if (Test-Path $cdpScript) {
     try {

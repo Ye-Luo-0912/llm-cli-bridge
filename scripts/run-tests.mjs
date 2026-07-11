@@ -22724,15 +22724,27 @@ if (!runOnOpenDom) {
         `toolsLeft=${toolsLeft ? "found" : "missing"}, composerBar=${composerBar ? "found" : "missing"}`);
     }
 
-    // --- Test 8: 初始化错误边界方法存在 ---
+    // --- Test 8: 事件绑定与数据填充分离 + 重试幂等性 ---
     {
       const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
-      const hasHydrate = viewSrc.includes("private hydrateComposerRuntime(): void");
-      const hasErrorBoundary = viewSrc.includes("private showInitErrorBoundary(error: unknown): void");
-      const hasTryCatch = viewSrc.includes("this.hydrateComposerRuntime()");
-      addTest("onOpen() DOM 回归: 两阶段初始化 + 错误边界方法存在",
-        (hasHydrate && hasErrorBoundary && hasTryCatch) ? "pass" : "fail",
-        `hydrate=${hasHydrate}, errorBoundary=${hasErrorBoundary}, tryCatch=${hasTryCatch}`);
+      // 一次性事件绑定独立方法
+      const hasBindEvents = viewSrc.includes("private bindComposerEvents(): void")
+        && viewSrc.includes("this.bindComposerEvents();");
+      // hydrateComposerRuntime 不再包含 registerEvent / registerPendingActionCallback
+      const hydrateStart = viewSrc.indexOf("private hydrateComposerRuntime(): void");
+      const hydrateEnd = viewSrc.indexOf("private showInitErrorBoundary(");
+      const hydrateBody = viewSrc.slice(hydrateStart, hydrateEnd);
+      const hydrateHasNoEventReg = !hydrateBody.includes("this.registerEvent(")
+        && !hydrateBody.includes("this.registerPendingActionCallback()");
+      // 重试按钮不再设置裸 "可用"，而是依赖 hydrateComposerRuntime 内的 setGlobalStatus
+      const retrySection = viewSrc.slice(viewSrc.indexOf("重试初始化"));
+      const retryNoBareStatus = !retrySection.includes('this.statusLabelEl.textContent = "可用"');
+      // setGlobalStatus 在 hydrateComposerRuntime 中调用
+      const hydrateCallsSetStatus = hydrateBody.includes('this.setGlobalStatus("idle")');
+      const ok = hasBindEvents && hydrateHasNoEventReg && retryNoBareStatus && hydrateCallsSetStatus;
+      addTest("onOpen() DOM 回归: 事件绑定/数据填充分离 + 重试幂等 + setGlobalStatus",
+        ok ? "pass" : "fail",
+        `bindEvents=${hasBindEvents}, noEventRegInHydrate=${hydrateHasNoEventReg}, noBareStatus=${retryNoBareStatus}, setStatus=${hydrateCallsSetStatus}`);
     }
 
   } catch (e) {

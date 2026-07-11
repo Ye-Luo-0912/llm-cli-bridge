@@ -999,7 +999,11 @@ export class LLMBridgeView extends ItemView {
     // Initialize RunSessionController after DOM is ready
     this.runSession = new RunSessionController(this.buildRunSessionHost());
 
-    // 两阶段初始化：DOM 已全部 mount，现在执行动态填充
+    // 两阶段初始化：
+    // 1) 一次性事件绑定（不可重试，否则重复注册监听）
+    this.bindComposerEvents();
+
+    // 2) 可重试的数据填充（模型目录、权限、Runtime 状态、Skills）
     try {
       this.hydrateComposerRuntime();
     } catch (e) {
@@ -1009,24 +1013,10 @@ export class LLMBridgeView extends ItemView {
   }
 
   /**
-   * 两阶段初始化第二步：加载模型目录、权限、Runtime 状态和 Skills。
-   * 即使此方法抛异常，用户也不应得到半残界面 — mountComposerDom 已确保基础 DOM 存在。
+   * 一次性事件绑定：active-leaf-change / file-open / pending action 回调。
+   * 只在 onOpen 中调用一次，重试初始化时不重复执行。
    */
-  private hydrateComposerRuntime(): void {
-    this.syncModelCatalogForCurrentAgent(false);
-    this.renderModelEffortOptions();
-    this.syncControlsFromSettings();
-    this.updateContextDisplay();
-    this.setGlobalStatus("idle");
-    this.refreshStatusBar();
-    this.refreshSessionState();
-    void this.refreshAgentSkills();
-    void this.refreshHistory();
-    // V2.16-D: 会话保持 — onOpen 时若启用 keepLastSession 且存在 lastActiveSessionId，自动恢复
-    void this.restoreLastActiveSessionIfNeeded();
-    // V2.16-D: 初始 context metrics 估算
-    void this.refreshContextMetrics();
-
+  private bindComposerEvents(): void {
     this.registerEvent(this.app.workspace.on("active-leaf-change", () => {
       this.rememberActiveFile(this.app.workspace.getActiveFile());
       this.updateContextDisplay();
@@ -1043,6 +1033,27 @@ export class LLMBridgeView extends ItemView {
 
     // 注册 pending action 回调到 httpBridge
     this.registerPendingActionCallback();
+  }
+
+  /**
+   * 两阶段初始化第二步：加载模型目录、权限、Runtime 状态和 Skills。
+   * 即使此方法抛异常，用户也不应得到半残界面 — mountComposerDom 已确保基础 DOM 存在。
+   * 此方法可被重试按钮安全调用：不包含事件注册，不会重复绑定监听。
+   */
+  private hydrateComposerRuntime(): void {
+    this.syncModelCatalogForCurrentAgent(false);
+    this.renderModelEffortOptions();
+    this.syncControlsFromSettings();
+    this.updateContextDisplay();
+    this.setGlobalStatus("idle");
+    this.refreshStatusBar();
+    this.refreshSessionState();
+    void this.refreshAgentSkills();
+    void this.refreshHistory();
+    // V2.16-D: 会话保持 — onOpen 时若启用 keepLastSession 且存在 lastActiveSessionId，自动恢复
+    void this.restoreLastActiveSessionIfNeeded();
+    // V2.16-D: 初始 context metrics 估算
+    void this.refreshContextMetrics();
   }
 
   /**
@@ -1067,8 +1078,9 @@ export class LLMBridgeView extends ItemView {
         errCard.remove();
         if (this.statusLabelEl) this.statusLabelEl.textContent = "正在初始化…";
         try {
+          // hydrateComposerRuntime 内部会调用 setGlobalStatus("idle")，
+          // 输出完整的 "Codex managed · 可用" 等 Runtime 状态，而非裸 "可用"。
           this.hydrateComposerRuntime();
-          if (this.statusLabelEl) this.statusLabelEl.textContent = "可用";
         } catch (e2) {
           console.error("[llm-cli-bridge] retry hydrateComposerRuntime failed:", e2);
           this.showInitErrorBoundary(e2);
