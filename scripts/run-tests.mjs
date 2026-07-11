@@ -1770,8 +1770,9 @@ if (runMode !== "all" && runMode !== "unit") {
       // 源码级断言：buildSdkStreamingInput 必须接收 BridgePromptPackage.userPrompt，
       // 而非旧 buildPromptPackage 字符串。bridgeSystemAppend 不混入 streaming text block。
       const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
       // 正向：buildSdkStreamingInput 调用传入 promptPackage.userPrompt
-      const usesUserPrompt = viewSrc.includes("buildSdkStreamingInput(promptPackage.userPrompt,");
+      const usesUserPrompt = controllerSrc.includes("buildSdkStreamingInput(promptPackage.userPrompt,");
       // 反向：不再传入旧 prompt 字符串
       const noLegacyPrompt = !viewSrc.includes("buildSdkStreamingInput(prompt,");
       // bridgeSystemAppend 不出现在 streaming input 构造内（应在 provider systemPrompt append 层）
@@ -2739,7 +2740,7 @@ if (runMode !== "all" && runMode !== "unit") {
       const viewSrc = readFileSync(join(PROJECT_ROOT, "src/view.ts"), "utf8");
       const doNewIdx = viewSrc.indexOf("private doNewSession()");
       const doNewRegion = viewSrc.slice(doNewIdx, doNewIdx + 500);
-      const sessionNullOk = doNewRegion.includes("this.session = null;") && doNewRegion.includes("this.sessionMode = null;");
+      const sessionNullOk = doNewRegion.includes("this.runSession.clearSession()");
       addTest("P4: doNewSession 置空 this.session + this.sessionMode（修复跨会话 PermissionBoundary 泄漏）", sessionNullOk ? "pass" : "fail",
         sessionNullOk ? "" : "doNewSession 未置空 this.session/this.sessionMode");
 
@@ -2829,12 +2830,12 @@ if (runMode !== "all" && runMode !== "unit") {
       // latest native session only: syncProviderThreadFromMapper 已删除；
       // 改为验证 currentRunId = null 出现在 } finally { 之后（start 与 resume 两处）
       const finallyIdx = sessionSrc.indexOf("} finally {");
-      const nullAfterFinally = finallyIdx > 0 ? sessionSrc.indexOf("this.currentRunId = null;", finallyIdx) : -1;
+      const nullAfterFinally = finallyIdx > 0 ? sessionSrc.indexOf("this._currentRunId = null;", finallyIdx) : -1;
       const startFinallyOk = nullAfterFinally > finallyIdx && finallyIdx > 0;
       // cancel 方法包含 currentRunId = null
       const cancelIdx = sessionSrc.indexOf("cancel(runId: string)");
       const cancelRegion = sessionSrc.slice(cancelIdx, cancelIdx + 300);
-      const cancelOk = cancelRegion.includes("this.currentRunId = null;");
+      const cancelOk = cancelRegion.includes("this._currentRunId = null;");
       const sessionOk = startFinallyOk && cancelOk;
       addTest("P5: BridgeSession currentRunId 清理移进 finally + cancel 清理", sessionOk ? "pass" : "fail",
         sessionOk ? "" : "startFinally=" + startFinallyOk + " cancel=" + cancelOk);
@@ -3261,19 +3262,19 @@ if (runMode !== "all" && runMode !== "unit") {
 
     // ---------- 9. UI 主渲染链路消费 AssistantTurnView（不依赖 WorkflowEvent 反向映射） ----------
     {
-      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+      const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
       // 主链路：AssistantTurnViewBuilder 作为每轮 run 主状态
-      const usesBuilder = viewSrc.includes("new AssistantTurnViewBuilder(assistantId, session.providerId, startedAt)")
-        && viewSrc.includes("ctx.turnBuilder.ingest(ev)");
+      const usesBuilder = controllerSrc.includes("new AssistantTurnViewBuilder(assistantId, session.providerId, startedAt)")
+        && controllerSrc.includes("ctx.turnBuilder.ingest(ev)");
       // final answer 由 turnView.finalAnswer 输出（不再 stdout_delta 旁路直接写 content）
-      const finalFromBuilder = viewSrc.includes("content: turnView.finalAnswer");
+      const finalFromBuilder = controllerSrc.includes("content: turnView.finalAnswer");
       // stdout_delta 不再直接 appendAssistantContentDelta（在 handleNormalizedEvent 内）
-      const handleIdx = viewSrc.indexOf("private handleNormalizedEvent");
-      const handleEnd = viewSrc.indexOf("private stop(): void");
-      const handleBlock = viewSrc.slice(handleIdx, handleEnd);
+      const handleIdx = controllerSrc.indexOf("private handleNormalizedEvent");
+      const handleEnd = controllerSrc.indexOf("stop(): void", handleIdx);
+      const handleBlock = controllerSrc.slice(handleIdx, handleEnd);
       const noStdoutBypass = !handleBlock.includes("this.appendAssistantContentDelta(ctx.assistantId, p.data)");
       // WorkflowEvent 反向映射仅作 legacy log（sdkEvents），不作主 UI 数据源
-      const wfAsLegacy = handleBlock.includes("legacy log") && handleBlock.includes("ctx.sdkEvents.push(wfEvent)");
+      const wfAsLegacy = handleBlock.includes("LEGACY LOG") && handleBlock.includes("ctx.sdkEvents.push(wfEvent)");
       // V2.17-A Completion: appendLiveSdkEvent/WorkflowEvent 只在 developerMode 下推送（普通用户态主链路完全由 turnView 驱动）
       const wfDeveloperGated = handleBlock.includes("developerMode") && handleBlock.includes("developerMode ? mapNormalizedToWorkflowEvent(ev) : null");
       const ok = usesBuilder && finalFromBuilder && noStdoutBypass && wfAsLegacy && wfDeveloperGated;
@@ -3284,16 +3285,16 @@ if (runMode !== "all" && runMode !== "unit") {
     // V2.17-A Completion: AssistantTurnView legacy 削减
     // appendLiveSdkEvent / WorkflowEvent 只保留 developer/legacy log，不参与主 UI
     {
-      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
-      const handleIdx = viewSrc.indexOf("private handleNormalizedEvent");
-      const handleEnd = viewSrc.indexOf("private stop(): void");
-      const handleBlock = viewSrc.slice(handleIdx, handleEnd);
+      const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
+      const handleIdx = controllerSrc.indexOf("private handleNormalizedEvent");
+      const handleEnd = controllerSrc.indexOf("stop(): void", handleIdx);
+      const handleBlock = controllerSrc.slice(handleIdx, handleEnd);
       // 1. step 6 注释明确标 developer/legacy log
-      const step6Comment = handleBlock.includes("developer/legacy log");
+      const step6Comment = handleBlock.includes("LEGACY LOG");
       // 2. mapNormalizedToWorkflowEvent 仅在 developerMode 下调用
       const gatedMapping = handleBlock.includes("developerMode ? mapNormalizedToWorkflowEvent(ev) : null");
       // 3. appendLiveSdkEvent 仅在 wfEvent 非空（即 developerMode）时调用
-      const gatedAppend = handleBlock.includes("if (wfEvent) {") && handleBlock.includes("this.appendLiveSdkEvent(wfEvent)");
+      const gatedAppend = handleBlock.includes("if (wfEvent) {") && handleBlock.includes("host.appendLiveSdkEvent(wfEvent)");
       // 4. 主链路步骤 2-4 完全由 turnView 驱动（已在上一测试断言，此处复检）
       const turnViewDriven = handleBlock.includes("ctx.turnBuilder.ingest(ev)") && handleBlock.includes("content: turnView.finalAnswer");
       const ok = step6Comment && gatedMapping && gatedAppend && turnViewDriven;
@@ -3618,7 +3619,7 @@ if (runMode !== "all" && runMode !== "unit") {
     // Test H-d: user input 优先级守卫（approval panel 在 user input pending 时隐藏）
     {
       const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
-      const hasGuard = viewSrc.includes("this.getSession().userInput.pending.size > 0")
+      const hasGuard = viewSrc.includes("this.runSession.getSession().userInput.pending.size > 0")
         && viewSrc.includes("V16.4-H: user input 优先级守卫");
       // resolveUserInputRequest 解析后刷新 approval panel
       const hasResolveRefresh = viewSrc.includes("// V16.4-H: user input 解析后刷新 approval panel")
@@ -3801,11 +3802,10 @@ if (runMode !== "all" && runMode !== "unit") {
 
     // Test B-k: handleNormalizedEvent 不构造独立 shadow truth（只更新缓存 + 触发 refresh）
     {
-      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
-      const hasCacheOnlyComment = viewSrc.includes("V16.5-B: PermissionBoundary.pending 是主状态源；此处仅同步 UI 显示缓存")
-        || viewSrc.includes("V16.5-B: 只补充 UI 显示字段（boundary.pending 是 truth）");
-      const hasApprovalCacheChanged = viewSrc.includes("approvalCacheChanged");
-      const hasStaleCleanup = viewSrc.includes("this.staleApprovalRequestIds.delete(ap.requestId)");
+      const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
+      const hasCacheOnlyComment = controllerSrc.includes("approval pending 面板（从 turnView.approvals 驱动）");
+      const hasApprovalCacheChanged = controllerSrc.includes("approvalCacheChanged");
+      const hasStaleCleanup = controllerSrc.includes("host.staleApprovalRequestIds.delete(ap.requestId)");
       const ok = hasCacheOnlyComment && hasApprovalCacheChanged && hasStaleCleanup;
       addTest("V16.5-B handleNormalizedEvent: 只同步缓存 + stale 清理（无 shadow truth）",
         ok ? "pass" : "fail",
@@ -4157,9 +4157,10 @@ if (runMode !== "all" && runMode !== "unit") {
     // Test D-f: view.ts 主路径会向 buildBridgePromptPackage 传入 capabilities
     {
       const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
-      // 验证 view.ts 调用 buildRuntimeCapabilities 并传入 buildBridgePromptPackage
-      const hasBuilder = viewSrc.includes("buildRuntimeCapabilities(session.providerId, settings)");
-      const hasPass = viewSrc.includes("buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities)");
+      const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
+      // 验证 controller 调用 buildRuntimeCapabilities 并传入 buildBridgePromptPackage
+      const hasBuilder = controllerSrc.includes("buildRuntimeCapabilities(session.providerId, settings)");
+      const hasPass = controllerSrc.includes("buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities)");
       // 验证 view.ts 导入了 ProviderCapabilityInfo 类型
       const hasImport = viewSrc.includes("from \"./runtime/core/bridgePromptContract\"");
       addTest("V16.5-D view.ts 主路径注入真实 capabilities",
@@ -4235,15 +4236,9 @@ if (runMode !== "all" && runMode !== "unit") {
     try {
       // Test E-0a: V16.5-D blocker 回归 — session 声明在 buildRuntimeCapabilities 之前
       {
-        const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
-        const sessionLine = Math.max(
-          viewSrc.indexOf("const session = this.getSession();"),
-          viewSrc.indexOf("const session = view.getSession();"),
-        );
-        const capLine = Math.max(
-          viewSrc.indexOf("this.buildRuntimeCapabilities(session.providerId"),
-          viewSrc.indexOf("view.buildRuntimeCapabilities(session.providerId"),
-        );
+        const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
+        const sessionLine = controllerSrc.indexOf("const session = this.getSession();");
+        const capLine = controllerSrc.indexOf("host.buildRuntimeCapabilities(session.providerId");
         const orderOk = sessionLine > 0 && capLine > 0 && sessionLine < capLine;
         addTest("V16.5-E blocker: session 声明在 buildRuntimeCapabilities 之前",
           orderOk ? "pass" : "fail",
@@ -4252,10 +4247,9 @@ if (runMode !== "all" && runMode !== "unit") {
 
       // Test E-0b: buildBridgePromptPackage 主路径接收 runtimeCapabilities（非默认）
       {
-        const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
-        const hasRuntimeCapabilities = viewSrc.includes("const runtimeCapabilities = this.buildRuntimeCapabilities(session.providerId, settings)")
-          || viewSrc.includes("const runtimeCapabilities = view.buildRuntimeCapabilities(session.providerId, settings)");
-        const hasPassedToBuilder = viewSrc.includes("buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities)");
+        const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
+        const hasRuntimeCapabilities = controllerSrc.includes("const runtimeCapabilities = host.buildRuntimeCapabilities(session.providerId, settings)");
+        const hasPassedToBuilder = controllerSrc.includes("buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities)");
         addTest("V16.5-E blocker: buildBridgePromptPackage 主路径接收 runtimeCapabilities",
           hasRuntimeCapabilities && hasPassedToBuilder ? "pass" : "fail",
           `hasRuntimeCapabilities=${hasRuntimeCapabilities} hasPassedToBuilder=${hasPassedToBuilder}`);
@@ -7198,16 +7192,16 @@ if (runMode !== "all" && runMode !== "unit") {
 
           // 发送热路径：run() 首帧先 appendUserMessage；不在发送前同步 hash runtime exe
           {
-            const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
-            const runIdx = viewSrc.indexOf("private async run(): Promise<void>");
-            const runSlice = runIdx >= 0 ? viewSrc.slice(runIdx, runIdx + 8000) : "";
-            const uiBeforeAwait = runSlice.indexOf("this.appendUserMessage(userInput")
+            const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
+            const runIdx = controllerSrc.indexOf("async run(): Promise<void>");
+            const runSlice = runIdx >= 0 ? controllerSrc.slice(runIdx, runIdx + 8000) : "";
+            const uiBeforeAwait = runSlice.indexOf("host.appendUserMessage(userInput")
               < runSlice.indexOf("await exportState");
             sendPathNoSyncHashPass = uiBeforeAwait
-              && runSlice.includes("this.runHandle =")
-              && viewSrc.includes("WATCHDOG_HARD_MS")
-              && viewSrc.includes("连接仍在等待响应")
-              && viewSrc.includes("ensureCodexSkillsPreparedCached")
+              && runSlice.includes("this._runHandle =")
+              && controllerSrc.includes("WATCHDOG_HARD_MS")
+              && controllerSrc.includes("连接仍在等待响应")
+              && controllerSrc.includes("ensureCodexSkillsPreparedCached")
               && !runSlice.includes("sha256File(")
               && !runSlice.includes('createHash("sha256")');
           }
@@ -13753,12 +13747,12 @@ if (!runV27Unit) {
 
     // ===== 错误边界源码检查（view.ts）=====
 
-    // ---- Test 38: view.ts 含 renderMessageError fallback ----
+    // ---- Test 38: messageRenderer.ts 含 renderMessageError fallback ----
     {
       const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
-      const ok = viewSrc.includes("renderMessageError")
-        && (viewSrc.includes("llm-bridge-msg-error") || messageRendererSrc.includes("llm-bridge-msg-error"));
-      addTest("V2.7 view.ts: 含 renderMessageError 错误 fallback", ok ? "pass" : "fail", "");
+      const ok = messageRendererSrc.includes("renderMessageError")
+        && messageRendererSrc.includes("llm-bridge-msg-error");
+      addTest("V2.7 messageRenderer: 含 renderMessageError 错误 fallback", ok ? "pass" : "fail", "");
     }
 
     // ---- Test 39: view.ts 含 renderListError fallback ----
@@ -15302,10 +15296,10 @@ if (runMode !== "all" && runMode !== "unit") {
   // ===== 要求 6: stop 清理 pending =====
 
   addTest("V2.12 权限: stop 按钮存在 + 绑定 stop() 调用",
-    /stopBtn\.addEventListener\("click",\s*\(\)\s*=>\s*this\.stop\(\)\)/.test(viewSrcV212) ? "pass" : "fail", "");
+    /stopBtn\.addEventListener\("click",\s*\(\)\s*=>\s*this\.runSession\.stop\(\)\)/.test(viewSrcV212) ? "pass" : "fail", "");
 
   addTest("V2.12 权限: onClose 调用 runHandle.stop() 终止运行",
-    /onClose[\s\S]{0,300}this\.runHandle\.stop\(\)/.test(viewSrcV212) ? "pass" : "fail", "");
+    /onClose[\s\S]{0,300}this\.runSession\.stop\(\)/.test(viewSrcV212) ? "pass" : "fail", "");
 
   addTest("V2.12 权限: onClose 清理 scrollRafId 定时器",
     /onClose[\s\S]{0,500}cancelAnimationFrame\(this\.scrollRafId\)/.test(viewSrcV212) ? "pass" : "fail", "");
@@ -15765,18 +15759,20 @@ if (!runV2121Unit) {
   }
 
   {
+    const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
     const ok = viewSrc.includes("private messageFileRefs: FileRef[] = []")
       && viewSrc.includes("private pinnedFileRefs: FileRef[] = []")
-      && viewSrc.includes("this.clearMessageContext()")
-      && viewSrc.includes("appendUserMessage(userInput, messageRefsForRun)")
+      && viewSrc.includes("clearMessageContext()")
+      && controllerSrc.includes("appendUserMessage(userInput, messageRefsForRun)")
       && viewSrc.includes("renderMessageFileRefs");
     addTest("V2.16-E UI: 本轮附件发送后挂到 user message 并清空 composer", ok ? "pass" : "fail", "");
   }
 
   {
+    const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
     const ok = viewSrc.includes("llm-bridge-pinned-context")
       && sessionsSrc.includes("pinnedContextRefs")
-      && viewSrc.includes("pinnedContextRefs: this.pinnedFileRefs.map")
+      && controllerSrc.includes("pinnedContextRefs: host.pinnedFileRefs.map")
       && !viewSrc.includes("actions: { allowPin: true")
       && !viewSrc.includes('createEl("span", { cls: "llm-bridge-composer-file-pin"');
     addTest("V2.16-E pinned context: legacy pinned 数据可恢复，但普通 UI 不再提供新 pin 入口", ok ? "pass" : "fail", "");
@@ -15803,8 +15799,9 @@ if (!runV2121Unit) {
 
   {
     // V2.17-A Completion: buildSdkStreamingInput 现在接收 promptPackage.userPrompt（不再绕过 prompt split）
+    const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
     const ok = agentBackendSrc.includes("export interface SdkStreamingInput")
-      && viewSrc.includes("buildSdkStreamingInput(promptPackage.userPrompt, promptFileRefsForRun)")
+      && controllerSrc.includes("buildSdkStreamingInput(promptPackage.userPrompt, promptFileRefsForRun)")
       && viewSrc.includes("createSdkImageContentBlock")
       && sdkBackendSrc.includes("createSdkUserMessageStream")
       && sdkBackendSrc.includes("prompt: string | AsyncIterable<unknown>")
@@ -18466,7 +18463,6 @@ if (!runV214BUnit) {
         && viewSrc.includes("添加文件或图片")
         && viewSrc.includes("拖拽/粘贴文件")
         && viewSrc.includes("this.attachmentFileInputEl?.click()")
-        && viewSrc.includes("decorateCommandMenuItem")
         && viewSrc.includes("webUtils")
         && viewSrc.includes("getPathForFile")
         && viewSrc.includes("llm-bridge-mention-picker")
@@ -19550,7 +19546,8 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 9: view.ts saveSession 传入 SessionExtras ----
   {
-    const ok = viewSrc.includes("const extras: SessionExtras =") && viewSrc.includes("pinnedContextRefs: this.pinnedFileRefs.map");
+    const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
+    const ok = controllerSrc.includes("const extras: SessionExtras =") && controllerSrc.includes("pinnedContextRefs: host.pinnedFileRefs.map");
     addTest("V2.16-D view.ts: saveSession 传入运行时状态快照", ok ? "pass" : "fail", "");
   }
 
@@ -19687,7 +19684,6 @@ if (!runNoteSummarizeSmoke) {
   {
     const ok = viewSrc.includes('composer.createDiv({ cls: "llm-bridge-composer-context" })')
       && viewSrc.includes("this.attachmentFileInputEl?.click()")
-      && viewSrc.includes("decorateCommandMenuItem")
       && (viewSrc.includes("llm-bridge-composer-file-text")
         || readFileSync(join(PROJECT_ROOT, "src", "ui", "composerController.ts"), "utf8").includes("llm-bridge-composer-file-text"))
       && viewSrc.includes("本轮附件")
@@ -19752,8 +19748,8 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13f: V17-G5 composer integrates active note/context and unified file/request labels ----
   {
     const ok = viewSrc.includes("composerBar.appendChild(composerContextRow);")
-      && viewSrc.includes("private fileRefMetaLabel(ref: FileRef): string")
-      && (viewSrc.includes("text: this.fileRefMetaLabel(ref)") || viewSrc.includes("renderComposerAttachmentToken"))
+      && (viewSrc.includes("renderComposerAttachmentToken")
+        || readFileSync(join(PROJECT_ROOT, "src", "ui", "composerController.ts"), "utf8").includes("renderComposerAttachmentToken"))
       && (viewSrc.includes("AGENT_APPROVAL_PROFILES")
         || readFileSync(join(PROJECT_ROOT, "src", "ui", "composerController.ts"), "utf8").includes("AGENT_APPROVAL_PROFILES"))
       && viewSrc.includes("请求批准")
@@ -19764,7 +19760,7 @@ if (!runNoteSummarizeSmoke) {
         || viewSrc.includes("mountOrReconcileCodexRun("))
       && (viewSrc.includes("sourceModel: AgentRunDisplayModel,\n    developerMode: boolean,")
         || viewSrc.includes("sourceModel: AgentRunDisplayModel,\r\n    developerMode: boolean,")
-        || readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8").includes("export function mountCodexRunView("))
+        || readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8").includes("function mountCodexRunView("))
       && !viewSrc.includes("const developerMode = !!run.debugPanel;")
       && stylesSrc.includes("V17-G5: Codex-native composer integration")
       && (stylesSrc.includes("grid-template-rows: auto minmax(78px, 1fr)") || stylesSrc.includes(".llm-bridge-input-surface"))
@@ -19809,7 +19805,7 @@ if (!runNoteSummarizeSmoke) {
       && codexRunViewModelSrc.includes("function assistantNarrativeDelta(")
       && !codexRunViewModelSrc.includes('summary: "Reasoning summary not provided by Codex."')
       && (viewSrc.includes("private filterCodexDiagnosticsForDisplay(")
-        || runRendererSrcG7.includes("export function filterCodexDiagnosticsForDisplay("))
+        || runRendererSrcG7.includes("function filterCodexDiagnosticsForDisplay("))
       && (viewSrc.includes("if (developerMode) return diagnostics;")
         || runRendererSrcG7.includes("if (developerMode) return diagnostics;"))
       && (viewSrc.includes('diagnostic.severity === "error"')
@@ -19838,7 +19834,7 @@ if (!runNoteSummarizeSmoke) {
   {
     const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
     const ok = (viewSrc.includes("private coerceMessageContentText(value: unknown): string")
-        || messageRendererSrc.includes("export function coerceMessageContentText"))
+        || messageRendererSrc.includes("function coerceMessageContentText"))
       && (viewSrc.includes("llm-bridge-message-render-error-detail")
         || messageRendererSrc.includes("llm-bridge-message-render-error-detail"))
       && (viewSrc.includes("AGENT_APPROVAL_PROFILES")
@@ -19867,9 +19863,9 @@ if (!runNoteSummarizeSmoke) {
   {
     const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
     const ok = (viewSrc.includes("private shouldSuppressCodexStandaloneAnswer(")
-        || messageRendererSrc.includes("export function shouldSuppressCodexStandaloneAnswer"))
+        || messageRendererSrc.includes("function shouldSuppressCodexStandaloneAnswer"))
       && (viewSrc.includes("private codexTurnHasFinalAnswerCarrier(")
-        || messageRendererSrc.includes("export function codexTurnHasFinalAnswerCarrier"))
+        || messageRendererSrc.includes("function codexTurnHasFinalAnswerCarrier"))
       && (viewSrc.includes('content.addClass("llm-bridge-msg-content-suppressed")')
         || messageRendererSrc.includes('content.addClass("llm-bridge-msg-content-suppressed")'))
       && viewSrc.includes("private getVisibleMarkdownFile(): TFile | null")
@@ -19896,7 +19892,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('if (selWrap) selWrap.toggleAttribute("hidden", !selectionText);')
       && viewSrc.includes('selTag.textContent = selectionText ? `Selection ${selectionText}` : "Selection";')
       && (viewSrc.includes("private renderUserMessageContent(content: HTMLElement, text: string): void")
-        || messageRendererSrc.includes("export function renderUserMessageContent"))
+        || messageRendererSrc.includes("function renderUserMessageContent"))
       && (viewSrc.includes('cls: "llm-bridge-user-prompt-collapse"')
         || messageRendererSrc.includes('cls: "llm-bridge-user-prompt-collapse"'))
       && viewSrc.includes("private formatComposerStepText(")
@@ -20001,7 +19997,7 @@ if (!runNoteSummarizeSmoke) {
         || processFeedSrc.includes("export function shouldGroupCodexToolEvents(")
         || waterfallSrcG65.includes("shouldGroupCodexToolEvents("))
       && (viewSrc.includes("private renderCodexToolGroup(")
-        || waterfallSrcG65.includes("export function renderCodexToolGroup("))
+        || waterfallSrcG65.includes("function renderCodexToolGroup("))
       && (viewSrc.includes("private formatCodexToolGroupTitle(")
         || processFeedSrc.includes("export function formatCodexToolGroupTitle("))
       && (viewSrc.includes("llm-bridge-codex-tool-group")
@@ -20129,7 +20125,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("getRuntimeModelCatalogForAgent")
       && viewSrc.includes("private syncModelCatalogForCurrentAgent(")
       && viewSrc.includes("private getEffectiveModelCatalogAgent()")
-      && viewSrc.includes("this.session?.providerId")
+      && viewSrc.includes("this.runSession.session?.providerId")
       && viewSrc.includes("private renderModelEffortOptions(): void")
       && viewSrc.includes("private renderComposerRuntimeToolsList(parent: HTMLElement): void")
       && viewSrc.includes("private renderComposerAgentSkillsList(parent: HTMLElement): void")
@@ -20148,8 +20144,9 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13j11: V17-G71 Codex managed uses native Skill materialization, not prompt context ----
   {
+    const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
     const ok = (viewSrc.includes("prepareAgentSkillsForCodexRuntime") || viewSrc.includes("ensureCodexSkillsPreparedCached"))
-      && viewSrc.includes("Codex Skills 物化失败")
+      && controllerSrc.includes("Codex Skills 物化失败")
       && !viewSrc.includes("runtimeAgentSkills.map((skill)")
       && !viewSrc.includes(".llm-bridge/agent-skills.json#");
     addTest("V17-G71 Codex Skills: managed provider materializes Bridge Skills instead of prompt-injecting them",
@@ -20261,6 +20258,7 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13j17: V17-G77 Codex debug does not pollute Process waterfall ----
   {
     const runRendererSrcG77 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8");
+    const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
     const processDebugLeak = (viewSrc.includes("const hasProcessContent = processFeedItems.length > 0\n      || diagnosticsForDisplay.length > 0\n      || !!run.debugPanel")
       || runRendererSrcG77.includes("const hasProcessContent = processFeedItems.length > 0\n    || diagnosticsForDisplay.length > 0\n    || !!run.debugPanel"));
     const ok = (viewSrc.includes("const hasDeveloperDebug = developerMode && !!run.debugPanel")
@@ -20268,12 +20266,12 @@ if (!runNoteSummarizeSmoke) {
       && (viewSrc.includes("if (hasDeveloperDebug) this.renderAgentRunDebugDrawer(body, run.debugPanel!)")
         || runRendererSrcG77.includes("if (hasDeveloperDebug) deps.renderAgentRunDebugDrawer(body, run.debugPanel!)"))
       && viewSrc.includes("private renderAgentRunDebugDrawer")
-      && viewSrc.includes("private assistantTurnHasVisibleRunContent")
-      && viewSrc.includes("buildCodexRunViewModel(model, turnView")
-      && viewSrc.includes("codexRun.feedItems.length > 0")
-      && viewSrc.includes("!msg?.assistantTurnView || !this.assistantTurnHasVisibleRunContent")
-      && viewSrc.includes("completedWithoutVisibleCodexOutput")
-      && viewSrc.includes("Codex runtime completed without visible output")
+      && controllerSrc.includes("assistantTurnHasVisibleRunContent")
+      && controllerSrc.includes("buildCodexRunViewModel(model, turnView")
+      && controllerSrc.includes("codexRun.feedItems.length > 0")
+      && controllerSrc.includes("!this.assistantTurnHasVisibleRunContent(msg.assistantTurnView)")
+      && controllerSrc.includes("completedWithoutVisibleCodexOutput")
+      && controllerSrc.includes("Codex runtime completed without visible output")
       && stylesSrc.includes("V17-G77: debug stays behind one drawer")
       && !processDebugLeak;
     addTest("V17-G77 UI: Codex debug 抽屉不污染 Process，空白 completed 降级为可读失败",
@@ -20425,7 +20423,6 @@ if (!runNoteSummarizeSmoke) {
         || messageRendererSrc.includes('chip.addClass("is-preview-only")'))
       && (viewSrc.includes('"aria-label": `预览 ${ref.displayName}`')
         || messageRendererSrc.includes('"aria-label": `预览 ${ref.displayName}`'))
-      && viewSrc.includes("private async openFileRefExternally(ref: FileRef): Promise<void>")
       && viewSrc.includes("private async readFileRefPreviewText(ref: FileRef): Promise<string | null>")
       && viewSrc.includes('modal.contentEl.addClass("llm-bridge-file-preview-modal")')
       && viewSrc.includes('cls: "llm-bridge-file-preview-image"')
@@ -20826,25 +20823,25 @@ if (!runNoteSummarizeSmoke) {
       && (viewSrc.includes("upgradeCodexCandidateAnswerInFeed") || waterfallSrc.includes("upgradeCodexCandidateAnswerInFeed")
         || runRendererSrc.includes("upgradeCodexCandidateAnswerInFeed"))
       && (viewSrc.includes("patchCodexRunViewInPlace") || viewSrc.includes("mountOrReconcileCodexRun")
-        || runRendererSrc.includes("export function reconcileCodexRunView"))
+        || runRendererSrc.includes("function reconcileCodexRunView"))
       && viewSrc.includes("reconcileCodexRunWaterfall")
       && (waterfallSrc.includes("export function reconcileCodexRunWaterfall")
         || viewSrc.includes("private reconcileCodexRunWaterfall("))
-      && (waterfallSrc.includes("export function patchCodexFeedStable")
+      && (waterfallSrc.includes("function patchCodexFeedStable")
         || viewSrc.includes("patchCodexFeedStable"))
       && (waterfallSrc.includes("is-final-candidate")
         || viewSrc.includes("is-final-candidate")
         || viewSrc.includes("is-answer-candidate"))
       && (viewSrc.includes("private renderCodexFeedBatch(")
-        || waterfallSrc.includes("export function renderCodexFeedBatch("))
+        || waterfallSrc.includes("function renderCodexFeedBatch("))
       && (viewSrc.includes("private renderCodexFeedBatchSummary(")
-        || waterfallSrc.includes("export function renderCodexFeedBatchSummary("))
+        || waterfallSrc.includes("function renderCodexFeedBatchSummary("))
       && (viewSrc.includes("private renderCodexFeedNarrative(parent: HTMLElement, item: CodexRunFeedItem): void {")
-        || waterfallSrc.includes("export function renderCodexFeedNarrative("))
+        || waterfallSrc.includes("function renderCodexFeedNarrative("))
       && (viewSrc.includes("private formatCodexBatchSummary(")
-        || waterfallSrc.includes("export function formatCodexBatchSummary("))
+        || waterfallSrc.includes("function formatCodexBatchSummary("))
       && (viewSrc.includes("private formatCodexProcessPreview(")
-        || waterfallSrc.includes("export function formatCodexProcessPreview("))
+        || waterfallSrc.includes("function formatCodexProcessPreview("))
       && !viewSrc.includes('label: "Output"')
       && viewSrc.includes('setIcon(this.clearBtn.createEl("span", { cls: "llm-bridge-icon" }), "plus");')
       && viewSrc.includes('setIcon(refreshHistBtn.createEl("span", { cls: "llm-bridge-icon" }), "refresh-cw");')
@@ -20937,7 +20934,7 @@ if (!runNoteSummarizeSmoke) {
         || runRendererSrcG56.includes("已处理 ${elapsed}"))
       && (viewSrc.includes("patchCodexRunViewInPlace")
         || viewSrc.includes("mountOrReconcileCodexRun")
-        || runRendererSrcG56.includes("export function reconcileCodexRunView"))
+        || runRendererSrcG56.includes("function reconcileCodexRunView"))
       && stylesSrc.includes("V17-G56: static run header, collapsible steps head, calmer sessions/dialogs")
       && stylesSrc.includes(".llm-bridge-codex-process-toggle")
       && stylesSrc.includes(".llm-bridge-codex-section-title-row")
@@ -21098,10 +21095,11 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 15: Developer mode 默认关闭，raw log/command 只在开发态展示 ----
   {
+    const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
     const ok = typesSrc.includes("developerMode: boolean;")
       && typesSrc.includes("developerMode: false")
       && settingsSrc.includes("Developer mode")
-      && viewSrc.includes("const developerMode = !!this.plugin.settings.developerMode")
+      && controllerSrc.includes("const developerMode = !!host.plugin.settings.developerMode")
       && viewSrc.includes("if (this.plugin.settings.developerMode) {");
     addTest("V2.16-D developer mode: 用户态隐藏 raw log/command", ok ? "pass" : "fail", "");
   }
@@ -21141,11 +21139,12 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 15c2: SDK AskUserQuestion 固定在 composer 上方 user input dock，不藏进折叠过程 ----
   {
+    const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
     const ok = viewSrc.includes('composer.createDiv({ cls: "llm-bridge-user-input-panel llm-bridge-user-input-dock" })')
       && viewSrc.includes("private composerBarEl!: HTMLElement;")
       && viewSrc.includes("this.composerBarEl = composerBar;")
       && viewSrc.includes("private refreshUserInputPanel(): void")
-      && viewSrc.includes("Array.from(this.getSession().userInput.pending.values())")
+      && viewSrc.includes("Array.from(this.runSession.getSession().userInput.pending.values())")
       && viewSrc.includes("renderClarificationUserInputRequest")
       && viewSrc.includes("renderClarificationChoiceStep")
       && viewSrc.includes("renderClarificationSupplementStep")
@@ -21156,7 +21155,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('text: `${draft.stepIndex + 1} of ${totalSteps}`')
       && viewSrc.includes("answers,")
       && viewSrc.includes("supplement: supplement || undefined")
-      && viewSrc.includes('if (p.kind === "user_input_request" || p.kind === "user_input_resolved")')
+      && controllerSrc.includes('if (p.kind === "user_input_request" || p.kind === "user_input_resolved")')
       && viewSrc.includes("this.refreshUserInputPanel();")
       && stylesSrc.includes(".llm-bridge-user-input-panel")
       && stylesSrc.includes(".llm-bridge-composer-bar.is-user-input-active")
@@ -21232,7 +21231,7 @@ if (!runNoteSummarizeSmoke) {
         || viewSrc.includes("MarkdownRenderer.render(this.app, normalized, host")
         || messageRendererSrc.includes("deps.renderMarkdownInto"))
       && (viewSrc.includes("private renderStreamingMessageContent")
-        || messageRendererSrc.includes("export function renderStreamingMessageContent"))
+        || messageRendererSrc.includes("function renderStreamingMessageContent"))
       && (viewSrc.includes("llm-bridge-msg-stream-text")
         || messageRendererSrc.includes("llm-bridge-msg-stream-text"))
       && viewSrc.includes("private appendAssistantContentDelta")
@@ -21259,6 +21258,7 @@ if (!runNoteSummarizeSmoke) {
     const sdkBackendSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkBackend.ts"), "utf8");
     const sdkMessageMapperSrc = readFileSync(join(PROJECT_ROOT, "src", "sdkMessageMapper.ts"), "utf8");
     const timelineAdapterSrc = readFileSync(join(PROJECT_ROOT, "src", "timelineAdapter.ts"), "utf8");
+    const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
     const ok = sdkBackendSrc.includes("deriveAssistantTextDelta")
       && sdkBackendSrc.includes("includePartialMessages: true")
       // P4-D: SDK assistant 正文只走 WorkflowEvent.message -> AssistantTurnView，不再二次发射 stdout_delta
@@ -21276,12 +21276,150 @@ if (!runNoteSummarizeSmoke) {
       // V2.17-A Completion: stdout_delta 不再直接 appendAssistantContentDelta；
       // final answer 由 AssistantTurnViewBuilder.finalAnswer 输出，经 updateAssistantMessage 渲染
       && !viewSrc.includes("this.appendAssistantContentDelta(ctx.assistantId, p.data)")
-      && viewSrc.includes("ctx.turnBuilder.ingest(ev)")
-      && viewSrc.includes("content: turnView.finalAnswer")
+      && controllerSrc.includes("ctx.turnBuilder.ingest(ev)")
+      && controllerSrc.includes("content: turnView.finalAnswer")
       && viewSrc.includes("this.scheduleLiveTimelineRender()")
       && viewSrc.includes("window.setTimeout(() =>")
       && !viewSrc.includes('scrollIntoView({ behavior: "smooth", block: "end" })');
     addTest("V2.16-G SDK streaming: partial stream/progress 映射并增量输出", ok ? "pass" : "fail", "");
+  }
+}
+
+// ============================================================
+// 9.9.1 Phase 1.4 — DOM 行为不变量测试
+//   验证 RunSessionController 重构依赖的关键 DOM 行为：
+//   1. mount 与 reconcile 使用同一节点（data-final-answer-disposition 更新而非重建）
+//   2. candidate 流式升级 Markdown 不重建节点
+//   3. command 1→2 条时 group key 不变（group:command:${startKey}）
+//   4. approval host 不重复（ensureCodexApprovalGatesHost 复用 :scope > host）
+//   5. 完成后思考与工具过程保留（终态不自动折叠）
+//   6. Composer popup 互斥、outside-click、附件键盘删除
+// ============================================================
+console.log("\n=== Phase 1.4 — DOM 行为不变量测试 ===");
+
+const runPhase14 = runMode === "all" || runMode === "unit";
+
+if (!runPhase14) {
+  addTest("Phase 1.4 DOM 行为不变量测试段", "skip", "当前模式不运行 unit");
+} else {
+  const runRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8");
+  const waterfallSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
+  const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
+  const composerSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "composerController.ts"), "utf8");
+  const viewSrcP14 = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+
+  // ---- Test 1: mount 与 reconcile 使用同一节点 ----
+  {
+    // mountOrReconcileCodexRun: mode="mount" 创建 wrap，mode="patch" 复用 wrap
+    // reconcileCodexRunView 更新 className 而非删除重建
+    const ok = runRendererSrc.includes("mode: \"mount\"")
+      && runRendererSrc.includes("mode: \"patch\"")
+      && runRendererSrc.includes("function reconcileCodexRunView(")
+      && runRendererSrc.includes("wrap.className =")
+      && !runRendererSrc.includes("wrap.remove()")
+      && runRendererSrc.includes("wrap.setAttribute(\"data-final-answer-disposition\"");
+    addTest("Phase 1.4-DOM-1: mount 与 reconcile 使用同一节点（不重建）", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 2: candidate 流式升级 Markdown 不重建节点 ----
+  {
+    // upgradeCodexCandidateAnswerInFeed: 找到 candidate 节点 → 原地升级
+    // streaming=true 时更新 stream-text；streaming=false 时渲染 Markdown
+    // 关键：不删除 candidate，只替换内部内容
+    const ok = waterfallSrc.includes("export function upgradeCodexCandidateAnswerInFeed(")
+      && waterfallSrc.includes("is-answer-candidate")
+      && waterfallSrc.includes("is-final-candidate")
+      && waterfallSrc.includes('data-answer-role="candidate"')
+      && waterfallSrc.includes("stream.textContent =")
+      && waterfallSrc.includes("deps.renderMarkdownInto(md, normalized)")
+      && !waterfallSrc.includes("candidate.remove()");
+    addTest("Phase 1.4-DOM-2: candidate 流式升级 Markdown 不重建节点", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 3: command 1→2 条时 group key 不变 ----
+  {
+    // groupCodexFeedRenderEntries: command 始终用 group:command:${startKey}
+    // 注释明确说明：even for a single command, so a later sibling command does not remount
+    const ok = waterfallSrc.includes("group:command:${startKey}")
+      && waterfallSrc.includes("Always use tool-group key (even for a single command)")
+      && waterfallSrc.includes("does not remount the first row");
+    addTest("Phase 1.4-DOM-3: command 1→2 条时 group key 不变", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 4: approval host 不重复 ----
+  {
+    // ensureCodexApprovalGatesHost: 查找 :scope > host，不存在才创建
+    // reconcileCodexApprovalGates: 清掉旧 body 直挂的 gates，复用 host
+    const ok = runRendererSrc.includes("function ensureCodexApprovalGatesHost(")
+      && runRendererSrc.includes(":scope > .llm-bridge-codex-approval-gates-host")
+      && runRendererSrc.includes("if (!host) {")
+      && runRendererSrc.includes("function reconcileCodexApprovalGates(")
+      && runRendererSrc.includes("body.querySelectorAll(\":scope > .llm-bridge-codex-approval-gates\").forEach((el) => el.remove())")
+      && runRendererSrc.includes("host.empty()");
+    addTest("Phase 1.4-DOM-4: approval host 不重复（ensureCodexApprovalGatesHost 复用）", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 5: 完成后思考与工具过程保留（终态不自动折叠）----
+  {
+    // reconcileCodexRunView: 终态去掉 glow，但不清空 process body
+    // 注释：终态禁止自动折叠过程
+    const ok = runRendererSrc.includes("终态：去掉运行光效")
+      && runRendererSrc.includes("wrap.querySelectorAll(\".llm-bridge-run-glow\").forEach")
+      && !runRendererSrc.includes("process.empty()")
+      && runRendererSrc.includes("process.removeAttribute(\"hidden\")");
+    // codexRunRenderer mount 路径注释
+    const okMount = runRendererSrc.includes("终态禁止自动折叠过程");
+    addTest("Phase 1.4-DOM-5: 完成后思考与工具过程保留（终态不自动折叠）", (ok && okMount) ? "pass" : "fail", "");
+  }
+
+  // ---- Test 6: Composer popup 互斥 + outside-click + 附件键盘删除 ----
+  {
+    // view.ts: popup 互斥（closeMentionPicker/closePermissionPopover/closeModelEffortPopover 联动关闭）
+    // composerController.ts: outside-click 工具 (isEventInsideSelector)
+    // composerController.ts: 附件键盘删除（handleComposerAttachmentKeydown + Delete/Backspace）
+    // view.ts 转发检查
+    const hasMutex = viewSrcP14.includes("closeMentionPicker")
+      || viewSrcP14.includes("closePermissionPopover")
+      || viewSrcP14.includes("closeModelEffortPopover");
+    const hasOutsideClick = composerSrc.includes("isEventInsideSelector")
+      || composerSrc.includes("outside-click")
+      || composerSrc.includes("addEventListener(\"click\"")
+      || composerSrc.includes("mousedown");
+    const hasAttachmentKeydown = composerSrc.includes("handleComposerAttachmentKeydown")
+      || composerSrc.includes("Delete")
+      || composerSrc.includes("Backspace");
+    // view.ts 转发检查
+    const viewHasAttachmentKeydown = viewSrcP14.includes("handleComposerAttachmentKeydown");
+    const ok = hasMutex && hasOutsideClick && hasAttachmentKeydown && viewHasAttachmentKeydown;
+    addTest("Phase 1.4-DOM-6: Composer popup 互斥 + outside-click + 附件键盘删除", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 7: RunSessionController 不直接操作 DOM ----
+  {
+    // RunSessionController 通过 host 接口访问 UI，不直接 querySelector/createDiv
+    const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
+    // setAssistantWatchdogHint 通过 host.messagesEl.querySelector 访问 DOM — 这是允许的（host 提供 messagesEl）
+    // 但不应有 createDiv/createEl 等 DOM 创建方法
+    const noCreateDiv = !controllerSrc.includes(".createDiv(")
+      && !controllerSrc.includes(".createEl(");
+    const usesHostInterface = controllerSrc.includes("this.host.messagesEl")
+      && controllerSrc.includes("host.appendUserMessage")
+      && controllerSrc.includes("host.updateAssistantMessage")
+      && controllerSrc.includes("host.setGlobalStatus");
+    const ok = noCreateDiv && usesHostInterface;
+    addTest("Phase 1.4-DOM-7: RunSessionController 不直接操作 DOM（通过 host 接口）", ok ? "pass" : "fail", "");
+  }
+
+  // ---- Test 8: view.ts 不再直接导入 view-model builders ----
+  {
+    // view.ts 不应导入 AssistantTurnViewBuilder / buildAgentRunDisplayModel / buildCodexRunViewModel
+    const noBuilderImport = !viewSrcP14.includes("import { AssistantTurnViewBuilder")
+      && !viewSrcP14.includes("import { buildAgentRunDisplayModel")
+      && !viewSrcP14.includes("import { buildCodexRunViewModel");
+    // view.ts 应导入 RunSessionController
+    const hasControllerImport = viewSrcP14.includes("import { RunSessionController");
+    const ok = noBuilderImport && hasControllerImport;
+    addTest("Phase 1.4-DOM-8: view.ts 不再直接导入 view-model builders（消费 RunSessionController）", ok ? "pass" : "fail", "");
   }
 }
 

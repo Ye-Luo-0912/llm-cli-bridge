@@ -41,11 +41,11 @@ export interface CodexRunRenderDeps {
   ) => void;
 }
 
-export type CodexRunMountOrPatchTarget =
+type CodexRunMountOrPatchTarget =
   | { mode: "mount"; parent: HTMLElement }
   | { mode: "patch"; wrap: HTMLElement };
 
-export interface CodexRunMountOrPatchArgs {
+interface CodexRunMountOrPatchArgs {
   run: CodexRunViewModel;
   developerMode: boolean;
   /** mount: required for disposition attrs; patch: optional update */
@@ -89,7 +89,7 @@ export function mountOrReconcileCodexRun(
   return target.wrap;
 }
 
-export function mountCodexRunView(
+function mountCodexRunView(
   parent: HTMLElement,
   run: CodexRunViewModel,
   sourceModel: { finalAnswerDisposition: string },
@@ -283,7 +283,7 @@ export function mountCodexRunView(
  * 过程区 append-only 局部更新：保留已渲染节点，只更新状态/文本并追加新 item。
  * 终态停止光效、弱化思考，不自动折叠、不清空。
  */
-export function reconcileCodexRunView(
+function reconcileCodexRunView(
   wrap: HTMLElement,
   run: CodexRunViewModel,
   developerMode: boolean,
@@ -363,7 +363,7 @@ export function reconcileCodexRunView(
   });
 }
 
-export function filterCodexDiagnosticsForDisplay(
+function filterCodexDiagnosticsForDisplay(
   diagnostics: ReadonlyArray<CodexRunDiagnosticsGroup>,
   developerMode: boolean,
 ): ReadonlyArray<CodexRunDiagnosticsGroup> {
@@ -446,7 +446,7 @@ function renderCodexApprovalGates(
   }
 }
 
-export function renderCodexDiagnosticsDrawer(
+function renderCodexDiagnosticsDrawer(
   parent: HTMLElement,
   diagnostics: ReadonlyArray<CodexRunDiagnosticsGroup>,
   developerMode: boolean,

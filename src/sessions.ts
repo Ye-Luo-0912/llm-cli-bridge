@@ -16,6 +16,35 @@ import { redactSecrets } from "./workflowEvent";
 import { SessionState } from "./session";
 import type { NativeSessionRef } from "./runtime/core/types";
 
+/**
+ * 校验 session id：防止 path traversal / 控制字符 / 空值进入文件路径。
+ * session id 直接拼入 `${sessionId}.json`，必须保证不含路径分隔符、`..`、盘符等危险字符。
+ */
+function validateSessionId(sessionId: string): string {
+  if (!sessionId || typeof sessionId !== "string") {
+    throw new Error("Invalid session id: must be a non-empty string");
+  }
+  if (/[\r\n\t\0]/.test(sessionId)) {
+    throw new Error("Invalid session id: contains control characters");
+  }
+  if (sessionId.includes("..") || /[\/\\]/.test(sessionId) || /^[A-Za-z]:/.test(sessionId)) {
+    throw new Error("Invalid session id: path traversal characters are not allowed");
+  }
+  // Verify the final path stays within the sessions directory
+  return sessionId;
+}
+
+/**
+ * 防御性路径包含检查：确认最终文件路径仍在 sessions 目录内。
+ * 若 path.relative 返回值以 `..` 开头，说明路径逃逸出目录。
+ */
+function assertPathWithinSessionsDir(dirPath: string, fullPath: string): void {
+  const rel = path.relative(dirPath, fullPath);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error("Invalid session id: resolved path escapes sessions directory");
+  }
+}
+
 /** sessions 目录相对 Vault 根的路径 */
 export const SESSIONS_DIR_REL = ".llm-bridge/sessions";
 
@@ -219,9 +248,10 @@ export async function saveSession(
   try {
     const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
     await fs.promises.mkdir(dirPath, { recursive: true });
-    const id = sessionId || generateSessionId();
+    const id = sessionId ? validateSessionId(sessionId) : generateSessionId();
     const fileName = `${id}.json`;
     const filePath = path.join(dirPath, fileName);
+    assertPathWithinSessionsDir(dirPath, filePath);
     const tmpPath = path.join(dirPath, `${fileName}.tmp`);
 
     const session: PersistedSession = {
@@ -314,7 +344,10 @@ export async function listSessions(vaultPath: string): Promise<SessionListItem[]
  */
 export async function loadSession(vaultPath: string, sessionId: string): Promise<PersistedSession | null> {
   try {
-    const filePath = path.join(vaultPath, SESSIONS_DIR_REL, `${sessionId}.json`);
+    validateSessionId(sessionId);
+    const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
+    const filePath = path.join(dirPath, `${sessionId}.json`);
+    assertPathWithinSessionsDir(dirPath, filePath);
     const content = await fs.promises.readFile(filePath, "utf8");
     const parsed = JSON.parse(content);
     return migrateSession(parsed);
@@ -383,6 +416,7 @@ export async function deleteSession(vaultPath: string, sessionId: string): Promi
 }
 
 export async function deleteSessionWithProviderArtifacts(vaultPath: string, sessionId: string): Promise<SessionDeleteResult> {
+  validateSessionId(sessionId);
   const session = await loadSession(vaultPath, sessionId);
   const providerIds = providerIdsFromSession(session);
   const bridgeSessionDeleted = await deleteSession(vaultPath, sessionId);
@@ -433,6 +467,7 @@ export async function clearSessionsWithProviderArtifacts(vaultPath: string): Pro
  */
 export async function renameSession(vaultPath: string, sessionId: string, newTitle: string): Promise<boolean> {
   try {
+    validateSessionId(sessionId);
     const session = await loadSession(vaultPath, sessionId);
     if (!session) return false;
     const renamed: PersistedSession = {
@@ -442,6 +477,7 @@ export async function renameSession(vaultPath: string, sessionId: string, newTit
     };
     const dirPath = path.join(vaultPath, SESSIONS_DIR_REL);
     const filePath = path.join(dirPath, `${sessionId}.json`);
+    assertPathWithinSessionsDir(dirPath, filePath);
     const tmpPath = path.join(dirPath, `${sessionId}.json.tmp`);
     await fs.promises.writeFile(tmpPath, JSON.stringify(renamed, null, 2), "utf8");
     await fs.promises.rename(tmpPath, filePath);

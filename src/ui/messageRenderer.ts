@@ -21,7 +21,7 @@ export interface MessageRendererDeps {
   scrollToBottom: (force?: boolean) => void;
 }
 
-export interface MessageFileRefsDeps {
+interface MessageFileRefsDeps {
   getFileRefThumbnailUrl: (ref: FileRef) => string | null;
   getSmartImageThumbnailCacheKey: (ref: FileRef, url: string) => string;
   maybeApplySmartImageThumbnail: (img: HTMLImageElement, cacheKey: string) => void;
@@ -79,7 +79,7 @@ export interface MessageDetailsDeps {
   openGeneratedFile: (name: string) => void;
 }
 
-export function coerceMessageContentText(value: unknown): string {
+function coerceMessageContentText(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === null || value === undefined) return "";
   if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") return String(value);
@@ -90,7 +90,7 @@ export function coerceMessageContentText(value: unknown): string {
   }
 }
 
-export function compactPreviewText(text: string, maxChars: number): string {
+function compactPreviewText(text: string, maxChars: number): string {
   const oneLine = text.replace(/\s+/g, " ").trim();
   if (oneLine.length <= maxChars) return oneLine;
   return `${oneLine.slice(0, Math.max(0, maxChars - 1)).trimEnd()}…`;
@@ -108,14 +108,14 @@ export function flattenTurnTimelineNodes(nodes: ReadonlyArray<TurnTimelineNode>)
   return flattened;
 }
 
-export function codexTurnHasFinalAnswerCarrier(turnView: AssistantTurnView): boolean {
+function codexTurnHasFinalAnswerCarrier(turnView: AssistantTurnView): boolean {
   if (turnView.finalAnswer.trim().length > 0) return true;
   return flattenTurnTimelineNodes(turnView.turnTimeline).some((node) =>
     node.kind === "agentMessage" && [node.text, node.summary, node.detail].some((value) => (value ?? "").trim().length > 0),
   );
 }
 
-export function shouldSuppressCodexStandaloneAnswer(
+function shouldSuppressCodexStandaloneAnswer(
   msg: ChatMessage,
   text: string,
   developerMode: boolean,
@@ -126,7 +126,7 @@ export function shouldSuppressCodexStandaloneAnswer(
   return codexTurnHasFinalAnswerCarrier(turnView);
 }
 
-export function renderUserMessageContent(content: HTMLElement, text: string): void {
+function renderUserMessageContent(content: HTMLElement, text: string): void {
   const normalized = text.trim();
   const lineCount = normalized.split(/\r?\n/).length;
   const shouldCollapse = normalized.length > 1200 || lineCount > 12;
@@ -142,7 +142,7 @@ export function renderUserMessageContent(content: HTMLElement, text: string): vo
   details.createEl("div", { cls: "llm-bridge-user-prompt-body", text: normalized });
 }
 
-export function renderStreamingMessageContent(content: HTMLElement, text: string): void {
+function renderStreamingMessageContent(content: HTMLElement, text: string): void {
   content.removeClass("llm-bridge-msg-markdown");
   content.empty();
   content.createEl("span", { cls: "llm-bridge-msg-stream-text", text });
@@ -208,7 +208,7 @@ export function renderMessageActions(
   }
 }
 
-export function renderMessageError(
+function renderMessageError(
   messagesEl: HTMLElement,
   msg: ChatMessage,
   error: unknown,

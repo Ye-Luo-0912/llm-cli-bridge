@@ -193,7 +193,9 @@ export class BridgeSessionImpl implements BridgeSession {
    */
   private _activeNativeSessionRef: NativeSessionRef | undefined;
 
-  private currentRunId: string | null = null;
+  private _currentRunId: string | null = null;
+  /** Active run id (null when no run is active). Callers pass this to cancel(). */
+  get currentRunId(): string | null { return this._currentRunId; }
 
   constructor(sessionId: string, provider: RuntimeProvider, label: string, settings: LLMBridgeSettings) {
     this.sessionId = sessionId;
@@ -214,7 +216,7 @@ export class BridgeSessionImpl implements BridgeSession {
 
   async *start(input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     const runId = `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    this.currentRunId = runId;
+    this._currentRunId = runId;
     // 新 run：清除旧 ref（start = 新 thread）
     this._activeNativeSessionRef = undefined;
     try {
@@ -232,15 +234,17 @@ export class BridgeSessionImpl implements BridgeSession {
       };
       yield* this.provider.run(ctx, settings);
     } finally {
-      this.currentRunId = null;
+      this._currentRunId = null;
     }
   }
 
   cancel(runId: string): void {
+    // 仅取消匹配 currentRunId 的活动 run，防止迟到的 cancel 误杀无关 run
+    if (runId !== this._currentRunId) return;
     this.permission.cancelAllPending();
     this.userInput.cancelAllPending();
     this.provider.cancel(runId);
-    this.currentRunId = null;
+    this._currentRunId = null;
   }
 
   /**
@@ -265,7 +269,7 @@ export class BridgeSessionImpl implements BridgeSession {
    * V16.4-F2: 用最新 settings 重建 PermissionBoundary。
    */
   rebuildPermissionBoundary(settings: LLMBridgeSettings): void {
-    if (this.currentRunId !== null) return;
+    if (this._currentRunId !== null) return;
     const strategy = /codex/i.test(this.providerId) ? "native-pending" : "claude-mode";
     const current = this.permission as PermissionBoundaryImpl;
     if (strategy === "native-pending") {
@@ -279,7 +283,7 @@ export class BridgeSessionImpl implements BridgeSession {
 
   async *resume(ref: NativeSessionRef, input: RunInput, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     const runId = `resume-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    this.currentRunId = runId;
+    this._currentRunId = runId;
     this._activeNativeSessionRef = ref;
     try {
       const plan = this.provider.buildPlan(input, settings);
@@ -296,7 +300,7 @@ export class BridgeSessionImpl implements BridgeSession {
       };
       yield* this.provider.resume(ref, ctx, settings);
     } finally {
-      this.currentRunId = null;
+      this._currentRunId = null;
     }
   }
 }

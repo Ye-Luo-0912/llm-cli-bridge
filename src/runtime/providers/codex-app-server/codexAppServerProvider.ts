@@ -351,6 +351,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     try {
       // P5: currentRunId 在 try 内赋值，确保 setup 阶段抛错时不泄漏（finally 会清理）
       this.currentRunId = ctx.runId;
+      // 任务2: 每轮 turn 开始前清理上一轮的 approval bookkeeping，防止跨轮累积
+      this.serverRequestBookkeeping.clear();
       // 1. initialize handshake（官方 shape：clientInfo + capabilities；不再用 clientName/clientVersion）
       //    experimentalApi 默认 false；options.initialize 已由 buildCodexAppServerRunOptions 构造。
       const initResult = await client.send<CodexInitializeResult>(
@@ -414,7 +416,9 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     }
   }
 
-  cancel(_runId: string): void {
+  cancel(runId: string): void {
+    // 仅取消匹配 currentRunId 的活动 run，防止迟到的 cancel 误杀无关 run
+    if (runId !== this.currentRunId) return;
     if (this.currentClient) {
       this.currentClient.close();
     }
@@ -521,6 +525,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     try {
       // P5: currentRunId 在 try 内赋值，确保 setup 阶段抛错时不泄漏（finally 会清理）
       this.currentRunId = ctx.runId;
+      // 任务2: 每轮 turn 开始前清理上一轮的 approval bookkeeping，防止跨轮累积
+      this.serverRequestBookkeeping.clear();
       // 1. initialize handshake（与 run 一致；clientInfo + capabilities）
       const initResult = await client.send<CodexInitializeResult>(
         "initialize", options.initialize,

@@ -18,7 +18,7 @@ import {
   sumCodexEventDuration,
 } from "./codexProcessFeed";
 
-export type CodexWaterfallFeedEntry =
+type CodexWaterfallFeedEntry =
   | { kind: "item"; key: string; item: CodexRunFeedItem }
   | { kind: "tool-group"; key: string; groupKind: "command" | "image"; items: CodexRunFeedItem[] };
 
@@ -57,19 +57,19 @@ const codexToolGroupMembers = new WeakMap<HTMLElement, {
   deps: CodexWaterfallPatchDeps;
 }>();
 
-export function codexFeedItemKey(item: CodexRunFeedItem): string {
+function codexFeedItemKey(item: CodexRunFeedItem): string {
   const itemId = item.sourceRef?.itemId || item.id;
   const seq = item.sourceRef?.sequence;
   return seq !== undefined ? `seq:${seq}:${itemId}` : itemId;
 }
 
-export function isCodexImageFeedItem(item: CodexRunFeedItem): boolean {
+function isCodexImageFeedItem(item: CodexRunFeedItem): boolean {
   if (item.icon === "image") return true;
   const blob = `${item.label} ${item.summary || ""} ${item.step?.label || ""}`;
   return /imageview|viewing image|viewed image|分析图片|查看图片/i.test(blob);
 }
 
-export function formatCodexImageGroupTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
+function formatCodexImageGroupTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
   const loc = resolveUiLocale() === "en" ? "en" : "zh";
   const active = items.some((item) => item.status === "running" || item.status === "pending");
   if (loc === "zh") return active ? "正在分析图片" : items.length > 1 ? `已查看 ${items.length} 张图片` : "已查看图片";
@@ -77,7 +77,7 @@ export function formatCodexImageGroupTitle(items: ReadonlyArray<CodexRunFeedItem
 }
 
 /** 初渲/增量共用：按时间线顺序分组，不按类型重排 */
-export function groupCodexFeedRenderEntries(
+function groupCodexFeedRenderEntries(
   items: ReadonlyArray<CodexRunFeedItem>,
 ): CodexWaterfallFeedEntry[] {
   const entries: CodexWaterfallFeedEntry[] = [];
@@ -112,7 +112,7 @@ export function groupCodexFeedRenderEntries(
   return entries;
 }
 
-export function patchCodexFeedEntryItem(
+function patchCodexFeedEntryItem(
   entry: HTMLElement,
   item: CodexRunFeedItem,
   developerMode: boolean,
@@ -186,7 +186,7 @@ export function patchCodexFeedEntryItem(
   }
 }
 
-export function patchCodexToolGroupBody(
+function patchCodexToolGroupBody(
   body: HTMLElement,
   items: ReadonlyArray<CodexRunFeedItem>,
   developerMode: boolean,
@@ -219,7 +219,7 @@ export function patchCodexToolGroupBody(
   });
 }
 
-export function patchCodexFeedEntryToolGroup(
+function patchCodexFeedEntryToolGroup(
   entry: HTMLElement,
   groupKind: "command" | "image",
   items: ReadonlyArray<CodexRunFeedItem>,
@@ -299,7 +299,7 @@ export function patchCodexFeedEntryToolGroup(
  * - 顺序 = sourceRef.sequence + itemId（由 feed 原序 + 稳定 key 保证）
  * - 已有节点 insertBefore 移到正确位置，保留 DOM 身份/展开态/内容
  */
-export function patchCodexFeedStable(
+function patchCodexFeedStable(
   list: HTMLElement,
   items: ReadonlyArray<CodexRunFeedItem>,
   developerMode: boolean,
@@ -407,7 +407,7 @@ export function reconcileCodexRunWaterfall(
   upgradeCodexCandidateAnswerInFeed(body, text, options.streaming, deps);
 }
 
-export function formatCodexFeedSummary(item: CodexRunFeedItem, developerMode: boolean): string {
+function formatCodexFeedSummary(item: CodexRunFeedItem, developerMode: boolean): string {
   let summary = item.summary ?? "";
   if (developerMode || !summary) return summary;
   if (item.step) {
@@ -419,7 +419,7 @@ export function formatCodexFeedSummary(item: CodexRunFeedItem, developerMode: bo
   return summary.replace(/[A-Za-z]:\\[^\s·]+/g, (match) => path.basename(match));
 }
 
-export function shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, developerMode: boolean): boolean {
+function shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, developerMode: boolean): boolean {
   const summary = formatCodexFeedSummary(item, developerMode).trim();
   const detail = (item.detail || "").trim();
   if (developerMode) return !!(summary || detail);
@@ -433,7 +433,7 @@ export function shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, develop
   return summary.length > 40 || /\r?\n/.test(summary);
 }
 
-export function renderCodexFeedThinking(
+function renderCodexFeedThinking(
   parent: HTMLElement,
   item: CodexRunFeedItem,
   deps: CodexFeedItemRenderDeps,
@@ -460,7 +460,7 @@ export function renderCodexFeedThinking(
   });
 }
 
-export function renderCodexFeedNarrative(
+function renderCodexFeedNarrative(
   parent: HTMLElement,
   item: CodexRunFeedItem,
   deps: CodexFeedItemRenderDeps,
@@ -496,7 +496,7 @@ export function renderCodexFeedNarrative(
   });
 }
 
-export function renderCodexFeedEventBlock(
+function renderCodexFeedEventBlock(
   parent: HTMLElement,
   item: CodexRunFeedItem,
   developerMode: boolean,
@@ -676,7 +676,7 @@ export function renderCodexFeedItem(
   deps.renderCodexSourceRef(row, item.sourceRef, developerMode);
 }
 
-export function formatCodexThinkingFallbackAction(item: CodexRunFeedItem): string {
+function formatCodexThinkingFallbackAction(item: CodexRunFeedItem): string {
   const loc = resolveUiLocale() === "en" ? "en" : "zh";
   if (item.kind === "assistant") {
     const text = formatCodexFeedSummary(item, false).trim();
@@ -697,7 +697,7 @@ export function formatCodexThinkingFallbackAction(item: CodexRunFeedItem): strin
   return "";
 }
 
-export function formatCodexThinkingFallbackFromBatch(
+function formatCodexThinkingFallbackFromBatch(
   batch: ReadonlyArray<CodexRunFeedItem>,
 ): string {
   const items = batch[0] && (batch[0].kind === "thinking" || batch[0].kind === "assistant")
@@ -717,7 +717,7 @@ export function formatCodexThinkingFallbackFromBatch(
   return `${actions.slice(0, 2).join(", ")}, then ${actions.length - 2} more step${actions.length - 2 === 1 ? "" : "s"}`;
 }
 
-export function formatCodexBatchSummary(
+function formatCodexBatchSummary(
   batch: ReadonlyArray<CodexRunFeedItem>,
   developerMode: boolean,
 ): string {
@@ -729,7 +729,7 @@ export function formatCodexBatchSummary(
   return firstEvent?.label ?? batch[0]?.label ?? "";
 }
 
-export function formatCodexThinkingBatchSummary(
+function formatCodexThinkingBatchSummary(
   batch: ReadonlyArray<CodexRunFeedItem>,
   developerMode: boolean,
 ): string {
@@ -740,7 +740,7 @@ export function formatCodexThinkingBatchSummary(
   return formatCodexThinkingFallbackFromBatch(batch);
 }
 
-export function formatCodexProcessPreview(
+function formatCodexProcessPreview(
   batches: ReadonlyArray<ReadonlyArray<CodexRunFeedItem>>,
   developerMode: boolean,
 ): string {
@@ -762,7 +762,7 @@ export function formatCodexProcessPreview(
   return "";
 }
 
-export function renderCodexFeedBatchSummary(
+function renderCodexFeedBatchSummary(
   parent: HTMLElement,
   batch: ReadonlyArray<CodexRunFeedItem>,
   developerMode: boolean,
@@ -835,7 +835,7 @@ export function renderCodexFeedBatchSummary(
   }
 }
 
-export function renderCodexToolGroup(
+function renderCodexToolGroup(
   parent: HTMLElement,
   items: ReadonlyArray<CodexRunFeedItem>,
   developerMode: boolean,
@@ -884,7 +884,7 @@ export function renderCodexToolGroup(
   });
 }
 
-export function renderCodexFeedBatch(
+function renderCodexFeedBatch(
   parent: HTMLElement,
   batch: ReadonlyArray<CodexRunFeedItem>,
   developerMode: boolean,
