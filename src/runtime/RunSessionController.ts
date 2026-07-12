@@ -54,7 +54,7 @@ import {
   type AgentRunDebugView,
   type CodexRunViewModel,
 } from "./core/viewModels";
-import { autoMaintainVaultContext } from "./vaultContextAutoMaintainer";
+import { autoMaintainVaultContext, type AutoMaintainResult } from "./vaultContextAutoMaintainer";
 import { retrieveVaultContextOnDemand } from "./vaultContextRetriever";
 
 // Status label lookup (mirrors view.ts STATUS_LABEL)
@@ -161,6 +161,8 @@ export interface RunSessionHost {
   ensureCodexSkillsPreparedCached(vaultPath: string): Promise<{ ok: boolean; reason?: string }>;
   /** VC-3: 清除 Codex Skills 物化缓存，确保下次 turn start 重新物化（如 VC-2 自动维护后） */
   invalidateCodexSkillPrepCache(): void;
+  /** VC-4: 通知 UI 层 Vault Context 自动维护完成（用于状态/冲突/撤销展示） */
+  onVaultContextMaintained(result: AutoMaintainResult, timestamp: string): void;
   getManagedRuntimeInstallStatusForCurrentMode(): ManagedRuntimeInstallStatus | null;
   refreshManagedRuntimeInstallAction(status: ManagedRuntimeInstallStatus | null): void;
 
@@ -990,8 +992,10 @@ export class RunSessionController {
       // VC-2: Vault Context 自动维护（后台 fire-and-forget，不阻塞主流程）
       // 只在 completed 状态下执行；提取稳定候选 → 去重冲突检查 → 安全写入 → 异步更新索引
       // VC-3: 维护后清除物化缓存，确保下次 turn start 重新物化更新后的 skill
+      // VC-4: 通知 UI 层维护结果（状态/冲突/撤销）
       if (finalStatus === "completed") {
         const turnView = msg?.assistantTurnView;
+        const maintainTimestamp = new Date().toISOString();
         void autoMaintainVaultContext({
           vaultPath,
           turnView,
@@ -1000,6 +1004,10 @@ export class RunSessionController {
         }).then((result) => {
           if (result.updatedFiles.length > 0) {
             host.invalidateCodexSkillPrepCache();
+          }
+          // 有更新或有冲突时通知 UI；无变化时不打扰
+          if (result.updatedFiles.length > 0 || result.conflicts.length > 0) {
+            host.onVaultContextMaintained(result, maintainTimestamp);
           }
         }).catch(() => { /* 后台维护失败静默 */ });
       }

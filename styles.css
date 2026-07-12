@@ -8353,6 +8353,54 @@
   font-size: var(--font-smallest);
 }
 
+/* ===== VC-4: Vault Context 轻量透明状态行 ===== */
+.llm-bridge-vc-status {
+  margin: 4px 0 8px;
+  padding: 5px 8px;
+  border-radius: 4px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.llm-bridge-vc-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: var(--font-smallest);
+  color: var(--text-muted);
+}
+
+.llm-bridge-vc-status-badge {
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+.llm-bridge-vc-status-meta {
+  color: var(--text-muted);
+}
+
+.llm-bridge-vc-status-conflicts {
+  color: var(--text-warning, var(--text-accent));
+  font-weight: 500;
+}
+
+.llm-bridge-vc-undo-btn {
+  margin-left: auto;
+  padding: 1px 8px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  cursor: pointer;
+}
+
+.llm-bridge-vc-undo-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
 .llm-bridge-agent-skills-list {
   display: flex;
   flex-direction: column;

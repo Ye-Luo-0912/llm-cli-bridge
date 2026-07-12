@@ -28,6 +28,7 @@ import { type ProviderCapabilityInfo, type ObsidianCliAvailability, type Provide
 import type { ManagedRuntimeInstallStatus } from "./runtime/providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge";
 import { listManagedCodexPluginsAsync, type CodexManagedPluginCatalog, type CodexManagedPluginEntry } from "./runtime/providers/codex-managed-app-server/codexManagedPluginCatalog";
 import { RunSessionController, type RunSessionHost } from "./runtime/RunSessionController";
+import { undoVaultContextMaintain, type AutoMaintainResult } from "./runtime/vaultContextAutoMaintainer";
 import { getRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, type RuntimeModelCatalog } from "./runtimeModelCatalog";
 import { WorkflowEvent, PermissionEvent, truncateText, redactSecrets } from "./workflowEvent";
 import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
@@ -324,6 +325,14 @@ export class LLMBridgeView extends ItemView {
   /** P0: Codex Skills 物化去重缓存（同 vault 连续发送不重复全量物化） */
   private codexSkillPrepCache: { vaultPath: string; preparedAt: number; ok: boolean; reason?: string } | null = null;
   private codexSkillPrepInFlight: Promise<{ ok: boolean; reason?: string }> | null = null;
+  /** VC-4: Vault Context 最近一次自动维护记录（内存，跨会话不持久化） */
+  private lastVaultContextMaintain: {
+    timestamp: string;
+    updatedFiles: string[];
+    conflicts: string[];
+    backups: Map<string, string>;
+  } | null = null;
+  private vaultContextStatusEl: HTMLElement | null = null;
   /** P0: managed plugin 列表刷新去重 */
   private managedPluginsRefreshInFlight: Promise<void> | null = null;
   private managedPluginsRefreshedAt = 0;
@@ -2059,6 +2068,7 @@ export class LLMBridgeView extends ItemView {
       ensureManagedCodexPluginsCached: () => view.ensureManagedCodexPluginsCached(),
       ensureCodexSkillsPreparedCached: (vaultPath) => view.ensureCodexSkillsPreparedCached(vaultPath),
       invalidateCodexSkillPrepCache: () => view.invalidateCodexSkillPrepCache(),
+      onVaultContextMaintained: (result, timestamp) => view.onVaultContextMaintained(result, timestamp),
       getManagedRuntimeInstallStatusForCurrentMode: () => view.getManagedRuntimeInstallStatusForCurrentMode(),
       refreshManagedRuntimeInstallAction: (status) => view.refreshManagedRuntimeInstallAction(status),
       commandLine: () => view.commandLine(),
@@ -7196,6 +7206,9 @@ export class LLMBridgeView extends ItemView {
     this.agentSkillsBodyEl = body;
     const help = body.createDiv({ cls: "llm-bridge-agent-skills-boundary" });
     help.createEl("span", { text: "此页管理持久能力（Plugins / Skills）。Composer 工具菜单只负责本轮选择，避免两个入口功能重叠。" });
+    // VC-4: Vault Context 轻量状态行（已启用 + 维护记录 + 冲突数 + 撤销入口）
+    this.vaultContextStatusEl = body.createDiv({ cls: "llm-bridge-vc-status" });
+    this.renderVaultContextStatus();
     this.managedCodexPluginsListEl = body.createDiv({ cls: "llm-bridge-agent-skills-list-container llm-bridge-codex-plugins-list-container" });
     this.agentSkillsListEl = body.createDiv({ cls: "llm-bridge-agent-skills-list-container" });
 
@@ -8188,6 +8201,79 @@ export class LLMBridgeView extends ItemView {
   /** VC-3: 清除 Codex Skills 物化缓存，确保下次 turn start 重新物化（如 VC-2 自动维护后） */
   private invalidateCodexSkillPrepCache(): void {
     this.codexSkillPrepCache = null;
+  }
+
+  /** VC-4: 接收 Vault Context 自动维护结果，更新内存记录并刷新 UI */
+  private onVaultContextMaintained(result: AutoMaintainResult, timestamp: string): void {
+    this.lastVaultContextMaintain = {
+      timestamp,
+      updatedFiles: [...result.updatedFiles],
+      conflicts: [...result.conflicts],
+      backups: result.backups ? new Map(result.backups) : new Map(),
+    };
+    this.renderVaultContextStatus();
+    // 只有规则冲突才提醒用户；普通自动维护不弹通知
+    if (result.conflicts.length > 0) {
+      new Notice(`Vault Context: 检测到 ${result.conflicts.length} 条规则冲突，请手动处理`, 8000);
+    }
+  }
+
+  /** VC-4: 撤销最近一次自动维护 */
+  private async undoLastVaultContextMaintain(): Promise<void> {
+    const record = this.lastVaultContextMaintain;
+    if (!record || record.backups.size === 0) return;
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const result = await undoVaultContextMaintain(vaultPath, record.backups);
+    if (result.ok) {
+      new Notice("Vault Context: 已撤销最近一次自动维护");
+      this.lastVaultContextMaintain = null;
+      this.renderVaultContextStatus();
+      this.invalidateCodexSkillPrepCache();
+    } else {
+      new Notice(`Vault Context: 撤销失败 — ${result.reason || "未知错误"}`, 6000);
+    }
+  }
+
+  /** VC-4: 渲染 Vault Context 状态行（已启用 + 维护记录 + 冲突数 + 撤销入口） */
+  private renderVaultContextStatus(): void {
+    const el = this.vaultContextStatusEl;
+    if (!el) return;
+    el.empty();
+
+    // 状态标签：Vault Context · 已启用
+    const row = el.createDiv({ cls: "llm-bridge-vc-status-row" });
+    row.createEl("span", { cls: "llm-bridge-vc-status-badge", text: "Vault Context · 已启用" });
+
+    const record = this.lastVaultContextMaintain;
+    if (!record) return;
+
+    // 最近维护记录
+    const time = new Date(record.timestamp);
+    const timeStr = `${time.getHours().toString().padStart(2, "0")}:${time.getMinutes().toString().padStart(2, "0")}`;
+    const updatedStr = record.updatedFiles.length > 0 ? record.updatedFiles.join(", ") : "无更新";
+    row.createEl("span", {
+      cls: "llm-bridge-vc-status-meta",
+      text: `最近维护 ${timeStr} · ${updatedStr}`,
+    });
+
+    // 冲突数量
+    if (record.conflicts.length > 0) {
+      row.createEl("span", {
+        cls: "llm-bridge-vc-status-conflicts",
+        text: `${record.conflicts.length} 冲突`,
+        attr: { title: record.conflicts.join("\n\n") },
+      });
+    }
+
+    // 撤销入口（仅有可撤销备份时显示）
+    if (record.backups.size > 0) {
+      const undoBtn = row.createEl("button", {
+        cls: "llm-bridge-vc-undo-btn",
+        text: "撤销",
+        attr: { type: "button", title: "撤销最近一次 Vault Context 自动维护" },
+      });
+      undoBtn.addEventListener("click", () => void this.undoLastVaultContextMaintain());
+    }
   }
 
   private renderManagedCodexPluginsList(): void {

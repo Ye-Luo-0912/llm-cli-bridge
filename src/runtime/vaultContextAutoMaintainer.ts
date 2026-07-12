@@ -37,6 +37,8 @@ export interface AutoMaintainResult {
   readonly updatedFiles: string[];
   readonly conflicts: string[];
   readonly reason?: string;
+  /** VC-4: 文件名 → 修改前原始内容，用于撤销 */
+  readonly backups?: ReadonlyMap<string, string>;
 }
 
 // ---------- 提取稳定候选 ----------
@@ -158,6 +160,8 @@ function extractStableCandidates(input: AutoMaintainInput): StableCandidates {
 interface MergeResult {
   readonly added: string[];
   readonly conflicts: string[];
+  /** 修改前的原始内容（仅当有追加时才填充），用于撤销 */
+  readonly backup?: string;
 }
 
 /** 归一化条目用于去重（小写 + 压缩空格） */
@@ -248,6 +252,9 @@ async function mergeCandidatesIntoFile(
     return { added: [], conflicts };
   }
 
+  // 保存修改前的原始内容（用于撤销）
+  const backup = content;
+
   // 追加新条目到文件末尾
   const newLines = [...lines];
   while (newLines.length > 0 && newLines[newLines.length - 1].trim() === "") {
@@ -274,7 +281,7 @@ async function mergeCandidatesIntoFile(
     return { added: [], conflicts };
   }
 
-  return { added, conflicts };
+  return { added, conflicts, backup };
 }
 
 // ---------- 主入口 ----------
@@ -312,6 +319,7 @@ export async function autoMaintainVaultContext(input: AutoMaintainInput): Promis
     const sourceDir = path.join(input.vaultPath, VAULT_SKILL_SOURCE_DIR_REL);
     const updatedFiles: string[] = [];
     const conflicts: string[] = [];
+    const backups = new Map<string, string>();
 
     // directories
     if (candidates.directories.length > 0) {
@@ -319,7 +327,10 @@ export async function autoMaintainVaultContext(input: AutoMaintainInput): Promis
         path.join(sourceDir, "directories.md"),
         candidates.directories,
       );
-      if (result.added.length > 0) updatedFiles.push("directories.md");
+      if (result.added.length > 0) {
+        updatedFiles.push("directories.md");
+        if (result.backup !== undefined) backups.set("directories.md", result.backup);
+      }
       conflicts.push(...result.conflicts);
     }
 
@@ -329,7 +340,10 @@ export async function autoMaintainVaultContext(input: AutoMaintainInput): Promis
         path.join(sourceDir, "conventions.md"),
         candidates.conventions,
       );
-      if (result.added.length > 0) updatedFiles.push("conventions.md");
+      if (result.added.length > 0) {
+        updatedFiles.push("conventions.md");
+        if (result.backup !== undefined) backups.set("conventions.md", result.backup);
+      }
       conflicts.push(...result.conflicts);
     }
 
@@ -342,7 +356,7 @@ export async function autoMaintainVaultContext(input: AutoMaintainInput): Promis
       }
     }
 
-    return { ok: true, updatedFiles, conflicts };
+    return { ok: true, updatedFiles, conflicts, backups };
   } catch (err) {
     return {
       ok: false,
@@ -350,5 +364,31 @@ export async function autoMaintainVaultContext(input: AutoMaintainInput): Promis
       conflicts: [],
       reason: err instanceof Error ? err.message : String(err),
     };
+  }
+}
+
+/**
+ * VC-4: 撤销最近一次自动维护。
+ *
+ * 从 backups 恢复原始文件内容，然后重新生成索引。
+ */
+export async function undoVaultContextMaintain(
+  vaultPath: string,
+  backups: ReadonlyMap<string, string>,
+): Promise<{ ok: boolean; reason?: string }> {
+  if (backups.size === 0) return { ok: false, reason: "无可撤销的备份" };
+  const sourceDir = path.join(vaultPath, VAULT_SKILL_SOURCE_DIR_REL);
+  try {
+    for (const [fileName, content] of backups) {
+      await fs.promises.writeFile(path.join(sourceDir, fileName), content, "utf8");
+    }
+    try {
+      await regenerateVaultContextIndex(vaultPath);
+    } catch {
+      // 索引更新失败不阻断
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : String(err) };
   }
 }

@@ -22614,6 +22614,8 @@ if (!runOnOpenDom) {
           { filter: /^\.\/toolsWriter$/, content: "export function writeHelperAndWrappers() { return Promise.resolve(); }" },
           { filter: /^\.\/outbox$/, content: "export class OutboxWatcher { constructor(){} start(){} stop(){} }" },
           { filter: /^\.\/agentRuntimeWorkspace$/, content: "export async function ensureAgentRuntimeWorkspace() { return { vaultSkillInitialized: false }; } export async function compactOrSplitVaultSkill() {} export function materializeAllSkillsToAllTargets() { return { results: [], syncSummary: { synced: [], skipped: [] }, saved: false }; } export const VAULT_SKILL_SOURCE_REL = '.agents/skills/VAULT_SKILL.md';" },
+          { filter: /^\.\/runtime\/vaultContextAutoMaintainer$/, content: "export async function undoVaultContextMaintain() { return { ok: true }; }" },
+          { filter: /^\.\/runtime\/vaultContextRetriever$/, content: "export async function retrieveVaultContextOnDemand() { return ''; }" },
           { filter: /^\.\/agentSkills$/, content: "export function cleanupCodexBridgeSkillsForVaultSync() { return { deleted: 0 }; } export async function loadAgentSkillsManifest() { return { skills: [] }; } export async function saveAgentSkillsManifest() {} export async function prepareAgentSkillsForCodexRuntime() { return []; }" },
           { filter: /^\.\/attachmentPackingPolicy$/, content: "export const AttachmentPackingPolicy = { binaryAsNativeRef: true, sdkDirectAttachmentSupported: true };" },
           { filter: /^\.\.\/main$/, content: "export default class LLMBridgePlugin {}" },
