@@ -21185,10 +21185,10 @@ if (!runNoteSummarizeSmoke) {
         || runRendererSrcG56.includes('processHead.setAttribute("role", "button");'))
       && (viewSrc.includes('processHead.setAttribute("aria-expanded", "true");')
         || runRendererSrcG56.includes('processHead.setAttribute("aria-expanded", "true");'))
-      && (viewSrc.includes('processToggle.textContent = "▾";')
-        || runRendererSrcG56.includes('processToggle.textContent = "▾";'))
-      && (viewSrc.includes('processToggle.textContent = "▸";')
-        || runRendererSrcG56.includes('processToggle.textContent = "▸";'))
+      && (viewSrc.includes('processToggle.classList.add("is-expanded");')
+        || runRendererSrcG56.includes('processToggle.classList.add("is-expanded");'))
+      && (viewSrc.includes('processToggle.classList.remove("is-expanded");')
+        || runRendererSrcG56.includes('processToggle.classList.remove("is-expanded");'))
       && (viewSrc.includes("已处理 ${elapsed}")
         || runRendererSrcG56.includes("已处理 ${elapsed}"))
       && (viewSrc.includes("patchCodexRunViewInPlace")
@@ -21704,6 +21704,7 @@ class FakeElement {
     this._cls = new Set(v.trim().split(/\s+/).filter(Boolean));
   }
   get parentElement() { return this.parent; }
+  get childElementCount() { return this.children.length; }
   get nextElementSibling() {
     if (!this.parent) return null;
     const idx = this.parent.children.indexOf(this);
@@ -22195,7 +22196,7 @@ if (!runPhase3Prod) {
     const composerModP3 = await import(pathToFileURL(composerBundleP3).href);
     const sessionsModP3 = await import(pathToFileURL(sessionsBundleP3).href);
 
-    const { codexFeedItemKey, segmentCodexFeedEntries, patchCodexFeedEntryItem, isCodexImageFeedItem, formatCodexImageGroupTitle, reconcileCodexRunWaterfall, upgradeCodexCandidateAnswerInFeed } = waterfallModP3;
+    const { codexFeedItemKey, segmentCodexFeedEntries, patchCodexFeedEntryItem, patchCodexFeedEntryCluster, isCodexImageFeedItem, formatCodexImageGroupTitle, reconcileCodexRunWaterfall, upgradeCodexCandidateAnswerInFeed } = waterfallModP3;
     const { isEventInsideSelector, handleComposerAttachmentKeydown } = composerModP3;
     const { validateSessionId } = sessionsModP3;
 
@@ -22485,6 +22486,82 @@ if (!runPhase3Prod) {
         addTest("Phase 3-DOM-11: 真实 reconcileCodexRunWaterfall 最终回答不在 process body 内（生产函数）",
           ok ? "pass" : "fail",
           `feedList=${feedListExists} candidateInFeed=${candidateInFeed} answerBodyInFeed=${answerBodyInFeed} section=${finalSectionExists} sectionOutsideProcess=${finalSectionOutsideProcess} answerInSection=${answerBodyInSection} mdOnce=${mdRenderedOnce} mdDedup=${mdRenderedDedup} streamInSection=${streamInSection} answerBodyDuringStream=${answerBodyDuringStream} candidateInFeedStream=${candidateInFeedStream} answerBodyInFeedStream=${answerBodyInFeedStream}`);
+      } finally {
+        globalThis.HTMLElement = prevHtmlElement;
+      }
+    }
+
+    // --- Phase 3-DOM-12: 真实 patchCodexFeedEntryCluster 首次点击懒加载（生产函数）---
+    // V20: 验证完成态 cluster 首次点击立即展开并渲染内容，箭头同步旋转；
+    //      连续开合不丢内容、不重复绑定事件、复用原 body。
+    {
+      const prevHtmlElement = globalThis.HTMLElement;
+      try {
+        globalThis.HTMLElement = FakeElement;
+        const entry = new FakeElement("div");
+        entry.addClass("llm-bridge-codex-feed-entry");
+        // 构造一个完成的 command cluster（2 条命令）
+        const items = [
+          { id: "cmd1", kind: "command", icon: "terminal", label: "Run", status: "completed", summary: "ls", durationMs: 100, sourceRef: { sequence: 1, itemId: "cmd1" } },
+          { id: "cmd2", kind: "command", icon: "terminal", label: "Run", status: "completed", summary: "pwd", durationMs: 50, sourceRef: { sequence: 2, itemId: "cmd2" } },
+        ];
+        let renderCallCount = 0;
+        const mockDeps = {
+          renderCodexFeedItem: (parent, item) => {
+            renderCallCount++;
+            const row = parent.createDiv({ cls: "llm-bridge-codex-tool-group-member" });
+            row.setAttribute("data-feed-key", codexFeedItemKey(item));
+            row.textContent = item.summary || "";
+          },
+          renderMarkdownInto: () => {},
+          formatDurationMs: (ms) => `${ms}ms`,
+        };
+        // 第一次 patch：创建 cluster（折叠态）
+        patchCodexFeedEntryCluster(entry, "execution", items, false, mockDeps);
+        const group1 = entry.querySelector("details.llm-bridge-codex-tool-group");
+        const groupExists = !!group1;
+        const initiallyClosed = group1 && !group1.open;
+        const chevronExists = !!entry.querySelector(".llm-bridge-codex-tool-group-chevron");
+        const noBodyBeforeToggle = !entry.querySelector(".llm-bridge-codex-tool-group-body");
+
+        // 模拟用户首次点击展开：设置 open=true 后派发 toggle 事件
+        let toggleFired = false;
+        if (group1) {
+          group1.addEventListener("toggle", () => { toggleFired = true; });
+          group1.open = true;
+          group1.triggerEvent("toggle", { type: "toggle" });
+        }
+        const toggleHandlerFired = toggleFired;
+        // V20 核心：展开后 body 应立即创建并渲染
+        const bodyAfterToggle = entry.querySelector(".llm-bridge-codex-tool-group-body");
+        const bodyCreatedOnToggle = !!bodyAfterToggle;
+        const membersRendered = bodyAfterToggle ? bodyAfterToggle.children.length : 0;
+        const chevronExpanded = entry.querySelector(".llm-bridge-codex-tool-group-chevron")?.classList.contains("is-expanded");
+
+        // 再次 patch（模拟 runtime reconcile）：cluster 身份不变，body 复用
+        patchCodexFeedEntryCluster(entry, "execution", items, false, mockDeps);
+        const group2 = entry.querySelector("details.llm-bridge-codex-tool-group");
+        const sameGroup = group1 === group2;
+        const bodyAfterRepatch = entry.querySelector(".llm-bridge-codex-tool-group-body");
+        const bodyReused = bodyAfterToggle === bodyAfterRepatch;
+
+        // 折叠再展开：body 仍复用
+        if (group2) {
+          group2.open = false;
+          group2.triggerEvent("toggle", { type: "toggle" });
+          group2.open = true;
+          group2.triggerEvent("toggle", { type: "toggle" });
+        }
+        const bodyAfterReopen = entry.querySelector(".llm-bridge-codex-tool-group-body");
+        const bodyReusedAfterReopen = bodyAfterRepatch === bodyAfterReopen;
+
+        const ok = groupExists && initiallyClosed && chevronExists && noBodyBeforeToggle
+          && toggleHandlerFired && bodyCreatedOnToggle && membersRendered === 2
+          && chevronExpanded && sameGroup && bodyReused && bodyReusedAfterReopen;
+
+        addTest("Phase 3-DOM-12: 真实 cluster 首次点击懒加载 + 连续开合复用 body（生产函数）",
+          ok ? "pass" : "fail",
+          `groupExists=${groupExists} initiallyClosed=${initiallyClosed} chevronExists=${chevronExists} noBodyBeforeToggle=${noBodyBeforeToggle} toggleFired=${toggleHandlerFired} bodyCreated=${bodyCreatedOnToggle} members=${membersRendered} chevronExpanded=${chevronExpanded} sameGroup=${sameGroup} bodyReused=${bodyReused} bodyReusedAfterReopen=${bodyReusedAfterReopen} renderCalls=${renderCallCount}`);
       } finally {
         globalThis.HTMLElement = prevHtmlElement;
       }

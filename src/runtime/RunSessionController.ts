@@ -305,7 +305,9 @@ export class RunSessionController {
     if (this._lifecycleState !== "idle") return;
     this._lifecycleState = "preparing";
     const userInput = this.host.getComposerInput().trim();
-    if (!userInput) {
+    // V20: 允许附件-only 消息——有文字或有本轮附件任一成立即可发送
+    const hasMessageRefs = this.host.messageFileRefs.length > 0;
+    if (!userInput && !hasMessageRefs) {
       new Notice("请输入请求");
       this._lifecycleState = "idle";
       return;
@@ -333,8 +335,10 @@ export class RunSessionController {
     this.host.clearRuntimeCapabilitySelection();
 
     if (this.host.sessionState.messageCount === 0) {
+      // V20: 附件-only 消息用首个附件名作为会话标题
+      const titleSource = userInput || messageRefsForRun[0]?.displayName || "";
       this.host.sessionState = updateSession(this.host.sessionState, {
-        title: generateSessionTitle(userInput),
+        title: generateSessionTitle(titleSource),
         startedAt: new Date().toISOString(),
       });
     }

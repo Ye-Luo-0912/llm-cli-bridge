@@ -4897,7 +4897,7 @@ export class LLMBridgeView extends ItemView {
         break;
       }
     }
-    if (!userText.trim()) {
+    if (!userText.trim() && userFileRefs.length === 0) {
       new Notice("找不到可重试的用户消息");
       return;
     }
@@ -7206,14 +7206,17 @@ export class LLMBridgeView extends ItemView {
       .filter((node) => node.kind !== "status" && node.kind !== "agentMessage");
     if (nodes.length === 0) return null;
 
-    const activeIndex = nodes.findIndex((node) => node.status === "running" || node.status === "blocked");
+    // V20: 终态 turn 具有最高优先级——只要 turn 已结束，就不再显示 active composer 状态。
+    // 修复 turn 完成后图片节点仍为 running 导致状态栏常驻 "Viewing image" 的问题。
+    const turnIsTerminal = turn.status !== "running";
+    const activeIndex = turnIsTerminal ? -1 : nodes.findIndex((node) => node.status === "running" || node.status === "blocked");
     const currentIndex = activeIndex >= 0 ? activeIndex : nodes.length - 1;
     const current = nodes[currentIndex];
-    const isActive = turn.status === "running" || current.status === "running" || current.status === "blocked";
+    const isActive = !turnIsTerminal && (current.status === "running" || current.status === "blocked");
     const isContextCompaction = current.kind === "contextCompaction";
     const label = this.getComposerStatusLabel(turn, current, isActive);
     const stepText = this.formatComposerStepText(currentIndex, nodes.length, label, isActive, isContextCompaction);
-    const kind = current.status === "blocked"
+    const kind = current.status === "blocked" && !turnIsTerminal
       ? "blocked"
       : turn.status === "failed" || current.status === "failed"
         ? "failed"

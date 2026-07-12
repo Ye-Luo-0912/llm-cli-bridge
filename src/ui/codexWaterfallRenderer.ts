@@ -161,6 +161,17 @@ function computeFeedSignature(items: ReadonlyArray<CodexRunFeedItem>): string {
 }
 
 /**
+ * cluster 最新数据缓存：每个 details 元素对应最新的 items / developerMode / deps。
+ * toggle 事件处理器从此读取，避免闭包永久引用第一次的数据。
+ */
+interface ClusterLatestData {
+  items: ReadonlyArray<CodexRunFeedItem>;
+  developerMode: boolean;
+  deps: CodexWaterfallPatchDeps;
+}
+const clusterLatestData = new WeakMap<HTMLDetailsElement, ClusterLatestData>();
+
+/**
  * 统一 cluster revision：至少包含 status / summary / duration / stdout/stderr 长度 / diffSummary / approvalStatus。
  * 用于判断 cluster 是否需要 patch body。revision 不变时跳过 body patch。
  */
@@ -619,7 +630,7 @@ function stickScrollToBottom(el: HTMLElement): void {
  * 运行中不 empty() 重建整行；局部更新文字、状态和时间，保留 cluster 身份、
  * 成员 DOM、展开状态和滚动位置。
  */
-function patchCodexFeedEntryCluster(
+export function patchCodexFeedEntryCluster(
   entry: HTMLElement,
   clusterKind: CodexClusterKind,
   items: ReadonlyArray<CodexRunFeedItem>,
@@ -646,6 +657,22 @@ function patchCodexFeedEntryCluster(
     // V19: 展开箭头 ">" 放在文字右侧，通过旋转表现展开状态
     main.createEl("span", { cls: "llm-bridge-codex-tool-group-chevron", text: "›" });
     summary.createDiv({ cls: "llm-bridge-codex-tool-group-meta" });
+    // V20: 绑定一次 toggle 事件——展开时立即创建并渲染 body，不等待下一次 reconcile。
+    // 最新 items/deps 存在 WeakMap 里，避免事件闭包引用第一次的数据。
+    const groupEl = group;
+    groupEl.addEventListener("toggle", () => {
+      const chevron = groupEl.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-chevron");
+      if (chevron) chevron.classList.toggle("is-expanded", groupEl.open);
+      if (groupEl.open) {
+        const latest = clusterLatestData.get(groupEl);
+        if (!latest) return;
+        let body = groupEl.querySelector<HTMLElement>(":scope > .llm-bridge-codex-tool-group-body");
+        if (!body) {
+          body = groupEl.createDiv({ cls: "llm-bridge-codex-tool-group-body" });
+          patchClusterBody(body, latest.items, latest.developerMode, latest.deps);
+        }
+      }
+    });
   }
   group.className = `llm-bridge-codex-tool-group is-${groupStatus}`;
   if (wasOpen) group.open = true;
@@ -707,6 +734,9 @@ function patchCodexFeedEntryCluster(
   }
 
   group.setAttribute("data-member-ids", items.map((item) => codexFeedItemKey(item)).join("|"));
+
+  // V20: 更新 WeakMap 中的最新数据，供 toggle 事件处理器读取
+  clusterLatestData.set(group, { items, developerMode, deps });
 
   // 统一 revision：成员状态签名，用于判断是否需要 patch body
   const memberRevision = computeClusterRevision(items);

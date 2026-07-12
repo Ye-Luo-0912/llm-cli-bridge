@@ -62,7 +62,8 @@ interface CodexRunMountOrPatchArgs {
 /**
  * 统一确保过程头可交互（折叠箭头 + 事件绑定）。
  * mount 和 reconcile 都调用，保证 running→completed 切换后仍可折叠。
- * 保存用户当前展开状态：如果 processBody 已有 hidden 属性，保持折叠；否则保持展开。
+ * V20: 统一使用 › chevron + is-expanded 旋转，与执行块 disclosure row 完全一致。
+ * 标题行在前、chevron 紧跟其后，全部左对齐。
  */
 function ensureProcessHeadInteractive(
   process: HTMLElement,
@@ -76,7 +77,11 @@ function ensureProcessHeadInteractive(
   }
   let processToggle = processHead.querySelector<HTMLElement>(".llm-bridge-codex-process-toggle");
   if (!processToggle) {
-    processToggle = processHead.createEl("span", { cls: "llm-bridge-codex-process-toggle" });
+    processToggle = processHead.createEl("span", { cls: "llm-bridge-codex-process-toggle llm-bridge-codex-tool-group-chevron", text: "›" });
+  }
+  // V20: 确保 chevron 始终位于 processHead 末尾（标题行之后），避免顺序漂移导致箭头漂在中间
+  if (processToggle !== processHead.lastChild) {
+    processHead.appendChild(processToggle);
   }
   if (canToggle) {
     processHead.addClass("is-collapsible");
@@ -84,35 +89,29 @@ function ensureProcessHeadInteractive(
     processHead.setAttribute("tabindex", "0");
     const isCollapsed = processBody.hasAttribute("hidden");
     processHead.setAttribute("aria-expanded", isCollapsed ? "false" : "true");
-    processToggle.textContent = isCollapsed ? "▸" : "▾";
+    processToggle.classList.toggle("is-expanded", !isCollapsed);
     if (!processHead.hasAttribute("data-toggle-bound")) {
       processHead.setAttribute("data-toggle-bound", "true");
-      processHead.addEventListener("click", (event) => {
-        if ((event.target as HTMLElement | null)?.closest?.("button")) return;
+      const toggleBody = () => {
         const hidden = processBody.hasAttribute("hidden");
         if (hidden) {
           processBody.removeAttribute("hidden");
           processHead.setAttribute("aria-expanded", "true");
-          processToggle.textContent = "▾";
+          processToggle.classList.add("is-expanded");
         } else {
           processBody.setAttribute("hidden", "");
           processHead.setAttribute("aria-expanded", "false");
-          processToggle.textContent = "▸";
+          processToggle.classList.remove("is-expanded");
         }
+      };
+      processHead.addEventListener("click", (event) => {
+        if ((event.target as HTMLElement | null)?.closest?.("button")) return;
+        toggleBody();
       });
       processHead.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
-        const hidden = processBody.hasAttribute("hidden");
-        if (hidden) {
-          processBody.removeAttribute("hidden");
-          processHead.setAttribute("aria-expanded", "true");
-          processToggle.textContent = "▾";
-        } else {
-          processBody.setAttribute("hidden", "");
-          processHead.setAttribute("aria-expanded", "false");
-          processToggle.textContent = "▸";
-        }
+        toggleBody();
       });
     }
   } else {
@@ -120,6 +119,7 @@ function ensureProcessHeadInteractive(
     processHead.removeAttribute("role");
     processHead.removeAttribute("tabindex");
     processHead.removeAttribute("aria-expanded");
+    processToggle.classList.remove("is-expanded");
     processToggle.textContent = "";
   }
 }
