@@ -1,7 +1,7 @@
 # LLM CLI Bridge — Presentation Behavior Tests
 
-- **时间**: 2026-07-12T17:37:38.093Z
-- **commit**: c8cc656154454983e134a573ef7ae513090a58be
+- **时间**: 2026-07-12T18:08:25.755Z
+- **commit**: 10a5823d3f9e43ea414a711fc0ad6b166e117cbc
 - **filter**: codex-run
 - **结果**: 8 passed, 0 failed
 
