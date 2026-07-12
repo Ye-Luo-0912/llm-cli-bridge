@@ -4512,8 +4512,19 @@
   font-weight: 650;
 }
 .llm-bridge-codex-change-path {
-  color: var(--text-muted);
+  color: var(--text-accent);
   font-size: 10px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.llm-bridge-codex-change-path:hover {
+  text-decoration: underline;
+}
+.llm-bridge-codex-change-path.is-deleted {
+  color: var(--text-muted);
+  cursor: not-allowed;
+  text-decoration: line-through;
+  pointer-events: none;
 }
 .llm-bridge-codex-change-meta {
   display: flex;

@@ -22113,6 +22113,7 @@ if (!runPhase3Prod) {
             "export class FuzzySuggestModal {}",
             "export class ItemView {}",
             "export class Setting {}",
+            "export class Menu { addItem(cb){ cb({ setTitle(){return this;}, setIcon(){return this;}, onClick(){return this;} }); return this; } showAtPosition(){} addSeparator(){return this;} }",
           ].join("\n"),
           loader: "js",
         }));

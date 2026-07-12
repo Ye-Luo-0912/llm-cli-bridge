@@ -5,7 +5,7 @@
 // LLMBridgeView supplies Markdown, shell/diff helpers, path open, and duration formatting.
 
 import * as path from "path";
-import { Notice, setIcon } from "obsidian";
+import { Menu, Notice, setIcon } from "obsidian";
 import type { CodexRunFeedItem, CodexRunStepGroup, CodexRunViewModel } from "../runtime/core/codexRunViewModel";
 import type { RuntimeSourceRef } from "../runtime/core/types";
 import { resolveUiLocale } from "../runtime/core/toolPresentation";
@@ -48,6 +48,8 @@ export interface CodexFeedItemRenderDeps {
   renderCodexSourceRef: (parent: HTMLElement, sourceRef?: RuntimeSourceRef, developerMode?: boolean) => void;
   getVaultPath: () => string;
   openPathWithSystemDefault: (target: string) => void;
+  /** VC-4: 打开 vault 内文件（Obsidian 新标签页）；返回 false 表示文件不在 vault 内 */
+  openVaultFile: (fullPath: string) => Promise<boolean>;
 }
 
 /** 工具组懒展开时读取最新成员（保留 details 身份） */
@@ -658,7 +660,52 @@ function renderCodexFeedEventBlock(
     const body = block.createDiv({ cls: "llm-bridge-codex-event-body" });
     if (item.change) {
       const changeInfo = body.createDiv({ cls: "llm-bridge-codex-event-change-info" });
-      changeInfo.createDiv({ cls: "llm-bridge-codex-change-path", text: item.change.relativePath, attr: { title: item.change.fullPath } });
+      // 文件路径渲染为可点击链接（vault 内文件 → Obsidian 新标签页；外部文件 → 系统默认应用）
+      const pathLink = changeInfo.createEl("a", {
+        cls: `llm-bridge-codex-change-path is-${item.change.action}`,
+        text: item.change.relativePath,
+        attr: { title: item.change.fullPath, href: "#" },
+      });
+      if (item.change.action === "delete") {
+        pathLink.addClass("is-deleted");
+        pathLink.setAttribute("aria-disabled", "true");
+      } else {
+        pathLink.addEventListener("click", async (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!item.change) return;
+          const target = path.isAbsolute(item.change.fullPath)
+            ? item.change.fullPath
+            : path.join(deps.getVaultPath(), item.change.fullPath || item.change.relativePath);
+          const opened = await deps.openVaultFile(target);
+          if (!opened) {
+            deps.openPathWithSystemDefault(target);
+          }
+        });
+        pathLink.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!item.change) return;
+        const menu = new Menu();
+        menu.addItem((mi) => {
+          mi.setTitle("复制路径").setIcon("copy");
+          mi.onClick(() => {
+            void navigator.clipboard.writeText(item.change?.relativePath || item.change?.fullPath || "").then(() => new Notice("路径已复制"));
+          });
+        });
+        menu.addItem((mi) => {
+          mi.setTitle("在系统中打开").setIcon("external-link");
+          mi.onClick(() => {
+            if (!item.change) return;
+            const target = path.isAbsolute(item.change.fullPath)
+              ? item.change.fullPath
+              : path.join(deps.getVaultPath(), item.change.fullPath || item.change.relativePath);
+            deps.openPathWithSystemDefault(target);
+          });
+        });
+        menu.showAtPosition({ x: event.clientX, y: event.clientY });
+      });
+      }
       const actions = changeInfo.createDiv({ cls: "llm-bridge-codex-change-actions" });
       const copyBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "复制路径" } });
       setIcon(copyBtn, "copy");
@@ -670,16 +717,6 @@ function renderCodexFeedEventBlock(
         } catch {
           new Notice("复制失败");
         }
-      });
-      const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "打开文件" } });
-      setIcon(openBtn, "external-link");
-      openBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        if (!item.change) return;
-        const target = path.isAbsolute(item.change.fullPath)
-          ? item.change.fullPath
-          : path.join(deps.getVaultPath(), item.change.fullPath || item.change.relativePath);
-        void deps.openPathWithSystemDefault(target);
       });
       if (item.change.diff) {
         deps.renderCodexDiffPreview(body, item.change.diff, item.change.diffSummary);
@@ -735,7 +772,52 @@ export function renderCodexFeedItem(
       cls: `llm-bridge-codex-change-approval is-${item.change.approvalStatus ?? "resolved"}`,
       text: item.change.approvalStatus ?? "changed",
     });
-    main.createDiv({ cls: "llm-bridge-codex-change-path", text: item.change.relativePath, attr: { title: item.change.fullPath } });
+    // 文件路径渲染为可点击链接：vault 内文件左键 Obsidian 新标签页打开，外部文件回退系统默认应用
+    const pathLink = main.createEl("a", {
+      cls: `llm-bridge-codex-change-path is-${item.change.action}`,
+      text: item.change.relativePath,
+      attr: { title: item.change.fullPath, href: "#" },
+    });
+    if (item.change.action === "delete") {
+      pathLink.addClass("is-deleted");
+      pathLink.setAttribute("aria-disabled", "true");
+    } else {
+      pathLink.addEventListener("click", async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!item.change) return;
+        const target = path.isAbsolute(item.change.fullPath)
+          ? item.change.fullPath
+          : path.join(deps.getVaultPath(), item.change.fullPath || item.change.relativePath);
+        const opened = await deps.openVaultFile(target);
+        if (!opened) {
+          deps.openPathWithSystemDefault(target);
+        }
+      });
+      pathLink.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (!item.change) return;
+        const menu = new Menu();
+        menu.addItem((mi) => {
+          mi.setTitle("复制路径").setIcon("copy");
+          mi.onClick(() => {
+            void navigator.clipboard.writeText(item.change?.relativePath || item.change?.fullPath || "").then(() => new Notice("路径已复制"));
+          });
+        });
+        menu.addItem((mi) => {
+          mi.setTitle("在系统中打开").setIcon("external-link");
+          mi.onClick(() => {
+            if (!item.change) return;
+            const target = path.isAbsolute(item.change.fullPath)
+              ? item.change.fullPath
+              : path.join(deps.getVaultPath(), item.change.fullPath || item.change.relativePath);
+            deps.openPathWithSystemDefault(target);
+          });
+        });
+        menu.showAtPosition({ x: event.clientX, y: event.clientY });
+      });
+    }
   } else if (item.summary) {
     const feedSummary = formatCodexFeedSummary(item, developerMode);
     if (feedSummary) {
@@ -762,16 +844,6 @@ export function renderCodexFeedItem(
       } catch {
         new Notice("复制失败");
       }
-    });
-    const openBtn = actions.createEl("button", { cls: "llm-bridge-codex-icon-btn", attr: { type: "button", title: "打开文件" } });
-    setIcon(openBtn, "external-link");
-    openBtn.addEventListener("click", (event) => {
-      event.stopPropagation();
-      if (!item.change) return;
-      const target = path.isAbsolute(item.change.fullPath)
-        ? item.change.fullPath
-        : path.join(deps.getVaultPath(), item.change.fullPath || item.change.relativePath);
-      void deps.openPathWithSystemDefault(target);
     });
     if (item.change.diff) {
       deps.renderCodexDiffPreview(row, item.change.diff, item.change.diffSummary);

@@ -4335,6 +4335,28 @@ export class LLMBridgeView extends ItemView {
     return false;
   }
 
+  /**
+   * 通过完整路径打开 vault 内文件（Obsidian 新标签页）。
+   * 返回 false 表示文件不在 vault 内，调用方应回退到系统默认应用。
+   */
+  private async openVaultFileByPath(fullPath: string): Promise<boolean> {
+    const vaultPath = this.getVaultPath();
+    let relPath: string;
+    if (path.isAbsolute(fullPath)) {
+      const relative = path.relative(vaultPath, fullPath);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) return false;
+      relPath = relative.replace(/\\/g, "/");
+    } else {
+      relPath = fullPath.replace(/\\/g, "/").replace(/^\/+/, "");
+    }
+    const file = this.app.vault.getAbstractFileByPath(relPath);
+    if (file instanceof TFile) {
+      await this.openVaultFileFromAssistantLink(file);
+      return true;
+    }
+    return false;
+  }
+
   private resolveFileRefVaultPath(ref: FileRef): string | null {
     const vaultPath = this.getVaultPath();
     const candidates = [ref.requestedPath, ref.resolvedPath].filter((value) => value && value.trim().length > 0);
@@ -5182,6 +5204,7 @@ export class LLMBridgeView extends ItemView {
         this.renderCodexSourceRef(parent, sourceRef, developerMode),
       getVaultPath: () => this.getVaultPath(),
       openPathWithSystemDefault: (target) => { void this.openPathWithSystemDefault(target); },
+      openVaultFile: (fullPath) => this.openVaultFileByPath(fullPath),
     };
   }
 
