@@ -252,7 +252,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     // RuntimeProfileResolver: 注入本地中转认证（provider-neutral，自动优先级）
     if (settings) {
       const vaultProfile = loadVaultRuntimeProfileSync(cwd);
-      const relayProfile = resolveRuntimeProfileSync(settings, vaultProfile);
+      const relayProfile = resolveRuntimeProfileSync(settings, vaultProfile, cwd);
       if (relayProfile.origin !== "none" && relayProfile.relayUrl) {
         env.OPENAI_BASE_URL = relayProfile.relayUrl;
         if (relayProfile.apiKey) {

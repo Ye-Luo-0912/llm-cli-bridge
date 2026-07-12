@@ -2434,11 +2434,20 @@
   height: 15px;
 }
 
-/* 回到底部浮动按钮 */
+/* 回到底部浮动按钮：锚点容器居中定位，不依赖固定 bottom 数值 */
+.llm-bridge-scroll-bottom-anchor {
+  position: relative;
+  height: 0;
+  width: 100%;
+  z-index: 40;
+  pointer-events: none;
+}
+
 .llm-bridge-scroll-bottom-btn {
   position: absolute;
-  right: 16px;
-  bottom: 140px;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: 8px;
   z-index: 40;
   display: flex;
   align-items: center;
@@ -2453,11 +2462,12 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
   transition: opacity 0.15s, transform 0.15s;
   opacity: 0.85;
+  pointer-events: auto;
 }
 
 .llm-bridge-scroll-bottom-btn:hover {
   opacity: 1;
-  transform: scale(1.08);
+  transform: translateX(-50%) scale(1.08);
 }
 
 .llm-bridge-scroll-bottom-icon svg {

@@ -1,4 +1,4 @@
-# LLM CLI Bridge - Build + Test + Deploy + SHA-256 verify pipeline
+﻿# LLM CLI Bridge - Build + Test + Deploy + SHA-256 verify pipeline
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\deploy-to-obsidian.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\deploy-to-obsidian.ps1 -SkipBuild
@@ -150,12 +150,14 @@ if ($failedTargets.Count -gt 0) {
 
 if ($Reload -and $successCount -gt 0) {
   Write-Step "Auto-reload plugin via Chrome DevTools Protocol (CDP)"
-  # Phase 5: 旧的 HTTP API reload（/api/reload-plugin）路由不存在且端口硬编码 42167 不匹配实际随机端口。
-  # 改用 CDP reload：通过 Obsidian 的 --remote-debugging-port=9223 禁用并重新启用插件。
+  # CDP reload：通过 Obsidian 的 --remote-debugging-port=9223 禁用并重新启用插件。
   # 前置条件：Obsidian 必须以 --remote-debugging-port=9223 启动。
   $cdpScript = Join-Path $src "scripts\cdp-reload.mjs"
+  if (-not (Test-Path $cdpScript)) {
+    $cdpScript = Join-Path $PSScriptRoot "cdp-reload.mjs"
+  }
   $reloadOk = $false
-  if (Test-Path $cdpScript) {
+  if ($cdpScript -and (Test-Path $cdpScript)) {
     try {
       $nodeResult = & node $cdpScript 2>&1
       $nodeExitCode = $LASTEXITCODE
@@ -172,7 +174,17 @@ if ($Reload -and $successCount -gt 0) {
   } else {
     Write-Warn "CDP reload script not found: $cdpScript"
   }
+
+  # V18: 二级回退——CDP 失败时通过 obsidian:// URI 激活 Obsidian 窗口
+  # obsidian:// URI 无法自动重载插件，但能激活窗口让用户快速操作手动重载
   if (-not $reloadOk) {
+    Write-Step "Fallback: activate Obsidian via obsidian:// URI"
+    try {
+      Start-Process "obsidian://"
+      Write-Ok "Obsidian window activated"
+    } catch {
+      Write-Warn "Failed to activate Obsidian: $($_.Exception.Message)"
+    }
     Write-Host "  Manual reload required: Settings > Community plugins > disable/enable LLM CLI Bridge" -ForegroundColor Yellow
     Write-Host "  Or start Obsidian with --remote-debugging-port=9223 and re-run with -Reload" -ForegroundColor DarkGray
   }

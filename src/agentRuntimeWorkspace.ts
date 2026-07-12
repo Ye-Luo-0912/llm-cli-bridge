@@ -496,31 +496,28 @@ export async function generateInitialVaultSkill(
 
   const skillMd = [
     "# Vault Context",
+    "<!-- vault-context-router-version: 2 -->",
     "",
-    "本包保存当前 Vault 中稳定、可复用的规则、目录语义、明确偏好和工作约定。",
-    "临时任务、会话过程、猜测和敏感信息不得写入。",
+    "维护并应用当前 Obsidian Vault 中稳定、可复用、已验证的上下文。",
+    "只在与 Vault 路径、命名、格式、明确偏好或可复用工作约定有关时使用。",
     "",
-    "## 子 Skills",
+    "## 按需读取",
     "",
-    "- [vault-rules.md](vault-rules.md)：写入边界与安全规则",
-    "- [directories.md](directories.md)：目录用途与推荐输出位置",
-    "- [conventions.md](conventions.md)：命名、格式和稳定工作流",
-    "- [preferences.md](preferences.md)：用户明确表达的稳定偏好",
+    "- 创建、移动、重命名或删除笔记前：读取 [vault-rules.md](vault-rules.md) 与 [directories.md](directories.md)",
+    "- 决定文件名、属性、格式或稳定工作流时：读取 [conventions.md](conventions.md)",
+    "- 用户表达稳定偏好，或任务需要遵循既有偏好时：读取 [preferences.md](preferences.md)",
+    "- 只需定位相关条目时：先读取 [INDEX.md](INDEX.md)",
+    "- 普通知识问答且不涉及 Vault 行为时：不要继续加载本包",
     "",
-    "## 使用路由",
+    "## 自动维护",
     "",
-    "- 文件创建、移动、删除：读取 vault-rules + directories",
-    "- 命名和格式整理：读取 conventions",
-    "- 回复风格与用户习惯：读取 preferences",
-    "- 普通知识问答：通常无需加载",
-    "",
-    "## 维护边界",
-    "",
-    "- 当前明确指令优先于普通偏好",
-    "- 安全规则不得静默绕过",
-    "- 只维护稳定、可复用、可验证的事实",
-    "- 具体内容只写入对应子文件",
-    "- INDEX.md 由系统自动生成",
+    "- 任务完成后，仅把本轮已验证且未来仍有用的事实追加到对应子文件",
+    "- 用户明确表达长期偏好时写入 preferences.md；不要从一次性请求推断偏好",
+    "- 重复出现并已验证的目录用途写入 directories.md；命名/格式/流程约定写入 conventions.md",
+    "- 不自动修改 vault-rules.md；安全边界变更必须来自用户明确要求或系统迁移",
+    "- 写入前去重；发现冲突时保留现状并向用户说明，不静默覆盖",
+    "- 临时任务、会话过程、待办、猜测、模型结论、凭据和其他敏感信息不得写入",
+    "- 当前明确指令优先于 preferences.md；INDEX.md 由系统生成，不手工编辑",
     "",
   ].join("\n");
 
@@ -1026,6 +1023,16 @@ export async function ensureAgentRuntimeWorkspace(
         const skillDir = path.dirname(vaultSkillAbs);
         const initial = await generateInitialVaultSkill(vaultPath);
         let migrated = false;
+        // 路由文件由插件维护；旧路由升级到 metadata 渐进披露版本。
+        // 稳定事实都在子文件中，因此升级路由不会覆盖用户上下文内容。
+        const isOldManagedRouter = /^#\s+Vault\s+Context\s*$/im.test(legacySkillMd)
+          && !legacySkillMd.includes("vault-context-router-version: 2")
+          && (/##\s+(?:子 Skills|使用路由|按需读取|维护边界|自动维护)/.test(legacySkillMd));
+        if (isOldManagedRouter) {
+          await fs.promises.writeFile(vaultSkillAbs, initial.skillMd, "utf8");
+          created.push(VAULT_SKILL_SOURCE_REL);
+          migrated = true;
+        }
         for (const [name, content] of Object.entries(initial.subFiles)) {
           const subAbs = path.join(skillDir, name);
           try {
@@ -1167,13 +1174,36 @@ export interface VaultSkillRuntimeMeta {
 }
 
 const VAULT_SKILL_RUNTIME_META: Readonly<Record<string, VaultSkillRuntimeMeta>> = {
-  [VAULT_CONTEXT_SLUG]: { slug: VAULT_CONTEXT_SLUG, name: "vault-context", description: "Agent-maintained vault context skill package (SKILL.md manifest + sub-skills: vault-rules/conventions/preferences/directories + INDEX.md). Agent edits sub-skill .md files directly to maintain stable facts." },
+  [VAULT_CONTEXT_SLUG]: {
+    slug: VAULT_CONTEXT_SLUG,
+    name: "vault-context",
+    description: "Use for vault-specific context in the current Obsidian vault: before creating, moving, renaming, or deleting notes; when choosing paths, names, properties, formats, or stable workflows; when the user states a lasting preference; and after completed work reveals verified reusable directory semantics or conventions. Read only the relevant referenced file and maintain it automatically. Never store transient tasks, guesses, session content, credentials, or secrets.",
+  },
   // V2.18 vault-api：Obsidian Plugin API 能力（property/tags/backlinks/tasks/daily/trash）
   [VAULT_API_SLUG]: { slug: VAULT_API_SLUG, name: "vault-api", description: "Obsidian Plugin API capabilities that the file system cannot provide: frontmatter (metadataCache/fileManager), tags/backlinks/tasks aggregation, daily-notes path, vault trash/rename. Invoke via outbox action / HTTP bridge (see .llm-bridge/bridge.json)." },
 };
 
 export function getVaultSkillRuntimeMeta(slug: string): VaultSkillRuntimeMeta {
   return VAULT_SKILL_RUNTIME_META[slug] ?? { slug, name: slug, description: `Split skill: ${slug}` };
+}
+
+/**
+ * V18: 从 SKILL.md 全文解析 YAML frontmatter 的 name/description 字段。
+ * 解析失败时返回空对象，调用方回退到 getVaultSkillRuntimeMeta 的硬编码值。
+ */
+function parseSkillFrontmatterFields(raw: string): { name?: string; description?: string } {
+  const normalized = raw.replace(/^\uFEFF/, "");
+  if (!normalized.startsWith("---")) return {};
+  const end = normalized.indexOf("\n---", 3);
+  if (end < 0) return {};
+  const block = normalized.slice(3, end).split(/\r?\n/);
+  const values: Record<string, string> = {};
+  for (const line of block) {
+    const match = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line.trim());
+    if (!match) continue;
+    values[match[1]] = match[2];
+  }
+  return { name: values.name, description: values.description };
 }
 
 // ---------- update-log.md ----------
@@ -1488,6 +1518,12 @@ function syncVaultSkillsSourceToManifest(vaultPath: string): { synced: string[];
     const existing = existingBySlug.get(slug);
     const nowIso = new Date().toISOString();
 
+    // V18: 从 SKILL.md frontmatter 解析 name/description，覆盖硬编码值
+    // 解析失败时回退到 getVaultSkillRuntimeMeta 的硬编码值
+    const frontmatter = parseSkillFrontmatterFields(instructions);
+    const skillName = frontmatter.name || meta.name;
+    const skillDescription = frontmatter.description || meta.description;
+
     // 包 skill：hash 包含 SKILL.md + 所有子 .md 文件内容拼接
     let combinedForHash = instructions;
     if (isPackage) {
@@ -1506,8 +1542,8 @@ function syncVaultSkillsSourceToManifest(vaultPath: string): { synced: string[];
 
     // 检测 source 内容是否变化
     const newSourceHash = computeAgentSkillSourceHash({
-      name: meta.name,
-      description: meta.description,
+      name: skillName,
+      description: skillDescription,
       instructions: combinedForHash.trim(),
     });
 
@@ -1530,8 +1566,8 @@ function syncVaultSkillsSourceToManifest(vaultPath: string): { synced: string[];
 
     // 创建/更新 record
     const record = createAgentSkillRecord({
-      name: meta.name,
-      description: meta.description,
+      name: skillName,
+      description: skillDescription,
       instructions,
       enabled: true,
       source: existing?.source ?? "manual",

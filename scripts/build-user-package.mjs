@@ -183,8 +183,6 @@ const managedRuntimeSrcDir = path.join(PROJECT_ROOT, "src", "runtime", "provider
 const managedRuntimeDestDir = path.join(OUT_DIR, "codex-managed-runtime");
 const managedManifestSrc = path.join(managedRuntimeSrcDir, "runtime-manifest.json");
 const managedManifestDest = path.join(managedRuntimeDestDir, "runtime-manifest.json");
-const managedRuntimeBinarySrcDir = path.join(managedRuntimeSrcDir, "runtime");
-const managedRuntimeBinaryDestDir = path.join(managedRuntimeDestDir, "runtime");
 const managedInstallerSrc = path.join(PROJECT_ROOT, "scripts", "install-codex-managed-runtime.mjs");
 const managedInstallerDest = path.join(managedRuntimeDestDir, "install-codex-managed-runtime.mjs");
 
@@ -214,13 +212,20 @@ if (offlineRuntime) {
     process.exit(1);
   }
 
-  const currentPlatformRuntimeSrc = path.join(managedRuntimeBinarySrcDir, platformKey);
-  const currentPlatformRuntimeDest = path.join(managedRuntimeBinaryDestDir, platformKey);
-  if (fs.existsSync(currentPlatformRuntimeSrc)) {
-    copyDirSync(currentPlatformRuntimeSrc, currentPlatformRuntimeDest);
-    console.log(`  ✓ runtime/${platformKey}/ 已复制（仅当前平台 pinned binary）`);
+  const managedManifest = JSON.parse(fs.readFileSync(managedManifestSrc, "utf8"));
+  const currentPlatformEntry = managedManifest.platforms?.[platformKey];
+  const currentPlatformRuntimeSrc = currentPlatformEntry?.path
+    ? path.resolve(managedRuntimeSrcDir, currentPlatformEntry.path)
+    : null;
+  const currentPlatformRuntimeDest = currentPlatformEntry?.path
+    ? path.resolve(managedRuntimeDestDir, currentPlatformEntry.path)
+    : null;
+  if (currentPlatformRuntimeSrc && currentPlatformRuntimeDest && fs.existsSync(currentPlatformRuntimeSrc)) {
+    fs.mkdirSync(path.dirname(currentPlatformRuntimeDest), { recursive: true });
+    fs.copyFileSync(currentPlatformRuntimeSrc, currentPlatformRuntimeDest);
+    console.log(`  ✓ ${currentPlatformEntry.path} 已复制（严格按 manifest，仅当前平台 pinned binary）`);
   } else {
-    console.error(`[user-package] 错误：当前平台 runtime 不存在: ${currentPlatformRuntimeSrc}`);
+    console.error(`[user-package] 错误：当前平台 runtime 不存在或 manifest 未声明: ${currentPlatformRuntimeSrc || platformKey}`);
     process.exit(1);
   }
 } else {

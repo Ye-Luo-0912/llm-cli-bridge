@@ -65,9 +65,11 @@ export function codexFeedItemKey(item: CodexRunFeedItem): string {
   return seq !== undefined ? `seq:${seq}:${itemId}` : itemId;
 }
 
-/** 单 item 的轻量签名：捕获 status / summary 长度 / duration 变化 */
+/** 单 item 的轻量签名：捕获 status / summary 内容摘要 / duration 变化 */
 function codexFeedItemSignature(item: CodexRunFeedItem): string {
-  return `${item.status}|${(item.summary || "").length}|${item.durationMs ?? ""}|${item.step?.durationMs ?? ""}`;
+  // V18: 改用内容摘要（前 80 字符）替代长度，避免同长度不同内容时漏更新
+  const summaryDigest = (item.summary || "").slice(0, 80);
+  return `${item.status}|${summaryDigest}|${item.durationMs ?? ""}|${item.step?.durationMs ?? ""}`;
 }
 
 /** 整个 feed 的签名：key + per-item signature，用于快速判断是否有变化 */
@@ -94,7 +96,17 @@ export function formatCodexImageGroupTitle(items: ReadonlyArray<CodexRunFeedItem
   return active ? "Viewing image" : items.length > 1 ? `Viewed ${items.length} images` : "Viewed image";
 }
 
-/** 初渲/增量共用：按时间线顺序分组，不按类型重排 */
+/** 判断 item 是否属于 operation cluster（可分组的工具类操作：命令/文件编辑/工具/图片） */
+function isOperationClusterable(item: CodexRunFeedItem): boolean {
+  return item.kind === "command" || item.kind === "file" || item.kind === "mcp" || item.kind === "dynamic" || isCodexImageFeedItem(item);
+}
+
+/** 判断 item 是否是思考文本（作为 cluster 边界，单独渲染不进入 cluster） */
+function isThinkingBoundary(item: CodexRunFeedItem): boolean {
+  return item.kind === "thinking" || item.kind === "assistant";
+}
+
+/** 初渲/增量共用：按时间线顺序分组，思考文本作为边界，连续工具类操作组成 operation cluster */
 export function groupCodexFeedRenderEntries(
   items: ReadonlyArray<CodexRunFeedItem>,
 ): CodexWaterfallFeedEntry[] {
@@ -102,26 +114,24 @@ export function groupCodexFeedRenderEntries(
   let i = 0;
   while (i < items.length) {
     const item = items[i];
-    if (item.kind === "command") {
-      const group: CodexRunFeedItem[] = [];
-      const startKey = codexFeedItemKey(item);
-      while (i < items.length && items[i].kind === "command") {
-        group.push(items[i]);
-        i += 1;
-      }
-      // Always use tool-group key (even for a single command) so a later sibling
-      // command does not remount the first row under a different keyed entry.
-      entries.push({ kind: "tool-group", key: `group:command:${startKey}`, groupKind: "command", items: group });
+    // 思考文本作为边界：单独 item，关闭当前 cluster（不允许重复渲染）
+    if (isThinkingBoundary(item)) {
+      entries.push({ kind: "item", key: codexFeedItemKey(item), item });
+      i += 1;
       continue;
     }
-    if (isCodexImageFeedItem(item)) {
+    // operation cluster：连续的工具类操作（命令/文件编辑/工具/图片）
+    if (isOperationClusterable(item)) {
       const group: CodexRunFeedItem[] = [];
       const startKey = codexFeedItemKey(item);
-      while (i < items.length && isCodexImageFeedItem(items[i])) {
+      while (i < items.length && isOperationClusterable(items[i])) {
         group.push(items[i]);
         i += 1;
       }
-      entries.push({ kind: "tool-group", key: `group:image:${startKey}`, groupKind: "image", items: group });
+      // Always use tool-group key (even for a single item) so a later sibling
+      // does not remount the first row under a different keyed entry.
+      const groupKind: "command" | "image" = group.every((it) => isCodexImageFeedItem(it)) ? "image" : "command";
+      entries.push({ kind: "tool-group", key: `group:${groupKind}:${startKey}`, groupKind, items: group });
       continue;
     }
     entries.push({ kind: "item", key: codexFeedItemKey(item), item });
@@ -232,13 +242,13 @@ function patchCodexToolGroupBody(
     if (!node) {
       node = body.createDiv({ cls: "llm-bridge-codex-tool-group-member", attr: { "data-feed-key": key } });
       if (item.sourceRef?.itemId) node.setAttribute("data-item-id", item.sourceRef.itemId);
-      deps.renderCodexFeedItem(node, item, developerMode, true);
+      deps.renderCodexFeedItem(node, item, developerMode, false);
       node.setAttribute("data-member-rev", memberRev);
       existingByKey.set(key, node);
     } else if (node.getAttribute("data-member-rev") !== memberRev) {
       // 已存在成员：status/summary/duration 变化时重新渲染（running → completed 等）
       node.empty();
-      deps.renderCodexFeedItem(node, item, developerMode, true);
+      deps.renderCodexFeedItem(node, item, developerMode, false);
       node.setAttribute("data-member-rev", memberRev);
     }
     if (anchor !== node) body.insertBefore(node, anchor ?? null);
@@ -274,6 +284,8 @@ function patchCodexFeedEntryToolGroup(
     setIcon(icon, groupKind === "image" ? "image" : "terminal");
     const main = summary.createDiv({ cls: "llm-bridge-codex-tool-group-main" });
     main.createEl("span", { cls: "llm-bridge-codex-tool-group-title", text: "" });
+    // V18: 状态指示器（所有用户可见）——运行中"正在思考"+光效，完成"· {duration}"
+    main.createEl("span", { cls: "llm-bridge-codex-tool-group-status" });
     summary.createDiv({ cls: "llm-bridge-codex-tool-group-meta" });
     group.addEventListener("toggle", () => {
       if (!group?.open) return;
@@ -294,6 +306,26 @@ function patchCodexFeedEntryToolGroup(
   if (titleEl && titleEl.textContent !== title) {
     titleEl.textContent = title;
     titleEl.setAttribute("title", title);
+  }
+
+  // V18: 更新状态指示器——运行中"正在思考"+光效，完成"· {duration}"，失败"· 失败"
+  const statusIndicator = group.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-status");
+  if (statusIndicator) {
+    const totalDuration = sumCodexEventDuration(items);
+    let statusText = "";
+    let statusCls = "llm-bridge-codex-tool-group-status";
+    if (groupStatus === "running") {
+      statusText = "正在思考";
+      statusCls = "llm-bridge-codex-tool-group-status is-running llm-bridge-run-glow";
+    } else if (groupStatus === "failed") {
+      statusText = "· 失败";
+      statusCls = "llm-bridge-codex-tool-group-status is-failed";
+    } else {
+      statusText = totalDuration ? `· ${deps.formatDurationMs(totalDuration)}` : "· 已处理";
+      statusCls = "llm-bridge-codex-tool-group-status is-done";
+    }
+    if (statusIndicator.className !== statusCls) statusIndicator.className = statusCls;
+    if (statusIndicator.textContent !== statusText) statusIndicator.textContent = statusText;
   }
 
   const meta = group.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-meta");
@@ -1042,10 +1074,22 @@ function renderCodexToolGroup(
     text: groupTitle,
     attr: { title: groupTitle },
   });
+  // V18: 状态指示器（所有用户可见）
+  const totalDuration = sumCodexEventDuration(events);
+  const statusSpan = main.createEl("span", { cls: "llm-bridge-codex-tool-group-status" });
+  if (groupStatus === "running") {
+    statusSpan.className = "llm-bridge-codex-tool-group-status is-running llm-bridge-run-glow";
+    statusSpan.textContent = "正在思考";
+  } else if (groupStatus === "failed") {
+    statusSpan.className = "llm-bridge-codex-tool-group-status is-failed";
+    statusSpan.textContent = "· 失败";
+  } else {
+    statusSpan.className = "llm-bridge-codex-tool-group-status is-done";
+    statusSpan.textContent = totalDuration ? `· ${deps.formatDurationMs(totalDuration)}` : "· 已处理";
+  }
   const meta = summary.createDiv({ cls: "llm-bridge-codex-tool-group-meta" });
   if (developerMode) {
     meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${groupStatus}`, text: groupStatus });
-    const totalDuration = sumCodexEventDuration(events);
     if (totalDuration) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: deps.formatDurationMs(totalDuration) });
     meta.createEl("span", {
       cls: "llm-bridge-codex-tool-group-count",
@@ -1058,7 +1102,7 @@ function renderCodexToolGroup(
     if (bodyRendered) return;
     bodyRendered = true;
     const body = group.createDiv({ cls: "llm-bridge-codex-tool-group-body" });
-    events.forEach((item) => renderCodexFeedItem(body, item, developerMode, true, deps));
+    events.forEach((item) => renderCodexFeedItem(body, item, developerMode, false, deps));
   };
   group.addEventListener("toggle", () => {
     if (group.open) renderBody();

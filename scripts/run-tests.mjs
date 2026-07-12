@@ -4315,9 +4315,9 @@ if (runMode !== "all" && runMode !== "unit") {
         const pathMod = await import("path");
         const skill = await agentRuntimeWsMod.readVaultSkillSource(v165eTmpRoot);
         const hasHeader = skill?.includes("# Vault Context") ?? false;
-        const hasSubSkills = skill?.includes("## 子 Skills") ?? false;
-        const hasMaintenanceRules = skill?.includes("## 维护边界") ?? false;
-        const hasRouting = skill?.includes("## 使用路由") ?? false;
+        const hasSubSkills = skill?.includes("## 按需读取") ?? false;
+        const hasMaintenanceRules = skill?.includes("## 自动维护") ?? false;
+        const hasRouting = skill?.includes("普通知识问答且不涉及 Vault 行为时") ?? false;
         // 子 skill 文件存在 + 含边界规则/目录语义
         const skillDir = pathMod.join(v165eTmpRoot, "LLM-AgentRuntime/skills/vault-context");
         const vaultRulesContent = await fsMod.promises.readFile(pathMod.join(skillDir, "vault-rules.md"), "utf8");
@@ -4333,7 +4333,7 @@ if (runMode !== "all" && runMode !== "unit") {
       {
         const result = await agentRuntimeWsMod.generateInitialVaultSkill(v165eTmpRoot);
         const isObject = typeof result === "object" && result !== null && typeof result.skillMd === "string";
-        const skillMdOk = result.skillMd.includes("# Vault Context") && result.skillMd.includes("## 子 Skills") && result.skillMd.includes("## 维护边界");
+        const skillMdOk = result.skillMd.includes("# Vault Context") && result.skillMd.includes("## 按需读取") && result.skillMd.includes("## 自动维护");
         const subFilesKeys = Object.keys(result.subFiles).sort();
         const subFilesOk = subFilesKeys.length === 4
           && subFilesKeys[0] === "conventions.md"
@@ -4385,7 +4385,7 @@ if (runMode !== "all" && runMode !== "unit") {
 
           // 验证 SKILL.md 重写为路由入口
           const newSkillMd = await fsMod.promises.readFile(pathMod.join(skillDir, "SKILL.md"), "utf8");
-          const skillIsRouting = newSkillMd.includes("# Vault Context") && newSkillMd.includes("## 使用路由") && !newSkillMd.includes("## Vault Rules");
+          const skillIsRouting = newSkillMd.includes("# Vault Context") && newSkillMd.includes("## 按需读取") && !newSkillMd.includes("## Vault Rules");
           const rewrittenOk = result.rewritten.includes("LLM-AgentRuntime/skills/vault-context/SKILL.md");
 
           // 验证中文偏好迁移到 preferences.md
@@ -4741,10 +4741,10 @@ if (runMode !== "all" && runMode !== "unit") {
         const vcUnderMax = vcContent.length <= agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS;
         const vcHasSplitNotice = vcContent.includes("Split notice") || vcContent.includes("已按职责拆分") || vcContent.includes("split");
         const vcHasIndexPointer = vcContent.includes("vault-index");
-        // 包结构 SKILL.md 应为 vault-context 清单 header（含子 Skills / 维护边界）
+        // 包结构 SKILL.md 应为渐进披露路由（含按需读取 / 自动维护）
         const vcHasPkgHeader = vcContent.includes("# Vault Context");
-        const vcHasSubSkills = vcContent.includes("## 子 Skills");
-        const vcHasMaintenance = vcContent.includes("## 维护边界");
+        const vcHasSubSkills = vcContent.includes("## 按需读取");
+        const vcHasMaintenance = vcContent.includes("## 自动维护");
 
         addTest("V16.5-K1 包结构: vault-context SKILL.md 含子 Skills / 维护边界（无 split）",
           vcUnderMax && !vcHasSplitNotice && !vcHasIndexPointer && vcHasPkgHeader && vcHasSubSkills && vcHasMaintenance ? "pass" : "fail",
@@ -6488,12 +6488,12 @@ if (runMode !== "all" && runMode !== "unit") {
           const cap = fakeMod.getFakeCapture();
           const noSetKey = cap.setRuntimeApiKeyCalls.length === 0;
           const noRegister = cap.registerProviderCalls.length === 0;
-          const noModelOverride = cap.createAgentSessionCalls[0]?.sessionOpts?.model === undefined;
+          const modelAligned = !!cap.createAgentSessionCalls[0]?.sessionOpts?.model;
           const hasCompleted = events.some((e) => e.payload?.kind === "completed");
 
-          addTest("V17-D auth override: 空 override 时不调用 setRuntimeApiKey/registerProvider",
-            noSetKey && noRegister && noModelOverride && hasCompleted ? "pass" : "fail",
-            `noSetKey=${noSetKey} noRegister=${noRegister} noModelOverride=${noModelOverride} completed=${hasCompleted}`);
+          addTest("V17-D auth override: 空 override 时不调用认证覆盖，模型仍与 EffectiveRunPlan 对齐",
+            noSetKey && noRegister && modelAligned && hasCompleted ? "pass" : "fail",
+            `noSetKey=${noSetKey} noRegister=${noRegister} modelAligned=${modelAligned} completed=${hasCompleted}`);
         }
       }
 
@@ -6949,7 +6949,9 @@ if (runMode !== "all" && runMode !== "unit") {
                                                 /download-on-first-run/.test(buildScript);
         const buildHasOfflineMode = buildScript.includes("--offline-runtime") &&
                                     buildScript.includes("bundled-platform-runtime") &&
-                                    buildScript.includes("runtime/${platformKey}");
+                                    buildScript.includes("currentPlatformEntry.path") &&
+                                    buildScript.includes("fs.copyFileSync(currentPlatformRuntimeSrc, currentPlatformRuntimeDest)") &&
+                                    !buildScript.includes("copyDirSync(currentPlatformRuntimeSrc, currentPlatformRuntimeDest)");
         const buildAvoidsDefaultRuntimeCopy = buildScript.includes("默认包不复制 runtime/ 大 binary") &&
                                              buildScript.includes("首次运行按 pinned artifact 下载");
         // user-package-smoke 验证 managed runtime 分发字段
@@ -14771,9 +14773,9 @@ if (!runV210Unit) {
 
     // ---- Test 11: settings.ts backendMode onChange 调用 refreshBridgeView ----
     {
-      const idx = settingsSrc.indexOf("backendMode");
-      const snippet = idx >= 0 ? settingsSrc.slice(idx, idx + 600) : "";
-      const ok = snippet.includes("this.plugin.refreshBridgeView()") && snippet.includes("V2.10 (B-019)");
+      const idx = settingsSrc.indexOf('.setName("Backend 模式")');
+      const snippet = idx >= 0 ? settingsSrc.slice(idx, idx + 2200) : "";
+      const ok = snippet.includes("this.plugin.refreshBridgeView()") && snippet.includes("backendMode");
       addTest("V2.10 B-019: settings.ts backendMode onChange 调用 refreshBridgeView", ok ? "pass" : "fail", "");
     }
 
@@ -15439,9 +15441,9 @@ if (!runV2111Unit) {
 
     // ---- Test 19: settings.ts agentType onChange 调用 refreshBridgeView ----
     {
-      const idx = settingsSrc.indexOf("V2.11.1: 关键配置变更后通知 view 刷新状态栏");
-      const snippet = idx >= 0 ? settingsSrc.slice(idx, idx + 200) : "";
-      const ok = snippet.includes("this.plugin.refreshBridgeView()");
+      const idx = settingsSrc.indexOf('.setName("CLI 回退 Agent")');
+      const snippet = idx >= 0 ? settingsSrc.slice(idx, idx + 700) : "";
+      const ok = snippet.includes("this.plugin.refreshBridgeView()") && snippet.includes("agentType");
       addTest("V2.11.1 设置刷新: agentType onChange 调用 refreshBridgeView", ok ? "pass" : "fail", "");
     }
 
@@ -15562,7 +15564,7 @@ if (runMode !== "all" && runMode !== "unit") {
     /stopBtn\.addEventListener\("click",\s*\(\)\s*=>\s*this\.runSession\.stop\(\)\)/.test(viewSrcV212) ? "pass" : "fail", "");
 
   addTest("V2.12 权限: onClose 调用 runHandle.stop() 终止运行",
-    /onClose[\s\S]{0,300}this\.runSession\.stop\(\)/.test(viewSrcV212) ? "pass" : "fail", "");
+    /onClose[\s\S]{0,500}this\.runSession\.stop\(\)/.test(viewSrcV212) ? "pass" : "fail", "");
 
   addTest("V2.12 权限: onClose 清理 scrollRafId 定时器",
     /onClose[\s\S]{0,500}cancelAnimationFrame\(this\.scrollRafId\)/.test(viewSrcV212) ? "pass" : "fail", "");
@@ -20279,7 +20281,8 @@ if (!runNoteSummarizeSmoke) {
         || processFeedSrc.includes("export function sumCodexEventDuration(")
         || waterfallSrcG65.includes("sumCodexEventDuration("))
       && (waterfallSrcG65.includes('key: `group:command:${startKey}`')
-        || waterfallSrcG65.includes("group:command:"))
+        || waterfallSrcG65.includes("group:command:")
+        || waterfallSrcG65.includes('group:${groupKind}:${startKey}'))
       && stylesSrc.includes("V17-G65: grouped lazy tool events and full-width composer input")
       && stylesSrc.includes(".llm-bridge-codex-tool-group-summary")
       && (stylesSrc.includes('"input input input"') || stylesSrc.includes(".llm-bridge-input-surface"))
@@ -20388,7 +20391,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("getRuntimeModelCatalogForAgent")
       && viewSrc.includes("private syncModelCatalogForCurrentAgent(")
       && viewSrc.includes("private getEffectiveModelCatalogAgent()")
-      && viewSrc.includes("this.runSession.session?.providerId")
+      && viewSrc.includes("this.runSession.getSession()?.providerId")
       && viewSrc.includes("private renderModelEffortOptions(): void")
       && viewSrc.includes("private renderComposerRuntimeToolsList(parent: HTMLElement): void")
       && viewSrc.includes("private renderComposerAgentSkillsList(parent: HTMLElement): void")
@@ -21600,8 +21603,10 @@ if (!runPhase14) {
   {
     // groupCodexFeedRenderEntries: command 始终用 group:command:${startKey}
     // 注释明确说明：even for a single command, so a later sibling command does not remount
-    const ok = waterfallSrc.includes("group:command:${startKey}")
-      && waterfallSrc.includes("Always use tool-group key (even for a single command)")
+    const ok = (waterfallSrc.includes("group:command:${startKey}")
+        || waterfallSrc.includes("group:${groupKind}:${startKey}"))
+      && (waterfallSrc.includes("Always use tool-group key (even for a single command)")
+        || waterfallSrc.includes("Always use tool-group key (even for a single item)"))
       && waterfallSrc.includes("does not remount the first row");
     addTest("Phase 1.4-GUARD-3: command 1→2 条时 group key 不变（结构）", ok ? "pass" : "fail", "");
   }
@@ -22504,87 +22509,34 @@ if (!runPhase3Prod) {
 }
 
 // ============================================================
-// 9.9.4 VC DOM 测试 — 检索器 preferences + CSS 变量 + 内部链接源码
+// 9.9.4 VC DOM 测试 — Skill 渐进披露 + CSS 变量 + 内部链接源码
 //   验证：
-//   1. retrieveVaultContextOnDemand 按风格关键词加载 preferences
+//   1. vault-context 通过 metadata/路由按需加载，不再每轮拼入 prompt
 //   2. CSS 间距变量存在且 thinking-line 使用变量（收敛重复定义）
 //   3. 文件路径渲染为 <a> 链接 + is-deleted + openVaultFile 回调
 // ============================================================
-console.log("\n=== VC DOM 测试 — 检索器/CSS 变量/内部链接 ===");
+console.log("\n=== VC DOM 测试 — Skill 渐进披露/CSS 变量/内部链接 ===");
 
 const runVcDom = runMode === "all" || runMode === "unit";
 
 if (!runVcDom) {
   addTest("VC DOM 测试段", "skip", "当前模式不运行 unit");
 } else {
-  let retrieverBundle = null;
   try {
-    const esbuild = (await import("esbuild")).default;
-    const obsidianStubPluginVc = {
-      name: "obsidian-stub-vc",
-      setup(build) {
-        build.onResolve({ filter: /^obsidian$/ }, () => ({ path: "obsidian-stub", namespace: "obsidian-stub-vc" }));
-        build.onLoad({ filter: /.*/, namespace: "obsidian-stub-vc" }, () => ({
-          contents: [
-            "export class Notice { constructor(){} close(){} }",
-            "export function setIcon(){}",
-            "export function normalizePath(p){return p;}",
-            "export class Menu { addItem(cb){ cb({ setTitle(){return this;}, setIcon(){return this;}, onClick(){return this;} }); return this; } showAtPosition(){} }",
-          ].join("\n"),
-          loader: "js",
-        }));
-      },
-    };
-    retrieverBundle = join(PROJECT_ROOT, ".test-vc-retriever-temp.mjs");
-    await esbuild.build({
-      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "vaultContextRetriever.ts")],
-      bundle: true,
-      format: "esm",
-      platform: "node",
-      logLevel: "silent",
-      plugins: [obsidianStubPluginVc],
-      outfile: retrieverBundle,
-    });
-    const retrieverMod = await import(pathToFileURL(retrieverBundle).href);
-
-    // --- VC-RETRIEVE-1: 风格关键词触发 preferences 加载 ---
+    // --- VC-SKILL-1: metadata 渐进披露 + prompt 零重复注入 ---
     {
       const fsMod = await import("fs");
       const pathMod = await import("path");
-      const osMod = await import("os");
-      const vcTmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "vc-retrieve-"));
-      try {
-        const skillDir = pathMod.join(vcTmpRoot, "LLM-AgentRuntime/skills/vault-context");
-        fsMod.mkdirSync(skillDir, { recursive: true });
-        // vault-rules.md（始终加载）
-        await fsMod.promises.writeFile(pathMod.join(skillDir, "vault-rules.md"),
-          "# vault-rules\n\n- 不修改 .obsidian/\n- 删除前确认\n", "utf8");
-        // preferences.md（按需加载）
-        await fsMod.promises.writeFile(pathMod.join(skillDir, "preferences.md"),
-          "# preferences\n\n- 回复使用中文\n- 简洁风格\n- 代码块用 TypeScript\n", "utf8");
-        // directories.md（路径关键词触发）
-        await fsMod.promises.writeFile(pathMod.join(skillDir, "directories.md"),
-          "# directories\n\n- 00_Inbox/ : 临时收集\n", "utf8");
-        // conventions.md
-        await fsMod.promises.writeFile(pathMod.join(skillDir, "conventions.md"),
-          "# conventions\n\n- 命名用小写连字符\n", "utf8");
-
-        // 有风格关键词 → 加载 preferences
-        const withStyle = await retrieverMod.retrieveVaultContextOnDemand(vcTmpRoot, "请用简洁风格回复");
-        const hasPrefs = withStyle.includes("## 相关偏好") && withStyle.includes("简洁风格");
-        const hasRules = withStyle.includes("## 安全规则");
-
-        // 无风格关键词 → 不加载 preferences
-        const withoutStyle = await retrieverMod.retrieveVaultContextOnDemand(vcTmpRoot, "读取文件内容");
-        const noPrefs = !withoutStyle.includes("## 相关偏好");
-        const stillHasRules = withoutStyle.includes("## 安全规则");
-
-        addTest("VC-RETRIEVE: 风格关键词触发 preferences 加载（无关键词时不加载）",
-          hasPrefs && hasRules && noPrefs && stillHasRules ? "pass" : "fail",
-          `hasPrefs=${hasPrefs} hasRules=${hasRules} noPrefs=${noPrefs} stillHasRules=${stillHasRules}`);
-      } finally {
-        try { fsMod.rmSync(vcTmpRoot, { recursive: true, force: true }); } catch {}
-      }
+      const workspaceSrc = await fsMod.promises.readFile(pathMod.join(PROJECT_ROOT, "src", "agentRuntimeWorkspace.ts"), "utf8");
+      const controllerSrc = await fsMod.promises.readFile(pathMod.join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
+      const hasTriggerMetadata = workspaceSrc.includes("when the user states a lasting preference")
+        && workspaceSrc.includes("Read only the relevant referenced file and maintain it automatically");
+      const hasRouting = workspaceSrc.includes('"## 按需读取"') && workspaceSrc.includes('"## 自动维护"');
+      const noRetrieverImport = !controllerSrc.includes("vaultContextRetriever") && !controllerSrc.includes("retrieveVaultContextOnDemand");
+      const noPromptInjection = controllerSrc.includes("不再每轮重复拼入用户 prompt");
+      addTest("VC-SKILL: metadata 触发 + 按需路由 + 不再每轮注入 prompt",
+        hasTriggerMetadata && hasRouting && noRetrieverImport && noPromptInjection ? "pass" : "fail",
+        `metadata=${hasTriggerMetadata} routing=${hasRouting} noRetriever=${noRetrieverImport} noPromptInjection=${noPromptInjection}`);
     }
 
     // --- VC-CSS-1: CSS 间距变量存在 + thinking-line/feed-batch 收敛为单一定义 ---
@@ -22644,8 +22596,6 @@ if (!runVcDom) {
 
   } catch (e) {
     addTest("VC DOM 测试段", "fail", `加载/执行异常: ${e?.stack || e?.message || e}`);
-  } finally {
-    try { if (retrieverBundle) rmSync(retrieverBundle, { force: true }); } catch {}
   }
 }
 
@@ -23002,9 +22952,11 @@ if (!runOnOpenDom) {
           ].join("\n") },
           { filter: /^\.\/runtimeModelCatalog$/, content: [
             "export function getRuntimeModelCatalogForAgent() { return { models: [{ id: 'test-model', label: 'Test Model' }], efforts: [{ id: 'medium', label: 'Medium' }] }; }",
+            "export function setRuntimeModelCatalogForAgent() { return { models: [], efforts: [] }; }",
             "export function normalizeModelValue(cat, m) { return m || 'test-model'; }",
             "export function normalizeEffortValue(cat, e) { return e || 'medium'; }",
           ].join("\n") },
+          { filter: /^\.\/runtime\/providers\/codex-managed-app-server\/codexManagedModelCatalog$/, content: "export async function loadCodexManagedModelCatalog() { return null; }" },
           { filter: /^\.\/promptPackage$/, content: "export function buildPromptPackage() { return {}; } export class StateSnapshot {}" },
           { filter: /^\.\/agentBackend$/, content: "export class SdkImageContentBlock {} export class SdkStreamingInput {}" },
           { filter: /^\.\/fileDiff$/, content: "export function extractRelPath() { return ''; }" },
@@ -23075,7 +23027,6 @@ if (!runOnOpenDom) {
           { filter: /^\.\/outbox$/, content: "export class OutboxWatcher { constructor(){} start(){} stop(){} }" },
           { filter: /^\.\/agentRuntimeWorkspace$/, content: "export async function ensureAgentRuntimeWorkspace() { return { vaultSkillInitialized: false }; } export async function compactOrSplitVaultSkill() {} export function materializeAllSkillsToAllTargets() { return { results: [], syncSummary: { synced: [], skipped: [] }, saved: false }; } export const VAULT_SKILL_SOURCE_REL = '.agents/skills/VAULT_SKILL.md';" },
           { filter: /^\.\/runtime\/vaultContextAutoMaintainer$/, content: "export async function undoVaultContextMaintain() { return { ok: true }; }" },
-          { filter: /^\.\/runtime\/vaultContextRetriever$/, content: "export async function retrieveVaultContextOnDemand() { return ''; }" },
           { filter: /^\.\/agentSkills$/, content: "export function cleanupCodexBridgeSkillsForVaultSync() { return { deleted: 0 }; } export async function loadAgentSkillsManifest() { return { skills: [] }; } export async function saveAgentSkillsManifest() {} export async function prepareAgentSkillsForCodexRuntime() { return []; }" },
           { filter: /^\.\/attachmentPackingPolicy$/, content: "export const AttachmentPackingPolicy = { binaryAsNativeRef: true, sdkDirectAttachmentSupported: true };" },
           { filter: /^\.\.\/main$/, content: "export default class LLMBridgePlugin {}" },

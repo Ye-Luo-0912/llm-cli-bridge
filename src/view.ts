@@ -30,7 +30,8 @@ import type { ManagedRuntimeInstallStatus } from "./runtime/providers/codex-mana
 import { listManagedCodexPluginsAsync, type CodexManagedPluginCatalog, type CodexManagedPluginEntry } from "./runtime/providers/codex-managed-app-server/codexManagedPluginCatalog";
 import { RunSessionController, type RunSessionHost } from "./runtime/RunSessionController";
 import { undoVaultContextMaintain, type AutoMaintainResult } from "./runtime/vaultContextAutoMaintainer";
-import { getRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, type RuntimeModelCatalog } from "./runtimeModelCatalog";
+import { getRuntimeModelCatalogForAgent, setRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, type ModelCatalogEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
+import { loadCodexManagedModelCatalog } from "./runtime/providers/codex-managed-app-server/codexManagedModelCatalog";
 import { WorkflowEvent, PermissionEvent, truncateText, redactSecrets } from "./workflowEvent";
 import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
 import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscript";
@@ -387,12 +388,14 @@ export class LLMBridgeView extends ItemView {
   private effortOptionsEl!: HTMLElement;
   /** V2.16-C: 运行时模型目录（不再硬编码） */
   private modelCatalog: RuntimeModelCatalog = getRuntimeModelCatalogForAgent("claude");
+  private modelCatalogRefreshTimer: number | null = null;
   private permissionModePickerEl!: HTMLElement;
   private permissionModeChipEl!: HTMLButtonElement;
   private includeNoteCheckEl!: HTMLInputElement;
   private includeSelectionCheckEl!: HTMLInputElement;
   private messagesEl!: HTMLElement;
   private scrollBottomBtnEl!: HTMLElement;
+  private scrollBottomAnchorEl!: HTMLElement;
   // V2.15-A: Chat shell 页面分区。Files 只展示 refs/approval 状态，不执行文件 runtime。
   private tabPanels!: { chat: HTMLElement; files: HTMLElement; skills: HTMLElement; history: HTMLElement };
   private activeTab: "chat" | "files" | "skills" | "history" = "chat";
@@ -740,16 +743,6 @@ export class LLMBridgeView extends ItemView {
     this.messagesEl = chatPanel.createDiv({ cls: "llm-bridge-messages" });
     this.renderEmptyState();
 
-    // 回到底部浮动按钮
-    this.scrollBottomBtnEl = chatPanel.createDiv({ cls: "llm-bridge-scroll-bottom-btn", attr: { title: "回到底部", "aria-label": "回到底部" } });
-    setIcon(this.scrollBottomBtnEl.createEl("span", { cls: "llm-bridge-scroll-bottom-icon" }), "arrow-down");
-    this.scrollBottomBtnEl.style.display = "none";
-    this.scrollBottomBtnEl.addEventListener("click", () => this.scrollToBottom(true));
-    this.messagesEl.addEventListener("scroll", () => {
-      const show = !this.isNearBottom(160);
-      this.scrollBottomBtnEl.style.display = show ? "" : "none";
-    });
-
     // V2.14.0-E: 外部读取授权请求面板（只管理授权，不读取文件内容）
     this.externalReadPanelEl = filesPanel.createDiv({ cls: "llm-bridge-external-read-panel" });
     this.externalReadPanelEl.style.display = "none";
@@ -757,6 +750,18 @@ export class LLMBridgeView extends ItemView {
     // P4-D: 轻量 Context tags（替代 Sources 大按钮条）
     this.pinnedContextEl = chatPanel.createEl("details", { cls: "llm-bridge-pinned-context" });
     this.pinnedContextEl.setAttribute("hidden", "");
+
+    // V18: 回到底部按钮——专门锚点容器居中定位，不依赖固定 bottom 数值
+    // 锚点容器放在 composer 之前（chatPanel flex 列布局），height:0 + position:relative
+    this.scrollBottomAnchorEl = chatPanel.createDiv({ cls: "llm-bridge-scroll-bottom-anchor" });
+    this.scrollBottomBtnEl = this.scrollBottomAnchorEl.createDiv({ cls: "llm-bridge-scroll-bottom-btn", attr: { title: "回到底部", "aria-label": "回到底部" } });
+    setIcon(this.scrollBottomBtnEl.createEl("span", { cls: "llm-bridge-scroll-bottom-icon" }), "arrow-down");
+    this.scrollBottomBtnEl.style.display = "none";
+    this.scrollBottomBtnEl.addEventListener("click", () => this.scrollToBottom(true));
+    this.messagesEl.addEventListener("scroll", () => {
+      const show = !this.isNearBottom(160);
+      this.scrollBottomBtnEl.style.display = show ? "" : "none";
+    });
 
     // ===== 底部 composer =====
     const composer = chatPanel.createDiv({ cls: "llm-bridge-composer" });
@@ -1057,6 +1062,7 @@ export class LLMBridgeView extends ItemView {
     this.updateContextDisplay();
     this.setGlobalStatus("idle");
     this.refreshStatusBar();
+    void this.refreshDynamicModelCatalog();
     this.refreshSessionState();
     void this.refreshAgentSkills();
     void this.refreshHistory();
@@ -1064,6 +1070,49 @@ export class LLMBridgeView extends ItemView {
     void this.restoreLastActiveSessionIfNeeded();
     // V2.16-D: 初始 context metrics 估算
     void this.refreshContextMetrics();
+  }
+
+  /**
+   * 后台读取 Codex runtime 的 model/list。中转站只作为 runtime 的认证/请求出口，
+   * 不直接把 /v1/models 注入聊天框，避免展示 runtime 实际不能使用的模型。
+   */
+  private async refreshDynamicModelCatalog(): Promise<void> {
+    if (this.getEffectiveModelCatalogAgent() !== "codex") return;
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const settings = this.plugin.settings;
+    const merged: ModelCatalogEntry[] = [];
+    const seen = new Set<string>();
+    const append = (items: ReadonlyArray<ModelCatalogEntry>): void => {
+      for (const item of items) {
+        if (!item.value || seen.has(item.value)) continue;
+        seen.add(item.value);
+        merged.push(item);
+      }
+    };
+
+    try {
+      const runtimeCatalog = await loadCodexManagedModelCatalog(this.plugin.pluginDir, vaultPath, settings);
+      if (runtimeCatalog) append(runtimeCatalog.models);
+    } catch { /* runtime catalog 不可用时继续使用静态兜底 */ }
+
+    if (merged.length === 0) return;
+    setRuntimeModelCatalogForAgent("codex", merged);
+    const selected = settings.model.trim();
+    if (!selected || !seen.has(selected)) {
+      settings.model = merged[0].value;
+      await this.plugin.saveSettings();
+    }
+    this.syncModelCatalogForCurrentAgent(false);
+    this.renderModelEffortOptions();
+    this.refreshModelEffortPicker();
+  }
+
+  private scheduleDynamicModelCatalogRefresh(delayMs = 500): void {
+    if (this.modelCatalogRefreshTimer !== null) window.clearTimeout(this.modelCatalogRefreshTimer);
+    this.modelCatalogRefreshTimer = window.setTimeout(() => {
+      this.modelCatalogRefreshTimer = null;
+      void this.refreshDynamicModelCatalog();
+    }, delayMs);
   }
 
   /**
@@ -1700,7 +1749,7 @@ export class LLMBridgeView extends ItemView {
       if (mode === "codex-managed-app-server" || mode === "codex-app-server-external" || mode === "codex-sdk") return "codex";
       return this.plugin.settings.agentType;
     }
-    const providerId = this.runSession.session?.providerId;
+    const providerId = this.runSession.getSession()?.providerId;
     if (providerId && /codex/.test(providerId)) return "codex";
     const mode = this.plugin.settings.backendMode;
     if (mode === "codex-managed-app-server" || mode === "codex-app-server-external" || mode === "codex-sdk") return "codex";
@@ -1883,6 +1932,10 @@ export class LLMBridgeView extends ItemView {
     this.closePermissionPopover();
     this.closeMentionPicker();
     this.composerController.destroy();
+    if (this.modelCatalogRefreshTimer !== null) {
+      window.clearTimeout(this.modelCatalogRefreshTimer);
+      this.modelCatalogRefreshTimer = null;
+    }
     if (this.runSession.runHandle) {
       this.runSession.stop();
     }
@@ -1923,6 +1976,7 @@ export class LLMBridgeView extends ItemView {
   // 解决 settings.ts onChange 只 saveSettings 不触发 view 刷新、状态栏 Backend 值不立即更新的问题
   public refreshOnSettingsChange(): void {
     this.syncControlsFromSettings();
+    this.scheduleDynamicModelCatalogRefresh();
     this.syncDeveloperRunFlowPanel();
     this.refreshStatusBar();
     this.refreshComposerStatusRail();
@@ -2217,7 +2271,7 @@ export class LLMBridgeView extends ItemView {
     // RuntimeProfileResolver: 本地中转已配置时显示中转状态，否则显示原生 runtime 状态
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     const vaultProfile = loadVaultRuntimeProfileSync(vaultPath);
-    const relayProfile = resolveRuntimeProfileSync(s, vaultProfile);
+    const relayProfile = resolveRuntimeProfileSync(s, vaultProfile, vaultPath);
     const relayStatus = formatRelayStatusLabel(relayProfile);
     if (relayProfile.origin !== "none") {
       this.statusLabelEl.textContent = relayStatus.label;

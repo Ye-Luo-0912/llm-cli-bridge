@@ -1160,13 +1160,13 @@ export class PiSdkProvider implements RuntimeProvider {
           apiKey: relayProfile.apiKey || undefined,
           provider: settings.piAuthProvider || undefined,
           baseUrl: relayProfile.relayUrl,
-          model: relayProfile.model || settings.piApiModel || undefined,
+          model: ctx.plan.model || relayProfile.model || settings.piApiModel || undefined,
         }
       : {
           apiKey: settings.piApiKey || undefined,
           provider: settings.piAuthProvider || undefined,
           baseUrl: settings.piApiBaseUrl || undefined,
-          model: settings.piApiModel || undefined,
+          model: ctx.plan.model || settings.piApiModel || undefined,
         };
 
     // V17-B1 任务 F / V17-C 任务 C：认证/模型探测（应用 runtime override）

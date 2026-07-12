@@ -4,7 +4,7 @@ import { App, Notice, PluginSettingTab, Setting } from "obsidian";
 import type LLMBridgePlugin from "../main";
 import { execFileSync } from "child_process";
 import { existsSync } from "fs";
-import { join } from "path";
+import { isAbsolute, join, resolve } from "path";
 import { AgentType, BackendMode, BackendProfile, PermissionPolicy, PiToolMode } from "./types";
 import {
   AGENT_APPROVAL_PROFILES,
@@ -31,21 +31,12 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
     containerEl.createEl("h3", { text: "基础配置" });
 
     new Setting(containerEl)
-      .setName("Agent 类型")
-      .setDesc("选择要调用的本地 CLI agent。默认 Claude Code，也可以在面板顶部临时切换。日常使用保持 claude 即可。")
-      .addDropdown((dd) => {
-        dd.addOption("claude", "Claude Code");
-        dd.addOption("codex", "Codex CLI");
-        dd.addOption("custom", "Custom");
-        dd.setValue(s.agentType);
-        dd.onChange(async (v) => {
-          s.agentType = v as AgentType;
-          await this.plugin.saveSettings();
-          this.display();
-          // V2.11.1: 关键配置变更后通知 view 刷新状态栏
-          this.plugin.refreshBridgeView();
-        });
-      });
+      .setName("运行方式")
+      .setDesc(
+        s.backendMode === "auto"
+          ? "自动选择（推荐）：优先使用插件管理的 Codex runtime，不可用时再按高级设置回退。聊天面板状态栏显示本轮真实 runtime。"
+          : `当前固定为 ${s.backendMode}。可在下方高级设置中改回自动选择。`,
+      );
 
     new Setting(containerEl)
       .setName("引用当前笔记")
@@ -111,7 +102,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
     containerEl.createEl("h3", { text: "本地认证配置" });
     containerEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
-      text: "配置中转站后，Claude / Codex / Pi 三端自动使用同一认证（优先级最高）。未配置时回退到各端原生认证。Vault 内只保存地址和模型，API Key 仅存本地。",
+      text: "配置 OpenAI-compatible 中转站后，Codex runtime 使用同一地址、模型和认证。聊天框模型始终以当前 runtime 的 model/list 为准；未配置时回退原生认证。",
     });
 
     new Setting(containerEl)
@@ -127,19 +118,8 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("模型")
-      .setDesc("中转站默认模型（如 claude-sonnet-4-5-20250514）。留空则用各端 settings.model。")
-      .addText((t) => {
-        t.setValue(s.localRelayModel);
-        t.onChange(async (v) => {
-          s.localRelayModel = v.trim();
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(containerEl)
       .setName("API Key")
-      .setDesc("中转站 API Key。持久化到本地插件数据（不写入 Vault）。留空则未配置（状态栏显示「未配置Key」）。")
+      .setDesc("仅保存在当前 Obsidian 进程内存中，不写入 Vault/data.json。需要重启后继续使用时，请保存到下方明确指定的便携目录。")
       .addText((t) => {
         t.inputEl.type = "password";
         t.setValue(s.localRelayApiKey);
@@ -152,12 +132,29 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("便携目录路径（可选）")
-      .setDesc("设置后 API Key 从该目录读取（runtime-profile.key），实现多 Vault 共用。留空则用本地插件数据。")
+      .setDesc("设置后从该目录读取 runtime-profile.key，可让多个 Vault 指向同一份本地认证。相对路径按当前 Vault 根解析。")
       .addText((t) => {
         t.setValue(s.localRelayPortableKeyPath);
         t.onChange(async (v) => {
           s.localRelayPortableKeyPath = v.trim();
           await this.plugin.saveSettings();
+          this.plugin.refreshBridgeView();
+        });
+      })
+      .addButton((b) => {
+        b.setButtonText("保存当前 Key");
+        b.onClick(async () => {
+          if (!s.localRelayPortableKeyPath || !s.localRelayApiKey) {
+            new Notice("请先填写便携目录路径和 API Key", 4000);
+            return;
+          }
+          const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+          const portableDir = isAbsolute(s.localRelayPortableKeyPath)
+            ? s.localRelayPortableKeyPath
+            : resolve(vaultPath, s.localRelayPortableKeyPath);
+          const { savePortableApiKey } = await import("./runtime/runtimeProfileResolver");
+          const ok = await savePortableApiKey(portableDir, s.localRelayApiKey);
+          new Notice(ok ? "API Key 已保存到便携目录" : "API Key 保存失败", 4000);
           this.plugin.refreshBridgeView();
         });
       });
@@ -174,7 +171,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
             const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
             const ok = await saveVaultRuntimeProfile(vaultPath, {
               relayUrl: s.localRelayUrl,
-              model: s.localRelayModel,
+              model: s.model,
             });
             new Notice(ok ? "Vault Profile 已保存（不含 Key）" : "保存失败", 4000);
           } catch (e) {
@@ -197,10 +194,14 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
             const { testRelayConnection, loadPortableApiKey } = await import("./runtime/runtimeProfileResolver");
             let apiKey = s.localRelayApiKey;
             if (s.localRelayPortableKeyPath) {
-              const portableKey = await loadPortableApiKey(s.localRelayPortableKeyPath);
+              const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+              const portableDir = isAbsolute(s.localRelayPortableKeyPath)
+                ? s.localRelayPortableKeyPath
+                : resolve(vaultPath, s.localRelayPortableKeyPath);
+              const portableKey = await loadPortableApiKey(portableDir);
               if (portableKey) apiKey = portableKey;
             }
-            const result = await testRelayConnection(s.localRelayUrl, apiKey, s.localRelayModel);
+            const result = await testRelayConnection(s.localRelayUrl, apiKey, s.model);
             new Notice(result.detail, 6000);
           } catch (e) {
             const { desensitizeError } = await import("./runtime/runtimeProfileResolver");
@@ -239,6 +240,21 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       cls: "llm-bridge-setting-hint",
       text: "默认值已经可用。只有在本地 CLI 名称不同或需要自定义参数时才修改。",
     });
+
+    new Setting(advancedEl)
+      .setName("CLI 回退 Agent")
+      .setDesc("仅在自动 runtime 不可用或显式使用 CLI backend 时生效；不会覆盖聊天面板显示的真实 runtime。")
+      .addDropdown((dd) => {
+        dd.addOption("claude", "Claude Code");
+        dd.addOption("codex", "Codex CLI");
+        dd.addOption("custom", "Custom");
+        dd.setValue(s.agentType);
+        dd.onChange(async (v) => {
+          s.agentType = v as AgentType;
+          await this.plugin.saveSettings();
+          this.plugin.refreshBridgeView();
+        });
+      });
 
     new Setting(advancedEl)
       .setName("Claude command")

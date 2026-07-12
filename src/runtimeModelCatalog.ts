@@ -41,6 +41,8 @@ export interface RuntimeModelCatalog {
 
 export type RuntimeModelCatalogAgent = "claude" | "codex" | "custom";
 
+const runtimeCatalogByAgent = new Map<string, RuntimeModelCatalog>();
+
 /**
  * 静态 fallback 模型列表（与中转支持的模型对齐）
  * source=static 时使用
@@ -53,6 +55,7 @@ const STATIC_MODELS: ReadonlyArray<ModelCatalogEntry> = [
 ];
 
 const CODEX_MODELS: ReadonlyArray<ModelCatalogEntry> = [
+  { value: "gpt-5.6-sol", label: "gpt-5.6-sol" },
   { value: "gpt-5.5", label: "gpt-5.5" },
   { value: "gpt-5.4", label: "gpt-5.4" },
 ];
@@ -99,6 +102,8 @@ export function getRuntimeModelCatalog(): RuntimeModelCatalog {
 }
 
 export function getRuntimeModelCatalogForAgent(agent: RuntimeModelCatalogAgent | string): RuntimeModelCatalog {
+  const dynamic = runtimeCatalogByAgent.get(agent);
+  if (dynamic) return dynamic;
   if (agent === "codex") {
     return {
       models: CODEX_MODELS,
@@ -109,6 +114,31 @@ export function getRuntimeModelCatalogForAgent(agent: RuntimeModelCatalogAgent |
   const runtime = tryReadRuntimeCatalog();
   if (runtime) return runtime;
   return getRuntimeModelCatalog();
+}
+
+/**
+ * 注册运行时真实返回的模型目录。目录仅保存在当前插件进程内，避免把可能变化的
+ * 服务端模型列表写进 Vault。调用方可把默认模型放在首位。
+ */
+export function setRuntimeModelCatalogForAgent(
+  agent: RuntimeModelCatalogAgent | string,
+  models: ReadonlyArray<ModelCatalogEntry>,
+): RuntimeModelCatalog {
+  const seen = new Set<string>();
+  const normalized = models
+    .map((item) => ({ value: item.value.trim(), label: (item.label || item.value).trim() }))
+    .filter((item) => item.value.length > 0 && !seen.has(item.value) && !!seen.add(item.value));
+  const catalog: RuntimeModelCatalog = {
+    models: normalized,
+    efforts: STATIC_EFFORTS,
+    source: "runtime",
+  };
+  if (normalized.length > 0) runtimeCatalogByAgent.set(agent, catalog);
+  return normalized.length > 0 ? catalog : getRuntimeModelCatalogForAgent(agent);
+}
+
+export function clearRuntimeModelCatalogForAgent(agent: RuntimeModelCatalogAgent | string): void {
+  runtimeCatalogByAgent.delete(agent);
 }
 
 /**
@@ -126,10 +156,12 @@ export function findEffortEntry(catalog: RuntimeModelCatalog, value: string): Ef
 }
 
 /**
- * 归一化模型值（若不在目录中，返回第一个模型的 value）
+ * 归一化模型值。服务端可能比本地缓存先增加模型，因此非空未知值必须原样保留，
+ * 不能静默替换成目录第一项。仅空值才采用当前目录默认项。
  */
 export function normalizeModelValue(catalog: RuntimeModelCatalog, value: string): string {
-  return findModelEntry(catalog, value)?.value ?? catalog.models[0]?.value ?? "gpt-5.5";
+  const trimmed = value.trim();
+  return findModelEntry(catalog, trimmed)?.value ?? (trimmed || catalog.models[0]?.value || "gpt-5.6-sol");
 }
 
 /**

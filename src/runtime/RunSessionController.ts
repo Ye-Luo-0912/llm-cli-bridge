@@ -55,7 +55,6 @@ import {
   type CodexRunViewModel,
 } from "./core/viewModels";
 import { autoMaintainVaultContext, type AutoMaintainResult } from "./vaultContextAutoMaintainer";
-import { retrieveVaultContextOnDemand } from "./vaultContextRetriever";
 
 // Status label lookup (mirrors view.ts STATUS_LABEL)
 const STATUS_LABEL: Record<RunStatus, string> = {
@@ -458,18 +457,9 @@ export class RunSessionController {
         }
         if (cancelled) return;
 
-        // VC-3: 按需检索 vault-context 条目（安全规则始终注入，其他按需）
-        // 失败不阻断主流程；用户当前指令始终优先于 vault-context 偏好
-        let vaultContextHints = "";
-        try {
-          vaultContextHints = await retrieveVaultContextOnDemand(vaultPath, userInput);
-        } catch {
-          /* 检索失败不阻断 */
-        }
-        const enhancedUserInput = vaultContextHints
-          ? `${vaultContextHints}\n\n---\n\n${userInput}`
-          : userInput;
-        const promptUserInput = host.buildUserInputWithRuntimeCapabilityHints(enhancedUserInput);
+        // vault-context 通过 runtime Skill metadata 渐进披露：provider 先看到 name/description，
+        // 命中场景后才读取 SKILL.md 与相关子文件。这里不再每轮重复拼入用户 prompt。
+        const promptUserInput = host.buildUserInputWithRuntimeCapabilityHints(userInput);
         const runtimeCapabilities = host.buildRuntimeCapabilities(session.providerId, settings);
         const promptPackage = buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities);
         const sdkStreamingInput = await host.buildSdkStreamingInput(promptPackage.userPrompt, promptFileRefsForRun);

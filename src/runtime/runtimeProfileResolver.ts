@@ -1,8 +1,8 @@
 // LLM CLI Bridge — Runtime Profile Resolver (provider-neutral)
 //
-// 统一 Claude / Pi / Codex 三端的认证配置：
+// 统一解析 Codex 主 runtime 使用的 OpenAI-compatible 中转配置；高级 provider 可选择复用：
 // - Vault 内 .llm-bridge/runtime-profile.json 保存 relayUrl / model / source（可同步，严禁保存 Key）
-// - API Key 存储在插件 data.json（机器本地）或便携目录覆盖路径（多 Vault 共用）
+// - API Key 仅在当前插件进程内存中保存，或写入用户明确指定的便携目录（多 Vault 共用）
 // - 解析结果注入 Codex 子进程 env / Claude env / Pi AuthStorage
 //
 // 安全规则：
@@ -37,6 +37,8 @@ export interface RelayConnectionTestResult {
   readonly ok: boolean;
   readonly status: number | null;
   readonly detail: string; // 已脱敏
+  /** OpenAI-compatible /v1/models 返回的模型 ID。接口不支持时为空。 */
+  readonly models: ReadonlyArray<string>;
 }
 
 // ---------- 常量 ----------
@@ -132,6 +134,18 @@ export async function loadPortableApiKey(portableDir: string): Promise<string | 
   }
 }
 
+/** 同步读取便携 Key，供 CLI/app-server spawn env 使用。 */
+export function loadPortableApiKeySync(portableDir: string, vaultPath?: string): string | null {
+  if (!portableDir) return null;
+  const resolvedDir = resolvePortableDirectory(portableDir, vaultPath);
+  try {
+    const key = fs.readFileSync(path.join(resolvedDir, "runtime-profile.key"), "utf8").trim();
+    return key.length > 0 ? key : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 写入 API Key 到便携目录。
  */
@@ -147,14 +161,19 @@ export async function savePortableApiKey(portableDir: string, apiKey: string): P
   }
 }
 
+function resolvePortableDirectory(portableDir: string, vaultPath?: string): string {
+  if (path.isAbsolute(portableDir)) return portableDir;
+  return path.resolve(vaultPath || process.cwd(), portableDir);
+}
+
 // ---------- 核心解析 ----------
 
 /**
  * 解析运行时 profile（provider-neutral 单一入口）。
  *
  * 优先级：
- * 1. Vault .llm-bridge/runtime-profile.json 提供 relayUrl + model
- * 2. Settings localRelayUrl / localRelayModel 覆盖（vault profile 缺失时回退）
+ * 1. Vault .llm-bridge/runtime-profile.json 提供可同步的 relayUrl
+ * 2. 模型始终优先使用聊天框 settings.model；Vault profile 仅作旧配置回退
  * 3. API Key：便携目录（localRelayPortableKeyPath 非空时优先）→ settings.localRelayApiKey
  * 4. 无 relayUrl → origin "none"（调用方应回退到原生认证）
  *
@@ -166,6 +185,7 @@ export async function resolveRuntimeProfile(
   settings: {
     localRelayUrl?: string;
     localRelayModel?: string;
+    model?: string;
     localRelayApiKey?: string;
     localRelayPortableKeyPath?: string;
   },
@@ -173,9 +193,9 @@ export async function resolveRuntimeProfile(
   // 1. 读取 Vault profile
   const vaultProfile = await loadVaultRuntimeProfile(vaultPath);
 
-  // 2. 合并 relayUrl + model（vault profile 优先，settings 回退）
+  // 2. relayUrl 允许 Vault profile 覆盖；model 以聊天框 settings.model 为真相源
   const relayUrl = vaultProfile?.relayUrl || settings.localRelayUrl || "";
-  const model = vaultProfile?.model || settings.localRelayModel || "";
+  const model = settings.model || vaultProfile?.model || settings.localRelayModel || "";
 
   // 3. 无 relayUrl → 未配置
   if (!relayUrl) {
@@ -187,7 +207,7 @@ export async function resolveRuntimeProfile(
   let origin: ResolvedRuntimeProfile["origin"] = vaultProfile ? "vault-profile" : "settings";
 
   if (settings.localRelayPortableKeyPath) {
-    const portableKey = await loadPortableApiKey(settings.localRelayPortableKeyPath);
+    const portableKey = await loadPortableApiKey(resolvePortableDirectory(settings.localRelayPortableKeyPath, vaultPath));
     if (portableKey) {
       apiKey = portableKey;
       origin = "portable";
@@ -210,17 +230,25 @@ export function resolveRuntimeProfileSync(
   settings: {
     localRelayUrl?: string;
     localRelayModel?: string;
+    model?: string;
     localRelayApiKey?: string;
+    localRelayPortableKeyPath?: string;
   },
   vaultProfile?: VaultRuntimeProfile | null,
+  vaultPath?: string,
 ): ResolvedRuntimeProfile {
   const relayUrl = vaultProfile?.relayUrl || settings.localRelayUrl || "";
-  const model = vaultProfile?.model || settings.localRelayModel || "";
+  const model = settings.model || vaultProfile?.model || settings.localRelayModel || "";
   if (!relayUrl) {
     return { relayUrl: "", model: "", apiKey: "", origin: "none" };
   }
-  const apiKey = settings.localRelayApiKey || "";
-  const origin: ResolvedRuntimeProfile["origin"] = vaultProfile ? "vault-profile" : "settings";
+  const portableKey = settings.localRelayPortableKeyPath
+    ? loadPortableApiKeySync(settings.localRelayPortableKeyPath, vaultPath)
+    : null;
+  const apiKey = portableKey || settings.localRelayApiKey || "";
+  const origin: ResolvedRuntimeProfile["origin"] = portableKey
+    ? "portable"
+    : vaultProfile ? "vault-profile" : "settings";
   return { relayUrl, model, apiKey, origin };
 }
 
@@ -236,7 +264,7 @@ export async function testRelayConnection(
   _model?: string,
 ): Promise<RelayConnectionTestResult> {
   if (!relayUrl) {
-    return { ok: false, status: null, detail: "未配置中转站地址" };
+    return { ok: false, status: null, detail: "未配置中转站地址", models: [] };
   }
 
   const url = relayUrl.replace(/\/+$/, "") + "/v1/models";
@@ -254,21 +282,31 @@ export async function testRelayConnection(
     }
 
     if (response.ok) {
-      return { ok: true, status: response.status, detail: "连接成功" };
+      let models: string[] = [];
+      try {
+        const payload = await response.json() as { data?: ReadonlyArray<{ id?: unknown; model?: unknown }> };
+        models = (Array.isArray(payload.data) ? payload.data : [])
+          .map((item) => typeof item?.id === "string" ? item.id : typeof item?.model === "string" ? item.model : "")
+          .filter((id, index, all) => id.length > 0 && all.indexOf(id) === index);
+      } catch {
+        // 可达但响应不是 JSON：连接仍成功，仅无法同步模型目录。
+      }
+      const detail = models.length > 0 ? `连接成功，发现 ${models.length} 个模型` : "连接成功";
+      return { ok: true, status: response.status, detail, models };
     }
 
     if (response.status === 401 || response.status === 403) {
-      return { ok: false, status: response.status, detail: "API Key 无效或权限不足" };
+      return { ok: false, status: response.status, detail: "API Key 无效或权限不足", models: [] };
     }
 
     if (response.status === 404) {
       // /v1/models 不支持但 relay 可达 — 视为部分可用
-      return { ok: true, status: response.status, detail: "中转站可达（/v1/models 不支持，但连接正常）" };
+      return { ok: true, status: response.status, detail: "中转站可达（/v1/models 不支持，但连接正常）", models: [] };
     }
 
-    return { ok: false, status: response.status, detail: `中转站返回 HTTP ${response.status}` };
+    return { ok: false, status: response.status, detail: `中转站返回 HTTP ${response.status}`, models: [] };
   } catch (e) {
-    return { ok: false, status: null, detail: desensitizeError(e, apiKey) };
+    return { ok: false, status: null, detail: desensitizeError(e, apiKey), models: [] };
   }
 }
 

@@ -290,11 +290,11 @@ export interface LLMBridgeSettings {
   piApiModel: string; // 显式指定 model id（覆盖 SDK 默认选择）
   piApiKey: string; // runtime API key（不持久化到磁盘全局配置）
   piApiBaseUrl: string; // 自定义 base URL（可选，如 https://us.pinai-cn.com）
-  // RuntimeProfileResolver: provider-neutral 本地中转认证（取代三端各自处理）
-  // Vault 内 .llm-bridge/runtime-profile.json 保存 relayUrl/model（可同步）；apiKey 仅存 data.json 或便携目录
+  // RuntimeProfileResolver: Codex 主 runtime 的 OpenAI-compatible 本地中转认证
+  // Vault 内 .llm-bridge/runtime-profile.json 保存 relayUrl/model（可同步）；apiKey 仅存内存或用户指定便携目录
   localRelayUrl: string; // 中转站地址（如 https://api.example.com）
-  localRelayModel: string; // 中转站默认模型
-  localRelayApiKey: string; // 中转站 API Key（持久化到 data.json，不写入 Vault）
+  localRelayModel: string; // 旧版兼容字段；新版本统一使用 model
+  localRelayApiKey: string; // 中转站 API Key（仅当前进程内存；不写入 data.json）
   localRelayPortableKeyPath: string; // 便携目录路径（非空时从该目录读 key，实现多 Vault 共用）
   customCommand: string;
   customArgs: string;
@@ -335,7 +335,7 @@ export interface LLMBridgeSettings {
 }
 
 export const DEFAULT_SETTINGS: LLMBridgeSettings = {
-  settingsVersion: 1,
+  settingsVersion: 2,
   agentType: "claude",
   claudeCommand: "claude",
   claudeArgs: "-p",

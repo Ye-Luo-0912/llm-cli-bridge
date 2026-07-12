@@ -161,7 +161,7 @@ export function buildRunEnv(
   // RuntimeProfileResolver: 注入本地中转认证（provider-neutral，自动优先级）
   // 已配置时覆盖 ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY；未配置时回退到原生认证
   const vaultProfile = loadVaultRuntimeProfileSync(cwd);
-  const relayProfile = resolveRuntimeProfileSync(settings, vaultProfile);
+  const relayProfile = resolveRuntimeProfileSync(settings, vaultProfile, cwd);
   if (relayProfile.origin !== "none" && relayProfile.relayUrl) {
     env.ANTHROPIC_BASE_URL = relayProfile.relayUrl;
     envKeys.push("ANTHROPIC_BASE_URL");

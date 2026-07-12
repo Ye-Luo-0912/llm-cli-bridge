@@ -625,8 +625,13 @@ export default class LLMBridgePlugin extends Plugin {
       // 旧版本 includeActiveNote=true 的用户保持原值（不强制改变已有行为）
     }
 
-    if (changed || loadedVersion < 1) {
-      settings.settingsVersion = 1;
+    // v1 → v2: 模型统一到 settings.model；localRelayModel 仅作为旧数据迁移来源。
+    if (loadedVersion < 2) {
+      const legacyRelayModel = typeof rawRecord.localRelayModel === "string" ? rawRecord.localRelayModel.trim() : "";
+      const persistedModel = typeof rawRecord.model === "string" ? rawRecord.model.trim() : "";
+      if (!persistedModel && legacyRelayModel) settings.model = legacyRelayModel;
+      settings.settingsVersion = 2;
+      changed = true;
     }
     return { settings, changed };
   }
@@ -636,28 +641,28 @@ export default class LLMBridgePlugin extends Plugin {
     this.settings = Object.assign({}, DEFAULT_SETTINGS, loaded);
     // 集中 settings 迁移：版本号驱动，避免 ad-hoc 逻辑分散
     const migrated = this.migrateSettings(this.settings, loaded);
-    if (migrated.changed) {
-      this.settings = migrated.settings;
-      await this.saveData(this.settings);
+    this.settings = migrated.settings;
+    const loadedRecord = (loaded || {}) as Record<string, unknown>;
+    const containsPersistedSecret = !!loadedRecord.localRelayApiKey || !!loadedRecord.piApiKey;
+    if (migrated.changed || containsPersistedSecret) {
+      // 兼容读取旧版明文 Key，但立刻从 data.json 清除；当前进程内仍保留，方便用户迁移到便携目录。
+      await this.saveData({ ...this.settings, localRelayApiKey: "", piApiKey: "" });
     }
   }
 
   async saveSettings(): Promise<void> {
     // full-access 仅当前 Bridge session 内存有效：落盘始终降级为 ask
-    const liveProfile = this.settings.agentApprovalProfile;
-    const liveClaude = this.settings.claudePermissionMode;
-    if (liveProfile === "full-access") {
-      this.settings.agentApprovalProfile = "ask";
-      this.settings.claudePermissionMode = mapAgentApprovalProfileToClaudePermissionMode("ask");
-    }
-    // Pi API Key 不写入 data.json（仅在内存中保留，避免明文落盘）
-    const liveApiKey = this.settings.piApiKey;
-    this.settings.piApiKey = "";
-    await this.saveData(this.settings);
-    this.settings.piApiKey = liveApiKey;
-    if (liveProfile === "full-access") {
-      this.settings.agentApprovalProfile = liveProfile;
-      this.settings.claudePermissionMode = liveClaude;
-    }
+    const persistedProfile = this.settings.agentApprovalProfile === "full-access" ? "ask" : this.settings.agentApprovalProfile;
+    const persistedClaude = this.settings.agentApprovalProfile === "full-access"
+      ? mapAgentApprovalProfileToClaudePermissionMode("ask")
+      : this.settings.claudePermissionMode;
+    // API Key 与 full-access 都只在当前进程内存中有效，不写入 Vault 内的 data.json。
+    await this.saveData({
+      ...this.settings,
+      agentApprovalProfile: persistedProfile,
+      claudePermissionMode: persistedClaude,
+      piApiKey: "",
+      localRelayApiKey: "",
+    });
   }
 }

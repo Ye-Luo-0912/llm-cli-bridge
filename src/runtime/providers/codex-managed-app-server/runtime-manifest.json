@@ -1,26 +1,26 @@
 {
   "runtimeId": "codex-managed-app-server",
-  "version": "0.142.5",
-  "protocolVersion": "2026-07-06",
+  "version": "0.144.1",
+  "protocolVersion": "2026-07-12",
   "fixture": false,
   "appServerArgs": ["app-server"],
   "source": {
     "type": "npm-pack",
     "packageName": "@openai/codex",
-    "packageVersion": "0.142.5",
+    "packageVersion": "0.144.1",
     "artifactCacheDir": ".tmp/codex-managed-runtime-artifacts"
   },
   "platforms": {
     "win32-x64": {
       "path": "runtime/win32-x64/codex.exe",
-      "sha256": "645f5a1a0347abb2b31fae4e594c198ad00e3a4b4a999dcfa3a66c0d0f8cd43b",
-      "size": 323143472,
+      "sha256": "cbacbb9726262ef558b4af0438a1b2a5bba9076132401d947b5b4d2bf92ab0e4",
+      "size": 341200688,
       "executableName": "codex.exe",
       "artifact": {
-        "package": "@openai/codex@0.142.5-win32-x64",
-        "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.142.5-win32-x64.tgz",
-        "tarballSha256": "b828ee8f4056d9d7061af1f57bc6b3f041f8629a4488ac9a4a7838237a8d0957",
-        "integrity": "sha512-a+wI4PEx9a2fg6V5ueTTDkOkr1XpEvA5RFXIbo/L2hOfzMmGtyRnbG24bCGu5Q2RSgVxSQV0aLkdb3vdYMNH9A==",
+        "package": "@openai/codex@0.144.1-win32-x64",
+        "tarball": "https://registry.npmjs.org/@openai/codex/-/codex-0.144.1-win32-x64.tgz",
+        "tarballSha256": "d6d1c36f4c5c921724c28500ba89e1e840fd791ec5cc8aca2de256695e1c1c17",
+        "integrity": "sha512-qv2HOp6v/nVP31p5I5GxYyL0wa79PMzim1+W9CKSV0UldjFV9AMbualA8PeXcYhbvvh9Y1UASXxwjuQdlyfAvw==",
         "vendorPath": "vendor/x86_64-pc-windows-msvc/bin/codex.exe"
       }
     }
