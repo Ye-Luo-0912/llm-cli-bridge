@@ -98,7 +98,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    // ===== V20.5: 运行时配置（原生格式，Bridge 只管理来源和密钥） =====
+    // ===== V20.7: 运行时配置（三 tab + 第三方服务表单） =====
     const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     const router = require("./runtime/config/runtimeRouter") as typeof import("./runtime/config/runtimeRouter");
     const routerState = router.getRouterState(vaultPath);
@@ -106,7 +106,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
     containerEl.createEl("h3", { text: "运行时配置" });
     containerEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
-      text: "Bridge 不解析 agent 配置内容。各 runtime 使用官方原生配置文件，Bridge 只负责选择 active provider 和注入密钥。本地配置存在时设置 *_HOME 指向本地目录；缺失时使用全局配置。",
+      text: "每个 Runtime 独立配置第三方服务（地址、模型、Key）。保存时生成对应官方配置文件，Key 注入到 secrets.env。本地配置存在时设置 *_HOME，否则回退全局。",
     });
 
     // --- Active Provider 选择 ---
@@ -129,100 +129,140 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    // --- 各 Provider 配置状态 ---
+    // --- 三 tab 容器 ---
+    const tabContainer = containerEl.createDiv({ cls: "llm-bridge-runtime-tabs" });
+    const tabButtons = tabContainer.createDiv({ cls: "llm-bridge-runtime-tab-buttons" });
+    const tabContents = tabContainer.createDiv({ cls: "llm-bridge-runtime-tab-contents" });
+
+    const providerIds = ["codex", "claude", "pi"] as const;
     const providerLabels: Record<string, { name: string; keyVar: string }> = {
       codex: { name: "Codex", keyVar: "CODEX_RELAY_API_KEY" },
       claude: { name: "Claude", keyVar: "ANTHROPIC_API_KEY" },
       pi: { name: "Pi", keyVar: "PI_RELAY_API_KEY" },
     };
 
-    for (const pid of ["codex", "claude", "pi"] as const) {
+    // 创建 tab 按钮 + 内容区
+    const tabContentEls: Record<string, HTMLElement> = {};
+    for (const pid of providerIds) {
+      const info = providerLabels[pid];
+      const isActive = routerState.activeProvider === pid;
+      const btn = tabButtons.createEl("button", {
+        text: `${info.name}${isActive ? " *" : ""}`,
+        cls: isActive ? "llm-bridge-tab-button active" : "llm-bridge-tab-button",
+      });
+      const content = tabContents.createDiv({ cls: "llm-bridge-tab-content" });
+      content.style.display = isActive ? "block" : "none";
+      tabContentEls[pid] = content;
+      btn.addEventListener("click", () => {
+        // 切换显示
+        for (const p of providerIds) {
+          tabContentEls[p].style.display = p === pid ? "block" : "none";
+          const b = tabButtons.querySelectorAll("button").item(providerIds.indexOf(p));
+          b.classList.toggle("active", p === pid);
+        }
+      });
+    }
+
+    // 每个 tab 填充第三方服务表单
+    for (const pid of providerIds) {
       const info = providerLabels[pid];
       const status = routerState.providers[pid];
-      const isActive = routerState.activeProvider === pid;
+      const content = tabContentEls[pid];
 
-      containerEl.createEl("h4", { text: `${info.name}${isActive ? " (active)" : ""}` });
+      // 当前来源 + 完整路径 + 当前模型
+      const sourceText = status.localConfigExists ? "本地配置" : "全局配置（本地未创建）";
+      const formRead = router.readProviderForm(vaultPath, pid);
+      const currentModel = formRead.ok && formRead.form ? formRead.form.model : "（未配置）";
 
-      // 本地配置状态 + 路径
-      const configStatusText = status.localConfigExists
-        ? `✓ 本地配置已创建`
-        : `✗ 本地配置未创建`;
-      containerEl.createEl("p", { cls: "llm-bridge-setting-hint", text: configStatusText });
-      containerEl.createEl("p", {
+      content.createEl("p", {
+        cls: "llm-bridge-setting-hint",
+        text: `当前来源：${sourceText}`,
+      });
+      content.createEl("p", {
         cls: "llm-bridge-setting-hint",
         text: `路径：${status.localConfigPath}`,
       });
+      content.createEl("p", {
+        cls: "llm-bridge-setting-hint",
+        text: `当前模型：${currentModel}`,
+      });
 
-      // [创建本地配置] [打开全局配置目录]
-      new Setting(containerEl)
-        .setName("配置文件")
-        .setDesc(status.globalConfigExists
-          ? `全局配置目录存在：${status.globalConfigDir}`
-          : "全局配置目录不存在（将使用官方模板创建）")
-        .addButton((b) => {
-          b.setButtonText(status.localConfigExists ? "重建本地配置" : "创建本地配置");
-          b.onClick(async () => {
-            try {
-              const result = pid === "codex" ? router.createCodexLocalConfig(vaultPath)
-                : pid === "claude" ? router.createClaudeLocalConfig(vaultPath)
-                : router.createPiLocalConfig(vaultPath);
-              if (result.ok) {
-                if (result.source === "already-exists") {
-                  new Notice("本地配置已存在", 3000);
-                } else if (result.source === "global-copy") {
-                  new Notice(`已从全局配置复制：${result.createdFiles.join(", ")}`, 4000);
-                } else {
-                  new Notice(`已用官方模板创建：${result.createdFiles.join(", ")}`, 4000);
-                }
-              } else {
-                new Notice(`创建失败：${result.reason}`, 6000);
-              }
-            } catch (e) {
-              new Notice("创建失败：" + (e instanceof Error ? e.message : String(e)), 5000);
-            }
-            this.plugin.refreshBridgeView();
-          });
-        })
-        .addButton((b) => {
-          b.setButtonText("打开全局配置目录");
-          b.onClick(() => {
-            try {
-              const electron = require("electron") as { shell: { openPath: (p: string) => Promise<string> } };
-              void electron.shell.openPath(status.globalConfigDir);
-            } catch (e) {
-              new Notice("打开失败：" + (e instanceof Error ? e.message : String(e)), 5000);
-            }
-          });
+      // 解析错误展示
+      if (!formRead.ok && formRead.error) {
+        content.createEl("p", {
+          cls: "llm-bridge-setting-hint",
+          text: `⚠ 配置错误：${formRead.error}（请修正配置文件或重建本地配置）`,
         });
+      }
 
-      // API Key 管理
-      const keyStatusLabel = status.keyStatus === "saved"
-        ? "已加密保存"
-        : status.keyStatus === "session-only"
-          ? "仅本次会话有效（safeStorage 不可用）"
-          : "未配置";
-      new Setting(containerEl)
-        .setName(`${info.name} API Key`)
-        .setDesc(`环境变量：${info.keyVar} | 当前：${keyStatusLabel}`)
+      // --- 第三方服务表单 ---
+      content.createEl("h4", { text: "第三方服务" });
+
+      // 地址
+      const urlInput = new Setting(content)
+        .setName("服务地址")
+        .setDesc("第三方中转站地址。Codex/Pi 通常带 /v1 后缀，Claude 不带。")
+        .addText((t) => {
+          t.setPlaceholder("https://api.example.com/v1");
+          t.setValue(formRead.ok && formRead.form ? formRead.form.baseURL : "");
+          t.inputEl.dataset.field = "baseURL";
+        });
+      void urlInput;
+
+      // 模型
+      const modelInput = new Setting(content)
+        .setName("模型")
+        .setDesc("模型 ID（如 gpt-5.4 / claude-sonnet-4-5）。不自动调用 /v1/models，请手动填写。")
+        .addText((t) => {
+          t.setPlaceholder("gpt-5.4");
+          t.setValue(formRead.ok && formRead.form ? formRead.form.model : "");
+          t.inputEl.dataset.field = "model";
+        });
+      void modelInput;
+
+      // Key（password 输入框，保存时才写入）
+      const keyInput = new Setting(content)
+        .setName("API Key")
+        .setDesc(`环境变量：${info.keyVar} | 当前：${status.keyStatus === "saved" ? "已加密保存" : status.keyStatus === "session-only" ? "仅本次会话有效" : "未配置"}（留空保存时不更新）`)
         .addText((t) => {
           t.inputEl.type = "password";
-          t.setPlaceholder("设置或替换 Key…");
+          t.setPlaceholder("留空不更新，填写则替换…");
           t.setValue("");
-          t.onChange(async (v) => {
-            const val = v.trim();
-            if (!val) return;
+          t.inputEl.dataset.field = "apiKey";
+        });
+      void keyInput;
+
+      // 保存按钮
+      new Setting(content)
+        .setName("保存")
+        .setDesc("生成官方配置文件 + 注入密钥。配置错误会直接显示，不静默回退。")
+        .addButton((b) => {
+          b.setButtonText("保存配置");
+          b.setCta();
+          b.onClick(async () => {
+            const baseURL = (content.querySelector('input[data-field="baseURL"]') as HTMLInputElement)?.value.trim() || "";
+            const model = (content.querySelector('input[data-field="model"]') as HTMLInputElement)?.value.trim() || "";
+            const apiKey = (content.querySelector('input[data-field="apiKey"]') as HTMLInputElement)?.value.trim() || "";
+            if (!baseURL || !model) {
+              new Notice("请填写服务地址和模型", 4000);
+              return;
+            }
             try {
-              const keyStatus = pid === "codex" ? router.setCodexKey(vaultPath, val)
-                : pid === "claude" ? router.setClaudeKey(vaultPath, val)
-                : router.setPiKey(vaultPath, val);
-              t.setValue("");
-              if (keyStatus === "session-only") {
-                new Notice("safeStorage 不可用：Key 仅本次会话有效", 6000);
+              const result = router.saveProviderForm(vaultPath, pid, { baseURL, model, apiKey });
+              if (result.ok) {
+                const parts = [`已生成：${result.createdFiles.join(", ")}`];
+                if (result.keyStatus) {
+                  parts.push(result.keyStatus === "session-only" ? "Key 仅本次会话有效" : "Key 已加密保存");
+                }
+                new Notice(parts.join(" | "), 5000);
+                // 清空 Key 输入框
+                const keyEl = content.querySelector('input[data-field="apiKey"]') as HTMLInputElement | null;
+                if (keyEl) keyEl.value = "";
               } else {
-                new Notice(`${info.name} API Key 已加密保存`, 3000);
+                new Notice(`保存失败：${result.error}`, 6000);
               }
             } catch (e) {
-              new Notice("保存 Key 失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+              new Notice("保存失败：" + (e instanceof Error ? e.message : String(e)), 6000);
             }
             this.plugin.refreshBridgeView();
           });
@@ -240,13 +280,24 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
             }
             this.plugin.refreshBridgeView();
           });
+        })
+        .addButton((b) => {
+          b.setButtonText("打开全局配置目录");
+          b.onClick(() => {
+            try {
+              const electron = require("electron") as { shell: { openPath: (p: string) => Promise<string> } };
+              void electron.shell.openPath(status.globalConfigDir);
+            } catch (e) {
+              new Notice("打开失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+            }
+          });
         });
     }
 
     // --- V20.4 迁移 ---
     new Setting(containerEl)
       .setName("从 V20.4 迁移")
-      .setDesc("从旧 runtime-provider.json 迁移 active.json 和密钥到 V20.5 原生格式。relayUrl/model 需手动填写到各 agent 配置文件。")
+      .setDesc("从旧 runtime-provider.json 迁移 active.json 和密钥。relayUrl/model 需在上方表单中重新填写。")
       .addButton((b) => {
         b.setButtonText("迁移");
         b.onClick(async () => {

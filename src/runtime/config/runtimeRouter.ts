@@ -29,6 +29,7 @@ import {
   loadAllSecrets, getSecret, setSecret, clearSecret, getSecretKeyStatus,
   type SecretVarName, type SecretKeyStatus,
 } from "./secretsStore";
+import { writeProviderForm } from "./configForm";
 
 // ---------- 本地配置存在性检测 ----------
 
@@ -541,3 +542,91 @@ export {
 export {
   getSecretKeyStatus, type SecretKeyStatus, type SecretVarName,
 } from "./secretsStore";
+
+export {
+  readProviderForm, writeProviderForm,
+  readCodexForm, writeCodexForm,
+  readClaudeForm, writeClaudeForm,
+  readPiForm, writePiForm,
+  type ProviderForm, type ProviderFormReadResult,
+} from "./configForm";
+
+// ---------- V20.7: 表单 + 密钥统一保存 ----------
+
+export interface SaveProviderFormInput {
+  readonly baseURL: string;
+  readonly model: string;
+  /** 空字符串表示不更新密钥 */
+  readonly apiKey?: string;
+}
+
+export interface SaveProviderFormResult {
+  readonly ok: boolean;
+  readonly error?: string;
+  /** 生成的配置文件相对路径 */
+  readonly createdFiles: string[];
+  /** 密钥保存状态（仅在 apiKey 非空时返回） */
+  readonly keyStatus?: SecretKeyStatus;
+}
+
+/**
+ * V20.7: 保存 provider 表单（生成原生配置文件 + 注入密钥）。
+ *
+ * 1. 调用 writeProviderForm 生成对应 runtime 的官方配置文件
+ * 2. 如果 apiKey 非空，调用 setXxxKey 注入到 secrets.env
+ *
+ * 配置错误时直接抛出，不静默回退。
+ */
+export function saveProviderForm(
+  vaultPath: string,
+  provider: RuntimeProviderId,
+  input: SaveProviderFormInput,
+): SaveProviderFormResult {
+  const createdFiles: string[] = [];
+  try {
+    writeProviderForm(vaultPath, provider, { baseURL: input.baseURL, model: input.model });
+    // 记录生成的文件路径
+    switch (provider) {
+      case "codex":
+        createdFiles.push(AGENT_RUNTIME_CODEX_CONFIG_REL);
+        break;
+      case "claude":
+        createdFiles.push(AGENT_RUNTIME_CLAUDE_CONFIG_REL);
+        break;
+      case "pi":
+        createdFiles.push(AGENT_RUNTIME_PI_SETTINGS_REL, AGENT_RUNTIME_PI_MODELS_REL);
+        break;
+    }
+  } catch (e) {
+    return {
+      ok: false,
+      error: `生成配置文件失败：${e instanceof Error ? e.message : String(e)}`,
+      createdFiles,
+    };
+  }
+
+  let keyStatus: SecretKeyStatus | undefined;
+  if (input.apiKey && input.apiKey.trim()) {
+    try {
+      switch (provider) {
+        case "codex":
+          keyStatus = setCodexKey(vaultPath, input.apiKey.trim());
+          break;
+        case "claude":
+          keyStatus = setClaudeKey(vaultPath, input.apiKey.trim());
+          break;
+        case "pi":
+          keyStatus = setPiKey(vaultPath, input.apiKey.trim());
+          break;
+      }
+    } catch (e) {
+      return {
+        ok: false,
+        error: `密钥保存失败：${e instanceof Error ? e.message : String(e)}`,
+        createdFiles,
+      };
+    }
+  }
+
+  return { ok: true, createdFiles, keyStatus };
+}

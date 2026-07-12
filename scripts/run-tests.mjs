@@ -25493,7 +25493,7 @@ if (!runV202) {
     }
 
     // ============================================================
-    // 测试 8: V20.5 settings.ts 模型发现 UI 已移除 — 改用 runtimeRouter
+    // 测试 8: V20.5/V20.7 settings.ts 模式断言
     // ============================================================
     {
       const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
@@ -25502,12 +25502,19 @@ if (!runV202) {
       // V20.5: settings.ts 使用 runtimeRouter（替代 runtimeProviderStore）
       const usesRouter = settingsSrc.includes("runtimeRouter");
       const noProviderStore = !settingsSrc.includes("runtimeProviderStore");
+      // V20.7: settings.ts 使用 tab + saveProviderForm
+      const usesTabs = settingsSrc.includes("llm-bridge-runtime-tabs") && settingsSrc.includes("llm-bridge-tab-button");
+      const usesSaveForm = settingsSrc.includes("saveProviderForm");
+      const usesReadForm = settingsSrc.includes("readProviderForm");
       addTest("V20.5 settings.ts: 不再调用 clearCodexManagedModelCatalogCache（已移除模型发现 UI）",
         noClearCache ? "pass" : "fail",
         noClearCache ? "" : "settings.ts 仍引用 clearCodexManagedModelCatalogCache");
       addTest("V20.5 settings.ts: 使用 runtimeRouter（替代 runtimeProviderStore）",
         usesRouter && noProviderStore ? "pass" : "fail",
         usesRouter && noProviderStore ? "" : `usesRouter=${usesRouter} noProviderStore=${noProviderStore}`);
+      addTest("V20.7 settings.ts: 使用 tab + saveProviderForm + readProviderForm",
+        usesTabs && usesSaveForm && usesReadForm ? "pass" : "fail",
+        `tabs=${usesTabs}, saveForm=${usesSaveForm}, readForm=${usesReadForm}`);
     }
 
     // ============================================================
@@ -25771,29 +25778,32 @@ if (!runV202) {
     // ============================================================
     {
       const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
-      // V20.5: API Key 通过 router.setCodexKey/setClaudeKey/setPiKey 持久化（替代 store.setProviderApiKey）
-      const hasPersistOnchange = settingsSrc.includes("router.setCodexKey")
-        && settingsSrc.includes("router.setClaudeKey")
-        && settingsSrc.includes("router.setPiKey");
+      // V20.7: API Key 通过 router.saveProviderForm 持久化（内部调用 setXxxKey）
+      // 或通过 router.clearCodexKey/clearClaudeKey/clearPiKey 清除
+      const hasPersistViaSaveForm = settingsSrc.includes("saveProviderForm");
+      const hasClearKey = settingsSrc.includes("router.clearCodexKey")
+        && settingsSrc.includes("router.clearClaudeKey")
+        && settingsSrc.includes("router.clearPiKey");
+      const hasPersistOnchange = hasPersistViaSaveForm && hasClearKey;
       // V20.4: "清除 Key" 按钮存在（替代旧 "忘记 Key"）
       const hasForgetKeyBtn = settingsSrc.includes("清除 Key");
       // V20.4: 便携目录路径在 types.ts 中定义（迁移用），settings.ts UI 不再直接暴露
       const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf-8");
       const hasPortableAdvanced = typesSrc.includes("localRelayPortableKeyPath");
-      // 描述中提到 safeStorage 加密
-      const descMentionsSafeStorage = settingsSrc.includes("safeStorage") || settingsSrc.includes("加密存储");
-      addTest("V20.5 settings.ts: API Key 通过 router.setCodexKey/setClaudeKey/setPiKey 持久化",
+      // 描述中提到加密（V20.7: "已加密保存" 字样）
+      const descMentionsSafeStorage = settingsSrc.includes("safeStorage") || settingsSrc.includes("加密");
+      addTest("V20.5/V20.7 settings.ts: API Key 通过 saveProviderForm + clearXxxKey 持久化",
         hasPersistOnchange ? "pass" : "fail",
-        hasPersistOnchange ? "" : "settings.ts 缺少 router.setCodexKey/setClaudeKey/setPiKey");
+        hasPersistOnchange ? "" : `saveForm=${hasPersistViaSaveForm}, clearKey=${hasClearKey}`);
       addTest("V20.2/V20.4 safeStorage: '清除 Key' 按钮存在",
         hasForgetKeyBtn ? "pass" : "fail",
         hasForgetKeyBtn ? "" : "settings.ts 缺少 '清除 Key' 按钮");
       addTest("V20.2/V20.4 safeStorage: 便携目录路径配置项存在（高级设置）",
         hasPortableAdvanced ? "pass" : "fail",
         hasPortableAdvanced ? "" : "settings.ts 缺少便携目录路径配置");
-      addTest("V20.2/V20.4 safeStorage: 描述中提到加密存储",
+      addTest("V20.2/V20.4 safeStorage: 描述中提到加密",
         descMentionsSafeStorage ? "pass" : "fail",
-        descMentionsSafeStorage ? "" : "settings.ts 描述未提及加密存储");
+        descMentionsSafeStorage ? "" : "settings.ts 描述未提及加密");
     }
 
   } catch (e) {
@@ -27175,6 +27185,143 @@ try {
       result.ok && result.source === "global-copy" && isCopied ? "pass" : "fail",
       `ok=${result.ok}, source=${result.source}, isCopied=${isCopied}`);
     delete process.env.CLAUDE_CONFIG_DIR;
+  }
+
+  // --- V20.7: configForm + saveProviderForm 测试 ---
+
+  // Test 33: writeCodexForm + readCodexForm 往返
+  {
+    const vault = makeTempVault();
+    routerMod.writeCodexForm(vault, { baseURL: "https://relay.example.com/v1", model: "gpt-5.4" });
+    const result = routerMod.readCodexForm(vault);
+    const ok = result.ok && result.form && result.form.baseURL === "https://relay.example.com/v1" && result.form.model === "gpt-5.4" && result.localConfigExists;
+    addTest("V20.7 Codex form: write→read 往返一致",
+      ok ? "pass" : "fail",
+      `ok=${result.ok}, baseURL=${result.form?.baseURL}, model=${result.form?.model}, exists=${result.localConfigExists}`);
+  }
+
+  // Test 34: writeClaudeForm + readClaudeForm 往返
+  {
+    const vault = makeTempVault();
+    routerMod.writeClaudeForm(vault, { baseURL: "https://relay.example.com", model: "claude-sonnet-4-5" });
+    const result = routerMod.readClaudeForm(vault);
+    const ok = result.ok && result.form && result.form.baseURL === "https://relay.example.com" && result.form.model === "claude-sonnet-4-5" && result.localConfigExists;
+    addTest("V20.7 Claude form: write→read 往返一致",
+      ok ? "pass" : "fail",
+      `ok=${result.ok}, baseURL=${result.form?.baseURL}, model=${result.form?.model}, exists=${result.localConfigExists}`);
+  }
+
+  // Test 35: writePiForm + readPiForm 往返
+  {
+    const vault = makeTempVault();
+    routerMod.writePiForm(vault, { baseURL: "https://relay.example.com/v1", model: "gpt-5.4" });
+    const result = routerMod.readPiForm(vault);
+    const ok = result.ok && result.form && result.form.baseURL === "https://relay.example.com/v1" && result.form.model === "gpt-5.4" && result.localConfigExists;
+    addTest("V20.7 Pi form: write→read 往返一致",
+      ok ? "pass" : "fail",
+      `ok=${result.ok}, baseURL=${result.form?.baseURL}, model=${result.form?.model}, exists=${result.localConfigExists}`);
+  }
+
+  // Test 36: readCodexForm 本地配置不存在 → localConfigExists=false
+  {
+    const vault = makeTempVault();
+    const result = routerMod.readCodexForm(vault);
+    addTest("V20.7 readCodexForm: 本地配置不存在 → localConfigExists=false",
+      result.ok && !result.form && !result.localConfigExists ? "pass" : "fail",
+      `ok=${result.ok}, form=${!!result.form}, exists=${result.localConfigExists}`);
+  }
+
+  // Test 37: readClaudeForm 配置错误 → 返回原生错误
+  {
+    const vault = makeTempVault();
+    writeFile(vault, CLAUDE_CONFIG_REL, '{invalid json\n');
+    const result = routerMod.readClaudeForm(vault);
+    addTest("V20.7 readClaudeForm: JSON 错误 → 返回 error",
+      !result.ok && result.localConfigExists && typeof result.error === "string" ? "pass" : "fail",
+      `ok=${result.ok}, exists=${result.localConfigExists}, error=${result.error?.slice(0, 50)}`);
+  }
+
+  // Test 38: saveProviderForm Codex 生成配置 + 密钥
+  {
+    const vault = makeTempVault();
+    const result = routerMod.saveProviderForm(vault, "codex", {
+      baseURL: "https://save.example.com/v1",
+      model: "gpt-5.4",
+      apiKey: "test-key-codex",
+    });
+    const formRead = routerMod.readCodexForm(vault);
+    const keyStatus = routerMod.getRouterState(vault).providers.codex.keyStatus;
+    const ok = result.ok && formRead.ok && formRead.form?.model === "gpt-5.4" && result.createdFiles.includes(CODEX_CONFIG_REL) && keyStatus !== "none";
+    addTest("V20.7 saveProviderForm Codex: 生成配置 + 注入密钥",
+      ok ? "pass" : "fail",
+      `ok=${result.ok}, model=${formRead.form?.model}, files=${result.createdFiles.join(",")}, keyStatus=${keyStatus}`);
+  }
+
+  // Test 39: saveProviderForm Claude 生成配置 + 密钥
+  {
+    const vault = makeTempVault();
+    const result = routerMod.saveProviderForm(vault, "claude", {
+      baseURL: "https://save.example.com",
+      model: "claude-sonnet-4-5",
+      apiKey: "test-key-claude",
+    });
+    const formRead = routerMod.readClaudeForm(vault);
+    const ok = result.ok && formRead.ok && formRead.form?.model === "claude-sonnet-4-5" && result.createdFiles.includes(CLAUDE_CONFIG_REL);
+    addTest("V20.7 saveProviderForm Claude: 生成配置 + 注入密钥",
+      ok ? "pass" : "fail",
+      `ok=${result.ok}, model=${formRead.form?.model}, files=${result.createdFiles.join(",")}`);
+  }
+
+  // Test 40: saveProviderForm Pi 生成 settings.json + models.json
+  {
+    const vault = makeTempVault();
+    const result = routerMod.saveProviderForm(vault, "pi", {
+      baseURL: "https://save.example.com/v1",
+      model: "gpt-5.4",
+      apiKey: "test-key-pi",
+    });
+    const formRead = routerMod.readPiForm(vault);
+    const hasBothFiles = result.createdFiles.includes(PI_SETTINGS_REL) && result.createdFiles.includes(PI_MODELS_REL);
+    const ok = result.ok && formRead.ok && formRead.form?.model === "gpt-5.4" && hasBothFiles;
+    addTest("V20.7 saveProviderForm Pi: 生成 settings.json + models.json",
+      ok ? "pass" : "fail",
+      `ok=${result.ok}, model=${formRead.form?.model}, files=${result.createdFiles.join(",")}`);
+  }
+
+  // Test 41: saveProviderForm 不带 apiKey → 只生成配置不更新密钥
+  {
+    const vault = makeTempVault();
+    const result = routerMod.saveProviderForm(vault, "codex", {
+      baseURL: "https://nokey.example.com/v1",
+      model: "gpt-5.4",
+    });
+    addTest("V20.7 saveProviderForm: 无 apiKey → keyStatus=undefined",
+      result.ok && result.keyStatus === undefined ? "pass" : "fail",
+      `ok=${result.ok}, keyStatus=${result.keyStatus}`);
+  }
+
+  // Test 42: writeCodexForm 生成文件包含 env_key 但不包含 Key 值
+  {
+    const vault = makeTempVault();
+    routerMod.writeCodexForm(vault, { baseURL: "https://relay.example.com/v1", model: "gpt-5.4" });
+    const content = readFileSync(join(vault, CODEX_CONFIG_REL), "utf8");
+    const hasEnvKey = content.includes('env_key = "CODEX_RELAY_API_KEY"');
+    const noKeyLeak = !content.includes("sk-") && !content.includes("test-key");
+    addTest("V20.7 writeCodexForm: 生成 env_key 但不泄露 Key 值",
+      hasEnvKey && noKeyLeak ? "pass" : "fail",
+      `hasEnvKey=${hasEnvKey}, noKeyLeak=${noKeyLeak}`);
+  }
+
+  // Test 43: writePiForm models.json apiKey 字段为环境变量名
+  {
+    const vault = makeTempVault();
+    routerMod.writePiForm(vault, { baseURL: "https://relay.example.com/v1", model: "gpt-5.4" });
+    const content = readFileSync(join(vault, PI_MODELS_REL), "utf8");
+    const hasVarName = content.includes('"apiKey": "PI_RELAY_API_KEY"');
+    const noKeyLeak = !content.includes("sk-") && !content.includes("test-key");
+    addTest("V20.7 writePiForm: apiKey 字段为环境变量名",
+      hasVarName && noKeyLeak ? "pass" : "fail",
+      `hasVarName=${hasVarName}, noKeyLeak=${noKeyLeak}`);
   }
 
 } catch (e) {
