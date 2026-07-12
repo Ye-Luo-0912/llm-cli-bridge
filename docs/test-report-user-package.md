@@ -4,7 +4,7 @@
 > 验证 dist/user-package 发行包的完整性、CJS 加载安全性与 managed runtime 分发边界。
 > V17-F3：默认 download-on-first-run 不打包大 binary；offline package 才 bundling 当前平台 runtime。
 
-- **测试时间**: 2026-07-09T09:24:28.481Z
+- **测试时间**: 2026-07-12T12:20:11.168Z
 - **userPackageStatus**: pass
 - **containsPiSdk**: true
 - **canRequirePiSdk**: true
@@ -12,11 +12,11 @@
 - **noRootPackageJson**: true（V17-E1 任务 C：根目录无 package.json 或无 type=module）
 - **userNeedsNpmInstall**: false
 - **sdkVersion**: 0.80.3
-- **totalSizeMB**: 98.4
+- **totalSizeMB**: 98.6
 - **containsCodexManagedRuntime**: true（V17-F1 任务 E）
 - **codexRuntimeSha256Valid**: false（V17-F1 任务 E）
 - **codexRuntimeExecutable**: false（V17-F1 任务 E）
-- **codexRuntimePinnedVersion**: 0.142.5
+- **codexRuntimePinnedVersion**: 0.144.1
 - **codexRuntimeFixture**: false（V17-F1 任务 E：fixture=true 不标 production ready）
 - **releasePackageMode**: download-on-first-run
 - **containsRuntimeBinary**: false
@@ -26,11 +26,11 @@
 - **runtimeInstallRequiresSystemNpm**: false
 - **runtimeInstallRequiresSystemTar**: false
 - **releasePackageContainsCodexRuntime**: true
-- **releasePackageSizeMB**: 98.4
+- **releasePackageSizeMB**: 98.6
 - **runtimeBinarySha256Verified**: false
 - **offlinePackageSizeMB**: 0
 - **runtimeInstallerPresent**: true
-- **runtimePinnedArtifactPackage**: @openai/codex@0.142.5-win32-x64
+- **runtimePinnedArtifactPackage**: @openai/codex@0.144.1-win32-x64
 
 ## 验证项说明
 

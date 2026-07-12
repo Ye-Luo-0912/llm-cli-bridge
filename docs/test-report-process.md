@@ -1,24 +1,24 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-12T08:27:37.735Z
+- **测试时间**: 2026-07-12T12:17:06.943Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.18.0
-- **main.js 大小**: 1317.4 KB
+- **main.js 大小**: 1342.0 KB
 - **main.js bundle content smoke**: PASS ({"HttpBridge":true,"writeHelperAndWrappers":true,"CodexAppServerProvider":true,"vault_api":true})
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 58601
-- **commit sha**: 15ffc6e894ef016606923d859ceb8e41b6cf9129
-- **commit 短 sha**: 15ffc6e894ef
+- **HTTP 端口**: 62538
+- **commit sha**: d9f2b9f1555a0aef219b9aace2c58ac4dcacd53c
+- **commit 短 sha**: d9f2b9f1555a
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
 
 - ✅ **通过**: 233
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 62
+- ⏭️ **跳过**: 63
 - ⚪ **需人工验证**: 0
-- **总计**: 295
+- **总计**: 296
 
 ### 审计模式说明
 
@@ -273,25 +273,25 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3288ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
+| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3230ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
  |
-| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4689ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783844862088
+| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4658ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783858631149
  |
 | ✅ | health 命令（fake server） | - |
 | ✅ | --json 标志输出有效 JSON（fake server） | - |
 | ✅ | 非修改类 action 直接输出（不轮询） | {
   "ok": true,
-  "id": "fake-id-1783844867120",
+  "id": "fake-id-1783858636078",
   "status": "completed",
   "result": {
     "type":  |
 | ✅ | --stdin 模式读取 JSON params | {
   "ok": true,
-  "id": "fake-id-1783844867259",
+  "id": "fake-id-1783858636191",
   "status": "completed",
   "result": {
     "type":  |
-| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783844867406","status":"completed","result":{"type":"tags_list","fake":tru |
+| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783858636459","status":"completed","result":{"type":"tags_list","fake":tru |
 | ✅ | 错误分级 - bridge.json 缺失 exit 2 | exit=2 stderr=[bridge 未启动] 未找到 .llm-bridge/bridge.json。
   请确认 Obsidian 已启动且 llm-cli-bridge 插件已 |
 | ✅ | 错误分级 - JSON 解析失败 exit 5 | exit=5 stderr=[参数解析失败] JSON 格式错误: Expected property name or '}' in JSON at position 1 (line 1  |
@@ -1045,6 +1045,12 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ⏭️ | Codex schema alignment 测试段 | 当前模式不运行 unit |
+
+### V20.2 测试段
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ⏭️ | V20.2 测试段 | 当前模式不运行 unit |
 
 ## 失败项详情
 
