@@ -20258,31 +20258,24 @@ if (!runNoteSummarizeSmoke) {
   {
     const processFeedSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexProcessFeed.ts"), "utf8");
     const waterfallSrcG65 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
-    const ok = (viewSrc.includes("private shouldGroupCodexToolEvents(")
-        || processFeedSrc.includes("export function shouldGroupCodexToolEvents(")
-        || waterfallSrcG65.includes("shouldGroupCodexToolEvents("))
-      && (viewSrc.includes("private renderCodexToolGroup(")
-        || waterfallSrcG65.includes("function renderCodexToolGroup("))
-      && (viewSrc.includes("private formatCodexToolGroupTitle(")
-        || processFeedSrc.includes("export function formatCodexToolGroupTitle("))
+    const ok = waterfallSrcG65.includes("function segmentCodexFeedEntries(")
+      && waterfallSrcG65.includes("function patchCodexFeedEntryCluster(")
+      && waterfallSrcG65.includes("function formatClusterTitle(")
+      && waterfallSrcG65.includes("function formatExecutionClusterTitle(")
       && (viewSrc.includes("llm-bridge-codex-tool-group")
         || waterfallSrcG65.includes("llm-bridge-codex-tool-group"))
-      && (viewSrc.includes('if (group.open) renderBody();')
-        || waterfallSrcG65.includes("if (group.open)"))
-      && (viewSrc.includes('block.querySelector(":scope > .llm-bridge-codex-event-body")')
-        || waterfallSrcG65.includes('block.querySelector(":scope > .llm-bridge-codex-event-body")'))
+      && waterfallSrcG65.includes("function computeClusterRevision(")
       && (viewSrc.includes('item.kind === "command"')
         || waterfallSrcG65.includes('item.kind === "command"'))
-      && (viewSrc.includes("return `已运行 ${commandCount} 条命令`;")
-        || processFeedSrc.includes("return `已运行 ${commandCount} 条命令`;"))
-      && (viewSrc.includes("return `已编辑 ${fileCount} 个文件`;")
-        || processFeedSrc.includes("return `已编辑 ${fileCount} 个文件`;"))
+      && (waterfallSrcG65.includes("条命令")
+        || processFeedSrc.includes("条命令"))
+      && (waterfallSrcG65.includes("个文件")
+        || processFeedSrc.includes("个文件"))
       && (viewSrc.includes("private sumCodexEventDuration(")
         || processFeedSrc.includes("export function sumCodexEventDuration(")
         || waterfallSrcG65.includes("sumCodexEventDuration("))
-      && (waterfallSrcG65.includes('key: `group:command:${startKey}`')
-        || waterfallSrcG65.includes("group:command:")
-        || waterfallSrcG65.includes('group:${groupKind}:${startKey}'))
+      && (waterfallSrcG65.includes("cluster:execution:")
+        || waterfallSrcG65.includes('cluster:${firstKind}:'))
       && stylesSrc.includes("V17-G65: grouped lazy tool events and full-width composer input")
       && stylesSrc.includes(".llm-bridge-codex-tool-group-summary")
       && (stylesSrc.includes('"input input input"') || stylesSrc.includes(".llm-bridge-input-surface"))
@@ -20307,12 +20300,12 @@ if (!runNoteSummarizeSmoke) {
         || viewSrc.includes(".then(() => this.bindAssistantMarkdownVaultLinks(body))"))
       && viewSrc.includes("未在 Vault 中找到可打开的文件")
       && (viewSrc.includes('item.change') || waterfallSrc.includes('item.change'))
-      && (viewSrc.includes('? "已编辑 1 个文件"')
-        || waterfallSrc.includes('? "已编辑 1 个文件"'))
-      && (viewSrc.includes('? "已运行 1 条命令"')
-        || waterfallSrc.includes('? "已运行 1 条命令"'))
-      && (viewSrc.includes('const summaryText = item.change')
-        || waterfallSrc.includes('const summaryText = item.change'))
+      && (waterfallSrc.includes('function formatExecutionClusterTitle(')
+        || waterfallSrc.includes('function formatClusterTitle('))
+      && (waterfallSrc.includes("条命令")
+        || waterfallSrc.includes("个文件"))
+      && (waterfallSrc.includes('function classifyClusterMember(')
+        || waterfallSrc.includes('function isClusterBoundary('))
       && !viewSrc.includes("if (item.change) renderBody();")
       && !waterfallSrc.includes("if (item.change) renderBody();")
       && stylesSrc.includes("V17-G66: file events match shell rows, composer text stays above controls")
@@ -20492,10 +20485,10 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13j15: V17-G75 command/file process rows avoid bubble chrome ----
   {
     const waterfallSrcG75 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
-    const ok = (viewSrc.includes('? "已编辑 1 个文件"')
-        || waterfallSrcG75.includes('? "已编辑 1 个文件"'))
-      && (viewSrc.includes('? "已运行 1 条命令"')
-        || waterfallSrcG75.includes('? "已运行 1 条命令"'))
+    const ok = (waterfallSrcG75.includes('function formatExecutionClusterTitle(')
+        || waterfallSrcG75.includes('function formatClusterTitle('))
+      && (waterfallSrcG75.includes("条命令")
+        || waterfallSrcG75.includes("个文件"))
       && !viewSrc.includes('已编辑 1 个文件 ·')
       && !waterfallSrcG75.includes('已编辑 1 个文件 ·')
       && !viewSrc.includes('已运行 1 条命令 ·')
@@ -21057,8 +21050,7 @@ if (!runNoteSummarizeSmoke) {
     const messageRendererSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "messageRenderer.ts"), "utf8");
     const ok = (viewSrc.includes('const processFeedItems = run.feedItems;')
         || runRendererSrc.includes('const processFeedItems = run.feedItems;'))
-      && (viewSrc.includes('const processFeedBatches = this.groupCodexFeedBatches(processFeedItems);')
-        || runRendererSrc.includes('const processFeedBatches = groupCodexFeedBatches(processFeedItems);'))
+      && !runRendererSrc.includes('groupCodexFeedBatches')
       && (viewSrc.includes('const processEventCount = processFeedItems.filter((item) => this.isCodexFeedEvent(item)).length;')
         || runRendererSrc.includes('const processEventCount = processFeedItems.filter((item) => isCodexFeedEvent(item)).length;'))
       && !viewSrc.includes('const processPreview = this.formatCodexProcessPreview(processFeedBatches, developerMode);')
@@ -21099,16 +21091,14 @@ if (!runNoteSummarizeSmoke) {
       && (waterfallSrc.includes("is-final-candidate")
         || viewSrc.includes("is-final-candidate")
         || viewSrc.includes("is-answer-candidate"))
-      && (viewSrc.includes("private renderCodexFeedBatch(")
-        || waterfallSrc.includes("function renderCodexFeedBatch("))
-      && (viewSrc.includes("private renderCodexFeedBatchSummary(")
-        || waterfallSrc.includes("function renderCodexFeedBatchSummary("))
-      && (viewSrc.includes("private renderCodexFeedNarrative(parent: HTMLElement, item: CodexRunFeedItem): void {")
-        || waterfallSrc.includes("function renderCodexFeedNarrative("))
-      && (viewSrc.includes("private formatCodexBatchSummary(")
-        || waterfallSrc.includes("function formatCodexBatchSummary("))
-      && (viewSrc.includes("private formatCodexProcessPreview(")
-        || waterfallSrc.includes("function formatCodexProcessPreview("))
+      && waterfallSrc.includes("function segmentCodexFeedEntries(")
+      && waterfallSrc.includes("function patchCodexFeedEntryCluster(")
+      && waterfallSrc.includes("function patchClusterBody(")
+      && waterfallSrc.includes("function renderCodexFeedNarrative(")
+      && !waterfallSrc.includes("function renderCodexFeedBatch(")
+      && !waterfallSrc.includes("function renderCodexFeedBatchSummary(")
+      && !waterfallSrc.includes("function formatCodexBatchSummary(")
+      && !waterfallSrc.includes("function formatCodexProcessPreview(")
       && !viewSrc.includes('label: "Output"')
       && viewSrc.includes('setIcon(this.clearBtn.createEl("span", { cls: "llm-bridge-icon" }), "plus");')
       && viewSrc.includes('setIcon(refreshHistBtn.createEl("span", { cls: "llm-bridge-icon" }), "refresh-cw");')
@@ -21127,6 +21117,7 @@ if (!runNoteSummarizeSmoke) {
   // ---- Test 13ae: V17-G53 waterfall batches + history header + right-aligned user file previews ----
   {
     const waterfallSrcG53 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
+    const runRendererSrcG53 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8");
     const ok = viewSrc.includes("private setPageTitleForTab(tab:")
       && viewSrc.includes('this.pageTitleEl.toggleAttribute("hidden", tab === "chat");')
       && viewSrc.includes("private setHistoryPanelExpanded(expanded: boolean): void")
@@ -21134,12 +21125,13 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes('this.historyToggleChevronEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-chevron", text: "▶" });')
       && viewSrc.includes('this.historyToggleLabelEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-label", text: "Sessions" });')
       && viewSrc.includes('this.historyToggleCountEl = this.historyToggleEl.createEl("span", { cls: "llm-bridge-history-toggle-count", text: "0" });')
-      && (viewSrc.includes('const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";')
-        || waterfallSrcG53.includes('const leadIsNarrative = lead.kind === "thinking" || lead.kind === "assistant";'))
-      && (viewSrc.includes('const bodyItems = leadIsNarrative ? batch.slice(1) : batch;')
-        || waterfallSrcG53.includes('const bodyItems = leadIsNarrative ? batch.slice(1) : batch;'))
+      && waterfallSrcG53.includes('function segmentCodexFeedEntries(')
+      && waterfallSrcG53.includes('function isClusterBoundary(')
+      && waterfallSrcG53.includes('function patchClusterBody(')
       && (viewSrc.includes('text: `${eventCount} ${eventCount === 1 ? "step" : "steps"}`')
-        || waterfallSrcG53.includes('text: `${eventCount} ${eventCount === 1 ? "step" : "steps"}`'))
+        || waterfallSrcG53.includes('text: `${processEventCount} ${processEventCount === 1 ? "step" : "steps"}`')
+        || runRendererSrcG53.includes('text: `${processEventCount} ${processEventCount === 1 ? "step" : "steps"}`')
+        || viewSrc.includes('step" : "steps"'))
       && stylesSrc.includes("V17-G53: waterfall batches, calmer sessions, right-aligned user previews")
       && stylesSrc.includes(".llm-bridge-history-toggle-label")
       && stylesSrc.includes(".llm-bridge-history-toggle-count")
@@ -21161,8 +21153,8 @@ if (!runNoteSummarizeSmoke) {
         || messageRendererSrc.includes('const lineCount = normalized.split(/\\r?\\n/).length;'))
       && (viewSrc.includes("const shouldCollapse = normalized.length > 1200 || lineCount > 12;")
         || messageRendererSrc.includes("const shouldCollapse = normalized.length > 1200 || lineCount > 12;"))
-      && (viewSrc.includes('if (label === "Thinking") return batchSummary ? `Thinking · ${batchSummary}` : "Thinking";')
-        || waterfallSrcG54.includes('if (label === "Thinking") return batchSummary ? `Thinking · ${batchSummary}` : "Thinking";'))
+      && (waterfallSrcG54.includes('function formatExecutionClusterTitle(')
+        || waterfallSrcG54.includes('function formatClusterTitle('))
       && viewSrc.includes('? "Shell"')
       && viewSrc.includes("private formatCodexShellCommandPreview(command?: string): string")
       && viewSrc.includes("const isWrappedShell = /^(?:")
@@ -21599,16 +21591,15 @@ if (!runPhase14) {
     addTest("Phase 1.4-GUARD-2: 最终回答独立兄弟节点 + 原地升级 Markdown 不重建节点（结构）", ok ? "pass" : "fail", "");
   }
 
-  // ---- Test 3: command 1→2 条时 group key 不变 ----
+  // ---- Test 3: command 1→2 条时 cluster key 不变 ----
   {
-    // groupCodexFeedRenderEntries: command 始终用 group:command:${startKey}
-    // 注释明确说明：even for a single command, so a later sibling command does not remount
-    const ok = (waterfallSrc.includes("group:command:${startKey}")
-        || waterfallSrc.includes("group:${groupKind}:${startKey}"))
-      && (waterfallSrc.includes("Always use tool-group key (even for a single command)")
-        || waterfallSrc.includes("Always use tool-group key (even for a single item)"))
+    // segmentCodexFeedEntries: command 始终用 cluster:execution:${startKey}
+    // 注释明确说明：even for a single item, so a later sibling does not remount
+    const ok = waterfallSrc.includes("cluster:${firstKind}:${startKey}")
+      && (waterfallSrc.includes("Always use cluster key (even for a single item)")
+        || waterfallSrc.includes("Always use cluster key"))
       && waterfallSrc.includes("does not remount the first row");
-    addTest("Phase 1.4-GUARD-3: command 1→2 条时 group key 不变（结构）", ok ? "pass" : "fail", "");
+    addTest("Phase 1.4-GUARD-3: command 1→2 条时 cluster key 不变（结构）", ok ? "pass" : "fail", "");
   }
 
   // ---- Test 4: approval host 不重复 ----
@@ -22204,24 +22195,24 @@ if (!runPhase3Prod) {
     const composerModP3 = await import(pathToFileURL(composerBundleP3).href);
     const sessionsModP3 = await import(pathToFileURL(sessionsBundleP3).href);
 
-    const { codexFeedItemKey, groupCodexFeedRenderEntries, patchCodexFeedEntryItem, isCodexImageFeedItem, formatCodexImageGroupTitle, reconcileCodexRunWaterfall, upgradeCodexCandidateAnswerInFeed } = waterfallModP3;
+    const { codexFeedItemKey, segmentCodexFeedEntries, patchCodexFeedEntryItem, isCodexImageFeedItem, formatCodexImageGroupTitle, reconcileCodexRunWaterfall, upgradeCodexCandidateAnswerInFeed } = waterfallModP3;
     const { isEventInsideSelector, handleComposerAttachmentKeydown } = composerModP3;
     const { validateSessionId } = sessionsModP3;
 
-    // --- Phase 3-DOM-1: 真实 groupCodexFeedRenderEntries + codexFeedItemKey 验证 key 稳定性 ---
+    // --- Phase 3-DOM-1: 真实 segmentCodexFeedEntries + codexFeedItemKey 验证 key 稳定性 ---
     {
       const items1 = [
         { id: "a", kind: "thinking", icon: "brain", label: "Thinking", status: "running", sourceRef: { sequence: 1, itemId: "a" } },
         { id: "b", kind: "thinking", icon: "brain", label: "Thinking", status: "running", sourceRef: { sequence: 2, itemId: "b" } },
       ];
       // 调用真实生产函数获取 entries（不重新实现 key 逻辑）
-      const entries1 = groupCodexFeedRenderEntries(items1);
+      const entries1 = segmentCodexFeedEntries(items1);
       const keys1 = entries1.map((e) => e.key);
       // 验证：entry key 与真实 codexFeedItemKey 一致
       const keysMatchReal = keys1[0] === codexFeedItemKey(items1[0]) && keys1[1] === codexFeedItemKey(items1[1]);
       // 反序 items 再次调用：key 仍由真实函数计算，保持稳定
       const items2 = [items1[1], items1[0]];
-      const entries2 = groupCodexFeedRenderEntries(items2);
+      const entries2 = segmentCodexFeedEntries(items2);
       const keys2 = entries2.map((e) => e.key);
       const keysStable = keys2[0] === codexFeedItemKey(items1[1]) && keys2[1] === codexFeedItemKey(items1[0]);
       // 用真实 key 做 FakeElement reconciliation（节点身份保持，key 来自生产函数而非复制算法）
@@ -22235,7 +22226,7 @@ if (!runPhase3Prod) {
       }
       const sameB = list.children[0] === nodeB;
       const sameA = list.children[1] === nodeA;
-      addTest("Phase 3-DOM-1: 真实 groupCodexFeedRenderEntries key 稳定性 + reconciliation（生产函数）",
+      addTest("Phase 3-DOM-1: 真实 segmentCodexFeedEntries key 稳定性 + reconciliation（生产函数）",
         (keysMatchReal && keysStable && sameA && sameB) ? "pass" : "fail",
         `keysMatch=${keysMatchReal} stable=${keysStable} sameA=${sameA} sameB=${sameB}`);
     }
@@ -22280,23 +22271,23 @@ if (!runPhase3Prod) {
         `same=${sameEntry} streamRemoved=${streamRemoved} hasText=${hasFinalText} line=${lineStillThere} done=${lineDone}`);
     }
 
-    // --- Phase 3-DOM-3: 真实 groupCodexFeedRenderEntries command group key 稳定性 ---
+    // --- Phase 3-DOM-3: 真实 segmentCodexFeedEntries command cluster key 稳定性 ---
     {
       const cmd1 = { id: "cmd1", kind: "command", icon: "terminal", label: "Run", status: "running", sourceRef: { sequence: 1, itemId: "cmd1" } };
       // 1 条 command
-      const entries1 = groupCodexFeedRenderEntries([cmd1]);
+      const entries1 = segmentCodexFeedEntries([cmd1]);
       const key1 = entries1[0].key;
-      const isGroup1 = entries1[0].kind === "tool-group" && entries1[0].groupKind === "command";
+      const isCluster1 = entries1[0].kind === "cluster" && entries1[0].clusterKind === "execution";
       // 2 条 command（第一条不变）
       const cmd2 = { id: "cmd2", kind: "command", icon: "terminal", label: "Run", status: "running", sourceRef: { sequence: 2, itemId: "cmd2" } };
-      const entries2 = groupCodexFeedRenderEntries([cmd1, cmd2]);
+      const entries2 = segmentCodexFeedEntries([cmd1, cmd2]);
       const key2 = entries2[0].key;
-      const stillOneGroup = entries2.length === 1 && entries2[0].items.length === 2;
-      // 验证：group:command:${startKey} 在 1→2 条时 key 不变
-      const sameGroupKey = key1 === key2 && key1 === `group:command:${codexFeedItemKey(cmd1)}`;
-      addTest("Phase 3-DOM-3: 真实 groupCodexFeedRenderEntries command 1→2 条 group key 不变（生产函数）",
-        (isGroup1 && sameGroupKey && stillOneGroup) ? "pass" : "fail",
-        `isGroup=${isGroup1} sameKey=${sameGroupKey} oneGroup=${stillOneGroup} key=${key1}`);
+      const stillOneCluster = entries2.length === 1 && entries2[0].items.length === 2;
+      // 验证：cluster:execution:${startKey} 在 1→2 条时 key 不变
+      const sameClusterKey = key1 === key2 && key1 === `cluster:execution:${codexFeedItemKey(cmd1)}`;
+      addTest("Phase 3-DOM-3: 真实 segmentCodexFeedEntries command 1→2 条 cluster key 不变（生产函数）",
+        (isCluster1 && sameClusterKey && stillOneCluster) ? "pass" : "fail",
+        `isCluster=${isCluster1} sameKey=${sameClusterKey} oneCluster=${stillOneCluster} key=${key1}`);
     }
 
     // --- Phase 3-DOM-6: 真实 handleComposerAttachmentKeydown ---
@@ -23019,7 +23010,7 @@ if (!runOnOpenDom) {
             "export function bindComposerFileDragSurface() {}",
             "export function isEventInsideSelector() { return false; }",
           ].join("\n") },
-          { filter: /^\.\/ui\/codexWaterfallRenderer$/, content: "export function codexFeedItemKey() { return ''; } export function groupCodexFeedRenderEntries() { return []; } export function patchCodexFeedEntryItem() {} export function isCodexImageFeedItem() { return false; } export function formatCodexImageGroupTitle() { return ''; } export function reconcileCodexRunWaterfall() {} export function upgradeCodexCandidateAnswerInFeed() {} export function renderCodexFeedItem() {}" },
+          { filter: /^\.\/ui\/codexWaterfallRenderer$/, content: "export function codexFeedItemKey() { return ''; } export function segmentCodexFeedEntries() { return []; } export function patchCodexFeedEntryItem() {} export function isCodexImageFeedItem() { return false; } export function formatCodexImageGroupTitle() { return ''; } export function reconcileCodexRunWaterfall() {} export function upgradeCodexCandidateAnswerInFeed() {} export function renderCodexFeedItem() {}" },
           { filter: /^\.\/ui\/composerDom$/, content: "export function bindComposerFileDragSurfaceDom() {}" },
           { filter: /^\.\/ui\/modelEffortPickerDom$/, content: "export function refreshModelEffortPickerLabelsDom() {}" },
           { filter: /^\.\/httpServer$/, content: "export class HttpBridge {} export const BridgeInfo = {}; export const BridgeWriteResult = {};" },

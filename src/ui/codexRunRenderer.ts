@@ -20,7 +20,7 @@ import {
 } from "../messagePresentation";
 import { type PermissionChoice } from "../sdkPermission";
 import { truncateText } from "../workflowEvent";
-import { groupCodexFeedBatches, isCodexFeedEvent } from "./codexProcessFeed";
+import { isCodexFeedEvent } from "./codexProcessFeed";
 
 export interface CodexRunRenderDeps {
   localizeRunStatus: (status: string) => string;
@@ -170,7 +170,6 @@ function mountCodexRunView(
   });
   const diagnosticsForDisplay = filterCodexDiagnosticsForDisplay(run.diagnosticsGroups, developerMode);
   const processFeedItems = run.feedItems;
-  const processFeedBatches = groupCodexFeedBatches(processFeedItems);
   const hasDeveloperDebug = developerMode && !!run.debugPanel;
   const hasProcessContent = processFeedItems.length > 0
     || diagnosticsForDisplay.length > 0;
@@ -251,12 +250,6 @@ function mountCodexRunView(
       const processMeta = processTitle.createDiv({ cls: "llm-bridge-codex-process-head-meta" });
       if (run.runHeader.elapsed) {
         processMeta.createEl("span", { cls: "llm-bridge-codex-process-head-meta-item", text: run.runHeader.elapsed });
-      }
-      if (processFeedBatches.length > 1) {
-        processMeta.createEl("span", {
-          cls: "llm-bridge-codex-process-head-meta-item",
-          text: `${processFeedBatches.length} batches`,
-        });
       }
       const processEventCount = processFeedItems.filter((item) => isCodexFeedEvent(item)).length;
       if (processEventCount > 0) {

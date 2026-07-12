@@ -5232,8 +5232,8 @@ export class LLMBridgeView extends ItemView {
     );
   }
 
-  private renderCodexFeedItem(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean, nestedEvent: boolean): void {
-    renderCodexFeedItemDom(parent, item, developerMode, nestedEvent, this.codexFeedItemRenderDeps());
+  private renderCodexFeedItem(parent: HTMLElement, item: CodexRunFeedItem, developerMode: boolean): void {
+    renderCodexFeedItemDom(parent, item, developerMode, this.codexFeedItemRenderDeps());
   }
 
   private renderMarkdownInto(host: HTMLElement, text: string): void {
@@ -6768,8 +6768,8 @@ export class LLMBridgeView extends ItemView {
 
   private codexWaterfallDeps(): CodexWaterfallPatchDeps {
     return {
-      renderCodexFeedItem: (parent, item, developerMode, nestedEvent) =>
-        this.renderCodexFeedItem(parent, item, developerMode, nestedEvent),
+      renderCodexFeedItem: (parent, item, developerMode) =>
+        this.renderCodexFeedItem(parent, item, developerMode),
       renderMarkdownInto: (host, text) => this.renderMarkdownInto(host, text),
       formatDurationMs: (ms) => this.formatDurationMs(ms),
     };

@@ -16769,12 +16769,19 @@
   display: none;
 }
 
-.llm-bridge-codex-tool-group-summary::before {
-  content: "›";
-  position: absolute;
-  margin-left: -1px;
+/* V19: 展开箭头 ">" 放在文字右侧，通过旋转表现展开状态 */
+.llm-bridge-codex-tool-group-chevron {
+  display: inline-block;
+  margin-left: 4px;
   color: var(--text-faint);
-  transform: translateX(-14px);
+  font-size: 13px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+  transform: rotate(0deg);
+}
+
+.llm-bridge-codex-tool-group-chevron.is-expanded {
+  transform: rotate(90deg);
 }
 
 .llm-bridge-codex-tool-group-icon {
@@ -16826,8 +16833,10 @@
   display: grid;
   gap: 0;
   padding: 0 0 3px 20px;
-  max-height: 320px;
+  max-height: min(280px, 36vh);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
 }
 
 .llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block {
