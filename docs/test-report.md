@@ -1,24 +1,24 @@
 # LLM CLI Bridge 测试报告 — 全量测试（all）
 
-- **测试时间**: 2026-07-12T06:08:01.827Z
+- **测试时间**: 2026-07-12T06:35:26.925Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.18.0
-- **main.js 大小**: 1292.3 KB
+- **main.js 大小**: 1295.8 KB
 - **main.js bundle content smoke**: PASS ({"HttpBridge":true,"writeHelperAndWrappers":true,"CodexAppServerProvider":true,"vault_api":true})
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 59801
-- **commit sha**: bf5d3dcdfdb572184114582de1f1239934defa9c
-- **commit 短 sha**: bf5d3dcdfdb5
+- **commit sha**: 80f6538ca2bae623487e57f7aa8c339358600f00
+- **commit 短 sha**: 80f6538ca2ba
 - **运行命令**: node scripts/run-tests.mjs 
 
 ## 测试汇总
 
-- ✅ **通过**: 1282
+- ✅ **通过**: 1286
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 5
 - ⚪ **需人工验证**: 6
-- **总计**: 1293
+- **总计**: 1297
 
 ### 审计模式说明
 
@@ -758,7 +758,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-t6jP4c\\skills\\pdf\\SKILL.md"}] |
+| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-SLKD95\\skills\\pdf\\SKILL.md"}] |
 
 ### V16.5-D view.ts 主路径注入真实 capabilities
 
@@ -821,6 +821,12 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | 返回包结构对象 skillMd + subFiles(4) + indexMd | isObject=true skillMdOk=true subFilesOk=true keys=["conventions.md","directories.md","preferences.md","vault-rules.md"] vaultRulesOk=true directoriesOk=true indexMdOk=true |
+
+### VC-MIGRATE
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 旧版 SKILL.md 迁移到路由入口 + 子文件分发（中文偏好→preferences.md） | skillIsRouting=true rewrittenOk=true prefsHasChinese=true prefsMigrated=true rulesHasBoundary=true dirsHasInbox=true |
 
 ### V16.5-E VAULT_SKILL
 
@@ -1073,7 +1079,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783836485051-0 update=pi-sdk-read-1783836485051-0 end=pi-sdk-read-1783836485051-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783838131213-0 update=pi-sdk-read-1783838131213-0 end=pi-sdk-read-1783838131213-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -1538,25 +1544,25 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3264ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
+| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3301ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
  |
-| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4656ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783836490618
+| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4683ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783838136872
  |
 | ✅ | health 命令（fake server） | - |
 | ✅ | --json 标志输出有效 JSON（fake server） | - |
 | ✅ | 非修改类 action 直接输出（不轮询） | {
   "ok": true,
-  "id": "fake-id-1783836495530",
+  "id": "fake-id-1783838142257",
   "status": "completed",
   "result": {
     "type":  |
 | ✅ | --stdin 模式读取 JSON params | {
   "ok": true,
-  "id": "fake-id-1783836495666",
+  "id": "fake-id-1783838142589",
   "status": "completed",
   "result": {
     "type":  |
-| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783836495793","status":"completed","result":{"type":"tags_list","fake":tru |
+| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783838143278","status":"completed","result":{"type":"tags_list","fake":tru |
 | ✅ | 错误分级 - bridge.json 缺失 exit 2 | exit=2 stderr=[bridge 未启动] 未找到 .llm-bridge/bridge.json。
   请确认 Obsidian 已启动且 llm-cli-bridge 插件已 |
 | ✅ | 错误分级 - JSON 解析失败 exit 5 | exit=5 stderr=[参数解析失败] JSON 格式错误: Expected property name or '}' in JSON at position 1 (line 1  |
@@ -2429,7 +2435,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-12T06-08-42-342Z-tsuvgi |
+| ✅ | 返回非空 id | id=s-2026-07-12T06-36-10-239Z-anzc1x |
 
 ### V2.5 Session 版本
 
@@ -2448,7 +2454,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-12T06-08-42-446Z-nok73s second=s-2026-07-12T06-08-42-371Z-3bfy2p |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-12T06-36-10-338Z-3yzd8x second=s-2026-07-12T06-36-10-274Z-of50bi |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2523,7 +2529,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-12T06-08-42-550Z-1t398a id2=s-2026-07-12T06-08-42-550Z-rqg6b0 |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-12T06-36-10-481Z-zfwe9c id2=s-2026-07-12T06-36-10-481Z-u8gufc |
 
 ### V2.5 Session 上限
 
@@ -2621,7 +2627,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-12T06:08:42.628Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-12T06:36:10.567Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2709,7 +2715,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-12T06:08:42.701Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-12T06:36:10.649Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2828,7 +2834,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-12T06:08:42.788Z after=2026-07-12T06:08:42.848Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-12T06:36:10.750Z after=2026-07-12T06:36:10.817Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -3195,13 +3201,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-12T06:08:43.925Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-12T06:36:11.910Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-12T06:08:43.933Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-12T06:36:11.925Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3317,7 +3323,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-w0bVbO\skills\llm-bridge-f6fcf135-review-skill\SKILL.md |
+| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-J1j4Fb\skills\llm-bridge-d2fb0612-review-skill\SKILL.md |
 | ✅ | run 前从 Bridge manifest 物化 enabled Skills | ok=true count=1 |
 
 ### V2.13.0-C materializeEnabled
@@ -3519,7 +3525,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-U2BR1C\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-tm7e8p\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-VMGyMd\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-esndhf\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3531,7 +3537,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-PHbKEu\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-QjdRn0\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-PUp07M\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-uWXZDd\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3543,7 +3549,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-2HCc7M\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-3bTEme\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-aM90WF\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-biVUuR\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -4247,6 +4253,24 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | 真实 reconcileCodexRunWaterfall 最终回答不在 process body 内（生产函数） | feedList=true candidateInFeed=0 answerBodyInFeed=0 section=true sectionOutsideProcess=true answerInSection=true mdOnce=true mdDedup=true streamInSection=true answerBodyDuringStream=0 candidateInFeedStream=0 answerBodyInFeedStream=0 |
+
+### VC-RETRIEVE
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 风格关键词触发 preferences 加载（无关键词时不加载） | hasPrefs=true hasRules=true noPrefs=true stillHasRules=true |
+
+### VC-CSS
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 间距变量存在 + thinking-line/feed-batch/feed-list 收敛（legacy+run-view 各 1 定义） | gapThinking=true gapToolInternal=true gapStage=true guideBorder=true usesVar=true thinkingLineDefs=2 feedBatchDefs=2 feedListDefs=2 |
+
+### VC-LINK
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 文件路径渲染为 <a> 链接 + is-deleted + openVaultFile + 右键菜单 + 系统回退 | anchor=true deletedClass=true openVaultFile=true contextMenu=true fallback=true |
 
 ### onOpen() DOM 回归
 
