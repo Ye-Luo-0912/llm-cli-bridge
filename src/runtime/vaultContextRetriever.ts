@@ -2,12 +2,13 @@
 //
 // turn start 按需检索 vault-context 条目：
 // 1. vault-rules（安全规则）始终加载（删除、覆盖、受保护目录等）
-// 2. directories/conventions 只加载与 userPrompt 相关的条目
-// 3. 当前指令始终优先于普通偏好
+// 2. directories/conventions 只加载与 userPrompt 相关的条目（路径关键词匹配）
+// 3. preferences 只加载与 userPrompt 相关的条目（风格/习惯关键词匹配）
+// 4. 当前指令始终优先于普通偏好
 //
 // 设计原则：
-// - 轻量：只读取 3 个小文件（vault-rules.md / directories.md / conventions.md）
-// - 按需：从 userPrompt 中提取路径关键词，只选择匹配的条目
+// - 轻量：只读取 4 个小文件（vault-rules / directories / conventions / preferences）
+// - 按需：从 userPrompt 中提取关键词，只选择匹配的条目
 // - 安全规则始终注入；普通偏好按需注入
 // - 不替代物化（物化后的 skill 仍由 provider 被动发现），而是在 prompt 中主动提示
 
@@ -44,8 +45,15 @@ export async function retrieveVaultContextOnDemand(
     ? conventions.filter((item) => isItemRelevant(item, pathKeywords))
     : [];
 
-  // 5. 格式化为 context block
-  return formatVaultContextBlock(rules, relevantDirs, relevantConvs);
+  // 5. 只加载相关 preferences 条目（风格/习惯关键词匹配）
+  const styleKeywords = extractStyleKeywords(userPrompt);
+  const preferences = await readSubSkillItems(sourceDir, "preferences.md");
+  const relevantPrefs = styleKeywords.length > 0
+    ? preferences.filter((item) => isItemRelevant(item, styleKeywords))
+    : [];
+
+  // 6. 格式化为 context block
+  return formatVaultContextBlock(rules, relevantDirs, relevantConvs, relevantPrefs);
 }
 
 /** 读取子 skill 文件中的 `- ` 条目 */
@@ -80,6 +88,24 @@ function extractPathKeywords(prompt: string): string[] {
   return Array.from(dirs);
 }
 
+/** 从用户 prompt 中提取风格/习惯关键词（触发 preferences 加载） */
+function extractStyleKeywords(prompt: string): string[] {
+  const keywords = new Set<string>();
+  const lower = prompt.toLowerCase();
+  // 风格/习惯相关关键词（中英文）
+  const stylePatterns = [
+    "风格", "习惯", "偏好", "格式", "语言", "回复", "回答", "语气", "简洁", "详细",
+    "中文", "英文", "markdown", "表格", "列表", "代码块",
+    "style", "tone", "format", "language", "reply", "respond", "concise", "verbose",
+  ];
+  for (const kw of stylePatterns) {
+    if (lower.includes(kw)) {
+      keywords.add(kw);
+    }
+  }
+  return Array.from(keywords);
+}
+
 /** 判断条目是否与关键词相关 */
 function isItemRelevant(item: string, keywords: string[]): boolean {
   const lower = item.toLowerCase();
@@ -91,8 +117,9 @@ function formatVaultContextBlock(
   rules: string[],
   directories: string[],
   conventions: string[],
+  preferences: string[],
 ): string {
-  if (rules.length === 0 && directories.length === 0 && conventions.length === 0) {
+  if (rules.length === 0 && directories.length === 0 && conventions.length === 0 && preferences.length === 0) {
     return "";
   }
 
@@ -121,6 +148,14 @@ function formatVaultContextBlock(
     sections.push("## 相关约定");
     for (const conv of conventions.slice(0, 5)) {
       sections.push(`- ${conv}`);
+    }
+    sections.push("");
+  }
+
+  if (preferences.length > 0) {
+    sections.push("## 相关偏好（用户当前指令优先）");
+    for (const pref of preferences.slice(0, 5)) {
+      sections.push(`- ${pref}`);
     }
     sections.push("");
   }

@@ -8,7 +8,8 @@
 //
 // 设计原则：
 // - 后台 fire-and-forget，不阻塞流式速度
-// - 只提取高置信度候选（同 turn 内出现 >= 2 次的目录）
+// - 只提取高置信度候选：同一 turn 内出现 >= 4 次的目录（明确的多文件操作模式），
+//   不因单轮两次访问就记录"频繁操作目录"
 // - 不自动写入 vaultRules（安全规则只由用户/初始模板设定）
 // - 不自动写入 preferences（用户偏好只追加，不自动提取）
 // - 冲突不弹通知（VC-4 UI 阶段再处理冲突提醒）
@@ -139,15 +140,15 @@ function extractStableCandidates(input: AutoMaintainInput): StableCandidates {
     }
   }
 
-  // 只保留出现 >= 2 次的候选（同 turn 内稳定性）
+  // 只保留出现 >= 4 次的候选（明确的多文件操作模式，避免单轮两次访问就记录）
   const dirCandidates = Array.from(dirCounts.entries())
-    .filter(([, count]) => count >= 2)
+    .filter(([, count]) => count >= 4)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 3)
     .map(([dir]) => `${shortenDir(dir)}/ : 频繁操作目录（自动记录）`);
 
   const convCandidates = Array.from(convCounts.entries())
-    .filter(([, count]) => count >= 2)
+    .filter(([, count]) => count >= 4)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 2)
     .map(([dir]) => `输出位置约定：${shortenDir(dir)}/（自动记录）`);

@@ -4314,26 +4314,26 @@ if (runMode !== "all" && runMode !== "unit") {
         const fsMod = await import("fs");
         const pathMod = await import("path");
         const skill = await agentRuntimeWsMod.readVaultSkillSource(v165eTmpRoot);
-        const hasHeader = skill?.includes("# vault-context") ?? false;
+        const hasHeader = skill?.includes("# Vault Context") ?? false;
         const hasSubSkills = skill?.includes("## 子 Skills") ?? false;
-        const hasMaintenanceRules = skill?.includes("## 维护规则") ?? false;
-        const hasAgentRuntimeDir = skill?.includes("LLM-AgentRuntime/") ?? false;
+        const hasMaintenanceRules = skill?.includes("## 维护边界") ?? false;
+        const hasRouting = skill?.includes("## 使用路由") ?? false;
         // 子 skill 文件存在 + 含边界规则/目录语义
         const skillDir = pathMod.join(v165eTmpRoot, "LLM-AgentRuntime/skills/vault-context");
         const vaultRulesContent = await fsMod.promises.readFile(pathMod.join(skillDir, "vault-rules.md"), "utf8");
         const directoriesContent = await fsMod.promises.readFile(pathMod.join(skillDir, "directories.md"), "utf8");
         const vaultRulesHasBoundary = vaultRulesContent.includes("# vault-rules") && vaultRulesContent.includes("不修改 .obsidian/");
         const directoriesHasSemantics = directoriesContent.includes("# directories") && directoriesContent.includes("LLM-AgentRuntime/");
-        addTest("V16.5-E VAULT_SKILL 初版: 包结构 SKILL.md 清单 + 子 skill 边界规则/目录语义",
-          hasHeader && hasSubSkills && hasMaintenanceRules && hasAgentRuntimeDir && vaultRulesHasBoundary && directoriesHasSemantics ? "pass" : "fail",
-          `header=${hasHeader} subSkills=${hasSubSkills} maintenance=${hasMaintenanceRules} agentRuntimeDir=${hasAgentRuntimeDir} vaultRulesHasBoundary=${vaultRulesHasBoundary} directoriesHasSemantics=${directoriesHasSemantics}`);
+        addTest("V16.5-E VAULT_SKILL 初版: 包结构 SKILL.md 路由入口 + 子 skill 边界规则/目录语义",
+          hasHeader && hasSubSkills && hasMaintenanceRules && hasRouting && vaultRulesHasBoundary && directoriesHasSemantics ? "pass" : "fail",
+          `header=${hasHeader} subSkills=${hasSubSkills} maintenance=${hasMaintenanceRules} routing=${hasRouting} vaultRulesHasBoundary=${vaultRulesHasBoundary} directoriesHasSemantics=${directoriesHasSemantics}`);
       }
 
       // Test E-d2: generateInitialVaultSkill 返回包结构对象（skillMd + subFiles + indexMd）
       {
         const result = await agentRuntimeWsMod.generateInitialVaultSkill(v165eTmpRoot);
         const isObject = typeof result === "object" && result !== null && typeof result.skillMd === "string";
-        const skillMdOk = result.skillMd.includes("# vault-context") && result.skillMd.includes("## 子 Skills") && result.skillMd.includes("## 维护规则");
+        const skillMdOk = result.skillMd.includes("# Vault Context") && result.skillMd.includes("## 子 Skills") && result.skillMd.includes("## 维护边界");
         const subFilesKeys = Object.keys(result.subFiles).sort();
         const subFilesOk = subFilesKeys.length === 4
           && subFilesKeys[0] === "conventions.md"
@@ -4680,12 +4680,12 @@ if (runMode !== "all" && runMode !== "unit") {
         const vcUnderMax = vcContent.length <= agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS;
         const vcHasSplitNotice = vcContent.includes("Split notice") || vcContent.includes("已按职责拆分") || vcContent.includes("split");
         const vcHasIndexPointer = vcContent.includes("vault-index");
-        // 包结构 SKILL.md 应为 vault-context 清单 header（含子 Skills / 维护规则）
-        const vcHasPkgHeader = vcContent.includes("# vault-context");
+        // 包结构 SKILL.md 应为 vault-context 清单 header（含子 Skills / 维护边界）
+        const vcHasPkgHeader = vcContent.includes("# Vault Context");
         const vcHasSubSkills = vcContent.includes("## 子 Skills");
-        const vcHasMaintenance = vcContent.includes("## 维护规则");
+        const vcHasMaintenance = vcContent.includes("## 维护边界");
 
-        addTest("V16.5-K1 包结构: vault-context SKILL.md 含子 Skills / 维护规则（无 split）",
+        addTest("V16.5-K1 包结构: vault-context SKILL.md 含子 Skills / 维护边界（无 split）",
           vcUnderMax && !vcHasSplitNotice && !vcHasIndexPointer && vcHasPkgHeader && vcHasSubSkills && vcHasMaintenance ? "pass" : "fail",
           `vcLen=${vcContent.length} underMax=${vcUnderMax} splitNotice=${vcHasSplitNotice} indexPointer=${vcHasIndexPointer} pkgHeader=${vcHasPkgHeader} subSkills=${vcHasSubSkills} maintenance=${vcHasMaintenance}`);
       }
