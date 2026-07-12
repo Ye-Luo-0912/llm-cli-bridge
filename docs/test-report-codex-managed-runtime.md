@@ -3,14 +3,14 @@
 > 本报告由 `scripts/codex-managed-runtime-smoke.mjs` 自动生成。
 > 验证 production manifest + pinned binary + app-server protocol proof。
 
-- **测试时间**: 2026-07-09T09:24:08.596Z
+- **测试时间**: 2026-07-12T07:53:34.549Z
 - **resolverSmokeStatus**: pass
 - **runtimeSmokeStatus**: pass
 - **managedAppServerProtocolStatus**: pass
 - **codexUserReady**: true
 - **manifestLoaded**: true
-- **manifestVersion**: 0.142.5
-- **manifestProtocolVersion**: 2026-07-06
+- **manifestVersion**: 0.144.1
+- **manifestProtocolVersion**: 2026-07-12
 - **manifestFixture**: false
 - **supportedPlatforms**: win32-x64
 - **testedPlatform**: win32-x64
@@ -22,7 +22,7 @@
 - **sizeValid**: true
 - **sha256Valid**: true
 - **executableValid**: true
-- **codexRuntimePinnedVersion**: 0.142.5
+- **codexRuntimePinnedVersion**: 0.144.1
 - **appServerSpawnStatus**: pass
 - **initializeStatus**: pass
 - **initializedStatus**: pass
@@ -37,7 +37,7 @@
 - **providerWireObservedFinalAnswer**: "SMOKE_OK"
 - **stopCancelStatus**: pass
 - **noVaultRootPollution**: true
-- **selectedModel**: gpt-5.5
+- **selectedModel**: gpt-5.6-sol
 - **binaryDependency**: managed,pinned,bundled
 - **authConfigDependency**: user-level Codex/OpenAI credentials or env
 - **managedRuntimeReadsUserCodexHome**: true
@@ -49,26 +49,26 @@
 
 | 状态 | 步骤 | 详情 |
 |------|------|------|
-| PASS | manifest loaded | version=0.142.5 fixture=false |
+| PASS | manifest loaded | version=0.144.1 fixture=false |
 | PASS | platform selected | win32-x64 (codex.exe) |
 | PASS | runtime binary exists | D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\src\runtime\providers\codex-managed-app-server\runtime\win32-x64\codex.exe |
-| PASS | size valid | 323143472 |
-| PASS | sha256 valid | 645f5a1a0347abb2b31fae4e594c198ad00e3a4b4a999dcfa3a66c0d0f8cd43b |
+| PASS | size valid | 341200688 |
+| PASS | sha256 valid | cbacbb9726262ef558b4af0438a1b2a5bba9076132401d947b5b4d2bf92ab0e4 |
 | PASS | executable valid | - |
-| PASS | spawn managed runtime | pid=39992 |
-| PASS | initialize | llm-cli-bridge-managed-smoke/0.142.5 (Windows 10.0.26300; x86_64) dumb (llm-cli-bridge-managed-smoke; 17-f2) |
+| PASS | spawn managed runtime | pid=27072 |
+| PASS | initialize | Codex Desktop/0.144.1 (Windows 10.0.26300; x86_64) unknown (llm-cli-bridge-managed-smoke; 17-f2) |
 | PASS | initialized | - |
-| PASS | model/list | selected=gpt-5.5 |
-| PASS | thread/start | threadId=019f4631-13b7-7ee3-9502-e1cf0479568c |
+| PASS | model/list | selected=gpt-5.6-sol |
+| PASS | thread/start | threadId=019f5551-427c-7b30-8497-322368dac50a |
 | PASS | turn/start | - |
 | PASS | turn/completed | status=completed |
 | PASS | turn smoke (meaningful output + SMOKE_OK) | 4 event(s), final="SMOKE_OK" |
-| PASS | clean shutdown / cancel | [2m2026-07-09T09:24:09.252413Z[0m [32m INFO[0m [2mcodex_client::custom_ca[0m[2m:[0m using system root certificates because no CA override environment variable was selected [3mcodex_ca_certifi |
+| PASS | clean shutdown / cancel | {"timestamp":"2026-07-12T07:53:37.277140Z","level":"WARN","fields":{"message":"ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/"},"target":"codex_core_skills::loade |
 | PASS | no vault root pollution | - |
 | PASS | provider-wire smoke: wire shape (text item 无 text_elements, turnStart 无 attachments, threadStart 含 config/instructions + 顶层 wire 字段) | - |
-| PASS | provider-wire smoke: spawn | pid=10320 |
-| PASS | provider-wire smoke: initialize | llm-cli-bridge/0.142.5 (Windows 10.0.26300; x86_64) dumb (llm-cli-bridge; 2.17-A) |
-| PASS | provider-wire smoke: thread/start | threadId=019f4631-2e97-77e2-a2c0-4f482694e980 |
+| PASS | provider-wire smoke: spawn | pid=22076 |
+| PASS | provider-wire smoke: initialize | Codex Desktop/0.144.1 (Windows 10.0.26300; x86_64) unknown (llm-cli-bridge; 2.17-A) |
+| PASS | provider-wire smoke: thread/start | threadId=019f5551-5214-73b0-a933-641ac4b2128d |
 | PASS | provider-wire smoke: turn/start | - |
 | PASS | provider-wire smoke: turn/completed | status=completed |
 | PASS | provider-wire smoke: final answer 含 SMOKE_OK | final="SMOKE_OK" |
