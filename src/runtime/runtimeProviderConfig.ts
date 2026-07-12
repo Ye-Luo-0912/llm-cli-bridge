@@ -1,17 +1,19 @@
-// LLM CLI Bridge — Runtime Provider Config (V20)
+// LLM CLI Bridge — Runtime Provider Config (V20.2)
 //
 // runtime provider 的本地真相源文件，存储在 Vault 内 LLM-AgentRuntime/private/ 目录。
-// 该文件包含 API Key，不随 Vault 同步（用户应将 private/ 加入同步排除），
+// 该文件不随 Vault 同步（用户应将 private/ 加入同步排除），
 // 不提交 Git，不包含在公开 release 中。
 //
+// V20.2: API Key 使用 Electron safeStorage 加密后持久化。
 // 文件格式（runtime-provider.json）：
 // {
 //   "relayUrl": "https://...",
-//   "apiKey": "sk-...",
+//   "encryptedApiKey": "<base64 safeStorage 密文>",
 //   "model": "gpt-5.5",
 //   "defaultModel": "gpt-5.5",
 //   "updatedAt": "2026-07-12T..."
 // }
+// safeStorage 不可用时 encryptedApiKey 留空，Key 仅存内存（重启需重新输入）。
 //
 // 首次读取旧 settings/Vault Profile 后自动迁移。
 
@@ -19,6 +21,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { AGENT_RUNTIME_PROVIDER_CONFIG_REL, AGENT_RUNTIME_PRIVATE_DIR_REL } from "../agentRuntimeWorkspace";
 import { loadVaultRuntimeProfileSync, loadPortableApiKeySync } from "./runtimeProfileResolver";
+import { encryptApiKey, decryptApiKey } from "./safeStorageProvider";
 
 /** runtime provider 配置文件 schema */
 export interface RuntimeProviderConfig {
@@ -61,13 +64,21 @@ export async function loadRuntimeProviderConfig(
   // 1. 尝试读取已存在的配置文件
   try {
     const content = await fs.promises.readFile(configPath, "utf8");
-    const parsed = JSON.parse(content) as Partial<RuntimeProviderConfig>;
-    if (parsed.relayUrl && typeof parsed.relayUrl === "string") {
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    if (typeof parsed.relayUrl === "string" && parsed.relayUrl) {
+      // V20.2: 优先解密 encryptedApiKey；回退旧明文 apiKey（兼容迁移）
+      let apiKey = "";
+      if (typeof parsed.encryptedApiKey === "string" && parsed.encryptedApiKey) {
+        apiKey = decryptApiKey(parsed.encryptedApiKey) ?? "";
+      } else if (typeof parsed.apiKey === "string") {
+        // 兼容旧版明文 Key：读取后将在下次保存时自动加密
+        apiKey = parsed.apiKey;
+      }
       return {
         origin: "provider-config",
         config: {
           relayUrl: parsed.relayUrl,
-          apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : "",
+          apiKey,
           model: typeof parsed.model === "string" ? parsed.model : settings.model || "",
           defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : undefined,
           updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : undefined,
@@ -95,16 +106,22 @@ export function loadRuntimeProviderConfigSync(vaultPath: string): RuntimeProvide
   const configPath = getProviderConfigPath(vaultPath);
   try {
     const content = fs.readFileSync(configPath, "utf8");
-    const parsed = JSON.parse(content) as Partial<RuntimeProviderConfig>;
-    if (parsed.relayUrl && typeof parsed.relayUrl === "string") {
-      return {
-        relayUrl: parsed.relayUrl,
-        apiKey: typeof parsed.apiKey === "string" ? parsed.apiKey : "",
-        model: typeof parsed.model === "string" ? parsed.model : "",
-        defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : undefined,
-        updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : undefined,
-      };
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    if (typeof parsed.relayUrl !== "string" || !parsed.relayUrl) return null;
+    // V20.2: 优先解密 encryptedApiKey；回退旧明文 apiKey
+    let apiKey = "";
+    if (typeof parsed.encryptedApiKey === "string" && parsed.encryptedApiKey) {
+      apiKey = decryptApiKey(parsed.encryptedApiKey) ?? "";
+    } else if (typeof parsed.apiKey === "string") {
+      apiKey = parsed.apiKey;
     }
+    return {
+      relayUrl: parsed.relayUrl,
+      apiKey,
+      model: typeof parsed.model === "string" ? parsed.model : "",
+      defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : undefined,
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : undefined,
+    };
   } catch { /* file not found or invalid */ }
   return null;
 }
@@ -119,13 +136,19 @@ export async function saveRuntimeProviderConfig(
   const configPath = getProviderConfigPath(vaultPath);
   try {
     await fs.promises.mkdir(path.dirname(configPath), { recursive: true });
-    const content = JSON.stringify({
+    // V20.2: API Key 用 safeStorage 加密后写入 encryptedApiKey，明文不再落盘。
+    // safeStorage 不可用时 encryptedApiKey 留空，Key 仅存内存。
+    const encryptedApiKey = config.apiKey ? encryptApiKey(config.apiKey) : null;
+    const payload: Record<string, unknown> = {
       relayUrl: config.relayUrl,
-      apiKey: config.apiKey,
       model: config.model,
       defaultModel: config.defaultModel,
       updatedAt: new Date().toISOString(),
-    }, null, 2) + "\n";
+    };
+    if (encryptedApiKey) {
+      payload.encryptedApiKey = encryptedApiKey;
+    }
+    const content = JSON.stringify(payload, null, 2) + "\n";
     await fs.promises.writeFile(configPath, content, "utf8");
     return true;
   } catch {

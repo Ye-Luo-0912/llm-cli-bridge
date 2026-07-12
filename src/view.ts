@@ -606,6 +606,7 @@ export class LLMBridgeView extends ItemView {
     this.tabPanels = { chat: chatPanel, files: filesPanel, skills: skillsPanel, history: historyPanel };
     const switchTab = (tab: "chat" | "files" | "skills" | "history") => {
       this.closeModelEffortPopover();
+      this.composerController.closeEffortPopover();
       for (const t of [chatTab, filesTab, skillsTab, historyTab]) t.classList.remove("is-active");
       for (const p of [chatPanel, filesPanel, skillsPanel, historyPanel]) p.classList.remove("is-active");
       if (tab === "chat") { chatTab.classList.add("is-active"); chatPanel.classList.add("is-active"); }
@@ -892,6 +893,7 @@ export class LLMBridgeView extends ItemView {
       this.composerController.setActivePopup("command");
       this.closePermissionPopover();
       this.closeModelEffortPopover();
+      this.composerController.closeEffortPopover();
       this.closeMentionPicker();
       this.closeAttachmentContextMenu();
       document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
@@ -1074,7 +1076,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   /**
-   * V20: 后台读取 Codex runtime 的 model/list，并与中转站 /v1/models 交叉匹配。
+   * V20.2: 后台读取 Codex runtime 的 model/list，并真实请求中转站 /v1/models 交叉匹配。
    * 只把 available + pending 模型放入聊天框；不兼容模型不注入。
    * 选中模型后 effort 下拉框跟随该模型刷新。
    */
@@ -1087,9 +1089,24 @@ export class LLMBridgeView extends ItemView {
       const runtimeCatalog = await loadCodexManagedModelCatalog(this.plugin.pluginDir, vaultPath, settings);
       if (!runtimeCatalog || runtimeCatalog.models.length === 0) return;
 
-      // V20: 交叉匹配中转站和 runtime 模型
-      const relayModels = runtimeCatalog.runtimeModels.map((m) => ({ id: m.id }));
-      const matchResult = matchModels(relayModels, runtimeCatalog.runtimeModels);
+      // V20.2: 真实请求中转站 /v1/models（通过 resolveRuntimeProfile 获取加密持久化的 Key）
+      let relayModels: ReadonlyArray<{ id: string }> = [];
+      try {
+        const { resolveRuntimeProfile, testRelayConnection } = await import("./runtime/runtimeProfileResolver");
+        const profile = await resolveRuntimeProfile(vaultPath, settings);
+        if (profile.relayUrl && profile.apiKey) {
+          const relayResult = await testRelayConnection(profile.relayUrl, profile.apiKey, settings.model);
+          if (relayResult.ok && relayResult.models.length > 0) {
+            relayModels = relayResult.models.map((id) => ({ id }));
+          }
+        }
+      } catch { /* 中转站不可达时回退到 runtime-only */ }
+
+      // 中转站不可达时回退到 runtime 模型列表（保持 UI 可用）
+      const effectiveRelayModels = relayModels.length > 0
+        ? relayModels
+        : runtimeCatalog.runtimeModels.map((m) => ({ id: m.id }));
+      const matchResult = matchModels(effectiveRelayModels, runtimeCatalog.runtimeModels);
 
       if (matchResult.selectable.length === 0) return;
 
@@ -1680,33 +1697,42 @@ export class LLMBridgeView extends ItemView {
 
   private renderModelEffortPicker(parent: HTMLElement): void {
     this.modelEffortPickerEl = parent.createDiv({ cls: "llm-bridge-model-effort-picker" });
-    // 模型与 effort 合并成一个 chip
+    // V20.2: 两级紧凑结构 — 模型 chip + 推理强度 chip 分开
     this.modelEffortButtonEl = this.modelEffortPickerEl.createEl("button", {
-      cls: "llm-bridge-model-effort-chip llm-bridge-model-chip-inline llm-bridge-model-chip-merged",
-      attr: { title: "模型与推理等级", "aria-haspopup": "true", "aria-expanded": "false" },
+      cls: "llm-bridge-model-effort-chip llm-bridge-model-chip-inline llm-bridge-model-chip-two-level",
+      attr: { title: "选择模型", "aria-haspopup": "true", "aria-expanded": "false" },
     });
     this.modelEffortButtonEl.addEventListener("click", (event) => {
       event.stopPropagation();
       if (this.runSession.runHandle) return;
       this.toggleModelEffortPopover();
     });
-    // 保留隐藏 effort chip 以兼容旧刷新逻辑，但不展示
+    // V20.2: effort chip 不再隐藏，作为独立的第二级入口
     this.effortChipEl = this.modelEffortPickerEl.createEl("button", {
-      cls: "llm-bridge-model-effort-chip llm-bridge-effort-chip-inline",
-      attr: { title: "选择推理等级", "aria-haspopup": "true", "aria-expanded": "false", hidden: "" },
+      cls: "llm-bridge-model-effort-chip llm-bridge-effort-chip-inline llm-bridge-effort-chip-two-level",
+      attr: { title: "选择推理强度", "aria-haspopup": "true", "aria-expanded": "false" },
+    });
+    this.effortChipEl.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (this.runSession.runHandle) return;
+      this.toggleEffortPopover();
     });
 
-    const modelEffortPopoverEl = this.modelEffortPickerEl.createDiv({
-      cls: "llm-bridge-model-effort-popover llm-bridge-model-effort-popover-single",
+    // V20.2: 两个独立的 popover — 扁平行、选中勾选、限高滚动
+    const modelPopoverEl = this.modelEffortPickerEl.createDiv({
+      cls: "llm-bridge-model-effort-popover llm-bridge-model-popover-two-level",
       attr: { hidden: "" },
     });
-    this.composerController.setModelEffortPopoverEl(modelEffortPopoverEl);
-    const modelSection = modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-model-list" });
-    modelSection.createEl("div", { cls: "llm-bridge-model-effort-section-title", text: "Model" });
-    this.modelOptionsEl = modelSection.createDiv({ cls: "llm-bridge-model-options" });
-    const effortSection = modelEffortPopoverEl.createDiv({ cls: "llm-bridge-model-effort-section llm-bridge-effort-list" });
-    effortSection.createEl("div", { cls: "llm-bridge-model-effort-section-title", text: "Effort" });
-    this.effortOptionsEl = effortSection.createDiv({ cls: "llm-bridge-effort-options" });
+    this.composerController.setModelEffortPopoverEl(modelPopoverEl);
+    this.modelOptionsEl = modelPopoverEl.createDiv({ cls: "llm-bridge-model-options" });
+
+    const effortPopoverEl = this.modelEffortPickerEl.createDiv({
+      cls: "llm-bridge-model-effort-popover llm-bridge-effort-popover-two-level",
+      attr: { hidden: "" },
+    });
+    this.composerController.setEffortPopoverEl(effortPopoverEl);
+    this.effortOptionsEl = effortPopoverEl.createDiv({ cls: "llm-bridge-effort-options" });
+
     // 两阶段初始化：这里只创建静态 DOM，不立即访问 runSession。
     // 模型目录和选项的动态填充在 hydrateComposerRuntime() 中统一执行。
     this.modelEffortPickerEl.addEventListener("keydown", (event) => {
@@ -1767,6 +1793,10 @@ export class LLMBridgeView extends ItemView {
     this.composerController.toggleModelEffortPopover();
   }
 
+  private toggleEffortPopover(): void {
+    this.composerController.toggleEffortPopover();
+  }
+
   private closeModelEffortPopover(updateActive = true): void {
     this.composerController.closeModelEffortPopover(updateActive);
   }
@@ -1779,6 +1809,7 @@ export class LLMBridgeView extends ItemView {
       this.modelEffortButtonEl,
       this.effortChipEl,
       this.composerController.modelEffortPopoverEl,
+      this.composerController.effortPopoverEl,
       this.modelCatalog,
       this.plugin.settings.model,
       this.plugin.settings.effortLevel,
@@ -1911,6 +1942,7 @@ export class LLMBridgeView extends ItemView {
       getEffortChipEl: () => view.effortChipEl,
       getModelOptionsEl: () => view.modelOptionsEl,
       getEffortOptionsEl: () => view.effortOptionsEl,
+      getEffortPopoverEl: () => view.composerController?.effortPopoverEl ?? null,
       getPermissionModePickerEl: () => view.permissionModePickerEl,
       getPermissionModeChipEl: () => view.permissionModeChipEl,
       getModelCatalog: () => view.modelCatalog,

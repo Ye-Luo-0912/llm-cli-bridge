@@ -18577,8 +18577,8 @@ if (!runV214BUnit) {
         && viewSrc.includes("llm-bridge-composer-tools-left")
         && viewSrc.includes("llm-bridge-composer-tools-right")
         && viewSrc.includes("llm-bridge-model-effort-picker")
-        && viewSrc.includes("llm-bridge-model-list")
-        && viewSrc.includes("llm-bridge-effort-list")
+        && viewSrc.includes("llm-bridge-model-options")
+        && viewSrc.includes("llm-bridge-effort-options")
         && !viewSrc.includes("rightTools.appendChild(agentSelect)");
       const workingSetOk = viewSrc.includes("llm-bridge-context-tags")
         && viewSrc.includes("llm-bridge-context-tag")
@@ -18846,8 +18846,8 @@ if (!runV214BUnit) {
         && !promptPackageSrc.includes("Agent Skill")
         && !promptPackageSrc.includes("activeSkillPrompts");
       const composerOk = viewSrc.includes("llm-bridge-model-effort-picker")
-        && viewSrc.includes("llm-bridge-model-list")
-        && viewSrc.includes("llm-bridge-effort-list")
+        && viewSrc.includes("llm-bridge-model-options")
+        && viewSrc.includes("llm-bridge-effort-options")
         && !viewSrc.includes("llm-bridge-model-effort-select")
         && !viewSrc.includes("modelEffortSelectEl")
         && viewSrc.includes('registerDomEvent(document, "pointerdown"')
@@ -23062,14 +23062,18 @@ if (!runOnOpenDom) {
           { filter: /^\.\/ui\/composerController$/, content: [
             // 使用简化 ComposerController — 只保留 DOM 操作
             "export class ComposerController {",
-            "  constructor(host) { this.host = host; this.selectedAttachmentId = null; this.modelEffortPopoverEl = null; this.mentionPickerEl = null; this.activePopup = null; }",
+            "  constructor(host) { this.host = host; this.selectedAttachmentId = null; this.modelEffortPopoverEl = null; this.effortPopoverEl = null; this.mentionPickerEl = null; this.activePopup = null; }",
             "  setModelEffortPopoverEl(el) { this.modelEffortPopoverEl = el; }",
+            "  setEffortPopoverEl(el) { this.effortPopoverEl = el; }",
+            "  getEffortPopoverEl() { return this.effortPopoverEl; }",
             "  setMentionPickerEl(el) { this.mentionPickerEl = el; }",
             "  setCloseCommandMenuPopover(fn) { this._closeCommandMenu = fn; }",
             "  setActivePopup(p) { this.activePopup = p; }",
             "  renderModelEffortOptions() {}",
             "  toggleModelEffortPopover() {}",
             "  closeModelEffortPopover() {}",
+            "  toggleEffortPopover() {}",
+            "  closeEffortPopover() {}",
             "  renderPermissionPopover() {}",
             "  togglePermissionPopover() {}",
             "  closePermissionPopover() {}",
@@ -25227,6 +25231,569 @@ if (!runCodexSchemaAlignment) {
     try { if (tempRunPhaseModelBundle) rmSync(tempRunPhaseModelBundle, { force: true }); } catch {}
     try { if (tempProviderLifecycleBundle) rmSync(tempProviderLifecycleBundle, { force: true }); } catch {}
     try { if (codexAppServerProviderBundle) rmSync(codexAppServerProviderBundle, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
+// 9.10 V20.2 SafeStorage Key 持久化 + 模型目录缓存 + 两级菜单 + 错误卡片
+//   覆盖：
+//   1. Key 重启恢复 — saveRuntimeProviderConfig + loadRuntimeProviderConfig 往返
+//   2. 完整模型目录 — clearCodexManagedModelCatalogCache + effortDisplayLabel 中文映射
+//   3. 菜单交互 — renderModelEffortOptions 两级独立 popover + 选中勾选
+//   4. 错误卡片对比度 — 认证失败检测 + CSS 浅色背景
+// ============================================================
+console.log("\n=== V20.2 SafeStorage + 模型目录 + 两级菜单 + 错误卡片测试 ===");
+
+const runV202 = runMode === "all" || runMode === "unit";
+
+if (!runV202) {
+  addTest("V20.2 测试段", "skip", "当前模式不运行 unit");
+} else {
+  let v202ProviderConfigBundle = null;
+  let v202CatalogBundle = null;
+  let v202ComposerBundle = null;
+  let v202TempDir = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+
+    // ---- Stub: fake safeStorage (base64 可逆变换模拟加密) ----
+    const fakeSafeStoragePlugin = {
+      name: "fake-safe-storage",
+      setup(build) {
+        build.onResolve({ filter: /^\.\/safeStorageProvider$/ }, () => ({
+          path: "fake-safe-storage", namespace: "fake-safe-storage-ns",
+        }));
+        build.onResolve({ filter: /^\.\.\/safeStorageProvider$/ }, () => ({
+          path: "fake-safe-storage", namespace: "fake-safe-storage-ns",
+        }));
+        build.onLoad({ filter: /.*/, namespace: "fake-safe-storage-ns" }, () => ({
+          contents: [
+            "export function isSafeStorageAvailable() { return true; }",
+            "export function encryptApiKey(plain) {",
+            "  if (!plain) return null;",
+            "  return Buffer.from('\\x01' + plain).toString('base64');",
+            "}",
+            "export function decryptApiKey(b64) {",
+            "  try {",
+            "    const buf = Buffer.from(b64, 'base64');",
+            "    if (buf[0] !== 1) return null;",
+            "    return buf.slice(1).toString('utf8');",
+            "  } catch { return null; }",
+            "}",
+          ].join("\n"),
+          loader: "js",
+        }));
+
+        // Stub runtimeProfileResolver — 迁移来源返回 null，测试聚焦 provider-config 往返
+        build.onResolve({ filter: /^\.\/runtimeProfileResolver$/ }, () => ({
+          path: "fake-rpr", namespace: "fake-rpr-ns",
+        }));
+        build.onResolve({ filter: /^\.\.\/runtimeProfileResolver$/ }, () => ({
+          path: "fake-rpr", namespace: "fake-rpr-ns",
+        }));
+        build.onLoad({ filter: /.*/, namespace: "fake-rpr-ns" }, () => ({
+          contents: [
+            "export function loadVaultRuntimeProfileSync() { return null; }",
+            "export function loadPortableApiKeySync() { return null; }",
+            "export function resolveRuntimeProfileSync() { return { relayUrl: '', apiKey: '', model: '' }; }",
+          ].join("\n"),
+          loader: "js",
+        }));
+
+        // Stub agentRuntimeWorkspace — 提供路径常量
+        build.onResolve({ filter: /^\.\.\/agentRuntimeWorkspace$/ }, () => ({
+          path: "fake-arw", namespace: "fake-arw-ns",
+        }));
+        build.onResolve({ filter: /^\.\.\/\.\.\/agentRuntimeWorkspace$/ }, () => ({
+          path: "fake-arw", namespace: "fake-arw-ns",
+        }));
+        build.onLoad({ filter: /.*/, namespace: "fake-arw-ns" }, () => ({
+          contents: [
+            "export const AGENT_RUNTIME_PRIVATE_DIR_REL = 'LLM-AgentRuntime/private';",
+            "export const AGENT_RUNTIME_PROVIDER_CONFIG_REL = 'LLM-AgentRuntime/private/runtime-provider.json';",
+          ].join("\n"),
+          loader: "js",
+        }));
+      },
+    };
+
+    // ---- Bundle runtimeProviderConfig ----
+    v202ProviderConfigBundle = join(PROJECT_ROOT, ".test-v202-provider-config-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "runtimeProviderConfig.ts")],
+      bundle: true, format: "esm", platform: "node", logLevel: "silent",
+      outfile: v202ProviderConfigBundle,
+      plugins: [fakeSafeStoragePlugin],
+    });
+    const { saveRuntimeProviderConfig, loadRuntimeProviderConfig } =
+      await import(pathToFileURL(v202ProviderConfigBundle).href);
+
+    // ---- Bundle runtimeModelCatalog (effortDisplayLabel) ----
+    v202CatalogBundle = join(PROJECT_ROOT, ".test-v202-catalog-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtimeModelCatalog.ts")],
+      bundle: true, format: "esm", platform: "node", logLevel: "silent",
+      outfile: v202CatalogBundle,
+    });
+    const catalogMod = await import(pathToFileURL(v202CatalogBundle).href);
+    const { effortDisplayLabel, getRuntimeModelCatalog, setRuntimeModelCatalogForAgent, getRuntimeModelCatalogForAgent, getEffortsForModel } = catalogMod;
+
+    // ---- 临时 Vault 目录 ----
+    v202TempDir = mkdtempSync(join(tmpdir(), "v202-test-"));
+
+    // ============================================================
+    // 测试 1: Key 重启恢复 — saveRuntimeProviderConfig 加密写入 + loadRuntimeProviderConfig 解密读取
+    // ============================================================
+    {
+      const testKey = "sk-test-key-abc123xyz";
+      const saveResult = await saveRuntimeProviderConfig(v202TempDir, {
+        relayUrl: "https://relay.example.com",
+        apiKey: testKey,
+        model: "gpt-5.5",
+      });
+      // 验证文件写入成功
+      const configPath = join(v202TempDir, "LLM-AgentRuntime", "private", "runtime-provider.json");
+      const fileExists = existsSync(configPath);
+      // 验证文件中有 encryptedApiKey，没有明文 apiKey
+      const fileContent = fileExists ? readFileSync(configPath, "utf8") : "{}";
+      const parsed = JSON.parse(fileContent);
+      const hasEncrypted = typeof parsed.encryptedApiKey === "string" && parsed.encryptedApiKey.length > 0;
+      const noPlaintextKey = parsed.apiKey === undefined;
+      // 验证明文 Key 不在文件中
+      const plaintextNotInFile = !fileContent.includes(testKey);
+
+      // 重启恢复：重新加载配置
+      const loaded = await loadRuntimeProviderConfig(v202TempDir, { model: "gpt-5.5" });
+      const recoveredKey = loaded.config?.apiKey ?? "";
+      const keyMatches = recoveredKey === testKey;
+
+      addTest("V20.2 Key 重启恢复: saveRuntimeProviderConfig 写入成功",
+        saveResult && fileExists ? "pass" : "fail",
+        `saveResult=${saveResult}, fileExists=${fileExists}`);
+      addTest("V20.2 Key 重启恢复: 文件含 encryptedApiKey 不含明文 apiKey",
+        hasEncrypted && noPlaintextKey ? "pass" : "fail",
+        `hasEncrypted=${hasEncrypted}, noPlaintextKey=${noPlaintextKey}`);
+      addTest("V20.2 Key 重启恢复: 明文 Key 不出现在文件内容中",
+        plaintextNotInFile ? "pass" : "fail",
+        plaintextNotInFile ? "" : `文件中发现了明文 Key: ${testKey}`);
+      addTest("V20.2 Key 重启恢复: loadRuntimeProviderConfig 解密恢复 Key 一致",
+        keyMatches ? "pass" : "fail",
+        `expected="${testKey}", actual="${recoveredKey}"`);
+    }
+
+    // ============================================================
+    // 测试 2: Key 重启恢复 — relayUrl 和 model 也正确恢复
+    // ============================================================
+    {
+      const loaded = await loadRuntimeProviderConfig(v202TempDir, { model: "gpt-5.5" });
+      const relayOk = loaded.config?.relayUrl === "https://relay.example.com";
+      const modelOk = loaded.config?.model === "gpt-5.5";
+      const originOk = loaded.origin === "provider-config";
+      addTest("V20.2 Key 重启恢复: relayUrl + model + origin 正确恢复",
+        relayOk && modelOk && originOk ? "pass" : "fail",
+        `relay="${loaded.config?.relayUrl}", model="${loaded.config?.model}", origin="${loaded.origin}"`);
+    }
+
+    // ============================================================
+    // 测试 3: Key 重启恢复 — 空 Key 时不写入 encryptedApiKey
+    // ============================================================
+    {
+      const saveResult = await saveRuntimeProviderConfig(v202TempDir, {
+        relayUrl: "https://relay2.example.com",
+        apiKey: "",
+        model: "gpt-5.5",
+      });
+      const configPath = join(v202TempDir, "LLM-AgentRuntime", "private", "runtime-provider.json");
+      const fileContent = readFileSync(configPath, "utf8");
+      const parsed = JSON.parse(fileContent);
+      const noEncryptedWhenEmpty = !parsed.encryptedApiKey;
+      const loaded = await loadRuntimeProviderConfig(v202TempDir, { model: "gpt-5.5" });
+      const emptyKeyRecovered = loaded.config?.apiKey === "";
+      addTest("V20.2 Key 重启恢复: 空 Key 不写入 encryptedApiKey",
+        saveResult && noEncryptedWhenEmpty && emptyKeyRecovered ? "pass" : "fail",
+        `saveResult=${saveResult}, noEncrypted=${noEncryptedWhenEmpty}, recovered="${loaded.config?.apiKey}"`);
+    }
+
+    // ============================================================
+    // 测试 4: 完整模型目录 — effortDisplayLabel 中文映射
+    // ============================================================
+    {
+      const lowLabel = effortDisplayLabel("low");
+      const mediumLabel = effortDisplayLabel("medium");
+      const highLabel = effortDisplayLabel("high");
+      const maxLabel = effortDisplayLabel("max");
+      const unknownLabel = effortDisplayLabel("custom-effort");
+      const allChinese = lowLabel === "低" && mediumLabel === "中" && highLabel === "高" && maxLabel === "极高";
+      const unknownPassthrough = unknownLabel === "custom-effort";
+      addTest("V20.2 模型目录: effortDisplayLabel low/medium/high/max → 低/中/高/极高",
+        allChinese ? "pass" : "fail",
+        `low="${lowLabel}", medium="${mediumLabel}", high="${highLabel}", max="${maxLabel}"`);
+      addTest("V20.2 模型目录: effortDisplayLabel 未知值原样返回",
+        unknownPassthrough ? "pass" : "fail",
+        `unknown="${unknownLabel}"`);
+    }
+
+    // ============================================================
+    // 测试 5: 完整模型目录 — STATIC_EFFORTS 中文 label + value 保持 low/medium/high/max
+    // ============================================================
+    {
+      const catalog = getRuntimeModelCatalog();
+      const efforts = catalog.efforts;
+      const labelsChinese = efforts.every((e) => ["低", "中", "高", "极高"].includes(e.label));
+      const valuesEnglish = efforts.every((e) => ["low", "medium", "high", "max"].includes(e.value));
+      const hasFour = efforts.length === 4;
+      // value→label 映射正确
+      const lowEffort = efforts.find((e) => e.value === "low");
+      const maxEffort = efforts.find((e) => e.value === "max");
+      const mappingOk = lowEffort?.label === "低" && maxEffort?.label === "极高";
+      addTest("V20.2 模型目录: STATIC_EFFORTS label 中文 + value 英文 + 4 项",
+        labelsChinese && valuesEnglish && hasFour && mappingOk ? "pass" : "fail",
+        `labelsChinese=${labelsChinese}, valuesEnglish=${valuesEnglish}, count=${efforts.length}`);
+    }
+
+    // ============================================================
+    // 测试 6: 完整模型目录 — getEffortsForModel 使用中文 label
+    // ============================================================
+    {
+      // 注册一个带 supportedReasoningEfforts 的模型
+      setRuntimeModelCatalogForAgent("test-v202", [
+        {
+          value: "test-model-v202",
+          label: "Test Model V202",
+          supportedReasoningEfforts: ["low", "high", "max"],
+        },
+      ]);
+      const cat = getRuntimeModelCatalogForAgent("test-v202");
+      const efforts = getEffortsForModel(cat, "test-model-v202");
+      const hasThree = efforts.length === 3;
+      const labelsChinese = efforts.every((e) => ["低", "中", "高", "极高"].includes(e.label));
+      const valuesEnglish = efforts.every((e) => ["low", "medium", "high", "max"].includes(e.value));
+      const lowEffort = efforts.find((e) => e.value === "low");
+      const maxEffort = efforts.find((e) => e.value === "max");
+      const mappingOk = lowEffort?.label === "低" && maxEffort?.label === "极高";
+      addTest("V20.2 模型目录: getEffortsForModel 模型自带 effort → 中文 label",
+        hasThree && labelsChinese && valuesEnglish && mappingOk ? "pass" : "fail",
+        `count=${efforts.length}, labelsChinese=${labelsChinese}, valuesEnglish=${valuesEnglish}`);
+    }
+
+    // ============================================================
+    // 测试 7: 完整模型目录 — clearCodexManagedModelCatalogCache 导出和缓存清除
+    // ============================================================
+    {
+      // 通过源码验证 clearCodexManagedModelCatalogCache 调用 cache.clear()
+      const catalogSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-managed-app-server", "codexManagedModelCatalog.ts"), "utf-8");
+      const hasClearExport = /export function clearCodexManagedModelCatalogCache\s*\(\s*\)\s*:\s*void\s*\{[\s\S]*?cache\.clear\(\)/.test(catalogSrc);
+      // 验证 loadCodexManagedModelCatalog 使用 cache（缓存机制存在）
+      const hasCacheGet = catalogSrc.includes("cache.get(key)");
+      const hasCacheSet = catalogSrc.includes("cache.set(key,");
+      addTest("V20.2 模型目录: clearCodexManagedModelCatalogCache 导出并调用 cache.clear()",
+        hasClearExport ? "pass" : "fail",
+        hasClearExport ? "" : "未找到 clearCodexManagedModelCatalogCache 导出或 cache.clear() 调用");
+      addTest("V20.2 模型目录: loadCodexManagedModelCatalog 使用 cache.get/set 缓存机制",
+        hasCacheGet && hasCacheSet ? "pass" : "fail",
+        `cacheGet=${hasCacheGet}, cacheSet=${hasCacheSet}`);
+    }
+
+    // ============================================================
+    // 测试 8: 完整模型目录 — settings.ts 刷新/发现按钮调用 clearCodexManagedModelCatalogCache
+    // ============================================================
+    {
+      const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
+      const refreshBtnCallsClear = settingsSrc.includes("clearCodexManagedModelCatalogCache()");
+      // 验证发现按钮使用 resolveRuntimeProfile（含加密持久化恢复）
+      const discoverBtnUsesResolve = settingsSrc.includes("resolveRuntimeProfile");
+      addTest("V20.2 模型目录: settings.ts 刷新/发现按钮调用 clearCodexManagedModelCatalogCache",
+        refreshBtnCallsClear ? "pass" : "fail",
+        refreshBtnCallsClear ? "" : "settings.ts 未调用 clearCodexManagedModelCatalogCache()");
+      addTest("V20.2 模型目录: 发现按钮使用 resolveRuntimeProfile 获取真实 relayUrl/apiKey",
+        discoverBtnUsesResolve ? "pass" : "fail",
+        discoverBtnUsesResolve ? "" : "settings.ts 未使用 resolveRuntimeProfile");
+    }
+
+    // ============================================================
+    // 测试 9: 菜单交互 — renderModelEffortOptions 两级独立 popover
+    // ============================================================
+    {
+      // Bundle composerController with obsidian stub
+      const obsidianStubPlugin = {
+        name: "obsidian-stub-v202",
+        setup(build) {
+          build.onResolve({ filter: /^obsidian$/ }, () => ({
+            path: "obsidian-stub", namespace: "obsidian-stub-ns-v202",
+          }));
+          build.onLoad({ filter: /.*/, namespace: "obsidian-stub-ns-v202" }, () => ({
+            contents: [
+              "export function setIcon(el, name) { if (el) el._icon = name; }",
+              "export class Notice { constructor(msg) { this.msg = msg; } close(){} }",
+              "export function normalizePath(p){return p;}",
+              "export class TFile {}",
+            ].join("\n"),
+            loader: "js",
+          }));
+          // Stub agentApprovalProfile — composerController imports from it
+          build.onResolve({ filter: /^\.\.\/agentApprovalProfile$/ }, () => ({
+            path: "aap-stub", namespace: "aap-stub-ns",
+          }));
+          build.onLoad({ filter: /.*/, namespace: "aap-stub-ns" }, () => ({
+            contents: "export const AGENT_APPROVAL_PROFILES = []; export function getAgentApprovalProfileInfo() { return { icon: '', shortLabel: '', title: '', description: '' }; } export function isAgentApprovalProfile() { return false; } export function mapAgentApprovalProfileToClaudePermissionMode() { return 'default'; }",
+            loader: "js",
+          }));
+          // Stub fileRefs
+          build.onResolve({ filter: /^\.\.\/fileRefs$/ }, () => ({
+            path: "fr-stub", namespace: "fr-stub-ns",
+          }));
+          build.onLoad({ filter: /.*/, namespace: "fr-stub-ns" }, () => ({
+            contents: "export interface FileRef {}",
+            loader: "js",
+          }));
+        },
+      };
+
+      v202ComposerBundle = join(PROJECT_ROOT, ".test-v202-composer-temp.mjs");
+      await esbuild.build({
+        entryPoints: [join(PROJECT_ROOT, "src", "ui", "composerController.ts")],
+        bundle: true, format: "esm", platform: "node", logLevel: "silent",
+        outfile: v202ComposerBundle,
+        plugins: [obsidianStubPlugin],
+      });
+      const composerMod = await import(pathToFileURL(v202ComposerBundle).href);
+      const { renderModelEffortOptions } = composerMod;
+
+      // 使用 FakeElement 作为容器
+      const modelOptionsEl = new FakeElement("div");
+      const effortOptionsEl = new FakeElement("div");
+
+      // 构造测试 catalog
+      const testCatalog = {
+        models: [
+          { value: "model-a", label: "Model A" },
+          { value: "model-b", label: "Model B" },
+        ],
+        efforts: [
+          { value: "low", label: "低" },
+          { value: "medium", label: "中" },
+          { value: "high", label: "高" },
+          { value: "max", label: "极高" },
+        ],
+        source: "runtime",
+      };
+
+      let selectedModel = "model-a";
+      let selectedEffort = "high";
+      renderModelEffortOptions(modelOptionsEl, effortOptionsEl, testCatalog, selectedEffort, selectedModel, {
+        onSelect: (m, e) => { selectedModel = m; selectedEffort = e; },
+        closeModel: () => {},
+        closeEffort: () => {},
+      });
+
+      // 验证模型选项和 effort 选项渲染在各自容器中
+      const modelButtons = modelOptionsEl.querySelectorAll(".llm-bridge-model-option");
+      const effortButtons = effortOptionsEl.querySelectorAll(".llm-bridge-effort-option");
+      const modelCountOk = modelButtons.length === 2;
+      const effortCountOk = effortButtons.length === 4; // 模型 A 没有自带 effort，用全局 4 项
+
+      // 验证选中模型有 is-active 和 ✓
+      const activeModel = modelOptionsEl.querySelector(".llm-bridge-model-option.is-active");
+      const activeModelValue = activeModel?.getAttribute("data-model");
+      const activeModelCheck = activeModel?.querySelector(".llm-bridge-option-check");
+      const activeModelCheckOk = activeModelCheck?.textContent === "✓";
+
+      // 验证选中 effort 有 is-active 和 ✓
+      const activeEffort = effortOptionsEl.querySelector(".llm-bridge-effort-option.is-active");
+      const activeEffortValue = activeEffort?.getAttribute("data-effort");
+      const activeEffortCheck = activeEffort?.querySelector(".llm-bridge-option-check");
+      const activeEffortCheckOk = activeEffortCheck?.textContent === "✓";
+
+      // 验证 effort label 是中文
+      const effortLabels = effortButtons.map((b) => b.querySelector(".llm-bridge-effort-option-label")?.textContent);
+      const labelsChinese = effortLabels.every((l) => ["低", "中", "高", "极高"].includes(l));
+
+      addTest("V20.2 菜单交互: 模型选项和 effort 选项渲染在各自独立容器",
+        modelCountOk && effortCountOk ? "pass" : "fail",
+        `modelCount=${modelButtons.length}, effortCount=${effortButtons.length}`);
+      addTest("V20.2 菜单交互: 选中模型有 is-active + ✓ 勾选",
+        activeModelValue === "model-a" && activeModelCheckOk ? "pass" : "fail",
+        `activeModel="${activeModelValue}", check="${activeModelCheck?.textContent}"`);
+      addTest("V20.2 菜单交互: 选中 effort 有 is-active + ✓ 勾选",
+        activeEffortValue === "high" && activeEffortCheckOk ? "pass" : "fail",
+        `activeEffort="${activeEffortValue}", check="${activeEffortCheck?.textContent}"`);
+      addTest("V20.2 菜单交互: effort 选项 label 为中文（低/中/高/极高）",
+        labelsChinese ? "pass" : "fail",
+        `labels=${JSON.stringify(effortLabels)}`);
+
+      // 验证非选中模型没有 ✓（FakeElement 不支持 :not() 伪类，手动遍历）
+      const allModelOpts = modelOptionsEl.querySelectorAll(".llm-bridge-model-option");
+      const inactiveModel = allModelOpts.find((b) => !b._cls.has("is-active"));
+      const inactiveModelCheck = inactiveModel?.querySelector(".llm-bridge-option-check");
+      const inactiveCheckEmpty = inactiveModelCheck?.textContent === "";
+      addTest("V20.2 菜单交互: 非选中模型无 ✓ 勾选",
+        inactiveCheckEmpty ? "pass" : "fail",
+        `inactiveCheck="${inactiveModelCheck?.textContent}"`);
+    }
+
+    // ============================================================
+    // 测试 10: 菜单交互 — ComposerPopupKind "effort" 类型 + effort popover 互斥
+    // ============================================================
+    {
+      const composerSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "composerController.ts"), "utf-8");
+      const hasEffortPopupKind = composerSrc.includes('"effort"');
+      const hasSetEffortPopoverEl = composerSrc.includes("setEffortPopoverEl");
+      const hasCloseEffortPopover = composerSrc.includes("closeEffortPopover");
+      const hasToggleEffortPopover = composerSrc.includes("toggleEffortPopover");
+      const hasGetEffortPopoverEl = composerSrc.includes("getEffortPopoverEl");
+      // 验证 setActivePopup 中 effort 互斥逻辑
+      const hasEffortMutex = /setActivePopup[\s\S]*?effort/.test(composerSrc);
+      addTest("V20.2 菜单交互: ComposerPopupKind 含 'effort' 类型",
+        hasEffortPopupKind ? "pass" : "fail",
+        hasEffortPopupKind ? "" : "未找到 'effort' popup kind");
+      addTest("V20.2 菜单交互: effort popover setter/getter/toggle/close 方法齐全",
+        hasSetEffortPopoverEl && hasCloseEffortPopover && hasToggleEffortPopover && hasGetEffortPopoverEl ? "pass" : "fail",
+        `set=${hasSetEffortPopoverEl}, close=${hasCloseEffortPopover}, toggle=${hasToggleEffortPopover}, get=${hasGetEffortPopoverEl}`);
+      addTest("V20.2 菜单交互: setActivePopup 含 effort 互斥处理",
+        hasEffortMutex ? "pass" : "fail",
+        hasEffortMutex ? "" : "setActivePopup 未处理 effort 互斥");
+    }
+
+    // ============================================================
+    // 测试 11: 错误卡片对比度 — 认证失败检测正则
+    // ============================================================
+    {
+      const authRegex = /\b(401|403)\b|unauthorized|api[_\s-]?key|authentication|invalid.*key|key.*invalid/i;
+      const authErrors = [
+        "401 Unauthorized",
+        "403 Forbidden",
+        "Unauthorized access",
+        "Invalid API Key",
+        "API key is missing",
+        "Authentication failed",
+        "api_key invalid",
+        "key invalid",
+      ];
+      const nonAuthErrors = [
+        "Connection timeout",
+        "Rate limit exceeded",
+        "Model not found",
+        "Internal server error",
+      ];
+      const allAuthDetected = authErrors.every((e) => authRegex.test(e));
+      const noNonAuthDetected = nonAuthErrors.every((e) => !authRegex.test(e));
+      addTest("V20.2 错误卡片: 认证失败关键词全部检测到 (401/403/unauthorized/api key/auth/invalid key)",
+        allAuthDetected ? "pass" : "fail",
+        `detected=${authErrors.filter((e) => authRegex.test(e)).length}/${authErrors.length}`);
+      addTest("V20.2 错误卡片: 非认证错误不误判为认证失败",
+        noNonAuthDetected ? "pass" : "fail",
+        `误判: ${nonAuthErrors.filter((e) => authRegex.test(e))}`);
+    }
+
+    // ============================================================
+    // 测试 12: 错误卡片对比度 — agentRunDisplayModel 认证失败标题
+    // ============================================================
+    {
+      const displaySrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "agentRunDisplayModel.ts"), "utf-8");
+      const hasAuthCheck = displaySrc.includes("isAuthError");
+      const hasAuthTitle = displaySrc.includes('"API Key 缺失或无效"');
+      const hasRegex = /\bisAuthError\s*=\s*\/\\b\(401\|403\)\\b/.test(displaySrc);
+      addTest("V20.2 错误卡片: agentRunDisplayModel 含 isAuthError 检测 + 'API Key 缺失或无效' 标题",
+        hasAuthCheck && hasAuthTitle && hasRegex ? "pass" : "fail",
+        `isAuthError=${hasAuthCheck}, title=${hasAuthTitle}, regex=${hasRegex}`);
+    }
+
+    // ============================================================
+    // 测试 13: 错误卡片对比度 — CSS 浅色背景（非纯红空块）
+    // ============================================================
+    {
+      const cssSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf-8");
+      // init-error-card 使用浅色背景
+      const initErrorSection = cssSrc.slice(
+        cssSrc.indexOf(".llm-bridge-init-error-card {"),
+        cssSrc.indexOf(".llm-bridge-init-error-card {") + 400,
+      );
+      const initErrorLightBg = initErrorSection.includes("var(--background-secondary)")
+        && !initErrorSection.includes("var(--background-modifier-error)")
+        && !initErrorSection.includes("#ff0000");
+      // init-error-msg 使用 text-normal（清晰文字）
+      const initMsgSection = cssSrc.slice(
+        cssSrc.indexOf(".llm-bridge-init-error-msg {"),
+        cssSrc.indexOf(".llm-bridge-init-error-msg {") + 300,
+      );
+      const initMsgClearText = initMsgSection.includes("var(--text-normal)");
+      // tl-error content 使用 surface-raised（浅色）而非纯红
+      const tlErrorSection = cssSrc.slice(
+        cssSrc.indexOf(".llm-bridge-tl-error .llm-bridge-tl-content {"),
+        cssSrc.indexOf(".llm-bridge-tl-error .llm-bridge-tl-content {") + 300,
+      );
+      const tlErrorLightBg = tlErrorSection.includes("var(--llm-agent-surface-raised)")
+        && !tlErrorSection.includes("var(--background-modifier-error)")
+        && !tlErrorSection.includes("#ff0000");
+      addTest("V20.2 错误卡片: .llm-bridge-init-error-card 浅色背景（var(--background-secondary)）",
+        initErrorLightBg ? "pass" : "fail",
+        initErrorLightBg ? "" : `initErrorSection="${initErrorSection.slice(0, 200)}"`);
+      addTest("V20.2 错误卡片: .llm-bridge-init-error-msg 清晰文字（var(--text-normal)）",
+        initMsgClearText ? "pass" : "fail",
+        initMsgClearText ? "" : `initMsgSection="${initMsgSection.slice(0, 200)}"`);
+      addTest("V20.2 错误卡片: .llm-bridge-tl-error .llm-bridge-tl-content 浅色背景（var(--llm-agent-surface-raised)）",
+        tlErrorLightBg ? "pass" : "fail",
+        tlErrorLightBg ? "" : `tlErrorSection="${tlErrorSection.slice(0, 200)}"`);
+    }
+
+    // ============================================================
+    // 测试 14: 错误卡片对比度 — 两级菜单 CSS（扁平行 + 限高滚动）
+    // ============================================================
+    {
+      const cssSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf-8");
+      const hasTwoLevelPopover = cssSrc.includes("llm-bridge-model-popover-two-level")
+        && cssSrc.includes("llm-bridge-effort-popover-two-level");
+      const hasMaxHeightScroll = cssSrc.includes("max-height: 240px")
+        && cssSrc.includes("overflow-y: auto");
+      const hasModelOptionLabel = cssSrc.includes("llm-bridge-model-option-label");
+      const hasEffortOptionLabel = cssSrc.includes("llm-bridge-effort-option-label");
+      const hasOptionCheck = cssSrc.includes("llm-bridge-option-check");
+      addTest("V20.2 菜单 CSS: 两级 popover 样式存在（model-popover-two-level + effort-popover-two-level）",
+        hasTwoLevelPopover ? "pass" : "fail",
+        hasTwoLevelPopover ? "" : "缺少两级 popover CSS class");
+      addTest("V20.2 菜单 CSS: 选项列表限高滚动（max-height: 240px + overflow-y: auto）",
+        hasMaxHeightScroll ? "pass" : "fail",
+        hasMaxHeightScroll ? "" : "缺少限高滚动样式");
+      addTest("V20.2 菜单 CSS: 选项 label + check 样式存在",
+        hasModelOptionLabel && hasEffortOptionLabel && hasOptionCheck ? "pass" : "fail",
+        `modelLabel=${hasModelOptionLabel}, effortLabel=${hasEffortOptionLabel}, check=${hasOptionCheck}`);
+    }
+
+    // ============================================================
+    // 测试 15: safeStorage 加密持久化 — settings.ts API Key 默认持久化 + "忘记 Key" 按钮
+    // ============================================================
+    {
+      const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
+      // API Key onChange 调用 saveRuntimeProviderConfig 持久化
+      const hasPersistOnchange = settingsSrc.includes("saveRuntimeProviderConfig")
+        && settingsSrc.includes("V20.2");
+      // "忘记 Key" 按钮存在
+      const hasForgetKeyBtn = settingsSrc.includes("忘记 Key");
+      // 便携目录路径标注为"高级，可选"
+      const hasPortableAdvanced = settingsSrc.includes("高级，可选");
+      // 描述中提到 safeStorage 加密
+      const descMentionsSafeStorage = settingsSrc.includes("safeStorage");
+      addTest("V20.2 safeStorage: settings.ts API Key onChange 持久化到 runtime-provider.json",
+        hasPersistOnchange ? "pass" : "fail",
+        hasPersistOnchange ? "" : "settings.ts 未在 onChange 中调用 saveRuntimeProviderConfig");
+      addTest("V20.2 safeStorage: '忘记 Key' 按钮存在",
+        hasForgetKeyBtn ? "pass" : "fail",
+        hasForgetKeyBtn ? "" : "settings.ts 缺少 '忘记 Key' 按钮");
+      addTest("V20.2 safeStorage: 便携目录路径标注为'高级，可选'",
+        hasPortableAdvanced ? "pass" : "fail",
+        hasPortableAdvanced ? "" : "settings.ts 便携目录路径未标注高级可选");
+      addTest("V20.2 safeStorage: 描述中提到 safeStorage 加密",
+        descMentionsSafeStorage ? "pass" : "fail",
+        descMentionsSafeStorage ? "" : "settings.ts 描述未提及 safeStorage");
+    }
+
+  } catch (e) {
+    addTest("V20.2 测试段", "fail", `加载/执行异常: ${e?.stack || e?.message || e}`);
+  } finally {
+    try { if (v202ProviderConfigBundle) rmSync(v202ProviderConfigBundle, { force: true }); } catch {}
+    try { if (v202CatalogBundle) rmSync(v202CatalogBundle, { force: true }); } catch {}
+    try { if (v202ComposerBundle) rmSync(v202ComposerBundle, { force: true }); } catch {}
+    try { if (v202TempDir) rmSync(v202TempDir, { recursive: true, force: true }); } catch {}
   }
 }
 

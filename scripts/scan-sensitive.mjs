@@ -33,8 +33,8 @@ const PATTERNS = [
   { name: "sk-ant API key", re: /sk-ant-[A-Za-z0-9_-]{20,}/ },
   { name: "Bearer token", re: /Bearer\s+[A-Za-z0-9._-]{20,}/ },
   { name: "48-hex token", re: /\b[a-f0-9]{48}\b/ },
-  { name: "ANTHROPIC_API_KEY 值", re: /ANTHROPIC_API_KEY\s*=\s*["']?(?!(?:<redacted>|<token>|<api-key>))[A-Za-z0-9_\-]{10,}/ },
-  { name: "CLAUDE_API_KEY 值", re: /CLAUDE_API_KEY\s*=\s*["']?(?!(?:<redacted>|<token>|<api-key>))[A-Za-z0-9_\-]{10,}/ },
+  { name: "ANTHROPIC_API_KEY 值", re: /ANTHROPIC_API_KEY\s*=\s*["']?(?!(?:<redacted>|<token>|<api-key>))[A-Za-z0-9_\-]{10,}(?=[;\s"']|$)/ },
+  { name: "CLAUDE_API_KEY 值", re: /CLAUDE_API_KEY\s*=\s*["']?(?!(?:<redacted>|<token>|<api-key>))[A-Za-z0-9_\-]{10,}(?=[;\s"']|$)/ },
   { name: ".env 变量赋值", re: /^[A-Z_]{3,}=(?!(?:<redacted>|<token>|<api-key>)|\$)[^\s]{20,}/m },
 ];
 

@@ -771,16 +771,19 @@ export function buildAgentRunDisplayModel(
   }
 
   // errors → ErrorCard
+  // V20.2: 认证失败（401/403/unauthorized/API Key）显示明确标题，不再出现纯红空块
   for (let i = 0; i < turnView.errors.length; i++) {
+    const errMsg = turnView.errors[i];
+    const isAuthError = /\b(401|403)\b|unauthorized|api[_\s-]?key|authentication|invalid.*key|key.*invalid/i.test(errMsg);
     timelineCards.push({
       id: `error-${i}`,
       kind: "error",
-      title: "错误",
+      title: isAuthError ? "API Key 缺失或无效" : "错误",
       status: "failed",
-      summary: turnView.errors[i].slice(0, 120),
-      detail: turnView.errors[i],
+      summary: errMsg.slice(0, 120),
+      detail: errMsg,
       timestamp: undefined,
-      message: turnView.errors[i],
+      message: errMsg,
       defaultExpanded: true,
     });
   }

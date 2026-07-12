@@ -180,3 +180,10 @@ export function loadCodexManagedModelCatalog(
   });
   return pending;
 }
+
+/**
+ * V20.2: 清除模型目录缓存，用于中转站新增/删除模型后强制重新读取。
+ */
+export function clearCodexManagedModelCatalogCache(): void {
+  cache.clear();
+}

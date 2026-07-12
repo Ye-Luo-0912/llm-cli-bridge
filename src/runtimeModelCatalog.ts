@@ -78,14 +78,30 @@ const CODEX_MODELS: ReadonlyArray<ModelCatalogEntry> = [
 ];
 
 /**
- * 静态 fallback 推理等级列表（使用原始名称，不中文化）
- * source=static 时使用
+ * V20.2: effort 中文显示映射。
+ * 发送给 runtime 的值仍保持 low/medium/high/max，仅 UI 显示中文。
+ */
+const EFFORT_DISPLAY_LABELS: Record<string, string> = {
+  low: "低",
+  medium: "中",
+  high: "高",
+  max: "极高",
+};
+
+/** V20.2: 获取 effort 的中文显示标签，未知值原样返回。 */
+export function effortDisplayLabel(value: string): string {
+  return EFFORT_DISPLAY_LABELS[value] ?? value;
+}
+
+/**
+ * 静态 fallback 推理等级列表
+ * V20.2: label 使用中文显示，value 保持 low/medium/high/max
  */
 const STATIC_EFFORTS: ReadonlyArray<EffortCatalogEntry> = [
-  { value: "low", label: "low" },
-  { value: "medium", label: "medium" },
-  { value: "high", label: "high" },
-  { value: "max", label: "max" },
+  { value: "low", label: "低" },
+  { value: "medium", label: "中" },
+  { value: "high", label: "高" },
+  { value: "max", label: "极高" },
 ];
 
 /**
@@ -168,11 +184,12 @@ export function setRuntimeModelCatalogForAgent(
 /**
  * 获取指定模型的推理等级列表。如果模型自带 supportedReasoningEfforts 则用它；
  * 否则回退到静态列表。
+ * V20.2: label 使用中文显示（低/中/高/极高），value 保持 low/medium/high/max。
  */
 export function getEffortsForModel(catalog: RuntimeModelCatalog, modelValue: string): ReadonlyArray<EffortCatalogEntry> {
   const entry = findModelEntry(catalog, modelValue);
   if (entry?.supportedReasoningEfforts && entry.supportedReasoningEfforts.length > 0) {
-    return entry.supportedReasoningEfforts.map((e) => ({ value: e, label: e }));
+    return entry.supportedReasoningEfforts.map((e) => ({ value: e, label: effortDisplayLabel(e) }));
   }
   return catalog.efforts;
 }
