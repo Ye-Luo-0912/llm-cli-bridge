@@ -1158,6 +1158,124 @@
   gap: 4px;
 }
 
+/* V20.2: 两级紧凑菜单 — 模型 chip 和 effort chip 各自独立 popover */
+.llm-bridge-model-popover-two-level,
+.llm-bridge-effort-popover-two-level {
+  width: min(240px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+}
+
+.llm-bridge-model-options,
+.llm-bridge-effort-options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.llm-bridge-model-option,
+.llm-bridge-effort-option {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: var(--text-normal);
+  cursor: pointer;
+  text-align: left;
+}
+
+.llm-bridge-model-option:hover,
+.llm-bridge-effort-option:hover {
+  background: var(--background-modifier-hover);
+}
+
+.llm-bridge-model-option.is-active,
+.llm-bridge-effort-option.is-active {
+  background: var(--background-modifier-active-hover);
+  color: var(--interactive-accent);
+}
+
+.llm-bridge-model-option-label,
+.llm-bridge-effort-option-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-option-check {
+  flex-shrink: 0;
+  margin-left: 8px;
+  color: var(--interactive-accent);
+  font-weight: 600;
+}
+
+/* V20.3: 模型三分类 — 分组标题 / 待验证标签 / 不兼容原因 */
+.llm-bridge-model-section-header {
+  padding: 6px 8px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.llm-bridge-model-section-header:first-child {
+  padding-top: 2px;
+}
+
+.llm-bridge-model-option.is-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+
+.llm-bridge-model-option.is-disabled:hover {
+  background: transparent;
+}
+
+.llm-bridge-model-option-label.is-pending {
+  color: var(--text-muted);
+}
+
+.llm-bridge-model-option-label.is-incompatible {
+  color: var(--text-muted);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-error);
+  text-decoration-thickness: 1px;
+}
+
+.llm-bridge-model-option-tag {
+  flex-shrink: 0;
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+  line-height: 1.4;
+  background: var(--background-modifier-hover);
+  color: var(--text-muted);
+}
+
+.llm-bridge-model-option-reason {
+  flex-basis: 100%;
+  margin-left: 0;
+  padding-top: 2px;
+  font-size: 11px;
+  color: var(--text-error);
+  white-space: normal;
+  word-break: break-word;
+}
+
 .llm-bridge-model-effort-section {
   display: flex;
   flex-direction: column;
@@ -2727,7 +2845,7 @@
   padding: 16px;
   border-radius: 8px;
   border: 1px solid var(--background-modifier-error-border, #c0392b);
-  background: var(--background-modifier-error, rgba(192, 57, 43, 0.08));
+  background: var(--background-secondary);
 }
 
 .llm-bridge-init-error-title {
@@ -2738,7 +2856,7 @@
 
 .llm-bridge-init-error-msg {
   font-size: var(--font-smaller);
-  color: var(--text-muted);
+  color: var(--text-normal);
   word-break: break-word;
   margin-bottom: 12px;
   max-height: 120px;

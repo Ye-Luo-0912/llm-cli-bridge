@@ -87,21 +87,41 @@ export class JsonRpcClient {
 
   /**
    * 发送 client→server 请求并等待响应。
+   *
+   * V20.3: 支持可选 timeoutMs。超时后 reject 并清理 pending，
+   * 让上层能明确报告卡在哪个 JSON-RPC 阶段，而不是干等 90 秒。
    */
-  send<R = unknown>(method: string, params?: unknown): Promise<R> {
+  send<R = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<R> {
     if (this.closed) return Promise.reject(new Error("JsonRpcClient closed"));
     const id = this.nextId++;
     const req: JsonRpcRequest = { id, method };
     if (params !== undefined) (req as { params?: unknown }).params = params;
     const json = serialize(req as unknown as Record<string, unknown>);
     return new Promise<R>((resolve, reject) => {
-      this.pending.set(id, {
-        resolve: (r) => resolve(r as R),
-        reject,
-      });
+      let timer: NodeJS.Timeout | null = null;
+      const entry: PendingRequest = {
+        resolve: (r) => {
+          if (timer !== null) clearTimeout(timer);
+          resolve(r as R);
+        },
+        reject: (err) => {
+          if (timer !== null) clearTimeout(timer);
+          reject(err);
+        },
+      };
+      this.pending.set(id, entry);
+      if (typeof timeoutMs === "number" && timeoutMs > 0) {
+        timer = setTimeout(() => {
+          if (this.pending.has(id)) {
+            this.pending.delete(id);
+            reject(new Error(`JSON-RPC '${method}' timeout after ${timeoutMs}ms`));
+          }
+        }, timeoutMs);
+      }
       try {
         this.writeLine(json);
       } catch (err) {
+        if (timer !== null) clearTimeout(timer);
         this.pending.delete(id);
         reject(err instanceof Error ? err : new Error(String(err)));
       }

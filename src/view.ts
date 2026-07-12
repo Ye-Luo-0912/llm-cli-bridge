@@ -1110,7 +1110,8 @@ export class LLMBridgeView extends ItemView {
 
       if (matchResult.selectable.length === 0) return;
 
-      setRuntimeModelCatalogForAgent("codex", matchResult.selectable);
+      // V20.3: 三分类 UI — selectable（已验证+待验证）+ incompatible（仅展示原因，不可选）
+      setRuntimeModelCatalogForAgent("codex", [...matchResult.selectable, ...matchResult.incompatible]);
       const selected = settings.model.trim();
       if (!selected || !matchResult.selectable.some((m) => m.value === selected)) {
         settings.model = matchResult.defaultModel || matchResult.selectable[0].value;

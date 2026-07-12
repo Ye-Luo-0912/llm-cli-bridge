@@ -32,6 +32,8 @@ export interface ModelCatalogEntry {
   readonly provider?: string;
   /** 验证状态：available=可用，pending=待验证，incompatible=不兼容 */
   readonly validationStatus?: ModelValidationStatus;
+  /** V20.3: 不兼容原因（仅在 validationStatus=incompatible 时有意义） */
+  readonly incompatibleReason?: string;
 }
 
 /**
@@ -170,6 +172,7 @@ export function setRuntimeModelCatalogForAgent(
       isDefault: item.isDefault,
       provider: item.provider,
       validationStatus: item.validationStatus,
+      incompatibleReason: item.incompatibleReason,
     }))
     .filter((item) => item.value.length > 0 && !seen.has(item.value) && !!seen.add(item.value));
   const catalog: RuntimeModelCatalog = {

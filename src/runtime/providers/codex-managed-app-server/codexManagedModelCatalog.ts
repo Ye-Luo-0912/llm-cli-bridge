@@ -8,6 +8,7 @@ import type { RuntimeModelInfo } from "../../modelMatcher";
 import { createHash } from "crypto";
 import { AppServerProcessManager } from "../codex-app-server/appServerProcessManager";
 import { JsonRpcClient } from "../codex-app-server/jsonRpcClient";
+import { CODEX_APP_SERVER_STAGE_TIMEOUTS } from "../codex-app-server/codexAppServerProvider";
 import { loadVaultRuntimeProfileSync, resolveRuntimeProfileSync } from "../../runtimeProfileResolver";
 import { resolveManagedRuntime, resolveManifestPath } from "./codexManagedRuntimeResolver";
 
@@ -33,9 +34,12 @@ interface CodexModelListItem {
 
 const cache = new Map<string, Promise<CodexRuntimeModelCatalogResult | null>>();
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, stage?: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error(`model catalog timeout (${timeoutMs}ms)`)), timeoutMs);
+    const timer = setTimeout(
+      () => reject(new Error(`model catalog ${stage ? `「${stage}」` : ""}timeout (${timeoutMs}ms)`)),
+      timeoutMs,
+    );
     promise.then(
       (value) => { clearTimeout(timer); resolve(value); },
       (error) => { clearTimeout(timer); reject(error); },
@@ -142,13 +146,18 @@ async function probe(
   );
 
   try {
+    // V20.3: 分阶段超时 — initialize / model/list 各自独立超时
     await withTimeout(client.send("initialize", {
       clientInfo: { name: "llm-cli-bridge-model-catalog", title: "LLM CLI Bridge", version: "1" },
       capabilities: { experimentalApi: false },
       cwd: vaultPath,
-    }), 10_000);
+    }), CODEX_APP_SERVER_STAGE_TIMEOUTS.initialize, "initialize");
     client.notify("initialized", {});
-    const result = await withTimeout(client.send("model/list", {}), 10_000);
+    const result = await withTimeout(
+      client.send("model/list", {}),
+      CODEX_APP_SERVER_STAGE_TIMEOUTS.modelList,
+      "model/list",
+    );
     return parseModelList(result);
   } catch {
     return null;

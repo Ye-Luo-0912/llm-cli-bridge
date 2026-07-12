@@ -25699,41 +25699,46 @@ if (!runV202) {
     }
 
     // ============================================================
-    // 测试 13: 错误卡片对比度 — CSS 浅色背景（非纯红空块）
+    // 测试 13: 错误卡片对比度 — CSS 中性底色（仅边框/图标/标题用红色）
     // ============================================================
     {
       const cssSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf-8");
-      // init-error-card 使用浅色背景
+      // init-error-card: background 中性，border 可红色
       const initErrorSection = cssSrc.slice(
         cssSrc.indexOf(".llm-bridge-init-error-card {"),
         cssSrc.indexOf(".llm-bridge-init-error-card {") + 400,
       );
-      const initErrorLightBg = initErrorSection.includes("var(--background-secondary)")
-        && !initErrorSection.includes("var(--background-modifier-error)")
-        && !initErrorSection.includes("#ff0000");
+      const initErrorBgMatch = /background:\s*([^;]+);/.exec(initErrorSection);
+      const initErrorBgNeutral = initErrorBgMatch
+        ? initErrorBgMatch[1].includes("var(--background-secondary)")
+          && !initErrorBgMatch[1].includes("var(--background-modifier-error)")
+        : false;
+      const initErrorBorderRed = initErrorSection.includes("error-border") || initErrorSection.includes("#c0392b");
       // init-error-msg 使用 text-normal（清晰文字）
       const initMsgSection = cssSrc.slice(
         cssSrc.indexOf(".llm-bridge-init-error-msg {"),
         cssSrc.indexOf(".llm-bridge-init-error-msg {") + 300,
       );
       const initMsgClearText = initMsgSection.includes("var(--text-normal)");
-      // tl-error content 使用 surface-raised（浅色）而非纯红
+      // tl-error content: background 中性（surface-raised），非纯红
       const tlErrorSection = cssSrc.slice(
         cssSrc.indexOf(".llm-bridge-tl-error .llm-bridge-tl-content {"),
         cssSrc.indexOf(".llm-bridge-tl-error .llm-bridge-tl-content {") + 300,
       );
-      const tlErrorLightBg = tlErrorSection.includes("var(--llm-agent-surface-raised)")
-        && !tlErrorSection.includes("var(--background-modifier-error)")
-        && !tlErrorSection.includes("#ff0000");
-      addTest("V20.2 错误卡片: .llm-bridge-init-error-card 浅色背景（var(--background-secondary)）",
-        initErrorLightBg ? "pass" : "fail",
-        initErrorLightBg ? "" : `initErrorSection="${initErrorSection.slice(0, 200)}"`);
+      const tlErrorBgMatch = /background:\s*([^;]+);/.exec(tlErrorSection);
+      const tlErrorBgNeutral = tlErrorBgMatch
+        ? tlErrorBgMatch[1].includes("var(--llm-agent-surface-raised)")
+          && !tlErrorBgMatch[1].includes("var(--background-modifier-error)")
+        : false;
+      addTest("V20.2 错误卡片: .llm-bridge-init-error-card 中性底色 + 红色边框",
+        initErrorBgNeutral && initErrorBorderRed ? "pass" : "fail",
+        `bgNeutral=${initErrorBgNeutral}, borderRed=${initErrorBorderRed}, bg="${initErrorBgMatch?.[1] ?? ""}"`);
       addTest("V20.2 错误卡片: .llm-bridge-init-error-msg 清晰文字（var(--text-normal)）",
         initMsgClearText ? "pass" : "fail",
         initMsgClearText ? "" : `initMsgSection="${initMsgSection.slice(0, 200)}"`);
-      addTest("V20.2 错误卡片: .llm-bridge-tl-error .llm-bridge-tl-content 浅色背景（var(--llm-agent-surface-raised)）",
-        tlErrorLightBg ? "pass" : "fail",
-        tlErrorLightBg ? "" : `tlErrorSection="${tlErrorSection.slice(0, 200)}"`);
+      addTest("V20.2 错误卡片: .llm-bridge-tl-error .llm-bridge-tl-content 中性底色（var(--llm-agent-surface-raised)）",
+        tlErrorBgNeutral ? "pass" : "fail",
+        tlErrorBgNeutral ? "" : `bg="${tlErrorBgMatch?.[1] ?? ""}"`);
     }
 
     // ============================================================
@@ -25794,6 +25799,558 @@ if (!runV202) {
     try { if (v202CatalogBundle) rmSync(v202CatalogBundle, { force: true }); } catch {}
     try { if (v202ComposerBundle) rmSync(v202ComposerBundle, { force: true }); } catch {}
     try { if (v202TempDir) rmSync(v202TempDir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// ============================================================
+// V20.3 测试段 — 模型发现持久化 + 三分类 UI + 分阶段超时
+//   1. runtimeProviderConfig 新字段（providerModels/verifiedModels/pendingModels/incompatibleModels/discoveredAt）往返
+//   2. modelMatcher incompatibleReason 填充
+//   3. renderModelEffortOptions 三分类分组渲染（已验证/待验证/不兼容）
+//   4. 分阶段超时常量 + 错误类 + JsonRpcClient.send timeoutMs
+//   5. settings.ts 持久化完整 matchResult
+// ============================================================
+console.log("\n=== V20.3 模型发现持久化 + 三分类 UI + 分阶段超时测试 ===");
+
+const runV203 = runMode === "all" || runMode === "unit";
+
+if (!runV203) {
+  addTest("V20.3 测试段", "skip", "当前模式不运行 unit");
+} else {
+  let v203ProviderConfigBundle = null;
+  let v203MatcherBundle = null;
+  let v203ComposerBundle = null;
+  let v203JsonRpcBundle = null;
+  let v203TempDir = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+
+    // 复用 V20.2 的 fakeSafeStoragePlugin 模式（base64 可逆变换）
+    const v203FakePlugin = {
+      name: "v203-fake-deps",
+      setup(build) {
+        build.onResolve({ filter: /^\.\/safeStorageProvider$/ }, () => ({
+          path: "fake-safe-storage", namespace: "fake-safe-storage-ns",
+        }));
+        build.onResolve({ filter: /^\.\.\/safeStorageProvider$/ }, () => ({
+          path: "fake-safe-storage", namespace: "fake-safe-storage-ns",
+        }));
+        build.onLoad({ filter: /.*/, namespace: "fake-safe-storage-ns" }, () => ({
+          contents: [
+            "export function isSafeStorageAvailable() { return true; }",
+            "export function encryptApiKey(plain) {",
+            "  if (!plain) return null;",
+            "  return Buffer.from('\\x01' + plain).toString('base64');",
+            "}",
+            "export function decryptApiKey(b64) {",
+            "  try {",
+            "    const buf = Buffer.from(b64, 'base64');",
+            "    if (buf[0] !== 1) return null;",
+            "    return buf.slice(1).toString('utf8');",
+            "  } catch { return null; }",
+            "}",
+          ].join("\n"),
+          loader: "js",
+        }));
+        build.onResolve({ filter: /^\.\/runtimeProfileResolver$/ }, () => ({
+          path: "fake-rpr", namespace: "fake-rpr-ns",
+        }));
+        build.onResolve({ filter: /^\.\.\/runtimeProfileResolver$/ }, () => ({
+          path: "fake-rpr", namespace: "fake-rpr-ns",
+        }));
+        build.onLoad({ filter: /.*/, namespace: "fake-rpr-ns" }, () => ({
+          contents: [
+            "export function loadVaultRuntimeProfileSync() { return null; }",
+            "export function loadPortableApiKeySync() { return null; }",
+            "export function resolveRuntimeProfileSync() { return { relayUrl: '', apiKey: '', model: '' }; }",
+          ].join("\n"),
+          loader: "js",
+        }));
+        build.onResolve({ filter: /^\.\.\/agentRuntimeWorkspace$/ }, () => ({
+          path: "fake-arw", namespace: "fake-arw-ns",
+        }));
+        build.onResolve({ filter: /^\.\.\/\.\.\/agentRuntimeWorkspace$/ }, () => ({
+          path: "fake-arw", namespace: "fake-arw-ns",
+        }));
+        build.onLoad({ filter: /.*/, namespace: "fake-arw-ns" }, () => ({
+          contents: [
+            "export const AGENT_RUNTIME_PRIVATE_DIR_REL = 'LLM-AgentRuntime/private';",
+            "export const AGENT_RUNTIME_PROVIDER_CONFIG_REL = 'LLM-AgentRuntime/private/runtime-provider.json';",
+          ].join("\n"),
+          loader: "js",
+        }));
+      },
+    };
+
+    // ---- Bundle runtimeProviderConfig ----
+    v203ProviderConfigBundle = join(PROJECT_ROOT, ".test-v203-provider-config-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "runtimeProviderConfig.ts")],
+      bundle: true, format: "esm", platform: "node", logLevel: "silent",
+      outfile: v203ProviderConfigBundle,
+      plugins: [v203FakePlugin],
+    });
+    const v203ProviderMod = await import(pathToFileURL(v203ProviderConfigBundle).href);
+    const { saveRuntimeProviderConfig: v203Save, loadRuntimeProviderConfig: v203Load, loadRuntimeProviderConfigSync: v203LoadSync } = v203ProviderMod;
+
+    // ---- Bundle modelMatcher ----
+    v203MatcherBundle = join(PROJECT_ROOT, ".test-v203-matcher-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "modelMatcher.ts")],
+      bundle: true, format: "esm", platform: "node", logLevel: "silent",
+      outfile: v203MatcherBundle,
+    });
+    const v203MatcherMod = await import(pathToFileURL(v203MatcherBundle).href);
+    const { matchModels: v203MatchModels } = v203MatcherMod;
+
+    // ---- Bundle JsonRpcClient ----
+    v203JsonRpcBundle = join(PROJECT_ROOT, ".test-v203-jsonrpc-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "jsonRpcClient.ts")],
+      bundle: true, format: "esm", platform: "node", logLevel: "silent",
+      outfile: v203JsonRpcBundle,
+    });
+    const v203JsonRpcMod = await import(pathToFileURL(v203JsonRpcBundle).href);
+    const { JsonRpcClient: V203JsonRpcClient } = v203JsonRpcMod;
+
+    // ---- Bundle composerController (renderModelEffortOptions) ----
+    const v203ObsidianStubPlugin = {
+      name: "v203-obsidian-stub",
+      setup(build) {
+        build.onResolve({ filter: /^obsidian$/ }, () => ({
+          path: "obsidian-stub", namespace: "obsidian-stub-ns",
+        }));
+        build.onLoad({ filter: /.*/, namespace: "obsidian-stub-ns" }, () => ({
+          contents: [
+            "export class Notice {}",
+            "export function setIcon() {}",
+            "export class TFile {}",
+            "export class App {}",
+          ].join("\n"),
+          loader: "js",
+        }));
+        build.onResolve({ filter: /^\.\.\/agentApprovalProfile$/ }, () => ({
+          path: "aap-stub", namespace: "aap-stub-ns",
+        }));
+        build.onLoad({ filter: /.*/, namespace: "aap-stub-ns" }, () => ({
+          contents: [
+            "export const AGENT_APPROVAL_PROFILES = [];",
+            "export function getAgentApprovalProfileInfo() { return null; }",
+          ].join("\n"),
+          loader: "js",
+        }));
+        build.onResolve({ filter: /^\.\.\/fileRefs$/ }, () => ({
+          path: "fr-stub", namespace: "fr-stub-ns",
+        }));
+        build.onLoad({ filter: /.*/, namespace: "fr-stub-ns" }, () => ({
+          contents: "export interface FileRef {}",
+          loader: "js",
+        }));
+      },
+    };
+    v203ComposerBundle = join(PROJECT_ROOT, ".test-v203-composer-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "ui", "composerController.ts")],
+      bundle: true, format: "esm", platform: "node", logLevel: "silent",
+      outfile: v203ComposerBundle,
+      plugins: [v203ObsidianStubPlugin],
+    });
+    const v203ComposerMod = await import(pathToFileURL(v203ComposerBundle).href);
+    const { renderModelEffortOptions: v203Render } = v203ComposerMod;
+
+    // ---- 临时 Vault 目录 ----
+    v203TempDir = mkdtempSync(join(tmpdir(), "v203-test-"));
+
+    // ============================================================
+    // 测试 A: runtimeProviderConfig V20.3 新字段持久化往返
+    // ============================================================
+    {
+      const discoveredAt = new Date().toISOString();
+      const saveResult = await v203Save(v203TempDir, {
+        relayUrl: "https://relay.example.com",
+        apiKey: "sk-v203-test",
+        model: "gpt-5.5",
+        providerModels: ["gpt-5.5", "dall-e-3", "text-embedding-3"],
+        verifiedModels: ["gpt-5.5"],
+        pendingModels: ["gpt-5.4"],
+        incompatibleModels: [
+          { id: "dall-e-3", reason: "非文本生成模型（图片/语音/Embedding 等）" },
+          { id: "text-embedding-3", reason: "非文本生成模型（图片/语音/Embedding 等）" },
+        ],
+        discoveredAt,
+      });
+      const configPath = join(v203TempDir, "LLM-AgentRuntime", "private", "runtime-provider.json");
+      const fileContent = readFileSync(configPath, "utf8");
+      const parsed = JSON.parse(fileContent);
+
+      const hasProviderModels = Array.isArray(parsed.providerModels) && parsed.providerModels.length === 3;
+      const hasVerifiedModels = Array.isArray(parsed.verifiedModels) && parsed.verifiedModels.length === 1;
+      const hasPendingModels = Array.isArray(parsed.pendingModels) && parsed.pendingModels.length === 1;
+      const hasIncompatibleModels = Array.isArray(parsed.incompatibleModels)
+        && parsed.incompatibleModels.length === 2
+        && typeof parsed.incompatibleModels[0].id === "string"
+        && typeof parsed.incompatibleModels[0].reason === "string";
+      const hasDiscoveredAt = parsed.discoveredAt === discoveredAt;
+
+      addTest("V20.3 持久化: saveRuntimeProviderConfig 写入 providerModels",
+        saveResult && hasProviderModels ? "pass" : "fail",
+        `save=${saveResult}, providerModels=${parsed.providerModels?.length}`);
+      addTest("V20.3 持久化: 写入 verifiedModels + pendingModels",
+        hasVerifiedModels && hasPendingModels ? "pass" : "fail",
+        `verified=${parsed.verifiedModels?.length}, pending=${parsed.pendingModels?.length}`);
+      addTest("V20.3 持久化: 写入 incompatibleModels（含 id + reason）",
+        hasIncompatibleModels ? "pass" : "fail",
+        `incompatible=${parsed.incompatibleModels?.length}`);
+      addTest("V20.3 持久化: 写入 discoveredAt 时间戳",
+        hasDiscoveredAt ? "pass" : "fail",
+        `expected="${discoveredAt}", actual="${parsed.discoveredAt}"`);
+
+      // 异步加载往返
+      const loaded = await v203Load(v203TempDir, { model: "gpt-5.5" });
+      const loadedCfg = loaded.config;
+      const asyncRoundTrip = loadedCfg?.providerModels?.length === 3
+        && loadedCfg?.verifiedModels?.length === 1
+        && loadedCfg?.pendingModels?.length === 1
+        && loadedCfg?.incompatibleModels?.length === 2
+        && loadedCfg?.discoveredAt === discoveredAt;
+      addTest("V20.3 持久化: loadRuntimeProviderConfig 异步读回新字段一致",
+        asyncRoundTrip ? "pass" : "fail",
+        `provider=${loadedCfg?.providerModels?.length}, verified=${loadedCfg?.verifiedModels?.length}, pending=${loadedCfg?.pendingModels?.length}, incompatible=${loadedCfg?.incompatibleModels?.length}`);
+
+      // 同步加载往返
+      const loadedSync = v203LoadSync(v203TempDir);
+      const syncRoundTrip = loadedSync?.providerModels?.length === 3
+        && loadedSync?.verifiedModels?.length === 1
+        && loadedSync?.incompatibleModels?.[0]?.id === "dall-e-3"
+        && loadedSync?.incompatibleModels?.[0]?.reason?.includes("非文本生成");
+      addTest("V20.3 持久化: loadRuntimeProviderConfigSync 同步读回新字段一致",
+        syncRoundTrip ? "pass" : "fail",
+        `provider=${loadedSync?.providerModels?.length}, incompatible[0].id="${loadedSync?.incompatibleModels?.[0]?.id}"`);
+    }
+
+    // ============================================================
+    // 测试 B: modelMatcher incompatibleReason 填充
+    // ============================================================
+    {
+      const relayModels = [
+        { id: "gpt-5.5" },
+        { id: "dall-e-3" },
+        { id: "unknown-model-x" },
+        { id: "text-only-but-no-modality" },
+      ];
+      const runtimeModels = [
+        { id: "gpt-5.5", inputModalities: ["text"], supportedReasoningEfforts: ["low", "high"] },
+        { id: "text-only-but-no-modality", inputModalities: ["image"] }, // 不支持文本生成
+        // unknown-model-x 不在 runtime 中
+      ];
+      const result = v203MatchModels(relayModels, runtimeModels);
+
+      const incompatibleCount = result.incompatible.length;
+      const dallEReason = result.incompatible.find((m) => m.value === "dall-e-3")?.incompatibleReason;
+      const unknownReason = result.incompatible.find((m) => m.value === "unknown-model-x")?.incompatibleReason;
+      const noTextReason = result.incompatible.find((m) => m.value === "text-only-but-no-modality")?.incompatibleReason;
+
+      const reasonsFilled = !!dallEReason && !!unknownReason && !!noTextReason;
+      const dallEReasonOk = dallEReason?.includes("非文本生成");
+      const unknownReasonOk = unknownReason?.includes("未识别");
+      const noTextReasonOk = noTextReason?.includes("不支持文本生成");
+      const availableHasNoReason = result.available.every((m) => !m.incompatibleReason);
+
+      addTest("V20.3 modelMatcher: incompatible 项均含 incompatibleReason",
+        incompatibleCount === 3 && reasonsFilled ? "pass" : "fail",
+        `count=${incompatibleCount}, dallE="${dallEReason}", unknown="${unknownReason}", noText="${noTextReason}"`);
+      addTest("V20.3 modelMatcher: 非 Agent 模型 reason 含「非文本生成」",
+        dallEReasonOk ? "pass" : "fail",
+        `reason="${dallEReason}"`);
+      addTest("V20.3 modelMatcher: runtime 未识别 reason 含「未识别」",
+        unknownReasonOk ? "pass" : "fail",
+        `reason="${unknownReason}"`);
+      addTest("V20.3 modelMatcher: 不支持文本生成 reason 含「不支持文本生成」",
+        noTextReasonOk ? "pass" : "fail",
+        `reason="${noTextReason}"`);
+      addTest("V20.3 modelMatcher: available 项不含 incompatibleReason",
+        availableHasNoReason ? "pass" : "fail",
+        "");
+    }
+
+    // ============================================================
+    // 测试 C: renderModelEffortOptions 三分类分组渲染
+    // ============================================================
+    {
+      const testCatalog = {
+        models: [
+          { value: "gpt-5.5", label: "GPT-5.5", validationStatus: "available" },
+          { value: "gpt-5.4", label: "GPT-5.4", validationStatus: "pending" },
+          { value: "dall-e-3", label: "DALL-E 3", validationStatus: "incompatible", incompatibleReason: "非文本生成模型" },
+        ],
+        efforts: [
+          { value: "low", label: "低" },
+          { value: "high", label: "高" },
+        ],
+        source: "runtime",
+      };
+      const modelOptionsEl = new FakeElement("div");
+      const effortOptionsEl = new FakeElement("div");
+      v203Render(modelOptionsEl, effortOptionsEl, testCatalog, "high", "gpt-5.5", {
+        onSelect: () => {},
+        closeModel: () => {},
+        closeEffort: () => {},
+      });
+
+      // 分组标题存在
+      const headers = modelOptionsEl.querySelectorAll(".llm-bridge-model-section-header");
+      const headerTexts = headers.map((h) => h.textContent);
+      const hasAvailableHeader = headerTexts.includes("已验证");
+      const hasPendingHeader = headerTexts.includes("待验证");
+      const hasIncompatibleHeader = headerTexts.includes("不兼容");
+
+      // 不兼容项有 is-disabled class 和 disabled 属性
+      const disabledOptions = modelOptionsEl.querySelectorAll(".llm-bridge-model-option.is-disabled");
+      const disabledCount = disabledOptions.length;
+      const disabledHasAttr = disabledOptions[0]?.hasAttribute("disabled");
+
+      // 待验证项有 "待验证" tag
+      const pendingTag = modelOptionsEl.querySelector(".llm-bridge-model-option-tag");
+      const pendingTagOk = pendingTag?.textContent === "待验证";
+
+      // 不兼容项显示原因
+      const reasonEl = modelOptionsEl.querySelector(".llm-bridge-model-option-reason");
+      const reasonOk = reasonEl?.textContent?.includes("非文本生成");
+
+      // 不兼容项 label 有 is-incompatible class
+      const incompatibleLabel = modelOptionsEl.querySelector(".llm-bridge-model-option-label.is-incompatible");
+      const incompatibleLabelOk = !!incompatibleLabel;
+
+      // 已验证项可选（无 is-disabled）
+      const allOptions = modelOptionsEl.querySelectorAll(".llm-bridge-model-option");
+      const availableOption = allOptions.find((o) => o.getAttribute("data-model") === "gpt-5.5");
+      const availableNotDisabled = availableOption && !availableOption._cls.has("is-disabled");
+
+      addTest("V20.3 三分类 UI: 分组标题（已验证/待验证/不兼容）存在",
+        hasAvailableHeader && hasPendingHeader && hasIncompatibleHeader ? "pass" : "fail",
+        `headers=${JSON.stringify(headerTexts)}`);
+      addTest("V20.3 三分类 UI: 不兼容项有 is-disabled + disabled 属性",
+        disabledCount === 1 && disabledHasAttr ? "pass" : "fail",
+        `disabledCount=${disabledCount}, hasAttr=${disabledHasAttr}`);
+      addTest("V20.3 三分类 UI: 待验证项有「待验证」tag",
+        pendingTagOk ? "pass" : "fail",
+        `tag="${pendingTag?.textContent}"`);
+      addTest("V20.3 三分类 UI: 不兼容项显示原因",
+        reasonOk ? "pass" : "fail",
+        `reason="${reasonEl?.textContent}"`);
+      addTest("V20.3 三分类 UI: 不兼容项 label 有 is-incompatible class",
+        incompatibleLabelOk ? "pass" : "fail",
+        "");
+      addTest("V20.3 三分类 UI: 已验证项可选（无 is-disabled）",
+        availableNotDisabled ? "pass" : "fail",
+        "");
+    }
+
+    // ============================================================
+    // 测试 D: 分阶段超时常量 + 错误类（源码检查）
+    // ============================================================
+    {
+      const providerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerProvider.ts"), "utf-8");
+      const catalogSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-managed-app-server", "codexManagedModelCatalog.ts"), "utf-8");
+
+      // 常量导出
+      const hasTimeoutsConst = providerSrc.includes("CODEX_APP_SERVER_STAGE_TIMEOUTS")
+        && providerSrc.includes("spawn:")
+        && providerSrc.includes("initialize:")
+        && providerSrc.includes("modelList:")
+        && providerSrc.includes("threadStart:")
+        && providerSrc.includes("turnStart:");
+      // 各阶段值在 8000-15000ms（支持 15_000 下划线格式）
+      const parseMs = (src, key) => {
+        const m = new RegExp(`${key}:\\s*(\\d[\\d_]*)`).exec(src);
+        if (!m) return null;
+        return Number(m[1].replace(/_/g, ""));
+      };
+      const spawnMs = parseMs(providerSrc, "spawn");
+      const initMs = parseMs(providerSrc, "initialize");
+      const modelListMs = parseMs(providerSrc, "modelList");
+      const threadStartMs = parseMs(providerSrc, "threadStart");
+      const turnStartMs = parseMs(providerSrc, "turnStart");
+      const allInRange = [spawnMs, initMs, modelListMs, threadStartMs, turnStartMs]
+        .every((v) => v !== null && v >= 8000 && v <= 15000);
+
+      // 错误类导出
+      const hasErrorClass = providerSrc.includes("class CodexAppServerStageTimeoutError")
+        && providerSrc.includes("CodexAppServerStageTimeoutError");
+
+      // provider 中各阶段使用超时
+      const initUsesTimeout = providerSrc.includes('"initialize", options.initialize, CODEX_APP_SERVER_STAGE_TIMEOUTS.initialize');
+      const threadStartUsesTimeout = providerSrc.includes('"thread/start", threadStartWire, CODEX_APP_SERVER_STAGE_TIMEOUTS.threadStart');
+      const turnStartUsesTimeout = providerSrc.includes('"turn/start"') && providerSrc.includes("CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart");
+      const spawnReadyMethod = providerSrc.includes("waitForProcessSpawnReady");
+
+      // model catalog 使用新常量
+      const catalogUsesConst = catalogSrc.includes("CODEX_APP_SERVER_STAGE_TIMEOUTS.initialize")
+        && catalogSrc.includes("CODEX_APP_SERVER_STAGE_TIMEOUTS.modelList");
+
+      addTest("V20.3 分阶段超时: CODEX_APP_SERVER_STAGE_TIMEOUTS 常量导出（5 阶段）",
+        hasTimeoutsConst ? "pass" : "fail",
+        "");
+      addTest("V20.3 分阶段超时: 各阶段值在 8000-15000ms 范围",
+        allInRange ? "pass" : "fail",
+        `spawn=${spawnMs}, init=${initMs}, modelList=${modelListMs}, threadStart=${threadStartMs}, turnStart=${turnStartMs}`);
+      addTest("V20.3 分阶段超时: CodexAppServerStageTimeoutError 错误类导出",
+        hasErrorClass ? "pass" : "fail",
+        "");
+      addTest("V20.3 分阶段超时: provider initialize 使用分阶段超时",
+        initUsesTimeout ? "pass" : "fail",
+        "");
+      addTest("V20.3 分阶段超时: provider thread/start 使用分阶段超时",
+        threadStartUsesTimeout ? "pass" : "fail",
+        "");
+      addTest("V20.3 分阶段超时: provider turn/start 使用分阶段超时",
+        turnStartUsesTimeout ? "pass" : "fail",
+        "");
+      addTest("V20.3 分阶段超时: provider 含 waitForProcessSpawnReady 方法",
+        spawnReadyMethod ? "pass" : "fail",
+        "");
+      addTest("V20.3 分阶段超时: codexManagedModelCatalog 使用 CODEX_APP_SERVER_STAGE_TIMEOUTS",
+        catalogUsesConst ? "pass" : "fail",
+        "");
+    }
+
+    // ============================================================
+    // 测试 E: JsonRpcClient.send timeoutMs 超时 reject
+    // ============================================================
+    {
+      // 构造一个不回复的 fake writeLine
+      let capturedLine = null;
+      const fakeWriteLine = (line) => { capturedLine = line; };
+      const fakeRegister = () => () => {};
+      const client = new V203JsonRpcClient(fakeWriteLine, fakeRegister);
+
+      // send with 200ms timeout，fake 不回复，应该 200ms 后 reject
+      const startMs = Date.now();
+      let rejected = false;
+      let errMsg = "";
+      try {
+        await client.send("test/method", { foo: "bar" }, 200);
+      } catch (err) {
+        rejected = true;
+        errMsg = err instanceof Error ? err.message : String(err);
+      }
+      const elapsed = Date.now() - startMs;
+      const timeoutOk = rejected && elapsed >= 180 && elapsed < 1000;
+      const msgOk = errMsg.includes("test/method") && errMsg.includes("200");
+
+      addTest("V20.3 JsonRpcClient: send timeoutMs 超时后 reject",
+        timeoutOk ? "pass" : "fail",
+        `rejected=${rejected}, elapsed=${elapsed}ms`);
+      addTest("V20.3 JsonRpcClient: 超时错误消息含 method 名和 timeoutMs",
+        msgOk ? "pass" : "fail",
+        `msg="${errMsg}"`);
+
+      // 验证不传 timeoutMs 时不超时（保持原有行为：pending 不 resolve）
+      const client2 = new V203JsonRpcClient(fakeWriteLine, fakeRegister);
+      const promise2 = client2.send("no/timeout");
+      let promise2Resolved = false;
+      // 吞掉 close 时的 rejection，避免 unhandledRejection
+      promise2.then(() => { promise2Resolved = true; }, () => { /* close rejects pending */ });
+      // 等待 150ms 确认 promise 保持 pending
+      await new Promise((r) => setTimeout(r, 150));
+      const staysPending = !promise2Resolved;
+      client2.close();
+      addTest("V20.3 JsonRpcClient: 不传 timeoutMs 时不超时（保持原有行为）",
+        staysPending ? "pass" : "fail",
+        `resolved=${promise2Resolved}`);
+    }
+
+    // ============================================================
+    // 测试 F: settings.ts 持久化完整 matchResult
+    // ============================================================
+    {
+      const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
+      const hasProviderModels = settingsSrc.includes("providerModels: relayResult.models");
+      const hasVerifiedModels = settingsSrc.includes("verifiedModels: matchResult.available.map");
+      const hasPendingModels = settingsSrc.includes("pendingModels: matchResult.pending.map");
+      const hasIncompatibleModels = settingsSrc.includes("incompatibleModels: matchResult.incompatible.map")
+        && settingsSrc.includes("incompatibleReason");
+      const hasDiscoveredAt = settingsSrc.includes("discoveredAt: new Date().toISOString()");
+
+      addTest("V20.3 settings.ts: 持久化 providerModels（relayResult.models）",
+        hasProviderModels ? "pass" : "fail",
+        "");
+      addTest("V20.3 settings.ts: 持久化 verifiedModels（matchResult.available）",
+        hasVerifiedModels ? "pass" : "fail",
+        "");
+      addTest("V20.3 settings.ts: 持久化 pendingModels（matchResult.pending）",
+        hasPendingModels ? "pass" : "fail",
+        "");
+      addTest("V20.3 settings.ts: 持久化 incompatibleModels（含 incompatibleReason）",
+        hasIncompatibleModels ? "pass" : "fail",
+        "");
+      addTest("V20.3 settings.ts: 持久化 discoveredAt 时间戳",
+        hasDiscoveredAt ? "pass" : "fail",
+        "");
+    }
+
+    // ============================================================
+    // 测试 G: runtimeModelCatalog 保留 incompatibleReason
+    // ============================================================
+    {
+      const catalogSrc = readFileSync(join(PROJECT_ROOT, "src", "runtimeModelCatalog.ts"), "utf-8");
+      const hasField = catalogSrc.includes("incompatibleReason?: string");
+      const hasNormalize = catalogSrc.includes("incompatibleReason: item.incompatibleReason");
+
+      addTest("V20.3 runtimeModelCatalog: ModelCatalogEntry 含 incompatibleReason 字段",
+        hasField ? "pass" : "fail",
+        "");
+      addTest("V20.3 runtimeModelCatalog: setRuntimeModelCatalogForAgent 保留 incompatibleReason",
+        hasNormalize ? "pass" : "fail",
+        "");
+    }
+
+    // ============================================================
+    // 测试 H: view.ts 三分类 UI 注入 incompatible 模型
+    // ============================================================
+    {
+      const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
+      const hasInject = viewSrc.includes("[...matchResult.selectable, ...matchResult.incompatible]");
+
+      addTest("V20.3 view.ts: refreshDynamicModelCatalog 注入 incompatible 模型到 catalog",
+        hasInject ? "pass" : "fail",
+        "");
+    }
+
+    // ============================================================
+    // 测试 I: 三分类 CSS 样式存在
+    // ============================================================
+    {
+      const cssSrc = readFileSync(join(PROJECT_ROOT, "styles", "composer.css"), "utf-8");
+      const hasSectionHeader = cssSrc.includes(".llm-bridge-model-section-header");
+      const hasDisabled = cssSrc.includes(".llm-bridge-model-option.is-disabled");
+      const hasPendingLabel = cssSrc.includes(".llm-bridge-model-option-label.is-pending");
+      const hasIncompatibleLabel = cssSrc.includes(".llm-bridge-model-option-label.is-incompatible");
+      const hasTag = cssSrc.includes(".llm-bridge-model-option-tag");
+      const hasReason = cssSrc.includes(".llm-bridge-model-option-reason");
+
+      addTest("V20.3 CSS: 三分类分组标题样式存在",
+        hasSectionHeader ? "pass" : "fail",
+        "");
+      addTest("V20.3 CSS: 不兼容项 is-disabled 样式存在",
+        hasDisabled ? "pass" : "fail",
+        "");
+      addTest("V20.3 CSS: 待验证/不兼容 label 样式存在",
+        hasPendingLabel && hasIncompatibleLabel ? "pass" : "fail",
+        "");
+      addTest("V20.3 CSS: 待验证 tag + 不兼容 reason 样式存在",
+        hasTag && hasReason ? "pass" : "fail",
+        "");
+    }
+
+  } catch (e) {
+    addTest("V20.3 测试段", "fail", `加载/执行异常: ${e?.stack || e?.message || e}`);
+  } finally {
+    try { if (v203ProviderConfigBundle) rmSync(v203ProviderConfigBundle, { force: true }); } catch {}
+    try { if (v203MatcherBundle) rmSync(v203MatcherBundle, { force: true }); } catch {}
+    try { if (v203ComposerBundle) rmSync(v203ComposerBundle, { force: true }); } catch {}
+    try { if (v203JsonRpcBundle) rmSync(v203JsonRpcBundle, { force: true }); } catch {}
+    try { if (v203TempDir) rmSync(v203TempDir, { recursive: true, force: true }); } catch {}
   }
 }
 

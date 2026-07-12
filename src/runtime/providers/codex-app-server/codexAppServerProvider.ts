@@ -112,6 +112,40 @@ export function isMeaningfulCodexRuntimeEvent(ev: NormalizedRuntimeEvent): boole
 }
 
 /**
+ * V20.3: app-server 分阶段超时（毫秒）。
+ *
+ * 替代之前"只等 90 秒总超时"的粗粒度设计。每个 JSON-RPC 阶段独立超时，
+ * 错误信息明确指出卡在哪一步，便于用户诊断（网络/认证/runtime 启动慢等）。
+ *
+ * 取值依据：本地 runtime 各阶段通常 <3s；中转站 + 网络延迟可能 5-10s；
+ * 留出充足余量到 8-15s，避免慢机器误判。
+ */
+export const CODEX_APP_SERVER_STAGE_TIMEOUTS = {
+  /** process spawn：等待子进程启动并就绪（stdout 可读） */
+  spawn: 15_000,
+  /** initialize handshake：客户端→服务端首次握手 */
+  initialize: 12_000,
+  /** model/list：查询 runtime 支持的模型目录 */
+  modelList: 10_000,
+  /** thread/start：创建新会话线程 */
+  threadStart: 12_000,
+  /** turn/start：提交本轮用户输入 */
+  turnStart: 15_000,
+} as const;
+
+/** V20.3: 分阶段超时错误，明确指出卡在哪一步 */
+export class CodexAppServerStageTimeoutError extends Error {
+  readonly stage: string;
+  readonly stageTimeoutMs: number;
+  constructor(stage: string, timeoutMs: number, cause?: unknown) {
+    super(`codex app-server 卡在「${stage}」阶段（${timeoutMs}ms 超时）${cause instanceof Error ? `：${cause.message}` : ""}`);
+    this.name = "CodexAppServerStageTimeoutError";
+    this.stage = stage;
+    this.stageTimeoutMs = timeoutMs;
+  }
+}
+
+/**
  * 任务1: 构建 no-op completed → failed 的转换事件。
  *
  * 当 turn/completed 在 turnSubmitted 后到达，且期间未收到任何 meaningful 事件，
@@ -404,11 +438,22 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       this.currentRunId = ctx.runId;
       // 任务2: 每轮 turn 开始前清理上一轮的 approval bookkeeping，防止跨轮累积
       this.serverRequestBookkeeping.clear();
+
+      // V20.3: process spawn ready — 等待子进程就绪（stdout 可读或 spawn error）
+      // 若进程在超时窗口内既无 stdout 也无 stderr，视为 spawn 卡住。
+      await this.waitForProcessSpawnReady(process, CODEX_APP_SERVER_STAGE_TIMEOUTS.spawn);
+
       // 1. initialize handshake（官方 shape：clientInfo + capabilities；不再用 clientName/clientVersion）
       //    experimentalApi 默认 false；options.initialize 已由 buildCodexAppServerRunOptions 构造。
-      const initResult = await client.send<CodexInitializeResult>(
-        "initialize", options.initialize,
-      );
+      //    V20.3: 分阶段超时，不再只等 90 秒总超时。
+      let initResult: CodexInitializeResult;
+      try {
+        initResult = await client.send<CodexInitializeResult>(
+          "initialize", options.initialize, CODEX_APP_SERVER_STAGE_TIMEOUTS.initialize,
+        );
+      } catch (err) {
+        throw new CodexAppServerStageTimeoutError("initialize", CODEX_APP_SERVER_STAGE_TIMEOUTS.initialize, err);
+      }
       push(eventMapper.mapInitialized(initResult));
 
       // notify initialized（handshake 完成）
@@ -419,10 +464,16 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       //    wire payload 剥离 config/instructions（真实 codex binary 读取顶层 model + baseInstructions；
       //    config/instructions 保留在 options 对象供 thread/resume 路径与审计哈希使用，但发到
       //    wire 上会导致 app-server hang）。与 codex-managed-runtime-smoke provider-wire 验证一致。
+      //    V20.3: 分阶段超时。
       const { config: _wireDropConfig, instructions: _wireDropInstr, ...threadStartWire } = options.threadStart;
-      const threadResult = await client.send<CodexThreadStartResult>(
-        "thread/start", threadStartWire,
-      );
+      let threadResult: CodexThreadStartResult;
+      try {
+        threadResult = await client.send<CodexThreadStartResult>(
+          "thread/start", threadStartWire, CODEX_APP_SERVER_STAGE_TIMEOUTS.threadStart,
+        );
+      } catch (err) {
+        throw new CodexAppServerStageTimeoutError("thread/start", CODEX_APP_SERVER_STAGE_TIMEOUTS.threadStart, err);
+      }
       const threadId = threadResult.thread.id;
       const sessionId = threadResult.thread.sessionId;
       // V2.17-A Completion: 同时注册 runId 和 bridgeSessionId（若提供），供 resume 按 bridgeSessionId 查找。
@@ -435,11 +486,16 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       push(eventMapper.mapNativeSessionBound(this.providerId, threadId, sessionId));
 
       // 3. turn/start（input 为 content item array）
+      //    V20.3: 分阶段超时。
       turnSubmitted = true;
-      await client.send("turn/start", {
-        ...options.turnStart,
-        threadId,
-      });
+      try {
+        await client.send("turn/start", {
+          ...options.turnStart,
+          threadId,
+        }, CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart);
+      } catch (err) {
+        throw new CodexAppServerStageTimeoutError("turn/start", CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart, err);
+      }
 
       // 等待事件流直到 done
       while (!done) {
@@ -595,10 +651,20 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       this.currentRunId = ctx.runId;
       // 任务2: 每轮 turn 开始前清理上一轮的 approval bookkeeping，防止跨轮累积
       this.serverRequestBookkeeping.clear();
+
+      // V20.3: process spawn ready — 等待子进程就绪
+      await this.waitForProcessSpawnReady(process, CODEX_APP_SERVER_STAGE_TIMEOUTS.spawn);
+
       // 1. initialize handshake（与 run 一致；clientInfo + capabilities）
-      const initResult = await client.send<CodexInitializeResult>(
-        "initialize", options.initialize,
-      );
+      //    V20.3: 分阶段超时
+      let initResult: CodexInitializeResult;
+      try {
+        initResult = await client.send<CodexInitializeResult>(
+          "initialize", options.initialize, CODEX_APP_SERVER_STAGE_TIMEOUTS.initialize,
+        );
+      } catch (err) {
+        throw new CodexAppServerStageTimeoutError("initialize", CODEX_APP_SERVER_STAGE_TIMEOUTS.initialize, err);
+      }
       push(eventMapper.mapInitialized(initResult));
       client.notify("initialized");
 
@@ -607,6 +673,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       // （app-server 重启/thread 过期清理），此时 thread/resume 报错。
       // 容错：捕获错误，fallback 到 thread/start 新开 native session，
       // 让用户继续工作而非硬中断。
+      // V20.3: 分阶段超时（复用 threadStart 超时）
       let resumedThreadId: string;
       let resumedSessionId: string | undefined;
       try {
@@ -617,6 +684,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
             config: options.threadStart.config,
             cwd: ctx.plan.cwd,
           },
+          CODEX_APP_SERVER_STAGE_TIMEOUTS.threadStart,
         );
         resumedThreadId = resumeResult.thread.id;
         resumedSessionId = resumeResult.thread.sessionId;
@@ -653,12 +721,17 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       push(eventMapper.mapNativeSessionBound(this.providerId, resumedThreadId, resumedSessionId));
 
       // 3. turn/start（input 为 content item array）
+      //    V20.3: 分阶段超时
       turnSubmitted = true;
-      await client.send("turn/start", {
-        ...options.turnStart,
-        input: buildResumeTurnInput(options.turnStart.input, options.threadStart.instructions),
-        threadId: resumedThreadId,
-      });
+      try {
+        await client.send("turn/start", {
+          ...options.turnStart,
+          input: buildResumeTurnInput(options.turnStart.input, options.threadStart.instructions),
+          threadId: resumedThreadId,
+        }, CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart);
+      } catch (err) {
+        throw new CodexAppServerStageTimeoutError("turn/start", CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart, err);
+      }
 
       while (!done) {
         while (queue.length > 0) {
@@ -1066,6 +1139,48 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       (line) => process.writeLine(line),
       (handler) => process.onStdoutLine(handler),
     );
+  }
+
+  /**
+   * V20.3: 等待子进程 spawn 就绪。
+   *
+   * codex app-server 启动后不主动输出 stdout，会等待客户端发送 initialize。
+   * 因此本方法不等待 stdio 活动，而是用快速就绪检测窗口（500ms）确认进程没立即退出：
+   * - 进程在 500ms 内退出（spawn 失败，如 ENOENT / 权限错误）→ 立即抛 spawn 错误
+   * - 500ms 后进程仍运行 → 视为 spawn 成功，进入 initialize 阶段
+   *
+   * timeoutMs（15s）作为本阶段的标称超时写入错误消息，便于用户诊断；
+   * 实际检测窗口远小于 timeoutMs，避免正常启动被白白阻塞。
+   * 真正的"卡住"由后续 initialize/threadStart/turnStart 超时守护。
+   */
+  protected async waitForProcessSpawnReady(
+    process: AppServerProcessLike,
+    timeoutMs: number,
+  ): Promise<void> {
+    if (!process.running) {
+      throw new CodexAppServerStageTimeoutError("process spawn", timeoutMs, new Error("process exited immediately"));
+    }
+    // 快速就绪检测窗口：500ms 内若进程退出则报 spawn 错误
+    const PROBE_MS = 500;
+    await new Promise<void>((resolve) => {
+      let settled = false;
+      let timer: NodeJS.Timeout | null = null;
+      const onExit = process.onExit(() => {
+        if (settled) return;
+        settled = true;
+        if (timer !== null) clearTimeout(timer);
+        resolve();
+      });
+      timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        onExit();
+        resolve();
+      }, PROBE_MS);
+    });
+    if (!process.running) {
+      throw new CodexAppServerStageTimeoutError("process spawn", timeoutMs, new Error("process exited during spawn (ENOENT or permission denied)"));
+    }
   }
 }
 

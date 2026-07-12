@@ -250,17 +250,25 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
             const runtimeModels = runtimeCatalog?.runtimeModels ?? [];
             const matchResult = matchModels(relayModels, runtimeModels);
             // 4. 更新 models 和 defaultModel
+            // V20.3: 即使无可用模型也持久化发现结果（含不兼容原因），便于 UI 显示
             if (matchResult.selectable.length > 0) {
               s.model = matchResult.defaultModel || matchResult.selectable[0].value;
               await this.plugin.saveSettings();
-              // V20.2: 同步保存到 runtime-provider.json
-              const { saveRuntimeProviderConfig } = await import("./runtime/runtimeProviderConfig");
-              await saveRuntimeProviderConfig(vaultPath, {
-                relayUrl: profile.relayUrl,
-                apiKey: profile.apiKey,
-                model: s.model,
-              });
             }
+            const { saveRuntimeProviderConfig } = await import("./runtime/runtimeProviderConfig");
+            await saveRuntimeProviderConfig(vaultPath, {
+              relayUrl: profile.relayUrl,
+              apiKey: profile.apiKey,
+              model: s.model,
+              providerModels: relayResult.models,
+              verifiedModels: matchResult.available.map((m) => m.value),
+              pendingModels: matchResult.pending.map((m) => m.value),
+              incompatibleModels: matchResult.incompatible.map((m) => ({
+                id: m.value,
+                reason: m.incompatibleReason || "不兼容",
+              })),
+              discoveredAt: new Date().toISOString(),
+            });
             // 5. 显示统计
             new Notice(formatMatchSummary(matchResult), 8000);
             this.plugin.refreshBridgeView();

@@ -211,20 +211,48 @@ export function renderModelEffortOptions(
 ): void {
   modelOptionsEl.empty();
   effortOptionsEl.empty();
-  for (const model of catalog.models) {
-    const isActive = model.value === currentModel;
-    const option = modelOptionsEl.createEl("button", {
-      cls: `llm-bridge-model-option${isActive ? " is-active" : ""}`,
-      attr: { "data-model": model.value, type: "button" },
-    });
-    option.createEl("span", { cls: "llm-bridge-model-option-label", text: model.label });
-    option.createEl("span", { cls: "llm-bridge-option-check", text: isActive ? "✓" : "" });
-    option.addEventListener("click", (event) => {
-      event.stopPropagation();
-      deps.closeModel();
-      deps.onSelect(model.value, currentEffort);
-    });
-  }
+
+  // V20.3: 模型三分类 — 已验证（available）/ 待验证（pending）/ 不兼容（incompatible）
+  // 已验证和待验证可选；不兼容仅展示原因，禁用点击。
+  const availableModels = catalog.models.filter((m) => !m.validationStatus || m.validationStatus === "available");
+  const pendingModels = catalog.models.filter((m) => m.validationStatus === "pending");
+  const incompatibleModels = catalog.models.filter((m) => m.validationStatus === "incompatible");
+
+  const appendSection = (title: string, models: ReadonlyArray<{ value: string; label: string; validationStatus?: string; incompatibleReason?: string }>): void => {
+    if (models.length === 0) return;
+    const header = modelOptionsEl.createDiv({ cls: "llm-bridge-model-section-header", text: title });
+    header.setAttribute("data-section", title);
+    for (const model of models) {
+      const isSelectable = model.validationStatus !== "incompatible";
+      const isActive = isSelectable && model.value === currentModel;
+      const option = modelOptionsEl.createEl("button", {
+        cls: `llm-bridge-model-option${isActive ? " is-active" : ""}${!isSelectable ? " is-disabled" : ""}`,
+        attr: { "data-model": model.value, type: "button", ...(isSelectable ? {} : { disabled: "true" }) },
+      });
+      const labelEl = option.createEl("span", { cls: "llm-bridge-model-option-label", text: model.label });
+      if (model.validationStatus === "pending") {
+        labelEl.addClass("is-pending");
+        option.createEl("span", { cls: "llm-bridge-model-option-tag", text: "待验证" });
+      } else if (model.validationStatus === "incompatible") {
+        labelEl.addClass("is-incompatible");
+        const reason = model.incompatibleReason || "不兼容";
+        option.createEl("span", { cls: "llm-bridge-model-option-reason", text: reason });
+      }
+      option.createEl("span", { cls: "llm-bridge-option-check", text: isActive ? "✓" : "" });
+      if (isSelectable) {
+        option.addEventListener("click", (event) => {
+          event.stopPropagation();
+          deps.closeModel();
+          deps.onSelect(model.value, currentEffort);
+        });
+      }
+    }
+  };
+
+  appendSection("已验证", availableModels);
+  appendSection("待验证", pendingModels);
+  appendSection("不兼容", incompatibleModels);
+
   // effort 跟随当前选中模型刷新：优先用模型自带的 supportedReasoningEfforts，
   // 否则回退到目录全局 efforts。V20.2: label 使用中文（低/中/高/极高）。
   const efforts = getEffortsForModel(catalog, currentModel);

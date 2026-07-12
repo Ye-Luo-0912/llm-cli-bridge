@@ -97,20 +97,29 @@ export function matchModels(
 
     // 明显的非 Agent 模型直接标记不兼容
     if (isNonAgentModel(id)) {
-      incompatible.push({ value: id, label: id, validationStatus: "incompatible" });
+      incompatible.push({
+        value: id, label: id, validationStatus: "incompatible",
+        incompatibleReason: "非文本生成模型（图片/语音/Embedding 等）",
+      });
       continue;
     }
 
     const runtime = runtimeMap.get(id);
     if (!runtime) {
       // 中转站有但 runtime 不认识
-      incompatible.push({ value: id, label: id, validationStatus: "incompatible" });
+      incompatible.push({
+        value: id, label: id, validationStatus: "incompatible",
+        incompatibleReason: "runtime 未识别该模型 ID",
+      });
       continue;
     }
 
     // 检查是否支持文本生成
     if (!supportsTextGeneration(runtime)) {
-      incompatible.push({ value: id, label: runtime.label || id, validationStatus: "incompatible" });
+      incompatible.push({
+        value: id, label: runtime.label || id, validationStatus: "incompatible",
+        incompatibleReason: "runtime 标记为不支持文本生成",
+      });
       continue;
     }
 

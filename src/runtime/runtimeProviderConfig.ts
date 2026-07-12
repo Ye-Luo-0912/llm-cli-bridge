@@ -30,6 +30,16 @@ export interface RuntimeProviderConfig {
   readonly model: string;
   readonly defaultModel?: string;
   readonly updatedAt?: string;
+  /** V20.3: 中转站 /v1/models 返回的完整模型 ID 列表 */
+  readonly providerModels?: ReadonlyArray<string>;
+  /** V20.3: 已验证可用模型 ID 列表（中转站 + runtime 交叉匹配 + 有能力信息） */
+  readonly verifiedModels?: ReadonlyArray<string>;
+  /** V20.3: 待验证模型 ID 列表（中转站 + runtime 匹配但缺少能力信息） */
+  readonly pendingModels?: ReadonlyArray<string>;
+  /** V20.3: 不兼容模型列表（含原因，不进入聊天框） */
+  readonly incompatibleModels?: ReadonlyArray<{ id: string; reason: string }>;
+  /** V20.3: 模型发现/匹配时间戳 */
+  readonly discoveredAt?: string;
 }
 
 /** 迁移来源信息 */
@@ -82,6 +92,11 @@ export async function loadRuntimeProviderConfig(
           model: typeof parsed.model === "string" ? parsed.model : settings.model || "",
           defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : undefined,
           updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : undefined,
+          providerModels: parseStringArray(parsed.providerModels),
+          verifiedModels: parseStringArray(parsed.verifiedModels),
+          pendingModels: parseStringArray(parsed.pendingModels),
+          incompatibleModels: parseIncompatibleModels(parsed.incompatibleModels),
+          discoveredAt: typeof parsed.discoveredAt === "string" ? parsed.discoveredAt : undefined,
         },
       };
     }
@@ -121,6 +136,11 @@ export function loadRuntimeProviderConfigSync(vaultPath: string): RuntimeProvide
       model: typeof parsed.model === "string" ? parsed.model : "",
       defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : undefined,
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : undefined,
+      providerModels: parseStringArray(parsed.providerModels),
+      verifiedModels: parseStringArray(parsed.verifiedModels),
+      pendingModels: parseStringArray(parsed.pendingModels),
+      incompatibleModels: parseIncompatibleModels(parsed.incompatibleModels),
+      discoveredAt: typeof parsed.discoveredAt === "string" ? parsed.discoveredAt : undefined,
     };
   } catch { /* file not found or invalid */ }
   return null;
@@ -147,6 +167,22 @@ export async function saveRuntimeProviderConfig(
     };
     if (encryptedApiKey) {
       payload.encryptedApiKey = encryptedApiKey;
+    }
+    // V20.3: 持久化模型发现结果
+    if (config.providerModels) {
+      payload.providerModels = config.providerModels;
+    }
+    if (config.verifiedModels) {
+      payload.verifiedModels = config.verifiedModels;
+    }
+    if (config.pendingModels) {
+      payload.pendingModels = config.pendingModels;
+    }
+    if (config.incompatibleModels) {
+      payload.incompatibleModels = config.incompatibleModels;
+    }
+    if (config.discoveredAt) {
+      payload.discoveredAt = config.discoveredAt;
     }
     const content = JSON.stringify(payload, null, 2) + "\n";
     await fs.promises.writeFile(configPath, content, "utf8");
@@ -198,4 +234,25 @@ export async function ensurePrivateDirExists(vaultPath: string): Promise<void> {
   try {
     await fs.promises.mkdir(dir, { recursive: true });
   } catch { /* ignore */ }
+}
+
+/** V20.3: 解析字符串数组字段 */
+function parseStringArray(value: unknown): ReadonlyArray<string> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const result = value.filter((v): v is string => typeof v === "string" && v.length > 0);
+  return result.length > 0 ? result : undefined;
+}
+
+/** V20.3: 解析不兼容模型列表 */
+function parseIncompatibleModels(value: unknown): ReadonlyArray<{ id: string; reason: string }> | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const result = value
+    .map((item): { id: string; reason: string } | null => {
+      if (typeof item !== "object" || item === null) return null;
+      const obj = item as Record<string, unknown>;
+      if (typeof obj.id !== "string" || typeof obj.reason !== "string") return null;
+      return { id: obj.id, reason: obj.reason };
+    })
+    .filter((v): v is { id: string; reason: string } => v !== null);
+  return result.length > 0 ? result : undefined;
 }
