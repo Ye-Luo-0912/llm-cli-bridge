@@ -32,7 +32,6 @@ import { RunSessionController, type RunSessionHost } from "./runtime/RunSessionC
 import { undoVaultContextMaintain, type AutoMaintainResult } from "./runtime/vaultContextAutoMaintainer";
 import { getRuntimeModelCatalogForAgent, setRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, getEffortsForModel, getDefaultEffortForModel, type ModelCatalogEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
 import { loadCodexManagedModelCatalog } from "./runtime/providers/codex-managed-app-server/codexManagedModelCatalog";
-import { matchModels } from "./runtime/modelMatcher";
 import { WorkflowEvent, PermissionEvent, truncateText, redactSecrets } from "./workflowEvent";
 import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
 import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscript";
@@ -1076,9 +1075,10 @@ export class LLMBridgeView extends ItemView {
   }
 
   /**
-   * V20.2: 后台读取 Codex runtime 的 model/list，并真实请求中转站 /v1/models 交叉匹配。
-   * 只把 available + pending 模型放入聊天框；不兼容模型不注入。
-   * 选中模型后 effort 下拉框跟随该模型刷新。
+   * V20.8: 以本地 config.toml / settings.json / models.json 的 model 为启动默认值。
+   *
+   * 不再请求中转站 /v1/models 交叉匹配——第三方自定义模型作为"本地配置模型"
+   * 加入聊天框。Runtime model/list 只提供能力和官方可选模型。
    */
   private async refreshDynamicModelCatalog(): Promise<void> {
     if (this.getEffectiveModelCatalogAgent() !== "codex") return;
@@ -1089,33 +1089,30 @@ export class LLMBridgeView extends ItemView {
       const runtimeCatalog = await loadCodexManagedModelCatalog(this.plugin.pluginDir, vaultPath, settings);
       if (!runtimeCatalog || runtimeCatalog.models.length === 0) return;
 
-      // V20.2: 真实请求中转站 /v1/models（通过 resolveRuntimeProfile 获取加密持久化的 Key）
-      let relayModels: ReadonlyArray<{ id: string }> = [];
-      try {
-        const { resolveRuntimeProfile, testRelayConnection } = await import("./runtime/runtimeProfileResolver");
-        const profile = await resolveRuntimeProfile(vaultPath, settings);
-        if (profile.relayUrl && profile.apiKey) {
-          const relayResult = await testRelayConnection(profile.relayUrl, profile.apiKey, settings.model);
-          if (relayResult.ok && relayResult.models.length > 0) {
-            relayModels = relayResult.models.map((id) => ({ id }));
-          }
-        }
-      } catch { /* 中转站不可达时回退到 runtime-only */ }
+      // V20.8: 读取本地配置文件中的模型（不请求 /v1/models）
+      const { readProviderForm, getActiveProvider } = await import("./runtime/config/runtimeRouter");
+      const activeProvider = getActiveProvider(vaultPath);
+      const localForm = readProviderForm(vaultPath, activeProvider);
+      const localModel = localForm.ok && localForm.form ? localForm.form.model : "";
 
-      // 中转站不可达时回退到 runtime 模型列表（保持 UI 可用）
-      const effectiveRelayModels = relayModels.length > 0
-        ? relayModels
-        : runtimeCatalog.runtimeModels.map((m) => ({ id: m.id }));
-      const matchResult = matchModels(effectiveRelayModels, runtimeCatalog.runtimeModels);
+      // 构建 catalog：runtime 官方模型 + 本地配置模型（去重）
+      const catalogEntries: ModelCatalogEntry[] = [...runtimeCatalog.models];
+      if (localModel && !catalogEntries.some((m) => m.value === localModel)) {
+        // 本地配置模型作为第一项（优先选择）
+        catalogEntries.unshift({
+          value: localModel,
+          label: localModel,
+          supportedReasoningEfforts: ["medium"],
+          defaultReasoningEffort: "medium",
+        });
+      }
 
-      if (matchResult.selectable.length === 0) return;
+      setRuntimeModelCatalogForAgent("codex", catalogEntries);
 
-      // V20.3: 三分类 UI — selectable（已验证+待验证）+ incompatible（仅展示原因，不可选）
-      setRuntimeModelCatalogForAgent("codex", [...matchResult.selectable, ...matchResult.incompatible]);
+      // 如果当前 settings.model 为空或不匹配，使用本地配置模型
       const selected = settings.model.trim();
-      if (!selected || !matchResult.selectable.some((m) => m.value === selected)) {
-        settings.model = matchResult.defaultModel || matchResult.selectable[0].value;
-        // V20: 同时更新 effort 为该模型的默认值
+      if (!selected || !catalogEntries.some((m) => m.value === selected)) {
+        settings.model = localModel || catalogEntries[0]?.value || "";
         const defaultEffort = getDefaultEffortForModel(getRuntimeModelCatalogForAgent("codex"), settings.model);
         settings.effortLevel = defaultEffort;
         await this.plugin.saveSettings();

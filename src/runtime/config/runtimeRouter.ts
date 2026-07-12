@@ -26,10 +26,10 @@ import {
 } from "../../agentRuntimeWorkspace";
 import { getActiveProvider, saveActiveProvider, type RuntimeProviderId } from "./activeProvider";
 import {
-  loadAllSecrets, getSecret, setSecret, clearSecret, getSecretKeyStatus,
+  loadAllSecrets, getSecret, setSecret, clearSecret, getSecretKeyStatus, getSecretStatus,
   type SecretVarName, type SecretKeyStatus,
 } from "./secretsStore";
-import { writeProviderForm } from "./configForm";
+import { writeProviderForm, readProviderForm } from "./configForm";
 
 // ---------- 本地配置存在性检测 ----------
 
@@ -350,7 +350,7 @@ export function getRouterState(vaultPath: string): RouterState {
         globalConfigExists: globalCodexConfigExists(),
         globalConfigDir: getGlobalCodexConfigDir(),
         hasKey: !!secrets.get("CODEX_RELAY_API_KEY"),
-        keyStatus: getSecretKeyStatus(vaultPath),
+        keyStatus: getSecretStatus(vaultPath, "CODEX_RELAY_API_KEY"),
       },
       claude: {
         provider: "claude",
@@ -359,7 +359,10 @@ export function getRouterState(vaultPath: string): RouterState {
         globalConfigExists: globalClaudeConfigExists(),
         globalConfigDir: getGlobalClaudeConfigDir(),
         hasKey: !!(secrets.get("ANTHROPIC_API_KEY") || secrets.get("ANTHROPIC_AUTH_TOKEN")),
-        keyStatus: getSecretKeyStatus(vaultPath),
+        // Claude 优先检查 ANTHROPIC_API_KEY，其次 ANTHROPIC_AUTH_TOKEN
+        keyStatus: getSecretStatus(vaultPath, "ANTHROPIC_API_KEY") !== "not-configured"
+          ? getSecretStatus(vaultPath, "ANTHROPIC_API_KEY")
+          : getSecretStatus(vaultPath, "ANTHROPIC_AUTH_TOKEN"),
       },
       pi: {
         provider: "pi",
@@ -368,10 +371,76 @@ export function getRouterState(vaultPath: string): RouterState {
         globalConfigExists: globalPiConfigExists(),
         globalConfigDir: getGlobalPiConfigDir(),
         hasKey: !!secrets.get("PI_RELAY_API_KEY"),
-        keyStatus: getSecretKeyStatus(vaultPath),
+        keyStatus: getSecretStatus(vaultPath, "PI_RELAY_API_KEY"),
       },
     },
   };
+}
+
+// ---------- Readiness 检查（发送前阻断）----------
+
+export interface ReadinessResult {
+  readonly ok: boolean;
+  readonly reason?: string;
+  /** 缺配置/缺 Key 时为 true，调用方不应创建 assistant 失败消息 */
+  readonly preSendBlock: boolean;
+}
+
+/**
+ * V20.8: 发送前 readiness 检查。
+ *
+ * 检查 active provider 的本地配置 + 密钥是否就绪。
+ * - 本地配置存在 + Key 已配置 → ok
+ * - 本地配置存在但缺 Key → preSendBlock（不创建 assistant 失败消息）
+ * - 本地配置缺失 → ok（使用全局配置，Bridge 不干预）
+ * - 本地配置文件解析错误 → preSendBlock + 展示原生错误
+ *
+ * 替代 RunSessionController 中的 loadRuntimeProviderState 调用。
+ */
+export function checkRuntimeReadiness(vaultPath: string): ReadinessResult {
+  const provider = getActiveProvider(vaultPath);
+  const secrets = loadAllSecrets(vaultPath);
+  const state = getRouterState(vaultPath);
+  const status = state.providers[provider];
+
+  // 本地配置缺失 → 使用全局配置，不阻断
+  if (!status.localConfigExists) {
+    return { ok: true, preSendBlock: false };
+  }
+
+  // 本地配置存在，检查表单是否可解析
+  const formRead = readProviderForm(vaultPath, provider);
+  if (!formRead.ok && formRead.error) {
+    return {
+      ok: false,
+      reason: formRead.error,
+      preSendBlock: true,
+    };
+  }
+
+  // 检查密钥
+  let hasKey = false;
+  switch (provider) {
+    case "codex":
+      hasKey = !!secrets.get("CODEX_RELAY_API_KEY");
+      break;
+    case "claude":
+      hasKey = !!(secrets.get("ANTHROPIC_API_KEY") || secrets.get("ANTHROPIC_AUTH_TOKEN"));
+      break;
+    case "pi":
+      hasKey = !!secrets.get("PI_RELAY_API_KEY");
+      break;
+  }
+
+  if (!hasKey) {
+    return {
+      ok: false,
+      reason: `${provider} 本地配置已创建但缺少 API Key。请在设置页填写 Key 后重试。`,
+      preSendBlock: true,
+    };
+  }
+
+  return { ok: true, preSendBlock: false };
 }
 
 // ---------- Env 构建 ----------
@@ -540,7 +609,7 @@ export {
 } from "./activeProvider";
 
 export {
-  getSecretKeyStatus, type SecretKeyStatus, type SecretVarName,
+  getSecretKeyStatus, getSecretStatus, type SecretKeyStatus, type SecretVarName,
 } from "./secretsStore";
 
 export {

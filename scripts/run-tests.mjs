@@ -26324,15 +26324,17 @@ if (!runV203) {
     }
 
     // ============================================================
-    // 测试 H: view.ts 三分类 UI 注入 incompatible 模型
+    // 测试 H: view.ts refreshDynamicModelCatalog V20.8 改为本地配置模型
     // ============================================================
     {
       const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf-8");
-      const hasInject = viewSrc.includes("[...matchResult.selectable, ...matchResult.incompatible]");
+      // V20.8: 不再注入 matchResult.incompatible，改用 readProviderForm 读本地模型
+      const noMatchResult = !viewSrc.includes("matchResult");
+      const usesLocalModel = viewSrc.includes("readProviderForm") && viewSrc.includes("localModel");
 
-      addTest("V20.3 view.ts: refreshDynamicModelCatalog 注入 incompatible 模型到 catalog",
-        hasInject ? "pass" : "fail",
-        "");
+      addTest("V20.8 view.ts: refreshDynamicModelCatalog 使用本地配置模型（不再注入 incompatible）",
+        noMatchResult && usesLocalModel ? "pass" : "fail",
+        `noMatchResult=${noMatchResult}, localModel=${usesLocalModel}`);
     }
 
     // ============================================================
@@ -27322,6 +27324,111 @@ try {
     addTest("V20.7 writePiForm: apiKey 字段为环境变量名",
       hasVarName && noKeyLeak ? "pass" : "fail",
       `hasVarName=${hasVarName}, noKeyLeak=${noKeyLeak}`);
+  }
+
+  // --- V20.8: readiness 检查 + 按 Provider keyStatus + 集成测试 ---
+
+  // Test 44: checkRuntimeReadiness 本地配置缺失 → ok（使用全局配置）
+  {
+    const vault = makeTempVault();
+    const result = routerMod.checkRuntimeReadiness(vault);
+    addTest("V20.8 readiness: 本地配置缺失 → ok=true",
+      result.ok && !result.preSendBlock ? "pass" : "fail",
+      `ok=${result.ok}, preSendBlock=${result.preSendBlock}`);
+  }
+
+  // Test 45: checkRuntimeReadiness 本地配置存在 + 有 Key → ok
+  {
+    const vault = makeTempVault();
+    routerMod.saveProviderForm(vault, "codex", {
+      baseURL: "https://relay.example.com/v1",
+      model: "gpt-5.4",
+      apiKey: "test-key",
+    });
+    const result = routerMod.checkRuntimeReadiness(vault);
+    addTest("V20.8 readiness: 本地配置+Key → ok=true",
+      result.ok ? "pass" : "fail",
+      `ok=${result.ok}, reason=${result.reason}`);
+  }
+
+  // Test 46: checkRuntimeReadiness 本地配置存在 + 缺 Key → preSendBlock
+  {
+    const vault = makeTempVault();
+    routerMod.writeCodexForm(vault, { baseURL: "https://relay.example.com/v1", model: "gpt-5.4" });
+    // 不设置 Key
+    const result = routerMod.checkRuntimeReadiness(vault);
+    addTest("V20.8 readiness: 本地配置+缺Key → preSendBlock=true",
+      !result.ok && result.preSendBlock ? "pass" : "fail",
+      `ok=${result.ok}, preSendBlock=${result.preSendBlock}, reason=${result.reason}`);
+  }
+
+  // Test 47: getSecretStatus 按 Provider 精确计算（Codex 有 Key，Claude 无 Key）
+  {
+    const vault = makeTempVault();
+    routerMod.setCodexKey(vault, "codex-key");
+    const state = routerMod.getRouterState(vault);
+    const codexOk = state.providers.codex.keyStatus !== "not-configured";
+    const claudeOk = state.providers.claude.keyStatus === "not-configured";
+    addTest("V20.8 getSecretStatus: 按 Provider 精确计算（Codex有Key, Claude无Key）",
+      codexOk && claudeOk ? "pass" : "fail",
+      `codex=${state.providers.codex.keyStatus}, claude=${state.providers.claude.keyStatus}`);
+  }
+
+  // Test 48: 集成测试：保存→生成配置→buildRuntimeEnv 注入→readiness ok
+  {
+    const vault = makeTempVault();
+    // 1. 保存 Codex 配置
+    const saveResult = routerMod.saveProviderForm(vault, "codex", {
+      baseURL: "https://integration.example.com/v1",
+      model: "gpt-5.4",
+      apiKey: "integration-key",
+    });
+    // 2. 生成配置文件存在
+    const configExists = fileExists(vault, CODEX_CONFIG_REL);
+    // 3. buildRuntimeEnv 注入 CODEX_HOME + CODEX_RELAY_API_KEY
+    const env = routerMod.buildRuntimeEnv(vault);
+    const hasCodexHome = !!env.CODEX_HOME;
+    const hasKey = !!env.CODEX_RELAY_API_KEY;
+    // 4. readiness ok
+    const readiness = routerMod.checkRuntimeReadiness(vault);
+    const ok = saveResult.ok && configExists && hasCodexHome && hasKey && readiness.ok;
+    addTest("V20.8 集成: 保存→生成配置→buildRuntimeEnv→readiness ok",
+      ok ? "pass" : "fail",
+      `save=${saveResult.ok}, configExists=${configExists}, CODEX_HOME=${hasCodexHome}, KEY=${hasKey}, readiness=${readiness.ok}`);
+  }
+
+  // Test 49: RunSessionController 不再引用 runtimeProviderStore
+  {
+    const ctrlSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
+    // 检查 import 语句（注释中的提到不算）
+    const noStoreImport = !/import.*runtimeProviderStore/.test(ctrlSrc) && !/from\s+["']\.\/runtimeProviderStore["']/.test(ctrlSrc);
+    const usesRouter = ctrlSrc.includes("checkRuntimeReadiness") || /import.*runtimeRouter/.test(ctrlSrc);
+    addTest("V20.8 RunSessionController: 不 import runtimeProviderStore，使用 runtimeRouter",
+      noStoreImport && usesRouter ? "pass" : "fail",
+      `noStore=${noStoreImport}, usesRouter=${usesRouter}`);
+  }
+
+  // Test 50: settings.ts 首次创建 Key 必填逻辑
+  {
+    const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
+    const hasFirstCreateCheck = settingsSrc.includes("isCreate") && settingsSrc.includes("首次创建");
+    const noActiveDropdown = !settingsSrc.includes("Active Provider");
+    addTest("V20.8 settings.ts: 首次创建 Key 必填 + 无 Active Provider 下拉框",
+      hasFirstCreateCheck && noActiveDropdown ? "pass" : "fail",
+      `firstCreate=${hasFirstCreateCheck}, noDropdown=${noActiveDropdown}`);
+  }
+
+  // Test 51: view.ts 不再引用 matchModels + 不请求 /v1/models（注释除外）
+  {
+    const viewSrc = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+    const noMatchModels = !viewSrc.includes("matchModels");
+    // 检查非注释行是否有 /v1/models 引用
+    const codeLines = viewSrc.split(/\r?\n/).filter((l) => !l.trim().startsWith("//") && !l.trim().startsWith("*"));
+    const noV1ModelsInCode = !codeLines.some((l) => l.includes("/v1/models"));
+    const usesLocalForm = viewSrc.includes("readProviderForm");
+    addTest("V20.8 view.ts: 不引用 matchModels + 不请求 /v1/models + 使用 readProviderForm",
+      noMatchModels && noV1ModelsInCode && usesLocalForm ? "pass" : "fail",
+      `noMatch=${noMatchModels}, noV1=${noV1ModelsInCode}, localForm=${usesLocalForm}`);
   }
 
 } catch (e) {

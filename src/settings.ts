@@ -98,7 +98,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    // ===== V20.7: 运行时配置（三 tab + 第三方服务表单） =====
+    // ===== V20.8: 运行时配置（三 tab + 第三方服务表单，切换 tab 即切换 Runtime） =====
     const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     const router = require("./runtime/config/runtimeRouter") as typeof import("./runtime/config/runtimeRouter");
     const routerState = router.getRouterState(vaultPath);
@@ -106,30 +106,10 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
     containerEl.createEl("h3", { text: "运行时配置" });
     containerEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
-      text: "每个 Runtime 独立配置第三方服务（地址、模型、Key）。保存时生成对应官方配置文件，Key 注入到 secrets.env。本地配置存在时设置 *_HOME，否则回退全局。",
+      text: "切换标签即切换当前 Runtime。每个 Runtime 独立配置第三方服务（地址、模型、Key）。保存时生成对应官方配置文件，Key 注入到 secrets.env。本地配置存在时设置 *_HOME，否则回退全局。",
     });
 
-    // --- Active Provider 选择 ---
-    new Setting(containerEl)
-      .setName("Active Provider")
-      .setDesc("选择当前使用的 runtime。切换后立即生效。")
-      .addDropdown((dd) => {
-        dd.addOption("codex", "Codex (app-server)");
-        dd.addOption("claude", "Claude (CLI)");
-        dd.addOption("pi", "Pi (SDK)");
-        dd.setValue(routerState.activeProvider);
-        dd.onChange(async (v) => {
-          try {
-            router.setActiveProvider(vaultPath, v as "codex" | "claude" | "pi");
-            new Notice(`已切换到 ${v}`, 2000);
-          } catch (e) {
-            new Notice("切换失败：" + (e instanceof Error ? e.message : String(e)), 5000);
-          }
-          this.plugin.refreshBridgeView();
-        });
-      });
-
-    // --- 三 tab 容器 ---
+    // --- 三 tab 容器（切换 tab 即切换 active provider） ---
     const tabContainer = containerEl.createDiv({ cls: "llm-bridge-runtime-tabs" });
     const tabButtons = tabContainer.createDiv({ cls: "llm-bridge-runtime-tab-buttons" });
     const tabContents = tabContainer.createDiv({ cls: "llm-bridge-runtime-tab-contents" });
@@ -147,19 +127,29 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       const info = providerLabels[pid];
       const isActive = routerState.activeProvider === pid;
       const btn = tabButtons.createEl("button", {
-        text: `${info.name}${isActive ? " *" : ""}`,
+        text: info.name,
         cls: isActive ? "llm-bridge-tab-button active" : "llm-bridge-tab-button",
       });
       const content = tabContents.createDiv({ cls: "llm-bridge-tab-content" });
       content.style.display = isActive ? "block" : "none";
       tabContentEls[pid] = content;
-      btn.addEventListener("click", () => {
+      btn.addEventListener("click", async () => {
+        // V20.8: 切换 tab 即切换 active provider
+        if (pid !== router.getActiveProvider(vaultPath)) {
+          try {
+            router.setActiveProvider(vaultPath, pid);
+            new Notice(`已切换到 ${info.name}`, 2000);
+          } catch (e) {
+            new Notice("切换失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+          }
+        }
         // 切换显示
         for (const p of providerIds) {
           tabContentEls[p].style.display = p === pid ? "block" : "none";
           const b = tabButtons.querySelectorAll("button").item(providerIds.indexOf(p));
           b.classList.toggle("active", p === pid);
         }
+        this.plugin.refreshBridgeView();
       });
     }
 
@@ -221,12 +211,19 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       void modelInput;
 
       // Key（password 输入框，保存时才写入）
+      // V20.8: 首次创建时 Key 必填；更新时可为空
+      const isCreate = !status.localConfigExists;
+      const keyStatusLabel = status.keyStatus === "saved"
+        ? "已加密保存"
+        : status.keyStatus === "session-only"
+          ? "⚠ 仅本次会话有效（safeStorage 不可用，插件重载后丢失）"
+          : "未配置";
       const keyInput = new Setting(content)
         .setName("API Key")
-        .setDesc(`环境变量：${info.keyVar} | 当前：${status.keyStatus === "saved" ? "已加密保存" : status.keyStatus === "session-only" ? "仅本次会话有效" : "未配置"}（留空保存时不更新）`)
+        .setDesc(`环境变量：${info.keyVar} | 当前：${keyStatusLabel}${isCreate ? "（首次创建必填）" : "（留空不更新）"}`)
         .addText((t) => {
           t.inputEl.type = "password";
-          t.setPlaceholder("留空不更新，填写则替换…");
+          t.setPlaceholder(isCreate ? "首次创建必填…" : "留空不更新，填写则替换…");
           t.setValue("");
           t.inputEl.dataset.field = "apiKey";
         });
@@ -234,10 +231,10 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
       // 保存按钮
       new Setting(content)
-        .setName("保存")
+        .setName("保存并应用")
         .setDesc("生成官方配置文件 + 注入密钥。配置错误会直接显示，不静默回退。")
         .addButton((b) => {
-          b.setButtonText("保存配置");
+          b.setButtonText("保存并应用");
           b.setCta();
           b.onClick(async () => {
             const baseURL = (content.querySelector('input[data-field="baseURL"]') as HTMLInputElement)?.value.trim() || "";
@@ -247,17 +244,28 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
               new Notice("请填写服务地址和模型", 4000);
               return;
             }
+            // V20.8: 首次创建时 Key 必填
+            if (isCreate && !apiKey) {
+              new Notice("首次创建配置时 API Key 必填", 5000);
+              return;
+            }
             try {
               const result = router.saveProviderForm(vaultPath, pid, { baseURL, model, apiKey });
               if (result.ok) {
                 const parts = [`已生成：${result.createdFiles.join(", ")}`];
-                if (result.keyStatus) {
-                  parts.push(result.keyStatus === "session-only" ? "Key 仅本次会话有效" : "Key 已加密保存");
+                if (result.keyStatus === "session-only") {
+                  parts.push("⚠ Key 仅本次会话有效（safeStorage 不可用，插件重载后丢失）");
+                } else if (result.keyStatus === "saved") {
+                  parts.push("Key 已加密保存");
                 }
-                new Notice(parts.join(" | "), 5000);
+                new Notice(parts.join(" | "), 6000);
                 // 清空 Key 输入框
                 const keyEl = content.querySelector('input[data-field="apiKey"]') as HTMLInputElement | null;
                 if (keyEl) keyEl.value = "";
+                // V20.8: 保存成功后立即刷新设置页 + 模型目录 + Runtime
+                this.plugin.refreshBridgeView();
+                // 同步聊天框当前模型（通过 refreshBridgeView 触发 catalog 刷新）
+                await this.plugin.saveSettings();
               } else {
                 new Notice(`保存失败：${result.error}`, 6000);
               }

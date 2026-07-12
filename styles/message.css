@@ -77,11 +77,12 @@
 
 .llm-bridge-msg-error-summary {
   margin-top: 6px;
-  padding: 8px 10px;
-  border-radius: 8px;
-  background: var(--background-modifier-error);
+  padding: 6px 10px 6px 12px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--background-modifier-error) 12%, transparent);
   color: var(--text-error);
-  font-size: 13px;
+  font-size: 12px;
+  border-left: 3px solid var(--text-error);
 }
 
 /* 完成回答：底部左侧复制图标；失败态可有 retry */
