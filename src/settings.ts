@@ -98,168 +98,194 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    // ===== 本地认证配置（provider-neutral 中转站，普通用户首选） =====
-    containerEl.createEl("h3", { text: "本地认证配置" });
+    // ===== V20.4: 中转连接（runtime-provider.json 为唯一真相源） =====
+    const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const store = require("./runtime/runtimeProviderStore") as typeof import("./runtime/runtimeProviderStore");
+    const providerState = store.loadRuntimeProviderStateSync(vaultPath);
+
+    containerEl.createEl("h3", { text: "中转连接" });
     containerEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
-      text: "配置 OpenAI-compatible 中转站后，Codex runtime 使用同一地址、模型和认证。聊天框模型始终以当前 runtime 的 model/list 为准；未配置时回退原生认证。",
+      text: providerState.source === "corrupt"
+        ? `⚠ runtime-provider.json 损坏：${providerState.error || "解析失败"}。请修复或清除配置后重新填写。`
+        : `配置来源：runtime-provider.json（本机加密存储）。设置页仅编辑该文件，不再与旧 settings 合并。`,
     });
 
     new Setting(containerEl)
       .setName("中转站地址")
-      .setDesc("如 https://api.example.com。配置后注入 ANTHROPIC_BASE_URL / OPENAI_BASE_URL / Pi baseUrl。留空则使用原生认证。")
+      .setDesc("如 https://api.example.com。配置后注入 OPENAI_BASE_URL / ANTHROPIC_BASE_URL。留空则使用原生认证。")
       .addText((t) => {
-        t.setValue(s.localRelayUrl);
+        t.setValue(providerState.relayUrl);
         t.onChange(async (v) => {
-          s.localRelayUrl = v.trim();
-          await this.plugin.saveSettings();
+          const val = v.trim();
+          try {
+            await store.updateRuntimeProviderState(vaultPath, { relayUrl: val });
+            // 同步到 settings 内存（兼容仍读 settings.localRelayUrl 的旧代码）
+            s.localRelayUrl = val;
+            await this.plugin.saveSettings();
+          } catch (e) {
+            new Notice("保存地址失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+          }
           this.plugin.refreshBridgeView();
         });
       });
 
+    // API Key 状态徽章 + 设置/替换输入框
+    const keyStatusLabel = providerState.keyStatus === "saved"
+      ? "已保存在本机加密存储"
+      : providerState.keyStatus === "session-only"
+        ? "仅本次会话有效（safeStorage 不可用，重启需重新输入）"
+        : "未配置";
     new Setting(containerEl)
-      .setName("API Key")
-      .setDesc("V20.2：默认使用本机加密（Electron safeStorage）持久化到 runtime-provider.json，重启后自动恢复；不写入 Vault 明文。safeStorage 不可用时仅存内存。")
+      .setName("API Key 状态")
+      .setDesc(`当前：${keyStatusLabel}。输入新 Key 后回车或失焦保存，保存后输入框清空，不再显示圆点。`)
       .addText((t) => {
         t.inputEl.type = "password";
-        t.setValue(s.localRelayApiKey);
+        t.setPlaceholder("设置或替换 Key…");
+        t.setValue("");
         t.onChange(async (v) => {
-          s.localRelayApiKey = v.trim();
-          await this.plugin.saveSettings();
-          // V20.2: 默认持久化到 runtime-provider.json（safeStorage 加密）
+          const val = v.trim();
+          if (!val) return;
           try {
-            const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-            const { loadRuntimeProviderConfig, saveRuntimeProviderConfig } = await import("./runtime/runtimeProviderConfig");
-            const existing = await loadRuntimeProviderConfig(vaultPath, s);
-            await saveRuntimeProviderConfig(vaultPath, {
-              relayUrl: existing.config?.relayUrl || s.localRelayUrl,
-              apiKey: s.localRelayApiKey,
-              model: existing.config?.model || s.model,
-            });
-          } catch { /* safeStorage 不可用时仅存内存 */ }
+            const newState = await store.setProviderApiKey(vaultPath, val);
+            // 同步内存（兼容旧代码）
+            s.localRelayApiKey = newState.apiKey;
+            await this.plugin.saveSettings();
+            t.setValue("");
+            if (newState.keyStatus === "session-only") {
+              new Notice("safeStorage 不可用：Key 仅本次会话有效，重启后需重新输入", 6000);
+            } else {
+              new Notice("API Key 已加密保存", 3000);
+            }
+          } catch (e) {
+            new Notice("保存 Key 失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+          }
           this.plugin.refreshBridgeView();
         });
       })
       .addButton((b) => {
-        b.setButtonText("忘记 Key");
+        b.setButtonText("清除 Key");
         b.onClick(async () => {
           try {
-            const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-            const { loadRuntimeProviderConfig, saveRuntimeProviderConfig } = await import("./runtime/runtimeProviderConfig");
-            const existing = await loadRuntimeProviderConfig(vaultPath, s);
-            if (existing.config) {
-              // 清除 apiKey，保留 relayUrl/model
-              await saveRuntimeProviderConfig(vaultPath, {
-                relayUrl: existing.config.relayUrl,
-                apiKey: "",
-                model: existing.config.model,
-              });
-            }
+            await store.clearProviderApiKey(vaultPath);
             s.localRelayApiKey = "";
             await this.plugin.saveSettings();
-            new Notice("已忘记 API Key（已清除本机加密存储）", 4000);
-            this.plugin.refreshBridgeView();
+            new Notice("已清除 API Key", 3000);
           } catch (e) {
-            new Notice("忘记 Key 失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+            new Notice("清除 Key 失败：" + (e instanceof Error ? e.message : String(e)), 5000);
           }
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("便携目录路径（高级，可选）")
-      .setDesc("高级选项：设置后从该目录读取 runtime-profile.key，可让多个 Vault 共用同一份明文 Key（不经过 safeStorage 加密）。默认无需配置。")
-      .addText((t) => {
-        t.setValue(s.localRelayPortableKeyPath);
-        t.onChange(async (v) => {
-          s.localRelayPortableKeyPath = v.trim();
-          await this.plugin.saveSettings();
-          this.plugin.refreshBridgeView();
-        });
-      })
-      .addButton((b) => {
-        b.setButtonText("保存当前 Key");
-        b.onClick(async () => {
-          if (!s.localRelayPortableKeyPath || !s.localRelayApiKey) {
-            new Notice("请先填写便携目录路径和 API Key", 4000);
-            return;
-          }
-          const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-          const portableDir = isAbsolute(s.localRelayPortableKeyPath)
-            ? s.localRelayPortableKeyPath
-            : resolve(vaultPath, s.localRelayPortableKeyPath);
-          const { savePortableApiKey } = await import("./runtime/runtimeProfileResolver");
-          const ok = await savePortableApiKey(portableDir, s.localRelayApiKey);
-          new Notice(ok ? "API Key 已保存到便携目录" : "API Key 保存失败", 4000);
           this.plugin.refreshBridgeView();
         });
       });
 
     new Setting(containerEl)
-      .setName("保存到 Vault Profile")
-      .setDesc("把中转站地址和模型写入 .llm-bridge/runtime-profile.json（可随 Vault 同步，不含 API Key）。")
+      .setName("测试连接")
+      .setDesc("请求中转站 /v1/models，验证地址可达 + Key 有效。")
       .addButton((b) => {
-        b.setButtonText("保存 Profile");
+        b.setButtonText("测试连接");
         b.onClick(async () => {
+          b.setButtonText("测试中...");
           b.setDisabled(true);
           try {
-            const { saveVaultRuntimeProfile } = await import("./runtime/runtimeProfileResolver");
-            const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-            const ok = await saveVaultRuntimeProfile(vaultPath, {
-              relayUrl: s.localRelayUrl,
-              model: s.model,
-            });
-            new Notice(ok ? "Vault Profile 已保存（不含 Key）" : "保存失败", 4000);
+            const state = await store.loadRuntimeProviderState(vaultPath);
+            if (!state.relayUrl || !state.apiKey) {
+              new Notice("请先配置中转站地址和 API Key", 5000);
+              return;
+            }
+            const { testRelayConnection } = await import("./runtime/runtimeProfileResolver");
+            const result = await testRelayConnection(state.relayUrl, state.apiKey, state.model);
+            new Notice(result.ok ? `连接成功，发现 ${result.models.length} 个模型` : `连接失败：${result.detail}`, 6000);
           } catch (e) {
-            new Notice("保存失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+            new Notice("测试失败：" + (e instanceof Error ? e.message : String(e)), 5000);
           } finally {
+            b.setButtonText("测试连接");
             b.setDisabled(false);
           }
         });
       });
 
     new Setting(containerEl)
+      .setName("清除中转配置")
+      .setDesc("清除地址和 Key（保留模型发现结果）。清除后回退到原生认证。")
+      .addButton((b) => {
+        b.setButtonText("清除配置");
+        b.onClick(async () => {
+          try {
+            await store.clearProviderApiKey(vaultPath);
+            await store.updateRuntimeProviderState(vaultPath, { relayUrl: "" });
+            s.localRelayUrl = "";
+            s.localRelayApiKey = "";
+            await this.plugin.saveSettings();
+            new Notice("已清除中转配置", 3000);
+          } catch (e) {
+            new Notice("清除失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+          }
+          this.plugin.refreshBridgeView();
+        });
+      });
+
+    // ===== 模型 =====
+    containerEl.createEl("h3", { text: "模型" });
+    new Setting(containerEl)
+      .setName("当前模型")
+      .setDesc(providerState.model
+        ? `当前选中：${providerState.model}`
+        : "未选择模型。点击下方「发现并匹配模型」从中转站 + runtime 交叉匹配。")
+      .addDropdown((dd) => {
+        const verified = providerState.verifiedModels ?? [];
+        if (verified.length > 0) {
+          verified.forEach((id) => dd.addOption(id, id));
+          dd.setValue(providerState.model || verified[0]);
+        } else {
+          dd.addOption("", "（无已验证模型）");
+          dd.setDisabled(true);
+        }
+        dd.onChange(async (v) => {
+          try {
+            await store.setProviderModel(vaultPath, v);
+            // 同步 settings.model（运行路径仍读 settings.model 作为内存镜像）
+            s.model = v;
+            await this.plugin.saveSettings();
+          } catch (e) {
+            new Notice("切换模型失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+          }
+          this.plugin.refreshBridgeView();
+        });
+      });
+
+    new Setting(containerEl)
       .setName("发现并匹配模型")
-      .setDesc("同时请求中转站 /v1/models 和 Codex runtime model/list，交叉匹配后只把可用模型放入聊天框。")
+      .setDesc("同时请求中转站 /v1/models 和 Codex runtime model/list，交叉匹配后把可用模型放入聊天框，结果持久化到 runtime-provider.json。")
       .addButton((b) => {
         b.setButtonText("发现并匹配模型");
         b.onClick(async () => {
           b.setButtonText("匹配中...");
           b.setDisabled(true);
           try {
-            const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-            // V20.2: 通过 resolveRuntimeProfile 获取真实 relayUrl/apiKey（含加密持久化恢复）
-            const { resolveRuntimeProfile, testRelayConnection, desensitizeError } = await import("./runtime/runtimeProfileResolver");
-            const profile = await resolveRuntimeProfile(vaultPath, s);
-            if (!profile.relayUrl || !profile.apiKey) {
+            const state = await store.loadRuntimeProviderState(vaultPath);
+            if (!state.relayUrl || !state.apiKey) {
               new Notice("请先配置中转站地址和 API Key", 5000);
               return;
             }
-            // 1. 请求中转站 /v1/models
-            const relayResult = await testRelayConnection(profile.relayUrl, profile.apiKey, s.model);
+            const { testRelayConnection } = await import("./runtime/runtimeProfileResolver");
+            const relayResult = await testRelayConnection(state.relayUrl, state.apiKey, s.model);
             if (!relayResult.ok) {
               new Notice("中转站连接失败：" + relayResult.detail, 8000);
               return;
             }
-            // 2. 请求 Codex runtime model/list（V20.2: 先清缓存确保最新）
             const { loadCodexManagedModelCatalog, clearCodexManagedModelCatalogCache } = await import("./runtime/providers/codex-managed-app-server/codexManagedModelCatalog");
             clearCodexManagedModelCatalogCache();
             const runtimeCatalog = await loadCodexManagedModelCatalog(this.plugin.pluginDir, vaultPath, s);
-            // 3. 交叉匹配
             const { matchModels, formatMatchSummary } = await import("./runtime/modelMatcher");
             const relayModels = relayResult.models.map((id) => ({ id }));
             const runtimeModels = runtimeCatalog?.runtimeModels ?? [];
             const matchResult = matchModels(relayModels, runtimeModels);
-            // 4. 更新 models 和 defaultModel
-            // V20.3: 即使无可用模型也持久化发现结果（含不兼容原因），便于 UI 显示
-            if (matchResult.selectable.length > 0) {
-              s.model = matchResult.defaultModel || matchResult.selectable[0].value;
-              await this.plugin.saveSettings();
-            }
-            const { saveRuntimeProviderConfig } = await import("./runtime/runtimeProviderConfig");
-            await saveRuntimeProviderConfig(vaultPath, {
-              relayUrl: profile.relayUrl,
-              apiKey: profile.apiKey,
-              model: s.model,
+            const newModel = matchResult.selectable.length > 0
+              ? (matchResult.defaultModel || matchResult.selectable[0].value)
+              : state.model;
+            // V20.4: 持久化到 Store（唯一真相源），同时同步 settings.model 内存镜像
+            await store.updateRuntimeProviderState(vaultPath, {
+              model: newModel,
               providerModels: relayResult.models,
               verifiedModels: matchResult.available.map((m) => m.value),
               pendingModels: matchResult.pending.map((m) => m.value),
@@ -269,7 +295,8 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
               })),
               discoveredAt: new Date().toISOString(),
             });
-            // 5. 显示统计
+            s.model = newModel;
+            await this.plugin.saveSettings();
             new Notice(formatMatchSummary(matchResult), 8000);
             this.plugin.refreshBridgeView();
           } catch (e) {
@@ -283,46 +310,22 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("刷新模型目录")
-      .setDesc("清除缓存后重新读取 Codex runtime model/list，用于 runtime 更新或中转站新增/删除模型后重新匹配。")
-      .addButton((b) => {
-        b.setButtonText("刷新");
-        b.onClick(async () => {
-          b.setDisabled(true);
-          try {
-            // V20.2: 清除模型目录缓存，强制下次重新读取
-            const { clearCodexManagedModelCatalogCache } = await import("./runtime/providers/codex-managed-app-server/codexManagedModelCatalog");
-            clearCodexManagedModelCatalogCache();
-            const { clearRuntimeModelCatalogForAgent } = await import("./runtimeModelCatalog");
-            clearRuntimeModelCatalogForAgent("codex");
-            this.plugin.refreshBridgeView();
-            new Notice("已清除缓存并刷新模型目录，重新打开聊天框生效", 4000);
-          } finally {
-            b.setDisabled(false);
-          }
-        });
-      });
-
-    new Setting(containerEl)
       .setName("验证当前模型")
-      .setDesc("对当前选中的模型发起一次真实 Responses 请求，验证可用性（会产生少量费用）。")
+      .setDesc("对当前选中模型发起一次真实 Responses 请求（POST /v1/responses），验证可推理（会产生极少量费用）。")
       .addButton((b) => {
         b.setButtonText("验证");
         b.onClick(async () => {
           b.setButtonText("验证中...");
           b.setDisabled(true);
           try {
-            const { resolveRuntimeProfile, testRelayConnection, desensitizeError } = await import("./runtime/runtimeProfileResolver");
-            const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-            // V20.2: 通过 resolveRuntimeProfile 获取真实 relayUrl/apiKey（含加密持久化恢复）
-            const profile = await resolveRuntimeProfile(vaultPath, s);
-            if (!profile.relayUrl || !profile.apiKey) {
+            const state = await store.loadRuntimeProviderState(vaultPath);
+            if (!state.relayUrl || !state.apiKey) {
               new Notice("请先配置中转站地址和 API Key", 5000);
               return;
             }
-            // 只验证当前选中模型
-            const result = await testRelayConnection(profile.relayUrl, profile.apiKey, s.model);
-            new Notice(result.ok ? `模型 ${s.model} 验证通过` : `验证失败：${result.detail}`, 6000);
+            const { testModelResponsesRequest } = await import("./runtime/runtimeProfileResolver");
+            const result = await testModelResponsesRequest(state.relayUrl, state.apiKey, state.model);
+            new Notice(result.ok ? result.detail : `验证失败：${result.detail}`, 6000);
           } catch (e) {
             const { desensitizeError } = await import("./runtime/runtimeProfileResolver");
             new Notice("验证失败：" + desensitizeError(e, s.localRelayApiKey), 6000);
@@ -334,18 +337,66 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("重载")
-      .setDesc("重新读取 Vault Profile 和便携 Key，刷新状态栏。")
+      .setName("刷新模型目录")
+      .setDesc("清除缓存后重新读取 Codex runtime model/list。")
       .addButton((b) => {
-        b.setButtonText("重载");
+        b.setButtonText("刷新");
         b.onClick(async () => {
           b.setDisabled(true);
           try {
+            const { clearCodexManagedModelCatalogCache } = await import("./runtime/providers/codex-managed-app-server/codexManagedModelCatalog");
+            clearCodexManagedModelCatalogCache();
+            const { clearRuntimeModelCatalogForAgent } = await import("./runtimeModelCatalog");
+            clearRuntimeModelCatalogForAgent("codex");
             this.plugin.refreshBridgeView();
-            new Notice("已重载本地中转配置", 3000);
+            new Notice("已刷新模型目录，重新打开聊天框生效", 3000);
           } finally {
             b.setDisabled(false);
           }
+        });
+      });
+
+    // 展开查看待验证 / 不兼容模型
+    const pendingModels = providerState.pendingModels ?? [];
+    const incompatibleModels = providerState.incompatibleModels ?? [];
+    if (pendingModels.length > 0 || incompatibleModels.length > 0) {
+      const modelDetails = containerEl.createEl("details", { cls: "llm-bridge-advanced-settings" });
+      modelDetails.createEl("summary", { text: `查看待验证（${pendingModels.length}）/ 不兼容（${incompatibleModels.length}）模型` });
+      const modelDetailsBody = modelDetails.createDiv({ cls: "llm-bridge-advanced-settings-body" });
+      if (pendingModels.length > 0) {
+        modelDetailsBody.createEl("p", { text: "待验证模型（runtime 匹配但缺少能力信息，可在高级列表查看，不默认选择）：" });
+        pendingModels.forEach((id) => modelDetailsBody.createEl("p", { text: `• ${id}`, cls: "llm-bridge-setting-hint" }));
+      }
+      if (incompatibleModels.length > 0) {
+        modelDetailsBody.createEl("p", { text: "不兼容模型（不进入聊天框）：" });
+        incompatibleModels.forEach((m) => {
+          modelDetailsBody.createEl("p", { text: `• ${m.id} — ${m.reason}`, cls: "llm-bridge-setting-hint" });
+        });
+      }
+    }
+
+    // ===== Managed Runtime =====
+    containerEl.createEl("h3", { text: "Managed Runtime" });
+    const installStatus = this.plugin.getManagedRuntimeInstallStatus();
+    const runtimeReady = installStatus.status === "installed" || installStatus.status === "already-installed" || installStatus.status === "fixture-skip";
+    new Setting(containerEl)
+      .setName("Codex Managed Runtime")
+      .setDesc(`版本：${installStatus.version || "未知"} | 状态：${runtimeReady ? "已安装" : "未安装/损坏"} | 路径：${installStatus.installPath || "（未解析）"}${installStatus.error ? ` | 错误：${installStatus.error}` : ""}`)
+      .addButton((b) => {
+        b.setButtonText(runtimeReady ? "修复 Runtime" : "安装 Runtime");
+        b.onClick(async () => {
+          b.setButtonText("安装中...");
+          b.setDisabled(true);
+          try {
+            await this.plugin.ensureManagedRuntimeInstalled({ confirm: true });
+            new Notice("Managed Runtime 安装完成", 4000);
+          } catch (e) {
+            new Notice("安装失败：" + (e instanceof Error ? e.message : String(e)), 6000);
+          } finally {
+            b.setButtonText(runtimeReady ? "修复 Runtime" : "安装 Runtime");
+            b.setDisabled(false);
+          }
+          this.plugin.refreshBridgeView();
         });
       });
 

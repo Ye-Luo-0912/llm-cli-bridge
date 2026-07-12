@@ -314,6 +314,28 @@ export class RunSessionController {
     }
 
     const settings = this.host.plugin.settings;
+
+    // V20.4: 无 Key / 配置损坏时在发送前阻止运行，不先启动 runtime 后显示大红错误卡。
+    // 仅当配置了 relayUrl 时才需要 Key；原生认证（无 relayUrl）不触发此 guard。
+    const vaultPathForGuard = this.host.getVaultPath();
+    if (vaultPathForGuard) {
+      const { loadRuntimeProviderState } = await import("./runtimeProviderStore");
+      const providerState = await loadRuntimeProviderState(vaultPathForGuard, settings);
+      if (providerState.source === "corrupt") {
+        new Notice(
+          `runtime-provider.json 配置损坏：${providerState.error || "解析失败"}。请在设置页修复或清除配置后重试。`,
+          10000,
+        );
+        this._lifecycleState = "idle";
+        return;
+      }
+      if (providerState.relayUrl && !providerState.apiKey) {
+        new Notice("中转站已配置但缺少 API Key。请在设置页「中转连接」中输入 Key 后重试。", 8000);
+        this._lifecycleState = "idle";
+        return;
+      }
+    }
+
     const activeFile = this.host.getActiveFile();
     const selection = settings.includeSelection ? this.host.getSelection() : null;
     const messageRefsForRun = this.host.messageFileRefs.map((ref) => {

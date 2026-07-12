@@ -25500,14 +25500,15 @@ if (!runV202) {
     {
       const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
       const refreshBtnCallsClear = settingsSrc.includes("clearCodexManagedModelCatalogCache()");
-      // 验证发现按钮使用 resolveRuntimeProfile（含加密持久化恢复）
-      const discoverBtnUsesResolve = settingsSrc.includes("resolveRuntimeProfile");
+      // V20.4: 验证发现按钮使用 Store 获取真实 relayUrl/apiKey（替代旧 resolveRuntimeProfile）
+      const discoverBtnUsesResolve = settingsSrc.includes("loadRuntimeProviderState")
+        && settingsSrc.includes("runtimeProviderStore");
       addTest("V20.2 模型目录: settings.ts 刷新/发现按钮调用 clearCodexManagedModelCatalogCache",
         refreshBtnCallsClear ? "pass" : "fail",
         refreshBtnCallsClear ? "" : "settings.ts 未调用 clearCodexManagedModelCatalogCache()");
-      addTest("V20.2 模型目录: 发现按钮使用 resolveRuntimeProfile 获取真实 relayUrl/apiKey",
+      addTest("V20.2/V20.4 模型目录: 发现按钮使用 Store 获取真实 relayUrl/apiKey",
         discoverBtnUsesResolve ? "pass" : "fail",
-        discoverBtnUsesResolve ? "" : "settings.ts 未使用 resolveRuntimeProfile");
+        discoverBtnUsesResolve ? "" : "settings.ts 未使用 store.loadRuntimeProviderState");
     }
 
     // ============================================================
@@ -25765,31 +25766,34 @@ if (!runV202) {
     }
 
     // ============================================================
-    // 测试 15: safeStorage 加密持久化 — settings.ts API Key 默认持久化 + "忘记 Key" 按钮
+    // 测试 15: safeStorage 加密持久化 — V20.4 改为 Store 唯一真相源
+    // V20.4: settings.ts API Key 通过 store.setProviderApiKey 持久化（替代旧 saveRuntimeProviderConfig）
+    // V20.4: "忘记 Key" 按钮改为 "清除 Key"（store.clearProviderApiKey）
     // ============================================================
     {
       const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
-      // API Key onChange 调用 saveRuntimeProviderConfig 持久化
-      const hasPersistOnchange = settingsSrc.includes("saveRuntimeProviderConfig")
-        && settingsSrc.includes("V20.2");
-      // "忘记 Key" 按钮存在
-      const hasForgetKeyBtn = settingsSrc.includes("忘记 Key");
-      // 便携目录路径标注为"高级，可选"
-      const hasPortableAdvanced = settingsSrc.includes("高级，可选");
+      // V20.4: API Key onChange 调用 store.setProviderApiKey 持久化（替代旧 saveRuntimeProviderConfig）
+      const hasPersistOnchange = settingsSrc.includes("setProviderApiKey")
+        && settingsSrc.includes("runtimeProviderStore");
+      // V20.4: "清除 Key" 按钮存在（替代旧 "忘记 Key"）
+      const hasForgetKeyBtn = settingsSrc.includes("清除 Key");
+      // V20.4: 便携目录路径在 types.ts 中定义（迁移用），settings.ts UI 不再直接暴露
+      const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf-8");
+      const hasPortableAdvanced = typesSrc.includes("localRelayPortableKeyPath");
       // 描述中提到 safeStorage 加密
-      const descMentionsSafeStorage = settingsSrc.includes("safeStorage");
-      addTest("V20.2 safeStorage: settings.ts API Key onChange 持久化到 runtime-provider.json",
+      const descMentionsSafeStorage = settingsSrc.includes("safeStorage") || settingsSrc.includes("加密存储");
+      addTest("V20.2/V20.4 safeStorage: settings.ts API Key onChange 持久化到 runtime-provider.json（Store）",
         hasPersistOnchange ? "pass" : "fail",
-        hasPersistOnchange ? "" : "settings.ts 未在 onChange 中调用 saveRuntimeProviderConfig");
-      addTest("V20.2 safeStorage: '忘记 Key' 按钮存在",
+        hasPersistOnchange ? "" : "settings.ts 未在 onChange 中调用 store.setProviderApiKey");
+      addTest("V20.2/V20.4 safeStorage: '清除 Key' 按钮存在",
         hasForgetKeyBtn ? "pass" : "fail",
-        hasForgetKeyBtn ? "" : "settings.ts 缺少 '忘记 Key' 按钮");
-      addTest("V20.2 safeStorage: 便携目录路径标注为'高级，可选'",
+        hasForgetKeyBtn ? "" : "settings.ts 缺少 '清除 Key' 按钮");
+      addTest("V20.2/V20.4 safeStorage: 便携目录路径配置项存在（高级设置）",
         hasPortableAdvanced ? "pass" : "fail",
-        hasPortableAdvanced ? "" : "settings.ts 便携目录路径未标注高级可选");
-      addTest("V20.2 safeStorage: 描述中提到 safeStorage 加密",
+        hasPortableAdvanced ? "" : "settings.ts 缺少便携目录路径配置");
+      addTest("V20.2/V20.4 safeStorage: 描述中提到加密存储",
         descMentionsSafeStorage ? "pass" : "fail",
-        descMentionsSafeStorage ? "" : "settings.ts 描述未提及 safeStorage");
+        descMentionsSafeStorage ? "" : "settings.ts 描述未提及加密存储");
     }
 
   } catch (e) {
@@ -26351,6 +26355,374 @@ if (!runV203) {
     try { if (v203ComposerBundle) rmSync(v203ComposerBundle, { force: true }); } catch {}
     try { if (v203JsonRpcBundle) rmSync(v203JsonRpcBundle, { force: true }); } catch {}
     try { if (v203TempDir) rmSync(v203TempDir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// ============================================================
+// 9.x V20.4: RuntimeProviderStore 单测（唯一真相源）
+// ============================================================
+console.log("\n=== V20.4 RuntimeProviderStore 单测 ===");
+
+let v204StoreBundle = null;
+let v204ResolverBundle = null;
+let v204TempDirs = [];
+
+try {
+  const esbuild = (await import("esbuild")).default;
+
+  // Bundle Store + Resolver
+  v204StoreBundle = join(PROJECT_ROOT, ".test-v204-store-temp.mjs");
+  await esbuild.build({
+    entryPoints: [join(PROJECT_ROOT, "src", "runtime", "runtimeProviderStore.ts")],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    outfile: v204StoreBundle,
+    external: ["electron"],
+  });
+  const storeMod = await import(pathToFileURL(v204StoreBundle).href);
+
+  v204ResolverBundle = join(PROJECT_ROOT, ".test-v204-resolver-temp.mjs");
+  await esbuild.build({
+    entryPoints: [join(PROJECT_ROOT, "src", "runtime", "runtimeProfileResolver.ts")],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    outfile: v204ResolverBundle,
+    external: ["electron"],
+  });
+  const resolverMod = await import(pathToFileURL(v204ResolverBundle).href);
+
+  const CONFIG_REL = "LLM-AgentRuntime/private/runtime-provider.json";
+
+  function makeTempVault() {
+    const dir = mkdtempSync(join(tmpdir(), "v204-test-"));
+    v204TempDirs.push(dir);
+    return dir;
+  }
+
+  function getConfigPath(vaultPath) {
+    return join(vaultPath, CONFIG_REL);
+  }
+
+  function writeConfigRaw(vaultPath, content) {
+    const fp = getConfigPath(vaultPath);
+    mkdirSync(dirname(fp), { recursive: true });
+    writeFileSync(fp, content, "utf8");
+  }
+
+  function readConfigRaw(vaultPath) {
+    return readFileSync(getConfigPath(vaultPath), "utf8");
+  }
+
+  // Test 1: 空 vault（无配置文件）→ source="none"
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    const state = await storeMod.loadRuntimeProviderState(vault);
+    const ok = state.source === "none" && state.relayUrl === "" && state.apiKey === "" && state.keyStatus === "not-configured";
+    addTest("V20.4 Store: 空 vault 返回 source=none", ok ? "pass" : "fail",
+      ok ? "" : `source=${state.source} relayUrl=${state.relayUrl} keyStatus=${state.keyStatus}`);
+  }
+
+  // Test 2: 写入 relayUrl（无 Key）→ source="provider-config", keyStatus="not-configured"
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    await storeMod.updateRuntimeProviderState(vault, { relayUrl: "https://relay.example.com" });
+    const state = await storeMod.loadRuntimeProviderState(vault);
+    const ok = state.source === "provider-config" && state.relayUrl === "https://relay.example.com" && state.apiKey === "" && state.keyStatus === "not-configured";
+    addTest("V20.4 Store: 写入 relayUrl 后 source=provider-config", ok ? "pass" : "fail",
+      ok ? "" : `source=${state.source} relayUrl=${state.relayUrl} keyStatus=${state.keyStatus}`);
+  }
+
+  // Test 3: setProviderApiKey（测试环境 safeStorage 不可用 → session-only）
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    await storeMod.updateRuntimeProviderState(vault, { relayUrl: "https://relay.example.com" });
+    const state = await storeMod.setProviderApiKey(vault, "sk-test-key-12345");
+    const ok = state.keyStatus === "session-only" && state.apiKey === "sk-test-key-12345";
+    addTest("V20.4 Store: setProviderApiKey session-only（safeStorage 不可用）", ok ? "pass" : "fail",
+      ok ? "" : `keyStatus=${state.keyStatus} apiKey=${state.apiKey}`);
+  }
+
+  // Test 4: setProviderApiKey 后文件不含明文 Key
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    await storeMod.updateRuntimeProviderState(vault, { relayUrl: "https://relay.example.com" });
+    await storeMod.setProviderApiKey(vault, "sk-secret-key-67890");
+    const raw = readConfigRaw(vault);
+    const hasPlainKey = raw.includes("sk-secret-key-67890");
+    addTest("V20.4 Store: 配置文件不含明文 API Key", !hasPlainKey ? "pass" : "fail",
+      !hasPlainKey ? "" : "配置文件中发现了明文 Key");
+  }
+
+  // Test 5: Sync 读取返回缓存的状态（含 session-only Key）
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    await storeMod.updateRuntimeProviderState(vault, { relayUrl: "https://relay.example.com" });
+    await storeMod.setProviderApiKey(vault, "sk-sync-test-key");
+    const syncState = storeMod.loadRuntimeProviderStateSync(vault);
+    const ok = syncState.apiKey === "sk-sync-test-key" && syncState.keyStatus === "session-only";
+    addTest("V20.4 Store: sync 读取返回含 session-only Key 的缓存", ok ? "pass" : "fail",
+      ok ? "" : `apiKey=${syncState.apiKey} keyStatus=${syncState.keyStatus}`);
+  }
+
+  // Test 6: 损坏 JSON → source="corrupt" + error
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    writeConfigRaw(vault, '{ "relayUrl": "https://relay.example.com", "model": "gpt-5" '); // 缺少闭合括号
+    const state = await storeMod.loadRuntimeProviderState(vault);
+    const ok = state.source === "corrupt" && !!state.error && state.relayUrl === "";
+    addTest("V20.4 Store: 损坏 JSON 返回 source=corrupt + error", ok ? "pass" : "fail",
+      ok ? "" : `source=${state.source} error=${state.error} relayUrl=${state.relayUrl}`);
+  }
+
+  // Test 7: 损坏配置时 updateRuntimeProviderState 抛出错误（不静默回退）
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    writeConfigRaw(vault, '{ invalid json }}}');
+    let threw = false;
+    try {
+      await storeMod.updateRuntimeProviderState(vault, { relayUrl: "https://new.example.com" });
+    } catch (e) {
+      threw = true;
+    }
+    addTest("V20.4 Store: 损坏配置时 update 抛出错误（不静默回退）", threw ? "pass" : "fail",
+      threw ? "" : "预期抛出错误但未抛出");
+  }
+
+  // Test 8: 外部修改文件 → mtime 变化 → 缓存失效 → 重新加载
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    await storeMod.updateRuntimeProviderState(vault, { relayUrl: "https://old.example.com", model: "gpt-old" });
+    const stateBefore = await storeMod.loadRuntimeProviderState(vault);
+    // 外部修改文件（模拟用户手动编辑或另一进程写入）
+    writeConfigRaw(vault, JSON.stringify({ relayUrl: "https://new.example.com", model: "gpt-new", updatedAt: "2026-07-12T00:00:00Z" }, null, 2) + "\n");
+    const stateAfter = await storeMod.loadRuntimeProviderState(vault);
+    const ok = stateBefore.relayUrl === "https://old.example.com" && stateAfter.relayUrl === "https://new.example.com" && stateAfter.model === "gpt-new";
+    addTest("V20.4 Store: 外部修改文件后缓存失效重新加载", ok ? "pass" : "fail",
+      ok ? "" : `before=${stateBefore.relayUrl} after=${stateAfter.relayUrl} model=${stateAfter.model}`);
+  }
+
+  // Test 9: clearProviderApiKey → Key 清除，其他字段保留
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    await storeMod.updateRuntimeProviderState(vault, { relayUrl: "https://relay.example.com", model: "gpt-5.6-sol" });
+    await storeMod.setProviderApiKey(vault, "sk-to-be-cleared");
+    await storeMod.clearProviderApiKey(vault);
+    const state = await storeMod.loadRuntimeProviderState(vault);
+    const ok = state.apiKey === "" && state.keyStatus === "not-configured" && state.relayUrl === "https://relay.example.com" && state.model === "gpt-5.6-sol";
+    addTest("V20.4 Store: clearProviderApiKey 保留 relayUrl/model", ok ? "pass" : "fail",
+      ok ? "" : `apiKey=${state.apiKey} keyStatus=${state.keyStatus} relayUrl=${state.relayUrl} model=${state.model}`);
+  }
+
+  // Test 10: setProviderModel → 模型更新
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    await storeMod.updateRuntimeProviderState(vault, { relayUrl: "https://relay.example.com", model: "gpt-old" });
+    await storeMod.setProviderModel(vault, "gpt-new-model");
+    const state = await storeMod.loadRuntimeProviderState(vault);
+    const ok = state.model === "gpt-new-model";
+    addTest("V20.4 Store: setProviderModel 更新模型", ok ? "pass" : "fail",
+      ok ? "" : `model=${state.model}`);
+  }
+
+  // Test 11: 原子写入（无 .tmp 文件残留）
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    await storeMod.updateRuntimeProviderState(vault, { relayUrl: "https://relay.example.com" });
+    const configDir = dirname(getConfigPath(vault));
+    const files = readdirSync(configDir);
+    const tmpFiles = files.filter((f) => f.includes(".tmp-"));
+    addTest("V20.4 Store: 原子写入无 .tmp 文件残留", tmpFiles.length === 0 ? "pass" : "fail",
+      tmpFiles.length === 0 ? "" : `残留 .tmp 文件: ${tmpFiles.join(", ")}`);
+  }
+
+  // Test 12: updateRuntimeProviderState 合并补丁（未提供字段保留原值）
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    await storeMod.updateRuntimeProviderState(vault, {
+      relayUrl: "https://relay.example.com",
+      model: "gpt-5",
+      verifiedModels: ["gpt-5", "gpt-4"],
+    });
+    // 只更新 model，其他字段应保留
+    await storeMod.updateRuntimeProviderState(vault, { model: "gpt-5.6" });
+    const state = await storeMod.loadRuntimeProviderState(vault);
+    const ok = state.relayUrl === "https://relay.example.com" && state.model === "gpt-5.6" &&
+               state.verifiedModels && state.verifiedModels.length === 2 && state.verifiedModels.includes("gpt-5");
+    addTest("V20.4 Store: updateRuntimeProviderState 合并补丁保留未提供字段", ok ? "pass" : "fail",
+      ok ? "" : `relayUrl=${state.relayUrl} model=${state.model} verifiedModels=${JSON.stringify(state.verifiedModels)}`);
+  }
+
+  // Test 13: 迁移 — 旧 Vault Profile 存在但无配置文件 → 自动迁移
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    // 创建旧 Vault Profile
+    const profileDir = join(vault, ".llm-bridge");
+    mkdirSync(profileDir, { recursive: true });
+    writeFileSync(join(profileDir, "runtime-profile.json"), JSON.stringify({
+      relayUrl: "https://migrated.example.com",
+      model: "gpt-migrated",
+      source: "local-relay",
+    }, null, 2) + "\n", "utf8");
+
+    // 首次加载（无配置文件）→ 应触发迁移
+    const state = await storeMod.loadRuntimeProviderState(vault, {
+      localRelayUrl: "https://migrated.example.com",
+      model: "gpt-migrated",
+    });
+    const ok = state.source === "migrated" && state.relayUrl === "https://migrated.example.com" && state.model === "gpt-migrated";
+    addTest("V20.4 Store: 从旧 Vault Profile 迁移", ok ? "pass" : "fail",
+      ok ? "" : `source=${state.source} relayUrl=${state.relayUrl} model=${state.model}`);
+
+    // 验证迁移后配置文件已落盘
+    const configExists = existsSync(getConfigPath(vault));
+    addTest("V20.4 Store: 迁移后配置文件落盘", configExists ? "pass" : "fail",
+      configExists ? "" : "配置文件未创建");
+
+    // 再次加载 → source 应为 provider-config（非 migrated）
+    storeMod.clearRuntimeProviderStoreCache();
+    const state2 = await storeMod.loadRuntimeProviderState(vault);
+    const ok2 = state2.source === "provider-config" && state2.relayUrl === "https://migrated.example.com";
+    addTest("V20.4 Store: 迁移后再次加载 source=provider-config", ok2 ? "pass" : "fail",
+      ok2 ? "" : `source=${state2.source} relayUrl=${state2.relayUrl}`);
+  }
+
+  // Test 14: reloadRuntimeProviderState 强制重新加载
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    await storeMod.updateRuntimeProviderState(vault, { relayUrl: "https://relay.example.com" });
+    // 外部修改
+    writeConfigRaw(vault, JSON.stringify({ relayUrl: "https://reloaded.example.com", model: "gpt-reloaded", updatedAt: "2026-07-12T01:00:00Z" }, null, 2) + "\n");
+    const state = await storeMod.reloadRuntimeProviderState(vault);
+    const ok = state.relayUrl === "https://reloaded.example.com" && state.model === "gpt-reloaded";
+    addTest("V20.4 Store: reloadRuntimeProviderState 强制重新加载", ok ? "pass" : "fail",
+      ok ? "" : `relayUrl=${state.relayUrl} model=${state.model}`);
+  }
+
+  // Test 15: hasSessionOnlyKey 窥探函数
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    await storeMod.updateRuntimeProviderState(vault, { relayUrl: "https://relay.example.com" });
+    const beforeSet = storeMod.hasSessionOnlyKey(vault);
+    await storeMod.setProviderApiKey(vault, "sk-session-key");
+    const afterSet = storeMod.hasSessionOnlyKey(vault);
+    addTest("V20.4 Store: hasSessionOnlyKey 正确反映 session-only 状态",
+      !beforeSet && afterSet ? "pass" : "fail",
+      !beforeSet && afterSet ? "" : `before=${beforeSet} after=${afterSet}`);
+  }
+
+  // ===== Resolver 委托测试 =====
+
+  // Test 16: resolveRuntimeProfile 无配置 → origin="none"
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    const profile = await resolverMod.resolveRuntimeProfile(vault, {});
+    const ok = profile.origin === "none" && profile.relayUrl === "" && profile.apiKey === "";
+    addTest("V20.4 Resolver: 无配置时 origin=none", ok ? "pass" : "fail",
+      ok ? "" : `origin=${profile.origin} relayUrl=${profile.relayUrl}`);
+  }
+
+  // Test 17: resolveRuntimeProfile 有配置 → origin="portable"，值来自 Store
+  // 注意：resolver bundle 内部有自己的 Store 实例，session-only Key 不跨 bundle 共享。
+  // 因此写含 legacy apiKey 的配置文件，让 resolver 的 Store 从文件读取。
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    writeConfigRaw(vault, JSON.stringify({
+      relayUrl: "https://relay.example.com",
+      model: "gpt-5.6-sol",
+      apiKey: "sk-legacy-from-file",
+      updatedAt: "2026-07-12T00:00:00Z",
+    }, null, 2) + "\n");
+    const profile = await resolverMod.resolveRuntimeProfile(vault, { model: "should-not-override" });
+    const ok = profile.origin === "portable" && profile.relayUrl === "https://relay.example.com" &&
+               profile.model === "gpt-5.6-sol" && profile.apiKey === "sk-legacy-from-file";
+    addTest("V20.4 Resolver: 有配置时 origin=portable 且 model 来自 Store（非 settings）", ok ? "pass" : "fail",
+      ok ? "" : `origin=${profile.origin} relayUrl=${profile.relayUrl} model=${profile.model} apiKey=${profile.apiKey}`);
+  }
+
+  // Test 18: resolveRuntimeProfileSync 与 async 一致
+  // 同样使用文件中的 legacy apiKey（跨 bundle session-only 不共享）
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    writeConfigRaw(vault, JSON.stringify({
+      relayUrl: "https://relay.example.com",
+      model: "gpt-sync-test",
+      apiKey: "sk-sync-from-file",
+      updatedAt: "2026-07-12T02:00:00Z",
+    }, null, 2) + "\n");
+    const asyncProfile = await resolverMod.resolveRuntimeProfile(vault, {});
+    const syncProfile = resolverMod.resolveRuntimeProfileSync({}, null, vault);
+    const ok = asyncProfile.relayUrl === syncProfile.relayUrl && asyncProfile.model === syncProfile.model &&
+               asyncProfile.apiKey === syncProfile.apiKey && asyncProfile.origin === syncProfile.origin;
+    addTest("V20.4 Resolver: sync 与 async 结果一致", ok ? "pass" : "fail",
+      ok ? "" : `async={relayUrl=${asyncProfile.relayUrl},model=${asyncProfile.model},origin=${asyncProfile.origin}} sync={relayUrl=${syncProfile.relayUrl},model=${syncProfile.model},origin=${syncProfile.origin}}`);
+  }
+
+  // Test 19: resolveRuntimeProfile corrupt 配置 → origin="none"
+  {
+    storeMod.clearRuntimeProviderStoreCache();
+    const vault = makeTempVault();
+    writeConfigRaw(vault, '{ "relayUrl": "broken');
+    const profile = await resolverMod.resolveRuntimeProfile(vault, {});
+    const ok = profile.origin === "none" && profile.relayUrl === "";
+    addTest("V20.4 Resolver: corrupt 配置时 origin=none（不回退到 settings）", ok ? "pass" : "fail",
+      ok ? "" : `origin=${profile.origin} relayUrl=${profile.relayUrl}`);
+  }
+
+  // Test 20: testModelResponsesRequest 参数校验
+  {
+    const r1 = await resolverMod.testModelResponsesRequest("", "sk-key", "model");
+    const r2 = await resolverMod.testModelResponsesRequest("https://relay.example.com", "", "model");
+    const r3 = await resolverMod.testModelResponsesRequest("https://relay.example.com", "sk-key", "");
+    const ok = !r1.ok && r1.detail.includes("中转站地址") && !r2.ok && r2.detail.includes("API Key") && !r3.ok && r3.detail.includes("模型");
+    addTest("V20.4 Resolver: testModelResponsesRequest 参数校验", ok ? "pass" : "fail",
+      ok ? "" : `r1=${r1.detail} r2=${r2.detail} r3=${r3.detail}`);
+  }
+
+  // Test 21: testModelResponsesRequest 函数存在且可调用
+  {
+    const isFunc = typeof resolverMod.testModelResponsesRequest === "function";
+    addTest("V20.4 Resolver: testModelResponsesRequest 函数存在", isFunc ? "pass" : "fail",
+      isFunc ? "" : "函数不存在");
+  }
+
+  // Test 22: Store exports 完整性
+  {
+    const exports = Object.keys(storeMod);
+    const required = ["loadRuntimeProviderState", "loadRuntimeProviderStateSync", "reloadRuntimeProviderState",
+                      "updateRuntimeProviderState", "setProviderApiKey", "clearProviderApiKey",
+                      "setProviderModel", "clearRuntimeProviderStoreCache", "hasSessionOnlyKey"];
+    const missing = required.filter((e) => !exports.includes(e));
+    addTest("V20.4 Store: exports 完整", missing.length === 0 ? "pass" : "fail",
+      missing.length === 0 ? "" : `缺少: ${missing.join(", ")}`);
+  }
+
+} catch (e) {
+  addTest("V20.4 测试段", "fail", `加载/执行异常: ${e?.stack || e?.message || e}`);
+} finally {
+  try { if (v204StoreBundle) rmSync(v204StoreBundle, { force: true }); } catch {}
+  try { if (v204ResolverBundle) rmSync(v204ResolverBundle, { force: true }); } catch {}
+  for (const dir of v204TempDirs) {
+    try { rmSync(dir, { recursive: true, force: true }); } catch {}
   }
 }
 

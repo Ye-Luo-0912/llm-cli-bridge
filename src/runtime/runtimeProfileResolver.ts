@@ -171,15 +171,15 @@ function resolvePortableDirectory(portableDir: string, vaultPath?: string): stri
 /**
  * 解析运行时 profile（provider-neutral 单一入口）。
  *
- * V20 优先级：
- * 0. runtime-provider.json（本地真相源，含 API Key）
- * 1. Vault .llm-bridge/runtime-profile.json 提供可同步的 relayUrl
- * 2. 模型始终优先使用聊天框 settings.model；Vault profile 仅作旧配置回退
- * 3. API Key：便携目录（localRelayPortableKeyPath 非空时优先）→ settings.localRelayApiKey
- * 4. 无 relayUrl → origin "none"（调用方应回退到原生认证）
+ * V20.4: runtime-provider.json 是唯一真相源（RuntimeProviderStore）。
+ * 不再做三路合并（旧 Vault Profile / settings / 便携 Key 合并导致状态分裂）。
+ * - 配置存在：完全以文件为准（relayUrl/apiKey/model 均来自文件）。
+ * - 配置缺失：Store 内部从旧来源迁移一次并落盘，之后仅读文件。
+ * - 配置损坏：Store 返回 source="corrupt"；此处映射为 origin="none" 并保留空值，
+ *   调用方应提示用户修复配置，而非静默回退到 settings。
  *
  * @param vaultPath Vault 根目录
- * @param settings 插件设置（需包含 localRelay* 字段）
+ * @param settings 插件设置（仅作迁移来源，不再参与运行时合并）
  */
 export async function resolveRuntimeProfile(
   vaultPath: string,
@@ -191,97 +191,52 @@ export async function resolveRuntimeProfile(
     localRelayPortableKeyPath?: string;
   },
 ): Promise<ResolvedRuntimeProfile> {
-  // V20: 优先读取 runtime-provider.json（含迁移）
-  try {
-    const { loadRuntimeProviderConfig } = require("./runtimeProviderConfig");
-    const source = await loadRuntimeProviderConfig(vaultPath, settings);
-    if (source.config && source.config.relayUrl) {
-      return {
-        relayUrl: source.config.relayUrl,
-        model: settings.model || source.config.model || "",
-        apiKey: source.config.apiKey || "",
-        origin: "portable",
-      };
-    }
-  } catch { /* provider config not available, fall through */ }
-
-  // 1. 读取 Vault profile
-  const vaultProfile = await loadVaultRuntimeProfile(vaultPath);
-
-  // 2. relayUrl 允许 Vault profile 覆盖；model 以聊天框 settings.model 为真相源
-  const relayUrl = vaultProfile?.relayUrl || settings.localRelayUrl || "";
-  const model = settings.model || vaultProfile?.model || settings.localRelayModel || "";
-
-  // 3. 无 relayUrl → 未配置
-  if (!relayUrl) {
+  const { loadRuntimeProviderState } = require("./runtimeProviderStore") as typeof import("./runtimeProviderStore");
+  const state = await loadRuntimeProviderState(vaultPath, settings);
+  if (!state.relayUrl || state.source === "corrupt" || state.source === "none") {
     return { relayUrl: "", model: "", apiKey: "", origin: "none" };
   }
-
-  // 4. 解析 API Key（便携目录优先）
-  let apiKey = "";
-  let origin: ResolvedRuntimeProfile["origin"] = vaultProfile ? "vault-profile" : "settings";
-
-  if (settings.localRelayPortableKeyPath) {
-    const portableKey = await loadPortableApiKey(resolvePortableDirectory(settings.localRelayPortableKeyPath, vaultPath));
-    if (portableKey) {
-      apiKey = portableKey;
-      origin = "portable";
-    }
-  }
-
-  if (!apiKey && settings.localRelayApiKey) {
-    apiKey = settings.localRelayApiKey;
-    // origin 保持 vault-profile/settings（key 来源不改变 URL 来源标识）
-  }
-
-  return { relayUrl, model, apiKey, origin };
+  // 配置文件为准：model 来自 Store，不再用 settings.model 覆盖
+  return {
+    relayUrl: state.relayUrl,
+    model: state.model,
+    apiKey: state.apiKey,
+    origin: "portable",
+  };
 }
 
 /**
- * 同步版本（用于无法 await 的场景，如 buildRunEnv）。
- * V20: 优先读取 runtime-provider.json（本地真相源），不存在时回退到旧路径。
+ * 同步版本（用于无法 await 的场景，如 buildRunEnv / spawn env）。
+ *
+ * V20.4: 同样以 runtime-provider.json 为唯一真相源（RuntimeProviderStore）。
+ * 返回 Store 最近一次 async 读取的缓存；若未缓存则同步读文件（不执行迁移）。
+ * 不再做三路合并。
  */
 export function resolveRuntimeProfileSync(
-  settings: {
+  _settings: {
     localRelayUrl?: string;
     localRelayModel?: string;
     model?: string;
     localRelayApiKey?: string;
     localRelayPortableKeyPath?: string;
   },
-  vaultProfile?: VaultRuntimeProfile | null,
+  _vaultProfile?: VaultRuntimeProfile | null,
   vaultPath?: string,
 ): ResolvedRuntimeProfile {
-  // V20: 优先读取 runtime-provider.json
-  if (vaultPath) {
-    try {
-      // 动态 require 避免循环依赖
-      const { loadRuntimeProviderConfigSync } = require("./runtimeProviderConfig");
-      const providerConfig = loadRuntimeProviderConfigSync(vaultPath);
-      if (providerConfig && providerConfig.relayUrl) {
-        return {
-          relayUrl: providerConfig.relayUrl,
-          model: settings.model || providerConfig.model || "",
-          apiKey: providerConfig.apiKey || "",
-          origin: "portable",
-        };
-      }
-    } catch { /* provider config not available, fall through */ }
-  }
-
-  const relayUrl = vaultProfile?.relayUrl || settings.localRelayUrl || "";
-  const model = settings.model || vaultProfile?.model || settings.localRelayModel || "";
-  if (!relayUrl) {
+  if (!vaultPath) {
     return { relayUrl: "", model: "", apiKey: "", origin: "none" };
   }
-  const portableKey = settings.localRelayPortableKeyPath
-    ? loadPortableApiKeySync(settings.localRelayPortableKeyPath, vaultPath)
-    : null;
-  const apiKey = portableKey || settings.localRelayApiKey || "";
-  const origin: ResolvedRuntimeProfile["origin"] = portableKey
-    ? "portable"
-    : vaultProfile ? "vault-profile" : "settings";
-  return { relayUrl, model, apiKey, origin };
+  const { loadRuntimeProviderStateSync } = require("./runtimeProviderStore") as typeof import("./runtimeProviderStore");
+  const state = loadRuntimeProviderStateSync(vaultPath);
+  if (!state.relayUrl || state.source === "corrupt" || state.source === "none") {
+    return { relayUrl: "", model: "", apiKey: "", origin: "none" };
+  }
+  return {
+    relayUrl: state.relayUrl,
+    model: state.model,
+    apiKey: state.apiKey,
+    origin: "portable",
+  };
 }
 
 // ---------- 测试连接 ----------
@@ -339,6 +294,75 @@ export async function testRelayConnection(
     return { ok: false, status: response.status, detail: `中转站返回 HTTP ${response.status}`, models: [] };
   } catch (e) {
     return { ok: false, status: null, detail: desensitizeError(e, apiKey), models: [] };
+  }
+}
+
+/**
+ * V20.4: 对指定模型发起一次真实 Responses 请求（POST /v1/responses），
+ * 验证模型真正可用（不仅列表存在，而是能完成一次推理）。
+ *
+ * 用于"验证当前模型"按钮：仅 /v1/models 只能证明模型在列表里，
+ * 真实 Responses 请求才能证明 key 有调用权限 + 模型可推理。
+ * 产生少量费用（max_output_tokens 极低）。
+ */
+export async function testModelResponsesRequest(
+  relayUrl: string,
+  apiKey: string,
+  model: string,
+): Promise<{ ok: boolean; status: number | null; detail: string }> {
+  if (!relayUrl) return { ok: false, status: null, detail: "未配置中转站地址" };
+  if (!apiKey) return { ok: false, status: null, detail: "未配置 API Key" };
+  if (!model) return { ok: false, status: null, detail: "未选择模型" };
+
+  const url = relayUrl.replace(/\/+$/, "") + "/v1/responses";
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    };
+    // 极小负载：1 token 输入 + max_output_tokens=1，费用可忽略
+    const body = JSON.stringify({
+      model,
+      input: "hi",
+      max_output_tokens: 1,
+      stream: false,
+    });
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    let response: Response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers,
+        body,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+
+    if (response.ok) {
+      return { ok: true, status: response.status, detail: `模型 ${model} 验证通过（真实 Responses 请求成功）` };
+    }
+    if (response.status === 401 || response.status === 403) {
+      return { ok: false, status: response.status, detail: "API Key 无效或无该模型调用权限" };
+    }
+    if (response.status === 404) {
+      return { ok: false, status: response.status, detail: `模型 ${model} 不存在或不支持 Responses 接口` };
+    }
+    if (response.status === 429) {
+      return { ok: false, status: response.status, detail: "请求频率超限（Rate limit）；模型可达，稍后重试" };
+    }
+    // 尝试读取错误体
+    let errDetail = "";
+    try {
+      const errPayload = await response.json() as { error?: { message?: unknown } };
+      errDetail = typeof errPayload?.error?.message === "string" ? errPayload.error.message : "";
+    } catch { /* non-JSON error body */ }
+    const suffix = errDetail ? `：${desensitizeError(errDetail, apiKey)}` : "";
+    return { ok: false, status: response.status, detail: `中转站返回 HTTP ${response.status}${suffix}` };
+  } catch (e) {
+    return { ok: false, status: null, detail: desensitizeError(e, apiKey) };
   }
 }
 
