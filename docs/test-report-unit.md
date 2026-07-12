@@ -1,24 +1,24 @@
 # LLM CLI Bridge 测试报告 — 单元测试（unit）
 
-- **测试时间**: 2026-07-12T15:16:06.389Z
+- **测试时间**: 2026-07-12T18:57:35.941Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.18.0
-- **main.js 大小**: 1363.6 KB
+- **main.js 大小**: 1361.7 KB
 - **main.js bundle content smoke**: PASS ({"HttpBridge":true,"writeHelperAndWrappers":true,"CodexAppServerProvider":true,"vault_api":true})
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 63359
-- **commit sha**: 515ddd572c7ec58dff23f9459e14da8f2cb51bc1
-- **commit 短 sha**: 515ddd572c7e
+- **commit sha**: b0de58fd2c00486d6530e2c5bf841694fe667bb9
+- **commit 短 sha**: b0de58fd2c00
 - **运行命令**: node scripts/run-tests.mjs --unit
 
 ## 测试汇总
 
-- ✅ **通过**: 1351
-- ❌ **失败**: 0
+- ✅ **通过**: 1349
+- ❌ **失败**: 16
 - ⏭️ **跳过**: 25
 - ⚪ **需人工验证**: 0
-- **总计**: 1376
+- **总计**: 1390
 
 ### 审计模式说明
 
@@ -251,14 +251,14 @@
 |------|--------|------|
 | ✅ | CodexAppServerProvider 实现 RuntimeProvider 接口 | - |
 | ✅ | started 必须先发出 | - |
-| ✅ | stdout_delta 正常产出 | - |
-| ✅ | stderr_delta 正常产出 | - |
-| ✅ | completed 正常产出 | - |
-| ✅ | failed 正常产出 | - |
-| ✅ | stop() 产出 stopped/failed | - |
+| ❌ | stdout_delta 正常产出 | 未收到包含预期内容的 stdout_delta |
+| ❌ | stderr_delta 正常产出 | 未收到 stderr_delta |
+| ❌ | completed 正常产出 | 未收到 exitCode=0 的 completed 事件 |
+| ❌ | failed 正常产出 | 未收到 exitCode!=0 的 failed 事件 |
+| ❌ | stop() 产出 stopped/failed | stop() 后未收到 stopped 或 failed 事件 |
 | ✅ | stop() 多次调用不抛异常 | - |
 | ✅ | cwd 不存在返回 failed | - |
-| ✅ | command 不存在返回 failed | - |
+| ❌ | command 不存在返回 failed | command 不存在时未返回 failed |
 
 ### Plan snapshot
 
@@ -762,7 +762,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-QwnwyY\\skills\\pdf\\SKILL.md"}] |
+| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-iEEmy6\\skills\\pdf\\SKILL.md"}] |
 
 ### V16.5-D view.ts 主路径注入真实 capabilities
 
@@ -798,7 +798,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=19890 capLine=20650 orderOk=true |
+| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=19592 capLine=20352 orderOk=true |
 | ✅ | buildBridgePromptPackage 主路径接收 runtimeCapabilities | hasRuntimeCapabilities=true hasPassedToBuilder=true |
 
 ### V16.5-E workspace
@@ -1083,7 +1083,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783869368830-0 update=pi-sdk-read-1783869368830-0 end=pi-sdk-read-1783869368830-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783882658168-0 update=pi-sdk-read-1783882658168-0 end=pi-sdk-read-1783882658168-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -1298,12 +1298,12 @@
 |------|--------|------|
 | ✅ | cancel(runId) 触发 session.abort() | abortCalls=1 eventsCount=3 |
 
-### V17-D auth override
+### V17-D auth override V20.5
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | piApiKey/Provider/BaseUrl 注入 authStorage + model 传入 createAgentSession | setKey=true(2) register=true(2) modelOverride=true completed=true |
-| ✅ | 空 override 时不调用认证覆盖，模型仍与 EffectiveRunPlan 对齐 | noSetKey=true noRegister=true modelAligned=true completed=true |
+| ✅ | piApiKey/Provider/BaseUrl 不再注入 authStorage（createAuthWithOverride(sdk, undefined) 无 override） | noSetKey=true(0) noRegister=true(0) noModelOverride=true completed=true |
+| ✅ | 空 override 时不调用认证覆盖（createAuthWithOverride(sdk, undefined) 无 override），无 model override | noSetKey=true noRegister=true noModelOverride=true completed=true |
 
 ### V17-D settings.ts
 
@@ -1548,33 +1548,17 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3444ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
- |
-| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4637ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783869374872
- |
-| ✅ | health 命令（fake server） | - |
-| ✅ | --json 标志输出有效 JSON（fake server） | - |
-| ✅ | 非修改类 action 直接输出（不轮询） | {
-  "ok": true,
-  "id": "fake-id-1783869379913",
-  "status": "completed",
-  "result": {
-    "type":  |
-| ✅ | --stdin 模式读取 JSON params | {
-  "ok": true,
-  "id": "fake-id-1783869380192",
-  "status": "completed",
-  "result": {
-    "type":  |
-| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783869380488","status":"completed","result":{"type":"tags_list","fake":tru |
-| ✅ | 错误分级 - bridge.json 缺失 exit 2 | exit=2 stderr=[bridge 未启动] 未找到 .llm-bridge/bridge.json。
-  请确认 Obsidian 已启动且 llm-cli-bridge 插件已 |
-| ✅ | 错误分级 - JSON 解析失败 exit 5 | exit=5 stderr=[参数解析失败] JSON 格式错误: Expected property name or '}' in JSON at position 1 (line 1  |
+| ❌ | --wait --timeout 超时行为（fake server） | exit=-1 elapsed=10524ms hasTimeout=false hasAssertion=false stderr= |
+| ❌ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=-1 elapsed=30531ms hasCompleted=false stdout= |
+| ❌ | health 命令（fake server） | Unexpected end of JSON input |
+| ❌ | --json 标志输出有效 JSON（fake server） | Unexpected end of JSON input |
+| ❌ | 非修改类 action 直接输出（不轮询） | Unexpected end of JSON input |
+| ❌ | --stdin 模式读取 JSON params | Unexpected end of JSON input |
+| ❌ | --raw 输出纯 JSON（单行） | Unexpected end of JSON input |
+| ❌ | 错误分级 - bridge.json 缺失 exit 2 | exit=-1 stderr= |
+| ❌ | 错误分级 - JSON 解析失败 exit 5 | exit=-1 stderr= |
 | ✅ | obsidian-bridge wrapper 生成（obsidian-bridge.cmd + obsidian-bridge） | win=true unix=true |
-| ✅ | 真实 wrapper invocation（当前平台 health 实跑） | platform=win32 wrapperExists=true exit=0 stdout={
-  "ok": true,
-  "data": {
-    "vaultPath": "C:\\Users\\Ye_Luo\\AppData\\Local\ stderr= |
+| ❌ | 真实 wrapper invocation（当前平台 health 实跑） | platform=win32 wrapperExists=true exit=0 stdout= stderr= |
 
 ### Preset
 
@@ -2430,7 +2414,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-12T15-16-47-375Z-us0o5j |
+| ✅ | 返回非空 id | id=s-2026-07-12T19-01-31-324Z-ol1fen |
 
 ### V2.5 Session 版本
 
@@ -2449,7 +2433,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-12T15-16-47-444Z-t86n0e second=s-2026-07-12T15-16-47-387Z-mavgah |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-12T19-01-31-407Z-59y3in second=s-2026-07-12T19-01-31-342Z-d0jaji |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2524,7 +2508,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-12T15-16-47-501Z-031lan id2=s-2026-07-12T15-16-47-501Z-q7pf1w |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-12T19-01-31-496Z-o1l6f1 id2=s-2026-07-12T19-01-31-496Z-gsquzd |
 
 ### V2.5 Session 上限
 
@@ -2622,7 +2606,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-12T15:16:47.587Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-12T19:01:31.588Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2710,7 +2694,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-12T15:16:47.670Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-12T19:01:31.677Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2829,7 +2813,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-12T15:16:47.771Z after=2026-07-12T15:16:47.826Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-12T19:01:31.773Z after=2026-07-12T19:01:31.827Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -3196,13 +3180,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-12T15:16:48.586Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-12T19:01:32.592Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-12T15:16:48.592Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-12T19:01:32.599Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3318,7 +3302,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-37K8TE\skills\llm-bridge-68b58737-review-skill\SKILL.md |
+| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-uC5Css\skills\llm-bridge-db1374cd-review-skill\SKILL.md |
 | ✅ | run 前从 Bridge manifest 物化 enabled Skills | ok=true count=1 |
 
 ### V2.13.0-C materializeEnabled
@@ -3520,7 +3504,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-870Dag\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-1ypU4k\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-zI95Zj\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-aIveMP\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3532,7 +3516,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-3Gqfr3\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-vfSo96\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-6cVQep\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-z6D5Dp\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3544,7 +3528,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-QycKFi\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-jREDCz\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-d0slla\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-9noBiY\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -4253,13 +4237,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | Vault profile 解析 + key 合并 + V20 迁移（vault 提供 url/model，settings 提供 key → portable） | profileHasNoKey=true urlOk=true modelOk=true keyOk=true originOk=true migratedFileExists=true |
+| ✅ | V20.5 resolveRuntimeProfile always returns none（vault 有 profile 也返回 none） | profileHasNoKey=true urlOk=true modelOk=true keyOk=true originOk=true |
 
 ### RP-2
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 便携目录覆盖（多 Vault 共用同一 key 文件） | portableOk=true keyFileExists=true key1Ok=true key2Ok=true url1Ok=true url2Ok=true origin1Ok=true origin2Ok=true |
+| ✅ | V20.5 便携目录覆盖（多 Vault 共用同一 key 文件，resolveRuntimeProfile always returns none） | portableOk=true keyFileExists=true key1Ok=true key2Ok=true url1Ok=true url2Ok=true origin1Ok=true origin2Ok=true |
 
 ### RP-3
 
@@ -4271,7 +4255,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | Vault profile 安全检查（含 apiKey 的 JSON 被拒绝读取，回退到 settings） | rejected=true syncRejected=true fallbackUrl=true |
+| ✅ | V20.5 Vault profile 安全检查（含 apiKey 的 JSON 被拒绝读取，resolveRuntimeProfile always returns none） | rejected=true syncRejected=true noneOrigin=true emptyUrl=true |
 
 ### RP-5
 
@@ -4490,17 +4474,6 @@
 | ✅ | summary 含 Managed Codex Runtime 必需审计字段（testedCodeCommitSha/reportCommitSha/reportParentSha/unitReportSha/processReportSha/managed gate） | exists=true testedSha=true reportSha=true parentSha=true unitSha=true processSha=true managedGate=true capturedTestedSha=d8374b229554 |
 | ✅ | 审计模式 testedCodeCommitSha 不匹配 + managed runtime gate 异常 → exit 1 | scriptExists=true auditFailExit=true testedCodeShaCheck=true managedGateCheck=true docsOnlyLogic=true |
 
-### V20.2 Key 重启恢复
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ✅ | saveRuntimeProviderConfig 写入成功 | saveResult=true, fileExists=true |
-| ✅ | 文件含 encryptedApiKey 不含明文 apiKey | hasEncrypted=true, noPlaintextKey=true |
-| ✅ | 明文 Key 不出现在文件内容中 | - |
-| ✅ | loadRuntimeProviderConfig 解密恢复 Key 一致 | expected="sk-test-key-abc123xyz", actual="sk-test-key-abc123xyz" |
-| ✅ | relayUrl + model + origin 正确恢复 | relay="https://relay.example.com", model="gpt-5.5", origin="provider-config" |
-| ✅ | 空 Key 不写入 encryptedApiKey | saveResult=true, noEncrypted=true, recovered="" |
-
 ### V20.2 模型目录
 
 | 状态 | 测试项 | 详情 |
@@ -4511,13 +4484,24 @@
 | ✅ | getEffortsForModel 模型自带 effort → 中文 label | count=3, labelsChinese=true, valuesEnglish=true |
 | ✅ | clearCodexManagedModelCatalogCache 导出并调用 cache.clear() | - |
 | ✅ | loadCodexManagedModelCatalog 使用 cache.get/set 缓存机制 | cacheGet=true, cacheSet=true |
-| ✅ | settings.ts 刷新/发现按钮调用 clearCodexManagedModelCatalogCache | - |
 
-### V20.2/V20.4 模型目录
+### V20.5 settings.ts
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 发现按钮使用 Store 获取真实 relayUrl/apiKey | - |
+| ✅ | 不再调用 clearCodexManagedModelCatalogCache（已移除模型发现 UI） | - |
+| ✅ | 使用 runtimeRouter | - |
+| ✅ | 不再持久化 providerModels（已移除模型发现） | - |
+| ✅ | 不再持久化 verifiedModels | noVerifiedModels=true |
+| ✅ | 不再持久化 pendingModels（已移除模型发现） | - |
+| ✅ | 不再持久化 incompatibleModels | noIncompatibleModels=true |
+| ✅ | 有 router.migrateFromV20_4 迁移按钮 + setActiveProvider（替代 discoveredAt） | migrate=true setActive=true noDiscoveredAt=true |
+
+### V20.7 settings.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 使用 tab + saveProviderForm + readProviderForm | tabs=true, saveForm=true, readForm=true |
 
 ### V20.2 菜单交互
 
@@ -4551,35 +4535,19 @@
 | ✅ | 选项列表限高滚动（max-height: 240px + overflow-y: auto） | - |
 | ✅ | 选项 label + check 样式存在 | modelLabel=true, effortLabel=true, check=true |
 
+### V20.5/V20.7 settings.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | API Key 通过 saveProviderForm + clearXxxKey 持久化 | - |
+
 ### V20.2/V20.4 safeStorage
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | settings.ts API Key onChange 持久化到 runtime-provider.json（Store） | - |
 | ✅ | '清除 Key' 按钮存在 | - |
 | ✅ | 便携目录路径配置项存在（高级设置） | - |
-| ✅ | 描述中提到加密存储 | - |
-
-### V20.3 持久化
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ✅ | saveRuntimeProviderConfig 写入 providerModels | save=true, providerModels=3 |
-| ✅ | 写入 verifiedModels + pendingModels | verified=1, pending=1 |
-| ✅ | 写入 incompatibleModels（含 id + reason） | incompatible=2 |
-| ✅ | 写入 discoveredAt 时间戳 | expected="2026-07-12T15:16:53.835Z", actual="2026-07-12T15:16:53.835Z" |
-| ✅ | loadRuntimeProviderConfig 异步读回新字段一致 | provider=3, verified=1, pending=1, incompatible=2 |
-| ✅ | loadRuntimeProviderConfigSync 同步读回新字段一致 | provider=3, incompatible[0].id="dall-e-3" |
-
-### V20.3 modelMatcher
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ✅ | incompatible 项均含 incompatibleReason | count=3, dallE="非文本生成模型（图片/语音/Embedding 等）", unknown="runtime 未识别该模型 ID", noText="runtime 标记为不支持文本生成" |
-| ✅ | 非 Agent 模型 reason 含「非文本生成」 | reason="非文本生成模型（图片/语音/Embedding 等）" |
-| ✅ | runtime 未识别 reason 含「未识别」 | reason="runtime 未识别该模型 ID" |
-| ✅ | 不支持文本生成 reason 含「不支持文本生成」 | reason="runtime 标记为不支持文本生成" |
-| ✅ | available 项不含 incompatibleReason | - |
+| ✅ | 描述中提到加密 | - |
 
 ### V20.3 三分类 UI
 
@@ -4609,19 +4577,9 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | send timeoutMs 超时后 reject | rejected=true, elapsed=204ms |
+| ✅ | send timeoutMs 超时后 reject | rejected=true, elapsed=206ms |
 | ✅ | 超时错误消息含 method 名和 timeoutMs | msg="JSON-RPC 'test/method' timeout after 200ms" |
 | ✅ | 不传 timeoutMs 时不超时（保持原有行为） | resolved=false |
-
-### V20.3 settings.ts
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ✅ | 持久化 providerModels（relayResult.models） | - |
-| ✅ | 持久化 verifiedModels（matchResult.available） | - |
-| ✅ | 持久化 pendingModels（matchResult.pending） | - |
-| ✅ | 持久化 incompatibleModels（含 incompatibleReason） | - |
-| ✅ | 持久化 discoveredAt 时间戳 | - |
 
 ### V20.3 runtimeModelCatalog
 
@@ -4630,11 +4588,12 @@
 | ✅ | ModelCatalogEntry 含 incompatibleReason 字段 | - |
 | ✅ | setRuntimeModelCatalogForAgent 保留 incompatibleReason | - |
 
-### V20.3 view.ts
+### V20.8 view.ts
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | refreshDynamicModelCatalog 注入 incompatible 模型到 catalog | - |
+| ✅ | refreshDynamicModelCatalog 使用本地配置模型 | localModel=true |
+| ✅ | 不请求 /v1/models + 使用 readProviderForm | noV1=true, localForm=true |
 
 ### V20.3 CSS
 
@@ -4645,43 +4604,232 @@
 | ✅ | 待验证/不兼容 label 样式存在 | - |
 | ✅ | 待验证 tag + 不兼容 reason 样式存在 | - |
 
-### V20.4 Store
+### V20.5 ActiveProvider
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 空 vault 返回 source=none | - |
-| ✅ | 写入 relayUrl 后 source=provider-config | - |
-| ✅ | setProviderApiKey session-only（safeStorage 不可用） | - |
-| ✅ | 配置文件不含明文 API Key | - |
-| ✅ | sync 读取返回含 session-only Key 的缓存 | - |
-| ✅ | 损坏 JSON 返回 source=corrupt + error | - |
-| ✅ | 损坏配置时 update 抛出错误（不静默回退） | - |
-| ✅ | 外部修改文件后缓存失效重新加载 | - |
-| ✅ | clearProviderApiKey 保留 relayUrl/model | - |
-| ✅ | setProviderModel 更新模型 | - |
-| ✅ | 原子写入无 .tmp 文件残留 | - |
-| ✅ | updateRuntimeProviderState 合并补丁保留未提供字段 | - |
-| ✅ | 从旧 Vault Profile 迁移 | - |
-| ✅ | 迁移后配置文件落盘 | - |
-| ✅ | 迁移后再次加载 source=provider-config | - |
-| ✅ | reloadRuntimeProviderState 强制重新加载 | - |
-| ✅ | hasSessionOnlyKey 正确反映 session-only 状态 | - |
-| ✅ | exports 完整 | - |
+| ✅ | 空 vault 返回默认 codex | expected codex, got codex |
+| ✅ | save+load claude | expected claude, got claude |
+| ✅ | active.json 不含地址/模型/Key | active.json 内容: {"schemaVersion":1,"activeProvider":"pi"} |
 
-### V20.4 Resolver
+### V20.5 SecretsStore
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 无配置时 origin=none | - |
-| ✅ | 有配置时 origin=portable 且 model 来自 Store（非 settings） | - |
-| ✅ | sync 与 async 结果一致 | - |
-| ✅ | corrupt 配置时 origin=none（不回退到 settings） | - |
-| ✅ | testModelResponsesRequest 参数校验 | - |
-| ✅ | testModelResponsesRequest 函数存在 | - |
+| ✅ | setCodexKey 后 hasKey=true | hasKey=true, keyStatus=session-only |
+| ✅ | clearCodexKey 后 hasKey=false | hasKey=false |
+| ✅ | setClaudeKey + setPiKey | claude.hasKey=true, pi.hasKey=true |
+
+### V20.5 ConfigExists
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 空 vault 全部 false | codex=false, claude=false, pi=false |
+| ✅ | codex/config.toml 存在 → true | codexConfigExists=true |
+| ✅ | claude/settings.json 存在 → true | claudeConfigExists=true |
+| ✅ | pi/settings.json 存在 → true | piConfigExists=true |
+
+### V20.5 buildRuntimeEnv
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | codex 本地配置存在 → CODEX_HOME 设置 | CODEX_HOME=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-9kIUDG\.llm-bridge\private\runtime\codex, hasKey=true |
+| ✅ | codex 本地配置缺失 → CODEX_HOME 不设置 | CODEX_HOME=undefined, hasKey=true |
+| ✅ | claude 本地配置存在 → CLAUDE_CONFIG_DIR 设置 | CLAUDE_CONFIG_DIR=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-fqGqip\.llm-bridge\private\runtime\claude, hasKey=true |
+| ✅ | pi 本地配置存在 → PI_CODING_AGENT_DIR 设置 | PI_CODING_AGENT_DIR=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-u1reZ7\.llm-bridge\private\runtime\pi, hasKey=true |
+| ✅ | 无密钥 → env 不含 CODEX_RELAY_API_KEY | hasKey=false |
+
+### V20.5 getRouterState
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 聚合状态正确（含 localConfigPath + globalConfigDir） | active=codex, codex.exists=true, codex.path=.llm-bridge/private/runtime/codex/config.toml, codex.hasKey=true |
+
+### V20.5 Resolver
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | resolveRuntimeProfile 返回 origin=none | origin=none, relayUrl= |
+| ✅ | resolveRuntimeProfileSync 返回 origin=none | origin=none, relayUrl= |
+| ✅ | buildRuntimeSpawnEnv 委托到 router（通过 buildRuntimeEnv 验证） | CODEX_HOME=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-6m9qr0\.llm-bridge\private\runtime\codex, hasKey=true |
+
+### V20.5 Migrate
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 无旧配置 → migrated=false | migrated=false, reason=无 V20.4 配置文件，无需迁移 |
+| ✅ | 有旧配置 → 迁移 active.json + 密钥 | migrated=true, activeExists=true, codex.hasKey=true |
+| ✅ | 已有 active.json → 跳过 | migrated=false, reason=V20.5 配置已存在，跳过迁移 |
+| ✅ | 迁移后不自动创建原生配置文件 | codex=false, claude=false, pi=false |
+
+### V20.5 clearRouterCache
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 清除 session-only 缓存后密钥丢失 | hasKey=false (session-only cleared) |
+
+### V20.6 getGlobalCodexConfigDir
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 返回非空路径 | dir=C:\Users\Ye_Luo\.codex |
+
+### V20.6 getGlobalClaudeConfigDir
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 返回非空路径 | dir=C:\Users\Ye_Luo\.claude |
+
+### V20.6 getGlobalPiConfigDir
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 返回非空路径 | dir=C:\Users\Ye_Luo\.pi |
+
+### V20.6 createCodexLocalConfig
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 无全局 → 用模板创建 config.toml | ok=true, source=template, exists=true, hasModelProvider=true |
+| ✅ | 已存在 → already-exists | ok=true, source=already-exists |
+
+### V20.6 createClaudeLocalConfig
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 无全局 → 用模板创建 settings.json | ok=true, source=template, exists=true, hasSchema=true |
+| ✅ | 全局存在 → 从全局复制 | ok=true, source=global-copy, isCopied=true |
+
+### V20.6 createPiLocalConfig
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 无全局 → 用模板创建 settings.json + models.json | ok=true, source=template, settings=true, models=true, hasProviders=true |
+
+### V20.7 Codex form
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | write→read 往返一致 | ok=true, baseURL=https://relay.example.com/v1, model=gpt-5.4, exists=true |
+
+### V20.7 Claude form
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | write→read 往返一致 | ok=true, baseURL=https://relay.example.com, model=claude-sonnet-4-5, exists=true |
+
+### V20.7 Pi form
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | write→read 往返一致 | ok=true, baseURL=https://relay.example.com/v1, model=gpt-5.4, exists=true |
+
+### V20.7 readCodexForm
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 本地配置不存在 → localConfigExists=false | ok=true, form=false, exists=false |
+
+### V20.7 readClaudeForm
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | JSON 错误 → 返回 error | ok=false, exists=true, error=Claude settings.json 解析失败：Expected property name o |
+
+### V20.7 saveProviderForm Codex
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 生成配置 + 注入密钥 | ok=true, model=gpt-5.4, files=.llm-bridge/private/runtime/codex/config.toml, keyStatus=session-only |
+
+### V20.7 saveProviderForm Claude
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 生成配置 + 注入密钥 | ok=true, model=claude-sonnet-4-5, files=.llm-bridge/private/runtime/claude/settings.json |
+
+### V20.7 saveProviderForm Pi
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 生成 settings.json + models.json | ok=true, model=gpt-5.4, files=.llm-bridge/private/runtime/pi/settings.json,.llm-bridge/private/runtime/pi/models.json |
+
+### V20.7 saveProviderForm
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 无 apiKey → keyStatus=undefined | ok=true, keyStatus=undefined |
+
+### V20.7 writeCodexForm
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 生成 env_key 但不泄露 Key 值 | hasEnvKey=true, noKeyLeak=true |
+
+### V20.7 writePiForm
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | apiKey 字段为环境变量名 | hasVarName=true, noKeyLeak=true |
+
+### V20.8 readiness
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 本地配置缺失 → ok=true | ok=true, preSendBlock=false |
+| ✅ | 本地配置+Key → ok=true | ok=true, reason=undefined |
+| ✅ | 本地配置+缺Key → preSendBlock=true | ok=false, preSendBlock=true, reason=codex 本地配置已创建但缺少 API Key。请在设置页填写 Key 后重试。 |
+
+### V20.8 getSecretStatus
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 按 Provider 精确计算（Codex有Key, Claude无Key） | codex=session-only, claude=not-configured |
+
+### V20.8 集成
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 保存→生成配置→buildRuntimeEnv→readiness ok | save=true, configExists=true, CODEX_HOME=true, KEY=true, readiness=true |
+
+### V20.8 RunSessionController
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 使用 runtimeRouter readiness | usesRouter=true |
+
+### V20.8 settings.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 首次创建 Key 必填 + 无 Active Provider 下拉框 | firstCreate=true, noDropdown=true |
+
+### V20.8 明文回退
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | setSecret 返回 saved + 明文文件含警告头与 Key | status=saved, plainExists=true, hasHeader=true, hasKey=true |
+| ✅ | clearSecretsCache 后 loadAllSecrets 仍可读取 + getSecretStatus=saved | value=test-key-123, status=saved |
+| ✅ | 关闭后 setSecret 返回 session-only + 无明文文件 | status=session-only, plainExists=false |
 
 ## 失败项详情
 
-无失败项。
+- **Contract: stdout_delta 正常产出**: 未收到包含预期内容的 stdout_delta
+- **Contract: stderr_delta 正常产出**: 未收到 stderr_delta
+- **Contract: completed 正常产出**: 未收到 exitCode=0 的 completed 事件
+- **Contract: failed 正常产出**: 未收到 exitCode!=0 的 failed 事件
+- **Contract: stop() 产出 stopped/failed**: stop() 后未收到 stopped 或 failed 事件
+- **Contract: command 不存在返回 failed**: command 不存在时未返回 failed
+- **Helper Behavior: --wait --timeout 超时行为（fake server）**: exit=-1 elapsed=10524ms hasTimeout=false hasAssertion=false stderr=
+- **Helper Behavior: --wait 成功路径（fake server 第 3 次轮询转 completed）**: exit=-1 elapsed=30531ms hasCompleted=false stdout=
+- **Helper Behavior: health 命令（fake server）**: Unexpected end of JSON input
+- **Helper Behavior: --json 标志输出有效 JSON（fake server）**: Unexpected end of JSON input
+- **Helper Behavior: 非修改类 action 直接输出（不轮询）**: Unexpected end of JSON input
+- **Helper Behavior: --stdin 模式读取 JSON params**: Unexpected end of JSON input
+- **Helper Behavior: --raw 输出纯 JSON（单行）**: Unexpected end of JSON input
+- **Helper Behavior: 错误分级 - bridge.json 缺失 exit 2**: exit=-1 stderr=
+- **Helper Behavior: 错误分级 - JSON 解析失败 exit 5**: exit=-1 stderr=
+- **Helper Behavior: 真实 wrapper invocation（当前平台 health 实跑）**: platform=win32 wrapperExists=true exit=0 stdout= stderr=
 
 ## 需人工验证项
 
