@@ -23,9 +23,14 @@
 
 import * as fs from "fs";
 import * as path from "path";
+import { createHash } from "crypto";
 import type { ObsidianCliAvailability } from "./runtime/core/bridgePromptContract";
 import { ACTION_METADATA, requiresBridgeApproval, type ActionMetadata, type ActionType } from "./actionMetadata";
 import { loadAgentSkillsManifestSync, saveAgentSkillsManifestSync, createAgentSkillRecord, materializeAgentSkillSync, materializeAgentSkillToTarget, materializeAgentSkillToCodexHomeSync, computeAgentSkillSourceHash, type AgentSkillRecord, type AgentSkillMaterializeResult, type AgentSkillsManifest } from "./agentSkills";
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex");
+}
 
 // ---------- 常量 ----------
 
@@ -38,6 +43,18 @@ export const VAULT_CONTEXT_SLUG = "vault-context";
 export const VAULT_SKILL_SOURCE_DIR_REL = "LLM-AgentRuntime/skills/vault-context";
 export const VAULT_SKILL_SOURCE_REL = "LLM-AgentRuntime/skills/vault-context/SKILL.md";
 export const VAULT_SKILL_UPDATE_LOG_REL = "LLM-AgentRuntime/skills/vault-context/update-log.md";
+/** V3: 参考分区目录（vault-rules/directories/conventions/preferences 移入此处） */
+export const VAULT_SKILL_REFERENCES_DIR_REL = "LLM-AgentRuntime/skills/vault-context/references";
+/** V3: agent 配置目录（openai.yaml 等） */
+export const VAULT_SKILL_AGENTS_DIR_REL = "LLM-AgentRuntime/skills/vault-context/agents";
+/** V3: 静态资源目录 */
+export const VAULT_SKILL_ASSETS_DIR_REL = "LLM-AgentRuntime/skills/vault-context/assets";
+/** V3: 迁移备份目录（v2 平铺结构 → v3 references/ 时备份） */
+export const VAULT_SKILL_BACKUP_DIR_REL = "LLM-AgentRuntime/skills/vault-context/.v2-backup";
+/** V3: 参考分区文件名（相对 references/ 目录） */
+export const VAULT_SKILL_REFERENCE_FILES = ["vault-rules.md", "directories.md", "conventions.md", "preferences.md"] as const;
+/** V3: 包物化时递归同步的子目录 */
+export const VAULT_SKILL_PACKAGE_SUBDIRS = ["references", "agents", "assets"] as const;
 // V2.18 vault-api：暴露 Obsidian Plugin API 能力（文件系统做不到的：property/tags/backlinks/tasks/daily/trash）
 export const VAULT_API_SLUG = "vault-api";
 export const VAULT_API_SKILL_SOURCE_DIR_REL = "LLM-AgentRuntime/skills/vault-api";
@@ -468,10 +485,11 @@ export function compactVaultSkillContent(content: string): string {
   });
 }
 
-// ---------- VAULT_SKILL 初版生成 ----------
+// ---------- VAULT_SKILL 初版生成（V3 标准结构） ----------
 
 /**
- * vault-context 子 skill 主题映射（文件名 stem → 中文主题）。
+ * vault-context 参考分区主题映射（文件名 stem → 中文主题）。
+ * V3：参考分区（references/）不是独立子 Skill，只是同一 Skill 的参考文件。
  */
 const VAULT_CONTEXT_TOPIC_MAP: Readonly<Record<string, string>> = {
   "vault-rules": "边界规则",
@@ -480,12 +498,22 @@ const VAULT_CONTEXT_TOPIC_MAP: Readonly<Record<string, string>> = {
   "directories": "目录语义",
 };
 
+/** V3: vault-context SKILL.md 的标准 frontmatter（单一真相源） */
+export const VAULT_CONTEXT_SKILL_META = {
+  name: "vault-context",
+  description: "Maintain and apply stable, reusable, verified context for the current Obsidian vault. Invoke before creating, moving, renaming, or deleting notes; when choosing paths, names, properties, formats, or stable workflows; when the user states a lasting preference; and after completed work reveals verified reusable directory semantics or conventions. Read only the relevant reference file. Never store transient tasks, guesses, session content, credentials, or secrets.",
+} as const;
+
 /**
- * 生成 vault-context Skill 包初版。
+ * V3: 生成 vault-context Skill 包初版（标准 Skill 结构）。
  *
- * 包结构：SKILL.md（清单）+ 4 个子 .md 文件 + INDEX.md（索引）。
- * 写入 bridge 默认已知的边界规则（禁区）+ 目录语义；
- * 不做深度全库扫描（轻量原则）。
+ * 结构：
+ * - SKILL.md：frontmatter（name/description）+ 路由正文
+ * - references/：vault-rules.md / directories.md / conventions.md / preferences.md（参考分区）
+ * - agents/openai.yaml：OpenAI agent 配置
+ * - INDEX.md：Obsidian 可读的自动生成目录
+ *
+ * 写入 bridge 默认已知的边界规则（禁区）+ 目录语义；不做深度全库扫描（轻量原则）。
  */
 export async function generateInitialVaultSkill(
   vaultPath: string,
@@ -493,7 +521,12 @@ export async function generateInitialVaultSkill(
     readonly scanTopLevelDirs?: boolean;
     readonly readKeyFiles?: boolean;
   } = {},
-): Promise<{ readonly skillMd: string; readonly subFiles: Readonly<Record<string, string>>; readonly indexMd: string }> {
+): Promise<{
+  readonly skillMd: string;
+  readonly references: Readonly<Record<string, string>>;
+  readonly agentsOpenaiYaml: string;
+  readonly indexMd: string;
+}> {
   const vaultRules = [
     "不修改 .obsidian/ 目录（Obsidian 配置区）",
     "不修改 .llm-bridge/ 目录（Bridge 主控区，含 bridge.json/credentials）",
@@ -512,33 +545,37 @@ export async function generateInitialVaultSkill(
   ];
 
   const skillMd = [
-    "# Vault Context",
-    "<!-- vault-context-router-version: 2 -->",
+    "---",
+    `name: "${VAULT_CONTEXT_SKILL_META.name}"`,
+    `description: "${VAULT_CONTEXT_SKILL_META.description}"`,
+    "---",
+    "<!-- vault-context-router-version: 3 -->",
     "",
     "维护并应用当前 Obsidian Vault 中稳定、可复用、已验证的上下文。",
     "只在与 Vault 路径、命名、格式、明确偏好或可复用工作约定有关时使用。",
     "",
-    "## 按需读取",
+    "## 按需读取（路由到 references/）",
     "",
-    "- 创建、移动、重命名或删除笔记前：读取 [vault-rules.md](vault-rules.md) 与 [directories.md](directories.md)",
-    "- 决定文件名、属性、格式或稳定工作流时：读取 [conventions.md](conventions.md)",
-    "- 用户表达稳定偏好，或任务需要遵循既有偏好时：读取 [preferences.md](preferences.md)",
+    "- 创建、移动、重命名或删除笔记前：读取 [references/vault-rules.md](references/vault-rules.md) 与 [references/directories.md](references/directories.md)",
+    "- 决定文件名、属性、格式或稳定工作流时：读取 [references/conventions.md](references/conventions.md)",
+    "- 用户表达稳定偏好，或任务需要遵循既有偏好时：读取 [references/preferences.md](references/preferences.md)",
     "- 只需定位相关条目时：先读取 [INDEX.md](INDEX.md)",
     "- 普通知识问答且不涉及 Vault 行为时：不要继续加载本包",
     "",
-    "## 自动维护",
+    "## 自动维护（收紧策略）",
     "",
-    "- 任务完成后，仅把本轮已验证且未来仍有用的事实追加到对应子文件",
-    "- 用户明确表达长期偏好时写入 preferences.md；不要从一次性请求推断偏好",
-    "- 重复出现并已验证的目录用途写入 directories.md；命名/格式/流程约定写入 conventions.md",
-    "- 不自动修改 vault-rules.md；安全边界变更必须来自用户明确要求或系统迁移",
+    "- preferences.md 只记录用户明确表达的长期偏好；不从一次性请求推断",
+    "- vault-rules.md 只接受用户明确规则或系统迁移；agent 不自动修改",
+    "- directories.md 只记录目录用途，不缓存完整目录树",
+    "- conventions.md 需要明确证据或跨任务重复验证才写入",
     "- 写入前去重；发现冲突时保留现状并向用户说明，不静默覆盖",
+    "- 使用原子写入，修改前备份，更新日志持久化到 update-log.md",
     "- 临时任务、会话过程、待办、猜测、模型结论、凭据和其他敏感信息不得写入",
-    "- 当前明确指令优先于 preferences.md；INDEX.md 由系统生成，不手工编辑",
+    "- 当前明确指令优先于 references/preferences.md；INDEX.md 由系统生成，不手工编辑",
     "",
   ].join("\n");
 
-  const subFiles: Record<string, string> = {
+  const references: Record<string, string> = {
     "vault-rules.md": [
       "# vault-rules",
       "",
@@ -548,14 +585,14 @@ export async function generateInitialVaultSkill(
     "conventions.md": [
       "# conventions",
       "",
-      "<!-- agent 维护：命名/输出位置/格式约定 -->",
+      "<!-- agent 维护：命名/输出位置/格式约定（需明确证据或跨任务重复验证） -->",
       "（暂无，agent 在发现稳定约定时追加）",
       "",
     ].join("\n"),
     "preferences.md": [
       "# preferences",
       "",
-      "<!-- agent 维护：用户明确表达的偏好（agent 不自动覆盖，只追加） -->",
+      "<!-- agent 维护：用户明确表达的长期偏好（agent 不自动覆盖，只追加） -->",
       "（暂无，用户表达偏好时追加）",
       "",
     ].join("\n"),
@@ -567,6 +604,8 @@ export async function generateInitialVaultSkill(
     ].join("\n"),
   };
 
+  const agentsOpenaiYaml = buildAgentsOpenaiYaml();
+
   // 接受 vaultPath 参数以保持签名兼容（轻量扫描已内联到 directories 默认值中）
   void vaultPath;
 
@@ -577,18 +616,36 @@ export async function generateInitialVaultSkill(
     { file: "directories.md", topic: VAULT_CONTEXT_TOPIC_MAP["directories"] ?? "directories", count: directories.length, updatedAt: "-" },
   ]);
 
-  return { skillMd, subFiles, indexMd };
+  return { skillMd, references, agentsOpenaiYaml, indexMd };
 }
 
 /**
- * 旧版 SKILL.md 单文件结构迁移：解析旧版的 Vault Rules / Stable Conventions /
- * User Preferences / Directory Semantics 段落，把条目分发到对应子文件。
+ * V3: 构建 agents/openai.yaml 内容。
  *
- * 旧版 SKILL.md 是单文件，把所有内容都写在一个文件里。新版拆成 4 个子文件 +
- * 一个路由入口 SKILL.md。此函数只做"内容提取 + 分发"，不覆盖已有非空子文件。
+ * OpenAI agent 配置：声明本 Skill 的 name/description 与触发条件，
+ * 供 OpenAI 风格 runtime 识别。保持与 SKILL.md frontmatter 一致（单一真相源）。
+ */
+function buildAgentsOpenaiYaml(): string {
+  return [
+    "# vault-context agent config (OpenAI-style runtime)",
+    "# 元数据与 SKILL.md frontmatter 保持一致，由系统生成，不手工编辑",
+    `name: "${VAULT_CONTEXT_SKILL_META.name}"`,
+    `description: "${VAULT_CONTEXT_SKILL_META.description}"`,
+    "type: skill",
+    "references:",
+    "  - references/vault-rules.md",
+    "  - references/directories.md",
+    "  - references/conventions.md",
+    "  - references/preferences.md",
+    "",
+  ].join("\n");
+}
+
+/**
+ * V3: 解析旧版 SKILL.md 单文件结构（v1）的 Vault Rules / Stable Conventions /
+ * User Preferences / Directory Semantics 段落，把条目分发到对应参考分区文件。
  *
  * @param legacySkillMd 旧版 SKILL.md 内容
- * @returns 子文件名 → 提取出的条目数组（仅包含解析出的 `- ` 条目，未含文件头）
  */
 function parseLegacyVaultSkillSections(legacySkillMd: string): {
   readonly "vault-rules.md": string[];
@@ -604,7 +661,6 @@ function parseLegacyVaultSkillSections(legacySkillMd: string): {
     "directories.md": [],
   };
 
-  // 段落标题映射（支持中英文）
   const sectionMap: ReadonlyArray<{ readonly re: RegExp; readonly file: SubFile }> = [
     { re: /^##\s+Vault\s+Rules\s*$/im, file: "vault-rules.md" },
     { re: /^##\s+Stable\s+Conventions\s*$/im, file: "conventions.md" },
@@ -615,7 +671,6 @@ function parseLegacyVaultSkillSections(legacySkillMd: string): {
   const lines = legacySkillMd.split("\n");
   let currentFile: SubFile | null = null;
   for (const line of lines) {
-    // 检测段落切换
     let matched = false;
     for (const sec of sectionMap) {
       if (sec.re.test(line)) {
@@ -625,17 +680,12 @@ function parseLegacyVaultSkillSections(legacySkillMd: string): {
       }
     }
     if (matched) continue;
-
-    // 遇到其他 ## 段落时停止当前段落
     if (/^##\s/.test(line)) {
       currentFile = null;
       continue;
     }
-
-    // 在当前段落内收集 `- ` 条目
     if (currentFile && line.startsWith("- ")) {
       const item = line.slice(2).trim();
-      // 跳过占位符条目
       if (item.length > 0 && !item.startsWith("(") && !item.includes("待 agent") && !item.includes("用户明确")) {
         result[currentFile].push(item);
       }
@@ -646,32 +696,46 @@ function parseLegacyVaultSkillSections(legacySkillMd: string): {
 }
 
 /**
- * 迁移旧版 SKILL.md 到新结构：解析旧内容 → 分发到子文件 → 重写 SKILL.md 为路由入口。
+ * V3: 迁移旧版 v1 SKILL.md（单文件）到 v3 结构（references/ + frontmatter）。
  *
  * 策略：
- * - 子文件不存在或为空（只有标题行）时，用旧版解析出的条目填充
- * - SKILL.md 始终重写为新版路由入口（无论旧版内容多少）
- * - 保留旧版中有用的条目，丢弃占位符
+ * - SKILL.md 始终重写为 v3 路由入口（含 frontmatter）
+ * - 旧版条目分发到 references/ 下对应文件（仅当文件不存在或为空时填充）
+ * - 已有真实内容的参考文件不覆盖，只追加不重复的条目
  */
 export async function migrateLegacyVaultSkill(
   vaultPath: string,
   legacySkillMd: string,
 ): Promise<{ readonly rewritten: string[]; readonly migrated: string[] }> {
   const skillDir = path.join(vaultPath, VAULT_SKILL_SOURCE_DIR_REL);
+  const referencesDir = path.join(skillDir, "references");
   const parsed = parseLegacyVaultSkillSections(legacySkillMd);
   const initial = await generateInitialVaultSkill(vaultPath);
 
   const rewritten: string[] = [];
   const migrated: string[] = [];
 
-  // 1. 重写 SKILL.md 为路由入口（始终执行）
+  // 1. 重写 SKILL.md 为 v3 路由入口（始终执行）
   await fs.promises.writeFile(path.join(skillDir, "SKILL.md"), initial.skillMd, "utf8");
   rewritten.push(`${VAULT_SKILL_SOURCE_DIR_REL}/SKILL.md`);
 
-  // 2. 分发旧版条目到子文件（仅当子文件不存在或为空时）
+  // 2. 确保 references/ + agents/ 目录存在
+  await fs.promises.mkdir(referencesDir, { recursive: true });
+  const agentsDir = path.join(skillDir, "agents");
+  await fs.promises.mkdir(agentsDir, { recursive: true });
+  // 写 agents/openai.yaml（缺失时创建）
+  const openaiYamlPath = path.join(agentsDir, "openai.yaml");
+  try {
+    await fs.promises.access(openaiYamlPath);
+  } catch {
+    await fs.promises.writeFile(openaiYamlPath, initial.agentsOpenaiYaml, "utf8");
+    migrated.push(`${VAULT_SKILL_SOURCE_DIR_REL}/agents/openai.yaml`);
+  }
+
+  // 3. 分发旧版条目到 references/ 下对应文件
   for (const [fileName, items] of Object.entries(parsed)) {
     if (items.length === 0) continue;
-    const subAbs = path.join(skillDir, fileName);
+    const subAbs = path.join(referencesDir, fileName);
     let existingContent = "";
     try {
       existingContent = await fs.promises.readFile(subAbs, "utf8");
@@ -679,7 +743,6 @@ export async function migrateLegacyVaultSkill(
       // 文件不存在
     }
 
-    // 判断现有文件是否为空（只有标题行 + 占位符）
     const existingLines = existingContent.split("\n").filter((l) => l.startsWith("- ") && l.trim().length > 2);
     const hasRealContent = existingLines.some((l) => {
       const item = l.slice(2).trim();
@@ -687,24 +750,22 @@ export async function migrateLegacyVaultSkill(
     });
 
     if (hasRealContent) {
-      // 已有真实内容，不覆盖，只追加旧版条目中不重复的
       const existingSet = new Set(existingLines.map((l) => l.slice(2).trim().toLowerCase()));
       const toAppend = items.filter((item) => !existingSet.has(item.toLowerCase()));
       if (toAppend.length > 0) {
         const newContent = existingContent.replace(/\s*$/, "") + "\n" + toAppend.map((i) => `- ${i}`).join("\n") + "\n";
         await fs.promises.writeFile(subAbs, newContent, "utf8");
-        migrated.push(`${VAULT_SKILL_SOURCE_DIR_REL}/${fileName}`);
+        migrated.push(`${VAULT_SKILL_SOURCE_DIR_REL}/references/${fileName}`);
       }
     } else {
-      // 空文件或只有占位符，用旧版条目填充
       const header = `# ${fileName.replace(/\.md$/, "")}\n\n`;
       const newContent = header + items.map((i) => `- ${i}`).join("\n") + "\n";
       await fs.promises.writeFile(subAbs, newContent, "utf8");
-      migrated.push(`${VAULT_SKILL_SOURCE_DIR_REL}/${fileName}`);
+      migrated.push(`${VAULT_SKILL_SOURCE_DIR_REL}/references/${fileName}`);
     }
   }
 
-  // 3. 重新生成索引
+  // 4. 重新生成索引
   try {
     await regenerateVaultContextIndex(vaultPath);
   } catch {
@@ -714,19 +775,171 @@ export async function migrateLegacyVaultSkill(
   return { rewritten, migrated };
 }
 
+/**
+ * V3: 迁移 v2 平铺结构（vault-rules.md 等在 skill 根目录）到 v3 结构（references/ 子目录）。
+ *
+ * 策略（幂等）：
+ * - 检测根目录下的平铺参考文件（vault-rules.md 等）
+ * - 备份旧结构到 .v2-backup/（首次迁移时）
+ * - 移动到 references/（保留用户已积累的内容）
+ * - 升级 SKILL.md：添加 frontmatter（若缺失），更新路由链接指向 references/
+ * - 重复执行不产生修改（references/ 已存在且平铺文件已移走时为 no-op）
+ *
+ * @returns 迁移结果（migrated 为实际发生移动的文件；空数组表示无需迁移）
+ */
+export async function migrateVaultSkillV2ToV3(
+  vaultPath: string,
+): Promise<{ readonly migrated: string[]; readonly backedUp: string[]; readonly rewritten: boolean }> {
+  const skillDir = path.join(vaultPath, VAULT_SKILL_SOURCE_DIR_REL);
+  const referencesDir = path.join(skillDir, "references");
+  const backupDir = path.join(skillDir, ".v2-backup");
+
+  const migrated: string[] = [];
+  const backedUp: string[] = [];
+
+  // 1. 检测根目录下的平铺参考文件
+  const flatFiles: string[] = [];
+  for (const name of VAULT_SKILL_REFERENCE_FILES) {
+    const flatPath = path.join(skillDir, name);
+    try {
+      const stat = await fs.promises.stat(flatPath);
+      if (stat.isFile()) flatFiles.push(name);
+    } catch {
+      // 不存在
+    }
+  }
+
+  // 2. 检测 SKILL.md 是否需要升级（无 frontmatter 或 router-version < 3）
+  const skillMdPath = path.join(skillDir, "SKILL.md");
+  let skillMdContent = "";
+  try {
+    skillMdContent = await fs.promises.readFile(skillMdPath, "utf8");
+  } catch {
+    skillMdContent = "";
+  }
+  const parsed = parseSkillDocument(skillMdContent);
+  const needsSkillUpgrade = !parsed || !skillMdContent.includes("vault-context-router-version: 3");
+
+  // 无平铺文件且 SKILL.md 已是 v3 → 幂等 no-op
+  if (flatFiles.length === 0 && !needsSkillUpgrade) {
+    return { migrated, backedUp, rewritten: false };
+  }
+
+  // 3. 首次迁移时备份旧结构到 .v2-backup/
+  let backupExists = false;
+  try {
+    await fs.promises.access(backupDir);
+    backupExists = true;
+  } catch {
+    backupExists = false;
+  }
+  if (!backupExists && (flatFiles.length > 0 || needsSkillUpgrade)) {
+    await fs.promises.mkdir(backupDir, { recursive: true });
+    // 备份平铺参考文件
+    for (const name of flatFiles) {
+      try {
+        await fs.promises.copyFile(path.join(skillDir, name), path.join(backupDir, name));
+        backedUp.push(name);
+      } catch {
+        // 备份失败不阻塞
+      }
+    }
+    // 备份旧 SKILL.md
+    if (skillMdContent) {
+      try {
+        await fs.promises.writeFile(path.join(backupDir, "SKILL.md"), skillMdContent, "utf8");
+        backedUp.push("SKILL.md");
+      } catch {
+        // 备份失败不阻塞
+      }
+    }
+  }
+
+  // 4. 确保 references/ 目录存在
+  await fs.promises.mkdir(referencesDir, { recursive: true });
+
+  // 5. 移动平铺文件到 references/（合并已存在的内容）
+  for (const name of flatFiles) {
+    const flatPath = path.join(skillDir, name);
+    const refPath = path.join(referencesDir, name);
+    const flatContent = await fs.promises.readFile(flatPath, "utf8");
+
+    let refExists = false;
+    try {
+      await fs.promises.access(refPath);
+      refExists = true;
+    } catch {
+      refExists = false;
+    }
+
+    if (refExists) {
+      // references/ 已有同名文件 → 合并（追加不重复的条目，保留 references/ 版本为主）
+      const refContent = await fs.promises.readFile(refPath, "utf8");
+      const refItems = new Set(refContent.split("\n").filter((l) => l.startsWith("- ")).map((l) => l.slice(2).trim().toLowerCase()));
+      const flatLines = flatContent.split("\n").filter((l) => l.startsWith("- "));
+      const toAppend: string[] = [];
+      for (const line of flatLines) {
+        const item = line.slice(2).trim();
+        if (item.length > 0 && !item.startsWith("(") && !refItems.has(item.toLowerCase())) {
+          toAppend.push(item);
+        }
+      }
+      if (toAppend.length > 0) {
+        const newContent = refContent.replace(/\s*$/, "") + "\n" + toAppend.map((i) => `- ${i}`).join("\n") + "\n";
+        await fs.promises.writeFile(refPath, newContent, "utf8");
+      }
+    } else {
+      // references/ 无同名文件 → 直接移动
+      await fs.promises.writeFile(refPath, flatContent, "utf8");
+    }
+
+    // 删除根目录平铺文件
+    await fs.promises.unlink(flatPath);
+    migrated.push(`references/${name}`);
+  }
+
+  // 6. 升级 SKILL.md 到 v3（含 frontmatter）
+  let rewritten = false;
+  if (needsSkillUpgrade) {
+    const initial = await generateInitialVaultSkill(vaultPath);
+    await fs.promises.writeFile(skillMdPath, initial.skillMd, "utf8");
+    rewritten = true;
+    // 确保 agents/openai.yaml 存在
+    const agentsDir = path.join(skillDir, "agents");
+    await fs.promises.mkdir(agentsDir, { recursive: true });
+    const openaiYamlPath = path.join(agentsDir, "openai.yaml");
+    try {
+      await fs.promises.access(openaiYamlPath);
+    } catch {
+      await fs.promises.writeFile(openaiYamlPath, initial.agentsOpenaiYaml, "utf8");
+    }
+  }
+
+  // 7. 重新生成索引
+  try {
+    await regenerateVaultContextIndex(vaultPath);
+  } catch {
+    // 索引更新失败不阻断
+  }
+
+  return { migrated, backedUp, rewritten };
+}
+
 
 /**
- * 构建 vault-context INDEX.md 内容。
+ * V3: 构建 vault-context INDEX.md 内容。
+ *
+ * INDEX 只作为 Obsidian 可读的自动生成目录；链接指向 references/ 下的参考分区文件。
  */
 function buildVaultContextIndexMd(entries: ReadonlyArray<{ readonly file: string; readonly topic: string; readonly count: number; readonly updatedAt: string }>): string {
-  const rows = entries.map((e) => `| [${e.file}](${e.file}) | ${e.topic} | ${e.count} | ${e.updatedAt} |`);
+  const rows = entries.map((e) => `| [${e.file}](references/${e.file}) | ${e.topic} | ${e.count} | ${e.updatedAt} |`);
   return [
     "# vault-context 索引",
     "",
-    "> 自动生成的子 skill 索引。agent 可参考此索引快速定位需要更新/查看的子 skill。",
-    "> 物化时会从源目录同步到目标目录。",
+    "> 自动生成的上下文分区目录。Obsidian 可读，agent 可参考快速定位参考分区文件。",
+    "> 物化时会从源目录递归同步到目标目录。不手工编辑。",
     "",
-    "## 子 Skills",
+    "## 上下文分区",
     "",
     "| 文件 | 主题 | 条目数 | 最后更新 |",
     "|------|------|--------|----------|",
@@ -736,36 +949,52 @@ function buildVaultContextIndexMd(entries: ReadonlyArray<{ readonly file: string
 }
 
 /**
- * 扫描 vault-context 源目录下所有子 .md 文件，生成/更新 INDEX.md。
+ * V3: 扫描 vault-context references/ 目录下所有参考分区 .md 文件，生成/更新 INDEX.md。
  *
- * 排除 SKILL.md 和 INDEX.md 本身。对每个子 skill 文件统计 `- ` 开头行数作为条目数。
+ * 排除 SKILL.md 和 INDEX.md 本身。对每个参考分区文件统计 `- ` 开头行数作为条目数。
  */
 export async function regenerateVaultContextIndex(vaultPath: string): Promise<boolean> {
   const sourceDirAbs = path.join(vaultPath, VAULT_SKILL_SOURCE_DIR_REL);
+  const referencesDirAbs = path.join(sourceDirAbs, "references");
   let files: string[];
   try {
-    files = (await fs.promises.readdir(sourceDirAbs))
-      .filter((f): f is string => typeof f === "string" && f.endsWith(".md") && f !== "SKILL.md" && f !== "INDEX.md")
+    files = (await fs.promises.readdir(referencesDirAbs))
+      .filter((f): f is string => typeof f === "string" && f.endsWith(".md"))
       .sort();
   } catch {
-    return false;
+    // references/ 不存在 → 尝试扫描根目录（兼容迁移前状态）
+    try {
+      files = (await fs.promises.readdir(sourceDirAbs))
+        .filter((f): f is string => typeof f === "string"
+          && (VAULT_SKILL_REFERENCE_FILES as readonly string[]).includes(f))
+        .sort();
+    } catch {
+      return false;
+    }
   }
 
   const entries: Array<{ file: string; topic: string; count: number; updatedAt: string }> = [];
   for (const file of files) {
-    const filePath = path.join(sourceDirAbs, file);
+    const filePath = path.join(referencesDirAbs, file);
+    const fallbackPath = path.join(sourceDirAbs, file);
     let content = "";
+    let usedPath = filePath;
     try {
       content = await fs.promises.readFile(filePath, "utf8");
     } catch {
-      continue;
+      try {
+        content = await fs.promises.readFile(fallbackPath, "utf8");
+        usedPath = fallbackPath;
+      } catch {
+        continue;
+      }
     }
     const stem = file.replace(/\.md$/, "");
     const topic = VAULT_CONTEXT_TOPIC_MAP[stem] ?? stem;
     const count = content.split("\n").filter((l) => l.startsWith("- ")).length;
     let updatedAt = "-";
     try {
-      const stat = await fs.promises.stat(filePath);
+      const stat = await fs.promises.stat(usedPath);
       updatedAt = stat.mtime.toISOString();
     } catch {
       // 保留 "-"
@@ -1027,38 +1256,52 @@ export async function ensureAgentRuntimeWorkspace(
   try {
     await fs.promises.access(vaultSkillAbs);
     skipped.push(VAULT_SKILL_SOURCE_REL);
-    // 旧结构迁移：检测旧版单文件结构并迁移到子文件 + 路由入口 SKILL.md
+    // V3: 结构迁移 — 检测旧版结构并迁移到 references/ + frontmatter
     try {
       const legacySkillMd = await fs.promises.readFile(vaultSkillAbs, "utf8");
-      const isLegacyFormat = /^##\s+(Vault\s+Rules|Stable\s+Conventions|User\s+Preferences|Directory\s+Semantics)\s*$/im.test(legacySkillMd);
-      if (isLegacyFormat) {
-        // 旧版单文件结构 → 解析并分发到子文件 + 重写 SKILL.md 为路由入口
+      const isLegacySingleFile = /^##\s+(Vault\s+Rules|Stable\s+Conventions|User\s+Preferences|Directory\s+Semantics)\s*$/im.test(legacySkillMd);
+      if (isLegacySingleFile) {
+        // v1 单文件结构 → v3 references/ + frontmatter
         const result = await migrateLegacyVaultSkill(vaultPath, legacySkillMd);
         created.push(...result.rewritten, ...result.migrated);
       } else {
-        // 新版结构但子文件可能缺失 → 补建空模板
+        // v2 平铺结构（vault-rules.md 等在根目录）或旧版路由 → v3 references/ + frontmatter
+        const migResult = await migrateVaultSkillV2ToV3(vaultPath);
+        if (migResult.migrated.length > 0) {
+          created.push(...migResult.migrated.map((f) => `${VAULT_SKILL_SOURCE_DIR_REL}/${f}`));
+        }
+        if (migResult.backedUp.length > 0) {
+          created.push(...migResult.backedUp.map((f) => `${VAULT_SKILL_SOURCE_DIR_REL}/.v2-backup/${f}`));
+        }
+        if (migResult.rewritten) {
+          created.push(VAULT_SKILL_SOURCE_REL);
+        }
+        // 补建缺失的 references/ + agents/ 模板（不覆盖已有）
         const skillDir = path.dirname(vaultSkillAbs);
         const initial = await generateInitialVaultSkill(vaultPath);
-        let migrated = false;
-        // 路由文件由插件维护；旧路由升级到 metadata 渐进披露版本。
-        // 稳定事实都在子文件中，因此升级路由不会覆盖用户上下文内容。
-        const isOldManagedRouter = /^#\s+Vault\s+Context\s*$/im.test(legacySkillMd)
-          && !legacySkillMd.includes("vault-context-router-version: 2")
-          && (/##\s+(?:子 Skills|使用路由|按需读取|维护边界|自动维护)/.test(legacySkillMd));
-        if (isOldManagedRouter) {
-          await fs.promises.writeFile(vaultSkillAbs, initial.skillMd, "utf8");
-          created.push(VAULT_SKILL_SOURCE_REL);
-          migrated = true;
-        }
-        for (const [name, content] of Object.entries(initial.subFiles)) {
-          const subAbs = path.join(skillDir, name);
+        const referencesDir = path.join(skillDir, "references");
+        await fs.promises.mkdir(referencesDir, { recursive: true });
+        let patched = false;
+        for (const [name, content] of Object.entries(initial.references)) {
+          const refAbs = path.join(referencesDir, name);
           try {
-            await fs.promises.access(subAbs);
+            await fs.promises.access(refAbs);
           } catch {
-            await fs.promises.writeFile(subAbs, content, "utf8");
-            created.push(`${VAULT_SKILL_SOURCE_DIR_REL}/${name}`);
-            migrated = true;
+            await fs.promises.writeFile(refAbs, content, "utf8");
+            created.push(`${VAULT_SKILL_SOURCE_DIR_REL}/references/${name}`);
+            patched = true;
           }
+        }
+        // agents/openai.yaml 缺失时补建
+        const agentsDir = path.join(skillDir, "agents");
+        await fs.promises.mkdir(agentsDir, { recursive: true });
+        const openaiYamlAbs = path.join(agentsDir, "openai.yaml");
+        try {
+          await fs.promises.access(openaiYamlAbs);
+        } catch {
+          await fs.promises.writeFile(openaiYamlAbs, initial.agentsOpenaiYaml, "utf8");
+          created.push(`${VAULT_SKILL_SOURCE_DIR_REL}/agents/openai.yaml`);
+          patched = true;
         }
         // INDEX.md 缺失时也补建
         const indexAbs = path.join(skillDir, "INDEX.md");
@@ -1067,10 +1310,9 @@ export async function ensureAgentRuntimeWorkspace(
         } catch {
           await fs.promises.writeFile(indexAbs, initial.indexMd, "utf8");
           created.push(`${VAULT_SKILL_SOURCE_DIR_REL}/INDEX.md`);
-          migrated = true;
+          patched = true;
         }
-        if (migrated) {
-          // 迁移后重新生成索引，确保条目数和 mtime 正确
+        if (patched || migResult.migrated.length > 0 || migResult.rewritten) {
           try { await regenerateVaultContextIndex(vaultPath); } catch { /* ignore */ }
         }
       }
@@ -1083,14 +1325,26 @@ export async function ensureAgentRuntimeWorkspace(
         await fs.promises.mkdir(skillDir, { recursive: true });
         await fs.promises.writeFile(vaultSkillAbs, initial.skillMd, "utf8");
         created.push(VAULT_SKILL_SOURCE_REL);
-        for (const [name, content] of Object.entries(initial.subFiles)) {
-          const subRel = `${VAULT_SKILL_SOURCE_DIR_REL}/${name}`;
+        // V3: 写 references/ 参考分区文件
+        const referencesDir = path.join(skillDir, "references");
+        await fs.promises.mkdir(referencesDir, { recursive: true });
+        for (const [name, content] of Object.entries(initial.references)) {
+          const refRel = `${VAULT_SKILL_SOURCE_DIR_REL}/references/${name}`;
           try {
-            await fs.promises.writeFile(path.join(skillDir, name), content, "utf8");
-            created.push(subRel);
+            await fs.promises.writeFile(path.join(referencesDir, name), content, "utf8");
+            created.push(refRel);
           } catch {
-            skipped.push(subRel);
+            skipped.push(refRel);
           }
+        }
+        // V3: 写 agents/openai.yaml
+        const agentsDir = path.join(skillDir, "agents");
+        await fs.promises.mkdir(agentsDir, { recursive: true });
+        try {
+          await fs.promises.writeFile(path.join(agentsDir, "openai.yaml"), initial.agentsOpenaiYaml, "utf8");
+          created.push(`${VAULT_SKILL_SOURCE_DIR_REL}/agents/openai.yaml`);
+        } catch {
+          skipped.push(`${VAULT_SKILL_SOURCE_DIR_REL}/agents/openai.yaml`);
         }
         try {
           await fs.promises.writeFile(path.join(skillDir, "INDEX.md"), initial.indexMd, "utf8");
@@ -1190,11 +1444,15 @@ export interface VaultSkillRuntimeMeta {
   readonly description: string;
 }
 
+/**
+ * V3: 仅作为 fallback。真实 name/description 来自源 SKILL.md 的 frontmatter（parseSkillDocument）。
+ * vault-context 的真相源是 VAULT_CONTEXT_SKILL_META，此处引用避免双真相源。
+ */
 const VAULT_SKILL_RUNTIME_META: Readonly<Record<string, VaultSkillRuntimeMeta>> = {
   [VAULT_CONTEXT_SLUG]: {
     slug: VAULT_CONTEXT_SLUG,
-    name: "vault-context",
-    description: "Use for vault-specific context in the current Obsidian vault: before creating, moving, renaming, or deleting notes; when choosing paths, names, properties, formats, or stable workflows; when the user states a lasting preference; and after completed work reveals verified reusable directory semantics or conventions. Read only the relevant referenced file and maintain it automatically. Never store transient tasks, guesses, session content, credentials, or secrets.",
+    name: VAULT_CONTEXT_SKILL_META.name,
+    description: VAULT_CONTEXT_SKILL_META.description,
   },
   // V2.18 vault-api：Obsidian Plugin API 能力（property/tags/backlinks/tasks/daily/trash）
   [VAULT_API_SLUG]: { slug: VAULT_API_SLUG, name: "vault-api", description: "Obsidian Plugin API capabilities that the file system cannot provide: frontmatter (metadataCache/fileManager), tags/backlinks/tasks aggregation, daily-notes path, vault trash/rename. Invoke via outbox action / HTTP bridge (see .llm-bridge/bridge.json)." },
@@ -1205,22 +1463,201 @@ export function getVaultSkillRuntimeMeta(slug: string): VaultSkillRuntimeMeta {
 }
 
 /**
- * V18: 从 SKILL.md 全文解析 YAML frontmatter 的 name/description 字段。
- * 解析失败时返回空对象，调用方回退到 getVaultSkillRuntimeMeta 的硬编码值。
+ * V3: 解析 Skill 文档（SKILL.md）的 YAML frontmatter + body。
+ *
+ * 源 SKILL.md 自带 name/description（单一真相源），物化时只保留这一层 frontmatter。
+ * 解析失败（无 frontmatter）时返回 null，调用方回退到 getVaultSkillRuntimeMeta。
+ *
+ * YAML 值支持双引号/单引号/无引号字符串；不支持多行或复杂类型（Skill 元数据只需要 name/description）。
  */
-function parseSkillFrontmatterFields(raw: string): { name?: string; description?: string } {
+export interface ParsedSkillDocument {
+  readonly name: string;
+  readonly description: string;
+  /** frontmatter 之后的正文（已去掉前导空行） */
+  readonly body: string;
+  readonly raw: string;
+}
+
+export function parseSkillDocument(raw: string): ParsedSkillDocument | null {
   const normalized = raw.replace(/^\uFEFF/, "");
-  if (!normalized.startsWith("---")) return {};
-  const end = normalized.indexOf("\n---", 3);
-  if (end < 0) return {};
-  const block = normalized.slice(3, end).split(/\r?\n/);
+  if (!normalized.startsWith("---")) return null;
+  const endMatch = /\r?\n---\s*(?:\r?\n|$)/.exec(normalized);
+  if (!endMatch) return null;
+  const end = endMatch.index + endMatch[0].length;
+  const block = normalized.slice(3, endMatch.index);
+  const body = normalized.slice(end).replace(/^\r?\n/, "");
   const values: Record<string, string> = {};
-  for (const line of block) {
-    const match = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line.trim());
+  for (const line of block.split(/\r?\n/)) {
+    const match = /^([A-Za-z0-9_-]+):\s*(.*)$/.exec(line);
     if (!match) continue;
-    values[match[1]] = match[2];
+    const key = match[1];
+    let val = match[2].trim();
+    if ((val.startsWith('"') && val.endsWith('"')) || (val.startsWith("'") && val.endsWith("'"))) {
+      val = val.slice(1, -1);
+    }
+    values[key] = val;
   }
-  return { name: values.name, description: values.description };
+  if (!values.name && !values.description) return null;
+  return { name: values.name ?? "", description: values.description ?? "", body, raw };
+}
+
+/** 兼容旧调用：只取 name/description */
+function parseSkillFrontmatterFields(raw: string): { name?: string; description?: string } {
+  const parsed = parseSkillDocument(raw);
+  if (!parsed) return {};
+  return { name: parsed.name || undefined, description: parsed.description || undefined };
+}
+
+// ---------- V3: 递归复制 / hash / 清理 ----------
+
+/**
+ * V3: 递归复制目录（同步）。dst 已存在时先删除 stale 条目再覆盖。
+ * 用于包 skill 物化时同步 references/agents/assets 到目标目录。
+ */
+function copyDirRecursiveSync(src: string, dst: string): void {
+  fs.mkdirSync(dst, { recursive: true });
+  const srcEntries = fs.readdirSync(src, { withFileTypes: true });
+  const srcNames = new Set(srcEntries.map((e) => e.name));
+  // 删除目标端已失效的旧文件
+  let dstEntries: fs.Dirent[] = [];
+  try {
+    dstEntries = fs.readdirSync(dst, { withFileTypes: true });
+  } catch {
+    dstEntries = [];
+  }
+  for (const d of dstEntries) {
+    if (!srcNames.has(d.name)) {
+      try {
+        fs.rmSync(path.join(dst, d.name), { recursive: true, force: true });
+      } catch {
+        // 删除失败不阻塞
+      }
+    }
+  }
+  for (const entry of srcEntries) {
+    const srcPath = path.join(src, entry.name);
+    const dstPath = path.join(dst, entry.name);
+    if (entry.isDirectory()) {
+      copyDirRecursiveSync(srcPath, dstPath);
+    } else if (entry.isFile()) {
+      fs.copyFileSync(srcPath, dstPath);
+    }
+  }
+}
+
+/**
+ * V3: 递归收集目录下所有文件内容（按相对路径排序），用于包 hash 计算。
+ */
+function collectFileContentsSync(dir: string, relPrefix: string, chunks: string[]): void {
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  entries.sort((a, b) => a.name.localeCompare(b.name));
+  for (const entry of entries) {
+    const rel = `${relPrefix}/${entry.name}`;
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      collectFileContentsSync(full, rel, chunks);
+    } else if (entry.isFile()) {
+      try {
+        chunks.push(`\n---${rel}---\n` + fs.readFileSync(full, "utf8"));
+      } catch {
+        // 读取失败跳过
+      }
+    }
+  }
+}
+
+/**
+ * V3: 计算包 skill 的递归 hash（SKILL.md body + references/agents/assets 全部文件）。
+ */
+function computePackageSourceHash(sourceDir: string, skillMdRaw: string): string {
+  const chunks: string[] = [skillMdRaw];
+  for (const sub of VAULT_SKILL_PACKAGE_SUBDIRS) {
+    const srcSub = path.join(sourceDir, sub);
+    collectFileContentsSync(srcSub, sub, chunks);
+  }
+  return sha256(chunks.join("\n"));
+}
+
+/**
+ * V3: 同步包 skill 的子目录（references/agents/assets）到目标目录。
+ * 源目录不存在的子目录 → 删除目标端对应目录（清理失效文件）。
+ */
+function syncPackageSubdirsSync(sourceDir: string, targetDir: string): void {
+  for (const sub of VAULT_SKILL_PACKAGE_SUBDIRS) {
+    const srcSub = path.join(sourceDir, sub);
+    const dstSub = path.join(targetDir, sub);
+    if (fs.existsSync(srcSub) && fs.statSync(srcSub).isDirectory()) {
+      copyDirRecursiveSync(srcSub, dstSub);
+    } else {
+      // 源端不存在 → 删除目标端旧文件（失效清理）
+      try {
+        fs.rmSync(dstSub, { recursive: true, force: true });
+      } catch {
+        // 删除失败不阻塞
+      }
+    }
+  }
+}
+
+/**
+ * V3: 异步版 syncPackageSubdirsSync（用 fs.promises 避免阻塞主线程）。
+ */
+async function syncPackageSubdirsAsync(sourceDir: string, targetDir: string): Promise<void> {
+  for (const sub of VAULT_SKILL_PACKAGE_SUBDIRS) {
+    const srcSub = path.join(sourceDir, sub);
+    const dstSub = path.join(targetDir, sub);
+    let srcExists = false;
+    try {
+      const stat = await fs.promises.stat(srcSub);
+      srcExists = stat.isDirectory();
+    } catch {
+      srcExists = false;
+    }
+    if (srcExists) {
+      await copyDirRecursiveAsync(srcSub, dstSub);
+    } else {
+      try {
+        await fs.promises.rm(dstSub, { recursive: true, force: true });
+      } catch {
+        // 删除失败不阻塞
+      }
+    }
+  }
+}
+
+async function copyDirRecursiveAsync(src: string, dst: string): Promise<void> {
+  await fs.promises.mkdir(dst, { recursive: true });
+  const srcEntries = await fs.promises.readdir(src, { withFileTypes: true });
+  const srcNames = new Set(srcEntries.map((e) => e.name));
+  let dstEntries: fs.Dirent[] = [];
+  try {
+    dstEntries = await fs.promises.readdir(dst, { withFileTypes: true });
+  } catch {
+    dstEntries = [];
+  }
+  for (const d of dstEntries) {
+    if (!srcNames.has(d.name)) {
+      try {
+        await fs.promises.rm(path.join(dst, d.name), { recursive: true, force: true });
+      } catch {
+        // 删除失败不阻塞
+      }
+    }
+  }
+  for (const entry of srcEntries) {
+    const srcPath = path.join(src, entry.name);
+    const dstPath = path.join(dst, entry.name);
+    if (entry.isDirectory()) {
+      await copyDirRecursiveAsync(srcPath, dstPath);
+    } else if (entry.isFile()) {
+      await fs.promises.copyFile(srcPath, dstPath);
+    }
+  }
 }
 
 // ---------- update-log.md ----------
@@ -1356,7 +1793,7 @@ export interface CompactOrSplitResult {
 }
 
 /**
- * compact 单个子 skill 文件内容：
+ * V3: compact 单个参考分区文件内容：
  * 保留非 `- ` 行（标题/注释/空行），对 `- ` 行只保留前 15 条且每条截断到 300 字符。
  */
 function compactSubSkillContent(content: string): string {
@@ -1381,24 +1818,47 @@ function compactSubSkillContent(content: string): string {
   return result.join("\n");
 }
 
+/**
+ * V3: compact vault-context 参考分区文件（references/ 下的 .md 文件）。
+ *
+ * 遍历 references/ 目录下所有 .md 文件，每个文件单独 compact：
+ * 保留前 15 条 `- ` 开头的行，每条截断到 300 字符。
+ * compact 后重新生成 INDEX.md。
+ */
 export async function compactOrSplitVaultSkill(vaultPath: string): Promise<CompactOrSplitResult> {
   const sourceDirAbs = path.join(vaultPath, VAULT_SKILL_SOURCE_DIR_REL);
+  const referencesDirAbs = path.join(sourceDirAbs, "references");
   let files: string[];
   try {
-    files = (await fs.promises.readdir(sourceDirAbs))
-      .filter((f): f is string => typeof f === "string" && f.endsWith(".md") && f !== "SKILL.md" && f !== "INDEX.md")
+    files = (await fs.promises.readdir(referencesDirAbs))
+      .filter((f): f is string => typeof f === "string" && f.endsWith(".md"))
       .sort();
   } catch {
-    return {
-      action: "keep",
-      vaultContextContent: "",
-      reason: "vault-context source dir not found",
-    };
+    // references/ 不存在 → 尝试扫描根目录平铺文件（迁移前兼容）
+    try {
+      files = (await fs.promises.readdir(sourceDirAbs))
+        .filter((f): f is string => typeof f === "string"
+          && (VAULT_SKILL_REFERENCE_FILES as readonly string[]).includes(f))
+        .sort();
+    } catch {
+      return {
+        action: "keep",
+        vaultContextContent: "",
+        reason: "vault-context source dir not found",
+      };
+    }
   }
 
   let anyCompacted = false;
   for (const file of files) {
-    const filePath = path.join(sourceDirAbs, file);
+    let filePath = path.join(referencesDirAbs, file);
+    let usedReferences = true;
+    try {
+      await fs.promises.access(filePath);
+    } catch {
+      filePath = path.join(sourceDirAbs, file);
+      usedReferences = false;
+    }
     let content: string;
     try {
       content = await fs.promises.readFile(filePath, "utf8");
@@ -1414,6 +1874,7 @@ export async function compactOrSplitVaultSkill(vaultPath: string): Promise<Compa
         // 写入失败不阻塞后续文件
       }
     }
+    void usedReferences;
   }
 
   // 重新生成 INDEX.md
@@ -1505,11 +1966,13 @@ export function materializeAllSkillsToAllTargets(vaultPath: string): Materialize
 }
 
 /**
- * u5: 将 vault-context + vault-api 的 source SKILL.md 同步到 agent-skills.json manifest。
+ * V3: 将 vault-context + vault-api 的 source SKILL.md 同步到 agent-skills.json manifest。
  *
- * 读取 source 内容 → 创建/更新 AgentSkillRecord → 保存 manifest。
- * vault-context 是包 skill：instructions = SKILL.md，sourceDir 指向源目录，
- * sourceContentHash 包含 SKILL.md + 所有子 .md 文件内容（检测子文件变化）。
+ * 读取 source 内容 → 用 parseSkillDocument() 解析 frontmatter（单一真相源）→ 创建/更新 AgentSkillRecord。
+ * vault-context 是包 skill：
+ * - instructions = SKILL.md body（去掉 frontmatter，避免物化时双层 frontmatter）
+ * - sourceDir 指向源目录
+ * - sourceContentHash 递归包含 SKILL.md + references/agents/assets 全部文件（检测子文件变化）
  * vault-api 是单文件 skill：用 computeAgentSkillSourceHash 检测变化。
  */
 function syncVaultSkillsSourceToManifest(vaultPath: string): { synced: string[]; skipped: string[] } {
@@ -1524,9 +1987,9 @@ function syncVaultSkillsSourceToManifest(vaultPath: string): { synced: string[];
     const isPackage = slug === VAULT_CONTEXT_SLUG;
     const sourceRel = slug === VAULT_API_SLUG ? VAULT_API_SKILL_SOURCE_REL : VAULT_SKILL_SOURCE_REL;
     const sourcePath = path.join(vaultPath, sourceRel);
-    let instructions = "";
+    let rawContent = "";
     try {
-      instructions = fs.readFileSync(sourcePath, "utf8");
+      rawContent = fs.readFileSync(sourcePath, "utf8");
     } catch {
       skipped.push(slug);
       continue;
@@ -1535,37 +1998,25 @@ function syncVaultSkillsSourceToManifest(vaultPath: string): { synced: string[];
     const existing = existingBySlug.get(slug);
     const nowIso = new Date().toISOString();
 
-    // V18: 从 SKILL.md frontmatter 解析 name/description，覆盖硬编码值
-    // 解析失败时回退到 getVaultSkillRuntimeMeta 的硬编码值
-    const frontmatter = parseSkillFrontmatterFields(instructions);
-    const skillName = frontmatter.name || meta.name;
-    const skillDescription = frontmatter.description || meta.description;
+    // V3: 从 SKILL.md frontmatter 解析 name/description（单一真相源）。
+    // 解析失败时回退到 getVaultSkillRuntimeMeta（fallback）。
+    const parsed = parseSkillDocument(rawContent);
+    const skillName = parsed?.name || meta.name;
+    const skillDescription = parsed?.description || meta.description;
+    // instructions = body only（去掉 frontmatter），确保物化后只有一层 frontmatter
+    const instructions = parsed?.body ?? rawContent;
 
-    // 包 skill：hash 包含 SKILL.md + 所有子 .md 文件内容拼接
-    let combinedForHash = instructions;
-    if (isPackage) {
-      const sourceDirAbs = path.join(vaultPath, VAULT_SKILL_SOURCE_DIR_REL);
-      try {
-        const subFiles = fs.readdirSync(sourceDirAbs)
-          .filter((f): f is string => typeof f === "string" && f.endsWith(".md") && f !== "SKILL.md")
-          .sort();
-        for (const f of subFiles) {
-          combinedForHash += "\n\n---" + f + "---\n\n" + fs.readFileSync(path.join(sourceDirAbs, f), "utf8");
-        }
-      } catch {
-        // 目录读取失败，仅用 SKILL.md 内容
-      }
-    }
-
-    // 检测 source 内容是否变化
-    const newSourceHash = computeAgentSkillSourceHash({
-      name: skillName,
-      description: skillDescription,
-      instructions: combinedForHash.trim(),
-    });
+    // V3: 包 skill 递归 hash（SKILL.md raw + references/agents/assets 全部文件）
+    const newSourceHash = isPackage
+      ? computePackageSourceHash(path.join(vaultPath, VAULT_SKILL_SOURCE_DIR_REL), rawContent)
+      : computeAgentSkillSourceHash({
+          name: skillName,
+          description: skillDescription,
+          instructions: instructions.trim(),
+        });
 
     if (isPackage) {
-      // 包 skill：用 sourceContentHash 比较（检测子文件变化）
+      // 包 skill：用 sourceContentHash 比较（递归检测子文件变化）
       if (existing?.sourceContentHash && existing.sourceContentHash === newSourceHash) {
         skipped.push(slug);
         continue;

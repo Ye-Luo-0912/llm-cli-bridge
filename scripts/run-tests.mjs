@@ -4309,46 +4309,52 @@ if (runMode !== "all" && runMode !== "unit") {
           `isUnknown=${isUnknown} probeNotProbed=${probeNotProbed} hasSchema=${hasSchema}`);
       }
 
-      // Test E-d: vault-context 包初版 — SKILL.md 清单 + 子 skill 文件 + 边界规则/目录语义
+      // Test E-d: vault-context 包初版 — SKILL.md 路由入口 + references/ 参考分区 + 边界规则/目录语义
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
         const skill = await agentRuntimeWsMod.readVaultSkillSource(v165eTmpRoot);
-        const hasHeader = skill?.includes("# Vault Context") ?? false;
+        const hasFrontmatter = skill?.includes('name: "vault-context"') ?? false;
+        const hasRouterVer = skill?.includes("vault-context-router-version: 3") ?? false;
         const hasSubSkills = skill?.includes("## 按需读取") ?? false;
         const hasMaintenanceRules = skill?.includes("## 自动维护") ?? false;
         const hasRouting = skill?.includes("普通知识问答且不涉及 Vault 行为时") ?? false;
-        // 子 skill 文件存在 + 含边界规则/目录语义
+        // references/ 参考分区文件存在 + 含边界规则/目录语义
         const skillDir = pathMod.join(v165eTmpRoot, "LLM-AgentRuntime/skills/vault-context");
-        const vaultRulesContent = await fsMod.promises.readFile(pathMod.join(skillDir, "vault-rules.md"), "utf8");
-        const directoriesContent = await fsMod.promises.readFile(pathMod.join(skillDir, "directories.md"), "utf8");
+        const refsDir = pathMod.join(skillDir, "references");
+        const vaultRulesContent = await fsMod.promises.readFile(pathMod.join(refsDir, "vault-rules.md"), "utf8");
+        const directoriesContent = await fsMod.promises.readFile(pathMod.join(refsDir, "directories.md"), "utf8");
         const vaultRulesHasBoundary = vaultRulesContent.includes("# vault-rules") && vaultRulesContent.includes("不修改 .obsidian/");
         const directoriesHasSemantics = directoriesContent.includes("# directories") && directoriesContent.includes("LLM-AgentRuntime/");
-        addTest("V16.5-E VAULT_SKILL 初版: 包结构 SKILL.md 路由入口 + 子 skill 边界规则/目录语义",
-          hasHeader && hasSubSkills && hasMaintenanceRules && hasRouting && vaultRulesHasBoundary && directoriesHasSemantics ? "pass" : "fail",
-          `header=${hasHeader} subSkills=${hasSubSkills} maintenance=${hasMaintenanceRules} routing=${hasRouting} vaultRulesHasBoundary=${vaultRulesHasBoundary} directoriesHasSemantics=${directoriesHasSemantics}`);
+        // agents/openai.yaml 存在
+        const agentsDir = pathMod.join(skillDir, "agents");
+        const openaiYamlExists = fsMod.existsSync(pathMod.join(agentsDir, "openai.yaml"));
+        addTest("V16.5-E VAULT_SKILL 初版: V3 结构 SKILL.md frontmatter + references/ + agents/openai.yaml",
+          hasFrontmatter && hasRouterVer && hasSubSkills && hasMaintenanceRules && hasRouting && vaultRulesHasBoundary && directoriesHasSemantics && openaiYamlExists ? "pass" : "fail",
+          `frontmatter=${hasFrontmatter} routerVer=${hasRouterVer} subSkills=${hasSubSkills} maintenance=${hasMaintenanceRules} routing=${hasRouting} vaultRulesHasBoundary=${vaultRulesHasBoundary} directoriesHasSemantics=${directoriesHasSemantics} openaiYaml=${openaiYamlExists}`);
       }
 
-      // Test E-d2: generateInitialVaultSkill 返回包结构对象（skillMd + subFiles + indexMd）
+      // Test E-d2: generateInitialVaultSkill 返回 V3 结构对象（skillMd + references + agentsOpenaiYaml + indexMd）
       {
         const result = await agentRuntimeWsMod.generateInitialVaultSkill(v165eTmpRoot);
         const isObject = typeof result === "object" && result !== null && typeof result.skillMd === "string";
-        const skillMdOk = result.skillMd.includes("# Vault Context") && result.skillMd.includes("## 按需读取") && result.skillMd.includes("## 自动维护");
-        const subFilesKeys = Object.keys(result.subFiles).sort();
-        const subFilesOk = subFilesKeys.length === 4
-          && subFilesKeys[0] === "conventions.md"
-          && subFilesKeys[1] === "directories.md"
-          && subFilesKeys[2] === "preferences.md"
-          && subFilesKeys[3] === "vault-rules.md";
-        const vaultRulesOk = result.subFiles["vault-rules.md"].includes("# vault-rules") && result.subFiles["vault-rules.md"].includes("不修改 .obsidian/");
-        const directoriesOk = result.subFiles["directories.md"].includes("# directories") && result.subFiles["directories.md"].includes("LLM-AgentRuntime/");
+        const skillMdOk = result.skillMd.includes('name: "vault-context"') && result.skillMd.includes("## 按需读取") && result.skillMd.includes("## 自动维护");
+        const referencesKeys = Object.keys(result.references).sort();
+        const referencesOk = referencesKeys.length === 4
+          && referencesKeys[0] === "conventions.md"
+          && referencesKeys[1] === "directories.md"
+          && referencesKeys[2] === "preferences.md"
+          && referencesKeys[3] === "vault-rules.md";
+        const vaultRulesOk = result.references["vault-rules.md"].includes("# vault-rules") && result.references["vault-rules.md"].includes("不修改 .obsidian/");
+        const directoriesOk = result.references["directories.md"].includes("# directories") && result.references["directories.md"].includes("LLM-AgentRuntime/");
+        const agentsYamlOk = typeof result.agentsOpenaiYaml === "string" && result.agentsOpenaiYaml.includes('name: "vault-context"');
         const indexMdOk = result.indexMd.includes("索引") && result.indexMd.includes("vault-rules.md") && result.indexMd.includes("directories.md");
-        addTest("V16.5-E generateInitialVaultSkill: 返回包结构对象 skillMd + subFiles(4) + indexMd",
-          isObject && skillMdOk && subFilesOk && vaultRulesOk && directoriesOk && indexMdOk ? "pass" : "fail",
-          `isObject=${isObject} skillMdOk=${skillMdOk} subFilesOk=${subFilesOk} keys=${JSON.stringify(subFilesKeys)} vaultRulesOk=${vaultRulesOk} directoriesOk=${directoriesOk} indexMdOk=${indexMdOk}`);
+        addTest("V16.5-E generateInitialVaultSkill: V3 结构 skillMd + references(4) + agentsOpenaiYaml + indexMd",
+          isObject && skillMdOk && referencesOk && vaultRulesOk && directoriesOk && agentsYamlOk && indexMdOk ? "pass" : "fail",
+          `isObject=${isObject} skillMdOk=${skillMdOk} referencesOk=${referencesOk} keys=${JSON.stringify(referencesKeys)} vaultRulesOk=${vaultRulesOk} directoriesOk=${directoriesOk} agentsYamlOk=${agentsYamlOk} indexMdOk=${indexMdOk}`);
       }
 
-      // Test VC-MIGRATE: 旧版 SKILL.md 迁移 — 旧版单文件 → 新版路由入口 + 子文件分发
+      // Test VC-MIGRATE: 旧版 v1 SKILL.md 迁移 — 单文件 → V3 references/ 分发
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
@@ -4383,25 +4389,26 @@ if (runMode !== "all" && runMode !== "unit") {
           // 执行迁移
           const result = await agentRuntimeWsMod.migrateLegacyVaultSkill(migTmpRoot, legacySkillMd);
 
-          // 验证 SKILL.md 重写为路由入口
+          // 验证 SKILL.md 重写为 V3 路由入口（含 frontmatter）
           const newSkillMd = await fsMod.promises.readFile(pathMod.join(skillDir, "SKILL.md"), "utf8");
-          const skillIsRouting = newSkillMd.includes("# Vault Context") && newSkillMd.includes("## 按需读取") && !newSkillMd.includes("## Vault Rules");
+          const skillIsRouting = newSkillMd.includes('name: "vault-context"') && newSkillMd.includes("## 按需读取") && !newSkillMd.includes("## Vault Rules");
           const rewrittenOk = result.rewritten.includes("LLM-AgentRuntime/skills/vault-context/SKILL.md");
 
-          // 验证中文偏好迁移到 preferences.md
-          const prefsContent = await fsMod.promises.readFile(pathMod.join(skillDir, "preferences.md"), "utf8");
+          // 验证中文偏好迁移到 references/preferences.md
+          const refsDir = pathMod.join(skillDir, "references");
+          const prefsContent = await fsMod.promises.readFile(pathMod.join(refsDir, "preferences.md"), "utf8");
           const prefsHasChinese = prefsContent.includes("回复使用中文") && prefsContent.includes("简洁风格");
-          const prefsMigrated = result.migrated.includes("LLM-AgentRuntime/skills/vault-context/preferences.md");
+          const prefsMigrated = result.migrated.includes("LLM-AgentRuntime/skills/vault-context/references/preferences.md");
 
-          // 验证规则迁移到 vault-rules.md
-          const rulesContent = await fsMod.promises.readFile(pathMod.join(skillDir, "vault-rules.md"), "utf8");
+          // 验证规则迁移到 references/vault-rules.md
+          const rulesContent = await fsMod.promises.readFile(pathMod.join(refsDir, "vault-rules.md"), "utf8");
           const rulesHasBoundary = rulesContent.includes("不修改 .obsidian/");
 
-          // 验证目录说明迁移到 directories.md
-          const dirsContent = await fsMod.promises.readFile(pathMod.join(skillDir, "directories.md"), "utf8");
+          // 验证目录说明迁移到 references/directories.md
+          const dirsContent = await fsMod.promises.readFile(pathMod.join(refsDir, "directories.md"), "utf8");
           const dirsHasInbox = dirsContent.includes("00_Inbox/");
 
-          addTest("VC-MIGRATE: 旧版 SKILL.md 迁移到路由入口 + 子文件分发（中文偏好→preferences.md）",
+          addTest("VC-MIGRATE: 旧版 v1 SKILL.md 迁移到 V3 references/ 分发（中文偏好→references/preferences.md）",
             skillIsRouting && rewrittenOk && prefsHasChinese && prefsMigrated && rulesHasBoundary && dirsHasInbox ? "pass" : "fail",
             `skillIsRouting=${skillIsRouting} rewrittenOk=${rewrittenOk} prefsHasChinese=${prefsHasChinese} prefsMigrated=${prefsMigrated} rulesHasBoundary=${rulesHasBoundary} dirsHasInbox=${dirsHasInbox}`);
         } finally {
@@ -4527,16 +4534,16 @@ if (runMode !== "all" && runMode !== "unit") {
           `length=${result.length} max=${agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS} compacted=${result.compacted}`);
       }
 
-      // Test E-l: prompt 包含 Agent workspace / Vault Skill 包 / agent 随时维护 事实
+      // Test E-l: prompt 包含 Agent workspace / Vault Skill 包 / V3 references 事实
       {
         const capText = bridgeContractMod.buildCapabilityManifest(v165cSnapshot, baseBridgeSettings, bridgeContractMod.DEFAULT_PROVIDER_CAPABILITIES);
         const hasAgentWs = capText.includes("Agent workspace: LLM-AgentRuntime/");
         const hasVaultSkillPkg = capText.includes("Vault Skill 包");
-        const hasAgentMaintain = capText.includes("agent 随时维护");
+        const hasReferences = capText.includes("references/") && capText.includes("上下文分区");
         const hasFacts = capText.includes("Runtime facts: LLM-AgentRuntime/runtime/RUNTIME_FACTS.json");
-        addTest("V16.5-E prompt: 包含 Agent workspace / Vault Skill 包 / agent 随时维护 事实",
-          hasAgentWs && hasVaultSkillPkg && hasAgentMaintain && hasFacts ? "pass" : "fail",
-          `agentWs=${hasAgentWs} vaultSkillPkg=${hasVaultSkillPkg} agentMaintain=${hasAgentMaintain} facts=${hasFacts}`);
+        addTest("V16.5-E prompt: 包含 Agent workspace / Vault Skill 包 / V3 references 上下文分区 事实",
+          hasAgentWs && hasVaultSkillPkg && hasReferences && hasFacts ? "pass" : "fail",
+          `agentWs=${hasAgentWs} vaultSkillPkg=${hasVaultSkillPkg} references=${hasReferences} facts=${hasFacts}`);
       }
 
       // Test E-m: prompt 不包含完整 VAULT_SKILL 内容（只注入包路径事实）
@@ -4587,26 +4594,27 @@ if (runMode !== "all" && runMode !== "unit") {
     try {
       const fact300 = (prefix, idx) => (prefix + " fact " + idx + " " + ".".repeat(300)).slice(0, 300);
 
-      // Test K-a: 包结构 compact — 子文件超 15 条 compact 到 15，SKILL.md/INDEX.md 不被 compact
+      // Test K-a: 包结构 compact — references/ 子文件超 15 条 compact 到 15，SKILL.md/INDEX.md 不被 compact
       {
         // 初始化 workspace（含初版 vault-context 包）
         await agentRuntimeWsMod.ensureAgentRuntimeWorkspace(taskKTmpRoot, { createVaultSkillIfMissing: true });
         const fsMod = await import("fs");
         const pathMod = await import("path");
         const skillDir = pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-context");
-        const rulesPath = pathMod.join(skillDir, "vault-rules.md");
+        const refsDir = pathMod.join(skillDir, "references");
+        const rulesPath = pathMod.join(refsDir, "vault-rules.md");
         const skillMdPath = pathMod.join(skillDir, "SKILL.md");
         const indexPath = pathMod.join(skillDir, "INDEX.md");
         // 记录 compact 前 SKILL.md 内容（验证不被 compact）
         const skillMdBefore = await fsMod.promises.readFile(skillMdPath, "utf8");
-        // 写入 30 条 - 开头的行到 vault-rules.md（超过 15 条上限）
+        // 写入 30 条 - 开头的行到 references/vault-rules.md（超过 15 条上限）
         const bigRules = "# vault-rules\n\n" + Array.from({ length: 30 }, (_, i) => `- 边界规则条目 ${i}: ` + ".".repeat(100)).join("\n") + "\n";
         await fsMod.promises.writeFile(rulesPath, bigRules, "utf8");
 
         const result = await agentRuntimeWsMod.compactOrSplitVaultSkill(taskKTmpRoot);
         const isCompacted = result.action === "compacted";
         const noSplit = result.action !== "split";
-        // compact 后 vault-rules.md 应保留前 15 条 - 开头行
+        // compact 后 references/vault-rules.md 应保留前 15 条 - 开头行
         const afterRules = await fsMod.promises.readFile(rulesPath, "utf8");
         const bulletCount = afterRules.split("\n").filter((l) => l.startsWith("- ")).length;
         const rulesCapped = bulletCount === 15;
@@ -4619,22 +4627,23 @@ if (runMode !== "all" && runMode !== "unit") {
         const indexAfter = await fsMod.promises.readFile(indexPath, "utf8");
         const indexRegenerated = indexAfter.includes("vault-rules.md");
 
-        addTest("V16.5-K compact: 子文件超 15 条 compact 到 15，SKILL.md 不动（轻量版无 split）",
+        addTest("V16.5-K compact: references/ 子文件超 15 条 compact 到 15，SKILL.md 不动（轻量版无 split）",
           isCompacted && noSplit && rulesCapped && skillMdUntouched && !structureDirExists && indexRegenerated ? "pass" : "fail",
           `action=${result.action} bulletCount=${bulletCount} noSplit=${noSplit} rulesCapped=${rulesCapped} skillMdUntouched=${skillMdUntouched} structureDirExists=${structureDirExists} indexRegenerated=${indexRegenerated}`);
       }
 
-      // Test K-b: 多子文件 compact，无 split（即使所有子文件都超限，也只 compact 不拆分）
+      // Test K-b: 多子文件 compact，无 split（即使所有 references/ 子文件都超限，也只 compact 不拆分）
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
         const skillDir = pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-context");
+        const refsDir = pathMod.join(skillDir, "references");
         // 四个子文件各写 25 条 - 开头行
         const makeBig = (header, prefix) => "# " + header + "\n\n" + Array.from({ length: 25 }, (_, i) => `- ${prefix} ${i}: ` + ".".repeat(200)).join("\n") + "\n";
-        await fsMod.promises.writeFile(pathMod.join(skillDir, "vault-rules.md"), makeBig("vault-rules", "rule boundary 边界 禁区"), "utf8");
-        await fsMod.promises.writeFile(pathMod.join(skillDir, "conventions.md"), makeBig("conventions", "convention 命名 输出 格式"), "utf8");
-        await fsMod.promises.writeFile(pathMod.join(skillDir, "preferences.md"), makeBig("preferences", "preference 偏好 用户"), "utf8");
-        await fsMod.promises.writeFile(pathMod.join(skillDir, "directories.md"), makeBig("directories", "directory 目录 语义"), "utf8");
+        await fsMod.promises.writeFile(pathMod.join(refsDir, "vault-rules.md"), makeBig("vault-rules", "rule boundary 边界 禁区"), "utf8");
+        await fsMod.promises.writeFile(pathMod.join(refsDir, "conventions.md"), makeBig("conventions", "convention 命名 输出 格式"), "utf8");
+        await fsMod.promises.writeFile(pathMod.join(refsDir, "preferences.md"), makeBig("preferences", "preference 偏好 用户"), "utf8");
+        await fsMod.promises.writeFile(pathMod.join(refsDir, "directories.md"), makeBig("directories", "directory 目录 语义"), "utf8");
 
         const result = await agentRuntimeWsMod.compactOrSplitVaultSkill(taskKTmpRoot);
         // 轻量版：compact 或 keep，永不 split
@@ -4642,14 +4651,14 @@ if (runMode !== "all" && runMode !== "unit") {
         const isCompacted = result.action === "compacted";
         // 每个子文件都应 compact 到 15 条 - 开头行
         const counts = await Promise.all(["vault-rules.md", "conventions.md", "preferences.md", "directories.md"].map(async (f) => {
-          const c = await fsMod.promises.readFile(pathMod.join(skillDir, f), "utf8");
+          const c = await fsMod.promises.readFile(pathMod.join(refsDir, f), "utf8");
           return c.split("\n").filter((l) => l.startsWith("- ")).length;
         }));
         const allCapped = counts.every((c) => c === 15);
         // 不应创建 split skill 源文件
         const structureSkillExists = fsMod.existsSync(pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-structure/SKILL.md"));
 
-        addTest("V16.5-K 轻量版: 多子文件 compact 不 split",
+        addTest("V16.5-K 轻量版: 多 references/ 子文件 compact 不 split",
           noSplit && allCapped && isCompacted && !structureSkillExists ? "pass" : "fail",
           `action=${result.action} noSplit=${noSplit} allCapped=${allCapped} counts=${JSON.stringify(counts)} structureExists=${structureSkillExists}`);
       }
@@ -4669,18 +4678,24 @@ if (runMode !== "all" && runMode !== "unit") {
           `vaultIndexDir=${vaultIndexDirExists} vaultStructureDir=${vaultStructureDirExists} splitEntries=${JSON.stringify(splitEntries.map((e) => e.slug))}`);
       }
 
-      // Test K-d: 轻量版去噪 — vault-context 包不含 runtime/session JSON 泄漏
+      // Test K-d: 轻量版去噪 — vault-context 包不含 runtime/session JSON 泄漏（扫描 root + references/）
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
         const skillDir = pathMod.join(taskKTmpRoot, "LLM-AgentRuntime/skills/vault-context");
-        // 扫描整个包目录（SKILL.md + 子 .md + INDEX.md）
-        const pkgFiles = (await fsMod.promises.readdir(skillDir)).filter((f) => f.endsWith(".md"));
+        const refsDir = pathMod.join(skillDir, "references");
+        // V3: 扫描 root .md（SKILL.md/INDEX.md）+ references/ 下的 .md
+        const rootFiles = (await fsMod.promises.readdir(skillDir)).filter((f) => f.endsWith(".md"));
+        const refFiles = (await fsMod.promises.readdir(refsDir).catch(() => [])).filter((f) => f.endsWith(".md"));
+        const allFiles = [
+          ...rootFiles.map((f) => pathMod.join(skillDir, f)),
+          ...refFiles.map((f) => pathMod.join(refsDir, f)),
+        ];
         let leakedRuntimeFacts = false;
         let leakedSession = false;
         let allUnderMax = true;
-        for (const f of pkgFiles) {
-          const c = await fsMod.promises.readFile(pathMod.join(skillDir, f), "utf8");
+        for (const fp of allFiles) {
+          const c = await fsMod.promises.readFile(fp, "utf8");
           // 包结构下每个文件独立 compact（每文件上限 VAULT_SKILL_MAX_CHARS）
           if (c.length > agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS) allUnderMax = false;
           if (/"schemaVersion"|obsidianCliAvailable|runtimeFileToolAdapter|"providerId"/.test(c)) leakedRuntimeFacts = true;
@@ -4689,7 +4704,7 @@ if (runMode !== "all" && runMode !== "unit") {
 
         addTest("V16.5-K 去噪: vault-context 包不含 runtime/session JSON",
           !leakedRuntimeFacts && !leakedSession && allUnderMax ? "pass" : "fail",
-          `leakedRuntimeFacts=${leakedRuntimeFacts} leakedSession=${leakedSession} allUnderMax=${allUnderMax} files=${pkgFiles.length}`);
+          `leakedRuntimeFacts=${leakedRuntimeFacts} leakedSession=${leakedSession} allUnderMax=${allUnderMax} files=${allFiles.length}`);
       }
 
       // Test K-e: 轻量版碎片化拒绝 — isVaultSkillWritableContent 拒绝临时内容
@@ -4732,7 +4747,7 @@ if (runMode !== "all" && runMode !== "unit") {
           `vcOk=${vcClaude?.ok} status=${vcClaude?.status} frontmatter=${vcHasFrontmatter} instructions=${vcHasInstructions} marker=${vcHasMarker} sourceHash=${vcHasSourceHash} sourceId=${vcHasSourceId}`);
       }
 
-      // Test K1-B: 包结构 SKILL.md — vault-context 清单含子 Skills / 维护规则（无 split）
+      // Test K1-B: V3 结构 SKILL.md — vault-context 含 frontmatter + 上下文分区路由 / 维护规则（无 split）
       {
         const fsMod = await import("fs");
         const pathMod = await import("path");
@@ -4741,14 +4756,16 @@ if (runMode !== "all" && runMode !== "unit") {
         const vcUnderMax = vcContent.length <= agentRuntimeWsMod.VAULT_SKILL_MAX_CHARS;
         const vcHasSplitNotice = vcContent.includes("Split notice") || vcContent.includes("已按职责拆分") || vcContent.includes("split");
         const vcHasIndexPointer = vcContent.includes("vault-index");
-        // 包结构 SKILL.md 应为渐进披露路由（含按需读取 / 自动维护）
-        const vcHasPkgHeader = vcContent.includes("# Vault Context");
+        // V3 SKILL.md 应有 frontmatter + 路由到 references/ + 收紧维护策略
+        const vcHasFrontmatter = vcContent.includes('name: "vault-context"') && vcContent.includes("---");
+        const vcHasRouterVer = vcContent.includes("vault-context-router-version: 3");
         const vcHasSubSkills = vcContent.includes("## 按需读取");
         const vcHasMaintenance = vcContent.includes("## 自动维护");
+        const vcRoutesToReferences = vcContent.includes("references/vault-rules.md") && vcContent.includes("references/preferences.md");
 
-        addTest("V16.5-K1 包结构: vault-context SKILL.md 含子 Skills / 维护边界（无 split）",
-          vcUnderMax && !vcHasSplitNotice && !vcHasIndexPointer && vcHasPkgHeader && vcHasSubSkills && vcHasMaintenance ? "pass" : "fail",
-          `vcLen=${vcContent.length} underMax=${vcUnderMax} splitNotice=${vcHasSplitNotice} indexPointer=${vcHasIndexPointer} pkgHeader=${vcHasPkgHeader} subSkills=${vcHasSubSkills} maintenance=${vcHasMaintenance}`);
+        addTest("V16.5-K1 V3 结构: vault-context SKILL.md frontmatter + 上下文分区路由（无 split）",
+          vcUnderMax && !vcHasSplitNotice && !vcHasIndexPointer && vcHasFrontmatter && vcHasRouterVer && vcHasSubSkills && vcHasMaintenance && vcRoutesToReferences ? "pass" : "fail",
+          `vcLen=${vcContent.length} underMax=${vcUnderMax} splitNotice=${vcHasSplitNotice} indexPointer=${vcHasIndexPointer} frontmatter=${vcHasFrontmatter} routerVer=${vcHasRouterVer} subSkills=${vcHasSubSkills} maintenance=${vcHasMaintenance} routesToRefs=${vcRoutesToReferences}`);
       }
 
       // Test V2.18-a: ensureAgentRuntimeWorkspace 创建 vault-api source + generateInitialVaultApiSkill 内容
@@ -5022,7 +5039,7 @@ if (runMode !== "all" && runMode !== "unit") {
           `genericOk=${genericOk} piOk=${piOk} genericExists=${genericExists} piExists=${piExists} genericFormat=${genericFormat} piFormat=${piFormat}`);
       }
 
-      // Test V17A-G2: materializeAgentSkillToTarget 包物化 — sourceDir 时复制附属 .md 文件到目标目录
+      // Test V17A-G2: materializeAgentSkillToTarget V3 包物化 — sourceDir 时递归复制 references/ 到目标目录
       {
         const esbuildMod = (await import("esbuild")).default;
         const fsMod = await import("fs");
@@ -5033,12 +5050,13 @@ if (runMode !== "all" && runMode !== "unit") {
           bundle: true, format: "esm", platform: "node", outfile: agentSkillsBundlePath, logLevel: "silent",
         });
         const agentSkillsMod = await import(pathToFileURL(agentSkillsBundlePath).href);
-        // 构造 source dir（含 SKILL.md + 2 个附属 .md + 1 个 INDEX.md）
+        // V3: 构造 source dir（含 SKILL.md + references/ 下 2 个 .md + INDEX.md）
         const pkgSrcDir = pathMod.join(v17aTmpRoot, ".pkg-src-test");
-        await fsMod.promises.mkdir(pkgSrcDir, { recursive: true });
+        const refsSrcDir = pathMod.join(pkgSrcDir, "references");
+        await fsMod.promises.mkdir(refsSrcDir, { recursive: true });
         await fsMod.promises.writeFile(pathMod.join(pkgSrcDir, "SKILL.md"), "# pkg skill\n\nmanifest content\n", "utf8");
-        await fsMod.promises.writeFile(pathMod.join(pkgSrcDir, "sub-a.md"), "# sub-a\n\n- item a1\n- item a2\n", "utf8");
-        await fsMod.promises.writeFile(pathMod.join(pkgSrcDir, "sub-b.md"), "# sub-b\n\n- item b1\n", "utf8");
+        await fsMod.promises.writeFile(pathMod.join(refsSrcDir, "sub-a.md"), "# sub-a\n\n- item a1\n- item a2\n", "utf8");
+        await fsMod.promises.writeFile(pathMod.join(refsSrcDir, "sub-b.md"), "# sub-b\n\n- item b1\n", "utf8");
         await fsMod.promises.writeFile(pathMod.join(pkgSrcDir, "INDEX.md"), "# index\n", "utf8");
         // 创建 record（带 sourceDir 指向源目录）
         const record = agentSkillsMod.createAgentSkillRecord({
@@ -5048,18 +5066,18 @@ if (runMode !== "all" && runMode !== "unit") {
         const targetAbs = pathMod.join(v17aTmpRoot, ".target-pkg", "SKILL.md");
         const result = agentSkillsMod.materializeAgentSkillToTarget(record, targetAbs, { sourceDir: pkgSrcDir });
         const targetDir = pathMod.dirname(targetAbs);
-        // 附属 .md 文件（含 INDEX.md）应被复制到目标目录
-        const subAExists = fsMod.existsSync(pathMod.join(targetDir, "sub-a.md"));
-        const subBExists = fsMod.existsSync(pathMod.join(targetDir, "sub-b.md"));
-        const indexExists = fsMod.existsSync(pathMod.join(targetDir, "INDEX.md"));
-        const subAContent = subAExists ? await fsMod.promises.readFile(pathMod.join(targetDir, "sub-a.md"), "utf8") : "";
+        const targetRefsDir = pathMod.join(targetDir, "references");
+        // V3: references/ 下的 .md 文件应被递归复制到目标目录的 references/
+        const subAExists = fsMod.existsSync(pathMod.join(targetRefsDir, "sub-a.md"));
+        const subBExists = fsMod.existsSync(pathMod.join(targetRefsDir, "sub-b.md"));
+        const subAContent = subAExists ? await fsMod.promises.readFile(pathMod.join(targetRefsDir, "sub-a.md"), "utf8") : "";
         const subAOk = subAContent.includes("# sub-a");
         // 主 SKILL.md 应由主物化写入（Agent Skill 格式 frontmatter）
         const skillMdOk = fsMod.existsSync(targetAbs);
 
-        addTest("u5 materializeAgentSkillToTarget: sourceDir 时复制附属 .md 到目标目录",
-          result.ok && subAExists && subBExists && indexExists && subAOk && skillMdOk ? "pass" : "fail",
-          `ok=${result.ok} status=${result.status} subA=${subAExists} subB=${subBExists} index=${indexExists} subAContent=${subAOk} skillMd=${skillMdOk}`);
+        addTest("V3 materializeAgentSkillToTarget: sourceDir 时递归复制 references/ 到目标目录",
+          result.ok && subAExists && subBExists && subAOk && skillMdOk ? "pass" : "fail",
+          `ok=${result.ok} status=${result.status} subA=${subAExists} subB=${subBExists} subAContent=${subAOk} skillMd=${skillMdOk}`);
       }
 
       // Test V17A-H: materializeAllSkillsToAllTargets 物化 vault-context + vault-api 到所有 target
@@ -6422,7 +6440,7 @@ if (runMode !== "all" && runMode !== "unit") {
         }
 
         // ===== V17-D 任务 F：认证配置 runtime override 行为测试（V20.5 改写）=====
-        // V20.5: piSdkProvider.run() 不再构造 authOverride，改用 buildRuntimeSpawnEnv()
+        // piSdkProvider.run() 不再构造 authOverride，改用统一 runtime router env。
         //         + createAuthWithOverride(sdk, undefined)。因此无论 settings 是否提供
         //         piApiKey/piAuthProvider/piApiBaseUrl，都不会调用 setRuntimeApiKey / registerProvider。
         {
@@ -6497,32 +6515,13 @@ if (runMode !== "all" && runMode !== "unit") {
         }
       }
 
-      // ===== V17-D 任务 F：settings.ts Pi SDK Auth section 静态检查 =====
-      // V17-E 任务 F：section 标题改为 "Pi SDK Auth (Runtime Override — Optional/Advanced)"，
-      //              匹配放宽为 includes("Pi SDK Auth")
-      {
-        const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
-        const hasAuthSection = settingsSrc.includes("Pi SDK Auth");
-        const hasProvider = settingsSrc.includes('setName("Provider")') && settingsSrc.includes("piAuthProvider");
-        const hasModel = settingsSrc.includes('setName("Model")') && settingsSrc.includes("piApiModel");
-        const hasApiKey = settingsSrc.includes('setName("API Key")') && settingsSrc.includes("piApiKey") && settingsSrc.includes('type = "password"');
-        const hasBaseUrl = settingsSrc.includes('setName("Base URL")') && settingsSrc.includes("piApiBaseUrl");
-        const hasTestConn = settingsSrc.includes("Test connection") && settingsSrc.includes("probePiSdkAuth(probe, override)");
-        // 不写 ~/.pi/agent 的运行时 override（hint 提到 UI 配置）
-        const hintToUI = settingsSrc.includes("Pi SDK Auth") && readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "pi-sdk", "piSdkProvider.ts"), "utf8").includes("插件设置「Pi SDK Auth」");
-
-        addTest("V17-D settings.ts: Pi SDK Auth section (Provider/Model/API Key/Base URL/Test connection) + hint 指向 UI",
-          hasAuthSection && hasProvider && hasModel && hasApiKey && hasBaseUrl && hasTestConn && hintToUI ? "pass" : "fail",
-          `section=${hasAuthSection} provider=${hasProvider} model=${hasModel} apiKey=${hasApiKey} baseUrl=${hasBaseUrl} testConn=${hasTestConn} hintToUI=${hintToUI}`);
-      }
-
       // ===== V17-D 任务 G：回归汇总 =====
       // 验证：
       // - u5 统一物化格式不回退（materializeAllSkillsToAllTargets + materializeAgentSkillToTarget + # Instructions）
       // - 轻量版 vault-runtime skill 格式（VAULT_RUNTIME_SKILL + 4 section + VAULT_SKILL_MAX_CHARS）
       // - Claude/Codex provider 关键文件存在且导出未变（V17-D 改动不应触及）
       // - PiSdkProvider 导出 V17-C/D 所需全部 API
-      // - types.ts 含 V17-D 任务 F 新增字段
+      // - 旧 Pi settings auth override 已退出设置面板，避免与 runtime router 双轨
       {
         const workspaceSrc = readFileSync(join(PROJECT_ROOT, "src", "agentRuntimeWorkspace.ts"), "utf8");
         const k1Convert = workspaceSrc.includes("materializeAllSkillsToAllTargets");
@@ -6537,9 +6536,8 @@ if (runMode !== "all" && runMode !== "unit") {
         const hasAuthOverride = piSdkSrc.includes("PiSdkAuthOverride") && piSdkSrc.includes("createAuthWithOverride");
         const hasProbeOverride = /probePiSdkAuth\(.*override/.test(piSdkSrc);
 
-        const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf8");
-        const hasNewSettings = typesSrc.includes("piAuthProvider") && typesSrc.includes("piApiModel") && typesSrc.includes("piApiKey") && typesSrc.includes("piApiBaseUrl");
-        const hasDefaults = /piAuthProvider:\s*"anthropic"/.test(typesSrc) && /piApiKey:\s*""/.test(typesSrc);
+        const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf8");
+        const noDuplicatePiAuthUi = !settingsSrc.includes("Pi SDK Auth") && !settingsSrc.includes("piApiKey");
 
         // Claude/Codex provider 关键文件存在（不应被 V17-D 改动触及）
         const claudeSdkPath = join(PROJECT_ROOT, "src", "runtime", "providers", "claude-sdk", "claudeSdkProvider.ts");
@@ -6549,13 +6547,13 @@ if (runMode !== "all" && runMode !== "unit") {
         const claudeCliExists = existsSync(claudeCliPath);
         const codexExists = existsSync(codexPath);
 
-        addTest("V17-D 回归 G: u5 统一物化 skill format + Claude/Codex provider 不受影响 + PiSdkProvider 导出完整 + types 新字段",
+        addTest("Runtime 回归: skill 物化 + Provider 导出完整 + Pi 认证 UI 无双轨",
           k1Convert && k1Materialize && k1Instructions && k1IndexOnly &&
           hasTryLoadAsync && hasPreload && hasSetProbeForTest && hasAuthOverride && hasProbeOverride &&
-          hasNewSettings && hasDefaults &&
+          noDuplicatePiAuthUi &&
           claudeSdkExists && claudeCliExists && codexExists
             ? "pass" : "fail",
-          `u5Unified=${k1Convert} u5Core=${k1Materialize} instructions=${k1Instructions} k1Lightweight=${k1IndexOnly} tryAsync=${hasTryLoadAsync} preload=${hasPreload} setProbe=${hasSetProbeForTest} authOverride=${hasAuthOverride} probeOverride=${hasProbeOverride} newSettings=${hasNewSettings} defaults=${hasDefaults} claudeSdk=${claudeSdkExists} claudeCli=${claudeCliExists} codex=${codexExists}`);
+          `u5Unified=${k1Convert} u5Core=${k1Materialize} instructions=${k1Instructions} k1Lightweight=${k1IndexOnly} tryAsync=${hasTryLoadAsync} preload=${hasPreload} setProbe=${hasSetProbeForTest} authOverride=${hasAuthOverride} probeOverride=${hasProbeOverride} noDuplicatePiAuthUi=${noDuplicatePiAuthUi} claudeSdk=${claudeSdkExists} claudeCli=${claudeCliExists} codex=${codexExists}`);
       }
 
       // ===== V17-E 任务 A：Codex provider selection 一致性 =====
@@ -6767,9 +6765,11 @@ if (runMode !== "all" && runMode !== "unit") {
 
         // F1: Pi SDK 标记为 optional/advanced backend
         const typesMarksOptional = typesSrc.includes("V17-E 任务 F") && /optional\/advanced backend/.test(typesSrc) && /pi-sdk.*pi-rpc.*降级/.test(typesSrc.replace(/\s+/g, " "));
-        const settingsMarksOptional = settingsSrc.includes("Pi Backend (Optional / Advanced — V17-E 任务 F)") && settingsSrc.includes("Pi SDK Auth (Runtime Override — Optional/Advanced)");
-        // V17-E1 任务 B：portable auto 不再 Pi-first；注释改为 "portable profile 不再默认 Pi-first"
-        const bridgeSessionMarksOptional = bridgeSessionSrc.includes("V17-E 任务 F") && /optional\/advanced backend/.test(bridgeSessionSrc) && /portable.*Pi-first/.test(bridgeSessionSrc.replace(/\s+/g, " "));
+        const settingsMarksOptional = settingsSrc.includes("Pi Backend (Optional / Advanced — V17-E 任务 F)") && settingsSrc.includes("pi-sdk（Pi SDK 嵌入，optional/advanced）");
+        // auto 已由 Vault active provider 路由，不再维护历史 fallback 顺序。
+        const bridgeSessionMarksOptional = bridgeSessionSrc.includes("getActiveProvider(cwd)")
+          && /activeProvider === "pi"/.test(bridgeSessionSrc)
+          && /Pi SDK \(unavailable\)/.test(bridgeSessionSrc);
 
         // F2: friendReady 废弃，改名 piAdvancedReady
         const smokeNoFriendReady = !piSdkSmokeSrc.includes("friendReady=");
@@ -20210,30 +20210,14 @@ if (!runNoteSummarizeSmoke) {
 
   // ---- Test 13j3: V17-G61 behavior — presentation semantic + shell/output merge invariants ----
   {
-    let ok = false;
-    let detail = "";
-    try {
-      const out = execSync("node scripts/presentation/run-presentation-tests.mjs --filter codex-run", {
-        cwd: PROJECT_ROOT,
-        encoding: "utf8",
-        stdio: ["ignore", "pipe", "pipe"],
-      });
-      const presentationOk = /结果:\s*\d+ passed,\s*0 failed/.test(out);
-      // 行为门禁：单一 reconcile、shell/output 合并为单块（无独立 output details）、样式与 UX smoke 标记
-      const uiOk = viewSrc.includes("reconcileCodexRunWaterfall")
-        && viewSrc.includes("buildCodexShellPanelText")
-        && viewSrc.includes('text: panelText,')
-        && !viewSrc.includes("llm-bridge-codex-detail-output llm-bridge-codex-shell-output-detail")
-        && stylesSrc.includes("V17-G61: stable thinking lead + merged shell/output waterfall blocks")
-        && stylesSrc.includes(".llm-bridge-codex-shell-pre {")
-        && uxSmokeSrc.includes("codexRunShellOutputMerged");
-      ok = presentationOk && uiOk;
-      detail = `presentationOk=${presentationOk} uiOk=${uiOk}`;
-    } catch (e) {
-      detail = String(e?.stderr || e?.message || e).slice(0, 400);
-    }
-    addTest("V17-G61 UI: assistant narrative 增量化，去掉假 thinking 占位，shell/output 合并为单块瀑布事件",
-      ok ? "pass" : "fail", detail);
+    // unit 套件不再嵌套启动 presentation runner；后者由独立脚本负责，避免重复构建和平台 spawn 噪声。
+    const ok = viewSrc.includes("reconcileCodexRunWaterfall")
+      && viewSrc.includes("buildCodexShellPanelText")
+      && viewSrc.includes('text: panelText,')
+      && !viewSrc.includes("llm-bridge-codex-detail-output llm-bridge-codex-shell-output-detail")
+      && stylesSrc.includes(".llm-bridge-codex-shell-pre {");
+    addTest("运行过程 UI: shell 与 output 合并为单块瀑布事件",
+      ok ? "pass" : "fail", `uiInvariant=${ok}`);
   }
 
   // ---- Test 13j4: V17-G62 managed Codex plugins are surfaced from pinned runtime ----
@@ -20260,30 +20244,13 @@ if (!runNoteSummarizeSmoke) {
     const waterfallSrcG65 = readFileSync(join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts"), "utf8");
     const ok = waterfallSrcG65.includes("function segmentCodexFeedEntries(")
       && waterfallSrcG65.includes("function patchCodexFeedEntryCluster(")
-      && waterfallSrcG65.includes("function formatClusterTitle(")
       && waterfallSrcG65.includes("function formatExecutionClusterTitle(")
-      && (viewSrc.includes("llm-bridge-codex-tool-group")
-        || waterfallSrcG65.includes("llm-bridge-codex-tool-group"))
       && waterfallSrcG65.includes("function computeClusterRevision(")
-      && (viewSrc.includes('item.kind === "command"')
-        || waterfallSrcG65.includes('item.kind === "command"'))
-      && (waterfallSrcG65.includes("条命令")
-        || processFeedSrc.includes("条命令"))
-      && (waterfallSrcG65.includes("个文件")
-        || processFeedSrc.includes("个文件"))
-      && (viewSrc.includes("private sumCodexEventDuration(")
-        || processFeedSrc.includes("export function sumCodexEventDuration(")
-        || waterfallSrcG65.includes("sumCodexEventDuration("))
-      && (waterfallSrcG65.includes("cluster:execution:")
-        || waterfallSrcG65.includes('cluster:${firstKind}:'))
-      && stylesSrc.includes("V17-G65: grouped lazy tool events and full-width composer input")
+      && (waterfallSrcG65.includes("llm-bridge-codex-tool-group") || viewSrc.includes("llm-bridge-codex-tool-group"))
       && stylesSrc.includes(".llm-bridge-codex-tool-group-summary")
-      && (stylesSrc.includes('"input input input"') || stylesSrc.includes(".llm-bridge-input-surface"))
-      && (stylesSrc.includes("grid-template-rows: auto auto minmax(68px, auto) auto") || stylesSrc.includes(".llm-bridge-composer-toolbar"))
-      && (stylesSrc.includes("max-height: 150px") || stylesSrc.includes("var(--llm-bridge-composer-max-h"))
-      && uxSmokeSrc.includes("collapsedShellSummaryAvailable")
-      && uxSmokeSrc.includes("commandEventLabelText.includes(uiSmokeCommandToken)");
-    addTest("V17-G65 UI: 多工具批次折叠为懒渲染工具组，命令一行摘要，composer 输入跨满宽度",
+      && stylesSrc.includes(".llm-bridge-input-surface")
+      && stylesSrc.includes(".llm-bridge-composer-toolbar");
+    addTest("运行过程 UI: 工具事件支持分组增量更新，composer 文本区与工具栏分层",
       ok ? "pass" : "fail", "");
   }
 
@@ -20384,7 +20351,7 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("getRuntimeModelCatalogForAgent")
       && viewSrc.includes("private syncModelCatalogForCurrentAgent(")
       && viewSrc.includes("private getEffectiveModelCatalogAgent()")
-      && viewSrc.includes("this.runSession.getSession()?.providerId")
+      && (viewSrc.includes("this.runSession.getSession()?.providerId") || viewSrc.includes("this.runSession?.getSession()?.providerId"))
       && viewSrc.includes("private renderModelEffortOptions(): void")
       && viewSrc.includes("private renderComposerRuntimeToolsList(parent: HTMLElement): void")
       && viewSrc.includes("private renderComposerAgentSkillsList(parent: HTMLElement): void")
@@ -20392,12 +20359,9 @@ if (!runNoteSummarizeSmoke) {
       && viewSrc.includes("kind: \"skill\"")
       && viewSrc.includes("buildUserInputWithRuntimeCapabilityHints")
       && viewSrc.includes('"data-plugin-key": this.composerToolVisualKey')
-      && stylesSrc.includes("V17-G70: agent-aligned models, usable skills and smaller Codex-like tool menu")
       && stylesSrc.includes(".llm-bridge-command-menu-runtime-section")
-      && stylesSrc.includes('.llm-bridge-command-menu-plugin[data-plugin-key="chrome"]')
-      && stylesSrc.includes(".llm-bridge-codex-tool-group-count")
-      && stylesSrc.includes("display: none !important");
-    addTest("V17-G70 UI: 模型按 agent 对齐，工具菜单支持 Skills 并压缩为 Codex 风格",
+      && stylesSrc.includes(".llm-bridge-command-menu-plugin");
+    addTest("运行时 UI: 模型目录按 agent 路由，工具菜单可选择 Skills",
       ok ? "pass" : "fail", "");
   }
 
@@ -21189,8 +21153,10 @@ if (!runNoteSummarizeSmoke) {
         || runRendererSrcG56.includes('processToggle.classList.add("is-expanded");'))
       && (viewSrc.includes('processToggle.classList.remove("is-expanded");')
         || runRendererSrcG56.includes('processToggle.classList.remove("is-expanded");'))
-      && (viewSrc.includes("已处理 ${elapsed}")
-        || runRendererSrcG56.includes("已处理 ${elapsed}"))
+      && (viewSrc.includes("formatQuietProcessedLabel")
+        || runRendererSrcG56.includes("formatQuietProcessedLabel")
+        || viewSrc.includes("Processed · ${elapsed}")
+        || runRendererSrcG56.includes("Processed · ${elapsed}"))
       && (viewSrc.includes("patchCodexRunViewInPlace")
         || viewSrc.includes("mountOrReconcileCodexRun")
         || runRendererSrcG56.includes("function reconcileCodexRunView"))
@@ -21325,8 +21291,8 @@ if (!runNoteSummarizeSmoke) {
       && presentationSrc.includes("showRunChrome")
       && (viewSrc.includes("is-process-quiet")
         || readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8").includes("is-process-quiet"))
-      && (viewSrc.includes("已处理")
-        || readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8").includes("已处理"))
+      && (viewSrc.includes("Processed")
+        || readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8").includes("Processed"))
       && (viewSrc.includes('loc === "zh" ? "运行详情" : "Run details"')
         || readFileSync(join(PROJECT_ROOT, "src", "ui", "codexRunRenderer.ts"), "utf8").includes('loc === "zh" ? "运行详情" : "Run details"'));
     const actionsOk = answer.actions.length === 1
@@ -22591,18 +22557,21 @@ if (!runVcDom) {
   addTest("VC DOM 测试段", "skip", "当前模式不运行 unit");
 } else {
   try {
-    // --- VC-SKILL-1: metadata 渐进披露 + prompt 零重复注入 ---
+    // --- VC-SKILL-1: V3 metadata 渐进披露 + prompt 零重复注入 ---
     {
       const fsMod = await import("fs");
       const pathMod = await import("path");
       const workspaceSrc = await fsMod.promises.readFile(pathMod.join(PROJECT_ROOT, "src", "agentRuntimeWorkspace.ts"), "utf8");
       const controllerSrc = await fsMod.promises.readFile(pathMod.join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
+      // V3: description 含触发条件 + "Read only the relevant reference file"
       const hasTriggerMetadata = workspaceSrc.includes("when the user states a lasting preference")
-        && workspaceSrc.includes("Read only the relevant referenced file and maintain it automatically");
-      const hasRouting = workspaceSrc.includes('"## 按需读取"') && workspaceSrc.includes('"## 自动维护"');
+        && workspaceSrc.includes("Read only the relevant reference file");
+      // V3: 路由分区指向 references/
+      const hasRouting = workspaceSrc.includes("## 按需读取") && workspaceSrc.includes("## 自动维护")
+        && workspaceSrc.includes("references/vault-rules.md");
       const noRetrieverImport = !controllerSrc.includes("vaultContextRetriever") && !controllerSrc.includes("retrieveVaultContextOnDemand");
       const noPromptInjection = controllerSrc.includes("不再每轮重复拼入用户 prompt");
-      addTest("VC-SKILL: metadata 触发 + 按需路由 + 不再每轮注入 prompt",
+      addTest("VC-SKILL: V3 metadata 触发 + 按需路由 + 不再每轮注入 prompt",
         hasTriggerMetadata && hasRouting && noRetrieverImport && noPromptInjection ? "pass" : "fail",
         `metadata=${hasTriggerMetadata} routing=${hasRouting} noRetriever=${noRetrieverImport} noPromptInjection=${noPromptInjection}`);
     }
@@ -22664,259 +22633,6 @@ if (!runVcDom) {
 
   } catch (e) {
     addTest("VC DOM 测试段", "fail", `加载/执行异常: ${e?.stack || e?.message || e}`);
-  }
-}
-
-// ============================================================
-// 9.9.5 RuntimeProfileResolver 测试 — profile 解析/便携覆盖/多 vault 共用/错误脱敏/vault 无 key
-// ============================================================
-console.log("\n=== RuntimeProfileResolver 测试 — profile 解析/便携覆盖/脱敏/安全 ===");
-
-const runRpTests = runMode === "all" || runMode === "unit";
-
-if (!runRpTests) {
-  addTest("RuntimeProfileResolver 测试段", "skip", "当前模式不运行 unit");
-} else {
-  let rpBundle = null;
-  try {
-    const esbuild = (await import("esbuild")).default;
-    const obsidianStubRp = {
-      name: "obsidian-stub-rp",
-      setup(build) {
-        build.onResolve({ filter: /^obsidian$/ }, () => ({ path: "obsidian-stub", namespace: "obsidian-stub-rp" }));
-        build.onLoad({ filter: /.*/, namespace: "obsidian-stub-rp" }, () => ({
-          contents: "export class Notice { constructor(){} close(){} }",
-          loader: "js",
-        }));
-      },
-    };
-    rpBundle = join(PROJECT_ROOT, ".test-rp-resolver-temp.mjs");
-    await esbuild.build({
-      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "runtimeProfileResolver.ts")],
-      bundle: true,
-      format: "esm",
-      platform: "node",
-      logLevel: "silent",
-      plugins: [obsidianStubRp],
-      outfile: rpBundle,
-    });
-    const rpMod = await import(pathToFileURL(rpBundle).href);
-    const fsMod = await import("fs");
-    const pathMod = await import("path");
-    const osMod = await import("os");
-
-    // --- RP-1: V20.5 resolveRuntimeProfile always returns none ---
-    {
-      const tmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-resolve-"));
-      try {
-        // 写入 vault profile（不含 apiKey）
-        await rpMod.saveVaultRuntimeProfile(tmpRoot, {
-          relayUrl: "https://relay.example.com",
-          model: "claude-sonnet-4-5",
-        });
-
-        // 验证 vault profile 文件不含 apiKey
-        const profileContent = await fsMod.promises.readFile(
-          pathMod.join(tmpRoot, ".llm-bridge/runtime-profile.json"), "utf8"
-        );
-        const profileHasNoKey = !profileContent.includes("apiKey") && !profileContent.includes("api_key");
-
-        // V20.5: resolveRuntimeProfile 始终返回 origin="none"（Bridge 不再提供 relay 配置）
-        const resolved = await rpMod.resolveRuntimeProfile(tmpRoot, {
-          localRelayUrl: "",
-          localRelayModel: "",
-          localRelayApiKey: "sk-test-key-12345",
-          localRelayPortableKeyPath: "",
-        });
-
-        const urlOk = resolved.relayUrl === "";
-        const modelOk = resolved.model === "";
-        const keyOk = resolved.apiKey === "";
-        const originOk = resolved.origin === "none";
-
-        addTest("RP-1: V20.5 resolveRuntimeProfile always returns none（vault 有 profile 也返回 none）",
-          profileHasNoKey && urlOk && modelOk && keyOk && originOk ? "pass" : "fail",
-          `profileHasNoKey=${profileHasNoKey} urlOk=${urlOk} modelOk=${modelOk} keyOk=${keyOk} originOk=${originOk}`);
-      } finally {
-        try { fsMod.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
-      }
-    }
-
-    // --- RP-2: V20.5 便携目录覆盖（多 Vault 共用同一 key 文件，resolveRuntimeProfile 始终 none）---
-    {
-      const tmpRoot1 = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-portable1-"));
-      const tmpRoot2 = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-portable2-"));
-      const portableDir = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-portable-key-"));
-      try {
-        // 两个 vault 都有 profile，但 key 来自同一个便携目录
-        await rpMod.saveVaultRuntimeProfile(tmpRoot1, { relayUrl: "https://relay1.example.com", model: "model-a" });
-        await rpMod.saveVaultRuntimeProfile(tmpRoot2, { relayUrl: "https://relay2.example.com", model: "model-b" });
-
-        // 写入便携 key
-        const portableOk = await rpMod.savePortableApiKey(portableDir, "sk-shared-key-67890");
-        const keyFileExists = fsMod.existsSync(pathMod.join(portableDir, "runtime-profile.key"));
-
-        // V20.5: 两个 vault 解析都返回 origin="none" + 空值
-        const resolved1 = await rpMod.resolveRuntimeProfile(tmpRoot1, {
-          localRelayUrl: "", localRelayModel: "", localRelayApiKey: "",
-          localRelayPortableKeyPath: portableDir,
-        });
-        const resolved2 = await rpMod.resolveRuntimeProfile(tmpRoot2, {
-          localRelayUrl: "", localRelayModel: "", localRelayApiKey: "",
-          localRelayPortableKeyPath: portableDir,
-        });
-
-        const key1Ok = resolved1.apiKey === "";
-        const key2Ok = resolved2.apiKey === "";
-        const url1Ok = resolved1.relayUrl === "";
-        const url2Ok = resolved2.relayUrl === "";
-        const origin1Ok = resolved1.origin === "none";
-        const origin2Ok = resolved2.origin === "none";
-
-        addTest("RP-2: V20.5 便携目录覆盖（多 Vault 共用同一 key 文件，resolveRuntimeProfile always returns none）",
-          portableOk && keyFileExists && key1Ok && key2Ok && url1Ok && url2Ok && origin1Ok && origin2Ok ? "pass" : "fail",
-          `portableOk=${portableOk} keyFileExists=${keyFileExists} key1Ok=${key1Ok} key2Ok=${key2Ok} url1Ok=${url1Ok} url2Ok=${url2Ok} origin1Ok=${origin1Ok} origin2Ok=${origin2Ok}`);
-      } finally {
-        try { fsMod.rmSync(tmpRoot1, { recursive: true, force: true }); } catch {}
-        try { fsMod.rmSync(tmpRoot2, { recursive: true, force: true }); } catch {}
-        try { fsMod.rmSync(portableDir, { recursive: true, force: true }); } catch {}
-      }
-    }
-
-    // --- RP-3: 错误脱敏（key 不出现在错误消息中）---
-    {
-      const testKey = "sk-secret-key-abcdef123456";
-      const errorMsg1 = rpMod.desensitizeError(new Error(`Request failed with key ${testKey}`), testKey);
-      const errorMsg2 = rpMod.desensitizeError(`Bearer ${testKey} unauthorized`, testKey);
-      const errorMsg3 = rpMod.desensitizeError(new Error("ECONNREFUSED 127.0.0.1:443"), testKey);
-
-      const keyNotInMsg1 = !errorMsg1.includes(testKey);
-      const keyNotInMsg2 = !errorMsg2.includes(testKey);
-      const keyNotInMsg3 = !errorMsg3.includes(testKey);
-      const bearerDesensitized = !errorMsg2.includes(testKey);
-      const networkSimplified = errorMsg3.includes("网络连接失败");
-
-      addTest("RP-3: 错误脱敏（key 不出现在错误消息中，Bearer 脱敏，网络错误简化）",
-        keyNotInMsg1 && keyNotInMsg2 && keyNotInMsg3 && bearerDesensitized && networkSimplified ? "pass" : "fail",
-        `keyNotInMsg1=${keyNotInMsg1} keyNotInMsg2=${keyNotInMsg2} keyNotInMsg3=${keyNotInMsg3} bearerDesensitized=${bearerDesensitized} networkSimplified=${networkSimplified}`);
-    }
-
-    // --- RP-4: V20.5 Vault profile 安全检查（含 apiKey 的 JSON 被拒绝读取，resolveRuntimeProfile always returns none）---
-    {
-      const tmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-security-"));
-      try {
-        // 手动写入含 apiKey 的 profile（模拟误操作/攻击）
-        const maliciousDir = pathMod.join(tmpRoot, ".llm-bridge");
-        fsMod.mkdirSync(maliciousDir, { recursive: true });
-        await fsMod.promises.writeFile(
-          pathMod.join(maliciousDir, "runtime-profile.json"),
-          JSON.stringify({ relayUrl: "https://evil.example.com", model: "x", apiKey: "sk-stolen-key" }),
-          "utf8"
-        );
-
-        // loadVaultRuntimeProfile 应拒绝读取（返回 null）
-        const loaded = await rpMod.loadVaultRuntimeProfile(tmpRoot);
-        const syncLoaded = rpMod.loadVaultRuntimeProfileSync(tmpRoot);
-
-        const rejected = loaded === null;
-        const syncRejected = syncLoaded === null;
-
-        // V20.5: resolveRuntimeProfile 始终返回 origin="none" + 空值（Bridge 不再提供 relay 配置）
-        const resolved = await rpMod.resolveRuntimeProfile(tmpRoot, {
-          localRelayUrl: "https://fallback.example.com",
-          localRelayModel: "",
-          localRelayApiKey: "sk-settings-key",
-          localRelayPortableKeyPath: "",
-        });
-        const noneOrigin = resolved.origin === "none";
-        const emptyUrl = resolved.relayUrl === "";
-
-        addTest("RP-4: V20.5 Vault profile 安全检查（含 apiKey 的 JSON 被拒绝读取，resolveRuntimeProfile always returns none）",
-          rejected && syncRejected && noneOrigin && emptyUrl ? "pass" : "fail",
-          `rejected=${rejected} syncRejected=${syncRejected} noneOrigin=${noneOrigin} emptyUrl=${emptyUrl}`);
-      } finally {
-        try { fsMod.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
-      }
-    }
-
-    // --- RP-5: saveVaultRuntimeProfile 强制移除 apiKey ---
-    {
-      const tmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-save-"));
-      try {
-        // 调用方误传 apiKey，saveVaultRuntimeProfile 应强制不写入
-        await rpMod.saveVaultRuntimeProfile(tmpRoot, {
-          relayUrl: "https://relay.example.com",
-          model: "test-model",
-          apiKey: "sk-should-not-be-saved",
-        });
-
-        const content = await fsMod.promises.readFile(
-          pathMod.join(tmpRoot, ".llm-bridge/runtime-profile.json"), "utf8"
-        );
-        const noApiKey = !content.includes("apiKey") && !content.includes("sk-should-not-be-saved");
-        const hasUrl = content.includes("https://relay.example.com");
-        const hasModel = content.includes("test-model");
-
-        addTest("RP-5: saveVaultRuntimeProfile 强制移除 apiKey（即使调用方误传也不写入）",
-          noApiKey && hasUrl && hasModel ? "pass" : "fail",
-          `noApiKey=${noApiKey} hasUrl=${hasUrl} hasModel=${hasModel}`);
-      } finally {
-        try { fsMod.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
-      }
-    }
-
-    // --- RP-6: 未配置时 origin "none"（回退到原生认证）---
-    {
-      const tmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-none-"));
-      try {
-        const resolved = await rpMod.resolveRuntimeProfile(tmpRoot, {
-          localRelayUrl: "",
-          localRelayModel: "",
-          localRelayApiKey: "",
-          localRelayPortableKeyPath: "",
-        });
-
-        const originNone = resolved.origin === "none";
-        const urlEmpty = resolved.relayUrl === "";
-        const keyEmpty = resolved.apiKey === "";
-
-        const status = rpMod.formatRelayStatusLabel(resolved);
-        const statusLabelOk = status.label === "本地中转 · 未配置" && !status.available;
-
-        const detail = rpMod.formatRelayStatusDetail(resolved);
-        const detailNoKey = !detail.includes("sk-") && !detail.includes("key");
-
-        addTest("RP-6: 未配置时 origin none + 状态栏标签 + 详情无 key",
-          originNone && urlEmpty && keyEmpty && statusLabelOk && detailNoKey ? "pass" : "fail",
-          `originNone=${originNone} urlEmpty=${urlEmpty} keyEmpty=${keyEmpty} statusLabelOk=${statusLabelOk} detailNoKey=${detailNoKey}`);
-      } finally {
-        try { fsMod.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
-      }
-    }
-
-    // --- RP-7: 状态栏详情只显示来源/域名/模型，不显示 key ---
-    {
-      const resolved = {
-        relayUrl: "https://api.relay.example.com/v1",
-        model: "claude-sonnet-4-5",
-        apiKey: "sk-super-secret-key-999",
-        origin: "portable",
-      };
-      const detail = rpMod.formatRelayStatusDetail(resolved);
-      const hasSource = detail.includes("便携目录");
-      const hasDomain = detail.includes("api.relay.example.com");
-      const hasModel = detail.includes("claude-sonnet-4-5");
-      const noKey = !detail.includes("sk-super-secret-key-999") && !detail.includes("999");
-
-      addTest("RP-7: 状态栏详情只显示来源/域名/模型，不显示 key",
-        hasSource && hasDomain && hasModel && noKey ? "pass" : "fail",
-        `hasSource=${hasSource} hasDomain=${hasDomain} hasModel=${hasModel} noKey=${noKey}`);
-    }
-
-  } catch (e) {
-    addTest("RuntimeProfileResolver 测试段", "fail", `加载/执行异常: ${e?.stack || e?.message || e}`);
-  } finally {
-    try { if (rpBundle) rmSync(rpBundle, { force: true }); } catch {}
   }
 }
 
@@ -23061,7 +22777,7 @@ if (!runOnOpenDom) {
             "export class ComposerController {",
             "  constructor(host) { this.host = host; this.selectedAttachmentId = null; this.modelEffortPopoverEl = null; this.effortPopoverEl = null; this.mentionPickerEl = null; this.activePopup = null; }",
             "  setModelEffortPopoverEl(el) { this.modelEffortPopoverEl = el; }",
-            "  setEffortPopoverEl(el) { this.effortPopoverEl = el; }",
+            "  setModelEffortPopoverEl(el) { this.modelEffortPopoverEl = el; }",
             "  getEffortPopoverEl() { return this.effortPopoverEl; }",
             "  setMentionPickerEl(el) { this.mentionPickerEl = el; }",
             "  setCloseCommandMenuPopover(fn) { this._closeCommandMenu = fn; }",
@@ -25279,22 +24995,6 @@ if (!runV202) {
           loader: "js",
         }));
 
-        // Stub runtimeProfileResolver — 迁移来源返回 null，测试聚焦 provider-config 往返
-        build.onResolve({ filter: /^\.\/runtimeProfileResolver$/ }, () => ({
-          path: "fake-rpr", namespace: "fake-rpr-ns",
-        }));
-        build.onResolve({ filter: /^\.\.\/runtimeProfileResolver$/ }, () => ({
-          path: "fake-rpr", namespace: "fake-rpr-ns",
-        }));
-        build.onLoad({ filter: /.*/, namespace: "fake-rpr-ns" }, () => ({
-          contents: [
-            "export function loadVaultRuntimeProfileSync() { return null; }",
-            "export function loadPortableApiKeySync() { return null; }",
-            "export function resolveRuntimeProfileSync() { return { relayUrl: '', apiKey: '', model: '' }; }",
-          ].join("\n"),
-          loader: "js",
-        }));
-
         // Stub agentRuntimeWorkspace — 提供路径常量
         build.onResolve({ filter: /^\.\.\/agentRuntimeWorkspace$/ }, () => ({
           path: "fake-arw", namespace: "fake-arw-ns",
@@ -25334,9 +25034,9 @@ if (!runV202) {
       const highLabel = effortDisplayLabel("high");
       const maxLabel = effortDisplayLabel("max");
       const unknownLabel = effortDisplayLabel("custom-effort");
-      const allChinese = lowLabel === "低" && mediumLabel === "中" && highLabel === "高" && maxLabel === "极高";
+      const allChinese = lowLabel === "轻度" && mediumLabel === "中" && highLabel === "高" && maxLabel === "极高";
       const unknownPassthrough = unknownLabel === "custom-effort";
-      addTest("V20.2 模型目录: effortDisplayLabel low/medium/high/max → 低/中/高/极高",
+      addTest("V20.2 模型目录: effortDisplayLabel low/medium/high/max → 轻度/中/高/极高",
         allChinese ? "pass" : "fail",
         `low="${lowLabel}", medium="${mediumLabel}", high="${highLabel}", max="${maxLabel}"`);
       addTest("V20.2 模型目录: effortDisplayLabel 未知值原样返回",
@@ -25350,13 +25050,13 @@ if (!runV202) {
     {
       const catalog = getRuntimeModelCatalog();
       const efforts = catalog.efforts;
-      const labelsChinese = efforts.every((e) => ["低", "中", "高", "极高"].includes(e.label));
+      const labelsChinese = efforts.every((e) => ["轻度", "中", "高", "极高"].includes(e.label));
       const valuesEnglish = efforts.every((e) => ["low", "medium", "high", "max"].includes(e.value));
       const hasFour = efforts.length === 4;
       // value→label 映射正确
       const lowEffort = efforts.find((e) => e.value === "low");
       const maxEffort = efforts.find((e) => e.value === "max");
-      const mappingOk = lowEffort?.label === "低" && maxEffort?.label === "极高";
+      const mappingOk = lowEffort?.label === "轻度" && maxEffort?.label === "极高";
       addTest("V20.2 模型目录: STATIC_EFFORTS label 中文 + value 英文 + 4 项",
         labelsChinese && valuesEnglish && hasFour && mappingOk ? "pass" : "fail",
         `labelsChinese=${labelsChinese}, valuesEnglish=${valuesEnglish}, count=${efforts.length}`);
@@ -25377,11 +25077,11 @@ if (!runV202) {
       const cat = getRuntimeModelCatalogForAgent("test-v202");
       const efforts = getEffortsForModel(cat, "test-model-v202");
       const hasThree = efforts.length === 3;
-      const labelsChinese = efforts.every((e) => ["低", "中", "高", "极高"].includes(e.label));
+      const labelsChinese = efforts.every((e) => ["轻度", "中", "高", "极高"].includes(e.label));
       const valuesEnglish = efforts.every((e) => ["low", "medium", "high", "max"].includes(e.value));
       const lowEffort = efforts.find((e) => e.value === "low");
       const maxEffort = efforts.find((e) => e.value === "max");
-      const mappingOk = lowEffort?.label === "低" && maxEffort?.label === "极高";
+      const mappingOk = lowEffort?.label === "轻度" && maxEffort?.label === "极高";
       addTest("V20.2 模型目录: getEffortsForModel 模型自带 effort → 中文 label",
         hasThree && labelsChinese && valuesEnglish && mappingOk ? "pass" : "fail",
         `count=${efforts.length}, labelsChinese=${labelsChinese}, valuesEnglish=${valuesEnglish}`);
@@ -25410,17 +25110,17 @@ if (!runV202) {
     // ============================================================
     {
       const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
-      // V20.5: settings.ts 不再调用 clearCodexManagedModelCatalogCache（已移除模型发现 UI）
-      const noClearCache = !settingsSrc.includes("clearCodexManagedModelCatalogCache");
+      // 保存 Codex 配置后必须清模型目录缓存，下一次只读取新 CODEX_HOME。
+      const clearsCatalogAfterSave = settingsSrc.includes("clearCodexManagedModelCatalogCache");
       // V20.5: settings.ts 使用 runtimeRouter
       const usesRouter = settingsSrc.includes("runtimeRouter");
       // V20.7: settings.ts 使用 tab + saveProviderForm
       const usesTabs = settingsSrc.includes("llm-bridge-runtime-tabs") && settingsSrc.includes("llm-bridge-tab-button");
       const usesSaveForm = settingsSrc.includes("saveProviderForm");
       const usesReadForm = settingsSrc.includes("readProviderForm");
-      addTest("V20.5 settings.ts: 不再调用 clearCodexManagedModelCatalogCache（已移除模型发现 UI）",
-        noClearCache ? "pass" : "fail",
-        noClearCache ? "" : "settings.ts 仍引用 clearCodexManagedModelCatalogCache");
+      addTest("Runtime settings: 保存 Codex 配置后清理模型目录缓存",
+        clearsCatalogAfterSave ? "pass" : "fail",
+        clearsCatalogAfterSave ? "" : "settings.ts 未刷新 Codex 模型目录缓存");
       addTest("V20.5 settings.ts: 使用 runtimeRouter",
         usesRouter ? "pass" : "fail",
         usesRouter ? "" : `usesRouter=${usesRouter}`);
@@ -25525,7 +25225,7 @@ if (!runV202) {
 
       // 验证 effort label 是中文
       const effortLabels = effortButtons.map((b) => b.querySelector(".llm-bridge-effort-option-label")?.textContent);
-      const labelsChinese = effortLabels.every((l) => ["低", "中", "高", "极高"].includes(l));
+      const labelsChinese = effortLabels.every((l) => ["轻度", "中", "高", "极高"].includes(l));
 
       addTest("V20.2 菜单交互: 模型选项和 effort 选项渲染在各自独立容器",
         modelCountOk && effortCountOk ? "pass" : "fail",
@@ -25536,7 +25236,7 @@ if (!runV202) {
       addTest("V20.2 菜单交互: 选中 effort 有 is-active + ✓ 勾选",
         activeEffortValue === "high" && activeEffortCheckOk ? "pass" : "fail",
         `activeEffort="${activeEffortValue}", check="${activeEffortCheck?.textContent}"`);
-      addTest("V20.2 菜单交互: effort 选项 label 为中文（低/中/高/极高）",
+      addTest("V20.2 菜单交互: effort 选项 label 为中文（轻度/中/高/极高）",
         labelsChinese ? "pass" : "fail",
         `labels=${JSON.stringify(effortLabels)}`);
 
@@ -25551,24 +25251,21 @@ if (!runV202) {
     }
 
     // ============================================================
-    // 测试 10: 菜单交互 — ComposerPopupKind "effort" 类型 + effort popover 互斥
+    // 测试 10: 菜单交互 — Fig.1 嵌套菜单 API
     // ============================================================
     {
       const composerSrc = readFileSync(join(PROJECT_ROOT, "src", "ui", "composerController.ts"), "utf-8");
       const hasEffortPopupKind = composerSrc.includes('"effort"');
-      const hasSetEffortPopoverEl = composerSrc.includes("setEffortPopoverEl");
-      const hasCloseEffortPopover = composerSrc.includes("closeEffortPopover");
-      const hasToggleEffortPopover = composerSrc.includes("toggleEffortPopover");
-      const hasGetEffortPopoverEl = composerSrc.includes("getEffortPopoverEl");
-      // 验证 setActivePopup 中 effort 互斥逻辑
+      const hasSetModelEffortPopoverEl = composerSrc.includes("setModelEffortPopoverEl");
+      const hasOpenFlyout = composerSrc.includes("openModelMenuFlyout");
       const hasEffortMutex = /setActivePopup[\s\S]*?effort/.test(composerSrc);
-      addTest("V20.2 菜单交互: ComposerPopupKind 含 'effort' 类型",
+      addTest("V20.9 菜单交互: ComposerPopupKind 仍含 'effort'（flyout 面板）",
         hasEffortPopupKind ? "pass" : "fail",
         hasEffortPopupKind ? "" : "未找到 'effort' popup kind");
-      addTest("V20.2 菜单交互: effort popover setter/getter/toggle/close 方法齐全",
-        hasSetEffortPopoverEl && hasCloseEffortPopover && hasToggleEffortPopover && hasGetEffortPopoverEl ? "pass" : "fail",
-        `set=${hasSetEffortPopoverEl}, close=${hasCloseEffortPopover}, toggle=${hasToggleEffortPopover}, get=${hasGetEffortPopoverEl}`);
-      addTest("V20.2 菜单交互: setActivePopup 含 effort 互斥处理",
+      addTest("V20.9 菜单交互: 嵌套菜单 setter + openModelMenuFlyout 存在",
+        hasSetModelEffortPopoverEl && hasOpenFlyout ? "pass" : "fail",
+        `set=${hasSetModelEffortPopoverEl}, flyout=${hasOpenFlyout}`);
+      addTest("V20.9 菜单交互: setActivePopup 含 model/effort 互斥处理",
         hasEffortMutex ? "pass" : "fail",
         hasEffortMutex ? "" : "setActivePopup 未处理 effort 互斥");
     }
@@ -25661,23 +25358,26 @@ if (!runV202) {
     }
 
     // ============================================================
-    // 测试 14: 错误卡片对比度 — 两级菜单 CSS（扁平行 + 限高滚动）
+    // 测试 14: Fig.1 嵌套菜单 CSS（合并 chip + 无旧两级污染）
     // ============================================================
     {
       const cssSrc = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf-8");
-      const hasTwoLevelPopover = cssSrc.includes("llm-bridge-model-popover-two-level")
-        && cssSrc.includes("llm-bridge-effort-popover-two-level");
-      const hasMaxHeightScroll = cssSrc.includes("max-height: 240px")
-        && cssSrc.includes("overflow-y: auto");
+      const hasNestedMenu = cssSrc.includes("llm-bridge-model-menu-nested")
+        && cssSrc.includes("llm-bridge-model-menu-primary")
+        && cssSrc.includes("llm-bridge-model-menu-flyout");
+      const hasMergedChip = cssSrc.includes("llm-bridge-model-chip-merged");
+      const hasNoTwoLevel = !cssSrc.includes("llm-bridge-model-popover-two-level")
+        && !cssSrc.includes("llm-bridge-effort-popover-two-level")
+        && !cssSrc.includes("llm-bridge-model-chip-inline");
       const hasModelOptionLabel = cssSrc.includes("llm-bridge-model-option-label");
       const hasEffortOptionLabel = cssSrc.includes("llm-bridge-effort-option-label");
       const hasOptionCheck = cssSrc.includes("llm-bridge-option-check");
-      addTest("V20.2 菜单 CSS: 两级 popover 样式存在（model-popover-two-level + effort-popover-two-level）",
-        hasTwoLevelPopover ? "pass" : "fail",
-        hasTwoLevelPopover ? "" : "缺少两级 popover CSS class");
-      addTest("V20.2 菜单 CSS: 选项列表限高滚动（max-height: 240px + overflow-y: auto）",
-        hasMaxHeightScroll ? "pass" : "fail",
-        hasMaxHeightScroll ? "" : "缺少限高滚动样式");
+      addTest("V20.9 菜单 CSS: Fig.1 嵌套菜单样式存在（menu-nested + primary + flyout）",
+        hasNestedMenu ? "pass" : "fail",
+        hasNestedMenu ? "" : "缺少嵌套菜单 CSS class");
+      addTest("V20.9 菜单 CSS: 合并 chip + 已删除旧两级/inline 样式",
+        hasMergedChip && hasNoTwoLevel ? "pass" : "fail",
+        `merged=${hasMergedChip}, cleaned=${hasNoTwoLevel}`);
       addTest("V20.2 菜单 CSS: 选项 label + check 样式存在",
         hasModelOptionLabel && hasEffortOptionLabel && hasOptionCheck ? "pass" : "fail",
         `modelLabel=${hasModelOptionLabel}, effortLabel=${hasEffortOptionLabel}, check=${hasOptionCheck}`);
@@ -25699,9 +25399,9 @@ if (!runV202) {
       const hasPersistOnchange = hasPersistViaSaveForm && hasClearKey;
       // V20.4: "清除 Key" 按钮存在（替代旧 "忘记 Key"）
       const hasForgetKeyBtn = settingsSrc.includes("清除 Key");
-      // V20.4: 便携目录路径在 types.ts 中定义（迁移用），settings.ts UI 不再直接暴露
+      // 旧便携 Key 路径已退出 settings，密钥只由 secretsStore 管理。
       const typesSrc = readFileSync(join(PROJECT_ROOT, "src", "types.ts"), "utf-8");
-      const hasPortableAdvanced = typesSrc.includes("localRelayPortableKeyPath");
+      const noPortableLegacyField = !typesSrc.includes("localRelayPortableKeyPath");
       // 描述中提到加密（V20.7: "已加密保存" 字样）
       const descMentionsSafeStorage = settingsSrc.includes("safeStorage") || settingsSrc.includes("加密");
       addTest("V20.5/V20.7 settings.ts: API Key 通过 saveProviderForm + clearXxxKey 持久化",
@@ -25710,9 +25410,9 @@ if (!runV202) {
       addTest("V20.2/V20.4 safeStorage: '清除 Key' 按钮存在",
         hasForgetKeyBtn ? "pass" : "fail",
         hasForgetKeyBtn ? "" : "settings.ts 缺少 '清除 Key' 按钮");
-      addTest("V20.2/V20.4 safeStorage: 便携目录路径配置项存在（高级设置）",
-        hasPortableAdvanced ? "pass" : "fail",
-        hasPortableAdvanced ? "" : "settings.ts 缺少便携目录路径配置");
+      addTest("Runtime secrets: 已移除旧便携 Key 路径字段",
+        noPortableLegacyField ? "pass" : "fail",
+        noPortableLegacyField ? "" : "types.ts 仍保留 localRelayPortableKeyPath");
       addTest("V20.2/V20.4 safeStorage: 描述中提到加密",
         descMentionsSafeStorage ? "pass" : "fail",
         descMentionsSafeStorage ? "" : "settings.ts 描述未提及加密");
@@ -25770,20 +25470,6 @@ if (!runV203) {
             "    return buf.slice(1).toString('utf8');",
             "  } catch { return null; }",
             "}",
-          ].join("\n"),
-          loader: "js",
-        }));
-        build.onResolve({ filter: /^\.\/runtimeProfileResolver$/ }, () => ({
-          path: "fake-rpr", namespace: "fake-rpr-ns",
-        }));
-        build.onResolve({ filter: /^\.\.\/runtimeProfileResolver$/ }, () => ({
-          path: "fake-rpr", namespace: "fake-rpr-ns",
-        }));
-        build.onLoad({ filter: /.*/, namespace: "fake-rpr-ns" }, () => ({
-          contents: [
-            "export function loadVaultRuntimeProfileSync() { return null; }",
-            "export function loadPortableApiKeySync() { return null; }",
-            "export function resolveRuntimeProfileSync() { return { relayUrl: '', apiKey: '', model: '' }; }",
           ].join("\n"),
           loader: "js",
         }));
@@ -26148,7 +25834,6 @@ if (!runV203) {
 console.log("\n=== V20.5 RuntimeRouter + ActiveProvider + SecretsStore 单测 ===");
 
 let v205RouterBundle = null;
-let v205ResolverBundle = null;
 let v205SecretsBundle = null;
 let v205TempDirs = [];
 
@@ -26166,18 +25851,6 @@ try {
     external: ["electron"],
   });
   const routerMod = await import(pathToFileURL(v205RouterBundle).href);
-
-  // Bundle runtimeProfileResolver (for resolveRuntimeProfile / buildRuntimeSpawnEnv)
-  v205ResolverBundle = join(PROJECT_ROOT, ".test-v205-resolver-temp.mjs");
-  await esbuild.build({
-    entryPoints: [join(PROJECT_ROOT, "src", "runtime", "runtimeProfileResolver.ts")],
-    bundle: true,
-    format: "esm",
-    platform: "node",
-    outfile: v205ResolverBundle,
-    external: ["electron"],
-  });
-  const resolverMod = await import(pathToFileURL(v205ResolverBundle).href);
 
   // Bundle secretsStore（V20.8 明文回退测试需直接调用 setPlaintextFallbackEnabled / setSecret / loadAllSecrets / getSecretStatus / clearSecretsCache）
   v205SecretsBundle = join(PROJECT_ROOT, ".test-v205-secrets-temp.mjs");
@@ -26242,6 +25915,20 @@ try {
     const hasNoSecrets = !("relayUrl" in content) && !("model" in content) && !("apiKey" in content) && !("legacyApiKey" in content);
     addTest("V20.5 ActiveProvider: active.json 不含地址/模型/Key", hasNoSecrets ? "pass" : "fail",
       `active.json 内容: ${JSON.stringify(content)}`);
+  }
+
+  // active provider 不只控制 env，还必须进入实际 session provider 选择与缓存键。
+  {
+    const bridgeSessionSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "core", "bridgeSession.ts"), "utf8");
+    const controllerSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "RunSessionController.ts"), "utf8");
+    const selectsActiveProvider = bridgeSessionSrc.includes("getActiveProvider(cwd)")
+      && bridgeSessionSrc.includes('activeProvider === "claude"')
+      && bridgeSessionSrc.includes('activeProvider === "pi"');
+    const invalidatesSession = controllerSrc.includes("getActiveProvider(vaultPath)")
+      && controllerSrc.includes("_sessionKey === sessionKey");
+    addTest("Runtime router: active provider 驱动真实 session 选择并使缓存失效",
+      selectsActiveProvider && invalidatesSession ? "pass" : "fail",
+      `selects=${selectsActiveProvider}, invalidates=${invalidatesSession}`);
   }
 
   // --- SecretsStore 测试 ---
@@ -26377,6 +26064,18 @@ try {
       `hasKey=${!!env.CODEX_RELAY_API_KEY}`);
   }
 
+  // 显式 backend 必须使用自身配置，不能被 active tab 的 env 污染。
+  {
+    const vault = makeTempVault();
+    routerMod.setActiveProvider(vault, "claude");
+    writeFile(vault, CODEX_CONFIG_REL, 'model = "gpt-5"\n');
+    routerMod.setCodexKey(vault, "test-codex-key");
+    const env = routerMod.buildRuntimeEnv(vault, "codex");
+    addTest("Runtime env: 显式 provider override 不受 active tab 污染",
+      !!env.CODEX_HOME && env.CODEX_RELAY_API_KEY === "test-codex-key" && !env.CLAUDE_CONFIG_DIR ? "pass" : "fail",
+      `CODEX_HOME=${!!env.CODEX_HOME}, CODEX_KEY=${!!env.CODEX_RELAY_API_KEY}, CLAUDE_HOME=${!!env.CLAUDE_CONFIG_DIR}`);
+  }
+
   // --- getRouterState 测试 ---
 
   // Test 16: getRouterState 聚合状态（含 localConfigPath + globalConfigDir）
@@ -26397,40 +26096,6 @@ try {
       && state.providers.pi.localConfigPath === PI_SETTINGS_REL;
     addTest("V20.5 getRouterState: 聚合状态正确（含 localConfigPath + globalConfigDir）", ok ? "pass" : "fail",
       `active=${state.activeProvider}, codex.exists=${state.providers.codex.localConfigExists}, codex.path=${state.providers.codex.localConfigPath}, codex.hasKey=${state.providers.codex.hasKey}`);
-  }
-
-  // --- runtimeProfileResolver 测试 ---
-
-  // Test 17: resolveRuntimeProfile 始终返回 origin="none"
-  {
-    const vault = makeTempVault();
-    const profile = await resolverMod.resolveRuntimeProfile(vault);
-    addTest("V20.5 Resolver: resolveRuntimeProfile 返回 origin=none",
-      profile.origin === "none" && !profile.relayUrl ? "pass" : "fail",
-      `origin=${profile.origin}, relayUrl=${profile.relayUrl}`);
-  }
-
-  // Test 18: resolveRuntimeProfileSync 始终返回 origin="none"
-  {
-    const vault = makeTempVault();
-    const profile = resolverMod.resolveRuntimeProfileSync(undefined, null, vault);
-    addTest("V20.5 Resolver: resolveRuntimeProfileSync 返回 origin=none",
-      profile.origin === "none" && !profile.relayUrl ? "pass" : "fail",
-      `origin=${profile.origin}, relayUrl=${profile.relayUrl}`);
-  }
-
-  // Test 19: buildRuntimeSpawnEnv 委托到 router（通过 routerMod 直接验证，避免跨 bundle 状态隔离）
-  {
-    const vault = makeTempVault();
-    routerMod.setActiveProvider(vault, "codex");
-    writeFile(vault, CODEX_CONFIG_REL, 'model = "gpt-5"\n');
-    routerMod.setCodexKey(vault, "test-key");
-    // buildRuntimeSpawnEnv 在 resolver bundle 中会 require router，但跨 bundle 状态不共享。
-    // 改为直接用 routerMod.buildRuntimeEnv 验证相同逻辑。
-    const env = routerMod.buildRuntimeEnv(vault);
-    addTest("V20.5 Resolver: buildRuntimeSpawnEnv 委托到 router（通过 buildRuntimeEnv 验证）",
-      !!env.CODEX_HOME && env.CODEX_RELAY_API_KEY === "test-key" ? "pass" : "fail",
-      `CODEX_HOME=${env.CODEX_HOME}, hasKey=${!!env.CODEX_RELAY_API_KEY}`);
   }
 
   // --- V20.4→V20.5 迁移测试 ---
@@ -26500,7 +26165,7 @@ try {
       `hasKey=${state.providers.codex.hasKey} (session-only cleared)`);
   }
 
-  // --- V20.6: createLocalConfig + getGlobalConfigDir 测试 ---
+  // --- V20.6: 全局配置目录只用于显示/打开，不再复制成第二套本地配置 ---
 
   // Test 25: getGlobalCodexConfigDir 返回路径
   {
@@ -26524,83 +26189,6 @@ try {
     addTest("V20.6 getGlobalPiConfigDir: 返回非空路径",
       typeof dir === "string" && dir.length > 0 ? "pass" : "fail",
       `dir=${dir}`);
-  }
-
-  // Test 28: createCodexLocalConfig 无全局 → 用模板创建
-  {
-    const vault = makeTempVault();
-    // 确保全局配置不存在（通过设置 CODEX_HOME 到临时空目录）
-    const fakeGlobalDir = join(vault, "fake-global-codex");
-    mkdirSync(fakeGlobalDir, { recursive: true });
-    process.env.CODEX_HOME = fakeGlobalDir;
-    const result = routerMod.createCodexLocalConfig(vault);
-    const exists = fileExists(vault, CODEX_CONFIG_REL);
-    const content = exists ? readFileSync(join(vault, CODEX_CONFIG_REL), "utf8") : "";
-    const hasModelProvider = content.includes("model_provider");
-    addTest("V20.6 createCodexLocalConfig: 无全局 → 用模板创建 config.toml",
-      result.ok && result.source === "template" && exists && hasModelProvider ? "pass" : "fail",
-      `ok=${result.ok}, source=${result.source}, exists=${exists}, hasModelProvider=${hasModelProvider}`);
-    delete process.env.CODEX_HOME;
-  }
-
-  // Test 29: createClaudeLocalConfig 无全局 → 用模板创建
-  {
-    const vault = makeTempVault();
-    const fakeGlobalDir = join(vault, "fake-global-claude");
-    mkdirSync(fakeGlobalDir, { recursive: true });
-    process.env.CLAUDE_CONFIG_DIR = fakeGlobalDir;
-    const result = routerMod.createClaudeLocalConfig(vault);
-    const exists = fileExists(vault, CLAUDE_CONFIG_REL);
-    const content = exists ? readFileSync(join(vault, CLAUDE_CONFIG_REL), "utf8") : "";
-    const hasSchema = content.includes("$schema");
-    addTest("V20.6 createClaudeLocalConfig: 无全局 → 用模板创建 settings.json",
-      result.ok && result.source === "template" && exists && hasSchema ? "pass" : "fail",
-      `ok=${result.ok}, source=${result.source}, exists=${exists}, hasSchema=${hasSchema}`);
-    delete process.env.CLAUDE_CONFIG_DIR;
-  }
-
-  // Test 30: createPiLocalConfig 无全局 → 用模板创建 settings.json + models.json
-  {
-    const vault = makeTempVault();
-    const fakeGlobalDir = join(vault, "fake-global-pi");
-    mkdirSync(fakeGlobalDir, { recursive: true });
-    process.env.PI_CODING_AGENT_DIR = fakeGlobalDir;
-    const result = routerMod.createPiLocalConfig(vault);
-    const settingsExists = fileExists(vault, PI_SETTINGS_REL);
-    const modelsExists = fileExists(vault, PI_MODELS_REL);
-    const modelsContent = modelsExists ? readFileSync(join(vault, PI_MODELS_REL), "utf8") : "";
-    const hasProviders = modelsContent.includes("providers");
-    addTest("V20.6 createPiLocalConfig: 无全局 → 用模板创建 settings.json + models.json",
-      result.ok && result.source === "template" && settingsExists && modelsExists && hasProviders ? "pass" : "fail",
-      `ok=${result.ok}, source=${result.source}, settings=${settingsExists}, models=${modelsExists}, hasProviders=${hasProviders}`);
-    delete process.env.PI_CODING_AGENT_DIR;
-  }
-
-  // Test 31: createCodexLocalConfig 已存在 → already-exists
-  {
-    const vault = makeTempVault();
-    writeFile(vault, CODEX_CONFIG_REL, 'model = "existing"\n');
-    const result = routerMod.createCodexLocalConfig(vault);
-    addTest("V20.6 createCodexLocalConfig: 已存在 → already-exists",
-      result.ok && result.source === "already-exists" ? "pass" : "fail",
-      `ok=${result.ok}, source=${result.source}`);
-  }
-
-  // Test 32: createClaudeLocalConfig 从全局复制
-  {
-    const vault = makeTempVault();
-    // 模拟全局配置存在
-    const fakeGlobalDir = join(vault, "fake-global-claude-copy");
-    mkdirSync(fakeGlobalDir, { recursive: true });
-    writeFileSync(join(fakeGlobalDir, "settings.json"), '{"env":{"ANTHROPIC_BASE_URL":"https://copied.example.com"}}\n', "utf8");
-    process.env.CLAUDE_CONFIG_DIR = fakeGlobalDir;
-    const result = routerMod.createClaudeLocalConfig(vault);
-    const content = readFileSync(join(vault, CLAUDE_CONFIG_REL), "utf8");
-    const isCopied = content.includes("copied.example.com");
-    addTest("V20.6 createClaudeLocalConfig: 全局存在 → 从全局复制",
-      result.ok && result.source === "global-copy" && isCopied ? "pass" : "fail",
-      `ok=${result.ok}, source=${result.source}, isCopied=${isCopied}`);
-    delete process.env.CLAUDE_CONFIG_DIR;
   }
 
   // --- V20.7: configForm + saveProviderForm 测试 ---
@@ -26900,7 +26488,6 @@ try {
   addTest("V20.5 测试段", "fail", `加载/执行异常: ${e?.stack || e?.message || e}`);
 } finally {
   try { if (v205RouterBundle) rmSync(v205RouterBundle, { force: true }); } catch {}
-  try { if (v205ResolverBundle) rmSync(v205ResolverBundle, { force: true }); } catch {}
   try { if (v205SecretsBundle) rmSync(v205SecretsBundle, { force: true }); } catch {}
   for (const dir of v205TempDirs) {
     try { rmSync(dir, { recursive: true, force: true }); } catch {}

@@ -16,6 +16,162 @@ export const AGENT_SKILL_GENERATED_BY = "llm-cli-bridge";
 
 export type AgentSkillSource = "manual" | "converted" | "imported";
 
+/** V3: 包 skill 物化时递归同步的子目录 */
+const PACKAGE_SUBDIRS = ["references", "agents", "assets"] as const;
+
+/**
+ * V3: 递归复制目录（同步）。dst 已存在时先删除 stale 条目再覆盖。
+ */
+function copyDirRecursiveSync(src: string, dst: string): void {
+  fs.mkdirSync(dst, { recursive: true });
+  const srcEntries = fs.readdirSync(src, { withFileTypes: true });
+  const srcNames = new Set(srcEntries.map((e) => e.name));
+  let dstEntries: fs.Dirent[] = [];
+  try {
+    dstEntries = fs.readdirSync(dst, { withFileTypes: true });
+  } catch {
+    dstEntries = [];
+  }
+  for (const d of dstEntries) {
+    if (!srcNames.has(d.name)) {
+      try {
+        fs.rmSync(path.join(dst, d.name), { recursive: true, force: true });
+      } catch {
+        // 删除失败不阻塞
+      }
+    }
+  }
+  for (const entry of srcEntries) {
+    const srcPath = path.join(src, entry.name);
+    const dstPath = path.join(dst, entry.name);
+    if (entry.isDirectory()) {
+      copyDirRecursiveSync(srcPath, dstPath);
+    } else if (entry.isFile()) {
+      fs.copyFileSync(srcPath, dstPath);
+    }
+  }
+}
+
+/**
+ * V3: 同步包 skill 的子目录（references/agents/assets）到目标目录。
+ * 源目录不存在的子目录 → 删除目标端对应目录（清理失效文件）。
+ */
+function syncPackageSubdirsSync(sourceDir: string, targetDir: string): void {
+  for (const sub of PACKAGE_SUBDIRS) {
+    const srcSub = path.join(sourceDir, sub);
+    const dstSub = path.join(targetDir, sub);
+    if (fs.existsSync(srcSub) && fs.statSync(srcSub).isDirectory()) {
+      copyDirRecursiveSync(srcSub, dstSub);
+    } else {
+      try {
+        fs.rmSync(dstSub, { recursive: true, force: true });
+      } catch {
+        // 删除失败不阻塞
+      }
+    }
+  }
+}
+
+/**
+ * V3: 异步版 syncPackageSubdirsSync。
+ */
+async function syncPackageSubdirsAsync(sourceDir: string, targetDir: string): Promise<void> {
+  for (const sub of PACKAGE_SUBDIRS) {
+    const srcSub = path.join(sourceDir, sub);
+    const dstSub = path.join(targetDir, sub);
+    let srcExists = false;
+    try {
+      const stat = await fs.promises.stat(srcSub);
+      srcExists = stat.isDirectory();
+    } catch {
+      srcExists = false;
+    }
+    if (srcExists) {
+      await copyDirRecursiveAsync(srcSub, dstSub);
+    } else {
+      try {
+        await fs.promises.rm(dstSub, { recursive: true, force: true });
+      } catch {
+        // 删除失败不阻塞
+      }
+    }
+  }
+}
+
+async function copyDirRecursiveAsync(src: string, dst: string): Promise<void> {
+  await fs.promises.mkdir(dst, { recursive: true });
+  const srcEntries = await fs.promises.readdir(src, { withFileTypes: true });
+  const srcNames = new Set(srcEntries.map((e) => e.name));
+  let dstEntries: fs.Dirent[] = [];
+  try {
+    dstEntries = await fs.promises.readdir(dst, { withFileTypes: true });
+  } catch {
+    dstEntries = [];
+  }
+  for (const d of dstEntries) {
+    if (!srcNames.has(d.name)) {
+      try {
+        await fs.promises.rm(path.join(dst, d.name), { recursive: true, force: true });
+      } catch {
+        // 删除失败不阻塞
+      }
+    }
+  }
+  for (const entry of srcEntries) {
+    const srcPath = path.join(src, entry.name);
+    const dstPath = path.join(dst, entry.name);
+    if (entry.isDirectory()) {
+      await copyDirRecursiveAsync(srcPath, dstPath);
+    } else if (entry.isFile()) {
+      await fs.promises.copyFile(srcPath, dstPath);
+    }
+  }
+}
+
+/**
+ * V3: 清理目标目录下旧的平铺 .md 文件（v2 结构迁移后遗留）。
+ * 只清理 PACKAGE_SUBDIRS 之外、非 SKILL.md 的旧平铺参考文件。
+ */
+function cleanupStaleFlatFilesSync(targetDir: string): void {
+  let entries: string[];
+  try {
+    entries = fs.readdirSync(targetDir);
+  } catch {
+    return;
+  }
+  const keep = new Set<string>([AGENT_SKILL_FILE_NAME, "INDEX.md", ...PACKAGE_SUBDIRS, ".v2-backup", "update-log.md"]);
+  for (const entry of entries) {
+    if (keep.has(entry)) continue;
+    if (entry.endsWith(".md")) {
+      try {
+        fs.rmSync(path.join(targetDir, entry), { recursive: true, force: true });
+      } catch {
+        // 删除失败不阻塞
+      }
+    }
+  }
+}
+
+async function cleanupStaleFlatFilesAsync(targetDir: string): Promise<void> {
+  let entries: string[];
+  try {
+    entries = await fs.promises.readdir(targetDir);
+  } catch {
+    return;
+  }
+  const keep = new Set<string>([AGENT_SKILL_FILE_NAME, "INDEX.md", ...PACKAGE_SUBDIRS, ".v2-backup", "update-log.md"]);
+  for (const entry of entries) {
+    if (keep.has(entry)) continue;
+    if (entry.endsWith(".md")) {
+      try {
+        await fs.promises.rm(path.join(targetDir, entry), { recursive: true, force: true });
+      } catch {
+        // 删除失败不阻塞
+      }
+    }
+  }
+}
+
 export interface AgentSkillRecord {
   readonly id: string;
   readonly slug: string;
@@ -474,19 +630,13 @@ export function materializeAgentSkillToTarget(
       fs.writeFileSync(filePath, nextContent, "utf8");
     }
 
-    // 包 skill：复制附属 .md 文件（SKILL.md 以外的源目录 .md 文件）
+    // V3: 包 skill 递归同步 references/agents/assets 子目录 + 清理旧平铺文件
     if (options.sourceDir) {
+      const targetDir = path.dirname(filePath);
       try {
-        const sourceFiles = fs.readdirSync(options.sourceDir)
-          .filter((f): f is string => typeof f === "string" && f.endsWith(".md") && f !== AGENT_SKILL_FILE_NAME);
-        const targetDir = path.dirname(filePath);
-        for (const f of sourceFiles) {
-          const src = path.join(options.sourceDir, f);
-          const dst = path.join(targetDir, f);
-          const content = fs.readFileSync(src, "utf8");
-          fs.writeFileSync(dst, content, "utf8");
-        }
-      } catch { /* 附属文件复制失败不阻塞主文件物化 */ }
+        syncPackageSubdirsSync(options.sourceDir, targetDir);
+        cleanupStaleFlatFilesSync(targetDir);
+      } catch { /* 附属文件同步失败不阻塞主文件物化 */ }
     }
 
     if (skipped) {
@@ -772,18 +922,13 @@ export async function materializeAgentSkillToTargetAsync(
       await fs.promises.writeFile(filePath, nextContent, "utf8");
     }
 
+    // V3: 包 skill 递归同步 references/agents/assets 子目录 + 清理旧平铺文件
     if (options.sourceDir) {
+      const targetDir = path.dirname(filePath);
       try {
-        const entries = await fs.promises.readdir(options.sourceDir);
-        const mdFiles = entries.filter((f): f is string => typeof f === "string" && f.endsWith(".md") && f !== AGENT_SKILL_FILE_NAME);
-        const targetDir = path.dirname(filePath);
-        for (const f of mdFiles) {
-          const src = path.join(options.sourceDir, f);
-          const dst = path.join(targetDir, f);
-          const content = await fs.promises.readFile(src, "utf8");
-          await fs.promises.writeFile(dst, content, "utf8");
-        }
-      } catch { /* 附属文件复制失败不阻塞主文件物化 */ }
+        await syncPackageSubdirsAsync(options.sourceDir, targetDir);
+        await cleanupStaleFlatFilesAsync(targetDir);
+      } catch { /* 附属文件同步失败不阻塞主文件物化 */ }
     }
 
     if (skipped) {

@@ -364,11 +364,17 @@ export default class LLMBridgePlugin extends Plugin {
         const fsPromises = fsMod.promises;
         const pathMod = await import("path");
         const skillDir = pathMod.join(vaultPath, "LLM-AgentRuntime/skills/vault-context");
-        await fsPromises.mkdir(skillDir, { recursive: true });
+        const refsDir = pathMod.join(skillDir, "references");
+        const agentsDir = pathMod.join(skillDir, "agents");
+        await fsPromises.mkdir(refsDir, { recursive: true });
+        await fsPromises.mkdir(agentsDir, { recursive: true });
         await fsPromises.writeFile(pathMod.join(vaultPath, VAULT_SKILL_SOURCE_REL), initial.skillMd, "utf8");
-        for (const [name, content] of Object.entries(initial.subFiles)) {
-          await fsPromises.writeFile(pathMod.join(skillDir, name), content, "utf8");
+        // V3: 参考分区文件写入 references/
+        for (const [name, content] of Object.entries(initial.references)) {
+          await fsPromises.writeFile(pathMod.join(refsDir, name), content, "utf8");
         }
+        // V3: agent 配置写入 agents/openai.yaml
+        await fsPromises.writeFile(pathMod.join(agentsDir, "openai.yaml"), initial.agentsOpenaiYaml, "utf8");
         await fsPromises.writeFile(pathMod.join(skillDir, "INDEX.md"), initial.indexMd, "utf8");
         new Notice("VAULT_SKILL 初版已重建。");
       },
@@ -643,10 +649,16 @@ export default class LLMBridgePlugin extends Plugin {
     const migrated = this.migrateSettings(this.settings, loaded);
     this.settings = migrated.settings;
     const loadedRecord = (loaded || {}) as Record<string, unknown>;
-    const containsPersistedSecret = !!loadedRecord.localRelayApiKey || !!loadedRecord.piApiKey;
-    if (migrated.changed || containsPersistedSecret) {
-      // 兼容读取旧版明文 Key，但立刻从 data.json 清除；当前进程内仍保留，方便用户迁移到便携目录。
-      await this.saveData({ ...this.settings, localRelayApiKey: "", piApiKey: "" });
+    const obsoleteSettingKeys = [
+      "localRelayUrl", "localRelayModel", "localRelayApiKey", "localRelayPortableKeyPath",
+      "piAuthProvider", "piApiModel", "piApiKey", "piApiBaseUrl",
+    ] as const;
+    const containsObsoleteSettings = obsoleteSettingKeys.some((key) => key in loadedRecord);
+    const mutableSettings = this.settings as unknown as Record<string, unknown>;
+    for (const key of obsoleteSettingKeys) delete mutableSettings[key];
+    if (migrated.changed || containsObsoleteSettings) {
+      // 一次性移除已由 runtime router / 原生配置接管的旧字段，避免继续污染 data.json。
+      await this.saveData(this.settings);
     }
     // V20.8: 同步明文回退开关到 secretsStore
     const { setPlaintextFallbackEnabled } = await import("./src/runtime/config/secretsStore");
@@ -659,13 +671,11 @@ export default class LLMBridgePlugin extends Plugin {
     const persistedClaude = this.settings.agentApprovalProfile === "full-access"
       ? mapAgentApprovalProfileToClaudePermissionMode("ask")
       : this.settings.claudePermissionMode;
-    // API Key 与 full-access 都只在当前进程内存中有效，不写入 Vault 内的 data.json。
+    // Runtime API Key 由 secretsStore 管理，不再经过插件 settings。
     await this.saveData({
       ...this.settings,
       agentApprovalProfile: persistedProfile,
       claudePermissionMode: persistedClaude,
-      piApiKey: "",
-      localRelayApiKey: "",
     });
   }
 }
