@@ -6421,9 +6421,10 @@ if (runMode !== "all" && runMode !== "unit") {
             `abortCalls=${abortCalls} eventsCount=${events.length}`);
         }
 
-        // ===== V17-D 任务 F：认证配置 runtime override 行为测试 =====
-        // 验证 settings.piApiKey/piAuthProvider/piApiBaseUrl 被注入到 fake authStorage
-        // 验证 settings.piApiModel 被传入 createAgentSession options
+        // ===== V17-D 任务 F：认证配置 runtime override 行为测试（V20.5 改写）=====
+        // V20.5: piSdkProvider.run() 不再构造 authOverride，改用 buildRuntimeSpawnEnv()
+        //         + createAuthWithOverride(sdk, undefined)。因此无论 settings 是否提供
+        //         piApiKey/piAuthProvider/piApiBaseUrl，都不会调用 setRuntimeApiKey / registerProvider。
         {
           fakeMod.resetFakeCapture();
           injectFakeProbe();
@@ -6434,7 +6435,7 @@ if (runMode !== "all" && runMode !== "unit") {
             backendProfile: "portable",
             piToolMode: "pi-native",
             piNativeTrustConfirmed: true,
-            // V17-D 任务 F：runtime auth override 字段
+            // V17-D 任务 F：runtime auth override 字段（V20.5 起不再注入 authStorage）
             piAuthProvider: "anthropic",
             piApiModel: "claude-haiku-4-5",
             piApiKey: "sk-test-key-v17d",
@@ -6446,24 +6447,23 @@ if (runMode !== "all" && runMode !== "unit") {
           }
 
           const cap = fakeMod.getFakeCapture();
-          // setRuntimeApiKey 被调用且参数正确
+          // V20.5: 不传 authOverride → setRuntimeApiKey / registerProvider 均不应被调用
           const setKeyCalls = cap.setRuntimeApiKeyCalls;
-          const hasSetKey = setKeyCalls.length >= 1 && setKeyCalls.some((c) => c.provider === "anthropic" && c.key === "sk-test-key-v17d");
-          // registerProvider 被调用且 baseUrl 正确
+          const noSetKey = setKeyCalls.length === 0;
           const regCalls = cap.registerProviderCalls;
-          const hasRegister = regCalls.length >= 1 && regCalls.some((c) => c.provider === "anthropic" && c.opts?.baseUrl === "https://us.pinai-cn.com");
-          // model 被传入 createAgentSession
+          const noRegister = regCalls.length === 0;
+          // V20.5: 不传 authOverride → sessionOpts 不含 model override
           const sessionOpts = cap.createAgentSessionCalls[0]?.sessionOpts || {};
-          const hasModelOverride = sessionOpts.model && (sessionOpts.model.id === "fake-model" || typeof sessionOpts.model === "object");
+          const noModelOverride = !sessionOpts.model;
           // run 走通（不因 auth 失败）
           const hasCompleted = events.some((e) => e.payload?.kind === "completed");
 
-          addTest("V17-D auth override: piApiKey/Provider/BaseUrl 注入 authStorage + model 传入 createAgentSession",
-            hasSetKey && hasRegister && hasModelOverride && hasCompleted ? "pass" : "fail",
-            `setKey=${hasSetKey}(${setKeyCalls.length}) register=${hasRegister}(${regCalls.length}) modelOverride=${hasModelOverride} completed=${hasCompleted}`);
+          addTest("V17-D auth override V20.5: piApiKey/Provider/BaseUrl 不再注入 authStorage（createAuthWithOverride(sdk, undefined) 无 override）",
+            noSetKey && noRegister && noModelOverride && hasCompleted ? "pass" : "fail",
+            `noSetKey=${noSetKey}(${setKeyCalls.length}) noRegister=${noRegister}(${regCalls.length}) noModelOverride=${noModelOverride} completed=${hasCompleted}`);
         }
 
-        // ----- Test V17D-F-2: 无 override 时 fallback 到 ~/.pi/agent 不调用 setRuntimeApiKey -----
+        // ----- Test V17D-F-2: V20.5 空 override 时同样不调用认证覆盖（createAuthWithOverride(sdk, undefined)）-----
         {
           fakeMod.resetFakeCapture();
           injectFakeProbe();
@@ -6488,12 +6488,12 @@ if (runMode !== "all" && runMode !== "unit") {
           const cap = fakeMod.getFakeCapture();
           const noSetKey = cap.setRuntimeApiKeyCalls.length === 0;
           const noRegister = cap.registerProviderCalls.length === 0;
-          const modelAligned = !!cap.createAgentSessionCalls[0]?.sessionOpts?.model;
+          const noModelOverride = !cap.createAgentSessionCalls[0]?.sessionOpts?.model;
           const hasCompleted = events.some((e) => e.payload?.kind === "completed");
 
-          addTest("V17-D auth override: 空 override 时不调用认证覆盖，模型仍与 EffectiveRunPlan 对齐",
-            noSetKey && noRegister && modelAligned && hasCompleted ? "pass" : "fail",
-            `noSetKey=${noSetKey} noRegister=${noRegister} modelAligned=${modelAligned} completed=${hasCompleted}`);
+          addTest("V17-D auth override V20.5: 空 override 时不调用认证覆盖（createAuthWithOverride(sdk, undefined) 无 override），无 model override",
+            noSetKey && noRegister && noModelOverride && hasCompleted ? "pass" : "fail",
+            `noSetKey=${noSetKey} noRegister=${noRegister} noModelOverride=${noModelOverride} completed=${hasCompleted}`);
         }
       }
 
@@ -22705,7 +22705,7 @@ if (!runRpTests) {
     const pathMod = await import("path");
     const osMod = await import("os");
 
-    // --- RP-1: Vault profile 解析 + key 合并（V20 迁移后 origin=portable）---
+    // --- RP-1: V20.5 resolveRuntimeProfile always returns none ---
     {
       const tmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-resolve-"));
       try {
@@ -22721,8 +22721,7 @@ if (!runRpTests) {
         );
         const profileHasNoKey = !profileContent.includes("apiKey") && !profileContent.includes("api_key");
 
-        // 解析 profile（settings 提供 key）
-        // V20: 首次读取时自动从 Vault Profile 迁移到 runtime-provider.json，origin 变为 "portable"
+        // V20.5: resolveRuntimeProfile 始终返回 origin="none"（Bridge 不再提供 relay 配置）
         const resolved = await rpMod.resolveRuntimeProfile(tmpRoot, {
           localRelayUrl: "",
           localRelayModel: "",
@@ -22730,22 +22729,20 @@ if (!runRpTests) {
           localRelayPortableKeyPath: "",
         });
 
-        const urlOk = resolved.relayUrl === "https://relay.example.com";
-        const modelOk = resolved.model === "claude-sonnet-4-5";
-        const keyOk = resolved.apiKey === "sk-test-key-12345";
-        const originOk = resolved.origin === "portable";
-        // V20: 迁移后 runtime-provider.json 应已创建
-        const migratedFileExists = fsMod.existsSync(pathMod.join(tmpRoot, "LLM-AgentRuntime/private/runtime-provider.json"));
+        const urlOk = resolved.relayUrl === "";
+        const modelOk = resolved.model === "";
+        const keyOk = resolved.apiKey === "";
+        const originOk = resolved.origin === "none";
 
-        addTest("RP-1: Vault profile 解析 + key 合并 + V20 迁移（vault 提供 url/model，settings 提供 key → portable）",
-          profileHasNoKey && urlOk && modelOk && keyOk && originOk && migratedFileExists ? "pass" : "fail",
-          `profileHasNoKey=${profileHasNoKey} urlOk=${urlOk} modelOk=${modelOk} keyOk=${keyOk} originOk=${originOk} migratedFileExists=${migratedFileExists}`);
+        addTest("RP-1: V20.5 resolveRuntimeProfile always returns none（vault 有 profile 也返回 none）",
+          profileHasNoKey && urlOk && modelOk && keyOk && originOk ? "pass" : "fail",
+          `profileHasNoKey=${profileHasNoKey} urlOk=${urlOk} modelOk=${modelOk} keyOk=${keyOk} originOk=${originOk}`);
       } finally {
         try { fsMod.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
       }
     }
 
-    // --- RP-2: 便携目录覆盖（多 Vault 共用同一 key 文件）---
+    // --- RP-2: V20.5 便携目录覆盖（多 Vault 共用同一 key 文件，resolveRuntimeProfile 始终 none）---
     {
       const tmpRoot1 = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-portable1-"));
       const tmpRoot2 = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-portable2-"));
@@ -22759,7 +22756,7 @@ if (!runRpTests) {
         const portableOk = await rpMod.savePortableApiKey(portableDir, "sk-shared-key-67890");
         const keyFileExists = fsMod.existsSync(pathMod.join(portableDir, "runtime-profile.key"));
 
-        // 两个 vault 解析同一个便携 key
+        // V20.5: 两个 vault 解析都返回 origin="none" + 空值
         const resolved1 = await rpMod.resolveRuntimeProfile(tmpRoot1, {
           localRelayUrl: "", localRelayModel: "", localRelayApiKey: "",
           localRelayPortableKeyPath: portableDir,
@@ -22769,14 +22766,14 @@ if (!runRpTests) {
           localRelayPortableKeyPath: portableDir,
         });
 
-        const key1Ok = resolved1.apiKey === "sk-shared-key-67890";
-        const key2Ok = resolved2.apiKey === "sk-shared-key-67890";
-        const url1Ok = resolved1.relayUrl === "https://relay1.example.com";
-        const url2Ok = resolved2.relayUrl === "https://relay2.example.com";
-        const origin1Ok = resolved1.origin === "portable";
-        const origin2Ok = resolved2.origin === "portable";
+        const key1Ok = resolved1.apiKey === "";
+        const key2Ok = resolved2.apiKey === "";
+        const url1Ok = resolved1.relayUrl === "";
+        const url2Ok = resolved2.relayUrl === "";
+        const origin1Ok = resolved1.origin === "none";
+        const origin2Ok = resolved2.origin === "none";
 
-        addTest("RP-2: 便携目录覆盖（多 Vault 共用同一 key 文件）",
+        addTest("RP-2: V20.5 便携目录覆盖（多 Vault 共用同一 key 文件，resolveRuntimeProfile always returns none）",
           portableOk && keyFileExists && key1Ok && key2Ok && url1Ok && url2Ok && origin1Ok && origin2Ok ? "pass" : "fail",
           `portableOk=${portableOk} keyFileExists=${keyFileExists} key1Ok=${key1Ok} key2Ok=${key2Ok} url1Ok=${url1Ok} url2Ok=${url2Ok} origin1Ok=${origin1Ok} origin2Ok=${origin2Ok}`);
       } finally {
@@ -22804,7 +22801,7 @@ if (!runRpTests) {
         `keyNotInMsg1=${keyNotInMsg1} keyNotInMsg2=${keyNotInMsg2} keyNotInMsg3=${keyNotInMsg3} bearerDesensitized=${bearerDesensitized} networkSimplified=${networkSimplified}`);
     }
 
-    // --- RP-4: Vault profile 安全检查（含 apiKey 的 JSON 被拒绝读取）---
+    // --- RP-4: V20.5 Vault profile 安全检查（含 apiKey 的 JSON 被拒绝读取，resolveRuntimeProfile always returns none）---
     {
       const tmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-security-"));
       try {
@@ -22824,18 +22821,19 @@ if (!runRpTests) {
         const rejected = loaded === null;
         const syncRejected = syncLoaded === null;
 
-        // resolveRuntimeProfile 应回退到 settings（origin "none" 或 "settings"）
+        // V20.5: resolveRuntimeProfile 始终返回 origin="none" + 空值（Bridge 不再提供 relay 配置）
         const resolved = await rpMod.resolveRuntimeProfile(tmpRoot, {
           localRelayUrl: "https://fallback.example.com",
           localRelayModel: "",
           localRelayApiKey: "sk-settings-key",
           localRelayPortableKeyPath: "",
         });
-        const fallbackUrl = resolved.relayUrl === "https://fallback.example.com";
+        const noneOrigin = resolved.origin === "none";
+        const emptyUrl = resolved.relayUrl === "";
 
-        addTest("RP-4: Vault profile 安全检查（含 apiKey 的 JSON 被拒绝读取，回退到 settings）",
-          rejected && syncRejected && fallbackUrl ? "pass" : "fail",
-          `rejected=${rejected} syncRejected=${syncRejected} fallbackUrl=${fallbackUrl}`);
+        addTest("RP-4: V20.5 Vault profile 安全检查（含 apiKey 的 JSON 被拒绝读取，resolveRuntimeProfile always returns none）",
+          rejected && syncRejected && noneOrigin && emptyUrl ? "pass" : "fail",
+          `rejected=${rejected} syncRejected=${syncRejected} noneOrigin=${noneOrigin} emptyUrl=${emptyUrl}`);
       } finally {
         try { fsMod.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
       }
@@ -23108,7 +23106,7 @@ if (!runOnOpenDom) {
           { filter: /^\.\/agentRuntimeWorkspace$/, content: "export async function ensureAgentRuntimeWorkspace() { return { vaultSkillInitialized: false }; } export async function compactOrSplitVaultSkill() {} export function materializeAllSkillsToAllTargets() { return { results: [], syncSummary: { synced: [], skipped: [] }, saved: false }; } export const VAULT_SKILL_SOURCE_REL = '.agents/skills/VAULT_SKILL.md';" },
           { filter: /^\.\.\/agentRuntimeWorkspace$/, content: "export async function ensureAgentRuntimeWorkspace() { return { vaultSkillInitialized: false }; } export async function compactOrSplitVaultSkill() {} export function materializeAllSkillsToAllTargets() { return { results: [], syncSummary: { synced: [], skipped: [] }, saved: false }; } export const VAULT_SKILL_SOURCE_REL = '.agents/skills/VAULT_SKILL.md'; export const AGENT_RUNTIME_PRIVATE_DIR_REL = 'LLM-AgentRuntime/private'; export const AGENT_RUNTIME_PROVIDER_CONFIG_REL = 'LLM-AgentRuntime/private/runtime-provider.json';" },
           { filter: /^\.\/runtime\/vaultContextAutoMaintainer$/, content: "export async function undoVaultContextMaintain() { return { ok: true }; }" },
-          { filter: /^\.\/agentSkills$/, content: "export function cleanupCodexBridgeSkillsForVaultSync() { return { deleted: 0 }; } export async function loadAgentSkillsManifest() { return { skills: [] }; } export async function saveAgentSkillsManifest() {} export async function prepareAgentSkillsForCodexRuntime() { return []; }" },
+          { filter: /^\.\/agentSkills$/, content: "export function cleanupCodexBridgeSkillsForVaultSync() { return { deleted: 0 }; } export async function loadAgentSkillsManifest() { return { skills: [] }; } export async function saveAgentSkillsManifest() {} export async function prepareAgentSkillsForCodexRuntime() { return []; } export function loadAgentSkillsManifestSync() { return { skills: [] }; } export function saveAgentSkillsManifestSync() {} export function createAgentSkillRecord() { return {}; } export function materializeAgentSkillSync() { return undefined; } export function materializeAgentSkillToTarget() { return undefined; } export function computeAgentSkillSourceHash() { return undefined; } export function materializeAgentSkillToCodexHomeSync() { return undefined; }" },
           { filter: /^\.\/attachmentPackingPolicy$/, content: "export const AttachmentPackingPolicy = { binaryAsNativeRef: true, sdkDirectAttachmentSupported: true };" },
           { filter: /^\.\.\/main$/, content: "export default class LLMBridgePlugin {}" },
         ];
@@ -25495,20 +25493,21 @@ if (!runV202) {
     }
 
     // ============================================================
-    // 测试 8: 完整模型目录 — settings.ts 刷新/发现按钮调用 clearCodexManagedModelCatalogCache
+    // 测试 8: V20.5 settings.ts 模型发现 UI 已移除 — 改用 runtimeRouter
     // ============================================================
     {
       const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
-      const refreshBtnCallsClear = settingsSrc.includes("clearCodexManagedModelCatalogCache()");
-      // V20.4: 验证发现按钮使用 Store 获取真实 relayUrl/apiKey（替代旧 resolveRuntimeProfile）
-      const discoverBtnUsesResolve = settingsSrc.includes("loadRuntimeProviderState")
-        && settingsSrc.includes("runtimeProviderStore");
-      addTest("V20.2 模型目录: settings.ts 刷新/发现按钮调用 clearCodexManagedModelCatalogCache",
-        refreshBtnCallsClear ? "pass" : "fail",
-        refreshBtnCallsClear ? "" : "settings.ts 未调用 clearCodexManagedModelCatalogCache()");
-      addTest("V20.2/V20.4 模型目录: 发现按钮使用 Store 获取真实 relayUrl/apiKey",
-        discoverBtnUsesResolve ? "pass" : "fail",
-        discoverBtnUsesResolve ? "" : "settings.ts 未使用 store.loadRuntimeProviderState");
+      // V20.5: settings.ts 不再调用 clearCodexManagedModelCatalogCache（已移除模型发现 UI）
+      const noClearCache = !settingsSrc.includes("clearCodexManagedModelCatalogCache");
+      // V20.5: settings.ts 使用 runtimeRouter（替代 runtimeProviderStore）
+      const usesRouter = settingsSrc.includes("runtimeRouter");
+      const noProviderStore = !settingsSrc.includes("runtimeProviderStore");
+      addTest("V20.5 settings.ts: 不再调用 clearCodexManagedModelCatalogCache（已移除模型发现 UI）",
+        noClearCache ? "pass" : "fail",
+        noClearCache ? "" : "settings.ts 仍引用 clearCodexManagedModelCatalogCache");
+      addTest("V20.5 settings.ts: 使用 runtimeRouter（替代 runtimeProviderStore）",
+        usesRouter && noProviderStore ? "pass" : "fail",
+        usesRouter && noProviderStore ? "" : `usesRouter=${usesRouter} noProviderStore=${noProviderStore}`);
     }
 
     // ============================================================
@@ -25772,9 +25771,10 @@ if (!runV202) {
     // ============================================================
     {
       const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
-      // V20.4: API Key onChange 调用 store.setProviderApiKey 持久化（替代旧 saveRuntimeProviderConfig）
-      const hasPersistOnchange = settingsSrc.includes("setProviderApiKey")
-        && settingsSrc.includes("runtimeProviderStore");
+      // V20.5: API Key 通过 router.setCodexKey/setClaudeKey/setPiKey 持久化（替代 store.setProviderApiKey）
+      const hasPersistOnchange = settingsSrc.includes("router.setCodexKey")
+        && settingsSrc.includes("router.setClaudeKey")
+        && settingsSrc.includes("router.setPiKey");
       // V20.4: "清除 Key" 按钮存在（替代旧 "忘记 Key"）
       const hasForgetKeyBtn = settingsSrc.includes("清除 Key");
       // V20.4: 便携目录路径在 types.ts 中定义（迁移用），settings.ts UI 不再直接暴露
@@ -25782,9 +25782,9 @@ if (!runV202) {
       const hasPortableAdvanced = typesSrc.includes("localRelayPortableKeyPath");
       // 描述中提到 safeStorage 加密
       const descMentionsSafeStorage = settingsSrc.includes("safeStorage") || settingsSrc.includes("加密存储");
-      addTest("V20.2/V20.4 safeStorage: settings.ts API Key onChange 持久化到 runtime-provider.json（Store）",
+      addTest("V20.5 settings.ts: API Key 通过 router.setCodexKey/setClaudeKey/setPiKey 持久化",
         hasPersistOnchange ? "pass" : "fail",
-        hasPersistOnchange ? "" : "settings.ts 未在 onChange 中调用 store.setProviderApiKey");
+        hasPersistOnchange ? "" : "settings.ts 缺少 router.setCodexKey/setClaudeKey/setPiKey");
       addTest("V20.2/V20.4 safeStorage: '清除 Key' 按钮存在",
         hasForgetKeyBtn ? "pass" : "fail",
         hasForgetKeyBtn ? "" : "settings.ts 缺少 '清除 Key' 按钮");
@@ -26269,28 +26269,32 @@ if (!runV203) {
     // ============================================================
     {
       const settingsSrc = readFileSync(join(PROJECT_ROOT, "src", "settings.ts"), "utf-8");
-      const hasProviderModels = settingsSrc.includes("providerModels: relayResult.models");
-      const hasVerifiedModels = settingsSrc.includes("verifiedModels: matchResult.available.map");
-      const hasPendingModels = settingsSrc.includes("pendingModels: matchResult.pending.map");
-      const hasIncompatibleModels = settingsSrc.includes("incompatibleModels: matchResult.incompatible.map")
-        && settingsSrc.includes("incompatibleReason");
-      const hasDiscoveredAt = settingsSrc.includes("discoveredAt: new Date().toISOString()");
+      // V20.5: settings.ts 不再持久化模型发现结果（providerModels/verifiedModels/pendingModels/incompatibleModels/discoveredAt 全部移除）
+      const noProviderModels = !settingsSrc.includes("providerModels: relayResult.models");
+      const noVerifiedModels = !settingsSrc.includes("verifiedModels: matchResult.available.map");
+      const noPendingModels = !settingsSrc.includes("pendingModels: matchResult.pending.map");
+      const noIncompatibleModels = !settingsSrc.includes("incompatibleModels: matchResult.incompatible.map");
+      const noDiscoveredAt = !settingsSrc.includes("discoveredAt: new Date().toISOString()");
+      // V20.5: settings.ts 不再调用 matchModels / store.updateRuntimeProviderState
+      const noMatchModels = !settingsSrc.includes("matchModels");
+      const noUpdateRuntimeProviderState = !settingsSrc.includes("store.updateRuntimeProviderState");
+      // V20.5: settings.ts 有 router.migrateFromV20_4 迁移按钮 + setActiveProvider
+      const hasMigrateFromV20_4 = settingsSrc.includes("router.migrateFromV20_4");
+      const hasSetActiveProvider = settingsSrc.includes("router.setActiveProvider");
 
-      addTest("V20.3 settings.ts: 持久化 providerModels（relayResult.models）",
-        hasProviderModels ? "pass" : "fail",
-        "");
-      addTest("V20.3 settings.ts: 持久化 verifiedModels（matchResult.available）",
-        hasVerifiedModels ? "pass" : "fail",
-        "");
-      addTest("V20.3 settings.ts: 持久化 pendingModels（matchResult.pending）",
-        hasPendingModels ? "pass" : "fail",
-        "");
-      addTest("V20.3 settings.ts: 持久化 incompatibleModels（含 incompatibleReason）",
-        hasIncompatibleModels ? "pass" : "fail",
-        "");
-      addTest("V20.3 settings.ts: 持久化 discoveredAt 时间戳",
-        hasDiscoveredAt ? "pass" : "fail",
-        "");
+      addTest("V20.5 settings.ts: 不再持久化 providerModels（已移除模型发现）",
+        noProviderModels ? "pass" : "fail", "");
+      addTest("V20.5 settings.ts: 不再持久化 verifiedModels（已移除 matchModels）",
+        noVerifiedModels && noMatchModels ? "pass" : "fail",
+        `noVerifiedModels=${noVerifiedModels} noMatchModels=${noMatchModels}`);
+      addTest("V20.5 settings.ts: 不再持久化 pendingModels（已移除模型发现）",
+        noPendingModels ? "pass" : "fail", "");
+      addTest("V20.5 settings.ts: 不再持久化 incompatibleModels（已移除 store.updateRuntimeProviderState）",
+        noIncompatibleModels && noUpdateRuntimeProviderState ? "pass" : "fail",
+        `noIncompatibleModels=${noIncompatibleModels} noUpdateRuntimeProviderState=${noUpdateRuntimeProviderState}`);
+      addTest("V20.5 settings.ts: 有 router.migrateFromV20_4 迁移按钮 + setActiveProvider（替代 discoveredAt）",
+        hasMigrateFromV20_4 && hasSetActiveProvider ? "pass" : "fail",
+        `migrate=${hasMigrateFromV20_4} setActive=${hasSetActiveProvider} noDiscoveredAt=${noDiscoveredAt}`);
     }
 
     // ============================================================
@@ -26639,9 +26643,8 @@ try {
       ok ? "" : `origin=${profile.origin} relayUrl=${profile.relayUrl}`);
   }
 
-  // Test 17: resolveRuntimeProfile 有配置 → origin="portable"，值来自 Store
-  // 注意：resolver bundle 内部有自己的 Store 实例，session-only Key 不跨 bundle 共享。
-  // 因此写含 legacy apiKey 的配置文件，让 resolver 的 Store 从文件读取。
+  // Test 17: V20.5 resolveRuntimeProfile 有配置也返回 origin="none"（Bridge 不再提供 relay 配置）
+  // 注意：V20.5 起 resolver 始终返回 origin="none" + 空 relayUrl/model/apiKey。
   {
     storeMod.clearRuntimeProviderStoreCache();
     const vault = makeTempVault();
@@ -26652,9 +26655,9 @@ try {
       updatedAt: "2026-07-12T00:00:00Z",
     }, null, 2) + "\n");
     const profile = await resolverMod.resolveRuntimeProfile(vault, { model: "should-not-override" });
-    const ok = profile.origin === "portable" && profile.relayUrl === "https://relay.example.com" &&
-               profile.model === "gpt-5.6-sol" && profile.apiKey === "sk-legacy-from-file";
-    addTest("V20.4 Resolver: 有配置时 origin=portable 且 model 来自 Store（非 settings）", ok ? "pass" : "fail",
+    const ok = profile.origin === "none" && profile.relayUrl === "" &&
+               profile.model === "" && profile.apiKey === "";
+    addTest("V20.5 Resolver: 有配置时也返回 origin=none（Bridge 不再提供 relay 配置）", ok ? "pass" : "fail",
       ok ? "" : `origin=${profile.origin} relayUrl=${profile.relayUrl} model=${profile.model} apiKey=${profile.apiKey}`);
   }
 
@@ -26722,6 +26725,356 @@ try {
   try { if (v204StoreBundle) rmSync(v204StoreBundle, { force: true }); } catch {}
   try { if (v204ResolverBundle) rmSync(v204ResolverBundle, { force: true }); } catch {}
   for (const dir of v204TempDirs) {
+    try { rmSync(dir, { recursive: true, force: true }); } catch {}
+  }
+}
+
+// ============================================================
+// 9.y V20.5: RuntimeRouter + ActiveProvider + SecretsStore 单测
+// ============================================================
+console.log("\n=== V20.5 RuntimeRouter + ActiveProvider + SecretsStore 单测 ===");
+
+let v205RouterBundle = null;
+let v205ResolverBundle = null;
+let v205TempDirs = [];
+
+try {
+  const esbuild = (await import("esbuild")).default;
+
+  // Bundle runtimeRouter (includes activeProvider + secretsStore + runtimeRouter)
+  v205RouterBundle = join(PROJECT_ROOT, ".test-v205-router-temp.mjs");
+  await esbuild.build({
+    entryPoints: [join(PROJECT_ROOT, "src", "runtime", "config", "runtimeRouter.ts")],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    outfile: v205RouterBundle,
+    external: ["electron"],
+  });
+  const routerMod = await import(pathToFileURL(v205RouterBundle).href);
+
+  // Bundle runtimeProfileResolver (for resolveRuntimeProfile / buildRuntimeSpawnEnv)
+  v205ResolverBundle = join(PROJECT_ROOT, ".test-v205-resolver-temp.mjs");
+  await esbuild.build({
+    entryPoints: [join(PROJECT_ROOT, "src", "runtime", "runtimeProfileResolver.ts")],
+    bundle: true,
+    format: "esm",
+    platform: "node",
+    outfile: v205ResolverBundle,
+    external: ["electron"],
+  });
+  const resolverMod = await import(pathToFileURL(v205ResolverBundle).href);
+
+  const ACTIVE_REL = "LLM-AgentRuntime/private/runtime/active.json";
+  const SECRETS_REL = "LLM-AgentRuntime/private/runtime/secrets.env";
+  const CODEX_CONFIG_REL = "LLM-AgentRuntime/private/runtime/codex/config.toml";
+  const CLAUDE_CONFIG_REL = "LLM-AgentRuntime/private/runtime/claude/settings.local.json";
+  const PI_SETTINGS_REL = "LLM-AgentRuntime/private/runtime/pi/settings.json";
+  const OLD_PROVIDER_CONFIG_REL = "LLM-AgentRuntime/private/runtime-provider.json";
+
+  function makeTempVault() {
+    const dir = mkdtempSync(join(tmpdir(), "v205-test-"));
+    v205TempDirs.push(dir);
+    return dir;
+  }
+
+  function writeFile(vaultPath, relPath, content) {
+    const fp = join(vaultPath, relPath);
+    mkdirSync(dirname(fp), { recursive: true });
+    writeFileSync(fp, content, "utf8");
+  }
+
+  function fileExists(vaultPath, relPath) {
+    return existsSync(join(vaultPath, relPath));
+  }
+
+  // --- ActiveProvider 测试 ---
+
+  // Test 1: 空 vault → getActiveProvider 返回默认 "codex"
+  {
+    const vault = makeTempVault();
+    const provider = routerMod.getActiveProvider(vault);
+    addTest("V20.5 ActiveProvider: 空 vault 返回默认 codex", provider === "codex" ? "pass" : "fail",
+      `expected codex, got ${provider}`);
+  }
+
+  // Test 2: saveActiveProvider + loadActiveProvider 往返
+  {
+    const vault = makeTempVault();
+    routerMod.setActiveProvider(vault, "claude");
+    const provider = routerMod.getActiveProvider(vault);
+    addTest("V20.5 ActiveProvider: save+load claude", provider === "claude" ? "pass" : "fail",
+      `expected claude, got ${provider}`);
+  }
+
+  // Test 3: active.json 不含地址/模型/Key
+  {
+    const vault = makeTempVault();
+    routerMod.setActiveProvider(vault, "pi");
+    const content = JSON.parse(readFileSync(join(vault, ACTIVE_REL), "utf8"));
+    const hasNoSecrets = !("relayUrl" in content) && !("model" in content) && !("apiKey" in content) && !("legacyApiKey" in content);
+    addTest("V20.5 ActiveProvider: active.json 不含地址/模型/Key", hasNoSecrets ? "pass" : "fail",
+      `active.json 内容: ${JSON.stringify(content)}`);
+  }
+
+  // --- SecretsStore 测试 ---
+
+  // Test 4: setSecret + getSecret（safeStorage 不可用时 session-only）
+  {
+    const vault = makeTempVault();
+    const status = routerMod.setCodexKey(vault, "test-key-codex-12345");
+    const key = routerMod.getActiveProvider(vault); // 不直接读 key，用 routerState
+    const state = routerMod.getRouterState(vault);
+    addTest("V20.5 SecretsStore: setCodexKey 后 hasKey=true", state.providers.codex.hasKey ? "pass" : "fail",
+      `hasKey=${state.providers.codex.hasKey}, keyStatus=${state.providers.codex.keyStatus}`);
+  }
+
+  // Test 5: clearCodexKey 后 hasKey=false
+  {
+    const vault = makeTempVault();
+    routerMod.setCodexKey(vault, "test-key-codex-12345");
+    routerMod.clearCodexKey(vault);
+    const state = routerMod.getRouterState(vault);
+    addTest("V20.5 SecretsStore: clearCodexKey 后 hasKey=false", !state.providers.codex.hasKey ? "pass" : "fail",
+      `hasKey=${state.providers.codex.hasKey}`);
+  }
+
+  // Test 6: setClaudeKey + setPiKey 分别设置
+  {
+    const vault = makeTempVault();
+    routerMod.setClaudeKey(vault, "test-key-claude");
+    routerMod.setPiKey(vault, "test-key-pi");
+    const state = routerMod.getRouterState(vault);
+    addTest("V20.5 SecretsStore: setClaudeKey + setPiKey",
+      state.providers.claude.hasKey && state.providers.pi.hasKey ? "pass" : "fail",
+      `claude.hasKey=${state.providers.claude.hasKey}, pi.hasKey=${state.providers.pi.hasKey}`);
+  }
+
+  // --- 本地配置存在性检测 ---
+
+  // Test 7: 空 vault → 所有 configExists 返回 false
+  {
+    const vault = makeTempVault();
+    const codexExists = routerMod.codexConfigExists(vault);
+    const claudeExists = routerMod.claudeConfigExists(vault);
+    const piExists = routerMod.piConfigExists(vault);
+    addTest("V20.5 ConfigExists: 空 vault 全部 false",
+      !codexExists && !claudeExists && !piExists ? "pass" : "fail",
+      `codex=${codexExists}, claude=${claudeExists}, pi=${piExists}`);
+  }
+
+  // Test 8: 创建 codex/config.toml → codexConfigExists=true
+  {
+    const vault = makeTempVault();
+    writeFile(vault, CODEX_CONFIG_REL, 'model = "gpt-5"\n');
+    const exists = routerMod.codexConfigExists(vault);
+    addTest("V20.5 ConfigExists: codex/config.toml 存在 → true", exists ? "pass" : "fail",
+      `codexConfigExists=${exists}`);
+  }
+
+  // Test 9: 创建 claude/settings.local.json → claudeConfigExists=true
+  {
+    const vault = makeTempVault();
+    writeFile(vault, CLAUDE_CONFIG_REL, '{"env":{}}\n');
+    const exists = routerMod.claudeConfigExists(vault);
+    addTest("V20.5 ConfigExists: claude/settings.local.json 存在 → true", exists ? "pass" : "fail",
+      `claudeConfigExists=${exists}`);
+  }
+
+  // Test 10: 创建 pi/settings.json → piConfigExists=true
+  {
+    const vault = makeTempVault();
+    writeFile(vault, PI_SETTINGS_REL, '{"defaultProvider":"relay"}\n');
+    const exists = routerMod.piConfigExists(vault);
+    addTest("V20.5 ConfigExists: pi/settings.json 存在 → true", exists ? "pass" : "fail",
+      `piConfigExists=${exists}`);
+  }
+
+  // --- buildRuntimeEnv 测试 ---
+
+  // Test 11: codex active + 本地配置存在 → CODEX_HOME 设置
+  {
+    const vault = makeTempVault();
+    routerMod.setActiveProvider(vault, "codex");
+    writeFile(vault, CODEX_CONFIG_REL, 'model = "gpt-5"\n');
+    routerMod.setCodexKey(vault, "test-codex-key");
+    const env = routerMod.buildRuntimeEnv(vault);
+    addTest("V20.5 buildRuntimeEnv: codex 本地配置存在 → CODEX_HOME 设置",
+      !!env.CODEX_HOME && env.CODEX_RELAY_API_KEY === "test-codex-key" ? "pass" : "fail",
+      `CODEX_HOME=${env.CODEX_HOME}, hasKey=${!!env.CODEX_RELAY_API_KEY}`);
+  }
+
+  // Test 12: codex active + 本地配置缺失 → CODEX_HOME 不设置
+  {
+    const vault = makeTempVault();
+    routerMod.setActiveProvider(vault, "codex");
+    routerMod.setCodexKey(vault, "test-codex-key");
+    const env = routerMod.buildRuntimeEnv(vault);
+    addTest("V20.5 buildRuntimeEnv: codex 本地配置缺失 → CODEX_HOME 不设置",
+      !env.CODEX_HOME && env.CODEX_RELAY_API_KEY === "test-codex-key" ? "pass" : "fail",
+      `CODEX_HOME=${env.CODEX_HOME}, hasKey=${!!env.CODEX_RELAY_API_KEY}`);
+  }
+
+  // Test 13: claude active + 本地配置存在 → CLAUDE_CONFIG_DIR 设置
+  {
+    const vault = makeTempVault();
+    routerMod.setActiveProvider(vault, "claude");
+    writeFile(vault, CLAUDE_CONFIG_REL, '{"env":{}}\n');
+    routerMod.setClaudeKey(vault, "test-claude-key");
+    const env = routerMod.buildRuntimeEnv(vault);
+    addTest("V20.5 buildRuntimeEnv: claude 本地配置存在 → CLAUDE_CONFIG_DIR 设置",
+      !!env.CLAUDE_CONFIG_DIR && env.ANTHROPIC_API_KEY === "test-claude-key" ? "pass" : "fail",
+      `CLAUDE_CONFIG_DIR=${env.CLAUDE_CONFIG_DIR}, hasKey=${!!env.ANTHROPIC_API_KEY}`);
+  }
+
+  // Test 14: pi active + 本地配置存在 → PI_CODING_AGENT_DIR 设置
+  {
+    const vault = makeTempVault();
+    routerMod.setActiveProvider(vault, "pi");
+    writeFile(vault, PI_SETTINGS_REL, '{"defaultProvider":"relay"}\n');
+    routerMod.setPiKey(vault, "test-pi-key");
+    const env = routerMod.buildRuntimeEnv(vault);
+    addTest("V20.5 buildRuntimeEnv: pi 本地配置存在 → PI_CODING_AGENT_DIR 设置",
+      !!env.PI_CODING_AGENT_DIR && env.PI_RELAY_API_KEY === "test-pi-key" ? "pass" : "fail",
+      `PI_CODING_AGENT_DIR=${env.PI_CODING_AGENT_DIR}, hasKey=${!!env.PI_RELAY_API_KEY}`);
+  }
+
+  // Test 15: codex active + 无密钥 → env 不含密钥
+  {
+    const vault = makeTempVault();
+    routerMod.setActiveProvider(vault, "codex");
+    writeFile(vault, CODEX_CONFIG_REL, 'model = "gpt-5"\n');
+    const env = routerMod.buildRuntimeEnv(vault);
+    addTest("V20.5 buildRuntimeEnv: 无密钥 → env 不含 CODEX_RELAY_API_KEY",
+      !env.CODEX_RELAY_API_KEY ? "pass" : "fail",
+      `hasKey=${!!env.CODEX_RELAY_API_KEY}`);
+  }
+
+  // --- getRouterState 测试 ---
+
+  // Test 16: getRouterState 聚合状态
+  {
+    const vault = makeTempVault();
+    routerMod.setActiveProvider(vault, "codex");
+    writeFile(vault, CODEX_CONFIG_REL, 'model = "gpt-5"\n');
+    routerMod.setCodexKey(vault, "test-key");
+    const state = routerMod.getRouterState(vault);
+    const ok = state.activeProvider === "codex"
+      && state.providers.codex.localConfigExists === true
+      && state.providers.codex.hasKey === true
+      && state.providers.claude.localConfigExists === false
+      && state.providers.pi.localConfigExists === false;
+    addTest("V20.5 getRouterState: 聚合状态正确", ok ? "pass" : "fail",
+      `active=${state.activeProvider}, codex.exists=${state.providers.codex.localConfigExists}, codex.hasKey=${state.providers.codex.hasKey}`);
+  }
+
+  // --- runtimeProfileResolver 测试 ---
+
+  // Test 17: resolveRuntimeProfile 始终返回 origin="none"
+  {
+    const vault = makeTempVault();
+    const profile = await resolverMod.resolveRuntimeProfile(vault);
+    addTest("V20.5 Resolver: resolveRuntimeProfile 返回 origin=none",
+      profile.origin === "none" && !profile.relayUrl ? "pass" : "fail",
+      `origin=${profile.origin}, relayUrl=${profile.relayUrl}`);
+  }
+
+  // Test 18: resolveRuntimeProfileSync 始终返回 origin="none"
+  {
+    const vault = makeTempVault();
+    const profile = resolverMod.resolveRuntimeProfileSync(undefined, null, vault);
+    addTest("V20.5 Resolver: resolveRuntimeProfileSync 返回 origin=none",
+      profile.origin === "none" && !profile.relayUrl ? "pass" : "fail",
+      `origin=${profile.origin}, relayUrl=${profile.relayUrl}`);
+  }
+
+  // Test 19: buildRuntimeSpawnEnv 委托到 router（通过 routerMod 直接验证，避免跨 bundle 状态隔离）
+  {
+    const vault = makeTempVault();
+    routerMod.setActiveProvider(vault, "codex");
+    writeFile(vault, CODEX_CONFIG_REL, 'model = "gpt-5"\n');
+    routerMod.setCodexKey(vault, "test-key");
+    // buildRuntimeSpawnEnv 在 resolver bundle 中会 require router，但跨 bundle 状态不共享。
+    // 改为直接用 routerMod.buildRuntimeEnv 验证相同逻辑。
+    const env = routerMod.buildRuntimeEnv(vault);
+    addTest("V20.5 Resolver: buildRuntimeSpawnEnv 委托到 router（通过 buildRuntimeEnv 验证）",
+      !!env.CODEX_HOME && env.CODEX_RELAY_API_KEY === "test-key" ? "pass" : "fail",
+      `CODEX_HOME=${env.CODEX_HOME}, hasKey=${!!env.CODEX_RELAY_API_KEY}`);
+  }
+
+  // --- V20.4→V20.5 迁移测试 ---
+
+  // Test 20: 无旧配置 → 不迁移
+  {
+    const vault = makeTempVault();
+    const result = routerMod.migrateFromV20_4(vault);
+    addTest("V20.5 Migrate: 无旧配置 → migrated=false",
+      !result.migrated ? "pass" : "fail",
+      `migrated=${result.migrated}, reason=${result.reason}`);
+  }
+
+  // Test 21: 有旧配置 + 有 legacyApiKey → 迁移 active.json + secrets.env
+  {
+    const vault = makeTempVault();
+    writeFile(vault, OLD_PROVIDER_CONFIG_REL, JSON.stringify({
+      relayUrl: "https://api.example.com",
+      model: "gpt-5",
+      legacyApiKey: "old-api-key-12345",
+    }));
+    const result = routerMod.migrateFromV20_4(vault);
+    const activeExists = fileExists(vault, ACTIVE_REL);
+    const state = routerMod.getRouterState(vault);
+    addTest("V20.5 Migrate: 有旧配置 → 迁移 active.json + 密钥",
+      result.migrated && activeExists && state.providers.codex.hasKey ? "pass" : "fail",
+      `migrated=${result.migrated}, activeExists=${activeExists}, codex.hasKey=${state.providers.codex.hasKey}`);
+  }
+
+  // Test 22: 已迁移 → 跳过
+  {
+    const vault = makeTempVault();
+    writeFile(vault, OLD_PROVIDER_CONFIG_REL, JSON.stringify({ relayUrl: "https://api.example.com" }));
+    routerMod.setActiveProvider(vault, "codex"); // 创建 active.json
+    const result = routerMod.migrateFromV20_4(vault);
+    addTest("V20.5 Migrate: 已有 active.json → 跳过",
+      !result.migrated ? "pass" : "fail",
+      `migrated=${result.migrated}, reason=${result.reason}`);
+  }
+
+  // Test 23: 迁移后 relayUrl/model 不自动写入原生配置文件
+  {
+    const vault = makeTempVault();
+    writeFile(vault, OLD_PROVIDER_CONFIG_REL, JSON.stringify({
+      relayUrl: "https://api.example.com",
+      model: "gpt-5",
+      legacyApiKey: "old-key",
+    }));
+    routerMod.migrateFromV20_4(vault);
+    const codexExists = fileExists(vault, CODEX_CONFIG_REL);
+    const claudeExists = fileExists(vault, CLAUDE_CONFIG_REL);
+    const piExists = fileExists(vault, PI_SETTINGS_REL);
+    addTest("V20.5 Migrate: 迁移后不自动创建原生配置文件",
+      !codexExists && !claudeExists && !piExists ? "pass" : "fail",
+      `codex=${codexExists}, claude=${claudeExists}, pi=${piExists}`);
+  }
+
+  // Test 24: clearRouterCache 清除 secrets 缓存
+  {
+    const vault = makeTempVault();
+    routerMod.setCodexKey(vault, "test-key");
+    routerMod.clearRouterCache();
+    const state = routerMod.getRouterState(vault);
+    // 清除缓存后，session-only 密钥丢失（safeStorage 不可用时）
+    addTest("V20.5 clearRouterCache: 清除 session-only 缓存后密钥丢失",
+      !state.providers.codex.hasKey ? "pass" : "fail",
+      `hasKey=${state.providers.codex.hasKey} (session-only cleared)`);
+  }
+
+} catch (e) {
+  addTest("V20.5 测试段", "fail", `加载/执行异常: ${e?.stack || e?.message || e}`);
+} finally {
+  try { if (v205RouterBundle) rmSync(v205RouterBundle, { force: true }); } catch {}
+  try { if (v205ResolverBundle) rmSync(v205ResolverBundle, { force: true }); } catch {}
+  for (const dir of v205TempDirs) {
     try { rmSync(dir, { recursive: true, force: true }); } catch {}
   }
 }

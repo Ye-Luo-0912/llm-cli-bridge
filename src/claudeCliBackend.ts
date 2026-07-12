@@ -10,7 +10,7 @@ import { AgentType, LLMBridgeSettings, EffectiveRunPlan } from "./types";
 import { buildCommandLine } from "./commandProfile";
 import { AgentSkillsRuntimePreparationResult, prepareAgentSkillsForClaudeRuntimeSync } from "./agentSkills";
 import { resolveClaudeRuntimeConfig } from "./claudeRuntimeConfig";
-import { loadVaultRuntimeProfileSync, resolveRuntimeProfileSync } from "./runtime/runtimeProfileResolver";
+import { buildRuntimeSpawnEnv } from "./runtime/runtimeProfileResolver";
 import { RuntimeFileToolAdapterResult, RuntimeFileToolCall, describeRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
 import { redactSecrets } from "./workflowEvent";
 
@@ -158,18 +158,15 @@ export function buildRunEnv(
     }
   }
 
-  // RuntimeProfileResolver: 注入本地中转认证（provider-neutral，自动优先级）
-  // 已配置时覆盖 ANTHROPIC_BASE_URL / ANTHROPIC_API_KEY；未配置时回退到原生认证
-  const vaultProfile = loadVaultRuntimeProfileSync(cwd);
-  const relayProfile = resolveRuntimeProfileSync(settings, vaultProfile, cwd);
-  if (relayProfile.origin !== "none" && relayProfile.relayUrl) {
-    env.ANTHROPIC_BASE_URL = relayProfile.relayUrl;
-    envKeys.push("ANTHROPIC_BASE_URL");
-    if (relayProfile.apiKey) {
-      env.ANTHROPIC_API_KEY = relayProfile.apiKey;
-      envKeys.push("ANTHROPIC_API_KEY");
+  // V20.5: 通过 buildRuntimeSpawnEnv 注入 CLAUDE_CONFIG_DIR（本地配置存在时）+ ANTHROPIC_API_KEY。
+  // Bridge 不再解析 Claude settings.local.json 内容——Claude 自己读取配置。
+  try {
+    const runtimeEnv = buildRuntimeSpawnEnv(cwd);
+    for (const [k, v] of Object.entries(runtimeEnv)) {
+      env[k] = v;
+      envKeys.push(k);
     }
-  }
+  } catch { /* fallthrough */ }
 
   // 增强 PATH
   const extraPath = buildEnhancedPath(cwd);

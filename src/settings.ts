@@ -98,282 +98,128 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    // ===== V20.4: 中转连接（runtime-provider.json 为唯一真相源） =====
+    // ===== V20.5: 运行时配置（原生格式，Bridge 只管理来源和密钥） =====
     const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-    const store = require("./runtime/runtimeProviderStore") as typeof import("./runtime/runtimeProviderStore");
-    const providerState = store.loadRuntimeProviderStateSync(vaultPath);
+    const router = require("./runtime/config/runtimeRouter") as typeof import("./runtime/config/runtimeRouter");
+    const routerState = router.getRouterState(vaultPath);
 
-    containerEl.createEl("h3", { text: "中转连接" });
+    containerEl.createEl("h3", { text: "运行时配置" });
     containerEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
-      text: providerState.source === "corrupt"
-        ? `⚠ runtime-provider.json 损坏：${providerState.error || "解析失败"}。请修复或清除配置后重新填写。`
-        : `配置来源：runtime-provider.json（本机加密存储）。设置页仅编辑该文件，不再与旧 settings 合并。`,
+      text: "V20.5: Bridge 不再解析 agent 配置内容。各 runtime 使用官方原生配置文件，Bridge 只负责选择 active provider 和注入密钥。本地配置存在时设置 *_HOME 指向本地目录；缺失时使用全局配置。",
     });
 
+    // --- Active Provider 选择 ---
     new Setting(containerEl)
-      .setName("中转站地址")
-      .setDesc("如 https://api.example.com。配置后注入 OPENAI_BASE_URL / ANTHROPIC_BASE_URL。留空则使用原生认证。")
-      .addText((t) => {
-        t.setValue(providerState.relayUrl);
-        t.onChange(async (v) => {
-          const val = v.trim();
-          try {
-            await store.updateRuntimeProviderState(vaultPath, { relayUrl: val });
-            // 同步到 settings 内存（兼容仍读 settings.localRelayUrl 的旧代码）
-            s.localRelayUrl = val;
-            await this.plugin.saveSettings();
-          } catch (e) {
-            new Notice("保存地址失败：" + (e instanceof Error ? e.message : String(e)), 5000);
-          }
-          this.plugin.refreshBridgeView();
-        });
-      });
-
-    // API Key 状态徽章 + 设置/替换输入框
-    const keyStatusLabel = providerState.keyStatus === "saved"
-      ? "已保存在本机加密存储"
-      : providerState.keyStatus === "session-only"
-        ? "仅本次会话有效（safeStorage 不可用，重启需重新输入）"
-        : "未配置";
-    new Setting(containerEl)
-      .setName("API Key 状态")
-      .setDesc(`当前：${keyStatusLabel}。输入新 Key 后回车或失焦保存，保存后输入框清空，不再显示圆点。`)
-      .addText((t) => {
-        t.inputEl.type = "password";
-        t.setPlaceholder("设置或替换 Key…");
-        t.setValue("");
-        t.onChange(async (v) => {
-          const val = v.trim();
-          if (!val) return;
-          try {
-            const newState = await store.setProviderApiKey(vaultPath, val);
-            // 同步内存（兼容旧代码）
-            s.localRelayApiKey = newState.apiKey;
-            await this.plugin.saveSettings();
-            t.setValue("");
-            if (newState.keyStatus === "session-only") {
-              new Notice("safeStorage 不可用：Key 仅本次会话有效，重启后需重新输入", 6000);
-            } else {
-              new Notice("API Key 已加密保存", 3000);
-            }
-          } catch (e) {
-            new Notice("保存 Key 失败：" + (e instanceof Error ? e.message : String(e)), 5000);
-          }
-          this.plugin.refreshBridgeView();
-        });
-      })
-      .addButton((b) => {
-        b.setButtonText("清除 Key");
-        b.onClick(async () => {
-          try {
-            await store.clearProviderApiKey(vaultPath);
-            s.localRelayApiKey = "";
-            await this.plugin.saveSettings();
-            new Notice("已清除 API Key", 3000);
-          } catch (e) {
-            new Notice("清除 Key 失败：" + (e instanceof Error ? e.message : String(e)), 5000);
-          }
-          this.plugin.refreshBridgeView();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("测试连接")
-      .setDesc("请求中转站 /v1/models，验证地址可达 + Key 有效。")
-      .addButton((b) => {
-        b.setButtonText("测试连接");
-        b.onClick(async () => {
-          b.setButtonText("测试中...");
-          b.setDisabled(true);
-          try {
-            const state = await store.loadRuntimeProviderState(vaultPath);
-            if (!state.relayUrl || !state.apiKey) {
-              new Notice("请先配置中转站地址和 API Key", 5000);
-              return;
-            }
-            const { testRelayConnection } = await import("./runtime/runtimeProfileResolver");
-            const result = await testRelayConnection(state.relayUrl, state.apiKey, state.model);
-            new Notice(result.ok ? `连接成功，发现 ${result.models.length} 个模型` : `连接失败：${result.detail}`, 6000);
-          } catch (e) {
-            new Notice("测试失败：" + (e instanceof Error ? e.message : String(e)), 5000);
-          } finally {
-            b.setButtonText("测试连接");
-            b.setDisabled(false);
-          }
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("清除中转配置")
-      .setDesc("清除地址和 Key（保留模型发现结果）。清除后回退到原生认证。")
-      .addButton((b) => {
-        b.setButtonText("清除配置");
-        b.onClick(async () => {
-          try {
-            await store.clearProviderApiKey(vaultPath);
-            await store.updateRuntimeProviderState(vaultPath, { relayUrl: "" });
-            s.localRelayUrl = "";
-            s.localRelayApiKey = "";
-            await this.plugin.saveSettings();
-            new Notice("已清除中转配置", 3000);
-          } catch (e) {
-            new Notice("清除失败：" + (e instanceof Error ? e.message : String(e)), 5000);
-          }
-          this.plugin.refreshBridgeView();
-        });
-      });
-
-    // ===== 模型 =====
-    containerEl.createEl("h3", { text: "模型" });
-    new Setting(containerEl)
-      .setName("当前模型")
-      .setDesc(providerState.model
-        ? `当前选中：${providerState.model}`
-        : "未选择模型。点击下方「发现并匹配模型」从中转站 + runtime 交叉匹配。")
+      .setName("Active Provider")
+      .setDesc("选择当前使用的 runtime。切换后立即生效。")
       .addDropdown((dd) => {
-        const verified = providerState.verifiedModels ?? [];
-        if (verified.length > 0) {
-          verified.forEach((id) => dd.addOption(id, id));
-          dd.setValue(providerState.model || verified[0]);
-        } else {
-          dd.addOption("", "（无已验证模型）");
-          dd.setDisabled(true);
-        }
+        dd.addOption("codex", "Codex (app-server)");
+        dd.addOption("claude", "Claude (CLI)");
+        dd.addOption("pi", "Pi (SDK)");
+        dd.setValue(routerState.activeProvider);
         dd.onChange(async (v) => {
           try {
-            await store.setProviderModel(vaultPath, v);
-            // 同步 settings.model（运行路径仍读 settings.model 作为内存镜像）
-            s.model = v;
-            await this.plugin.saveSettings();
+            router.setActiveProvider(vaultPath, v as "codex" | "claude" | "pi");
+            new Notice(`已切换到 ${v}`, 2000);
           } catch (e) {
-            new Notice("切换模型失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+            new Notice("切换失败：" + (e instanceof Error ? e.message : String(e)), 5000);
           }
           this.plugin.refreshBridgeView();
         });
       });
 
-    new Setting(containerEl)
-      .setName("发现并匹配模型")
-      .setDesc("同时请求中转站 /v1/models 和 Codex runtime model/list，交叉匹配后把可用模型放入聊天框，结果持久化到 runtime-provider.json。")
-      .addButton((b) => {
-        b.setButtonText("发现并匹配模型");
-        b.onClick(async () => {
-          b.setButtonText("匹配中...");
-          b.setDisabled(true);
-          try {
-            const state = await store.loadRuntimeProviderState(vaultPath);
-            if (!state.relayUrl || !state.apiKey) {
-              new Notice("请先配置中转站地址和 API Key", 5000);
-              return;
+    // --- 各 Provider 配置状态 ---
+    const providerLabels: Record<string, { name: string; configPath: string; keyVar: string }> = {
+      codex: { name: "Codex", configPath: "LLM-AgentRuntime/private/runtime/codex/config.toml", keyVar: "CODEX_RELAY_API_KEY" },
+      claude: { name: "Claude", configPath: "LLM-AgentRuntime/private/runtime/claude/settings.local.json", keyVar: "ANTHROPIC_API_KEY" },
+      pi: { name: "Pi", configPath: "LLM-AgentRuntime/private/runtime/pi/settings.json", keyVar: "PI_RELAY_API_KEY" },
+    };
+
+    for (const pid of ["codex", "claude", "pi"] as const) {
+      const info = providerLabels[pid];
+      const status = routerState.providers[pid];
+      const isActive = routerState.activeProvider === pid;
+
+      const sectionTitle = containerEl.createEl("h4", {
+        text: `${info.name}${isActive ? " (active)" : ""}`,
+      });
+      void sectionTitle;
+
+      // 配置文件状态
+      const configStatusText = status.localConfigExists
+        ? `✓ 本地配置存在（${info.configPath}）`
+        : `✗ 本地配置缺失（使用全局配置）`;
+      containerEl.createEl("p", { cls: "llm-bridge-setting-hint", text: configStatusText });
+
+      // API Key 管理
+      const keyStatusLabel = status.keyStatus === "saved"
+        ? "已加密保存"
+        : status.keyStatus === "session-only"
+          ? "仅本次会话有效（safeStorage 不可用）"
+          : "未配置";
+      new Setting(containerEl)
+        .setName(`${info.name} API Key`)
+        .setDesc(`环境变量：${info.keyVar} | 当前：${keyStatusLabel}`)
+        .addText((t) => {
+          t.inputEl.type = "password";
+          t.setPlaceholder("设置或替换 Key…");
+          t.setValue("");
+          t.onChange(async (v) => {
+            const val = v.trim();
+            if (!val) return;
+            try {
+              const keyStatus = pid === "codex" ? router.setCodexKey(vaultPath, val)
+                : pid === "claude" ? router.setClaudeKey(vaultPath, val)
+                : router.setPiKey(vaultPath, val);
+              t.setValue("");
+              if (keyStatus === "session-only") {
+                new Notice("safeStorage 不可用：Key 仅本次会话有效", 6000);
+              } else {
+                new Notice(`${info.name} API Key 已加密保存`, 3000);
+              }
+            } catch (e) {
+              new Notice("保存 Key 失败：" + (e instanceof Error ? e.message : String(e)), 5000);
             }
-            const { testRelayConnection } = await import("./runtime/runtimeProfileResolver");
-            const relayResult = await testRelayConnection(state.relayUrl, state.apiKey, s.model);
-            if (!relayResult.ok) {
-              new Notice("中转站连接失败：" + relayResult.detail, 8000);
-              return;
-            }
-            const { loadCodexManagedModelCatalog, clearCodexManagedModelCatalogCache } = await import("./runtime/providers/codex-managed-app-server/codexManagedModelCatalog");
-            clearCodexManagedModelCatalogCache();
-            const runtimeCatalog = await loadCodexManagedModelCatalog(this.plugin.pluginDir, vaultPath, s);
-            const { matchModels, formatMatchSummary } = await import("./runtime/modelMatcher");
-            const relayModels = relayResult.models.map((id) => ({ id }));
-            const runtimeModels = runtimeCatalog?.runtimeModels ?? [];
-            const matchResult = matchModels(relayModels, runtimeModels);
-            const newModel = matchResult.selectable.length > 0
-              ? (matchResult.defaultModel || matchResult.selectable[0].value)
-              : state.model;
-            // V20.4: 持久化到 Store（唯一真相源），同时同步 settings.model 内存镜像
-            await store.updateRuntimeProviderState(vaultPath, {
-              model: newModel,
-              providerModels: relayResult.models,
-              verifiedModels: matchResult.available.map((m) => m.value),
-              pendingModels: matchResult.pending.map((m) => m.value),
-              incompatibleModels: matchResult.incompatible.map((m) => ({
-                id: m.value,
-                reason: m.incompatibleReason || "不兼容",
-              })),
-              discoveredAt: new Date().toISOString(),
-            });
-            s.model = newModel;
-            await this.plugin.saveSettings();
-            new Notice(formatMatchSummary(matchResult), 8000);
             this.plugin.refreshBridgeView();
-          } catch (e) {
-            const { desensitizeError } = await import("./runtime/runtimeProfileResolver");
-            new Notice("匹配失败：" + desensitizeError(e, s.localRelayApiKey), 6000);
-          } finally {
-            b.setButtonText("发现并匹配模型");
-            b.setDisabled(false);
-          }
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("验证当前模型")
-      .setDesc("对当前选中模型发起一次真实 Responses 请求（POST /v1/responses），验证可推理（会产生极少量费用）。")
-      .addButton((b) => {
-        b.setButtonText("验证");
-        b.onClick(async () => {
-          b.setButtonText("验证中...");
-          b.setDisabled(true);
-          try {
-            const state = await store.loadRuntimeProviderState(vaultPath);
-            if (!state.relayUrl || !state.apiKey) {
-              new Notice("请先配置中转站地址和 API Key", 5000);
-              return;
+          });
+        })
+        .addButton((b) => {
+          b.setButtonText("清除 Key");
+          b.onClick(async () => {
+            try {
+              if (pid === "codex") router.clearCodexKey(vaultPath);
+              else if (pid === "claude") router.clearClaudeKey(vaultPath);
+              else router.clearPiKey(vaultPath);
+              new Notice(`已清除 ${info.name} API Key`, 3000);
+            } catch (e) {
+              new Notice("清除 Key 失败：" + (e instanceof Error ? e.message : String(e)), 5000);
             }
-            const { testModelResponsesRequest } = await import("./runtime/runtimeProfileResolver");
-            const result = await testModelResponsesRequest(state.relayUrl, state.apiKey, state.model);
-            new Notice(result.ok ? result.detail : `验证失败：${result.detail}`, 6000);
-          } catch (e) {
-            const { desensitizeError } = await import("./runtime/runtimeProfileResolver");
-            new Notice("验证失败：" + desensitizeError(e, s.localRelayApiKey), 6000);
-          } finally {
-            b.setButtonText("验证");
-            b.setDisabled(false);
-          }
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("刷新模型目录")
-      .setDesc("清除缓存后重新读取 Codex runtime model/list。")
-      .addButton((b) => {
-        b.setButtonText("刷新");
-        b.onClick(async () => {
-          b.setDisabled(true);
-          try {
-            const { clearCodexManagedModelCatalogCache } = await import("./runtime/providers/codex-managed-app-server/codexManagedModelCatalog");
-            clearCodexManagedModelCatalogCache();
-            const { clearRuntimeModelCatalogForAgent } = await import("./runtimeModelCatalog");
-            clearRuntimeModelCatalogForAgent("codex");
             this.plugin.refreshBridgeView();
-            new Notice("已刷新模型目录，重新打开聊天框生效", 3000);
-          } finally {
-            b.setDisabled(false);
-          }
+          });
         });
-      });
-
-    // 展开查看待验证 / 不兼容模型
-    const pendingModels = providerState.pendingModels ?? [];
-    const incompatibleModels = providerState.incompatibleModels ?? [];
-    if (pendingModels.length > 0 || incompatibleModels.length > 0) {
-      const modelDetails = containerEl.createEl("details", { cls: "llm-bridge-advanced-settings" });
-      modelDetails.createEl("summary", { text: `查看待验证（${pendingModels.length}）/ 不兼容（${incompatibleModels.length}）模型` });
-      const modelDetailsBody = modelDetails.createDiv({ cls: "llm-bridge-advanced-settings-body" });
-      if (pendingModels.length > 0) {
-        modelDetailsBody.createEl("p", { text: "待验证模型（runtime 匹配但缺少能力信息，可在高级列表查看，不默认选择）：" });
-        pendingModels.forEach((id) => modelDetailsBody.createEl("p", { text: `• ${id}`, cls: "llm-bridge-setting-hint" }));
-      }
-      if (incompatibleModels.length > 0) {
-        modelDetailsBody.createEl("p", { text: "不兼容模型（不进入聊天框）：" });
-        incompatibleModels.forEach((m) => {
-          modelDetailsBody.createEl("p", { text: `• ${m.id} — ${m.reason}`, cls: "llm-bridge-setting-hint" });
-        });
-      }
     }
+
+    // --- V20.4 迁移 ---
+    new Setting(containerEl)
+      .setName("从 V20.4 迁移")
+      .setDesc("从旧 runtime-provider.json 迁移 active.json 和密钥到 V20.5 原生格式。relayUrl/model 需手动填写到各 agent 配置文件。")
+      .addButton((b) => {
+        b.setButtonText("迁移");
+        b.onClick(async () => {
+          try {
+            const result = router.migrateFromV20_4(vaultPath);
+            if (result.migrated) {
+              new Notice(`迁移完成：${result.createdFiles.join(", ")}`, 5000);
+            } else {
+              new Notice(result.reason, 4000);
+            }
+          } catch (e) {
+            new Notice("迁移失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+          }
+          this.plugin.refreshBridgeView();
+        });
+      });
 
     // ===== Managed Runtime =====
     containerEl.createEl("h3", { text: "Managed Runtime" });

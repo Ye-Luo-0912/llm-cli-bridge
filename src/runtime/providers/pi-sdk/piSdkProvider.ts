@@ -39,7 +39,7 @@
 
 import type { LLMBridgeSettings, PiToolMode } from "../../../types";
 import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
-import { resolveRuntimeProfile } from "../../runtimeProfileResolver";
+import { buildRuntimeSpawnEnv } from "../../runtimeProfileResolver";
 import type {
   EffectiveRunPlan,
   NativeSessionRef,
@@ -1153,36 +1153,17 @@ export class PiSdkProvider implements RuntimeProvider {
       return;
     }
 
-    // RuntimeProfileResolver: 本地中转优先（provider-neutral），未配置时回退到 Pi 专属 settings
-    const relayProfile = await resolveRuntimeProfile(ctx.plan.cwd, settings);
-    const authOverride: PiSdkAuthOverride = relayProfile.origin !== "none" && relayProfile.relayUrl
-      ? {
-          apiKey: relayProfile.apiKey || undefined,
-          provider: settings.piAuthProvider || undefined,
-          baseUrl: relayProfile.relayUrl,
-          model: ctx.plan.model || relayProfile.model || settings.piApiModel || undefined,
-        }
-      : {
-          apiKey: settings.piApiKey || undefined,
-          provider: settings.piAuthProvider || undefined,
-          baseUrl: settings.piApiBaseUrl || undefined,
-          model: ctx.plan.model || settings.piApiModel || undefined,
-        };
-
-    // V17-B1 任务 F / V17-C 任务 C：认证/模型探测（应用 runtime override）
-    const authProbe = probePiSdkAuth(this.probe, authOverride);
-    if (!authProbe.hasAuth || !authProbe.hasModel) {
-      yield {
-        providerId: this.providerId,
-        timestamp: new Date().toISOString(),
-        payload: {
-          kind: "failed",
-          message: `Pi SDK 认证/模型未配置：${authProbe.hint}`,
-          recoverable: true,
-        },
-      };
-      return;
-    }
+    // V20.5: Bridge 不再解析 Pi 配置内容，也不传 authOverride。
+    // 通过 buildRuntimeSpawnEnv 注入 PI_CODING_AGENT_DIR（本地配置存在时）+ PI_RELAY_API_KEY。
+    // Pi SDK 从 PI_CODING_AGENT_DIR 读取 settings.json + models.json。
+    // 本地配置错误时展示 Pi SDK 原生错误，不自动回退。
+    try {
+      const runtimeEnv = buildRuntimeSpawnEnv(ctx.plan.cwd);
+      // Pi SDK 是 in-process，需要设置到 process.env
+      for (const [k, v] of Object.entries(runtimeEnv)) {
+        process.env[k] = v;
+      }
+    } catch { /* fallthrough */ }
 
     const sdk = this.probe.module!;
     // 组装 prompt（任务 G：session.prompt 传入 composePromptForBackend(ctx, "sdk")）
@@ -1232,8 +1213,8 @@ export class PiSdkProvider implements RuntimeProvider {
       const sessionManager = sdk.SessionManager?.inMemory
         ? sdk.SessionManager.inMemory()
         : undefined;
-      // V17-D 任务 F：复用 createAuthWithOverride 确保 session 拿到 runtime override
-      const { authStorage, modelRegistry } = createAuthWithOverride(sdk, authOverride);
+      // V20.5: 不传 authOverride — Pi SDK 从 PI_CODING_AGENT_DIR 读取 settings.json + models.json
+      const { authStorage, modelRegistry } = createAuthWithOverride(sdk, undefined);
       const settingsManager = sdk.SettingsManager?.inMemory
         ? sdk.SettingsManager.inMemory({ compaction: { enabled: false } })
         : undefined;
@@ -1256,15 +1237,6 @@ export class PiSdkProvider implements RuntimeProvider {
       }
       if (customTools !== undefined && customTools.length > 0) {
         sessionOpts.customTools = customTools;
-      }
-      // V17-D 任务 F：显式指定 model（覆盖 SDK 默认选择）
-      if (authOverride.model) {
-        const modelId = authOverride.model;
-        const provider = authOverride.provider || "anthropic";
-        if (modelRegistry && typeof modelRegistry.find === "function") {
-          const found = modelRegistry.find(provider, modelId);
-          if (found) sessionOpts.model = found;
-        }
       }
       const result = await sdk.createAgentSession(sessionOpts);
       session = result.session;

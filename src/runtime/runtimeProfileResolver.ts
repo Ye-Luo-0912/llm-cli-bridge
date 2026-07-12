@@ -171,19 +171,16 @@ function resolvePortableDirectory(portableDir: string, vaultPath?: string): stri
 /**
  * 解析运行时 profile（provider-neutral 单一入口）。
  *
- * V20.4: runtime-provider.json 是唯一真相源（RuntimeProviderStore）。
- * 不再做三路合并（旧 Vault Profile / settings / 便携 Key 合并导致状态分裂）。
- * - 配置存在：完全以文件为准（relayUrl/apiKey/model 均来自文件）。
- * - 配置缺失：Store 内部从旧来源迁移一次并落盘，之后仅读文件。
- * - 配置损坏：Store 返回 source="corrupt"；此处映射为 origin="none" 并保留空值，
- *   调用方应提示用户修复配置，而非静默回退到 settings。
+ * V20.5: Bridge 不再解析 agent 配置文件内容，不再提供 relayUrl/model/apiKey。
+ * 各 agent 从自己的原生配置文件（config.toml / settings.local.json / settings.json）读取。
+ * Bridge 只负责设置 *_HOME 指向本地配置目录 + 注入密钥环境变量（见 buildRuntimeSpawnEnv）。
  *
- * @param vaultPath Vault 根目录
- * @param settings 插件设置（仅作迁移来源，不再参与运行时合并）
+ * 此函数保留用于向后兼容，始终返回 origin="none"。
+ * 调用方应改用 buildRuntimeSpawnEnv() 获取 spawn env。
  */
 export async function resolveRuntimeProfile(
-  vaultPath: string,
-  settings: {
+  _vaultPath?: string,
+  _settings?: {
     localRelayUrl?: string;
     localRelayModel?: string;
     model?: string;
@@ -191,29 +188,16 @@ export async function resolveRuntimeProfile(
     localRelayPortableKeyPath?: string;
   },
 ): Promise<ResolvedRuntimeProfile> {
-  const { loadRuntimeProviderState } = require("./runtimeProviderStore") as typeof import("./runtimeProviderStore");
-  const state = await loadRuntimeProviderState(vaultPath, settings);
-  if (!state.relayUrl || state.source === "corrupt" || state.source === "none") {
-    return { relayUrl: "", model: "", apiKey: "", origin: "none" };
-  }
-  // 配置文件为准：model 来自 Store，不再用 settings.model 覆盖
-  return {
-    relayUrl: state.relayUrl,
-    model: state.model,
-    apiKey: state.apiKey,
-    origin: "portable",
-  };
+  return { relayUrl: "", model: "", apiKey: "", origin: "none" };
 }
 
 /**
- * 同步版本（用于无法 await 的场景，如 buildRunEnv / spawn env）。
+ * 同步版本（用于无法 await 的场景）。
  *
- * V20.4: 同样以 runtime-provider.json 为唯一真相源（RuntimeProviderStore）。
- * 返回 Store 最近一次 async 读取的缓存；若未缓存则同步读文件（不执行迁移）。
- * 不再做三路合并。
+ * V20.5: 同上，始终返回 origin="none"。调用方应改用 buildRuntimeSpawnEnv()。
  */
 export function resolveRuntimeProfileSync(
-  _settings: {
+  _settings?: {
     localRelayUrl?: string;
     localRelayModel?: string;
     model?: string;
@@ -221,22 +205,20 @@ export function resolveRuntimeProfileSync(
     localRelayPortableKeyPath?: string;
   },
   _vaultProfile?: VaultRuntimeProfile | null,
-  vaultPath?: string,
+  _vaultPath?: string,
 ): ResolvedRuntimeProfile {
-  if (!vaultPath) {
-    return { relayUrl: "", model: "", apiKey: "", origin: "none" };
-  }
-  const { loadRuntimeProviderStateSync } = require("./runtimeProviderStore") as typeof import("./runtimeProviderStore");
-  const state = loadRuntimeProviderStateSync(vaultPath);
-  if (!state.relayUrl || state.source === "corrupt" || state.source === "none") {
-    return { relayUrl: "", model: "", apiKey: "", origin: "none" };
-  }
-  return {
-    relayUrl: state.relayUrl,
-    model: state.model,
-    apiKey: state.apiKey,
-    origin: "portable",
-  };
+  return { relayUrl: "", model: "", apiKey: "", origin: "none" };
+}
+
+/**
+ * V20.5: 为 active provider 构建 spawn env。
+ * - 本地配置存在 → 设置 *_HOME 指向本地配置目录
+ * - 密钥从 secrets.env 注入（CODEX_RELAY_API_KEY / ANTHROPIC_API_KEY / PI_RELAY_API_KEY）
+ * 供各 provider 的 buildSpawnEnv / buildRunEnv 调用。
+ */
+export function buildRuntimeSpawnEnv(vaultPath: string): Record<string, string> {
+  const { buildRuntimeEnv } = require("./config/runtimeRouter") as typeof import("./config/runtimeRouter");
+  return buildRuntimeEnv(vaultPath);
 }
 
 // ---------- 测试连接 ----------

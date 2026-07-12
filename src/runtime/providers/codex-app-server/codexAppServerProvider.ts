@@ -45,7 +45,7 @@ import {
 } from "./codexAppServerEffectiveRunPlan";
 import { AppServerProcessManager, type AppServerProcessLike, type AppServerSpawnOptions } from "./appServerProcessManager";
 import { JsonRpcClient } from "./jsonRpcClient";
-import { loadVaultRuntimeProfileSync, resolveRuntimeProfileSync } from "../../runtimeProfileResolver";
+import { buildRuntimeSpawnEnv } from "../../runtimeProfileResolver";
 import type {
   CodexFileChangeItem,
   CodexInitializeResult,
@@ -255,19 +255,16 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
 
   /**
    * V17-F1.1 任务 B：返回 app-server 启动参数（从 constructor 接收，子类不再需要 override）。
-   * V20: 当 relay 配置存在时，追加 `-c key=value` 配置覆盖，注册自定义 provider。
+   * V20.5: Bridge 不再构建 relay provider 参数——relay 配置由 Codex config.toml 管理。
    */
-  protected getAppServerArgs(cwd?: string, settings?: LLMBridgeSettings): string[] {
-    const base = this.appServerArgs;
-    if (!settings || !cwd) return base;
-    const relayProfile = resolveRuntimeProfileSync(settings, loadVaultRuntimeProfileSync(cwd), cwd);
-    if (relayProfile.origin === "none" || !relayProfile.relayUrl) return base;
-    return this.buildRelayProviderArgs(base, relayProfile.relayUrl);
+  protected getAppServerArgs(): string[] {
+    return this.appServerArgs;
   }
 
   /**
    * V20: 构建自定义 provider 的 `-c key=value` 配置覆盖参数。
-   * API Key 通过 LLM_BRIDGE_RELAY_API_KEY 环境变量传递，不写入参数。
+   * V20.5: 已废弃——relay 配置由 Codex config.toml 管理，Bridge 不再注入。
+   * @deprecated V20.5
    */
   private buildRelayProviderArgs(baseArgs: string[], relayUrl: string): string[] {
     const baseUrl = relayUrl.replace(/\/+$/, "") + "/v1";
@@ -293,9 +290,10 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
 
   /**
    * V17-E 任务 A：构建 spawn env（含 enhanced PATH）。
-   * RuntimeProfileResolver: 注入本地中转认证（OPENAI_BASE_URL + OPENAI_API_KEY）。
+   * V20.5: 通过 buildRuntimeSpawnEnv 注入 CODEX_HOME（本地配置存在时）+ CODEX_RELAY_API_KEY。
+   * Bridge 不再解析 Codex config.toml 内容——Codex 自己读取配置。
    */
-  private buildSpawnEnv(cwd: string, settings?: LLMBridgeSettings): NodeJS.ProcessEnv {
+  private buildSpawnEnv(cwd: string): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env };
     try {
       const extraPath = buildEnhancedPath(cwd);
@@ -304,19 +302,11 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       }
     } catch { /* fallthrough: enhanced PATH 不可用时退回 process.env */ }
 
-    // RuntimeProfileResolver: 注入本地中转认证（provider-neutral，自动优先级）
-    // V20: 同时注入 LLM_BRIDGE_RELAY_API_KEY 供自定义 provider env_key 读取
-    if (settings) {
-      const vaultProfile = loadVaultRuntimeProfileSync(cwd);
-      const relayProfile = resolveRuntimeProfileSync(settings, vaultProfile, cwd);
-      if (relayProfile.origin !== "none" && relayProfile.relayUrl) {
-        env.OPENAI_BASE_URL = relayProfile.relayUrl;
-        if (relayProfile.apiKey) {
-          env.OPENAI_API_KEY = relayProfile.apiKey;
-          env.LLM_BRIDGE_RELAY_API_KEY = relayProfile.apiKey;
-        }
-      }
-    }
+    // V20.5: 注入 CODEX_HOME（本地配置存在时）+ CODEX_RELAY_API_KEY
+    try {
+      const runtimeEnv = buildRuntimeSpawnEnv(cwd);
+      Object.assign(env, runtimeEnv);
+    } catch { /* fallthrough: runtime env 不可用时退回 process.env */ }
 
     return env;
   }
@@ -336,9 +326,9 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     // V17-E 任务 A：启动 codex app-server 进程（command 来源 = this.codexCommand，env 含 enhanced PATH）
     const process = this.createProcess({
       command: this.codexCommand,
-      args: this.getAppServerArgs(ctx.plan.cwd, settings),
+      args: this.getAppServerArgs(),
       cwd: ctx.plan.cwd,
-      env: this.buildSpawnEnv(ctx.plan.cwd, settings),
+      env: this.buildSpawnEnv(ctx.plan.cwd),
     });
     this.currentProcess = process;
 
@@ -558,9 +548,9 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     const codexCommand = this.codexCommand;
     const process = this.createProcess({
       command: codexCommand,
-      args: this.getAppServerArgs(ctx.plan.cwd, settings),
+      args: this.getAppServerArgs(),
       cwd: ctx.plan.cwd,
-      env: this.buildSpawnEnv(ctx.plan.cwd, settings),
+      env: this.buildSpawnEnv(ctx.plan.cwd),
     });
     this.currentProcess = process;
 
