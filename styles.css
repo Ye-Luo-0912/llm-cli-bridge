@@ -4669,16 +4669,23 @@
   color: var(--text-normal);
   font-size: var(--font-smallest);
 }
+/* VC-5 过程间距变量：收敛重复定义，统一 thinking/tool/stage 间距 */
+:root {
+  --llm-bridge-codex-gap-stage: 10px;          /* 不同阶段间距 */
+  --llm-bridge-codex-gap-thinking: 6px;        /* 思考与后续工具间距 */
+  --llm-bridge-codex-gap-tool-internal: 3px;   /* 同一工具组内部间距 */
+  --llm-bridge-codex-guide-border: 1px solid color-mix(in srgb, var(--interactive-accent) 24%, var(--background-modifier-border));
+}
 .llm-bridge-codex-feed,
 .llm-bridge-codex-feed-list {
   display: grid;
-  gap: 5px;
+  gap: var(--llm-bridge-codex-gap-tool-internal);
 }
 .llm-bridge-codex-feed-batch {
   display: grid;
-  gap: 3px;
-  padding: 1px 0 2px 13px;
-  border-left: 1px solid color-mix(in srgb, var(--interactive-accent) 24%, var(--background-modifier-border));
+  gap: var(--llm-bridge-codex-gap-tool-internal);
+  padding: 0 0 2px 12px;
+  border-left: var(--llm-bridge-codex-guide-border);
 }
 .llm-bridge-codex-feed-batch:first-child {
   padding-top: 0;
@@ -4688,7 +4695,9 @@
   align-items: baseline;
   gap: 8px;
   min-width: 0;
-  margin: 1px 0 1px 0;
+  min-height: 22px;
+  margin: 0 0 var(--llm-bridge-codex-gap-thinking);
+  padding: 0 2px;
   color: var(--text-muted);
   font-size: var(--font-smallest);
   line-height: 1.45;
@@ -6275,23 +6284,6 @@
   font-size: var(--font-smallest);
 }
 
-.llm-bridge-codex-feed,
-.llm-bridge-codex-feed-list {
-  gap: 6px;
-}
-
-.llm-bridge-codex-feed-batch {
-  gap: 4px;
-  padding: 0 0 2px 12px;
-  border-left: 1px solid color-mix(in srgb, var(--interactive-accent) 30%, var(--background-modifier-border));
-}
-
-.llm-bridge-codex-thinking-line {
-  margin: 0 0 2px;
-  gap: 8px;
-  color: var(--text-muted);
-}
-
 .llm-bridge-codex-thinking-label {
   color: var(--text-normal);
   font-weight: 650;
@@ -6644,20 +6636,6 @@
 .llm-bridge-codex-current-activity {
   margin: 0 0 2px;
   min-height: 16px;
-}
-
-.llm-bridge-codex-feed-batch {
-  gap: 5px;
-  padding: 0 0 4px 12px;
-  border-left: 1px solid color-mix(in srgb, var(--interactive-accent) 24%, var(--background-modifier-border));
-}
-
-.llm-bridge-codex-thinking-line {
-  display: flex;
-  align-items: baseline;
-  min-height: 22px;
-  margin: 0;
-  color: var(--text-muted);
 }
 
 .llm-bridge-codex-thinking-label {
@@ -7980,20 +7958,6 @@
   font-weight: 620;
   letter-spacing: 0;
   text-transform: uppercase;
-}
-
-.llm-bridge-codex-feed-batch {
-  display: grid;
-  gap: 8px;
-  padding-left: 14px;
-  border-left: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
-}
-
-.llm-bridge-codex-thinking-line {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 0 2px;
 }
 
 .llm-bridge-codex-thinking-label {
@@ -16354,17 +16318,6 @@
   font-size: 10px;
 }
 
-.llm-bridge-codex-feed-batch {
-  gap: 6px;
-  padding-left: 12px;
-  border-left: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
-}
-
-.llm-bridge-codex-thinking-line {
-  gap: 8px;
-  padding: 1px 0 4px !important;
-}
-
 .llm-bridge-codex-thinking-label {
   font-size: 11px;
   font-weight: 620;
@@ -16418,18 +16371,6 @@
 .llm-bridge-codex-final-answer-title {
   text-transform: none;
   letter-spacing: 0;
-}
-
-.llm-bridge-codex-feed-list {
-  display: grid;
-  gap: 8px;
-}
-
-.llm-bridge-codex-feed-batch {
-  margin: 0;
-  padding: 0;
-  border: 0;
-  background: transparent;
 }
 
 .llm-bridge-codex-feed-batch-summary {
@@ -16780,14 +16721,14 @@
 }
 
 .llm-bridge-codex-feed-list {
-  gap: 10px;
+  gap: var(--llm-bridge-codex-gap-stage);
 }
 
 .llm-bridge-codex-feed-batch {
   display: grid;
-  gap: 6px;
+  gap: var(--llm-bridge-codex-gap-tool-internal);
   padding: 0 0 0 13px;
-  border-left: 1px solid color-mix(in srgb, var(--interactive-accent) 22%, var(--background-modifier-border));
+  border-left: var(--llm-bridge-codex-guide-border);
 }
 
 .llm-bridge-codex-feed-batch-summary {
@@ -16854,10 +16795,6 @@
   gap: 3px;
   font-size: 10px;
   color: var(--text-faint);
-}
-
-.llm-bridge-codex-thinking-line {
-  align-items: start;
 }
 
 .llm-bridge-codex-thinking-summary,
@@ -17136,6 +17073,7 @@
 .llm-bridge-codex-thinking-line {
   display: block;
   width: 100%;
+  margin: 0 0 var(--llm-bridge-codex-gap-thinking);
 }
 
 .llm-bridge-codex-thinking-label {

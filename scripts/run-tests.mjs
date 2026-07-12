@@ -4348,6 +4348,67 @@ if (runMode !== "all" && runMode !== "unit") {
           `isObject=${isObject} skillMdOk=${skillMdOk} subFilesOk=${subFilesOk} keys=${JSON.stringify(subFilesKeys)} vaultRulesOk=${vaultRulesOk} directoriesOk=${directoriesOk} indexMdOk=${indexMdOk}`);
       }
 
+      // Test VC-MIGRATE: 旧版 SKILL.md 迁移 — 旧版单文件 → 新版路由入口 + 子文件分发
+      {
+        const fsMod = await import("fs");
+        const pathMod = await import("path");
+        const osMod = await import("os");
+        const migTmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "vc-migrate-"));
+        try {
+          // 准备旧版 SKILL.md（含中文偏好 + 规则 + 目录说明）
+          const skillDir = pathMod.join(migTmpRoot, "LLM-AgentRuntime/skills/vault-context");
+          fsMod.mkdirSync(skillDir, { recursive: true });
+          const legacySkillMd = [
+            "# vault-context (legacy)",
+            "",
+            "## Vault Rules",
+            "- 不修改 .obsidian/ 配置目录",
+            "- 删除文件前必须确认",
+            "",
+            "## Stable Conventions",
+            "- 输出文件命名用小写连字符",
+            "",
+            "## User Preferences",
+            "- 回复使用中文",
+            "- 代码块使用 TypeScript",
+            "- 简洁风格",
+            "",
+            "## Directory Semantics",
+            "- 00_Inbox/ : 临时收集",
+            "- 20_工作/ : 工作笔记",
+            "",
+          ].join("\n");
+          await fsMod.promises.writeFile(pathMod.join(skillDir, "SKILL.md"), legacySkillMd, "utf8");
+
+          // 执行迁移
+          const result = await agentRuntimeWsMod.migrateLegacyVaultSkill(migTmpRoot, legacySkillMd);
+
+          // 验证 SKILL.md 重写为路由入口
+          const newSkillMd = await fsMod.promises.readFile(pathMod.join(skillDir, "SKILL.md"), "utf8");
+          const skillIsRouting = newSkillMd.includes("# Vault Context") && newSkillMd.includes("## 使用路由") && !newSkillMd.includes("## Vault Rules");
+          const rewrittenOk = result.rewritten.includes("LLM-AgentRuntime/skills/vault-context/SKILL.md");
+
+          // 验证中文偏好迁移到 preferences.md
+          const prefsContent = await fsMod.promises.readFile(pathMod.join(skillDir, "preferences.md"), "utf8");
+          const prefsHasChinese = prefsContent.includes("回复使用中文") && prefsContent.includes("简洁风格");
+          const prefsMigrated = result.migrated.includes("LLM-AgentRuntime/skills/vault-context/preferences.md");
+
+          // 验证规则迁移到 vault-rules.md
+          const rulesContent = await fsMod.promises.readFile(pathMod.join(skillDir, "vault-rules.md"), "utf8");
+          const rulesHasBoundary = rulesContent.includes("不修改 .obsidian/");
+
+          // 验证目录说明迁移到 directories.md
+          const dirsContent = await fsMod.promises.readFile(pathMod.join(skillDir, "directories.md"), "utf8");
+          const dirsHasInbox = dirsContent.includes("00_Inbox/");
+
+          addTest("VC-MIGRATE: 旧版 SKILL.md 迁移到路由入口 + 子文件分发（中文偏好→preferences.md）",
+            skillIsRouting && rewrittenOk && prefsHasChinese && prefsMigrated && rulesHasBoundary && dirsHasInbox ? "pass" : "fail",
+            `skillIsRouting=${skillIsRouting} rewrittenOk=${rewrittenOk} prefsHasChinese=${prefsHasChinese} prefsMigrated=${prefsMigrated} rulesHasBoundary=${rulesHasBoundary} dirsHasInbox=${dirsHasInbox}`);
+        } finally {
+          try { fsMod.rmSync(migTmpRoot, { recursive: true, force: true }); } catch {}
+        }
+      }
+
       // Test E-e: 已存在 VAULT_SKILL 不被模板覆盖
       {
         // 修改 source skill 模拟人工编辑
@@ -22439,6 +22500,152 @@ if (!runPhase3Prod) {
     try { if (waterfallBundleP3) rmSync(waterfallBundleP3, { force: true }); } catch {}
     try { if (composerBundleP3) rmSync(composerBundleP3, { force: true }); } catch {}
     try { if (sessionsBundleP3) rmSync(sessionsBundleP3, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
+// 9.9.4 VC DOM 测试 — 检索器 preferences + CSS 变量 + 内部链接源码
+//   验证：
+//   1. retrieveVaultContextOnDemand 按风格关键词加载 preferences
+//   2. CSS 间距变量存在且 thinking-line 使用变量（收敛重复定义）
+//   3. 文件路径渲染为 <a> 链接 + is-deleted + openVaultFile 回调
+// ============================================================
+console.log("\n=== VC DOM 测试 — 检索器/CSS 变量/内部链接 ===");
+
+const runVcDom = runMode === "all" || runMode === "unit";
+
+if (!runVcDom) {
+  addTest("VC DOM 测试段", "skip", "当前模式不运行 unit");
+} else {
+  let retrieverBundle = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    const obsidianStubPluginVc = {
+      name: "obsidian-stub-vc",
+      setup(build) {
+        build.onResolve({ filter: /^obsidian$/ }, () => ({ path: "obsidian-stub", namespace: "obsidian-stub-vc" }));
+        build.onLoad({ filter: /.*/, namespace: "obsidian-stub-vc" }, () => ({
+          contents: [
+            "export class Notice { constructor(){} close(){} }",
+            "export function setIcon(){}",
+            "export function normalizePath(p){return p;}",
+            "export class Menu { addItem(cb){ cb({ setTitle(){return this;}, setIcon(){return this;}, onClick(){return this;} }); return this; } showAtPosition(){} }",
+          ].join("\n"),
+          loader: "js",
+        }));
+      },
+    };
+    retrieverBundle = join(PROJECT_ROOT, ".test-vc-retriever-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "vaultContextRetriever.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      logLevel: "silent",
+      plugins: [obsidianStubPluginVc],
+      outfile: retrieverBundle,
+    });
+    const retrieverMod = await import(pathToFileURL(retrieverBundle).href);
+
+    // --- VC-RETRIEVE-1: 风格关键词触发 preferences 加载 ---
+    {
+      const fsMod = await import("fs");
+      const pathMod = await import("path");
+      const osMod = await import("os");
+      const vcTmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "vc-retrieve-"));
+      try {
+        const skillDir = pathMod.join(vcTmpRoot, "LLM-AgentRuntime/skills/vault-context");
+        fsMod.mkdirSync(skillDir, { recursive: true });
+        // vault-rules.md（始终加载）
+        await fsMod.promises.writeFile(pathMod.join(skillDir, "vault-rules.md"),
+          "# vault-rules\n\n- 不修改 .obsidian/\n- 删除前确认\n", "utf8");
+        // preferences.md（按需加载）
+        await fsMod.promises.writeFile(pathMod.join(skillDir, "preferences.md"),
+          "# preferences\n\n- 回复使用中文\n- 简洁风格\n- 代码块用 TypeScript\n", "utf8");
+        // directories.md（路径关键词触发）
+        await fsMod.promises.writeFile(pathMod.join(skillDir, "directories.md"),
+          "# directories\n\n- 00_Inbox/ : 临时收集\n", "utf8");
+        // conventions.md
+        await fsMod.promises.writeFile(pathMod.join(skillDir, "conventions.md"),
+          "# conventions\n\n- 命名用小写连字符\n", "utf8");
+
+        // 有风格关键词 → 加载 preferences
+        const withStyle = await retrieverMod.retrieveVaultContextOnDemand(vcTmpRoot, "请用简洁风格回复");
+        const hasPrefs = withStyle.includes("## 相关偏好") && withStyle.includes("简洁风格");
+        const hasRules = withStyle.includes("## 安全规则");
+
+        // 无风格关键词 → 不加载 preferences
+        const withoutStyle = await retrieverMod.retrieveVaultContextOnDemand(vcTmpRoot, "读取文件内容");
+        const noPrefs = !withoutStyle.includes("## 相关偏好");
+        const stillHasRules = withoutStyle.includes("## 安全规则");
+
+        addTest("VC-RETRIEVE: 风格关键词触发 preferences 加载（无关键词时不加载）",
+          hasPrefs && hasRules && noPrefs && stillHasRules ? "pass" : "fail",
+          `hasPrefs=${hasPrefs} hasRules=${hasRules} noPrefs=${noPrefs} stillHasRules=${stillHasRules}`);
+      } finally {
+        try { fsMod.rmSync(vcTmpRoot, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // --- VC-CSS-1: CSS 间距变量存在 + thinking-line/feed-batch 收敛为单一定义 ---
+    {
+      const fsMod = await import("fs");
+      const pathMod = await import("path");
+      // 读取源文件（legacy.css 定义变量 + run-view.css 使用变量），不读构建产物
+      const legacyCss = await fsMod.promises.readFile(pathMod.join(PROJECT_ROOT, "styles", "legacy.css"), "utf8");
+      const runViewCss = await fsMod.promises.readFile(pathMod.join(PROJECT_ROOT, "styles", "run-view.css"), "utf8");
+      const combinedCss = legacyCss + "\n" + runViewCss;
+
+      const hasGapThinking = combinedCss.includes("--llm-bridge-codex-gap-thinking:");
+      const hasGapToolInternal = combinedCss.includes("--llm-bridge-codex-gap-tool-internal:");
+      const hasGapStage = combinedCss.includes("--llm-bridge-codex-gap-stage:");
+      const hasGuideBorder = combinedCss.includes("--llm-bridge-codex-guide-border:");
+
+      // thinking-line 使用变量（margin 使用 gap-thinking 变量）
+      const thinkingLineUsesVar = combinedCss.includes("var(--llm-bridge-codex-gap-thinking)");
+
+      // 无作用域定义数量（^锚点：只匹配行首的 `.llm-bridge-codex-thinking-line {`，排除作用域选择器）
+      const thinkingLineUnscopedCount = (combinedCss.match(/^\.llm-bridge-codex-thinking-line\s*\{/gm) || []).length;
+      const feedBatchUnscopedCount = (combinedCss.match(/^\.llm-bridge-codex-feed-batch\s*\{/gm) || []).length;
+      const feedListUnscopedCount = (combinedCss.match(/^\.llm-bridge-codex-feed-list\s*\{/gm) || []).length;
+
+      // legacy.css 应有 1 个 thinking-line + 1 个 feed-batch；run-view.css 应有 1 个 thinking-line + 1 个 feed-batch + 1 个 feed-list
+      // 总共：thinking-line=2, feed-batch=2, feed-list=2（legacy + run-view 各一个）
+      const defsConsolidated = thinkingLineUnscopedCount === 2 && feedBatchUnscopedCount === 2 && feedListUnscopedCount === 2;
+
+      addTest("VC-CSS: 间距变量存在 + thinking-line/feed-batch/feed-list 收敛（legacy+run-view 各 1 定义）",
+        hasGapThinking && hasGapToolInternal && hasGapStage && hasGuideBorder
+          && thinkingLineUsesVar && defsConsolidated ? "pass" : "fail",
+        `gapThinking=${hasGapThinking} gapToolInternal=${hasGapToolInternal} gapStage=${hasGapStage} guideBorder=${hasGuideBorder} usesVar=${thinkingLineUsesVar} thinkingLineDefs=${thinkingLineUnscopedCount} feedBatchDefs=${feedBatchUnscopedCount} feedListDefs=${feedListUnscopedCount}`);
+    }
+
+    // --- VC-LINK-1: 文件路径渲染为 <a> 链接 + is-deleted + openVaultFile 回调 ---
+    {
+      const fsMod = await import("fs");
+      const pathMod = await import("path");
+      const rendererPath = pathMod.join(PROJECT_ROOT, "src", "ui", "codexWaterfallRenderer.ts");
+      const src = await fsMod.promises.readFile(rendererPath, "utf8");
+
+      // 路径渲染为 <a> 链接（不是 button）
+      const hasAnchor = src.includes('createEl("a"') && src.includes("llm-bridge-codex-change-path");
+      // delete 操作添加 is-deleted + aria-disabled
+      const hasDeletedClass = src.includes('addClass("is-deleted")') && src.includes('aria-disabled');
+      // openVaultFile 回调在点击时调用
+      const hasOpenVaultFile = src.includes("deps.openVaultFile(target)");
+      // 右键菜单
+      const hasContextMenu = src.includes('"contextmenu"') && src.includes("new Menu()");
+      // 回退到系统默认应用
+      const hasFallback = src.includes("deps.openPathWithSystemDefault(target)");
+
+      addTest("VC-LINK: 文件路径渲染为 <a> 链接 + is-deleted + openVaultFile + 右键菜单 + 系统回退",
+        hasAnchor && hasDeletedClass && hasOpenVaultFile && hasContextMenu && hasFallback ? "pass" : "fail",
+        `anchor=${hasAnchor} deletedClass=${hasDeletedClass} openVaultFile=${hasOpenVaultFile} contextMenu=${hasContextMenu} fallback=${hasFallback}`);
+    }
+
+  } catch (e) {
+    addTest("VC DOM 测试段", "fail", `加载/执行异常: ${e?.stack || e?.message || e}`);
+  } finally {
+    try { if (retrieverBundle) rmSync(retrieverBundle, { force: true }); } catch {}
   }
 }
 
