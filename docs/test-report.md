@@ -1,24 +1,24 @@
 # LLM CLI Bridge 测试报告 — 全量测试（all）
 
-- **测试时间**: 2026-07-12T14:22:01.573Z
+- **测试时间**: 2026-07-12T16:54:05.858Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.18.0
-- **main.js 大小**: 1363.6 KB
+- **main.js 大小**: 1360.3 KB
 - **main.js bundle content smoke**: PASS ({"HttpBridge":true,"writeHelperAndWrappers":true,"CodexAppServerProvider":true,"vault_api":true})
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 63504
-- **commit sha**: df0448380885986308f60c1f101df4c1615f6bb8
-- **commit 短 sha**: df0448380885
+- **HTTP 端口**: 63359
+- **commit sha**: da085d2fdc25ce984c4c391e2ed84e6df062b835
+- **commit 短 sha**: da085d2fdc25
 - **运行命令**: node scripts/run-tests.mjs 
 
 ## 测试汇总
 
-- ✅ **通过**: 1369
+- ✅ **通过**: 1404
 - ❌ **失败**: 0
-- ⏭️ **跳过**: 5
-- ⚪ **需人工验证**: 6
-- **总计**: 1380
+- ⏭️ **跳过**: 23
+- ⚪ **需人工验证**: 0
+- **总计**: 1427
 
 ### 审计模式说明
 
@@ -193,29 +193,23 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | /health 探测成功 | - |
-| ✅ | GET /state | vault: N/A |
-| ✅ | token 错误返回 401 | status: 401 |
-| ✅ | POST /action show_notice | - |
-| ✅ | get_active_note | status: completed |
-| ✅ | get_selection | status: completed |
-| ✅ | open_note 不存在的文件返回错误 | open_note: 文件不存在 __non_existent_test_file__.md |
-
-### Dev mode
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ⚪ | 未启用 | 需在 settings 中设置 devTestMode=true 并重启 Obsidian |
+| ⏭️ | /health 探测 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | GET /state | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | POST /action show_notice | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | POST /action open_note | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | POST /action get_active_note | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | POST /action get_selection | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | token 错误返回 401 | Obsidian 未运行，跳过 integration 测试 |
 
 ### Approval
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⚪ | create_note approve 流程 | 需要 devTestMode=true |
-| ⚪ | create_note reject 流程 | 需要 devTestMode=true |
-| ⚪ | append_to_note approve 流程 | 需要 devTestMode=true |
-| ⚪ | insert_at_cursor 完整流程 | 需要 devTestMode + 活动编辑器 |
-| ⚪ | replace_selection 完整流程 | 需要 devTestMode + 活动编辑器 + 选区 |
+| ⏭️ | create_note approve 流程 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | create_note reject 流程 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | append_to_note approve 流程 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | insert_at_cursor 完整流程 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | replace_selection 完整流程 | Obsidian 未运行，跳过 integration 测试 |
 | ✅ | default mode + high risk → pending | - |
 | ✅ | resolveApproval(accept) → waitForApproval resolves | - |
 | ✅ | acceptForSession writes sessionAllows cache | - |
@@ -223,17 +217,22 @@
 | ✅ | bypassPermissions mode → auto-allow | - |
 | ✅ | Codex native-pending → pending（不复用 Claude decideByMode） | decision=pending |
 
+### Dev mode
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ⏭️ | /dev/approve 端点 | Obsidian 未运行，跳过 integration 测试 |
+
 ### Helper
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | obsidian-action.mjs 存在 | - |
-| ✅ | health 命令 | - |
-| ✅ | state 命令 | - |
-| ✅ | show_notice 命令 | - |
-| ✅ | --json 标志输出有效 JSON | - |
-| ⏭️ | --wait --timeout 超时行为（真实 bridge） | devTestMode 不可用；fake server 段已覆盖 |
-| ✅ | bridge.json 缺失时错误提示 | 正确提示 bridge.json 缺失 |
+| ⏭️ | health 命令 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | state 命令 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | show_notice 命令 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | --json 标志 | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | --wait --timeout | Obsidian 未运行，跳过 integration 测试 |
+| ⏭️ | bridge.json 缺失错误提示 | Obsidian 未运行，跳过 integration 测试 |
 
 ### Clipboard paste policy
 
@@ -758,7 +757,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-WUaYf6\\skills\\pdf\\SKILL.md"}] |
+| ✅ | reads plugin skills/SKILL.md | skills=[{"id":"pdf@openai-primary-runtime:pdf","name":"pdf","description":"Read and verify PDF files.","skillPath":"D:\\Users\\Ye_Luo\\APP\\Test\\llm-cli-bridge\\.test-managed-plugin-skills-MiX8ZX\\skills\\pdf\\SKILL.md"}] |
 
 ### V16.5-D view.ts 主路径注入真实 capabilities
 
@@ -794,7 +793,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=19063 capLine=19823 orderOk=true |
+| ✅ | session 声明在 buildRuntimeCapabilities 之前 | sessionLine=19890 capLine=20650 orderOk=true |
 | ✅ | buildBridgePromptPackage 主路径接收 runtimeCapabilities | hasRuntimeCapabilities=true hasPassedToBuilder=true |
 
 ### V16.5-E workspace
@@ -1079,7 +1078,7 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | start/update/end 复用同一 id | start=tc-123 update=tc-123 end=tc-123 |
-| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783866124964-0 update=pi-sdk-read-1783866124964-0 end=pi-sdk-read-1783866124964-0 |
+| ✅ | 缺失时回退到 toolName 关联 id 保持一致 | start=pi-sdk-read-1783875248090-0 update=pi-sdk-read-1783875248090-0 end=pi-sdk-read-1783875248090-0 |
 
 ### V17-B1 mapPiSdkEvent
 
@@ -1294,12 +1293,12 @@
 |------|--------|------|
 | ✅ | cancel(runId) 触发 session.abort() | abortCalls=1 eventsCount=3 |
 
-### V17-D auth override
+### V17-D auth override V20.5
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | piApiKey/Provider/BaseUrl 注入 authStorage + model 传入 createAgentSession | setKey=true(2) register=true(2) modelOverride=true completed=true |
-| ✅ | 空 override 时不调用认证覆盖，模型仍与 EffectiveRunPlan 对齐 | noSetKey=true noRegister=true modelAligned=true completed=true |
+| ✅ | piApiKey/Provider/BaseUrl 不再注入 authStorage（createAuthWithOverride(sdk, undefined) 无 override） | noSetKey=true(0) noRegister=true(0) noModelOverride=true completed=true |
+| ✅ | 空 override 时不调用认证覆盖（createAuthWithOverride(sdk, undefined) 无 override），无 model override | noSetKey=true noRegister=true noModelOverride=true completed=true |
 
 ### V17-D settings.ts
 
@@ -1544,25 +1543,25 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3242ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
+| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3243ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
  |
-| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4649ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783866130248
+| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4764ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783875254291
  |
 | ✅ | health 命令（fake server） | - |
 | ✅ | --json 标志输出有效 JSON（fake server） | - |
 | ✅ | 非修改类 action 直接输出（不轮询） | {
   "ok": true,
-  "id": "fake-id-1783866135441",
+  "id": "fake-id-1783875259952",
   "status": "completed",
   "result": {
     "type":  |
 | ✅ | --stdin 模式读取 JSON params | {
   "ok": true,
-  "id": "fake-id-1783866135747",
+  "id": "fake-id-1783875260064",
   "status": "completed",
   "result": {
     "type":  |
-| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783866136246","status":"completed","result":{"type":"tags_list","fake":tru |
+| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783875260172","status":"completed","result":{"type":"tags_list","fake":tru |
 | ✅ | 错误分级 - bridge.json 缺失 exit 2 | exit=2 stderr=[bridge 未启动] 未找到 .llm-bridge/bridge.json。
   请确认 Obsidian 已启动且 llm-cli-bridge 插件已 |
 | ✅ | 错误分级 - JSON 解析失败 exit 5 | exit=5 stderr=[参数解析失败] JSON 格式错误: Expected property name or '}' in JSON at position 1 (line 1  |
@@ -2435,7 +2434,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 返回非空 id | id=s-2026-07-12T14-22-42-750Z-397gpu |
+| ✅ | 返回非空 id | id=s-2026-07-12T16-54-46-961Z-mqefe8 |
 
 ### V2.5 Session 版本
 
@@ -2454,7 +2453,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-12T14-22-42-830Z-ku86y4 second=s-2026-07-12T14-22-42-762Z-8rem1m |
+| ✅ | 按 savedAt 降序（最新在前） | len=5 first=s-2026-07-12T16-54-47-030Z-p6b80f second=s-2026-07-12T16-54-46-972Z-wftcn2 |
 | ✅ | 空目录返回空数组 | len=0 |
 
 ### V2.5 Session 删除
@@ -2529,7 +2528,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-12T14-22-42-898Z-xhxye2 id2=s-2026-07-12T14-22-42-898Z-avljox |
+| ✅ | 生成 s- 前缀且唯一 | id1=s-2026-07-12T16-54-47-089Z-ozxed4 id2=s-2026-07-12T16-54-47-089Z-ie11g0 |
 
 ### V2.5 Session 上限
 
@@ -2627,7 +2626,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-12T14:22:42.984Z |
+| ✅ | applyCount+1 且 lastUsedAt 更新 | before=0 after=1 lastUsedAt=2026-07-12T16:54:47.176Z |
 | ✅ | 累计 applyCount=3 | count=3 |
 
 ### V2.6 setSkillPinned
@@ -2715,7 +2714,7 @@
 | ✅ | status 非字符串用默认 idle | status=idle |
 | ✅ | startedAt 非字符串为 null | startedAt=null |
 | ✅ | agentType 非字符串用默认 claude | agentType=claude |
-| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-12T14:22:43.067Z |
+| ✅ | savedAt 非字符串用当前时间 | savedAt=2026-07-12T16:54:47.254Z |
 
 ### V2.7 SESSION_SCHEMA_VERSION = 2
 
@@ -2834,7 +2833,7 @@
 | ✅ | 成功修改 title | ok=true title=新标题 |
 | ✅ | 保留其他字段不变 | status=failed agentType=codex |
 | ✅ | 不存在的会话返回 false | ok=false |
-| ✅ | savedAt 更新为当前时间 | before=2026-07-12T14:22:43.165Z after=2026-07-12T14:22:43.219Z |
+| ✅ | savedAt 更新为当前时间 | before=2026-07-12T16:54:47.345Z after=2026-07-12T16:54:47.400Z |
 | ✅ | listSessions 反映新标题 | title=列表新标题 |
 
 ### V2.8 view.ts
@@ -3201,13 +3200,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-12T14:22:45.238Z","pinned":true,"groupOverride":"测试组"} |
+| ✅ | 重命名后新名 meta 完整 + 旧名孤儿清理 | newOk=true oldGone=true oldFileGone=true newFileExists=true newMeta={"applyCount":3,"lastUsedAt":"2026-07-12T16:54:48.326Z","pinned":true,"groupOverride":"测试组"} |
 
 ### V2.12.1 字段完整性
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-12T14:22:45.245Z groupOverride=GroupA oldGone=true |
+| ✅ | pinned/applyCount/lastUsedAt/groupOverride 全部迁移 | pinned=true applyCount=5 lastUsedAt=2026-07-12T16:54:48.331Z groupOverride=GroupA oldGone=true |
 
 ### V2.12.1 时序回归
 
@@ -3323,7 +3322,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-06daso\skills\llm-bridge-d3c4e66b-review-skill\SKILL.md |
+| ✅ | 物化到 Codex home personal skills 而非 .claude | path=C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-codex-home-RmdOdf\skills\llm-bridge-571f2bf2-review-skill\SKILL.md |
 | ✅ | run 前从 Bridge manifest 物化 enabled Skills | ok=true count=1 |
 
 ### V2.13.0-C materializeEnabled
@@ -3525,7 +3524,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-GpA31o\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-0knbK2\link-out.md' |
+| ⏭️ | V2.14.0-I1 symlink realpath hardening runtime test | 当前环境无法创建 symlink/junction: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-external-bIe5aE\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-i1-vault-DVMw1W\link-out.md' |
 
 ### V2.14.0-J agent file tool route
 
@@ -3537,7 +3536,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-VqQ437\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-vxhsLY\link-out.md' |
+| ⏭️ | V2.14.0-J route symlink escape runtime test | 当前环境无法创建 symlink；静态确认路由委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-external-v1zSDz\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-j-vault-khRRFd\link-out.md' |
 
 ### V2.14.0-K runtime file tool adapter
 
@@ -3549,7 +3548,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-lyOIkU\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-hf22gd\link-out.md' |
+| ⏭️ | V2.14.0-K runtime adapter symlink escape runtime test | 当前环境无法创建 symlink；静态确认 adapter 委托 executor realpath guard=true: EPERM: operation not permitted, symlink 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-external-F3xibr\outside.md' -> 'C:\Users\Ye_Luo\AppData\Local\Temp\llm-bridge-k-vault-7X8h0a\link-out.md' |
 
 ### V2.14.0-K1 runtime adapter limits clamp
 
@@ -4282,13 +4281,13 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | Vault profile 解析 + key 合并 + V20 迁移（vault 提供 url/model，settings 提供 key → portable） | profileHasNoKey=true urlOk=true modelOk=true keyOk=true originOk=true migratedFileExists=true |
+| ✅ | V20.5 resolveRuntimeProfile always returns none（vault 有 profile 也返回 none） | profileHasNoKey=true urlOk=true modelOk=true keyOk=true originOk=true |
 
 ### RP-2
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 便携目录覆盖（多 Vault 共用同一 key 文件） | portableOk=true keyFileExists=true key1Ok=true key2Ok=true url1Ok=true url2Ok=true origin1Ok=true origin2Ok=true |
+| ✅ | V20.5 便携目录覆盖（多 Vault 共用同一 key 文件，resolveRuntimeProfile always returns none） | portableOk=true keyFileExists=true key1Ok=true key2Ok=true url1Ok=true url2Ok=true origin1Ok=true origin2Ok=true |
 
 ### RP-3
 
@@ -4300,7 +4299,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | Vault profile 安全检查（含 apiKey 的 JSON 被拒绝读取，回退到 settings） | rejected=true syncRejected=true fallbackUrl=true |
+| ✅ | V20.5 Vault profile 安全检查（含 apiKey 的 JSON 被拒绝读取，resolveRuntimeProfile always returns none） | rejected=true syncRejected=true noneOrigin=true emptyUrl=true |
 
 ### RP-5
 
@@ -4540,8 +4539,19 @@
 | ✅ | getEffortsForModel 模型自带 effort → 中文 label | count=3, labelsChinese=true, valuesEnglish=true |
 | ✅ | clearCodexManagedModelCatalogCache 导出并调用 cache.clear() | - |
 | ✅ | loadCodexManagedModelCatalog 使用 cache.get/set 缓存机制 | cacheGet=true, cacheSet=true |
-| ✅ | settings.ts 刷新/发现按钮调用 clearCodexManagedModelCatalogCache | - |
-| ✅ | 发现按钮使用 resolveRuntimeProfile 获取真实 relayUrl/apiKey | - |
+
+### V20.5 settings.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 不再调用 clearCodexManagedModelCatalogCache（已移除模型发现 UI） | - |
+| ✅ | 使用 runtimeRouter（替代 runtimeProviderStore） | - |
+| ✅ | API Key 通过 router.setCodexKey/setClaudeKey/setPiKey 持久化 | - |
+| ✅ | 不再持久化 providerModels（已移除模型发现） | - |
+| ✅ | 不再持久化 verifiedModels（已移除 matchModels） | noVerifiedModels=true noMatchModels=true |
+| ✅ | 不再持久化 pendingModels（已移除模型发现） | - |
+| ✅ | 不再持久化 incompatibleModels（已移除 store.updateRuntimeProviderState） | noIncompatibleModels=true noUpdateRuntimeProviderState=true |
+| ✅ | 有 router.migrateFromV20_4 迁移按钮 + setActiveProvider（替代 discoveredAt） | migrate=true setActive=true noDiscoveredAt=true |
 
 ### V20.2 菜单交互
 
@@ -4575,14 +4585,13 @@
 | ✅ | 选项列表限高滚动（max-height: 240px + overflow-y: auto） | - |
 | ✅ | 选项 label + check 样式存在 | modelLabel=true, effortLabel=true, check=true |
 
-### V20.2 safeStorage
+### V20.2/V20.4 safeStorage
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | settings.ts API Key onChange 持久化到 runtime-provider.json | - |
-| ✅ | '忘记 Key' 按钮存在 | - |
-| ✅ | 便携目录路径标注为'高级，可选' | - |
-| ✅ | 描述中提到 safeStorage 加密 | - |
+| ✅ | '清除 Key' 按钮存在 | - |
+| ✅ | 便携目录路径配置项存在（高级设置） | - |
+| ✅ | 描述中提到加密存储 | - |
 
 ### V20.3 持久化
 
@@ -4591,7 +4600,7 @@
 | ✅ | saveRuntimeProviderConfig 写入 providerModels | save=true, providerModels=3 |
 | ✅ | 写入 verifiedModels + pendingModels | verified=1, pending=1 |
 | ✅ | 写入 incompatibleModels（含 id + reason） | incompatible=2 |
-| ✅ | 写入 discoveredAt 时间戳 | expected="2026-07-12T14:23:11.373Z", actual="2026-07-12T14:23:11.373Z" |
+| ✅ | 写入 discoveredAt 时间戳 | expected="2026-07-12T16:55:11.590Z", actual="2026-07-12T16:55:11.590Z" |
 | ✅ | loadRuntimeProviderConfig 异步读回新字段一致 | provider=3, verified=1, pending=1, incompatible=2 |
 | ✅ | loadRuntimeProviderConfigSync 同步读回新字段一致 | provider=3, incompatible[0].id="dall-e-3" |
 
@@ -4633,19 +4642,9 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | send timeoutMs 超时后 reject | rejected=true, elapsed=209ms |
+| ✅ | send timeoutMs 超时后 reject | rejected=true, elapsed=208ms |
 | ✅ | 超时错误消息含 method 名和 timeoutMs | msg="JSON-RPC 'test/method' timeout after 200ms" |
 | ✅ | 不传 timeoutMs 时不超时（保持原有行为） | resolved=false |
-
-### V20.3 settings.ts
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ✅ | 持久化 providerModels（relayResult.models） | - |
-| ✅ | 持久化 verifiedModels（matchResult.available） | - |
-| ✅ | 持久化 pendingModels（matchResult.pending） | - |
-| ✅ | 持久化 incompatibleModels（含 incompatibleReason） | - |
-| ✅ | 持久化 discoveredAt 时间戳 | - |
 
 ### V20.3 runtimeModelCatalog
 
@@ -4669,18 +4668,111 @@
 | ✅ | 待验证/不兼容 label 样式存在 | - |
 | ✅ | 待验证 tag + 不兼容 reason 样式存在 | - |
 
+### V20.4 Store
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 空 vault 返回 source=none | - |
+| ✅ | 写入 relayUrl 后 source=provider-config | - |
+| ✅ | setProviderApiKey session-only（safeStorage 不可用） | - |
+| ✅ | 配置文件不含明文 API Key | - |
+| ✅ | sync 读取返回含 session-only Key 的缓存 | - |
+| ✅ | 损坏 JSON 返回 source=corrupt + error | - |
+| ✅ | 损坏配置时 update 抛出错误（不静默回退） | - |
+| ✅ | 外部修改文件后缓存失效重新加载 | - |
+| ✅ | clearProviderApiKey 保留 relayUrl/model | - |
+| ✅ | setProviderModel 更新模型 | - |
+| ✅ | 原子写入无 .tmp 文件残留 | - |
+| ✅ | updateRuntimeProviderState 合并补丁保留未提供字段 | - |
+| ✅ | 从旧 Vault Profile 迁移 | - |
+| ✅ | 迁移后配置文件落盘 | - |
+| ✅ | 迁移后再次加载 source=provider-config | - |
+| ✅ | reloadRuntimeProviderState 强制重新加载 | - |
+| ✅ | hasSessionOnlyKey 正确反映 session-only 状态 | - |
+| ✅ | exports 完整 | - |
+
+### V20.4 Resolver
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 无配置时 origin=none | - |
+| ✅ | sync 与 async 结果一致 | - |
+| ✅ | corrupt 配置时 origin=none（不回退到 settings） | - |
+| ✅ | testModelResponsesRequest 参数校验 | - |
+| ✅ | testModelResponsesRequest 函数存在 | - |
+
+### V20.5 Resolver
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 有配置时也返回 origin=none（Bridge 不再提供 relay 配置） | - |
+| ✅ | resolveRuntimeProfile 返回 origin=none | origin=none, relayUrl= |
+| ✅ | resolveRuntimeProfileSync 返回 origin=none | origin=none, relayUrl= |
+| ✅ | buildRuntimeSpawnEnv 委托到 router（通过 buildRuntimeEnv 验证） | CODEX_HOME=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-EXEBz2\LLM-AgentRuntime\private\runtime\codex, hasKey=true |
+
+### V20.5 ActiveProvider
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 空 vault 返回默认 codex | expected codex, got codex |
+| ✅ | save+load claude | expected claude, got claude |
+| ✅ | active.json 不含地址/模型/Key | active.json 内容: {"schemaVersion":1,"activeProvider":"pi"} |
+
+### V20.5 SecretsStore
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | setCodexKey 后 hasKey=true | hasKey=true, keyStatus=session-only |
+| ✅ | clearCodexKey 后 hasKey=false | hasKey=false |
+| ✅ | setClaudeKey + setPiKey | claude.hasKey=true, pi.hasKey=true |
+
+### V20.5 ConfigExists
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 空 vault 全部 false | codex=false, claude=false, pi=false |
+| ✅ | codex/config.toml 存在 → true | codexConfigExists=true |
+| ✅ | claude/settings.local.json 存在 → true | claudeConfigExists=true |
+| ✅ | pi/settings.json 存在 → true | piConfigExists=true |
+
+### V20.5 buildRuntimeEnv
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | codex 本地配置存在 → CODEX_HOME 设置 | CODEX_HOME=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-cacIrn\LLM-AgentRuntime\private\runtime\codex, hasKey=true |
+| ✅ | codex 本地配置缺失 → CODEX_HOME 不设置 | CODEX_HOME=undefined, hasKey=true |
+| ✅ | claude 本地配置存在 → CLAUDE_CONFIG_DIR 设置 | CLAUDE_CONFIG_DIR=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-iOrtDy\LLM-AgentRuntime\private\runtime\claude, hasKey=true |
+| ✅ | pi 本地配置存在 → PI_CODING_AGENT_DIR 设置 | PI_CODING_AGENT_DIR=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-92BWb5\LLM-AgentRuntime\private\runtime\pi, hasKey=true |
+| ✅ | 无密钥 → env 不含 CODEX_RELAY_API_KEY | hasKey=false |
+
+### V20.5 getRouterState
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 聚合状态正确 | active=codex, codex.exists=true, codex.hasKey=true |
+
+### V20.5 Migrate
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 无旧配置 → migrated=false | migrated=false, reason=无 V20.4 配置文件，无需迁移 |
+| ✅ | 有旧配置 → 迁移 active.json + 密钥 | migrated=true, activeExists=true, codex.hasKey=true |
+| ✅ | 已有 active.json → 跳过 | migrated=false, reason=V20.5 配置已存在，跳过迁移 |
+| ✅ | 迁移后不自动创建原生配置文件 | codex=false, claude=false, pi=false |
+
+### V20.5 clearRouterCache
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 清除 session-only 缓存后密钥丢失 | hasKey=false (session-only cleared) |
+
 ## 失败项详情
 
 无失败项。
 
 ## 需人工验证项
 
-- **Dev mode: 未启用**: 需在 settings 中设置 devTestMode=true 并重启 Obsidian
-- **Approval: create_note approve 流程**: 需要 devTestMode=true
-- **Approval: create_note reject 流程**: 需要 devTestMode=true
-- **Approval: append_to_note approve 流程**: 需要 devTestMode=true
-- **Approval: insert_at_cursor 完整流程**: 需要 devTestMode + 活动编辑器
-- **Approval: replace_selection 完整流程**: 需要 devTestMode + 活动编辑器 + 选区
+无。
 
 ---
 
