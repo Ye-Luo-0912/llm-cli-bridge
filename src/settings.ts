@@ -109,6 +109,23 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       text: "切换标签即切换当前 Runtime。每个 Runtime 独立配置第三方服务（地址、模型、Key）。保存时生成对应官方配置文件，Key 注入到 secrets.env。本地配置存在时设置 *_HOME，否则回退全局。",
     });
 
+    // V20.8: safeStorage 不可用时的明文回退开关
+    const safeStorageAvailable = require("./runtime/safeStorageProvider").isSafeStorageAvailable();
+    if (!safeStorageAvailable) {
+      new Setting(containerEl)
+        .setName("明文持久化 API Key（回退方案）")
+        .setDesc("系统加密不可用（safeStorage 未启用）。开启后 API Key 明文保存到 .llm-bridge/private/runtime/.secrets.plain，插件重载后不丢失。⚠ 此文件含明文密钥，请勿同步到云端或提交到版本控制。")
+        .addToggle((t) =>
+          t.setValue(s.allowPlaintextSecretsFallback).onChange(async (v) => {
+            s.allowPlaintextSecretsFallback = v;
+            await this.plugin.saveSettings();
+            const { setPlaintextFallbackEnabled } = await import("./runtime/config/secretsStore");
+            setPlaintextFallbackEnabled(v);
+            new Notice(v ? "已开启明文持久化（⚠ 请勿同步 .secrets.plain）" : "已关闭明文持久化", 4000);
+          }),
+        );
+    }
+
     // --- 三 tab 容器（切换 tab 即切换 active provider） ---
     const tabContainer = containerEl.createDiv({ cls: "llm-bridge-runtime-tabs" });
     const tabButtons = tabContainer.createDiv({ cls: "llm-bridge-runtime-tab-buttons" });

@@ -305,6 +305,8 @@ export interface LLMBridgeSettings {
   outputDir: string;
   showStderr: boolean;
   saveLogs: boolean;
+  /** V20.8: safeStorage 不可用时允许明文持久化（用户明确同意后开启） */
+  allowPlaintextSecretsFallback: boolean;
   sessionMode: SessionMode;
   model: string;
   effortLevel: string;
@@ -368,6 +370,7 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   outputDir: "90_AI整理待确认",
   showStderr: true,
   saveLogs: true,
+  allowPlaintextSecretsFallback: false,
   sessionMode: "fresh",
   model: "gpt-5.5",
   effortLevel: "high",

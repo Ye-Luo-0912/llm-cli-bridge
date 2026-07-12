@@ -648,6 +648,9 @@ export default class LLMBridgePlugin extends Plugin {
       // 兼容读取旧版明文 Key，但立刻从 data.json 清除；当前进程内仍保留，方便用户迁移到便携目录。
       await this.saveData({ ...this.settings, localRelayApiKey: "", piApiKey: "" });
     }
+    // V20.8: 同步明文回退开关到 secretsStore
+    const { setPlaintextFallbackEnabled } = await import("./src/runtime/config/secretsStore");
+    setPlaintextFallbackEnabled(this.settings.allowPlaintextSecretsFallback);
   }
 
   async saveSettings(): Promise<void> {

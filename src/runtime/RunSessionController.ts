@@ -315,7 +315,7 @@ export class RunSessionController {
 
     const settings = this.host.plugin.settings;
 
-    // V20.8: 发送前 readiness 检查（替代旧 runtimeProviderStore.loadRuntimeProviderState）。
+    // V20.8: 发送前 readiness 检查（统一走 runtimeRouter 链路）。
     // 缺配置/缺 Key 时不创建 assistant 失败消息，只弹 Notice。
     const vaultPathForGuard = this.host.getVaultPath();
     if (vaultPathForGuard) {

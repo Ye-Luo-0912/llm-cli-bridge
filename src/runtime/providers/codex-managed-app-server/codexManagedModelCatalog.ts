@@ -4,7 +4,6 @@
 
 import type { LLMBridgeSettings } from "../../../types";
 import type { ModelCatalogEntry } from "../../../runtimeModelCatalog";
-import type { RuntimeModelInfo } from "../../modelMatcher";
 import { createHash } from "crypto";
 import { AppServerProcessManager } from "../codex-app-server/appServerProcessManager";
 import { JsonRpcClient } from "../codex-app-server/jsonRpcClient";
@@ -15,8 +14,6 @@ import { resolveManagedRuntime, resolveManifestPath } from "./codexManagedRuntim
 export interface CodexRuntimeModelCatalogResult {
   readonly models: ReadonlyArray<ModelCatalogEntry>;
   readonly defaultModel: string;
-  /** V20: 原始 runtime 模型能力信息，供模型匹配器使用 */
-  readonly runtimeModels: ReadonlyArray<RuntimeModelInfo>;
 }
 
 interface CodexModelListItem {
@@ -86,12 +83,7 @@ function parseModelList(payload: unknown): CodexRuntimeModelCatalogResult | null
     value, label, supportedReasoningEfforts, defaultReasoningEffort, inputModalities, supportsPersonality, isDefault, provider,
   }));
 
-  // 构建 RuntimeModelInfo 列表（供模型匹配器使用）
-  const runtimeModels: RuntimeModelInfo[] = parsed.map(({ value, label, supportedReasoningEfforts, defaultReasoningEffort, inputModalities, supportsPersonality, isDefault, provider }) => ({
-    id: value, label, isDefault, supportedReasoningEfforts, defaultReasoningEffort, inputModalities, supportsPersonality, provider,
-  }));
-
-  return { models, defaultModel, runtimeModels };
+  return { models, defaultModel };
 }
 
 /**
