@@ -7,6 +7,9 @@
 // - UI 显示的 model/effort 必须与传给 SDK query 的 options 一致
 // - 使用 SDK 原始名称/原文 label，不强制中文化 effort
 
+/** 模型验证状态 */
+export type ModelValidationStatus = "available" | "pending" | "incompatible";
+
 /**
  * 模型目录条目
  */
@@ -15,6 +18,20 @@ export interface ModelCatalogEntry {
   readonly value: string;
   /** 显示标签（原始名称，不中文化） */
   readonly label: string;
+  /** 支持的推理等级列表（来自 runtime model/list） */
+  readonly supportedReasoningEfforts?: ReadonlyArray<string>;
+  /** 默认推理等级 */
+  readonly defaultReasoningEffort?: string;
+  /** 输入模态列表（如 ["text", "image"]） */
+  readonly inputModalities?: ReadonlyArray<string>;
+  /** 是否支持 personality 参数 */
+  readonly supportsPersonality?: boolean;
+  /** 是否为 runtime 默认模型 */
+  readonly isDefault?: boolean;
+  /** 模型所属 provider（如 "llm_bridge_relay"） */
+  readonly provider?: string;
+  /** 验证状态：available=可用，pending=待验证，incompatible=不兼容 */
+  readonly validationStatus?: ModelValidationStatus;
 }
 
 /**
@@ -119,6 +136,7 @@ export function getRuntimeModelCatalogForAgent(agent: RuntimeModelCatalogAgent |
 /**
  * 注册运行时真实返回的模型目录。目录仅保存在当前插件进程内，避免把可能变化的
  * 服务端模型列表写进 Vault。调用方可把默认模型放在首位。
+ * 保留模型能力字段（supportedReasoningEfforts 等），供 effort 下拉框动态刷新。
  */
 export function setRuntimeModelCatalogForAgent(
   agent: RuntimeModelCatalogAgent | string,
@@ -126,7 +144,17 @@ export function setRuntimeModelCatalogForAgent(
 ): RuntimeModelCatalog {
   const seen = new Set<string>();
   const normalized = models
-    .map((item) => ({ value: item.value.trim(), label: (item.label || item.value).trim() }))
+    .map((item) => ({
+      value: item.value.trim(),
+      label: (item.label || item.value).trim(),
+      supportedReasoningEfforts: item.supportedReasoningEfforts,
+      defaultReasoningEffort: item.defaultReasoningEffort,
+      inputModalities: item.inputModalities,
+      supportsPersonality: item.supportsPersonality,
+      isDefault: item.isDefault,
+      provider: item.provider,
+      validationStatus: item.validationStatus,
+    }))
     .filter((item) => item.value.length > 0 && !seen.has(item.value) && !!seen.add(item.value));
   const catalog: RuntimeModelCatalog = {
     models: normalized,
@@ -135,6 +163,29 @@ export function setRuntimeModelCatalogForAgent(
   };
   if (normalized.length > 0) runtimeCatalogByAgent.set(agent, catalog);
   return normalized.length > 0 ? catalog : getRuntimeModelCatalogForAgent(agent);
+}
+
+/**
+ * 获取指定模型的推理等级列表。如果模型自带 supportedReasoningEfforts 则用它；
+ * 否则回退到静态列表。
+ */
+export function getEffortsForModel(catalog: RuntimeModelCatalog, modelValue: string): ReadonlyArray<EffortCatalogEntry> {
+  const entry = findModelEntry(catalog, modelValue);
+  if (entry?.supportedReasoningEfforts && entry.supportedReasoningEfforts.length > 0) {
+    return entry.supportedReasoningEfforts.map((e) => ({ value: e, label: e }));
+  }
+  return catalog.efforts;
+}
+
+/**
+ * 获取指定模型的默认推理等级。如果模型自带 defaultReasoningEffort 则用它；
+ * 否则回退到目录第一个等级。
+ */
+export function getDefaultEffortForModel(catalog: RuntimeModelCatalog, modelValue: string): string {
+  const entry = findModelEntry(catalog, modelValue);
+  if (entry?.defaultReasoningEffort) return entry.defaultReasoningEffort;
+  const efforts = getEffortsForModel(catalog, modelValue);
+  return efforts[0]?.value ?? "high";
 }
 
 export function clearRuntimeModelCatalogForAgent(agent: RuntimeModelCatalogAgent | string): void {

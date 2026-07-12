@@ -183,31 +183,106 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("测试连接")
-      .setDesc("向中转站 /v1/models 发起真实请求，验证地址可达 + Key 有效。")
+      .setName("发现并匹配模型")
+      .setDesc("同时请求中转站 /v1/models 和 Codex runtime model/list，交叉匹配后只把可用模型放入聊天框。")
       .addButton((b) => {
-        b.setButtonText("测试连接");
+        b.setButtonText("发现并匹配模型");
         b.onClick(async () => {
-          b.setButtonText("测试中...");
+          b.setButtonText("匹配中...");
           b.setDisabled(true);
           try {
+            const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+            // V20: 保存到 runtime-provider.json（本地真相源）
+            const { saveRuntimeProviderConfig } = await import("./runtime/runtimeProviderConfig");
+            await saveRuntimeProviderConfig(vaultPath, {
+              relayUrl: s.localRelayUrl,
+              apiKey: s.localRelayApiKey,
+              model: s.model,
+            });
+            // 1. 请求中转站 /v1/models
             const { testRelayConnection, loadPortableApiKey } = await import("./runtime/runtimeProfileResolver");
             let apiKey = s.localRelayApiKey;
             if (s.localRelayPortableKeyPath) {
-              const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
               const portableDir = isAbsolute(s.localRelayPortableKeyPath)
                 ? s.localRelayPortableKeyPath
                 : resolve(vaultPath, s.localRelayPortableKeyPath);
               const portableKey = await loadPortableApiKey(portableDir);
               if (portableKey) apiKey = portableKey;
             }
-            const result = await testRelayConnection(s.localRelayUrl, apiKey, s.model);
-            new Notice(result.detail, 6000);
+            const relayResult = await testRelayConnection(s.localRelayUrl, apiKey, s.model);
+            if (!relayResult.ok) {
+              new Notice("中转站连接失败：" + relayResult.detail, 8000);
+              return;
+            }
+            // 2. 请求 Codex runtime model/list
+            const { loadCodexManagedModelCatalog } = await import("./runtime/providers/codex-managed-app-server/codexManagedModelCatalog");
+            const runtimeCatalog = await loadCodexManagedModelCatalog(this.plugin.pluginDir, vaultPath, s);
+            // 3. 交叉匹配
+            const { matchModels, formatMatchSummary } = await import("./runtime/modelMatcher");
+            const relayModels = relayResult.models.map((id) => ({ id }));
+            const runtimeModels = runtimeCatalog?.runtimeModels ?? [];
+            const matchResult = matchModels(relayModels, runtimeModels);
+            // 4. 更新 models 和 defaultModel
+            if (matchResult.selectable.length > 0) {
+              s.model = matchResult.defaultModel || matchResult.selectable[0].value;
+              await this.plugin.saveSettings();
+            }
+            // 5. 显示统计
+            new Notice(formatMatchSummary(matchResult), 8000);
+            this.plugin.refreshBridgeView();
           } catch (e) {
             const { desensitizeError } = await import("./runtime/runtimeProfileResolver");
-            new Notice("测试失败：" + desensitizeError(e, s.localRelayApiKey), 6000);
+            new Notice("匹配失败：" + desensitizeError(e, s.localRelayApiKey), 6000);
           } finally {
-            b.setButtonText("测试连接");
+            b.setButtonText("发现并匹配模型");
+            b.setDisabled(false);
+          }
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("刷新模型目录")
+      .setDesc("清除缓存后重新读取 Codex runtime model/list，用于 runtime 更新后重新匹配。")
+      .addButton((b) => {
+        b.setButtonText("刷新");
+        b.onClick(async () => {
+          b.setDisabled(true);
+          try {
+            this.plugin.refreshBridgeView();
+            new Notice("已刷新模型目录，重新打开聊天框生效", 4000);
+          } finally {
+            b.setDisabled(false);
+          }
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("验证当前模型")
+      .setDesc("对当前选中的模型发起一次真实 Responses 请求，验证可用性（会产生少量费用）。")
+      .addButton((b) => {
+        b.setButtonText("验证");
+        b.onClick(async () => {
+          b.setButtonText("验证中...");
+          b.setDisabled(true);
+          try {
+            const { testRelayConnection, loadPortableApiKey } = await import("./runtime/runtimeProfileResolver");
+            const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+            let apiKey = s.localRelayApiKey;
+            if (s.localRelayPortableKeyPath) {
+              const portableDir = isAbsolute(s.localRelayPortableKeyPath)
+                ? s.localRelayPortableKeyPath
+                : resolve(vaultPath, s.localRelayPortableKeyPath);
+              const portableKey = await loadPortableApiKey(portableDir);
+              if (portableKey) apiKey = portableKey;
+            }
+            // 只验证当前选中模型
+            const result = await testRelayConnection(s.localRelayUrl, apiKey, s.model);
+            new Notice(result.ok ? `模型 ${s.model} 验证通过` : `验证失败：${result.detail}`, 6000);
+          } catch (e) {
+            const { desensitizeError } = await import("./runtime/runtimeProfileResolver");
+            new Notice("验证失败：" + desensitizeError(e, s.localRelayApiKey), 6000);
+          } finally {
+            b.setButtonText("验证");
             b.setDisabled(false);
           }
         });

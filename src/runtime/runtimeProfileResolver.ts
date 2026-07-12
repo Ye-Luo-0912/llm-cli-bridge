@@ -171,7 +171,8 @@ function resolvePortableDirectory(portableDir: string, vaultPath?: string): stri
 /**
  * 解析运行时 profile（provider-neutral 单一入口）。
  *
- * 优先级：
+ * V20 优先级：
+ * 0. runtime-provider.json（本地真相源，含 API Key）
  * 1. Vault .llm-bridge/runtime-profile.json 提供可同步的 relayUrl
  * 2. 模型始终优先使用聊天框 settings.model；Vault profile 仅作旧配置回退
  * 3. API Key：便携目录（localRelayPortableKeyPath 非空时优先）→ settings.localRelayApiKey
@@ -190,6 +191,20 @@ export async function resolveRuntimeProfile(
     localRelayPortableKeyPath?: string;
   },
 ): Promise<ResolvedRuntimeProfile> {
+  // V20: 优先读取 runtime-provider.json（含迁移）
+  try {
+    const { loadRuntimeProviderConfig } = require("./runtimeProviderConfig");
+    const source = await loadRuntimeProviderConfig(vaultPath, settings);
+    if (source.config && source.config.relayUrl) {
+      return {
+        relayUrl: source.config.relayUrl,
+        model: settings.model || source.config.model || "",
+        apiKey: source.config.apiKey || "",
+        origin: "portable",
+      };
+    }
+  } catch { /* provider config not available, fall through */ }
+
   // 1. 读取 Vault profile
   const vaultProfile = await loadVaultRuntimeProfile(vaultPath);
 
@@ -224,7 +239,7 @@ export async function resolveRuntimeProfile(
 
 /**
  * 同步版本（用于无法 await 的场景，如 buildRunEnv）。
- * 不读取 Vault profile（仅用 settings），Vault profile 需调用方预先读取并传入。
+ * V20: 优先读取 runtime-provider.json（本地真相源），不存在时回退到旧路径。
  */
 export function resolveRuntimeProfileSync(
   settings: {
@@ -237,6 +252,23 @@ export function resolveRuntimeProfileSync(
   vaultProfile?: VaultRuntimeProfile | null,
   vaultPath?: string,
 ): ResolvedRuntimeProfile {
+  // V20: 优先读取 runtime-provider.json
+  if (vaultPath) {
+    try {
+      // 动态 require 避免循环依赖
+      const { loadRuntimeProviderConfigSync } = require("./runtimeProviderConfig");
+      const providerConfig = loadRuntimeProviderConfigSync(vaultPath);
+      if (providerConfig && providerConfig.relayUrl) {
+        return {
+          relayUrl: providerConfig.relayUrl,
+          model: settings.model || providerConfig.model || "",
+          apiKey: providerConfig.apiKey || "",
+          origin: "portable",
+        };
+      }
+    } catch { /* provider config not available, fall through */ }
+  }
+
   const relayUrl = vaultProfile?.relayUrl || settings.localRelayUrl || "";
   const model = settings.model || vaultProfile?.model || settings.localRelayModel || "";
   if (!relayUrl) {

@@ -46,6 +46,9 @@ export const VAULT_SKILLS_MANIFEST_REL = "LLM-AgentRuntime/skills/manifest.json"
 export const AGENT_RUNTIME_SESSIONS_DIR_REL = "LLM-AgentRuntime/sessions";
 export const AGENT_RUNTIME_WORK_DIR_REL = "LLM-AgentRuntime/work";
 export const AGENT_RUNTIME_PI_SESSIONS_DIR_REL = "LLM-AgentRuntime/pi-sessions";
+// V20: runtime provider 本地真相源文件（含 API Key，不随 Vault 同步，不提交 Git）
+export const AGENT_RUNTIME_PRIVATE_DIR_REL = "LLM-AgentRuntime/private";
+export const AGENT_RUNTIME_PROVIDER_CONFIG_REL = "LLM-AgentRuntime/private/runtime-provider.json";
 
 export const RUNTIME_FACTS_SCHEMA_VERSION = 1;
 /** 轻量 vault-runtime skill 总上限：远小于 12k，聚焦规则而非内容 */

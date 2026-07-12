@@ -30,8 +30,9 @@ import type { ManagedRuntimeInstallStatus } from "./runtime/providers/codex-mana
 import { listManagedCodexPluginsAsync, type CodexManagedPluginCatalog, type CodexManagedPluginEntry } from "./runtime/providers/codex-managed-app-server/codexManagedPluginCatalog";
 import { RunSessionController, type RunSessionHost } from "./runtime/RunSessionController";
 import { undoVaultContextMaintain, type AutoMaintainResult } from "./runtime/vaultContextAutoMaintainer";
-import { getRuntimeModelCatalogForAgent, setRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, type ModelCatalogEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
+import { getRuntimeModelCatalogForAgent, setRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, getEffortsForModel, getDefaultEffortForModel, type ModelCatalogEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
 import { loadCodexManagedModelCatalog } from "./runtime/providers/codex-managed-app-server/codexManagedModelCatalog";
+import { matchModels } from "./runtime/modelMatcher";
 import { WorkflowEvent, PermissionEvent, truncateText, redactSecrets } from "./workflowEvent";
 import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
 import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscript";
@@ -1073,35 +1074,36 @@ export class LLMBridgeView extends ItemView {
   }
 
   /**
-   * 后台读取 Codex runtime 的 model/list。中转站只作为 runtime 的认证/请求出口，
-   * 不直接把 /v1/models 注入聊天框，避免展示 runtime 实际不能使用的模型。
+   * V20: 后台读取 Codex runtime 的 model/list，并与中转站 /v1/models 交叉匹配。
+   * 只把 available + pending 模型放入聊天框；不兼容模型不注入。
+   * 选中模型后 effort 下拉框跟随该模型刷新。
    */
   private async refreshDynamicModelCatalog(): Promise<void> {
     if (this.getEffectiveModelCatalogAgent() !== "codex") return;
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     const settings = this.plugin.settings;
-    const merged: ModelCatalogEntry[] = [];
-    const seen = new Set<string>();
-    const append = (items: ReadonlyArray<ModelCatalogEntry>): void => {
-      for (const item of items) {
-        if (!item.value || seen.has(item.value)) continue;
-        seen.add(item.value);
-        merged.push(item);
-      }
-    };
 
     try {
       const runtimeCatalog = await loadCodexManagedModelCatalog(this.plugin.pluginDir, vaultPath, settings);
-      if (runtimeCatalog) append(runtimeCatalog.models);
+      if (!runtimeCatalog || runtimeCatalog.models.length === 0) return;
+
+      // V20: 交叉匹配中转站和 runtime 模型
+      const relayModels = runtimeCatalog.runtimeModels.map((m) => ({ id: m.id }));
+      const matchResult = matchModels(relayModels, runtimeCatalog.runtimeModels);
+
+      if (matchResult.selectable.length === 0) return;
+
+      setRuntimeModelCatalogForAgent("codex", matchResult.selectable);
+      const selected = settings.model.trim();
+      if (!selected || !matchResult.selectable.some((m) => m.value === selected)) {
+        settings.model = matchResult.defaultModel || matchResult.selectable[0].value;
+        // V20: 同时更新 effort 为该模型的默认值
+        const defaultEffort = getDefaultEffortForModel(getRuntimeModelCatalogForAgent("codex"), settings.model);
+        settings.effortLevel = defaultEffort;
+        await this.plugin.saveSettings();
+      }
     } catch { /* runtime catalog 不可用时继续使用静态兜底 */ }
 
-    if (merged.length === 0) return;
-    setRuntimeModelCatalogForAgent("codex", merged);
-    const selected = settings.model.trim();
-    if (!selected || !seen.has(selected)) {
-      settings.model = merged[0].value;
-      await this.plugin.saveSettings();
-    }
     this.syncModelCatalogForCurrentAgent(false);
     this.renderModelEffortOptions();
     this.refreshModelEffortPicker();

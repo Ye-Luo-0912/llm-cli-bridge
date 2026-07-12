@@ -221,9 +221,30 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
 
   /**
    * V17-F1.1 任务 B：返回 app-server 启动参数（从 constructor 接收，子类不再需要 override）。
+   * V20: 当 relay 配置存在时，追加 `-c key=value` 配置覆盖，注册自定义 provider。
    */
-  protected getAppServerArgs(): string[] {
-    return this.appServerArgs;
+  protected getAppServerArgs(cwd?: string, settings?: LLMBridgeSettings): string[] {
+    const base = this.appServerArgs;
+    if (!settings || !cwd) return base;
+    const relayProfile = resolveRuntimeProfileSync(settings, loadVaultRuntimeProfileSync(cwd), cwd);
+    if (relayProfile.origin === "none" || !relayProfile.relayUrl) return base;
+    return this.buildRelayProviderArgs(base, relayProfile.relayUrl);
+  }
+
+  /**
+   * V20: 构建自定义 provider 的 `-c key=value` 配置覆盖参数。
+   * API Key 通过 LLM_BRIDGE_RELAY_API_KEY 环境变量传递，不写入参数。
+   */
+  private buildRelayProviderArgs(baseArgs: string[], relayUrl: string): string[] {
+    const baseUrl = relayUrl.replace(/\/+$/, "") + "/v1";
+    return [
+      ...baseArgs,
+      "-c", `model_provider=llm_bridge_relay`,
+      "-c", `model_providers.llm_bridge_relay.base_url=${baseUrl}`,
+      "-c", `model_providers.llm_bridge_relay.env_key=LLM_BRIDGE_RELAY_API_KEY`,
+      "-c", `model_providers.llm_bridge_relay.wire_api=responses`,
+      "-c", `model_providers.llm_bridge_relay.requires_openai_auth=false`,
+    ];
   }
 
   /**
@@ -250,6 +271,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     } catch { /* fallthrough: enhanced PATH 不可用时退回 process.env */ }
 
     // RuntimeProfileResolver: 注入本地中转认证（provider-neutral，自动优先级）
+    // V20: 同时注入 LLM_BRIDGE_RELAY_API_KEY 供自定义 provider env_key 读取
     if (settings) {
       const vaultProfile = loadVaultRuntimeProfileSync(cwd);
       const relayProfile = resolveRuntimeProfileSync(settings, vaultProfile, cwd);
@@ -257,6 +279,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
         env.OPENAI_BASE_URL = relayProfile.relayUrl;
         if (relayProfile.apiKey) {
           env.OPENAI_API_KEY = relayProfile.apiKey;
+          env.LLM_BRIDGE_RELAY_API_KEY = relayProfile.apiKey;
         }
       }
     }
@@ -279,7 +302,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     // V17-E 任务 A：启动 codex app-server 进程（command 来源 = this.codexCommand，env 含 enhanced PATH）
     const process = this.createProcess({
       command: this.codexCommand,
-      args: this.getAppServerArgs(),
+      args: this.getAppServerArgs(ctx.plan.cwd, settings),
       cwd: ctx.plan.cwd,
       env: this.buildSpawnEnv(ctx.plan.cwd, settings),
     });
@@ -479,7 +502,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     const codexCommand = this.codexCommand;
     const process = this.createProcess({
       command: codexCommand,
-      args: this.getAppServerArgs(),
+      args: this.getAppServerArgs(ctx.plan.cwd, settings),
       cwd: ctx.plan.cwd,
       env: this.buildSpawnEnv(ctx.plan.cwd, settings),
     });

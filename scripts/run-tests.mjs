@@ -6924,7 +6924,7 @@ if (runMode !== "all" && runMode !== "unit") {
 
         // 任务 C：父类 getAppServerArgs 模板方法（codexAppServerProvider.ts）
         const parentSrc = readFileSync(join(PROJECT_ROOT, "src", "runtime", "providers", "codex-app-server", "codexAppServerProvider.ts"), "utf8");
-        const parentHasTemplateMethod = parentSrc.includes("protected getAppServerArgs") && /this\.getAppServerArgs\(\)/.test(parentSrc);
+        const parentHasTemplateMethod = parentSrc.includes("protected getAppServerArgs") && /this\.getAppServerArgs\(/.test(parentSrc);
 
         const aOk = typesHasManifest && manifestStructOk;
         const bOk = resolverExports && resolverChecksSha && resolverChecksExec && resolverHasResultInterface;
@@ -22628,7 +22628,7 @@ if (!runRpTests) {
     const pathMod = await import("path");
     const osMod = await import("os");
 
-    // --- RP-1: Vault profile 解析 + key 合并 ---
+    // --- RP-1: Vault profile 解析 + key 合并（V20 迁移后 origin=portable）---
     {
       const tmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-resolve-"));
       try {
@@ -22645,6 +22645,7 @@ if (!runRpTests) {
         const profileHasNoKey = !profileContent.includes("apiKey") && !profileContent.includes("api_key");
 
         // 解析 profile（settings 提供 key）
+        // V20: 首次读取时自动从 Vault Profile 迁移到 runtime-provider.json，origin 变为 "portable"
         const resolved = await rpMod.resolveRuntimeProfile(tmpRoot, {
           localRelayUrl: "",
           localRelayModel: "",
@@ -22655,11 +22656,13 @@ if (!runRpTests) {
         const urlOk = resolved.relayUrl === "https://relay.example.com";
         const modelOk = resolved.model === "claude-sonnet-4-5";
         const keyOk = resolved.apiKey === "sk-test-key-12345";
-        const originOk = resolved.origin === "vault-profile";
+        const originOk = resolved.origin === "portable";
+        // V20: 迁移后 runtime-provider.json 应已创建
+        const migratedFileExists = fsMod.existsSync(pathMod.join(tmpRoot, "LLM-AgentRuntime/private/runtime-provider.json"));
 
-        addTest("RP-1: Vault profile 解析 + key 合并（vault 提供 url/model，settings 提供 key）",
-          profileHasNoKey && urlOk && modelOk && keyOk && originOk ? "pass" : "fail",
-          `profileHasNoKey=${profileHasNoKey} urlOk=${urlOk} modelOk=${modelOk} keyOk=${keyOk} originOk=${originOk}`);
+        addTest("RP-1: Vault profile 解析 + key 合并 + V20 迁移（vault 提供 url/model，settings 提供 key → portable）",
+          profileHasNoKey && urlOk && modelOk && keyOk && originOk && migratedFileExists ? "pass" : "fail",
+          `profileHasNoKey=${profileHasNoKey} urlOk=${urlOk} modelOk=${modelOk} keyOk=${keyOk} originOk=${originOk} migratedFileExists=${migratedFileExists}`);
       } finally {
         try { fsMod.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
       }
@@ -22946,7 +22949,12 @@ if (!runOnOpenDom) {
             "export function setRuntimeModelCatalogForAgent() { return { models: [], efforts: [] }; }",
             "export function normalizeModelValue(cat, m) { return m || 'test-model'; }",
             "export function normalizeEffortValue(cat, e) { return e || 'medium'; }",
+            "export function getEffortsForModel() { return [{ value: 'medium', label: 'Medium' }]; }",
+            "export function getDefaultEffortForModel() { return 'medium'; }",
+            "export function findModelEntry() { return null; }",
+            "export function findEffortEntry() { return null; }",
           ].join("\n") },
+          { filter: /^\.\/runtime\/modelMatcher$/, content: "export function matchModels() { return { available: [], pending: [], incompatible: [], selectable: [], defaultModel: '' }; } export function formatMatchSummary() { return ''; }" },
           { filter: /^\.\/runtime\/providers\/codex-managed-app-server\/codexManagedModelCatalog$/, content: "export async function loadCodexManagedModelCatalog() { return null; }" },
           { filter: /^\.\/promptPackage$/, content: "export function buildPromptPackage() { return {}; } export class StateSnapshot {}" },
           { filter: /^\.\/agentBackend$/, content: "export class SdkImageContentBlock {} export class SdkStreamingInput {}" },
@@ -23017,6 +23025,7 @@ if (!runOnOpenDom) {
           { filter: /^\.\/toolsWriter$/, content: "export function writeHelperAndWrappers() { return Promise.resolve(); }" },
           { filter: /^\.\/outbox$/, content: "export class OutboxWatcher { constructor(){} start(){} stop(){} }" },
           { filter: /^\.\/agentRuntimeWorkspace$/, content: "export async function ensureAgentRuntimeWorkspace() { return { vaultSkillInitialized: false }; } export async function compactOrSplitVaultSkill() {} export function materializeAllSkillsToAllTargets() { return { results: [], syncSummary: { synced: [], skipped: [] }, saved: false }; } export const VAULT_SKILL_SOURCE_REL = '.agents/skills/VAULT_SKILL.md';" },
+          { filter: /^\.\.\/agentRuntimeWorkspace$/, content: "export async function ensureAgentRuntimeWorkspace() { return { vaultSkillInitialized: false }; } export async function compactOrSplitVaultSkill() {} export function materializeAllSkillsToAllTargets() { return { results: [], syncSummary: { synced: [], skipped: [] }, saved: false }; } export const VAULT_SKILL_SOURCE_REL = '.agents/skills/VAULT_SKILL.md'; export const AGENT_RUNTIME_PRIVATE_DIR_REL = 'LLM-AgentRuntime/private'; export const AGENT_RUNTIME_PROVIDER_CONFIG_REL = 'LLM-AgentRuntime/private/runtime-provider.json';" },
           { filter: /^\.\/runtime\/vaultContextAutoMaintainer$/, content: "export async function undoVaultContextMaintain() { return { ok: true }; }" },
           { filter: /^\.\/agentSkills$/, content: "export function cleanupCodexBridgeSkillsForVaultSync() { return { deleted: 0 }; } export async function loadAgentSkillsManifest() { return { skills: [] }; } export async function saveAgentSkillsManifest() {} export async function prepareAgentSkillsForCodexRuntime() { return []; }" },
           { filter: /^\.\/attachmentPackingPolicy$/, content: "export const AttachmentPackingPolicy = { binaryAsNativeRef: true, sdkDirectAttachmentSupported: true };" },

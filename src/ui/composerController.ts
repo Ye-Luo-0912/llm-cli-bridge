@@ -13,7 +13,7 @@ import {
 } from "../agentApprovalProfile";
 import type { FileRef } from "../fileRefs";
 import type { RuntimeModelCatalog } from "../runtimeModelCatalog";
-import { findEffortEntry, findModelEntry } from "../runtimeModelCatalog";
+import { findModelEntry, getEffortsForModel } from "../runtimeModelCatalog";
 
 export interface ComposerMenuItemOptions {
   className: string;
@@ -222,7 +222,10 @@ export function renderModelEffortOptions(
       deps.onSelect(model.value, currentEffort);
     });
   }
-  for (const effort of catalog.efforts) {
+  // effort 跟随当前选中模型刷新：优先用模型自带的 supportedReasoningEfforts，
+  // 否则回退到目录全局 efforts。删除所有模型共用的 low/medium/high/max 静态逻辑。
+  const efforts = getEffortsForModel(catalog, currentModel);
+  for (const effort of efforts) {
     const option = effortOptionsEl.createEl("button", {
       cls: "llm-bridge-effort-option",
       text: effort.label,
@@ -245,7 +248,9 @@ export function refreshModelEffortPickerLabels(
   effortValue: string,
 ): void {
   const model = findModelEntry(catalog, modelValue);
-  const effort = findEffortEntry(catalog, effortValue);
+  // effort 标签按模型实际支持的 effort 列表查找，而非全局 catalog.efforts
+  const modelEfforts = getEffortsForModel(catalog, modelValue);
+  const effort = modelEfforts.find((e) => e.value === effortValue) ?? null;
   const modelLabel = model?.label ?? modelValue ?? "unknown";
   const effortLabel = effort?.label ?? effortValue ?? "unknown";
   buttonEl.textContent = `${modelLabel} · ${effortLabel}`;

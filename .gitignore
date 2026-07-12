@@ -38,6 +38,9 @@ dist/
 **/credentials.json
 **/.bridge-token
 
+# V20: runtime provider 本地真相源（含 API Key，不随 Vault 同步，不提交 Git）
+private/
+
 # Obsidian workspace 临时状态（仅当仓库内含 vault 时生效）
 .obsidian/workspace*
 .obsidian/cache
