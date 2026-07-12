@@ -10,6 +10,7 @@
 // - 密钥始终从 secrets.env 注入（作为环境变量，由 agent 配置文件中的变量名引用）
 
 import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 import {
   AGENT_RUNTIME_PRIVATE_RUNTIME_DIR_REL,
@@ -19,6 +20,7 @@ import {
   AGENT_RUNTIME_CLAUDE_CONFIG_REL,
   AGENT_RUNTIME_CLAUDE_CONFIG_DIR_REL,
   AGENT_RUNTIME_PI_SETTINGS_REL,
+  AGENT_RUNTIME_PI_MODELS_REL,
   AGENT_RUNTIME_PI_CONFIG_DIR_REL,
   AGENT_RUNTIME_PROVIDER_CONFIG_REL,
 } from "../../agentRuntimeWorkspace";
@@ -71,6 +73,242 @@ export function getPiConfigDir(vaultPath: string): string {
   return path.join(vaultPath, AGENT_RUNTIME_PI_CONFIG_DIR_REL);
 }
 
+// ---------- 全局配置目录（用于"打开全局配置目录"按钮）----------
+
+/** 获取 Codex 全局配置目录（CODEX_HOME 或 ~/.codex） */
+export function getGlobalCodexConfigDir(): string {
+  return process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+}
+
+/** 获取 Claude 全局配置目录（CLAUDE_CONFIG_DIR 或 ~/.claude） */
+export function getGlobalClaudeConfigDir(): string {
+  return process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), ".claude");
+}
+
+/** 获取 Pi 全局配置目录（PI_CODING_AGENT_DIR 或 ~/.pi） */
+export function getGlobalPiConfigDir(): string {
+  return process.env.PI_CODING_AGENT_DIR || path.join(os.homedir(), ".pi");
+}
+
+/** 检测全局配置目录是否存在 */
+export function globalCodexConfigExists(): boolean {
+  try { return fs.existsSync(getGlobalCodexConfigDir()); } catch { return false; }
+}
+export function globalClaudeConfigExists(): boolean {
+  try { return fs.existsSync(getGlobalClaudeConfigDir()); } catch { return false; }
+}
+export function globalPiConfigExists(): boolean {
+  try { return fs.existsSync(getGlobalPiConfigDir()); } catch { return false; }
+}
+
+// ---------- 创建本地配置（先复制全局，没有则用官方模板生成）----------
+
+export interface CreateLocalConfigResult {
+  readonly ok: boolean;
+  readonly source: "global-copy" | "template" | "already-exists";
+  readonly createdFiles: string[];
+  readonly reason?: string;
+}
+
+/** 原子写入文件（tmp + rename） */
+function atomicWrite(filePath: string, content: string): void {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const tmpPath = filePath + ".tmp-" + process.pid;
+  fs.writeFileSync(tmpPath, content, "utf8");
+  try {
+    fs.renameSync(tmpPath, filePath);
+  } catch (e) {
+    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+    throw e;
+  }
+}
+
+/** Codex config.toml 官方模板 */
+function codexConfigTemplate(): string {
+  return [
+    '# Codex 配置 — 由 Bridge 创建（基于官方文档模板）',
+    '# 请将 base_url 和 model 替换为你的中转站地址和模型',
+    "",
+    'model = "gpt-5.4"',
+    'model_provider = "relay"',
+    "",
+    "[model_providers.relay]",
+    'name = "Local Relay"',
+    'base_url = "https://api.example.com/v1"',
+    'env_key = "CODEX_RELAY_API_KEY"',
+    'wire_api = "responses"',
+    "",
+  ].join("\n");
+}
+
+/** Claude settings.json 官方模板 */
+function claudeConfigTemplate(): string {
+  return JSON.stringify({
+    $schema: "https://json.schemastore.org/claude-code-settings.json",
+    env: {
+      ANTHROPIC_BASE_URL: "https://api.example.com",
+      ANTHROPIC_MODEL: "claude-sonnet-4-5",
+    },
+  }, null, 2) + "\n";
+}
+
+/** Pi settings.json 官方模板 */
+function piSettingsTemplate(): string {
+  return JSON.stringify({
+    defaultProvider: "relay",
+    defaultModel: "gpt-5.4",
+    defaultThinkingLevel: "medium",
+  }, null, 2) + "\n";
+}
+
+/** Pi models.json 官方模板 */
+function piModelsTemplate(): string {
+  return JSON.stringify({
+    providers: {
+      relay: {
+        baseUrl: "https://api.example.com/v1",
+        apiKey: "PI_RELAY_API_KEY",
+        api: "openai-responses",
+        models: [
+          {
+            id: "gpt-5.4",
+            name: "GPT-5.4",
+            reasoning: true,
+            input: ["text", "image"],
+          },
+        ],
+      },
+    },
+  }, null, 2) + "\n";
+}
+
+/**
+ * 创建 Codex 本地配置。
+ * 先尝试从全局 ~/.codex/ 复制 config.toml；全局不存在则用官方模板生成。
+ */
+export function createCodexLocalConfig(vaultPath: string): CreateLocalConfigResult {
+  const localPath = path.join(vaultPath, AGENT_RUNTIME_CODEX_CONFIG_REL);
+  if (fs.existsSync(localPath)) {
+    return { ok: true, source: "already-exists", createdFiles: [] };
+  }
+
+  // 尝试从全局复制
+  const globalDir = getGlobalCodexConfigDir();
+  const globalConfig = path.join(globalDir, "config.toml");
+  if (fs.existsSync(globalConfig)) {
+    try {
+      const content = fs.readFileSync(globalConfig, "utf8");
+      atomicWrite(localPath, content);
+      return { ok: true, source: "global-copy", createdFiles: [AGENT_RUNTIME_CODEX_CONFIG_REL] };
+    } catch (e) {
+      return { ok: false, source: "template", createdFiles: [], reason: `复制全局配置失败：${e instanceof Error ? e.message : String(e)}` };
+    }
+  }
+
+  // 全局不存在，用模板生成
+  try {
+    atomicWrite(localPath, codexConfigTemplate());
+    return { ok: true, source: "template", createdFiles: [AGENT_RUNTIME_CODEX_CONFIG_REL] };
+  } catch (e) {
+    return { ok: false, source: "template", createdFiles: [], reason: `生成模板配置失败：${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
+/**
+ * 创建 Claude 本地配置。
+ * 先尝试从全局 ~/.claude/ 复制 settings.json；全局不存在则用官方模板生成。
+ */
+export function createClaudeLocalConfig(vaultPath: string): CreateLocalConfigResult {
+  const localPath = path.join(vaultPath, AGENT_RUNTIME_CLAUDE_CONFIG_REL);
+  if (fs.existsSync(localPath)) {
+    return { ok: true, source: "already-exists", createdFiles: [] };
+  }
+
+  // 尝试从全局复制（优先 settings.json，其次 settings.local.json）
+  const globalDir = getGlobalClaudeConfigDir();
+  for (const name of ["settings.json", "settings.local.json"]) {
+    const globalConfig = path.join(globalDir, name);
+    if (fs.existsSync(globalConfig)) {
+      try {
+        const content = fs.readFileSync(globalConfig, "utf8");
+        atomicWrite(localPath, content);
+        return { ok: true, source: "global-copy", createdFiles: [AGENT_RUNTIME_CLAUDE_CONFIG_REL] };
+      } catch (e) {
+        return { ok: false, source: "template", createdFiles: [], reason: `复制全局配置失败：${e instanceof Error ? e.message : String(e)}` };
+      }
+    }
+  }
+
+  // 全局不存在，用模板生成
+  try {
+    atomicWrite(localPath, claudeConfigTemplate());
+    return { ok: true, source: "template", createdFiles: [AGENT_RUNTIME_CLAUDE_CONFIG_REL] };
+  } catch (e) {
+    return { ok: false, source: "template", createdFiles: [], reason: `生成模板配置失败：${e instanceof Error ? e.message : String(e)}` };
+  }
+}
+
+/**
+ * 创建 Pi 本地配置。
+ * 先尝试从全局 ~/.pi/ 复制 settings.json + models.json；全局不存在则用官方模板生成。
+ */
+export function createPiLocalConfig(vaultPath: string): CreateLocalConfigResult {
+  const localSettingsPath = path.join(vaultPath, AGENT_RUNTIME_PI_SETTINGS_REL);
+  const localModelsPath = path.join(vaultPath, AGENT_RUNTIME_PI_MODELS_REL);
+  if (fs.existsSync(localSettingsPath)) {
+    return { ok: true, source: "already-exists", createdFiles: [] };
+  }
+
+  const createdFiles: string[] = [];
+  let source: "global-copy" | "template" = "template";
+  const globalDir = getGlobalPiConfigDir();
+  const globalSettings = path.join(globalDir, "settings.json");
+  const globalModels = path.join(globalDir, "models.json");
+
+  // settings.json
+  if (fs.existsSync(globalSettings)) {
+    try {
+      const content = fs.readFileSync(globalSettings, "utf8");
+      atomicWrite(localSettingsPath, content);
+      createdFiles.push(AGENT_RUNTIME_PI_SETTINGS_REL);
+      source = "global-copy";
+    } catch (e) {
+      return { ok: false, source: "template", createdFiles: [], reason: `复制全局 settings.json 失败：${e instanceof Error ? e.message : String(e)}` };
+    }
+  } else {
+    try {
+      atomicWrite(localSettingsPath, piSettingsTemplate());
+      createdFiles.push(AGENT_RUNTIME_PI_SETTINGS_REL);
+    } catch (e) {
+      return { ok: false, source: "template", createdFiles: [], reason: `生成模板 settings.json 失败：${e instanceof Error ? e.message : String(e)}` };
+    }
+  }
+
+  // models.json
+  if (fs.existsSync(globalModels)) {
+    try {
+      const content = fs.readFileSync(globalModels, "utf8");
+      atomicWrite(localModelsPath, content);
+      createdFiles.push(AGENT_RUNTIME_PI_MODELS_REL);
+    } catch (e) {
+      // models.json 复制失败不阻塞，用模板补充
+      try {
+        atomicWrite(localModelsPath, piModelsTemplate());
+        createdFiles.push(AGENT_RUNTIME_PI_MODELS_REL);
+      } catch { /* ignore */ }
+    }
+  } else {
+    try {
+      atomicWrite(localModelsPath, piModelsTemplate());
+      createdFiles.push(AGENT_RUNTIME_PI_MODELS_REL);
+    } catch (e) {
+      return { ok: false, source, createdFiles, reason: `生成模板 models.json 失败：${e instanceof Error ? e.message : String(e)}` };
+    }
+  }
+
+  return { ok: true, source, createdFiles };
+}
+
 // ---------- 路由状态 ----------
 
 /** 各 provider 的配置状态（供 UI 展示，不解析配置内容） */
@@ -78,6 +316,12 @@ export interface ProviderConfigStatus {
   readonly provider: RuntimeProviderId;
   /** 本地配置文件是否存在 */
   readonly localConfigExists: boolean;
+  /** 本地配置文件相对路径（供 UI 显示） */
+  readonly localConfigPath: string;
+  /** 全局配置目录是否存在 */
+  readonly globalConfigExists: boolean;
+  /** 全局配置目录绝对路径（供 UI 打开） */
+  readonly globalConfigDir: string;
   /** 是否有密钥 */
   readonly hasKey: boolean;
   /** 密钥状态 */
@@ -101,18 +345,27 @@ export function getRouterState(vaultPath: string): RouterState {
       codex: {
         provider: "codex",
         localConfigExists: codexConfigExists(vaultPath),
+        localConfigPath: AGENT_RUNTIME_CODEX_CONFIG_REL,
+        globalConfigExists: globalCodexConfigExists(),
+        globalConfigDir: getGlobalCodexConfigDir(),
         hasKey: !!secrets.get("CODEX_RELAY_API_KEY"),
         keyStatus: getSecretKeyStatus(vaultPath),
       },
       claude: {
         provider: "claude",
         localConfigExists: claudeConfigExists(vaultPath),
+        localConfigPath: AGENT_RUNTIME_CLAUDE_CONFIG_REL,
+        globalConfigExists: globalClaudeConfigExists(),
+        globalConfigDir: getGlobalClaudeConfigDir(),
         hasKey: !!(secrets.get("ANTHROPIC_API_KEY") || secrets.get("ANTHROPIC_AUTH_TOKEN")),
         keyStatus: getSecretKeyStatus(vaultPath),
       },
       pi: {
         provider: "pi",
         localConfigExists: piConfigExists(vaultPath),
+        localConfigPath: AGENT_RUNTIME_PI_SETTINGS_REL,
+        globalConfigExists: globalPiConfigExists(),
+        globalConfigDir: getGlobalPiConfigDir(),
         hasKey: !!secrets.get("PI_RELAY_API_KEY"),
         keyStatus: getSecretKeyStatus(vaultPath),
       },

@@ -26765,11 +26765,12 @@ try {
   });
   const resolverMod = await import(pathToFileURL(v205ResolverBundle).href);
 
-  const ACTIVE_REL = "LLM-AgentRuntime/private/runtime/active.json";
-  const SECRETS_REL = "LLM-AgentRuntime/private/runtime/secrets.env";
-  const CODEX_CONFIG_REL = "LLM-AgentRuntime/private/runtime/codex/config.toml";
-  const CLAUDE_CONFIG_REL = "LLM-AgentRuntime/private/runtime/claude/settings.local.json";
-  const PI_SETTINGS_REL = "LLM-AgentRuntime/private/runtime/pi/settings.json";
+  const ACTIVE_REL = ".llm-bridge/private/runtime/active.json";
+  const SECRETS_REL = ".llm-bridge/private/runtime/secrets.env";
+  const CODEX_CONFIG_REL = ".llm-bridge/private/runtime/codex/config.toml";
+  const CLAUDE_CONFIG_REL = ".llm-bridge/private/runtime/claude/settings.json";
+  const PI_SETTINGS_REL = ".llm-bridge/private/runtime/pi/settings.json";
+  const PI_MODELS_REL = ".llm-bridge/private/runtime/pi/models.json";
   const OLD_PROVIDER_CONFIG_REL = "LLM-AgentRuntime/private/runtime-provider.json";
 
   function makeTempVault() {
@@ -26872,12 +26873,12 @@ try {
       `codexConfigExists=${exists}`);
   }
 
-  // Test 9: 创建 claude/settings.local.json → claudeConfigExists=true
+  // Test 9: 创建 claude/settings.json → claudeConfigExists=true
   {
     const vault = makeTempVault();
     writeFile(vault, CLAUDE_CONFIG_REL, '{"env":{}}\n');
     const exists = routerMod.claudeConfigExists(vault);
-    addTest("V20.5 ConfigExists: claude/settings.local.json 存在 → true", exists ? "pass" : "fail",
+    addTest("V20.5 ConfigExists: claude/settings.json 存在 → true", exists ? "pass" : "fail",
       `claudeConfigExists=${exists}`);
   }
 
@@ -26952,7 +26953,7 @@ try {
 
   // --- getRouterState 测试 ---
 
-  // Test 16: getRouterState 聚合状态
+  // Test 16: getRouterState 聚合状态（含 localConfigPath + globalConfigDir）
   {
     const vault = makeTempVault();
     routerMod.setActiveProvider(vault, "codex");
@@ -26961,11 +26962,15 @@ try {
     const state = routerMod.getRouterState(vault);
     const ok = state.activeProvider === "codex"
       && state.providers.codex.localConfigExists === true
+      && state.providers.codex.localConfigPath === CODEX_CONFIG_REL
+      && typeof state.providers.codex.globalConfigDir === "string"
       && state.providers.codex.hasKey === true
       && state.providers.claude.localConfigExists === false
-      && state.providers.pi.localConfigExists === false;
-    addTest("V20.5 getRouterState: 聚合状态正确", ok ? "pass" : "fail",
-      `active=${state.activeProvider}, codex.exists=${state.providers.codex.localConfigExists}, codex.hasKey=${state.providers.codex.hasKey}`);
+      && state.providers.claude.localConfigPath === CLAUDE_CONFIG_REL
+      && state.providers.pi.localConfigExists === false
+      && state.providers.pi.localConfigPath === PI_SETTINGS_REL;
+    addTest("V20.5 getRouterState: 聚合状态正确（含 localConfigPath + globalConfigDir）", ok ? "pass" : "fail",
+      `active=${state.activeProvider}, codex.exists=${state.providers.codex.localConfigExists}, codex.path=${state.providers.codex.localConfigPath}, codex.hasKey=${state.providers.codex.hasKey}`);
   }
 
   // --- runtimeProfileResolver 测试 ---
@@ -27067,6 +27072,109 @@ try {
     addTest("V20.5 clearRouterCache: 清除 session-only 缓存后密钥丢失",
       !state.providers.codex.hasKey ? "pass" : "fail",
       `hasKey=${state.providers.codex.hasKey} (session-only cleared)`);
+  }
+
+  // --- V20.6: createLocalConfig + getGlobalConfigDir 测试 ---
+
+  // Test 25: getGlobalCodexConfigDir 返回路径
+  {
+    const dir = routerMod.getGlobalCodexConfigDir();
+    addTest("V20.6 getGlobalCodexConfigDir: 返回非空路径",
+      typeof dir === "string" && dir.length > 0 ? "pass" : "fail",
+      `dir=${dir}`);
+  }
+
+  // Test 26: getGlobalClaudeConfigDir 返回路径
+  {
+    const dir = routerMod.getGlobalClaudeConfigDir();
+    addTest("V20.6 getGlobalClaudeConfigDir: 返回非空路径",
+      typeof dir === "string" && dir.length > 0 ? "pass" : "fail",
+      `dir=${dir}`);
+  }
+
+  // Test 27: getGlobalPiConfigDir 返回路径
+  {
+    const dir = routerMod.getGlobalPiConfigDir();
+    addTest("V20.6 getGlobalPiConfigDir: 返回非空路径",
+      typeof dir === "string" && dir.length > 0 ? "pass" : "fail",
+      `dir=${dir}`);
+  }
+
+  // Test 28: createCodexLocalConfig 无全局 → 用模板创建
+  {
+    const vault = makeTempVault();
+    // 确保全局配置不存在（通过设置 CODEX_HOME 到临时空目录）
+    const fakeGlobalDir = join(vault, "fake-global-codex");
+    mkdirSync(fakeGlobalDir, { recursive: true });
+    process.env.CODEX_HOME = fakeGlobalDir;
+    const result = routerMod.createCodexLocalConfig(vault);
+    const exists = fileExists(vault, CODEX_CONFIG_REL);
+    const content = exists ? readFileSync(join(vault, CODEX_CONFIG_REL), "utf8") : "";
+    const hasModelProvider = content.includes("model_provider");
+    addTest("V20.6 createCodexLocalConfig: 无全局 → 用模板创建 config.toml",
+      result.ok && result.source === "template" && exists && hasModelProvider ? "pass" : "fail",
+      `ok=${result.ok}, source=${result.source}, exists=${exists}, hasModelProvider=${hasModelProvider}`);
+    delete process.env.CODEX_HOME;
+  }
+
+  // Test 29: createClaudeLocalConfig 无全局 → 用模板创建
+  {
+    const vault = makeTempVault();
+    const fakeGlobalDir = join(vault, "fake-global-claude");
+    mkdirSync(fakeGlobalDir, { recursive: true });
+    process.env.CLAUDE_CONFIG_DIR = fakeGlobalDir;
+    const result = routerMod.createClaudeLocalConfig(vault);
+    const exists = fileExists(vault, CLAUDE_CONFIG_REL);
+    const content = exists ? readFileSync(join(vault, CLAUDE_CONFIG_REL), "utf8") : "";
+    const hasSchema = content.includes("$schema");
+    addTest("V20.6 createClaudeLocalConfig: 无全局 → 用模板创建 settings.json",
+      result.ok && result.source === "template" && exists && hasSchema ? "pass" : "fail",
+      `ok=${result.ok}, source=${result.source}, exists=${exists}, hasSchema=${hasSchema}`);
+    delete process.env.CLAUDE_CONFIG_DIR;
+  }
+
+  // Test 30: createPiLocalConfig 无全局 → 用模板创建 settings.json + models.json
+  {
+    const vault = makeTempVault();
+    const fakeGlobalDir = join(vault, "fake-global-pi");
+    mkdirSync(fakeGlobalDir, { recursive: true });
+    process.env.PI_CODING_AGENT_DIR = fakeGlobalDir;
+    const result = routerMod.createPiLocalConfig(vault);
+    const settingsExists = fileExists(vault, PI_SETTINGS_REL);
+    const modelsExists = fileExists(vault, PI_MODELS_REL);
+    const modelsContent = modelsExists ? readFileSync(join(vault, PI_MODELS_REL), "utf8") : "";
+    const hasProviders = modelsContent.includes("providers");
+    addTest("V20.6 createPiLocalConfig: 无全局 → 用模板创建 settings.json + models.json",
+      result.ok && result.source === "template" && settingsExists && modelsExists && hasProviders ? "pass" : "fail",
+      `ok=${result.ok}, source=${result.source}, settings=${settingsExists}, models=${modelsExists}, hasProviders=${hasProviders}`);
+    delete process.env.PI_CODING_AGENT_DIR;
+  }
+
+  // Test 31: createCodexLocalConfig 已存在 → already-exists
+  {
+    const vault = makeTempVault();
+    writeFile(vault, CODEX_CONFIG_REL, 'model = "existing"\n');
+    const result = routerMod.createCodexLocalConfig(vault);
+    addTest("V20.6 createCodexLocalConfig: 已存在 → already-exists",
+      result.ok && result.source === "already-exists" ? "pass" : "fail",
+      `ok=${result.ok}, source=${result.source}`);
+  }
+
+  // Test 32: createClaudeLocalConfig 从全局复制
+  {
+    const vault = makeTempVault();
+    // 模拟全局配置存在
+    const fakeGlobalDir = join(vault, "fake-global-claude-copy");
+    mkdirSync(fakeGlobalDir, { recursive: true });
+    writeFileSync(join(fakeGlobalDir, "settings.json"), '{"env":{"ANTHROPIC_BASE_URL":"https://copied.example.com"}}\n', "utf8");
+    process.env.CLAUDE_CONFIG_DIR = fakeGlobalDir;
+    const result = routerMod.createClaudeLocalConfig(vault);
+    const content = readFileSync(join(vault, CLAUDE_CONFIG_REL), "utf8");
+    const isCopied = content.includes("copied.example.com");
+    addTest("V20.6 createClaudeLocalConfig: 全局存在 → 从全局复制",
+      result.ok && result.source === "global-copy" && isCopied ? "pass" : "fail",
+      `ok=${result.ok}, source=${result.source}, isCopied=${isCopied}`);
+    delete process.env.CLAUDE_CONFIG_DIR;
   }
 
 } catch (e) {

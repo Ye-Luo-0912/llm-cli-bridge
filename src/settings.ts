@@ -106,7 +106,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
     containerEl.createEl("h3", { text: "运行时配置" });
     containerEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
-      text: "V20.5: Bridge 不再解析 agent 配置内容。各 runtime 使用官方原生配置文件，Bridge 只负责选择 active provider 和注入密钥。本地配置存在时设置 *_HOME 指向本地目录；缺失时使用全局配置。",
+      text: "Bridge 不解析 agent 配置内容。各 runtime 使用官方原生配置文件，Bridge 只负责选择 active provider 和注入密钥。本地配置存在时设置 *_HOME 指向本地目录；缺失时使用全局配置。",
     });
 
     // --- Active Provider 选择 ---
@@ -130,10 +130,10 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       });
 
     // --- 各 Provider 配置状态 ---
-    const providerLabels: Record<string, { name: string; configPath: string; keyVar: string }> = {
-      codex: { name: "Codex", configPath: "LLM-AgentRuntime/private/runtime/codex/config.toml", keyVar: "CODEX_RELAY_API_KEY" },
-      claude: { name: "Claude", configPath: "LLM-AgentRuntime/private/runtime/claude/settings.local.json", keyVar: "ANTHROPIC_API_KEY" },
-      pi: { name: "Pi", configPath: "LLM-AgentRuntime/private/runtime/pi/settings.json", keyVar: "PI_RELAY_API_KEY" },
+    const providerLabels: Record<string, { name: string; keyVar: string }> = {
+      codex: { name: "Codex", keyVar: "CODEX_RELAY_API_KEY" },
+      claude: { name: "Claude", keyVar: "ANTHROPIC_API_KEY" },
+      pi: { name: "Pi", keyVar: "PI_RELAY_API_KEY" },
     };
 
     for (const pid of ["codex", "claude", "pi"] as const) {
@@ -141,16 +141,59 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       const status = routerState.providers[pid];
       const isActive = routerState.activeProvider === pid;
 
-      const sectionTitle = containerEl.createEl("h4", {
-        text: `${info.name}${isActive ? " (active)" : ""}`,
-      });
-      void sectionTitle;
+      containerEl.createEl("h4", { text: `${info.name}${isActive ? " (active)" : ""}` });
 
-      // 配置文件状态
+      // 本地配置状态 + 路径
       const configStatusText = status.localConfigExists
-        ? `✓ 本地配置存在（${info.configPath}）`
-        : `✗ 本地配置缺失（使用全局配置）`;
+        ? `✓ 本地配置已创建`
+        : `✗ 本地配置未创建`;
       containerEl.createEl("p", { cls: "llm-bridge-setting-hint", text: configStatusText });
+      containerEl.createEl("p", {
+        cls: "llm-bridge-setting-hint",
+        text: `路径：${status.localConfigPath}`,
+      });
+
+      // [创建本地配置] [打开全局配置目录]
+      new Setting(containerEl)
+        .setName("配置文件")
+        .setDesc(status.globalConfigExists
+          ? `全局配置目录存在：${status.globalConfigDir}`
+          : "全局配置目录不存在（将使用官方模板创建）")
+        .addButton((b) => {
+          b.setButtonText(status.localConfigExists ? "重建本地配置" : "创建本地配置");
+          b.onClick(async () => {
+            try {
+              const result = pid === "codex" ? router.createCodexLocalConfig(vaultPath)
+                : pid === "claude" ? router.createClaudeLocalConfig(vaultPath)
+                : router.createPiLocalConfig(vaultPath);
+              if (result.ok) {
+                if (result.source === "already-exists") {
+                  new Notice("本地配置已存在", 3000);
+                } else if (result.source === "global-copy") {
+                  new Notice(`已从全局配置复制：${result.createdFiles.join(", ")}`, 4000);
+                } else {
+                  new Notice(`已用官方模板创建：${result.createdFiles.join(", ")}`, 4000);
+                }
+              } else {
+                new Notice(`创建失败：${result.reason}`, 6000);
+              }
+            } catch (e) {
+              new Notice("创建失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+            }
+            this.plugin.refreshBridgeView();
+          });
+        })
+        .addButton((b) => {
+          b.setButtonText("打开全局配置目录");
+          b.onClick(() => {
+            try {
+              const electron = require("electron") as { shell: { openPath: (p: string) => Promise<string> } };
+              void electron.shell.openPath(status.globalConfigDir);
+            } catch (e) {
+              new Notice("打开失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+            }
+          });
+        });
 
       // API Key 管理
       const keyStatusLabel = status.keyStatus === "saved"

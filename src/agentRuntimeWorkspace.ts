@@ -51,16 +51,18 @@ export const AGENT_RUNTIME_PRIVATE_DIR_REL = "LLM-AgentRuntime/private";
 export const AGENT_RUNTIME_PROVIDER_CONFIG_REL = "LLM-AgentRuntime/private/runtime-provider.json";
 
 // V20.5: 原生运行时配置目录（各 runtime 使用官方格式，Bridge 只路由）
-export const AGENT_RUNTIME_PRIVATE_RUNTIME_DIR_REL = "LLM-AgentRuntime/private/runtime";
-export const AGENT_RUNTIME_ACTIVE_PROVIDER_REL = "LLM-AgentRuntime/private/runtime/active.json";
-export const AGENT_RUNTIME_SECRETS_ENV_REL = "LLM-AgentRuntime/private/runtime/secrets.env";
-export const AGENT_RUNTIME_CODEX_CONFIG_DIR_REL = "LLM-AgentRuntime/private/runtime/codex";
-export const AGENT_RUNTIME_CODEX_CONFIG_REL = "LLM-AgentRuntime/private/runtime/codex/config.toml";
-export const AGENT_RUNTIME_CLAUDE_CONFIG_DIR_REL = "LLM-AgentRuntime/private/runtime/claude";
-export const AGENT_RUNTIME_CLAUDE_CONFIG_REL = "LLM-AgentRuntime/private/runtime/claude/settings.local.json";
-export const AGENT_RUNTIME_PI_CONFIG_DIR_REL = "LLM-AgentRuntime/private/runtime/pi";
-export const AGENT_RUNTIME_PI_SETTINGS_REL = "LLM-AgentRuntime/private/runtime/pi/settings.json";
-export const AGENT_RUNTIME_PI_MODELS_REL = "LLM-AgentRuntime/private/runtime/pi/models.json";
+// V20.6: 路径从 LLM-AgentRuntime/private/runtime/ 迁移到 .llm-bridge/private/runtime/
+//        Claude 配置文件名从 settings.local.json 改为 settings.json
+export const AGENT_RUNTIME_PRIVATE_RUNTIME_DIR_REL = ".llm-bridge/private/runtime";
+export const AGENT_RUNTIME_ACTIVE_PROVIDER_REL = ".llm-bridge/private/runtime/active.json";
+export const AGENT_RUNTIME_SECRETS_ENV_REL = ".llm-bridge/private/runtime/secrets.env";
+export const AGENT_RUNTIME_CODEX_CONFIG_DIR_REL = ".llm-bridge/private/runtime/codex";
+export const AGENT_RUNTIME_CODEX_CONFIG_REL = ".llm-bridge/private/runtime/codex/config.toml";
+export const AGENT_RUNTIME_CLAUDE_CONFIG_DIR_REL = ".llm-bridge/private/runtime/claude";
+export const AGENT_RUNTIME_CLAUDE_CONFIG_REL = ".llm-bridge/private/runtime/claude/settings.json";
+export const AGENT_RUNTIME_PI_CONFIG_DIR_REL = ".llm-bridge/private/runtime/pi";
+export const AGENT_RUNTIME_PI_SETTINGS_REL = ".llm-bridge/private/runtime/pi/settings.json";
+export const AGENT_RUNTIME_PI_MODELS_REL = ".llm-bridge/private/runtime/pi/models.json";
 
 export const RUNTIME_FACTS_SCHEMA_VERSION = 1;
 /** 轻量 vault-runtime skill 总上限：远小于 12k，聚焦规则而非内容 */
