@@ -1,24 +1,24 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-12T12:17:06.943Z
+- **测试时间**: 2026-07-12T21:58:48.053Z
 - **测试环境**: win32 / Node.js v24.14.0
 - **插件版本**: 2.18.0
-- **main.js 大小**: 1342.0 KB
+- **main.js 大小**: 1379.8 KB
 - **main.js bundle content smoke**: PASS ({"HttpBridge":true,"writeHelperAndWrappers":true,"CodexAppServerProvider":true,"vault_api":true})
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
-- **HTTP 端口**: 62538
-- **commit sha**: d9f2b9f1555a0aef219b9aace2c58ac4dcacd53c
-- **commit 短 sha**: d9f2b9f1555a
+- **HTTP 端口**: 63359
+- **commit sha**: 6329c318735ae38f3d76ce167d942e44f4bab6da
+- **commit 短 sha**: 6329c318735a
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
 
-- ✅ **通过**: 233
+- ✅ **通过**: 280
 - ❌ **失败**: 0
 - ⏭️ **跳过**: 63
 - ⚪ **需人工验证**: 0
-- **总计**: 296
+- **总计**: 343
 
 ### 审计模式说明
 
@@ -273,25 +273,25 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3230ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
+| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3379ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
  |
-| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4658ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783858631149
+| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4643ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783893532517
  |
 | ✅ | health 命令（fake server） | - |
 | ✅ | --json 标志输出有效 JSON（fake server） | - |
 | ✅ | 非修改类 action 直接输出（不轮询） | {
   "ok": true,
-  "id": "fake-id-1783858636078",
+  "id": "fake-id-1783893537571",
   "status": "completed",
   "result": {
     "type":  |
 | ✅ | --stdin 模式读取 JSON params | {
   "ok": true,
-  "id": "fake-id-1783858636191",
+  "id": "fake-id-1783893537687",
   "status": "completed",
   "result": {
     "type":  |
-| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783858636459","status":"completed","result":{"type":"tags_list","fake":tru |
+| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783893537798","status":"completed","result":{"type":"tags_list","fake":tru |
 | ✅ | 错误分级 - bridge.json 缺失 exit 2 | exit=2 stderr=[bridge 未启动] 未找到 .llm-bridge/bridge.json。
   请确认 Obsidian 已启动且 llm-cli-bridge 插件已 |
 | ✅ | 错误分级 - JSON 解析失败 exit 5 | exit=5 stderr=[参数解析失败] JSON 格式错误: Expected property name or '}' in JSON at position 1 (line 1  |
@@ -668,23 +668,18 @@
 |------|--------|------|
 | ✅ | 去掉目标表述，附件预览继续收成严格方块缩略 | - |
 
-### V17-G61 UI
+### 运行过程 UI
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | assistant narrative 增量化，去掉假 thinking 占位，shell/output 合并为单块瀑布事件 | presentationOk=true uiOk=true |
+| ✅ | shell 与 output 合并为单块瀑布事件 | uiInvariant=true |
+| ✅ | 工具事件支持分组增量更新，composer 文本区与工具栏分层 | - |
 
 ### V17-G62 UI
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ✅ | 直接从 managed Codex runtime 读取 installed plugins（工具列表已移除计划模式入口，plan 仍由 permission popover 提供） | - |
-
-### V17-G65 UI
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ✅ | 多工具批次折叠为懒渲染工具组，命令一行摘要，composer 输入跨满宽度 | - |
 
 ### V17-G66 UI
 
@@ -710,11 +705,11 @@
 |------|--------|------|
 | ✅ | 工具子步骤改为紧凑可展开行，插件内联显示，发送与模型控件对齐 | - |
 
-### V17-G70 UI
+### 运行时 UI
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 模型按 agent 对齐，工具菜单支持 Skills 并压缩为 Codex 风格 | - |
+| ✅ | 模型目录按 agent 路由，工具菜单可选择 Skills | - |
 
 ### V17-G71 Codex Skills
 
@@ -1022,12 +1017,6 @@
 |------|--------|------|
 | ⏭️ | VC DOM 测试段 | 当前模式不运行 unit |
 
-### RuntimeProfileResolver 测试段
-
-| 状态 | 测试项 | 详情 |
-|------|--------|------|
-| ⏭️ | RuntimeProfileResolver 测试段 | 当前模式不运行 unit |
-
 ### onOpen() DOM 回归测试段
 
 | 状态 | 测试项 | 详情 |
@@ -1051,6 +1040,204 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | ⏭️ | V20.2 测试段 | 当前模式不运行 unit |
+
+### V20.3 测试段
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ⏭️ | V20.3 测试段 | 当前模式不运行 unit |
+
+### V20.5 ActiveProvider
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 空 vault 返回默认 codex | expected codex, got codex |
+| ✅ | save+load claude | expected claude, got claude |
+| ✅ | active.json 不含地址/模型/Key | active.json 内容: {"schemaVersion":1,"activeProvider":"pi"} |
+
+### Runtime router
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | active provider 驱动真实 session 选择并使缓存失效 | selects=true, invalidates=true |
+
+### V20.5 SecretsStore
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | setCodexKey 后 hasKey=true | hasKey=true, keyStatus=session-only |
+| ✅ | clearCodexKey 后 hasKey=false | hasKey=false |
+| ✅ | setClaudeKey + setPiKey | claude.hasKey=true, pi.hasKey=true |
+
+### V20.5 ConfigExists
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 空 vault 全部 false | codex=false, claude=false, pi=false |
+| ✅ | codex/config.toml 存在 → true | codexConfigExists=true |
+| ✅ | claude/settings.json 存在 → true | claudeConfigExists=true |
+| ✅ | pi/settings.json 存在 → true | piConfigExists=true |
+
+### V20.5 buildRuntimeEnv
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | codex 本地配置存在 → CODEX_HOME 设置 | CODEX_HOME=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-xgNf65\.llm-bridge\private\runtime\codex, hasKey=true |
+| ✅ | codex 本地配置缺失 → CODEX_HOME 不设置 | CODEX_HOME=undefined, hasKey=true |
+| ✅ | claude 本地配置存在 → CLAUDE_CONFIG_DIR 设置 | CLAUDE_CONFIG_DIR=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-s5ORy3\.llm-bridge\private\runtime\claude, hasKey=true |
+| ✅ | pi 本地配置存在 → PI_CODING_AGENT_DIR 设置 | PI_CODING_AGENT_DIR=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-yzbAc9\.llm-bridge\private\runtime\pi, hasKey=true |
+| ✅ | 无密钥 → env 不含 CODEX_RELAY_API_KEY | hasKey=false |
+
+### V20.5 getRouterState
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 聚合状态正确（含 localConfigPath + globalConfigDir） | active=codex, codex.exists=true, codex.path=.llm-bridge/private/runtime/codex/config.toml, codex.hasKey=true |
+
+### V20.5 Migrate
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 无旧配置 → migrated=false | migrated=false, reason=无 V20.4 配置文件，无需迁移 |
+| ✅ | 有旧配置 → 迁移 active.json + 密钥 | migrated=true, activeExists=true, codex.hasKey=true |
+| ✅ | 已有 active.json → 跳过 | migrated=false, reason=V20.5 配置已存在，跳过迁移 |
+| ✅ | 迁移后不自动创建原生配置文件 | codex=false, claude=false, pi=false |
+
+### V20.5 clearRouterCache
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 清除 session-only 缓存后密钥丢失 | hasKey=false (session-only cleared) |
+
+### V20.6 getGlobalCodexConfigDir
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 返回非空路径 | dir=C:\Users\Ye_Luo\.codex |
+
+### V20.6 getGlobalClaudeConfigDir
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 返回非空路径 | dir=C:\Users\Ye_Luo\.claude |
+
+### V20.6 getGlobalPiConfigDir
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 返回非空路径 | dir=C:\Users\Ye_Luo\.pi |
+
+### V20.7 Codex form
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | write→read 往返一致 | ok=true, baseURL=https://relay.example.com/v1, model=gpt-5.4, exists=true |
+
+### V20.7 Claude form
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | write→read 往返一致 | ok=true, baseURL=https://relay.example.com, model=claude-sonnet-4-5, exists=true |
+
+### V20.7 Pi form
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | write→read 往返一致 | ok=true, baseURL=https://relay.example.com/v1, model=gpt-5.4, exists=true |
+
+### V20.7 readCodexForm
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 本地配置不存在 → localConfigExists=false | ok=true, form=false, exists=false |
+
+### V20.7 readClaudeForm
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | JSON 错误 → 返回 error | ok=false, exists=true, error=Claude settings.json 解析失败：Expected property name o |
+
+### V20.7 saveProviderForm Codex
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 生成配置 + 注入密钥 | ok=true, model=gpt-5.4, files=.llm-bridge/private/runtime/codex/config.toml, keyStatus=session-only |
+
+### V20.7 saveProviderForm Claude
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 生成配置 + 注入密钥 | ok=true, model=claude-sonnet-4-5, files=.llm-bridge/private/runtime/claude/settings.json |
+
+### V20.7 saveProviderForm Pi
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 生成 settings.json + models.json | ok=true, model=gpt-5.4, files=.llm-bridge/private/runtime/pi/settings.json,.llm-bridge/private/runtime/pi/models.json |
+
+### V20.7 saveProviderForm
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 无 apiKey → keyStatus=undefined | ok=true, keyStatus=undefined |
+
+### V20.7 writeCodexForm
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 生成 env_key 但不泄露 Key 值 | hasEnvKey=true, noKeyLeak=true |
+
+### V20.7 writePiForm
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | apiKey 字段为环境变量名 | hasVarName=true, noKeyLeak=true |
+
+### V20.8 readiness
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 本地配置缺失 → ok=true | ok=true, preSendBlock=false |
+| ✅ | 本地配置+Key → ok=true | ok=true, reason=undefined |
+| ✅ | 本地配置+缺Key → preSendBlock=true | ok=false, preSendBlock=true, reason=Codex 本地配置已创建但缺少 API Key。请在设置页「运行时配置」→ Codex →「API Key」中填写后点「保存并应用」。 |
+
+### V20.8 getSecretStatus
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 按 Provider 精确计算（Codex有Key, Claude无Key） | codex=session-only, claude=not-configured |
+
+### V20.8 集成
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 保存→生成配置→buildRuntimeEnv→readiness ok | save=true, configExists=true, CODEX_HOME=true, KEY=true, readiness=true |
+
+### V20.8 RunSessionController
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 使用 runtimeRouter readiness | usesRouter=true |
+
+### V20.8 settings.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 首次创建 Key 必填 + 无 Active Provider 下拉框 | firstCreate=true, noDropdown=true |
+
+### V20.8 view.ts
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 不请求 /v1/models + 使用 readProviderForm | noV1=true, localForm=true |
+
+### V20.8 明文回退
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | setSecret 返回 saved + 明文文件含警告头与 Key | status=saved, plainExists=true, hasHeader=true, hasKey=true |
+| ✅ | clearSecretsCache 后 loadAllSecrets 仍可读取 + getSecretStatus=saved | value=test-key-123, status=saved |
+| ✅ | 关闭后 setSecret 返回 session-only + 无明文文件 | status=session-only, plainExists=false |
 
 ## 失败项详情
 
