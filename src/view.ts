@@ -21,6 +21,7 @@ import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment, AssistantTurnView, TurnTimelineNode, NativeSessionRef } from "./runtime/core/types";
 import { getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, toolDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
+import { loadVaultRuntimeProfileSync, resolveRuntimeProfileSync, formatRelayStatusLabel, formatRelayStatusDetail } from "./runtime/runtimeProfileResolver";
 import { resolveUiLocale, type Locale } from "./runtime/core/toolPresentation";
 import { formatCodexRunValue, type CodexRunFeedItem, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
@@ -2213,11 +2214,20 @@ export class LLMBridgeView extends ItemView {
     // V2.16-D: runtime status pill — Phase 3 统一使用 computeRuntimeStateLabel
     const installStatus = this.getManagedRuntimeInstallStatusForCurrentMode();
     const stateInfo = this.computeRuntimeStateLabel(this.sessionState.status, installStatus);
-    this.statusLabelEl.textContent = `${installStatus?.required ? "Codex runtime" : runtimeLabel} · ${stateInfo.label}`;
-    this.statusDotEl.setAttribute("title", installStatus?.required ? this.formatRuntimeInstallTitle(installStatus) : STATUS_LABEL[this.sessionState.status] || "Runtime status");
-    this.refreshManagedRuntimeInstallAction(installStatus);
-    // Cwd（Vault 根目录）— getBasePath 运行时存在但类型未声明，用 as 绕过
+    // RuntimeProfileResolver: 本地中转已配置时显示中转状态，否则显示原生 runtime 状态
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const vaultProfile = loadVaultRuntimeProfileSync(vaultPath);
+    const relayProfile = resolveRuntimeProfileSync(s, vaultProfile);
+    const relayStatus = formatRelayStatusLabel(relayProfile);
+    if (relayProfile.origin !== "none") {
+      this.statusLabelEl.textContent = relayStatus.label;
+      this.statusDotEl.setAttribute("title", formatRelayStatusDetail(relayProfile));
+    } else {
+      this.statusLabelEl.textContent = `${installStatus?.required ? "Codex runtime" : runtimeLabel} · ${stateInfo.label}`;
+      this.statusDotEl.setAttribute("title", installStatus?.required ? this.formatRuntimeInstallTitle(installStatus) : STATUS_LABEL[this.sessionState.status] || "Runtime status");
+    }
+    this.refreshManagedRuntimeInstallAction(installStatus);
+    // Cwd（Vault 根目录）— vaultPath 已在上方 RuntimeProfileResolver 解析时获取
     // 只显示最后两级目录，避免过长
     const shortPath = vaultPath.split(/[/\\]/).slice(-2).join("/");
     this.statusCwdEl.querySelector(".llm-bridge-sb-value")!.textContent = shortPath;

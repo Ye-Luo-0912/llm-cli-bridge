@@ -39,6 +39,7 @@
 
 import type { LLMBridgeSettings, PiToolMode } from "../../../types";
 import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
+import { resolveRuntimeProfile } from "../../runtimeProfileResolver";
 import type {
   EffectiveRunPlan,
   NativeSessionRef,
@@ -1152,13 +1153,21 @@ export class PiSdkProvider implements RuntimeProvider {
       return;
     }
 
-    // V17-D 任务 F：从 plugin settings 构建 runtime auth override（不写 ~/.pi/agent）
-    const authOverride: PiSdkAuthOverride = {
-      apiKey: settings.piApiKey || undefined,
-      provider: settings.piAuthProvider || undefined,
-      baseUrl: settings.piApiBaseUrl || undefined,
-      model: settings.piApiModel || undefined,
-    };
+    // RuntimeProfileResolver: 本地中转优先（provider-neutral），未配置时回退到 Pi 专属 settings
+    const relayProfile = await resolveRuntimeProfile(ctx.plan.cwd, settings);
+    const authOverride: PiSdkAuthOverride = relayProfile.origin !== "none" && relayProfile.relayUrl
+      ? {
+          apiKey: relayProfile.apiKey || undefined,
+          provider: settings.piAuthProvider || undefined,
+          baseUrl: relayProfile.relayUrl,
+          model: relayProfile.model || settings.piApiModel || undefined,
+        }
+      : {
+          apiKey: settings.piApiKey || undefined,
+          provider: settings.piAuthProvider || undefined,
+          baseUrl: settings.piApiBaseUrl || undefined,
+          model: settings.piApiModel || undefined,
+        };
 
     // V17-B1 任务 F / V17-C 任务 C：认证/模型探测（应用 runtime override）
     const authProbe = probePiSdkAuth(this.probe, authOverride);

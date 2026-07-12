@@ -45,6 +45,7 @@ import {
 } from "./codexAppServerEffectiveRunPlan";
 import { AppServerProcessManager, type AppServerProcessLike, type AppServerSpawnOptions } from "./appServerProcessManager";
 import { JsonRpcClient } from "./jsonRpcClient";
+import { loadVaultRuntimeProfileSync, resolveRuntimeProfileSync } from "../../runtimeProfileResolver";
 import type {
   CodexFileChangeItem,
   CodexInitializeResult,
@@ -237,9 +238,9 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
 
   /**
    * V17-E 任务 A：构建 spawn env（含 enhanced PATH）。
-   * 复用 claudeCliBackend 的 buildEnhancedPath，避免普通用户因 PATH 不完整被误判不可用。
+   * RuntimeProfileResolver: 注入本地中转认证（OPENAI_BASE_URL + OPENAI_API_KEY）。
    */
-  private buildSpawnEnv(cwd: string): NodeJS.ProcessEnv {
+  private buildSpawnEnv(cwd: string, settings?: LLMBridgeSettings): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env };
     try {
       const extraPath = buildEnhancedPath(cwd);
@@ -247,6 +248,19 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
         env.PATH = extraPath + (process.platform === "win32" ? ";" : ":") + (env.PATH || "");
       }
     } catch { /* fallthrough: enhanced PATH 不可用时退回 process.env */ }
+
+    // RuntimeProfileResolver: 注入本地中转认证（provider-neutral，自动优先级）
+    if (settings) {
+      const vaultProfile = loadVaultRuntimeProfileSync(cwd);
+      const relayProfile = resolveRuntimeProfileSync(settings, vaultProfile);
+      if (relayProfile.origin !== "none" && relayProfile.relayUrl) {
+        env.OPENAI_BASE_URL = relayProfile.relayUrl;
+        if (relayProfile.apiKey) {
+          env.OPENAI_API_KEY = relayProfile.apiKey;
+        }
+      }
+    }
+
     return env;
   }
 
@@ -267,7 +281,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       command: this.codexCommand,
       args: this.getAppServerArgs(),
       cwd: ctx.plan.cwd,
-      env: this.buildSpawnEnv(ctx.plan.cwd),
+      env: this.buildSpawnEnv(ctx.plan.cwd, settings),
     });
     this.currentProcess = process;
 
@@ -467,7 +481,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       command: codexCommand,
       args: this.getAppServerArgs(),
       cwd: ctx.plan.cwd,
-      env: this.buildSpawnEnv(ctx.plan.cwd),
+      env: this.buildSpawnEnv(ctx.plan.cwd, settings),
     });
     this.currentProcess = process;
 

@@ -22650,6 +22650,258 @@ if (!runVcDom) {
 }
 
 // ============================================================
+// 9.9.5 RuntimeProfileResolver 测试 — profile 解析/便携覆盖/多 vault 共用/错误脱敏/vault 无 key
+// ============================================================
+console.log("\n=== RuntimeProfileResolver 测试 — profile 解析/便携覆盖/脱敏/安全 ===");
+
+const runRpTests = runMode === "all" || runMode === "unit";
+
+if (!runRpTests) {
+  addTest("RuntimeProfileResolver 测试段", "skip", "当前模式不运行 unit");
+} else {
+  let rpBundle = null;
+  try {
+    const esbuild = (await import("esbuild")).default;
+    const obsidianStubRp = {
+      name: "obsidian-stub-rp",
+      setup(build) {
+        build.onResolve({ filter: /^obsidian$/ }, () => ({ path: "obsidian-stub", namespace: "obsidian-stub-rp" }));
+        build.onLoad({ filter: /.*/, namespace: "obsidian-stub-rp" }, () => ({
+          contents: "export class Notice { constructor(){} close(){} }",
+          loader: "js",
+        }));
+      },
+    };
+    rpBundle = join(PROJECT_ROOT, ".test-rp-resolver-temp.mjs");
+    await esbuild.build({
+      entryPoints: [join(PROJECT_ROOT, "src", "runtime", "runtimeProfileResolver.ts")],
+      bundle: true,
+      format: "esm",
+      platform: "node",
+      logLevel: "silent",
+      plugins: [obsidianStubRp],
+      outfile: rpBundle,
+    });
+    const rpMod = await import(pathToFileURL(rpBundle).href);
+    const fsMod = await import("fs");
+    const pathMod = await import("path");
+    const osMod = await import("os");
+
+    // --- RP-1: Vault profile 解析 + key 合并 ---
+    {
+      const tmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-resolve-"));
+      try {
+        // 写入 vault profile（不含 apiKey）
+        await rpMod.saveVaultRuntimeProfile(tmpRoot, {
+          relayUrl: "https://relay.example.com",
+          model: "claude-sonnet-4-5",
+        });
+
+        // 验证 vault profile 文件不含 apiKey
+        const profileContent = await fsMod.promises.readFile(
+          pathMod.join(tmpRoot, ".llm-bridge/runtime-profile.json"), "utf8"
+        );
+        const profileHasNoKey = !profileContent.includes("apiKey") && !profileContent.includes("api_key");
+
+        // 解析 profile（settings 提供 key）
+        const resolved = await rpMod.resolveRuntimeProfile(tmpRoot, {
+          localRelayUrl: "",
+          localRelayModel: "",
+          localRelayApiKey: "sk-test-key-12345",
+          localRelayPortableKeyPath: "",
+        });
+
+        const urlOk = resolved.relayUrl === "https://relay.example.com";
+        const modelOk = resolved.model === "claude-sonnet-4-5";
+        const keyOk = resolved.apiKey === "sk-test-key-12345";
+        const originOk = resolved.origin === "vault-profile";
+
+        addTest("RP-1: Vault profile 解析 + key 合并（vault 提供 url/model，settings 提供 key）",
+          profileHasNoKey && urlOk && modelOk && keyOk && originOk ? "pass" : "fail",
+          `profileHasNoKey=${profileHasNoKey} urlOk=${urlOk} modelOk=${modelOk} keyOk=${keyOk} originOk=${originOk}`);
+      } finally {
+        try { fsMod.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // --- RP-2: 便携目录覆盖（多 Vault 共用同一 key 文件）---
+    {
+      const tmpRoot1 = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-portable1-"));
+      const tmpRoot2 = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-portable2-"));
+      const portableDir = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-portable-key-"));
+      try {
+        // 两个 vault 都有 profile，但 key 来自同一个便携目录
+        await rpMod.saveVaultRuntimeProfile(tmpRoot1, { relayUrl: "https://relay1.example.com", model: "model-a" });
+        await rpMod.saveVaultRuntimeProfile(tmpRoot2, { relayUrl: "https://relay2.example.com", model: "model-b" });
+
+        // 写入便携 key
+        const portableOk = await rpMod.savePortableApiKey(portableDir, "sk-shared-key-67890");
+        const keyFileExists = fsMod.existsSync(pathMod.join(portableDir, "runtime-profile.key"));
+
+        // 两个 vault 解析同一个便携 key
+        const resolved1 = await rpMod.resolveRuntimeProfile(tmpRoot1, {
+          localRelayUrl: "", localRelayModel: "", localRelayApiKey: "",
+          localRelayPortableKeyPath: portableDir,
+        });
+        const resolved2 = await rpMod.resolveRuntimeProfile(tmpRoot2, {
+          localRelayUrl: "", localRelayModel: "", localRelayApiKey: "",
+          localRelayPortableKeyPath: portableDir,
+        });
+
+        const key1Ok = resolved1.apiKey === "sk-shared-key-67890";
+        const key2Ok = resolved2.apiKey === "sk-shared-key-67890";
+        const url1Ok = resolved1.relayUrl === "https://relay1.example.com";
+        const url2Ok = resolved2.relayUrl === "https://relay2.example.com";
+        const origin1Ok = resolved1.origin === "portable";
+        const origin2Ok = resolved2.origin === "portable";
+
+        addTest("RP-2: 便携目录覆盖（多 Vault 共用同一 key 文件）",
+          portableOk && keyFileExists && key1Ok && key2Ok && url1Ok && url2Ok && origin1Ok && origin2Ok ? "pass" : "fail",
+          `portableOk=${portableOk} keyFileExists=${keyFileExists} key1Ok=${key1Ok} key2Ok=${key2Ok} url1Ok=${url1Ok} url2Ok=${url2Ok} origin1Ok=${origin1Ok} origin2Ok=${origin2Ok}`);
+      } finally {
+        try { fsMod.rmSync(tmpRoot1, { recursive: true, force: true }); } catch {}
+        try { fsMod.rmSync(tmpRoot2, { recursive: true, force: true }); } catch {}
+        try { fsMod.rmSync(portableDir, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // --- RP-3: 错误脱敏（key 不出现在错误消息中）---
+    {
+      const testKey = "sk-secret-key-abcdef123456";
+      const errorMsg1 = rpMod.desensitizeError(new Error(`Request failed with key ${testKey}`), testKey);
+      const errorMsg2 = rpMod.desensitizeError(`Bearer ${testKey} unauthorized`, testKey);
+      const errorMsg3 = rpMod.desensitizeError(new Error("ECONNREFUSED 127.0.0.1:443"), testKey);
+
+      const keyNotInMsg1 = !errorMsg1.includes(testKey);
+      const keyNotInMsg2 = !errorMsg2.includes(testKey);
+      const keyNotInMsg3 = !errorMsg3.includes(testKey);
+      const bearerDesensitized = !errorMsg2.includes(testKey);
+      const networkSimplified = errorMsg3.includes("网络连接失败");
+
+      addTest("RP-3: 错误脱敏（key 不出现在错误消息中，Bearer 脱敏，网络错误简化）",
+        keyNotInMsg1 && keyNotInMsg2 && keyNotInMsg3 && bearerDesensitized && networkSimplified ? "pass" : "fail",
+        `keyNotInMsg1=${keyNotInMsg1} keyNotInMsg2=${keyNotInMsg2} keyNotInMsg3=${keyNotInMsg3} bearerDesensitized=${bearerDesensitized} networkSimplified=${networkSimplified}`);
+    }
+
+    // --- RP-4: Vault profile 安全检查（含 apiKey 的 JSON 被拒绝读取）---
+    {
+      const tmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-security-"));
+      try {
+        // 手动写入含 apiKey 的 profile（模拟误操作/攻击）
+        const maliciousDir = pathMod.join(tmpRoot, ".llm-bridge");
+        fsMod.mkdirSync(maliciousDir, { recursive: true });
+        await fsMod.promises.writeFile(
+          pathMod.join(maliciousDir, "runtime-profile.json"),
+          JSON.stringify({ relayUrl: "https://evil.example.com", model: "x", apiKey: "sk-stolen-key" }),
+          "utf8"
+        );
+
+        // loadVaultRuntimeProfile 应拒绝读取（返回 null）
+        const loaded = await rpMod.loadVaultRuntimeProfile(tmpRoot);
+        const syncLoaded = rpMod.loadVaultRuntimeProfileSync(tmpRoot);
+
+        const rejected = loaded === null;
+        const syncRejected = syncLoaded === null;
+
+        // resolveRuntimeProfile 应回退到 settings（origin "none" 或 "settings"）
+        const resolved = await rpMod.resolveRuntimeProfile(tmpRoot, {
+          localRelayUrl: "https://fallback.example.com",
+          localRelayModel: "",
+          localRelayApiKey: "sk-settings-key",
+          localRelayPortableKeyPath: "",
+        });
+        const fallbackUrl = resolved.relayUrl === "https://fallback.example.com";
+
+        addTest("RP-4: Vault profile 安全检查（含 apiKey 的 JSON 被拒绝读取，回退到 settings）",
+          rejected && syncRejected && fallbackUrl ? "pass" : "fail",
+          `rejected=${rejected} syncRejected=${syncRejected} fallbackUrl=${fallbackUrl}`);
+      } finally {
+        try { fsMod.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // --- RP-5: saveVaultRuntimeProfile 强制移除 apiKey ---
+    {
+      const tmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-save-"));
+      try {
+        // 调用方误传 apiKey，saveVaultRuntimeProfile 应强制不写入
+        await rpMod.saveVaultRuntimeProfile(tmpRoot, {
+          relayUrl: "https://relay.example.com",
+          model: "test-model",
+          apiKey: "sk-should-not-be-saved",
+        });
+
+        const content = await fsMod.promises.readFile(
+          pathMod.join(tmpRoot, ".llm-bridge/runtime-profile.json"), "utf8"
+        );
+        const noApiKey = !content.includes("apiKey") && !content.includes("sk-should-not-be-saved");
+        const hasUrl = content.includes("https://relay.example.com");
+        const hasModel = content.includes("test-model");
+
+        addTest("RP-5: saveVaultRuntimeProfile 强制移除 apiKey（即使调用方误传也不写入）",
+          noApiKey && hasUrl && hasModel ? "pass" : "fail",
+          `noApiKey=${noApiKey} hasUrl=${hasUrl} hasModel=${hasModel}`);
+      } finally {
+        try { fsMod.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // --- RP-6: 未配置时 origin "none"（回退到原生认证）---
+    {
+      const tmpRoot = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "rp-none-"));
+      try {
+        const resolved = await rpMod.resolveRuntimeProfile(tmpRoot, {
+          localRelayUrl: "",
+          localRelayModel: "",
+          localRelayApiKey: "",
+          localRelayPortableKeyPath: "",
+        });
+
+        const originNone = resolved.origin === "none";
+        const urlEmpty = resolved.relayUrl === "";
+        const keyEmpty = resolved.apiKey === "";
+
+        const status = rpMod.formatRelayStatusLabel(resolved);
+        const statusLabelOk = status.label === "本地中转 · 未配置" && !status.available;
+
+        const detail = rpMod.formatRelayStatusDetail(resolved);
+        const detailNoKey = !detail.includes("sk-") && !detail.includes("key");
+
+        addTest("RP-6: 未配置时 origin none + 状态栏标签 + 详情无 key",
+          originNone && urlEmpty && keyEmpty && statusLabelOk && detailNoKey ? "pass" : "fail",
+          `originNone=${originNone} urlEmpty=${urlEmpty} keyEmpty=${keyEmpty} statusLabelOk=${statusLabelOk} detailNoKey=${detailNoKey}`);
+      } finally {
+        try { fsMod.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}
+      }
+    }
+
+    // --- RP-7: 状态栏详情只显示来源/域名/模型，不显示 key ---
+    {
+      const resolved = {
+        relayUrl: "https://api.relay.example.com/v1",
+        model: "claude-sonnet-4-5",
+        apiKey: "sk-super-secret-key-999",
+        origin: "portable",
+      };
+      const detail = rpMod.formatRelayStatusDetail(resolved);
+      const hasSource = detail.includes("便携目录");
+      const hasDomain = detail.includes("api.relay.example.com");
+      const hasModel = detail.includes("claude-sonnet-4-5");
+      const noKey = !detail.includes("sk-super-secret-key-999") && !detail.includes("999");
+
+      addTest("RP-7: 状态栏详情只显示来源/域名/模型，不显示 key",
+        hasSource && hasDomain && hasModel && noKey ? "pass" : "fail",
+        `hasSource=${hasSource} hasDomain=${hasDomain} hasModel=${hasModel} noKey=${noKey}`);
+    }
+
+  } catch (e) {
+    addTest("RuntimeProfileResolver 测试段", "fail", `加载/执行异常: ${e?.stack || e?.message || e}`);
+  } finally {
+    try { if (rpBundle) rmSync(rpBundle, { force: true }); } catch {}
+  }
+}
+
+// ============================================================
 // 9.9.3 真实 onOpen() DOM 回归测试
 //   完整实例化 LLMBridgeView，调用 onOpen()，验证：
 //   1. onOpen() 无异常

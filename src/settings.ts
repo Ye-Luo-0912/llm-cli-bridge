@@ -107,6 +107,127 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
+    // ===== 本地认证配置（provider-neutral 中转站，普通用户首选） =====
+    containerEl.createEl("h3", { text: "本地认证配置" });
+    containerEl.createEl("p", {
+      cls: "llm-bridge-setting-hint",
+      text: "配置中转站后，Claude / Codex / Pi 三端自动使用同一认证（优先级最高）。未配置时回退到各端原生认证。Vault 内只保存地址和模型，API Key 仅存本地。",
+    });
+
+    new Setting(containerEl)
+      .setName("中转站地址")
+      .setDesc("如 https://api.example.com。配置后注入 ANTHROPIC_BASE_URL / OPENAI_BASE_URL / Pi baseUrl。留空则使用原生认证。")
+      .addText((t) => {
+        t.setValue(s.localRelayUrl);
+        t.onChange(async (v) => {
+          s.localRelayUrl = v.trim();
+          await this.plugin.saveSettings();
+          this.plugin.refreshBridgeView();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("模型")
+      .setDesc("中转站默认模型（如 claude-sonnet-4-5-20250514）。留空则用各端 settings.model。")
+      .addText((t) => {
+        t.setValue(s.localRelayModel);
+        t.onChange(async (v) => {
+          s.localRelayModel = v.trim();
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("API Key")
+      .setDesc("中转站 API Key。持久化到本地插件数据（不写入 Vault）。留空则未配置（状态栏显示「未配置Key」）。")
+      .addText((t) => {
+        t.inputEl.type = "password";
+        t.setValue(s.localRelayApiKey);
+        t.onChange(async (v) => {
+          s.localRelayApiKey = v.trim();
+          await this.plugin.saveSettings();
+          this.plugin.refreshBridgeView();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("便携目录路径（可选）")
+      .setDesc("设置后 API Key 从该目录读取（runtime-profile.key），实现多 Vault 共用。留空则用本地插件数据。")
+      .addText((t) => {
+        t.setValue(s.localRelayPortableKeyPath);
+        t.onChange(async (v) => {
+          s.localRelayPortableKeyPath = v.trim();
+          await this.plugin.saveSettings();
+          this.plugin.refreshBridgeView();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("保存到 Vault Profile")
+      .setDesc("把中转站地址和模型写入 .llm-bridge/runtime-profile.json（可随 Vault 同步，不含 API Key）。")
+      .addButton((b) => {
+        b.setButtonText("保存 Profile");
+        b.onClick(async () => {
+          b.setDisabled(true);
+          try {
+            const { saveVaultRuntimeProfile } = await import("./runtime/runtimeProfileResolver");
+            const vaultPath = (this.plugin.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+            const ok = await saveVaultRuntimeProfile(vaultPath, {
+              relayUrl: s.localRelayUrl,
+              model: s.localRelayModel,
+            });
+            new Notice(ok ? "Vault Profile 已保存（不含 Key）" : "保存失败", 4000);
+          } catch (e) {
+            new Notice("保存失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+          } finally {
+            b.setDisabled(false);
+          }
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("测试连接")
+      .setDesc("向中转站 /v1/models 发起真实请求，验证地址可达 + Key 有效。")
+      .addButton((b) => {
+        b.setButtonText("测试连接");
+        b.onClick(async () => {
+          b.setButtonText("测试中...");
+          b.setDisabled(true);
+          try {
+            const { testRelayConnection, loadPortableApiKey } = await import("./runtime/runtimeProfileResolver");
+            let apiKey = s.localRelayApiKey;
+            if (s.localRelayPortableKeyPath) {
+              const portableKey = await loadPortableApiKey(s.localRelayPortableKeyPath);
+              if (portableKey) apiKey = portableKey;
+            }
+            const result = await testRelayConnection(s.localRelayUrl, apiKey, s.localRelayModel);
+            new Notice(result.detail, 6000);
+          } catch (e) {
+            const { desensitizeError } = await import("./runtime/runtimeProfileResolver");
+            new Notice("测试失败：" + desensitizeError(e, s.localRelayApiKey), 6000);
+          } finally {
+            b.setButtonText("测试连接");
+            b.setDisabled(false);
+          }
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("重载")
+      .setDesc("重新读取 Vault Profile 和便携 Key，刷新状态栏。")
+      .addButton((b) => {
+        b.setButtonText("重载");
+        b.onClick(async () => {
+          b.setDisabled(true);
+          try {
+            this.plugin.refreshBridgeView();
+            new Notice("已重载本地中转配置", 3000);
+          } finally {
+            b.setDisabled(false);
+          }
+        });
+      });
+
     // ===== 高级设置（折叠） =====
     const advancedDetails = containerEl.createEl("details", { cls: "llm-bridge-advanced-settings" });
     advancedDetails.createEl("summary", { text: "高级设置（命令参数、开发者选项、Runtime 详细配置）" });
@@ -473,8 +594,12 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       });
 
     // V17-D 任务 F：Pi SDK Auth 设置 section（runtime override，不写 ~/.pi/agent）
-    // V17-E 任务 F：Pi SDK 为 optional/advanced backend，普通用户无需配置此 section
+    // RuntimeProfileResolver: 此 section 作为高级回退（原生认证），本地中转已配置时优先使用中转
     advancedEl.createEl("h3", { text: "Pi SDK Auth (Runtime Override — Optional/Advanced)" });
+    advancedEl.createEl("p", {
+      cls: "llm-bridge-setting-hint",
+      text: "高级回退（原生认证）：本地中转未配置时回退到此处的 Pi SDK 原生认证。已配置本地中转时，以上方「本地认证配置」为准。",
+    });
 
     new Setting(advancedEl)
       .setName("Provider")
