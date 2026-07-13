@@ -3,9 +3,9 @@
 > 本报告由 `scripts/e2e-port-smoke.mjs` 自动生成。
 > 用 managed runtime codex.exe 做真实协议层端到端验证。
 
-- **测试时间**: 2026-07-13T23:07:06.171Z
-- **Passed**: 9
-- **Failed**: 1
+- **测试时间**: 2026-07-13T23:50:09.110Z
+- **Passed**: 10
+- **Failed**: 0
 - **Skipped (manual required)**: 1
 - **Managed Runtime**: D:\Users\Ye_Luo\APP\Test\llm-cli-bridge\src\runtime\providers\codex-managed-app-server\runtime\win32-x64\codex.exe
 
@@ -14,15 +14,15 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | SKIP | 窄栏：UI 布局验证 | manual required — 纯 UI 布局，需在 Obsidian 内人工验收 |
-| PASS | 附件：turn/start 含 localImage 被接受 | events=25, reason=completed |
-| FAIL | 思考：捕获 reasoning 事件 | summaryDelta=false, textDelta=false, reasoningCompleted=false, turnReason=completed |
+| PASS | 附件：turn/start 含 localImage 被接受 | events=27, reason=completed |
+| PASS | 思考：捕获 reasoning 事件 | summaryDelta=false, textDelta=false, partAdded=false, reasoningCompleted=true, turnReason=completed |
 | PASS | 思考：turn/completed 到达 | reason=completed |
 | PASS | 工具：捕获 item/started (commandExecution) | hasCmdStarted=true |
 | PASS | 工具：捕获 item/completed (commandExecution) | hasCmdCompleted=true, turnReason=completed |
 | PASS | 审批：捕获 requestApproval server-request | method=fileChange |
 | PASS | 审批：accept 后文件创建 | approval-test.txt 已创建 |
-| PASS | 恢复会话：Phase 1 创建会话 | threadId=019f5dbb-abca-72b3-9148-5844ceccdf66 |
-| PASS | 恢复会话：Phase 2 thread/resume | resumedThreadId=019f5dbb-abca-72b3-9148-5844ceccdf66 |
+| PASS | 恢复会话：Phase 1 创建会话 | threadId=019f5de3-208d-7322-9a20-eb9430091339 |
+| PASS | 恢复会话：Phase 2 thread/resume | resumedThreadId=019f5de3-208d-7322-9a20-eb9430091339 |
 | PASS | 恢复会话：Phase 2 上下文保留验证 | agentMessage="RESUME_42" |
 
 ## 测试说明
