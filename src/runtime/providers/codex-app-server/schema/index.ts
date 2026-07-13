@@ -1,13 +1,22 @@
-// LLM CLI Bridge — Codex app-server schema (V2.17-A Completion)
+// LLM CLI Bridge — Codex app-server schema adapter (Round 2 SSOT)
 //
-// ⚠️ OFFICIAL-SCHEMA-ALIGNED（V2.17-A Completion 主线闭环）
+// 官方 generate-ts 输出在 schema/generated/（顶层 = 官方 wire envelope + 少量公共类型）与
+// schema/generated/v2/（具体 method 的 params/response/notification 类型），source=generated，
+// 见 manifest.json。真实 codex-cli app-server 的 ClientRequest/ServerNotification/ServerRequest
+// 三个判别联合（见 schema/generated/{ClientRequest,ServerNotification,ServerRequest}.ts）证实：
+// 顶层与 v2 属于同一套协议——顶层是 wire envelope（method 判别式），v2 是具体 payload 类型，
+// 不是"新旧两套协议"。
 //
-// 本文件对齐 codex app-server 官方 JSON-RPC 协议（docs / generated schema）：
-//   https://www.mintlify.com/openai/codex/api/items
-//   https://www.codex-docs.com/automation/app-server/
-// 当本机存在 codex CLI 时，应通过
-//   codex app-server generate-ts --out ./src/runtime/providers/codex-app-server/schema
-// 重新生成并覆盖本文件（参见 schema/manifest.json）。
+// 本文件是 Bridge 薄适配层：
+// 1. 重新导出 generated 与 generated/v2 的全部类型（`export type *`）。
+// 2. 只保留 Bridge JsonRpc wire 包装（不带 jsonrpc 字段）。
+// 3. 提供 Codex* 别名 → 映射到 generated 类型，保持向后兼容（6 个 provider 内部消费者）。
+//    别名优先直接等于 generated 类型；当真实 wire/legacy fixture 需要 generated 未覆盖的
+//    字段（如 flat itemId/type/callId 等旧 fixture 字段）时，用 `Generated & { ... }` 的
+//    thin 扩展承载，不再手写整套平行定义。
+//
+// 重新生成 generated/*：npm run codex:schema
+// 校验 Codex* 别名字段是否与 generated 类型保持同步：npm run codex:schema:check
 //
 // Wire 协议要点（与官方 docs/generated schema 一致）：
 // 1. JSON-RPC wire 不发送 "jsonrpc":"2.0" 字段（codex app-server 约定）。
@@ -17,38 +26,88 @@
 //    之后才能发 thread/start 等业务请求。
 // 3. initialize.params 使用官方 shape：
 //      { clientInfo: { name, title, version }, capabilities: { experimentalApi: bool } }
-//    不再使用 clientName/clientVersion 顶层字段。
-//    experimental fields 必须显式 experimentalApi=true。
-// 4. thread/start response result shape: { thread: { id } }。
-//    thread/start.params 使用 config: { model, sandboxPolicy, personality } 容器。
+// 4. thread/start response result shape: { thread: Thread }（Thread.id / Thread.sessionId）。
+//    thread/start.params 为 generated ThreadStartParams（model/personality/... 顶层字段，
+//    非 config 容器——config 字段仅用于 forward-compat 的自由 key-value，Bridge 侧审计用，
+//    实际发送 wire 时会被剥离）。
 // 5. thread/resume 用于恢复已有 threadId（不再把 resumeSessionId 塞进 thread/start）。
-// 6. turn/start.input 为 content item array，例如 [{ type:"text", text:userPrompt }]。
-// 7. item 通知采用 nested params.item 结构：
-//      item/started   params: { threadId, turnId, item: { type, id, ... } }
-//      item/completed params: { threadId, turnId, item: { type, id, ...finalItem } }
-//    不再使用 flat params（type/itemId 顶层字段）。
-// 8. item delta 通知（官方 method 名）：
-//      item/agentMessage/delta            → agent 文本流（驱动 finalAnswer）
-//      item/reasoning/summaryTextDelta    → reasoning summary 流（→ thinking）
-//      item/reasoning/textDelta           → reasoning raw text 流（→ thinking）
-//      item/commandExecution/outputDelta  → 命令输出流（→ tool progress）
-//      item/plan/delta                    → plan 流（experimental，→ thinking/progress）
-//      item/fileChange/outputDelta        → file change 流（→ tool progress）
+// 6. turn/start.input 为 UserInput content item array。
+// 7. item 通知采用 nested params.item 结构（ItemStartedNotification / ItemCompletedNotification）。
+// 8. item delta 通知（官方 method 名，见 ServerNotification 判别式）：
+//      item/agentMessage/delta, item/reasoning/summaryTextDelta, item/reasoning/textDelta,
+//      item/commandExecution/outputDelta, item/plan/delta, item/fileChange/outputDelta。
 //    旧 item/text/delta 仅作为 fixture legacy alias，不作为主路径。
 // 9. approval 不走 notification，而是 server-initiated request（带 id）：
-//      item/commandExecution/requestApproval（带 id）
-//      item/fileChange/requestApproval（带 id）
-//    client 按原 id 返回 result（{ decision: ... }）。
-//    官方 decision：
-//      commandExecution: accept | acceptForSession | acceptWithExecpolicyAmendment
-//                        | applyNetworkPolicyAmendment | decline | cancel
-//      fileChange:       accept | decline
-//    不再在 wire 层使用 allow/allowSession/deny。
-// 10. serverRequest/resolved 通知：携带 requestId/threadId/turnId/itemId/decision，
-//     用于 UI 同步（标记 approval 已落地）。
+//      item/commandExecution/requestApproval, item/fileChange/requestApproval
+//    （见 ServerRequest 判别式）。client 按原 id 返回 result。
+//      commandExecution decision: accept | acceptForSession | decline | cancel
+//        （acceptWithExecpolicyAmendment / applyNetworkPolicyAmendment 为官方扩展对象变体，
+//         Bridge 当前 UI 不支持发起这两种复杂流程，故 CodexCommandExecutionDecision 只暴露字符串子集）。
+//      fileChange decision: accept | acceptForSession | decline | cancel
+// 10. serverRequest/resolved 通知：官方只携带 threadId/requestId；itemId/decision 为
+//     Bridge 扩展字段（server 侧未必回填，provider 用本地 bookkeeping 回填，见
+//     CodexAppServerProvider.serverRequestBookkeeping）。
 // 11. item/tool/requestUserInput 同为 server request，承载 agent 对用户的确认/选择请求。
 //
-// 这些类型只被 codex-app-server provider 内部消费；UI 永远不直接 import 本文件。
+// ⚠️ 已知偏差（见 docs 或 PR 说明，留待后续验证真实 wire 后收紧类型）：
+// - 官方 turn/completed 判别式为 { threadId, turn: Turn }（Turn 内含 items/status/error），
+//   不是 Bridge 目前解析的 flat { turnId, finalText, durationMs, sessionId }。
+//   本轮只做类型级扩展保证编译通过与旧 fixture 兼容，未改写 mapper 的语义解析——
+//   在没有真实 runtime 抓包验证前，改写解析逻辑有回归风险。
+// - 官方 ServerNotification 判别式没有独立的 turn/failed 通知；失败态经由
+//   turn/completed 携带 turn.status==="failed" + turn.error 表达。Bridge 仍保留
+//   turn/failed handler（真实 runtime 若不发送，该 handler 只是永不触发，不影响其它路径）。
+//
+// 这些类型只被 codex-app-server / codex-managed-app-server provider 内部消费；
+// UI 永远不直接 import 本文件。
+
+export type * from "./generated";
+export type * from "./generated/v2";
+// generated/index.ts 与 generated/v2/index.ts 对以下 5 个类型各自重复 export 了一份
+// （ts-rs 生成器把顶层与 v2 共享的枚举类型各生成一次），`export type *` 对同名类型会报
+// TS2308 ambiguous export；显式重新导出以消除歧义（explicit export 优先于 `export *`）。
+// 两处定义结构一致（见 generated/ExecPolicyAmendment.ts vs generated/v2/ExecPolicyAmendment.ts），
+// 取 v2 版本无实质差异。
+export type {
+  ExecPolicyAmendment,
+  NetworkPolicyAmendment,
+  NetworkPolicyRuleAction,
+  SessionSource,
+  WebSearchAction,
+} from "./generated/v2";
+
+import type {
+  ClientInfo,
+  InitializeCapabilities,
+  InitializeParams,
+  InitializeResponse,
+} from "./generated";
+import type {
+  AgentMessageDeltaNotification,
+  CommandExecutionApprovalDecision,
+  CommandExecutionOutputDeltaNotification,
+  CommandExecutionRequestApprovalParams,
+  FileChangeApprovalDecision,
+  FileChangeOutputDeltaNotification,
+  FileChangeRequestApprovalParams,
+  ItemCompletedNotification,
+  ItemStartedNotification,
+  PlanDeltaNotification,
+  ReasoningSummaryTextDeltaNotification,
+  ReasoningTextDeltaNotification,
+  ServerRequestResolvedNotification,
+  Thread,
+  ThreadItem,
+  ThreadResumeParams,
+  ThreadStartParams,
+  ThreadTokenUsageUpdatedNotification,
+  ToolRequestUserInputParams,
+  TurnCompletedNotification,
+  TurnDiffUpdatedNotification,
+  TurnStartedNotification,
+  TurnStartParams,
+  UserInput,
+} from "./generated/v2";
 
 // ---------- 通用 JSON-RPC wire 包装（不带 jsonrpc 字段） ----------
 
@@ -100,429 +159,138 @@ export type JsonRpcMessage<R = unknown> =
   | JsonRpcResponseError
   | JsonRpcClientResponse<R>;
 
-// ---------- initialize handshake（官方 shape） ----------
+// ---------- initialize handshake（官方 shape，generated 别名） ----------
 
-/**
- * 客户端信息（官方 clientInfo 容器）。
- *
- * 替代旧 clientName/clientVersion 顶层字段。
- */
-export interface CodexClientInfo {
-  /** 客户端名称（如 "llm-cli-bridge"） */
-  name: string;
-  /** 客户端显示标题（如 "LLM CLI Bridge"） */
-  title?: string;
-  /** 客户端版本 */
-  version: string;
-}
+/** 客户端信息（官方 clientInfo 容器）。直接等于 generated ClientInfo。 */
+export type CodexClientInfo = ClientInfo;
 
 /**
  * 客户端能力声明（官方 capabilities 容器）。
  *
- * experimentalApi=true 时才能使用 experimental fields（如 item/plan/delta）。
- * 默认 experimentalApi=false。
+ * generated InitializeCapabilities 把 experimentalApi/requestAttestation 都设为必填；
+ * Bridge 目前只声明 experimentalApi，其余能力位保留为可选 forward-compat 扩展点。
  */
-export interface CodexClientCapabilities {
-  /** 是否启用 experimental API；默认 false */
-  experimentalApi?: boolean;
-}
+export type CodexClientCapabilities = Partial<InitializeCapabilities>;
 
 /**
- * initialize 请求参数（官方 shape）。
+ * initialize 请求参数。
  *
- * 使用 clientInfo + capabilities 容器，不再使用 clientName/clientVersion 顶层字段。
+ * generated InitializeParams 的 capabilities 为必填 `InitializeCapabilities | null`；
+ * Bridge 侧用可选 CodexClientCapabilities 覆盖，并保留 protocolVersion/cwd 兼容字段
+ * （真实 codex-cli app-server 接受顶层 cwd，generated schema 未声明）。
  */
-export interface CodexInitializeParams {
-  /** 客户端信息（官方容器，替代 clientName/clientVersion） */
-  clientInfo: CodexClientInfo;
-  /** 客户端能力声明（experimentalApi 默认 false） */
+export type CodexInitializeParams = Omit<InitializeParams, "capabilities"> & {
   capabilities?: CodexClientCapabilities;
   /** 协议版本（codex app-server 约定；可选） */
   protocolVersion?: string;
   /** 工作目录 */
   cwd?: string;
-}
+};
 
 /**
- * initialize 响应 result（官方 shape）。
+ * initialize 响应 result。
  *
- * 官方字段：userAgent / codexHome / platformFamily / platformOs。
+ * generated InitializeResponse 已含 userAgent/codexHome/platformFamily/platformOs；
+ * 额外保留 name/version/protocolVersion/capabilities 供旧版本 runtime 兼容读取。
  */
-export interface CodexInitializeResult {
-  /** 服务端协议版本（部分版本返回） */
+export type CodexInitializeResult = InitializeResponse & {
   protocolVersion?: string;
-  /** 服务端 user-agent 字符串（如 "probe/0.124.0 (Arch Linux ...) ghostty/1.3.1"） */
-  userAgent?: string;
-  /** codex home 目录（如 "/home/user/.codex"） */
-  codexHome?: string;
-  /** 平台 family（如 "unix" / "windows"） */
-  platformFamily?: string;
-  /** 平台 OS（如 "linux" / "macos"） */
-  platformOs?: string;
-  /** 服务端名称（旧字段，部分版本返回；保留兼容） */
   name?: string;
-  /** 服务端版本（旧字段，部分版本返回；保留兼容） */
   version?: string;
-  /** 服务端能力声明 */
   capabilities?: Record<string, unknown>;
-}
+};
 
 // ---------- thread / turn ----------
 
-/**
- * thread/start.config 容器（官方 shape）。
- *
- * codex app-server 把 model / sandboxPolicy / personality 等放在 config 子对象内。
- */
-export interface CodexThreadConfig {
-  /** 模型 id（如 gpt-5.5）；省略时由 codex 自行选默认 */
-  model?: string;
-  /** 沙箱策略（如 "workspaceWrite" / "readOnly" / "dangerFullAccess"） */
-  sandboxPolicy?: string;
-  /** personality（如 "pragmatic"） */
-  personality?: string;
-  /** 其他官方 config 字段（forward-compatible） */
-  [key: string]: unknown;
-}
+/** thread/start.config 自由 key-value 容器（审计用；wire 发送前会被剥离）。 */
+export type CodexThreadConfig = Record<string, unknown>;
 
 /**
- * thread/start 请求参数（官方 shape：config 容器）。
+ * thread/start 请求参数。
  *
- * bridgeSystemAppend 走 instructions 字段（codex app-server 文档明确支持）。
- * 不再把 resumeSessionId 塞进 thread/start；resume 走 thread/resume。
+ * 直接基于 generated ThreadStartParams（model/personality/approvalPolicy/sandbox/
+ * developerInstructions/ephemeral/sessionStartSource 等官方顶层字段全部对齐）。
+ * config 字段覆盖为宽松 Record（generated 要求 JsonValue，审计侧用 unknown 更方便）。
  */
-export interface CodexThreadStartParams {
-  /** 官方 config 容器（model/sandboxPolicy/personality） */
+export type CodexThreadStartParams = Omit<ThreadStartParams, "config"> & {
   config?: CodexThreadConfig;
-  /** Codex instructions 层（对应 BridgePromptPackage.bridgeSystemAppend 的映射目标之一） */
-  instructions?: string;
-  /** Codex config/rules 层（key-value；bridgeSystemAppend 可拆解到此） */
-  configRules?: Record<string, unknown>;
-  /** 工作目录 */
-  cwd?: string;
-  /** 审批策略（如 "untrusted" / "on-request" / "never"） */
-  approvalPolicy?: string;
-  /** 审批审阅者（如 "user"） */
-  approvalsReviewer?: string;
-  /** 沙箱模式（如 "workspace-write" / "danger-full-access"） */
-  sandbox?: string;
-  /** 人格（如 "pragmatic"；也可走 config.personality） */
-  personality?: string;
-  /** 是否 ephemeral 会话（新会话 true，resume false） */
-  ephemeral?: boolean;
-  /** 会话启动来源（"clear" 新建 / "resume" 恢复） */
-  sessionStartSource?: string;
-  /** 基础指令（真实 codex binary 实际读取此字段；与 instructions 同源） */
-  baseInstructions?: string;
-
-  // ---------- 兼容字段（旧 fixture 用；新代码应使用 config 容器） ----------
-  /** 真实 codex binary 实际读取此顶层字段（config.model 保留供 resume/审计） */
-  model?: string;
-}
+};
 
 /**
- * thread/start response result shape：{ thread: { id } }。
+ * thread/start response result shape。
  *
- * codex app-server 把 thread 包在 result.thread 内。
- * sessionId 仅在部分版本返回（resume 时优先用 thread/resume 而非依赖此字段）。
+ * 真实 codex-cli app-server 观测到的最小 shape 是 `{ thread: { id, sessionId? } }`；
+ * generated ThreadStartResponse（v2 API 面）额外要求 model/modelProvider/cwd/
+ * instructionSources/approvalPolicy/approvalsReviewer/sandbox/reasoningEffort 等字段，
+ * 与 manifest.wireProtocolCalibration.threadStartResultShape 记录的真实观测不符，
+ * 因此这里只从 generated Thread 抽取 id/sessionId 两个字段类型，不强制其余字段存在。
  */
 export interface CodexThreadStartResult {
-  thread: {
-    id: string;
-    /** 服务端 session id（部分版本返回；resume 用，可能与 thread.id 同） */
-    sessionId?: string;
-  };
+  thread: Pick<Thread, "id"> & Partial<Pick<Thread, "sessionId">>;
 }
 
 /**
- * thread/resume 请求参数（官方 shape）。
+ * thread/resume 请求参数。
  *
- * 用于恢复已有 threadId。不再把 resumeSessionId 塞进 thread/start 伪恢复。
+ * 基于 generated ThreadResumeParams；config 字段覆盖同 CodexThreadStartParams。
  */
-export interface CodexThreadResumeParams {
-  /** 要恢复的 thread id（来自前一次 thread/start result.thread.id） */
-  threadId: string;
-  /** 可选 config 覆盖（如覆盖 model/sandboxPolicy） */
+export type CodexThreadResumeParams = Omit<ThreadResumeParams, "config"> & {
   config?: CodexThreadConfig;
-  /** 工作目录 */
-  cwd?: string;
-}
+};
 
-/**
- * thread/resume response result shape：与 thread/start 一致。
- */
-export interface CodexThreadResumeResult {
-  thread: {
-    id: string;
-    sessionId?: string;
-  };
-}
+/** thread/resume response result shape：与 thread/start 一致。 */
+export type CodexThreadResumeResult = CodexThreadStartResult;
 
 /**
  * turn/start 输入 content item（数组元素）。
  *
- * codex app-server 的 turn/start.input 为 content item array，而非裸字符串。
- * 当前真实 managed app-server 支持 text / image / localImage / skill / mention。
- * Bridge 不把普通文件作为 input item 发送；文本附件已内联进 userPrompt，
- * 大文件/PDF/二进制只保留在 FileRef metadata index，避免触发 unknown variant `file`。
+ * 直接等于 generated UserInput（text/image/localImage/skill/mention）。
+ * "text" 变体的 text_elements 为必填数组（无特殊 UI 元素时传空数组）。
  */
-export type CodexTurnInputItem =
-  | { type: "text"; text: string }
-  | { type: "image"; refId?: string; url: string; path?: string; mediaType?: string; data?: string }
-  | { type: "localImage"; refId?: string; url?: string; path: string; mediaType?: string }
-  | { type: "skill"; name: string; slug?: string; description?: string }
-  | { type: "mention"; refId?: string; path?: string; label?: string; kind?: string };
+export type CodexTurnInputItem = UserInput;
 
-export interface CodexTurnStartParams {
-  /** 用户输入（content item array；对应 BridgePromptPackage.userPrompt 打包为 text item） */
-  input: CodexTurnInputItem[];
-  /** 已存在的 thread id（resume 场景由 provider 在 thread/start 或 thread/resume 后注入） */
-  threadId: string;
-  /**
-   * 本轮审批策略（恢复会话后切换权限时，从下一轮 turn/start 立即生效）。
-   */
-  approvalPolicy?: string;
-  /**
-   * 本轮审批审查方（user / auto_review；恢复会话后切换权限时同步下发）。
-   */
-  approvalsReviewer?: string;
-  /**
-   * 本轮结构化沙箱策略（与 thread/start.sandbox 对应）。
-   */
-  sandboxPolicy?: Record<string, unknown>;
-  /**
-   * 附件条目（codex 原生 attachment block；与 input 数组互补，用于 image/file ref）。
-   *
-   * @deprecated 任务3: Codex managed path 明确不发送 turnStart.attachments。
-   * Bridge 把所有有效附件（text/localImage）打包进 input 数组，不再走 attachments 字段。
-   * 保留字段仅为 forward-compatible 读取；审计哈希写入 "attachments=disabled"。
-   * 真实 app-server 若未来强制 attachments，需重新评估此收敛决策。
-   */
-  attachments?: Array<CodexAttachmentBlock>;
-  /** effort 等级（codex 自有字段；映射自 plan.effort） */
-  effort?: string;
-}
+/** turn/start 请求参数。直接等于 generated TurnStartParams。 */
+export type CodexTurnStartParams = TurnStartParams;
 
-export interface CodexAttachmentBlock {
-  type: "text" | "image";
-  refId?: string;
-  url?: string;
-  path?: string;
-  content?: string;
-  mediaType?: string;
-}
-
-/**
- * turn/started 通知参数（官方 shape）。
- */
+/** turn/started 通知参数（官方 shape：{ threadId, turn: { id } }）。 */
 export interface CodexTurnStartedParams {
   threadId: string;
   turn: { id: string };
 }
 
-// ---------- ThreadItem（官方 nested item 结构） ----------
-//
-// item/started 与 item/completed 的 params.item 是 ThreadItem。
-// 每个 item 有明确的 type 与 id，其余字段按 type 不同。
-// 官方 item 类型：userMessage / agentMessage / plan / reasoning / commandExecution /
-// fileChange / mcpToolCall / dynamicToolCall / webSearch / imageView /
-// enteredReviewMode / exitedReviewMode / contextCompaction。
+// ---------- ThreadItem（官方 nested item 结构，generated 别名） ----------
 
+/** ThreadItem 判别联合。直接等于 generated ThreadItem（userMessage/agentMessage/plan/... 全量变体）。 */
+export type CodexThreadItem = ThreadItem;
+
+/**
+ * ThreadItem.type 字面量联合，从 generated ThreadItem 派生（不再手写平行枚举），
+ * 联合旧 fixture legacy 别名字符串（message/thinking/tool_call/tool_result/file_change）
+ * ——mapper 仍需在 switch/case 中兼容这些旧 flat params.type 取值。
+ */
 export type CodexItemType =
-  | "userMessage"
-  | "agentMessage"
-  | "plan"
-  | "reasoning"
-  | "commandExecution"
-  | "fileChange"
-  | "mcpToolCall"
-  | "dynamicToolCall"
-  | "webSearch"
-  | "imageView"
-  | "enteredReviewMode"
-  | "exitedReviewMode"
-  | "contextCompaction"
-  // 旧 fixture 兼容类型（仅 legacy alias 路径用；新 schema 用驼峰）
+  | ThreadItem["type"]
   | "message"
+  | "thinking"
   | "tool_call"
   | "tool_result"
-  | "thinking"
-  | "approval_request"
   | "file_change";
 
-/**
- * ThreadItem 基础字段（所有 type 共有）。
- */
-export interface CodexThreadItemBase {
-  type: CodexItemType;
-  /** item 唯一 id（用于配对 delta/completed） */
-  id: string;
-}
-
-/**
- * agentMessage item（官方 type）。
- *
- * text 为累积的 agent 回复文本；item/agentMessage/delta 的 delta 拼接应等于 completed 时的 text。
- */
-export interface CodexAgentMessageItem extends CodexThreadItemBase {
-  type: "agentMessage";
-  text: string;
-  phase?: string;
-}
-
-/**
- * plan item（EXPERIMENTAL）。
- */
-export interface CodexPlanItem extends CodexThreadItemBase {
-  type: "plan";
-  text: string;
-}
-
-/**
- * reasoning item。
- *
- * summary 为 reasoning 摘要数组（OpenAI 模型）；content 为 raw reasoning blocks（开源模型）。
- */
-export interface CodexReasoningItem extends CodexThreadItemBase {
-  type: "reasoning";
-  summary?: string[];
-  content?: string[];
-}
-
-/**
- * commandExecution item。
- */
-export interface CodexCommandExecutionItem extends CodexThreadItemBase {
-  type: "commandExecution";
-  command: string | string[];
-  cwd?: string;
-  processId?: string;
-  status?: "inProgress" | "completed" | "failed" | "declined";
-  commandActions?: unknown[];
-  aggregatedOutput?: string;
-  exitCode?: number;
-  durationMs?: number;
-}
-
-/**
- * fileChange item。
- */
-export interface CodexFileChangeChange {
-  path: string;
-  kind: "create" | "modify" | "delete";
-  diff?: string;
-}
-
-export interface CodexFileChangeItem extends CodexThreadItemBase {
-  type: "fileChange";
-  changes: CodexFileChangeChange[];
-  status?: "inProgress" | "completed" | "failed" | "declined";
-}
-
-/**
- * mcpToolCall item。
- */
-export interface CodexMcpToolCallItem extends CodexThreadItemBase {
-  type: "mcpToolCall";
-  server: string;
-  tool: string;
-  status?: "inProgress" | "completed" | "failed";
-  arguments?: Record<string, unknown>;
-  result?: unknown;
-  error?: unknown;
-  durationMs?: number;
-}
-
-/**
- * dynamicToolCall item。
- */
-export interface CodexDynamicToolCallItem extends CodexThreadItemBase {
-  type: "dynamicToolCall";
-  tool: string;
-  arguments?: Record<string, unknown>;
-  status?: "inProgress" | "completed" | "failed";
-  contentItems?: unknown[];
-  success?: boolean;
-  durationMs?: number;
-}
-
-/**
- * webSearch item。
- */
-export interface CodexWebSearchItem extends CodexThreadItemBase {
-  type: "webSearch";
-  query: string;
-  action?: unknown;
-}
-
-/**
- * imageView item。
- */
-export interface CodexImageViewItem extends CodexThreadItemBase {
-  type: "imageView";
-  path: string;
-}
-
-/**
- * enteredReviewMode / exitedReviewMode item。
- */
-export interface CodexReviewModeItem extends CodexThreadItemBase {
-  type: "enteredReviewMode" | "exitedReviewMode";
-  review: string;
-}
-
-/**
- * contextCompaction item。
- */
-export interface CodexContextCompactionItem extends CodexThreadItemBase {
-  type: "contextCompaction";
-}
-
-/**
- * userMessage item。
- */
-export interface CodexUserInputItem {
-  type: "text" | "image" | "localImage" | "skill" | "mention";
-  text?: string;
-  [key: string]: unknown;
-}
-
-export interface CodexUserMessageItem extends CodexThreadItemBase {
-  type: "userMessage";
-  content: CodexUserInputItem[];
-}
-
-/**
- * ThreadItem 联合类型（官方 item 结构）。
- */
-export type CodexThreadItem =
-  | CodexAgentMessageItem
-  | CodexPlanItem
-  | CodexReasoningItem
-  | CodexCommandExecutionItem
-  | CodexFileChangeItem
-  | CodexMcpToolCallItem
-  | CodexDynamicToolCallItem
-  | CodexWebSearchItem
-  | CodexImageViewItem
-  | CodexReviewModeItem
-  | CodexContextCompactionItem
-  | CodexUserMessageItem;
+export type CodexCommandExecutionItem = Extract<ThreadItem, { type: "commandExecution" }>;
+export type CodexFileChangeItem = Extract<ThreadItem, { type: "fileChange" }>;
+export type CodexMcpToolCallItem = Extract<ThreadItem, { type: "mcpToolCall" }>;
+export type CodexDynamicToolCallItem = Extract<ThreadItem, { type: "dynamicToolCall" }>;
 
 // ---------- item 事件通知（官方 nested params.item 结构） ----------
 
 /**
- * item/started 通知参数（官方 shape：nested params.item）。
+ * item/started 通知参数。
  *
- * 官方：params: { threadId, turnId, item: { type, id, ... } }
- * 旧 fixture 使用 flat params（type/itemId 顶层）；mapper 同时支持两种。
+ * generated ItemStartedNotification 为 { item, threadId, turnId, startedAtMs }（全部必填）。
+ * 旧 fixture 用 flat params（type/itemId/toolName/callId/sessionId/parentToolUseId 顶层）；
+ * 以下字段作为 legacy alias 扩展保留，mapper 同时支持两种。
  */
-export interface CodexItemStartedParams {
-  threadId: string;
-  turnId?: string;
-  /** nested item（官方 shape） */
-  item?: CodexThreadItem;
-  // ---------- flat 兼容字段（旧 fixture；新 schema 走 item.*） ----------
+export type CodexItemStartedParams = ItemStartedNotification & {
   /** @deprecated 改用 item.id */
   itemId?: string;
   /** @deprecated 改用 item.type */
@@ -532,17 +300,15 @@ export interface CodexItemStartedParams {
   callId?: string;
   sessionId?: string;
   parentToolUseId?: string;
-}
+};
 
 /**
- * item/completed 通知参数（官方 shape：nested params.item）。
+ * item/completed 通知参数。
+ *
+ * generated ItemCompletedNotification 为 { item, threadId, turnId, completedAtMs }。
+ * 旧 fixture flat 字段作为 legacy alias 扩展保留。
  */
-export interface CodexItemCompletedParams {
-  threadId: string;
-  turnId?: string;
-  /** nested item（官方 shape，含最终字段） */
-  item?: CodexThreadItem;
-  // ---------- flat 兼容字段（旧 fixture；新 schema 走 item.*） ----------
+export type CodexItemCompletedParams = ItemCompletedNotification & {
   /** @deprecated 改用 item.id */
   itemId?: string;
   /** @deprecated 改用 item.type */
@@ -558,96 +324,38 @@ export interface CodexItemCompletedParams {
   fileAction?: "create" | "modify" | "delete";
   filePath?: string;
   durationMs?: number;
-}
+};
 
-// ---------- item delta 通知（官方 method 名） ----------
+// ---------- item delta 通知（官方 method 名，generated 别名） ----------
+
+/** item/agentMessage/delta 通知参数。直接等于 generated AgentMessageDeltaNotification。 */
+export type CodexItemAgentMessageDeltaParams = AgentMessageDeltaNotification;
+
+/** item/reasoning/summaryTextDelta 通知参数。直接等于 generated ReasoningSummaryTextDeltaNotification。 */
+export type CodexItemReasoningSummaryTextDeltaParams = ReasoningSummaryTextDeltaNotification;
+
+/** item/reasoning/textDelta 通知参数（raw reasoning）。直接等于 generated ReasoningTextDeltaNotification。 */
+export type CodexItemReasoningTextDeltaParams = ReasoningTextDeltaNotification;
+
+/** item/commandExecution/outputDelta 通知参数。直接等于 generated CommandExecutionOutputDeltaNotification。 */
+export type CodexItemCommandExecutionOutputDeltaParams = CommandExecutionOutputDeltaNotification;
+
+/** item/plan/delta 通知参数（EXPERIMENTAL）。直接等于 generated PlanDeltaNotification。 */
+export type CodexItemPlanDeltaParams = PlanDeltaNotification;
 
 /**
- * item/agentMessage/delta 通知参数（官方）。
+ * item/fileChange/outputDelta 通知参数。
  *
- * delta 为 agent 文本流增量；按 itemId 拼接得到完整 agentMessage.text。
- * 这是驱动 AssistantTurnView.finalAnswer 的主路径。
+ * generated FileChangeOutputDeltaNotification 标注为 deprecated legacy 通知
+ * （server 已不再发送），但 Bridge fixture/legacy runtime 仍可能收到，保留映射。
  */
-export interface CodexItemAgentMessageDeltaParams {
-  threadId: string;
-  turnId?: string;
-  itemId: string;
-  delta: string;
-}
+export type CodexFileChangeOutputDeltaParams = FileChangeOutputDeltaNotification;
 
-/**
- * item/reasoning/summaryTextDelta 通知参数（官方）。
- *
- * delta 为 reasoning summary 流增量；summaryIndex 标记 summary 段索引。
- */
-export interface CodexItemReasoningSummaryTextDeltaParams {
-  threadId: string;
-  turnId?: string;
-  itemId: string;
-  summaryIndex: number;
-  delta: string;
-}
-
-/**
- * item/reasoning/textDelta 通知参数（官方，raw reasoning）。
- *
- * delta 为 raw reasoning text 流增量（开源模型）。
- */
-export interface CodexItemReasoningTextDeltaParams {
-  threadId: string;
-  turnId?: string;
-  itemId: string;
-  delta: string;
-}
-
-/**
- * item/commandExecution/outputDelta 通知参数（官方）。
- *
- * delta 为命令 stdout/stderr 流增量；累加为 tool progress。
- */
-export interface CodexItemCommandExecutionOutputDeltaParams {
-  threadId: string;
-  turnId?: string;
-  itemId: string;
-  delta: string;
-}
-
-/**
- * item/plan/delta 通知参数（官方，EXPERIMENTAL）。
- *
- * 需要 experimentalApi=true。delta 为 plan 文本流增量。
- * completed plan item 是权威的，可能与 delta 拼接不一致。
- */
-export interface CodexItemPlanDeltaParams {
-  threadId: string;
-  turnId?: string;
-  itemId: string;
-  delta: string;
-}
-
-/**
- * item/fileChange/outputDelta 通知参数（官方）。
- */
-export interface CodexFileChangeOutputDeltaParams {
-  threadId: string;
-  turnId?: string;
-  itemId: string;
-  delta: string;
-}
-
-/**
- * turn/diff/updated 通知参数（真实 app-server observation）。
- *
- * 这是 turn-level diff telemetry，不携带 itemId。Bridge 将其作为 developer
- * timeline/status observation 处理，不打断普通用户 item timeline。
- */
-export interface CodexTurnDiffUpdatedParams {
-  threadId: string;
-  turnId?: string;
-  diff?: string;
+/** turn/diff/updated 通知参数。直接等于 generated TurnDiffUpdatedNotification，补充 legacy 字段。 */
+export type CodexTurnDiffUpdatedParams = TurnDiffUpdatedNotification & {
   patch?: string;
   summary?: string;
-}
+};
 
 /**
  * item/text/delta 通知参数（⚠️ legacy alias only）。
@@ -673,91 +381,71 @@ export interface CodexItemArgumentDeltaParams {
   delta: string;
 }
 
-// ---------- approval：server-initiated request（带 id） ----------
+// ---------- approval：server-initiated request（带 id，generated 别名） ----------
 //
 // codex app-server 的 approval 不走 notification，而是 server 主动发起的 request
 // （消息带 id + method）。client 必须按原 id 返回 result（不是 notify）。
 //
-// 三种 server request：
+// 三种 server request（见 generated ServerRequest 判别式）：
 // - item/commandExecution/requestApproval：命令执行审批
 // - item/fileChange/requestApproval：文件变更审批
 // - item/tool/requestUserInput：工具需要用户输入
 
-export interface CodexCommandExecutionApprovalRequestParams {
-  threadId: string;
-  turnId?: string;
-  itemId: string;
-  /** 命令（官方为数组形式，如 ["rm", "-rf", "/tmp/test"]；兼容字符串） */
-  command: string[] | string;
-  /** 工作目录 */
-  cwd?: string;
-  /** 命令动作解析 */
-  commandActions?: unknown[];
-  /** 原因（可选） */
-  reason?: string;
-  /** @deprecated 旧 fixture 字段 */
+/**
+ * item/commandExecution/requestApproval 请求参数。
+ *
+ * 基于 generated CommandExecutionRequestApprovalParams；description/inputSummary 为
+ * 旧 fixture legacy 字段（官方走 reason），保留兼容。
+ */
+export type CodexCommandExecutionApprovalRequestParams = CommandExecutionRequestApprovalParams & {
+  /** @deprecated 旧 fixture 字段；官方走 reason */
   description?: string;
   inputSummary?: string;
-}
+};
 
-export interface CodexFileChangeApprovalRequestParams {
-  threadId: string;
-  turnId?: string;
-  itemId: string;
-  /** 原因（可选） */
-  reason?: string;
+/**
+ * item/fileChange/requestApproval 请求参数。
+ *
+ * 基于 generated FileChangeRequestApprovalParams；filePath/fileAction/description/
+ * inputSummary 为旧 fixture legacy 字段，保留兼容。
+ */
+export type CodexFileChangeApprovalRequestParams = FileChangeRequestApprovalParams & {
   /** @deprecated 旧 fixture 字段 */
   filePath?: string;
   fileAction?: "create" | "modify" | "delete";
   description?: string;
   inputSummary?: string;
-}
+};
 
-export interface CodexToolUserInputRequestParams {
-  threadId: string;
-  turnId?: string;
-  itemId?: string;
-  /** 工具名 */
-  toolName: string;
-  /** 提示语 */
-  prompt: string;
-  /** 输入类型（如 "text" / "secret"） */
+/**
+ * item/tool/requestUserInput 请求参数。
+ *
+ * 基于 generated ToolRequestUserInputParams；toolName/prompt/inputType/placeholder/
+ * question/options 为旧 fixture legacy 字段（兼容 request_user_input 工具简写形状）。
+ */
+export type CodexToolUserInputRequestParams = ToolRequestUserInputParams & {
+  toolName?: string;
+  prompt?: string;
   inputType?: string;
-  /** 可选：输入框占位 */
   placeholder?: string;
-  /** 可选：结构化问题（兼容 request_user_input 工具形状） */
-  questions?: unknown[];
-  /** 可选：单题简写 */
+  /** @deprecated 单题简写；官方走 questions[] */
   question?: string;
-  /** 可选：单题选项简写 */
+  /** @deprecated 单题选项简写；官方走 questions[].options */
   options?: unknown[];
-}
+};
 
 /**
  * 官方 approval decision（commandExecution）。
  *
- * - accept:                           允许本次
- * - acceptForSession:                 本会话允许
- * - acceptWithExecpolicyAmendment:    允许并持久化规则（commandExecution 专用扩展位）
- * - applyNetworkPolicyAmendment:      应用网络策略规则
- * - decline:                          拒绝
- * - cancel:                           拒绝并中断 turn
+ * generated CommandExecutionApprovalDecision 还包含 acceptWithExecpolicyAmendment /
+ * applyNetworkPolicyAmendment 两个携带 amendment payload 的对象变体；Bridge 当前审批 UI
+ * 只支持简单三档（批准/替我审批/完全访问），不发起这两种复杂 amendment 流程，
+ * 因此这里从 generated 类型中派生出字符串子集，不手写平行枚举。
  */
-export type CodexCommandExecutionDecision =
-  | "accept"
-  | "acceptForSession"
-  | "acceptWithExecpolicyAmendment"
-  | "applyNetworkPolicyAmendment"
-  | "decline"
-  | "cancel";
+export type CodexCommandExecutionDecision = Extract<CommandExecutionApprovalDecision, string>;
 
-/**
- * 官方 approval decision（fileChange）。
- *
- * - accept:  允许
- * - decline: 拒绝
- */
-export type CodexFileChangeDecision = "accept" | "decline";
+/** 官方 approval decision（fileChange）。直接等于 generated FileChangeApprovalDecision。 */
+export type CodexFileChangeDecision = FileChangeApprovalDecision;
 
 /**
  * 客户端返回给 server 的 approval/user-input 响应 result（官方 shape）。
@@ -778,22 +466,21 @@ export type CodexServerRequestResult =
  * serverRequest/resolved 通知：server 在处理完 client 返回的 decision 后推送，
  * 用于 UI 同步（标记 approval 已最终落地）。
  *
- * 携带真实 requestId/threadId/turnId/itemId/decision，UI 据此同步。
+ * generated ServerRequestResolvedNotification 只有 { threadId, requestId }；
+ * turnId/itemId/decision/note/outcome 为 Bridge 扩展字段——server 是否回填因版本而异，
+ * provider 用本地 bookkeeping（serverRequestBookkeeping）回填缺失的 itemId/decision。
  */
-export interface CodexServerRequestResolvedParams {
-  /** 原 server request id */
-  requestId: number | string;
-  threadId?: string;
+export type CodexServerRequestResolvedParams = ServerRequestResolvedNotification & {
   turnId?: string;
   itemId?: string;
   /** 最终落地决策（与 client 返回一致或经 server 调整） */
-  decision: CodexCommandExecutionDecision | CodexFileChangeDecision;
+  decision?: CodexCommandExecutionDecision | CodexFileChangeDecision;
   /** 备注（可选） */
   note?: string;
   // ---------- 旧 fixture 字段（allow/allowSession/deny；仅 legacy alias 用） ----------
   /** @deprecated 改用 decision（accept/acceptForSession/decline/cancel） */
   outcome?: "allow" | "allowSession" | "deny";
-}
+};
 
 // ---------- 旧 approval notification 类型（已废弃，仅保留供迁移参考） ----------
 //
@@ -822,8 +509,12 @@ export interface CodexApprovalResponse {
 }
 
 // ---------- turn / thread 终态 ----------
+//
+// ⚠️ 已知偏差：generated TurnCompletedNotification 为 { threadId, turn: Turn }
+// （turn.items/turn.status/turn.error 承载最终结果），不是下面的 flat shape。
+// 本轮只做类型扩展保证编译通过，未改写 mapper 解析语义（见文件头「已知偏差」说明）。
 
-export interface CodexTurnCompletedParams {
+export type CodexTurnCompletedParams = Partial<TurnCompletedNotification> & {
   threadId: string;
   /** turn 唯一 id */
   turnId: string;
@@ -832,7 +523,7 @@ export interface CodexTurnCompletedParams {
   durationMs?: number;
   /** 终态 session id（审计用） */
   sessionId?: string;
-}
+};
 
 export interface CodexTurnFailedParams {
   threadId: string;
@@ -842,28 +533,10 @@ export interface CodexTurnFailedParams {
   sessionId?: string;
 }
 
+/** turn/started 通知参数别名（Bridge 内部命名沿用 CodexTurnStartedParams，见上方定义）。 */
+export type CodexTurnStartedNotification = TurnStartedNotification;
+
 // ---------- thread/tokenUsage/updated（上下文占用，非 timeline） ----------
 
-/** Codex TokenUsageBreakdown（camelCase wire） */
-export interface CodexTokenUsageBreakdown {
-  totalTokens: number;
-  inputTokens: number;
-  cachedInputTokens: number;
-  outputTokens: number;
-  reasoningOutputTokens: number;
-}
-
-/** Codex ThreadTokenUsage */
-export interface CodexThreadTokenUsage {
-  total: CodexTokenUsageBreakdown;
-  last: CodexTokenUsageBreakdown;
-  /** 当前模型 context window；官方暂为 optional */
-  modelContextWindow?: number | null;
-}
-
-/** `thread/tokenUsage/updated` notification params */
-export interface CodexThreadTokenUsageUpdatedParams {
-  threadId: string;
-  turnId?: string;
-  tokenUsage: CodexThreadTokenUsage;
-}
+/** `thread/tokenUsage/updated` notification params。直接等于 generated ThreadTokenUsageUpdatedNotification。 */
+export type CodexThreadTokenUsageUpdatedParams = ThreadTokenUsageUpdatedNotification;

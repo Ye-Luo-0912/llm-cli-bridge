@@ -432,7 +432,7 @@ async function runProviderWireSmoke(runtimePath, appServerArgs) {
     promptPackageHash: "provider-wire-smoke",
     attachmentPlan: { entries: [] },
     createdAt: new Date().toISOString(),
-    instructionsSource: "instructions",
+    instructionsSource: "developerInstructions",
   };
   const promptPackage = {
     userPrompt: "Reply with exactly: SMOKE_OK",
@@ -442,20 +442,22 @@ async function runProviderWireSmoke(runtimePath, appServerArgs) {
   };
   const options = buildCodexAppServerRunOptions(plan, promptPackage);
 
-  // 验证 wire shape：text item 不含 text_elements（schema 中 text item 只有 type+text）
+  // 验证 wire shape：text item 不含 text_elements；Round 1 含 developerInstructions、不含 baseInstructions
   const firstInputItem = options.turnStart.input?.[0];
-  // 验证 threadStart 含 config/instructions（供 resume/audit）+ 顶层 model/baseInstructions（binary 读取）
-  const threadStartHasResumeFields = "config" in options.threadStart && "instructions" in options.threadStart;
-  const threadStartHasWireFields = "model" in options.threadStart && "baseInstructions" in options.threadStart
-    && "approvalPolicy" in options.threadStart && "sandbox" in options.threadStart;
+  const threadStartHasDeveloper = typeof options.threadStart.developerInstructions === "string"
+    && options.threadStart.developerInstructions.length > 0;
+  const threadStartNoBase = options.threadStart.baseInstructions === undefined;
+  const threadStartHasWireFields = "model" in options.threadStart
+    && "approvalPolicy" in options.threadStart && "sandbox" in options.threadStart
+    && threadStartHasDeveloper && threadStartNoBase
+    && options.bridgeSystemAppendSource === "developerInstructions";
   const wireShapeOk = !!firstInputItem
     && firstInputItem.type === "text"
     && typeof firstInputItem.text === "string"
     && !("text_elements" in firstInputItem)
     && !("attachments" in options.turnStart)
-    && threadStartHasResumeFields
     && threadStartHasWireFields;
-  step("provider-wire smoke: wire shape (text item 无 text_elements, turnStart 无 attachments, threadStart 含 config/instructions + 顶层 wire 字段)",
+  step("provider-wire smoke: wire shape (developerInstructions only, no baseInstructions, turnStart 无 attachments)",
     wireShapeOk, wireShapeOk ? "" : `firstInput=${JSON.stringify(firstInputItem)}, turnStart keys=${Object.keys(options.turnStart).join(",")}, threadStart keys=${Object.keys(options.threadStart).join(",")}`);
 
   const proc = spawn(runtimePath, appServerArgs, {
@@ -481,10 +483,14 @@ async function runProviderWireSmoke(runtimePath, appServerArgs) {
     client.notify("initialized", {});
 
     // 2. thread/start（发送与 provider 完全一致的 wire shape）
-    // provider 在 codexAppServerProvider.ts 中发送 options.threadStart 时会剥离 config/instructions
-    // （真实 codex binary 读取顶层 model + baseInstructions；config/instructions 在 wire 上会导致 hang）。
-    // 这里复现 provider 的剥离逻辑，验证 provider 实际发送的 wire 与 managed runtime 兼容。
-    const { config: _dropConfig, instructions: _dropInstr, ...threadStartWirePayload } = options.threadStart;
+    // Round 1：剥离 config/instructions/baseInstructions；发送 developerInstructions。
+    const {
+      config: _dropConfig,
+      instructions: _dropInstr,
+      baseInstructions: _dropBase,
+      ...threadStartWirePayload
+    } = options.threadStart;
+    delete threadStartWirePayload.baseInstructions;
     const threadStartPayload = threadStartWirePayload;
     const thread = await client.request("thread/start", threadStartPayload, 20000);
     const threadId = thread?.thread?.id;

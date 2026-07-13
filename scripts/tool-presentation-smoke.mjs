@@ -1,6 +1,6 @@
 // LLM CLI Bridge — ToolPresentation smoke (F-01 验收)
 //
-// 独立 smoke：验证「用户可见操作」翻译层的验收点，不塞进巨型 run-tests.mjs。
+// 独立 smoke：验证「用户可见操作」翻译层的验收点。
 // 覆盖：
 //   1. 普通模式不泄露下划线内部名（property_get / vault_delete / codex-managed-app-server ...）
 //   2. 未知工具安全降级「正在执行工具 / Running tool」，不泄露原始 payload

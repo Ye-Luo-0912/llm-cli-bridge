@@ -3,7 +3,7 @@
 > 本报告由 `scripts/codex-managed-runtime-smoke.mjs` 自动生成。
 > 验证 production manifest + pinned binary + app-server protocol proof。
 
-- **测试时间**: 2026-07-12T07:53:34.549Z
+- **测试时间**: 2026-07-13T11:44:00.365Z
 - **resolverSmokeStatus**: pass
 - **runtimeSmokeStatus**: pass
 - **managedAppServerProtocolStatus**: pass
@@ -55,20 +55,20 @@
 | PASS | size valid | 341200688 |
 | PASS | sha256 valid | cbacbb9726262ef558b4af0438a1b2a5bba9076132401d947b5b4d2bf92ab0e4 |
 | PASS | executable valid | - |
-| PASS | spawn managed runtime | pid=27072 |
-| PASS | initialize | Codex Desktop/0.144.1 (Windows 10.0.26300; x86_64) unknown (llm-cli-bridge-managed-smoke; 17-f2) |
+| PASS | spawn managed runtime | pid=24000 |
+| PASS | initialize | llm-cli-bridge-managed-smoke/0.144.1 (Windows 10.0.26300; x86_64) dumb (llm-cli-bridge-managed-smoke; 17-f2) |
 | PASS | initialized | - |
 | PASS | model/list | selected=gpt-5.6-sol |
-| PASS | thread/start | threadId=019f5551-427c-7b30-8497-322368dac50a |
+| PASS | thread/start | threadId=019f5b4a-95c1-77d1-ba20-7a2a18ce358d |
 | PASS | turn/start | - |
 | PASS | turn/completed | status=completed |
 | PASS | turn smoke (meaningful output + SMOKE_OK) | 4 event(s), final="SMOKE_OK" |
-| PASS | clean shutdown / cancel | {"timestamp":"2026-07-12T07:53:37.277140Z","level":"WARN","fields":{"message":"ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/"},"target":"codex_core_skills::loade |
+| PASS | clean shutdown / cancel | - |
 | PASS | no vault root pollution | - |
-| PASS | provider-wire smoke: wire shape (text item 无 text_elements, turnStart 无 attachments, threadStart 含 config/instructions + 顶层 wire 字段) | - |
-| PASS | provider-wire smoke: spawn | pid=22076 |
-| PASS | provider-wire smoke: initialize | Codex Desktop/0.144.1 (Windows 10.0.26300; x86_64) unknown (llm-cli-bridge; 2.17-A) |
-| PASS | provider-wire smoke: thread/start | threadId=019f5551-5214-73b0-a933-641ac4b2128d |
+| PASS | provider-wire smoke: wire shape (developerInstructions only, no baseInstructions, turnStart 无 attachments) | - |
+| PASS | provider-wire smoke: spawn | pid=24492 |
+| PASS | provider-wire smoke: initialize | llm-cli-bridge/0.144.1 (Windows 10.0.26300; x86_64) dumb (llm-cli-bridge; 2.17-A) |
+| PASS | provider-wire smoke: thread/start | threadId=019f5b4a-a89b-73f1-9429-97b75d917c9d |
 | PASS | provider-wire smoke: turn/start | - |
 | PASS | provider-wire smoke: turn/completed | status=completed |
 | PASS | provider-wire smoke: final answer 含 SMOKE_OK | final="SMOKE_OK" |

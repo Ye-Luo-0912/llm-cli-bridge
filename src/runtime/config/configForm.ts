@@ -88,14 +88,21 @@ export function readCodexForm(vaultPath: string): ProviderFormReadResult {
 /**
  * 生成 Codex config.toml（基于官方文档模板）。
  * Key 不写入文件，由 env_key 引用环境变量 CODEX_RELAY_API_KEY。
+ * Round 1：reasoning / personality 等写在根表，不落入 [model_providers.relay]。
  */
-export function writeCodexForm(vaultPath: string, form: ProviderForm): void {
-  const content = [
+export function writeCodexForm(
+  vaultPath: string,
+  form: ProviderForm,
+): void {
+  const lines: string[] = [
     '# Codex 配置 — 由 Bridge 表单生成',
     '# Key 不写入此文件，由环境变量 CODEX_RELAY_API_KEY 注入（见 secrets.env）',
+    '# personality 不在此硬编码：由用户设置控制（settings.codexPersonality），运行时按模型 supportsPersonality 门控',
     '',
     `model = "${form.model}"`,
     'model_provider = "relay"',
+    'model_reasoning_summary = "auto"',
+    'model_supports_reasoning_summaries = true',
     '',
     '[model_providers.relay]',
     'name = "Local Relay"',
@@ -103,9 +110,119 @@ export function writeCodexForm(vaultPath: string, form: ProviderForm): void {
     'env_key = "CODEX_RELAY_API_KEY"',
     'wire_api = "responses"',
     '',
-  ].join('\n');
+  ];
+  const content = lines.join('\n');
   const filePath = path.join(vaultPath, AGENT_RUNTIME_CODEX_CONFIG_REL);
   atomicWrite(filePath, content);
+}
+
+/** 误落在 [model_providers.*] 子表、应提升到根表的字段 */
+const CODEX_ROOT_FIELDS = [
+  "model_reasoning_summary",
+  "model_supports_reasoning_summaries",
+  "personality",
+  "model",
+  "model_provider",
+] as const;
+
+/**
+ * 检测并提升误落在 [model_providers.relay]（或其它 provider 子表）下的根字段。
+ * 返回修复后的 TOML；若无需修复则原样返回。
+ */
+export function normalizeCodexConfigToml(content: string): { content: string; lifted: string[] } {
+  const lines = content.split(/\r?\n/);
+  const lifted: string[] = [];
+  const rootValues = new Map<string, string>();
+  const sectionLineIndexesToDrop = new Set<number>();
+
+  let currentSection: string | null = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const sectionMatch = /^\s*\[([^\]]+)\]\s*$/.exec(line);
+    if (sectionMatch) {
+      currentSection = sectionMatch[1].trim();
+      continue;
+    }
+    if (!currentSection || !currentSection.startsWith("model_providers.")) continue;
+    for (const key of CODEX_ROOT_FIELDS) {
+      const re = new RegExp(`^\\s*${escapeRegex(key)}\\s*=\\s*(.+?)\\s*$`);
+      const m = re.exec(line);
+      if (!m) continue;
+      if (!rootValues.has(key)) {
+        rootValues.set(key, m[1].trim());
+        lifted.push(key);
+      }
+      sectionLineIndexesToDrop.add(i);
+      break;
+    }
+  }
+
+  if (lifted.length === 0) {
+    return { content, lifted: [] };
+  }
+
+  // 去掉子表中的误放行
+  const withoutMisplaced = lines.filter((_, idx) => !sectionLineIndexesToDrop.has(idx));
+
+  // 在第一个 [section] 之前插入缺失的根字段（已存在的根键不覆盖）
+  const existingRoot = new Set<string>();
+  for (const line of withoutMisplaced) {
+    if (/^\s*\[/.test(line)) break;
+    for (const key of CODEX_ROOT_FIELDS) {
+      if (new RegExp(`^\\s*${escapeRegex(key)}\\s*=`).test(line)) {
+        existingRoot.add(key);
+      }
+    }
+  }
+
+  const insertLines: string[] = [];
+  for (const key of lifted) {
+    if (existingRoot.has(key)) continue;
+    const value = rootValues.get(key);
+    if (value == null) continue;
+    insertLines.push(`${key} = ${value}`);
+  }
+
+  if (insertLines.length === 0) {
+    return { content: withoutMisplaced.join("\n"), lifted };
+  }
+
+  let insertAt = withoutMisplaced.findIndex((line) => /^\s*\[/.test(line));
+  if (insertAt < 0) insertAt = withoutMisplaced.length;
+  // 保证根字段与 section 之间有空行
+  const before = withoutMisplaced.slice(0, insertAt);
+  while (before.length > 0 && before[before.length - 1].trim() === "") before.pop();
+  const after = withoutMisplaced.slice(insertAt);
+  const merged = [...before, ...insertLines, "", ...after];
+  return { content: merged.join("\n"), lifted };
+}
+
+/**
+ * 若 Vault 内 config.toml 把 reasoning/personality 误写在 provider 子表下，提升到根表并写回。
+ */
+export function normalizeCodexConfigRootFields(vaultPath: string): { ok: boolean; lifted: string[]; changed: boolean; error?: string } {
+  const filePath = path.join(vaultPath, AGENT_RUNTIME_CODEX_CONFIG_REL);
+  let content: string;
+  try {
+    content = fs.readFileSync(filePath, "utf8");
+  } catch {
+    return { ok: true, lifted: [], changed: false };
+  }
+  try {
+    const { content: next, lifted } = normalizeCodexConfigToml(content);
+    if (lifted.length === 0 || next === content) {
+      return { ok: true, lifted, changed: false };
+    }
+    atomicWrite(filePath, next.endsWith("\n") ? next : `${next}\n`);
+    return { ok: true, lifted, changed: true };
+  } catch (e) {
+    return {
+      ok: false,
+      lifted: [],
+      changed: false,
+      error: e instanceof Error ? e.message : String(e),
+    };
+  }
 }
 
 // ---------- Claude (settings.json) ----------
@@ -246,9 +363,17 @@ export function readProviderForm(vaultPath: string, provider: RuntimeProviderId)
 }
 
 /** 保存指定 provider 的表单数据（生成原生配置文件 + 标记 sidecar 所有权） */
-export function writeProviderForm(vaultPath: string, provider: RuntimeProviderId, form: ProviderForm): void {
+export function writeProviderForm(
+  vaultPath: string,
+  provider: RuntimeProviderId,
+  form: ProviderForm,
+): void {
   switch (provider) {
-    case "codex": writeCodexForm(vaultPath, form); break;
+    case "codex":
+      writeCodexForm(vaultPath, form);
+      // Round 1：写回后若仍有历史误放字段（理论上模板已正确），再 normalize 一次
+      normalizeCodexConfigRootFields(vaultPath);
+      break;
     case "claude": writeClaudeForm(vaultPath, form); break;
     case "pi": writePiForm(vaultPath, form); break;
   }

@@ -15,6 +15,7 @@ import type { RuntimeSourceRef } from "../runtime/core/types";
 import { resolveUiLocale } from "../runtime/core/toolPresentation";
 import { truncateText } from "../workflowEvent";
 import { sumCodexEventDuration } from "./codexProcessFeed";
+import { formatQuietReasoningSummary } from "../runtime/core/assistantTurnView";
 
 // ---------- 分段模型 ----------
 
@@ -388,11 +389,18 @@ function renderCodexFeedThinking(
   if (deps.developerMode) {
     row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: deps.localizeRunStatus("Thinking") });
   }
-  row.createEl("span", {
+  // V20.10: 完成后原地 Markdown 渲染一次；运行中用光效纯文本（避免流式 Markdown 闪烁）
+  const summaryEl = row.createEl("span", {
     cls: `llm-bridge-codex-thinking-summary is-reasoning-text${isLive ? " llm-bridge-codex-thinking-status is-running llm-bridge-run-glow is-thinking-faded" : ""}`,
-    text: truncateText(summary, 360),
     attr: { title: summary },
   });
+  if (isLive) {
+    // 运行中：纯文本（光效流式）
+    summaryEl.setText(truncateText(summary, 360));
+  } else {
+    // 完成：Markdown 渲染（**bold** 等标记正确显示）
+    deps.renderMarkdownInto(summaryEl, truncateText(summary, 360));
+  }
 }
 
 function renderCodexFeedNarrative(
@@ -657,13 +665,16 @@ export function patchCodexFeedEntryItem(
     }
     if (!nextSummary) nextSummary = (item.label || "").trim();
     if (streamEl && nextSummary) {
+      const displaySummary = item.kind === "thinking"
+        ? formatQuietReasoningSummary(nextSummary) || nextSummary
+        : nextSummary;
       const clipped = streamEl.classList.contains("llm-bridge-msg-stream-text")
         || streamEl.classList.contains("llm-bridge-codex-thinking-summary")
-        ? (nextSummary.length > 1200 ? `${nextSummary.slice(0, 1200).trimEnd()}...` : nextSummary)
-        : truncateText(nextSummary, 180);
+        ? (displaySummary.length > 1200 ? `${displaySummary.slice(0, 1200).trimEnd()}...` : displaySummary)
+        : truncateText(displaySummary, 180);
       if (streamEl.textContent !== clipped) {
         streamEl.textContent = clipped;
-        streamEl.setAttribute("title", nextSummary);
+        streamEl.setAttribute("title", displaySummary);
       }
     }
   }

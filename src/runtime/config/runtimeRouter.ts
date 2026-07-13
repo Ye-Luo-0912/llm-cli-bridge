@@ -413,6 +413,8 @@ export {
   readClaudeForm, writeClaudeForm,
   readPiForm, writePiForm,
   isBridgeGeneratedConfig,
+  normalizeCodexConfigToml,
+  normalizeCodexConfigRootFields,
   type ProviderForm, type ProviderFormReadResult,
 } from "./configForm";
 
@@ -467,7 +469,11 @@ export function saveProviderForm(
   }
 
   try {
-    writeProviderForm(vaultPath, provider, { baseURL: input.baseURL, model: input.model });
+    writeProviderForm(
+      vaultPath,
+      provider,
+      { baseURL: input.baseURL, model: input.model },
+    );
     // 记录生成的文件路径
     switch (provider) {
       case "codex":

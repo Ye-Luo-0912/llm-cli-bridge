@@ -5,7 +5,7 @@ import type LLMBridgePlugin from "../main";
 import { execFileSync } from "child_process";
 import { existsSync } from "fs";
 import { isAbsolute, join, resolve } from "path";
-import { AgentType, BackendMode, BackendProfile, PermissionPolicy, PiToolMode } from "./types";
+import { AgentType, BackendMode, BackendProfile, PermissionPolicy, PiToolMode, type LLMBridgeSettings } from "./types";
 import {
   AGENT_APPROVAL_PROFILES,
   isAgentApprovalProfile,
@@ -299,7 +299,11 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
               return;
             }
             try {
-              const result = router.saveProviderForm(vaultPath, pid, { baseURL, model, apiKey });
+              const result = router.saveProviderForm(vaultPath, pid, {
+                baseURL,
+                model,
+                apiKey,
+              });
               if (result.ok) {
                 const parts = [`已生成：${result.createdFiles.join(", ")}`];
                 if (result.keyStatus === "session-only") {
@@ -554,6 +558,35 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
         }),
       );
+
+    new Setting(advancedEl)
+      .setName("Codex personality")
+      .setDesc("Codex app-server 的人格设定（thread/start + turn/start personality 字段）。默认 pragmatic。")
+      .addDropdown((d) => {
+        d.addOption("pragmatic", "pragmatic（务实，默认）");
+        d.addOption("friendly", "friendly（友好）");
+        d.addOption("none", "none（无人格设定）");
+        d.setValue(s.codexPersonality);
+        d.onChange(async (v) => {
+          s.codexPersonality = v as LLMBridgeSettings["codexPersonality"];
+          await this.plugin.saveSettings();
+        });
+      });
+
+    new Setting(advancedEl)
+      .setName("Codex reasoning summary")
+      .setDesc("Codex app-server 的推理摘要详细程度（turn/start summary 字段）。默认 auto。")
+      .addDropdown((d) => {
+        d.addOption("auto", "auto（自动，默认）");
+        d.addOption("concise", "concise（简洁）");
+        d.addOption("detailed", "detailed（详细）");
+        d.addOption("none", "none（不显示）");
+        d.setValue(s.codexReasoningSummary);
+        d.onChange(async (v) => {
+          s.codexReasoningSummary = v as LLMBridgeSettings["codexReasoningSummary"];
+          await this.plugin.saveSettings();
+        });
+      });
 
     new Setting(advancedEl)
       .setName("Custom command")

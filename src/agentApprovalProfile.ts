@@ -56,17 +56,14 @@ export function migrateLegacyPermissionToApprovalProfile(_legacyMode?: string | 
   return "ask";
 }
 
-/** Codex 结构化 sandboxPolicy（turn/start） */
-export type CodexSandboxPolicy =
-  | {
-      type: "workspaceWrite";
-      writableRoots: string[];
-      networkAccess: boolean;
-      excludeTmpdirEnvVar: boolean;
-      excludeSlashTmp: boolean;
-    }
-  | { type: "readOnly" }
-  | { type: "dangerFullAccess" };
+/**
+ * Codex 结构化 sandboxPolicy（turn/start）。
+ *
+ * Round 2: 直接复用 generated SandboxPolicy（schema SSOT），不再手写平行定义。
+ * mapAgentApprovalProfileToCodex 只构造 workspaceWrite / dangerFullAccess 两个变体，
+ * 但类型上允许 generated 联合的全部变体（readOnly / externalSandbox），供未来扩展。
+ */
+export type CodexSandboxPolicy = import("./runtime/providers/codex-app-server/schema").SandboxPolicy;
 
 export interface CodexApprovalWireConfig {
   readonly approvalPolicy: "on-request" | "never";

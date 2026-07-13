@@ -1,13 +1,11 @@
-﻿# LLM CLI Bridge - Build + Test + Deploy + SHA-256 verify pipeline
+﻿# LLM CLI Bridge - Build + Deploy + SHA-256 verify pipeline
 # Usage:
 #   powershell -ExecutionPolicy Bypass -File scripts\deploy-to-obsidian.ps1
 #   powershell -ExecutionPolicy Bypass -File scripts\deploy-to-obsidian.ps1 -SkipBuild
-#   powershell -ExecutionPolicy Bypass -File scripts\deploy-to-obsidian.ps1 -SkipTests
 #   powershell -ExecutionPolicy Bypass -File scripts\deploy-to-obsidian.ps1 -VaultPaths "C:\vault1\.obsidian\plugins\llm-cli-bridge","C:\vault2\.obsidian\plugins\llm-cli-bridge"
 #   powershell -ExecutionPolicy Bypass -File scripts\deploy-to-obsidian.ps1 -Reload
 param(
   [switch]$SkipBuild,
-  [switch]$SkipTests,
   [string[]]$VaultPaths,
   [switch]$Reload
 )
@@ -62,27 +60,25 @@ foreach ($artifact in @("main.js", "manifest.json", "styles.css")) {
 }
 
 # ============================================================
-# Phase 2: Tests
+# Phase 1.5: Codex schema SSOT check
 # ============================================================
-if (-not $SkipTests) {
-  Write-Step "Tests (unit + process + presentation)"
-  Push-Location $src
-  cmd /c "node scripts/run-tests.mjs all > $env:TEMP\llm-bridge-test.out 2> $env:TEMP\llm-bridge-test.err"
-  $testExit = $LASTEXITCODE
-  Pop-Location
-  if ($testExit -ne 0) {
-    Write-Err "Tests failed (exit $testExit)"
-    Get-Content "$env:TEMP\llm-bridge-test.out" | Select-Object -Last 5 | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
-    exit 1
-  }
-  $testSummary = (Get-Content "$env:TEMP\llm-bridge-test.out" | Select-Object -Last 5 | Where-Object { $_ -match "结果|passed|failed" }) -join " "
-  Write-Ok "Tests passed: $testSummary"
-} else {
-  Write-Warn "Skipping tests (-SkipTests)"
+# `npm run build` 已把 codex:schema:check 串在 tsc 之后（见 package.json），此处再单独跑一次
+# 是为了在 -SkipBuild 场景下也能捕获 schema drift，并在部署日志中给出独立、可定位的失败信息
+# （而不是淹没在一次性的 build 日志里）。
+Write-Step "Codex schema SSOT check (codex:schema:check)"
+Push-Location $src
+cmd /c "npm run codex:schema:check > $env:TEMP\llm-bridge-schema-check.out 2> $env:TEMP\llm-bridge-schema-check.err"
+$schemaCheckExit = $LASTEXITCODE
+Pop-Location
+if ($schemaCheckExit -ne 0) {
+  Write-Err "Codex schema check failed (exit $schemaCheckExit)"
+  Get-Content "$env:TEMP\llm-bridge-schema-check.out" | ForEach-Object { Write-Host "    $_" -ForegroundColor Red }
+  exit 1
 }
+Write-Ok "Codex schema check passed"
 
 # ============================================================
-# Phase 3: Compute source SHA-256
+# Phase 2: Compute source SHA-256
 # ============================================================
 Write-Step "Compute source SHA-256"
 $srcHashes = @{}
@@ -93,7 +89,7 @@ foreach ($artifact in @("main.js", "manifest.json", "styles.css")) {
 }
 
 # ============================================================
-# Phase 4: Deploy to vaults
+# Phase 3: Deploy to vaults
 # ============================================================
 Write-Step "Deploy to $($targets.Count) vault(s)"
 $successCount = 0
@@ -138,7 +134,7 @@ foreach ($dst in $targets) {
 }
 
 # ============================================================
-# Phase 5: Summary + optional reload
+# Phase 4: Summary + optional reload
 # ============================================================
 Write-Host ""
 Write-Host "=== Deploy Summary ===" -ForegroundColor Cyan

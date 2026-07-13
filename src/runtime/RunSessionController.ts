@@ -17,7 +17,6 @@ import type { App, TFile } from "obsidian";
 import type LLMBridgePlugin from "../../main";
 import { exportState } from "../state";
 import { diffSnapshots, FileSnapshot, snapshotVaultMarkdownFiles } from "../fileDiff";
-import { buildPromptPackage, StateSnapshot } from "../promptPackage";
 import { SdkStreamingInput, AgentRunHandle } from "../agentBackend";
 import { AttachmentPlan, ChatMessage, RunResult, RunStatus } from "../types";
 import type { LLMBridgeSettings } from "../types";
@@ -36,7 +35,7 @@ import { saveSession, SessionExtras } from "../sessions";
 import { PreflightResult } from "../agentProfile";
 import { mapAgentApprovalProfileToClaudePermissionMode, type AgentApprovalProfile } from "../agentApprovalProfile";
 import { createBridgeSession, type BridgeSessionImpl } from "./core/bridgeSession";
-import type { RunInput, NormalizedRuntimeEvent, AssistantTurnView, NativeSessionRef } from "./core/types";
+import type { RunInput, NormalizedRuntimeEvent, AssistantTurnView, NativeSessionRef, StateSnapshot } from "./core/types";
 import type { ManagedRuntimeInstallStatus } from "./providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge";
 import {
   ensureManagedRuntimeIntegrityVerified,
@@ -170,6 +169,8 @@ export interface RunSessionHost {
   refreshSessionState(): void;
   /** Codex thread/tokenUsage/updated → 上下文占用环（精确 runtime 数据） */
   applyRuntimeTokenUsage(usedTokens: number, contextWindow: number | null): void;
+  /** V20.10: skills/changed 通知 → Skills 页面自动刷新 */
+  onSkillsChanged?: () => void;
 }
 
 /**
@@ -490,8 +491,11 @@ export class RunSessionController {
         const runtimeCapabilities = host.buildRuntimeCapabilities(session.providerId, settings);
         const promptPackage = buildBridgePromptPackage(promptUserInput, snapshot, settings, runtimeCapabilities);
         const sdkStreamingInput = await host.buildSdkStreamingInput(promptPackage.userPrompt, promptFileRefsForRun);
-        const prompt = buildPromptPackage(promptUserInput, snapshot, settings);
-        promptLength = prompt.length;
+        // Round 5: legacy buildPromptPackage() 字符串已废弃，长度估算改用
+        // BridgePromptPackage 的两段实际内容（bridgeSystemAppend + userPrompt），
+        // 与真正发给 provider 的内容口径一致。
+        const promptCharLength = promptPackage.bridgeSystemAppend.length + promptPackage.userPrompt.length;
+        promptLength = promptCharLength;
 
         const imageBlockCount = sdkStreamingInput?.content.filter((b) => b.type === "image").length ?? 0;
         const attachmentPlan: AttachmentPlan = {
@@ -508,11 +512,11 @@ export class RunSessionController {
           selectionLength: selection?.length ?? 0,
           hasActiveNote: settings.includeActiveNote && !!activeFile,
           activeFileName: activeFile?.path ?? null,
-          promptLength: prompt.length,
+          promptLength: promptCharLength,
           activeNoteContentLength: snapshot.activeFileContent?.length ?? 0,
         }));
 
-        host.showRunFlowStarted(prompt.length);
+        host.showRunFlowStarted(promptCharLength);
 
         const runInput: RunInput = {
           userMessage: userInput,
@@ -525,7 +529,7 @@ export class RunSessionController {
         };
         const effectiveRunPlan = session.provider.buildPlan(runInput, settings);
         host.updateAssistantMessage(assistantId, {
-          log: `$ ${host.commandLine()}\ncwd: ${vaultPath}\nprompt 通过 stdin 传入（${prompt.length} 字符）`,
+          log: `$ ${host.commandLine()}\ncwd: ${vaultPath}\nprompt 通过 stdin 传入（${promptCharLength} 字符）`,
           commandPreview: commandPreviewRows,
           effectiveRunPlan,
           attachmentPlan,
@@ -822,6 +826,11 @@ export class RunSessionController {
     }
     if (p.kind === "user_input_request" || p.kind === "user_input_resolved") {
       host.refreshUserInputPanel();
+    }
+
+    // V20.10: skills/changed → Skills 页面自动刷新
+    if (p.kind === "progress" && p.label === "skillsChanged") {
+      host.onSkillsChanged?.();
     }
 
     // 5. completed/failed 触发终态

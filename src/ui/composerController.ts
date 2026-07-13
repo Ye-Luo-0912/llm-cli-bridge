@@ -162,6 +162,7 @@ export function renderPermissionPopover(
     onSelectProfile: (profile: AgentApprovalProfile) => void | Promise<void>;
     close: () => void;
   },
+  runtimeProfiles?: Array<{ id: string; description: string | null; allowed: boolean }> | null,
 ): HTMLDivElement {
   const popover = createComposerMenuSurface(mountEl, "llm-bridge-perm-popover", true);
 
@@ -207,6 +208,24 @@ export function renderPermissionPopover(
       await deps.onSelectProfile(profile.id);
     });
   }
+
+  // V20.10: runtime permissionProfile/list 缓存 — 只读展示可用 runtime profiles
+  if (runtimeProfiles && runtimeProfiles.length > 0) {
+    const rtSection = popover.createDiv({ cls: "llm-bridge-perm-popover-runtime" });
+    rtSection.createEl("span", {
+      cls: "llm-bridge-perm-popover-runtime-label",
+      text: "Runtime profiles",
+    });
+    const rtList = rtSection.createDiv({ cls: "llm-bridge-perm-popover-runtime-list" });
+    for (const rp of runtimeProfiles) {
+      const item = rtList.createEl("span", {
+        cls: `llm-bridge-perm-popover-runtime-item${rp.allowed ? "" : " is-disabled"}`,
+        text: rp.id,
+      });
+      if (rp.description) item.setAttribute("title", rp.description);
+    }
+  }
+
   return popover;
 }
 
@@ -270,6 +289,13 @@ export function renderModelEffortOptions(
   appendSection("不兼容", incompatibleModels);
 
   const efforts = getEffortsForModel(catalog, currentModel);
+  if (efforts.length === 0 && (catalog.effortsUnavailable || catalog.source === "runtime")) {
+    const empty = effortOptionsEl.createEl("div", {
+      cls: "llm-bridge-effort-unavailable",
+      text: "推理等级目录不可用（runtime 未返回 supportedReasoningEfforts）",
+    });
+    void empty;
+  }
   for (const effort of efforts) {
     const isActive = effort.value === currentEffort;
     const option = effortOptionsEl.createEl("button", {
@@ -669,6 +695,8 @@ export interface ComposerHost {
   effectiveApprovalProfile(): AgentApprovalProfile;
   autoGrowInput(): void;
   getMessageFileRefs(): ReadonlyArray<FileRef>;
+  /** V20.10: 同步读取已缓存的 runtime permissionProfile 列表（未缓存返回 null） */
+  getCachedPermissionProfilesSync?(): Array<{ id: string; description: string | null; allowed: boolean }> | null;
 }
 
 export class ComposerController {
@@ -912,10 +940,11 @@ export class ComposerController {
     const mountEl = this.host.getPermissionModePickerEl();
     if (!mountEl) return;
     this._permissionPopoverEl?.remove();
+    const runtimeProfiles = this.host.getCachedPermissionProfilesSync?.() ?? null;
     this._permissionPopoverEl = renderPermissionPopover(mountEl, this.host.effectiveApprovalProfile(), {
       close: () => this.closePermissionPopover(),
       onSelectProfile: (profile) => { void this.host.setApprovalProfile(profile); },
-    });
+    }, runtimeProfiles);
   }
 
   togglePermissionPopover(): void {

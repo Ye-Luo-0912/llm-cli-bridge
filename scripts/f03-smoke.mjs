@@ -1,6 +1,6 @@
 // F-03 Smoke: 交互状态机收口验收
 // 验证 AssistantTurnView 终态守卫、cancelled 标志、markStopped 激活、流无终态兜底、restore 防护
-// 独立于 run-tests.mjs，按 spec 要求作为独立 smoke
+// 针对 F03 的独立 smoke
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

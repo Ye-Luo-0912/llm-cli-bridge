@@ -13,11 +13,11 @@
 // 设计原则：
 // - 最小化：每个 section 只描述必要约束，不堆砌细碎规则。
 // - provider-neutral：不绑定 SDK/CLI/Codex 的私有字段名。
-// - 单一真相源：runtime/core/promptPackage.ts 与 src/promptPackage.ts 都复用本模块。
+// - 单一真相源：runtime/core/promptPackage.ts 复用本模块（Round 5: legacy src/promptPackage.ts 已删除）。
 // - 事实驱动：capability 文案根据真实 facts 派生，不写"未知但可用"的矛盾文案。
 
 import type { LLMBridgeSettings } from "../../types";
-import type { StateSnapshot } from "../../promptPackage";
+import type { StateSnapshot } from "./types";
 
 // ---------- Provider 能力信息 ----------
 
@@ -119,94 +119,52 @@ export function buildCapabilityManifest(
   _settings: LLMBridgeSettings,
   capabilities: ProviderCapabilityInfo = DEFAULT_PROVIDER_CAPABILITIES,
 ): string {
+  // Round 1：常驻 Capability Manifest 压到 5–8 条 Obsidian / Bridge 边界规则。
+  // Agent workspace 细则、Skill 包结构、vault-api action 清单留给对应 Skill。
   const lines: string[] = [
     "========== Capability Manifest ==========",
-    "- 你运行在 LLM CLI Bridge 中（Obsidian Vault 工作区）。可使用的能力：",
+    "- 你运行在 LLM CLI Bridge 中（Obsidian Vault 工作区）；以当前 vault / Agent Runtime 为工作边界。",
   ];
-  if (capabilities.providerNativeFileTools) {
-    lines.push("- provider-native file tools（Read/Write/Edit/Glob/Grep 等）：可用；文件操作优先使用。");
-  }
-  if (capabilities.bridgeRuntimeFileTools) {
-    lines.push("- bridge runtime file tools（read-only adapter）：可用；只读文件查询可使用。");
+  if (capabilities.providerNativeFileTools || capabilities.bridgeRuntimeFileTools) {
+    lines.push("- 文件操作优先使用 provider-native / bridge runtime file tools；不要臆造未声明的工具。");
   }
   if (capabilities.shellAvailable) {
-    lines.push("- Shell / PowerShell / Bash：可用于高效任务，但 write/delete/command 类操作需要 host approval。");
+    lines.push("- Shell 可用于高效任务；write/delete/command 需 host approval。");
   }
-  // V2.18 r4: Obsidian CLI 降级 — 三态声明废弃，统一指向 obsidian-bridge wrapper。
-  // 外部 Obsidian CLI 不再作为独立能力声明；Vault API 操作一律走 obsidian-bridge wrapper。
-  lines.push("- Obsidian CLI: not bundled. Vault API operations use the obsidian-bridge wrapper (see vault-api Skill).");
+  lines.push("- Skills 按需加载（vault-context / vault-api 等）；细节以 Skill 正文为准，不要把未读 Skill 当已知事实。");
+  lines.push("- Vault Plugin API 走 vault-api Skill / obsidian-bridge wrapper；不要假装拥有未暴露的 Obsidian API。");
   if (capabilities.askUserQuestionAvailable) {
-    lines.push("- AskUserQuestion：可用于真实歧义（target/scope/operation 不明确时）。");
+    lines.push("- 仅在 target/scope/operation 不明确时使用 AskUserQuestion。");
   }
-  const runtimeSkillLines = buildRuntimeSkillCapabilityLines(capabilities.runtimeSkills);
-  if (runtimeSkillLines.length > 0) {
-    lines.push(...runtimeSkillLines);
-  }
-  lines.push("- Host approval 是 write/delete/command 的最终安全边界；权限系统会拦截未授权操作。");
-  // V16.5-E: Agent Runtime Workspace 事实（简短路径，不堆规则）
+  lines.push("- Host approval 是 write/delete/command 的最终安全边界；禁止在正文中伪造授权结果。");
   const providerId = capabilities.evidence?.provider ?? "";
-  const isCodexManagedProvider = providerId === "codex-managed-app-server" || providerId === "codex-app-server";
-  lines.push("- Agent workspace: LLM-AgentRuntime/（sessions/ work/ runtime/ skills/；agent 维护，用户默认不需要编辑）。");
-  if (isCodexManagedProvider) {
-    lines.push("- Codex Skills: Bridge-managed Skills are materialized into Codex home personal skills before run; they are not injected as prompt capability text.");
-  } else {
-    lines.push("- Vault Skill 包: LLM-AgentRuntime/skills/vault-context/（单一 Skill；agent 自维护的 vault 认知包）");
-    lines.push("  - 根 SKILL.md（frontmatter + 路由表）+ references/（上下文分区：vault-rules/conventions/preferences/directories.md）+ agents/openai.yaml + INDEX.md");
-    lines.push("  - 物化到 .claude/skills/vault-context/ 等 4 端（递归复制 references/agents/assets，provider 按需识别）");
-    lines.push("  - 维护方式：只读取需要的 reference 分区；写入需用户明确表达长期偏好/规则或跨任务重复验证的证据");
-    lines.push("  - INDEX.md 由系统自动生成（Obsidian 可读目录），不需手工维护");
+  if (providerId === "codex-managed-app-server" || providerId === "codex-app-server") {
+    lines.push("- Codex Skills：Bridge 管理的 Skills 在 run 前物化到 Codex home；不通过 prompt 注入完整清单。");
   }
-  // V2.18 vault-api：声明 Obsidian Plugin API 能力 Skill（obsidian-bridge wrapper / helper mjs / HTTP bridge / outbox 调用）
-  lines.push("- vault-api Skill: .claude/skills/vault-api/SKILL.md（物化后）。暴露 Obsidian Plugin API 能力（文件系统做不到的）：frontmatter property、tags（清单/反查/改名）、backlinks/outlinks/链接解析/附件、tasks、daily note、search（markdown-aware）、metadataCache 聚合、resolvedLinks 全局图、bookmarks、plugin、setting、命令执行、workspace、clipboard、视图模式、vault 回收站操作。共 29 个 action，详见 SKILL.md。调用通道：obsidian-bridge wrapper（推荐，`.llm-bridge/tools/obsidian-bridge`，支持 --stdin 绕开 shell 转义 / --raw 管道输出 / --wait 等审批）→ helper mjs → HTTP bridge → outbox actions.jsonl 兜底。普通文件读写仍用 native file tools。");
-  lines.push("- Runtime facts: LLM-AgentRuntime/runtime/RUNTIME_FACTS.json（机器事实，不进 prompt）。");
   return lines.join("\n");
 }
 
-function buildRuntimeSkillCapabilityLines(context?: ProviderRuntimeSkillContext): string[] {
-  if (!context) return [];
-  const enabledPlugins = context.managedCodexPlugins.filter((entry) => entry.enabled !== false);
-  const enabledPluginSkills = (context.managedCodexPluginSkills || []).filter((entry) => entry.enabled !== false);
-  const enabledSkills = context.agentSkills.filter((entry) => entry.enabled !== false);
-  if (enabledPlugins.length === 0 && enabledPluginSkills.length === 0 && enabledSkills.length === 0) return [];
+/**
+ * Round 1：Codex developerInstructions 薄层（5–8 条 Obsidian 约定）。
+ * 不包含模型基础指令；模型能力以 managed runtime 为准。
+ */
+export const CODEX_DEVELOPER_INSTRUCTIONS_META = {
+  id: "codex-obsidian-developer",
+  version: "1",
+} as const;
 
-  const lines: string[] = [
-    "- Runtime Skills / Plugins：以下条目来自 provider-native runtime discovery 或本地 plugin catalog；Bridge Plugin Skills 不通过 prompt 注入。",
-  ];
-  if (enabledPlugins.length > 0) {
-    lines.push("  Managed Codex plugins:");
-    for (const plugin of enabledPlugins.slice(0, 24)) {
-      const desc = plugin.description ? ` — ${capabilityText(plugin.description, 180)}` : "";
-      const source = plugin.source ? ` [${capabilityText(plugin.source, 80)}]` : "";
-      lines.push(`  - ${plugin.name} (${plugin.id})${desc}${source}`);
-    }
-    if (enabledPlugins.length > 24) {
-      lines.push(`  - ... ${enabledPlugins.length - 24} more plugin(s) omitted from prompt for size.`);
-    }
-  }
-  if (enabledPluginSkills.length > 0) {
-    lines.push("  Plugin-contained Skills:");
-    for (const skill of enabledPluginSkills.slice(0, 40)) {
-      const desc = skill.description ? ` — ${capabilityText(skill.description, 260)}` : "";
-      const source = skill.source ? ` [${capabilityText(skill.source, 100)}]` : "";
-      lines.push(`  - ${skill.name} (${skill.id})${desc}${source}`);
-    }
-    if (enabledPluginSkills.length > 40) {
-      lines.push(`  - ... ${enabledPluginSkills.length - 40} more plugin skill(s) omitted from prompt for size.`);
-    }
-  }
-  if (enabledSkills.length > 0) {
-    lines.push(`  Bridge Plugin Skills: ${enabledSkills.length} enabled; materialized through provider-native Skill discovery, not listed here.`);
-  }
-  if (context.evidence) {
-    lines.push(`  Evidence: ${capabilityText(context.evidence, 160)}`);
-  }
-  return lines;
-}
-
-function capabilityText(value: string, maxChars: number): string {
-  const text = value.replace(/\s+/g, " ").trim();
-  if (text.length <= maxChars) return text;
-  return `${text.slice(0, Math.max(0, maxChars - 15)).trim()}...[truncated]`;
+export function buildCodexDeveloperInstructions(vaultPath: string): string {
+  const root = (vaultPath || "").trim() || "(vault root)";
+  return [
+    "LLM CLI Bridge — Obsidian developer instructions:",
+    `- Workspace root is the Obsidian vault: ${root}`,
+    "- Stay within the vault / Agent Runtime workspace unless the user explicitly asks otherwise.",
+    "- Prefer provider-native tools and Skills; load Skills on demand — do not invent tools or APIs.",
+    "- Vault Plugin API work goes through the vault-api Skill / obsidian-bridge wrapper when needed.",
+    "- write/delete/command require host approval; never fake approval outcomes in text.",
+    "- Act when intent is clear; ask only when target/scope/operation is ambiguous.",
+    "- Do not claim capabilities that are not available in the current managed runtime.",
+  ].join("\n");
 }
 
 /**

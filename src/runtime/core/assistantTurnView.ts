@@ -39,6 +39,65 @@ import { isInternalFilePath } from "../../timelineAdapter";
 import { CodexItemTimelineReducer } from "../providers/codex-app-server/codexItemTimeline";
 import { isUserInputApprovalTool } from "./approvalSemantics";
 
+/** 把粘连的 `**A****B**` 拆成多行，并去掉重复标题（含非连续重复）。 */
+export function normalizeReasoningSummaryText(text: string): string {
+  if (!text) return "";
+  const withBreaks = text.replace(/\*\*\*\*/g, "**\n**");
+  const lines = withBreaks.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    if (seen.has(line)) continue;
+    seen.add(line);
+    deduped.push(line);
+  }
+  return deduped.join("\n");
+}
+
+/** quiet 过程行：去掉行首尾 `**`，只留可读标题。 */
+export function formatQuietReasoningSummary(text: string): string {
+  return normalizeReasoningSummaryText(text)
+    .split("\n")
+    .map((line) => {
+      const wrapped = line.match(/^\*\*\s*([\s\S]*?)\s*\*\*$/);
+      if (wrapped) return wrapped[1].trim();
+      return line.replace(/^\*\*|\*\*$/g, "").trim();
+    })
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** 合并 thinking 增量与 completed 快照，避免 summaryTextDelta + item/completed 重复拼接。 */
+export function mergeThinkingAccumulatedText(existing: string, incoming: string): string {
+  if (!incoming) return existing;
+  if (!existing) return normalizeReasoningSummaryText(incoming);
+  // summaryPartAdded 边界：仅插入换行，避免下一段标题粘成 ****
+  if (incoming === "\n" || incoming === "\r\n") {
+    return existing.endsWith("\n") ? existing : `${existing}\n`;
+  }
+
+  let merged: string;
+  if (existing === incoming) {
+    merged = existing;
+  } else if (incoming.startsWith(existing)) {
+    merged = incoming;
+  } else if (existing.startsWith(incoming)) {
+    merged = existing;
+  } else if (existing.endsWith(incoming)) {
+    merged = existing;
+  } else if (
+    incoming === `${existing}\n${existing}`
+    || (incoming.startsWith(`${existing}\n`) && incoming.slice(existing.length + 1) === existing)
+  ) {
+    merged = existing;
+  } else if (/\*\*\s*$/.test(existing) && /^\*\*/.test(incoming.trimStart())) {
+    merged = `${existing.replace(/\s+$/, "")}\n${incoming.trimStart()}`;
+  } else {
+    merged = existing + incoming;
+  }
+  return normalizeReasoningSummaryText(merged);
+}
+
 /**
  * AssistantTurnView 聚合器：从 NormalizedRuntimeEvent 流增量构建 AssistantTurnView。
  *
@@ -129,43 +188,89 @@ export class AssistantTurnViewBuilder {
         break;
 
       case "thinking": {
-        // V16.4-D: 基于稳定 key (messageId) 聚合。
-        // 新 messageId 仅在 lastWasObservation=true（新 SDKAssistantMessage）时合成。
-        // progress / input_json_delta / tool progress 不打断同一 thinking block。
-        const isNewThinkingMessage = this.lastWasObservation || this.currentThinkingMessageId === null;
-        if (isNewThinkingMessage) {
-          this.currentThinkingMessageId = `msg-${this.thoughtMessageIdx++}`;
-          this.lifecycleEventsList.push(
-            { type: "evaluation_started", providerId: this.providerId, timestamp: event.timestamp, messageId: this.currentThinkingMessageId },
-            { type: "reasoning_section_started", providerId: this.providerId, timestamp: event.timestamp, messageId: this.currentThinkingMessageId },
-          );
-          this.thoughtsList.push({
-            timestamp: event.timestamp,
-            text: p.text,
-            messageId: this.currentThinkingMessageId,
-            contentBlockIndex: 0,
-          });
-        } else {
-          // 同一 messageId 内的 thinking_delta → 合并到最后一段（稳定 key 保证不被 progress 切碎）
-          const last = this.thoughtsList[this.thoughtsList.length - 1];
-          if (last && last.messageId === this.currentThinkingMessageId) {
-            last.text = last.text + p.text;
+        // V20.10: 按 (itemId, summaryIndex) 分段聚合（取代合成 messageId）。
+        // - 有 itemId: 用 `${itemId}:${summaryIndex}` 作为稳定 key
+        // - 无 itemId(其他 provider): 回退到合成 messageId(msg-N)
+        // delta(isSnapshot=false) → 追加到对应段
+        // snapshot(isSnapshot=true) → 替换对应段 text（最终权威快照）
+        // summary 优先：同段已有 summary(delta/snapshot) 时，丢弃 raw fallback
+        const segKey = p.itemId
+          ? `${p.itemId}:${p.summaryIndex ?? 0}`
+          : (this.currentThinkingMessageId ?? `msg-${this.thoughtMessageIdx++}`);
+        const isRaw = !!p.isRawFallback;
+        const isSnapshot = !!p.isSnapshot;
+
+        // 查找现有段
+        let segIdx = this.thoughtsList.findIndex((t) => (t.messageId ?? "") === segKey);
+        let seg = segIdx >= 0 ? this.thoughtsList[segIdx] : null;
+
+        // summary 优先：若已有 summary 段，且当前是 raw fallback，跳过
+        if (seg && !seg.isRawFallback && isRaw && !isSnapshot) {
+          // 已有 summary，丢弃 raw delta
+          break;
+        }
+
+        if (isSnapshot) {
+          // item/completed 最终快照：替换 text（官方协议权威状态）
+          if (seg) {
+            // 同段已存在 delta：替换为快照
+            // 但若快照是 raw fallback 且段已有 summary，保留 summary
+            if (isRaw && !seg.isRawFallback) {
+              // 快照是 raw 但段已有 summary：保留 summary，跳过 raw 快照
+              break;
+            }
+            seg.text = p.text;
+            seg.isRawFallback = isRaw;
           } else {
-            // fallback：messageId 不匹配（理论不应发生），开新段
+            // 无对应 delta 段：创建新段（直接用快照文本）
             this.thoughtsList.push({
               timestamp: event.timestamp,
               text: p.text,
-              messageId: this.currentThinkingMessageId ?? undefined,
-              contentBlockIndex: 0,
+              messageId: segKey,
+              contentBlockIndex: p.summaryIndex ?? 0,
+              isRawFallback: isRaw,
             });
+            segIdx = this.thoughtsList.length - 1;
+          }
+        } else {
+          // delta：追加到对应段
+          if (seg) {
+            // 若段是 raw 且当前 delta 是 summary：清空 raw，用 summary 重新累积
+            if (seg.isRawFallback && !isRaw) {
+              seg.text = p.text;
+              seg.isRawFallback = false;
+            } else {
+              seg.text = mergeThinkingAccumulatedText(seg.text, p.text);
+            }
+          } else {
+            // 新段
+            this.thoughtsList.push({
+              timestamp: event.timestamp,
+              text: p.text,
+              messageId: segKey,
+              contentBlockIndex: p.summaryIndex ?? 0,
+              isRawFallback: isRaw,
+            });
+            segIdx = this.thoughtsList.length - 1;
+            // 新 reasoning 段：发出 lifecycle 边界
+            if (this.lastWasObservation || this.currentThinkingMessageId === null) {
+              this.lifecycleEventsList.push(
+                { type: "evaluation_started", providerId: this.providerId, timestamp: event.timestamp, messageId: segKey },
+                { type: "reasoning_section_started", providerId: this.providerId, timestamp: event.timestamp, messageId: segKey },
+              );
+            }
           }
         }
+
+        // 更新 currentThinkingMessageId（lifecycle 连续性）
+        this.currentThinkingMessageId = segKey;
+
         this.lifecycleEventsList.push({
           type: "reasoning_summary_delta",
           providerId: this.providerId,
           timestamp: event.timestamp,
           text: p.text,
-          messageId: this.currentThinkingMessageId ?? undefined,
+          messageId: segKey,
         });
         this.lastWasObservation = false;
         break;

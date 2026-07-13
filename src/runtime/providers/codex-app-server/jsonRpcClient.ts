@@ -21,12 +21,37 @@
 // 不直接依赖 child_process；通过注入的 writeLine / onLine 解耦，便于 fixture 测试。
 
 import type {
+  ClientNotification,
+  ClientRequest,
   JsonRpcMessage,
   JsonRpcNotification,
   JsonRpcRequest,
   JsonRpcResponseError,
   JsonRpcResponseSuccess,
+  ServerNotification,
+  ServerRequest,
 } from "./schema";
+
+/** ClientRequest 判别式全量 method 字面量联合（SSOT：generated/ClientRequest.ts）。 */
+export type ClientRequestMethod = ClientRequest["method"];
+/** 给定 ClientRequest method，取其 params 类型。 */
+export type ClientRequestParams<M extends ClientRequestMethod> =
+  Extract<ClientRequest, { method: M }>["params"];
+
+/** ClientNotification 判别式全量 method 字面量联合。 */
+export type ClientNotificationMethod = ClientNotification["method"];
+
+/** ServerNotification 判别式全量 method 字面量联合（SSOT：generated/ServerNotification.ts）。 */
+export type ServerNotificationMethod = ServerNotification["method"];
+/** 给定 ServerNotification method，取其 params 类型。 */
+export type ServerNotificationParams<M extends ServerNotificationMethod> =
+  Extract<ServerNotification, { method: M }>["params"];
+
+/** ServerRequest 判别式全量 method 字面量联合（SSOT：generated/ServerRequest.ts）。 */
+export type ServerRequestMethod = ServerRequest["method"];
+/** 给定 ServerRequest method，取其 params 类型。 */
+export type ServerRequestParams<M extends ServerRequestMethod> =
+  Extract<ServerRequest, { method: M }>["params"];
 
 /**
  * 写入一行 JSON（服务端 stdin）。由 AppServerProcessManager 提供。
@@ -90,7 +115,17 @@ export class JsonRpcClient {
    *
    * V20.3: 支持可选 timeoutMs。超时后 reject 并清理 pending，
    * 让上层能明确报告卡在哪个 JSON-RPC 阶段，而不是干等 90 秒。
+   *
+   * Round 2: 按 method 字面量收窄 params 类型（Extract<ClientRequest, { method: M }>），
+   * 结果类型仍需显式传 R（generated schema 未提供 method→result 映射）。
+   * 保留第二条宽松 overload（method: string）供尚未走 discriminated union 的调用点迁移。
    */
+  send<M extends ClientRequestMethod, R = unknown>(
+    method: M,
+    params: ClientRequestParams<M>,
+    timeoutMs?: number,
+  ): Promise<R>;
+  send<R = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<R>;
   send<R = unknown>(method: string, params?: unknown, timeoutMs?: number): Promise<R> {
     if (this.closed) return Promise.reject(new Error("JsonRpcClient closed"));
     const id = this.nextId++;
@@ -130,7 +165,12 @@ export class JsonRpcClient {
 
   /**
    * 发送通知（无 id，无响应）。
+   *
+   * Round 2: ClientNotification 目前只有 "initialized"（无 params），
+   * typed overload 主要为未来扩展占位；宽松 overload 保留供迁移。
    */
+  notify(method: ClientNotificationMethod): void;
+  notify(method: string, params?: unknown): void;
   notify(method: string, params?: unknown): void {
     if (this.closed) return;
     const notif: JsonRpcNotification = { method };
@@ -168,8 +208,19 @@ export class JsonRpcClient {
 
   /**
    * 注册通知 handler（按 method 多播）。
+   *
+   * Round 2: 按 method 字面量收窄 handler 的 params 类型
+   * （Extract<ServerNotification, { method: M }>["params"]）。宽松 overload 保留供迁移。
    */
-  onNotification(method: string, handler: NotificationHandler): () => void {
+  onNotification<M extends ServerNotificationMethod>(
+    method: M,
+    handler: (params: ServerNotificationParams<M>) => void,
+  ): () => void;
+  onNotification(method: string, handler: NotificationHandler): () => void;
+  // 实现签名用 `any` 承接 handler 参数类型：函数类型参数按 strictFunctionTypes 走严格
+  // 逆变检查，`unknown` 会导致上面两条 overload 与实现签名不兼容（TS2394）；
+  // `any` 双向兼容绕开该检查，两条 overload 的类型收窄行为不受影响（只影响实现内部）。
+  onNotification(method: string, handler: (params: any) => void): () => void {
     let list = this.notificationHandlers.get(method);
     if (!list) {
       list = [];
@@ -192,7 +243,13 @@ export class JsonRpcClient {
    * 若返回 Promise，等 resolve 后回复；若 handler 抛错，回复 error。
    * handler 也可不返回值，稍后手动调 respondToServerRequest(id, result)。
    */
-  onServerRequest(method: string, handler: ServerRequestHandler): () => void {
+  onServerRequest<M extends ServerRequestMethod>(
+    method: M,
+    handler: (params: ServerRequestParams<M>, id: number | string) => unknown | Promise<unknown>,
+  ): () => void;
+  onServerRequest(method: string, handler: ServerRequestHandler): () => void;
+  // 同上：实现签名用 `any` 承接 handler 参数类型以绕开函数参数逆变的 overload 兼容检查。
+  onServerRequest(method: string, handler: (params: any, id: number | string) => unknown | Promise<unknown>): () => void {
     let list = this.serverRequestHandlers.get(method);
     if (!list) {
       list = [];

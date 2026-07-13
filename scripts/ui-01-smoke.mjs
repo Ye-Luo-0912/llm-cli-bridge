@@ -1,6 +1,6 @@
 // UI-01 Smoke: 对话与运行过程重做验收
 // 验证普通模式不泄露内部名、状态文本双语、metrics 条件显示、运行详情 toggle、Developer Mode 保留 raw
-// 独立于 run-tests.mjs，按 spec 要求作为独立 UI 收尾 smoke 的一部分
+// 独立 UI 收尾 smoke
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

@@ -41,6 +41,7 @@ import type {
   CodexItemArgumentDeltaParams,
   CodexItemCommandExecutionOutputDeltaParams,
   CodexItemCompletedParams,
+  CodexItemType,
   CodexFileChangeOutputDeltaParams,
   CodexItemPlanDeltaParams,
   CodexItemReasoningSummaryTextDeltaParams,
@@ -56,6 +57,7 @@ import type {
   CodexTurnStartedParams,
   CodexThreadTokenUsageUpdatedParams,
 } from "./schema";
+import type { ServerNotificationParams } from "./jsonRpcClient";
 import type { NormalizedRuntimeEvent, ProviderId, NativeSessionRef } from "../../core/types";
 
 function mapPatchChangeKind(kind: unknown): "create" | "modify" | "delete" {
@@ -121,7 +123,10 @@ export class CodexAppServerEventMapper {
 
     // 提取 item type / id（官方 nested 优先；flat 兼容）
     const item = params.item;
-    const itemType = item?.type ?? params.type;
+    // 用 `as` 断言而非类型标注：item.type（必填 ThreadItem["type"]）本身不含 undefined，
+    // TS 的控制流分析会把 `??` 结果窄化为 item.type 的初始化类型（忽略声明标注），
+    // 丢失 params.type 的 legacy 字面量；断言强制使用完整 CodexItemType 联合。
+    const itemType = (item?.type ?? params.type) as CodexItemType | undefined;
     const itemId = item?.id ?? params.itemId;
     if (!itemType) return null;
 
@@ -303,7 +308,9 @@ export class CodexAppServerEventMapper {
   }
 
   /**
-   * item/reasoning/summaryTextDelta → thinking delta。
+   * item/reasoning/summaryTextDelta → thinking delta（summary 优先）。
+   *
+   * 携带真实 itemId + summaryIndex，供 builder 按 (itemId, summaryIndex) 分段聚合。
    */
   mapItemReasoningSummaryTextDelta(params: CodexItemReasoningSummaryTextDeltaParams): NormalizedRuntimeEvent {
     const ts = new Date().toISOString();
@@ -312,12 +319,20 @@ export class CodexAppServerEventMapper {
       timestamp: ts,
       sourceRef: this.sourceRef("item/reasoning/summaryTextDelta", params),
       rawProviderEvent: this.developerMode ? { method: "item/reasoning/summaryTextDelta", params } : undefined,
-      payload: { kind: "thinking", text: params.delta },
+      payload: {
+        kind: "thinking",
+        text: params.delta,
+        itemId: params.itemId,
+        summaryIndex: params.summaryIndex,
+      },
     };
   }
 
   /**
-   * item/reasoning/textDelta → thinking delta（raw reasoning）。
+   * item/reasoning/textDelta → thinking delta（raw reasoning，仅作回退）。
+   *
+   * raw content 不与 summary 混合：builder 优先保留 summary 段，只有同一 (itemId, summaryIndex)
+   * 无 summary 时才展示 raw content。
    */
   mapItemReasoningTextDelta(params: CodexItemReasoningTextDeltaParams): NormalizedRuntimeEvent {
     const ts = new Date().toISOString();
@@ -326,7 +341,14 @@ export class CodexAppServerEventMapper {
       timestamp: ts,
       sourceRef: this.sourceRef("item/reasoning/textDelta", params),
       rawProviderEvent: this.developerMode ? { method: "item/reasoning/textDelta", params } : undefined,
-      payload: { kind: "thinking", text: params.delta },
+      payload: {
+        kind: "thinking",
+        text: params.delta,
+        itemId: params.itemId,
+        // textDelta 用 contentIndex（raw content 段索引），复用 summaryIndex 字段作为分段 key
+        summaryIndex: params.contentIndex,
+        isRawFallback: true,
+      },
     };
   }
 
@@ -483,7 +505,7 @@ export class CodexAppServerEventMapper {
     };
 
     const item = params.item;
-    const itemType = item?.type ?? params.type;
+    const itemType = (item?.type ?? params.type) as CodexItemType | undefined;
     const itemId = item?.id ?? params.itemId;
     if (!itemType) return null;
 
@@ -513,8 +535,8 @@ export class CodexAppServerEventMapper {
             toolName: "Bash",
             output: cmdItem?.aggregatedOutput ?? params.text ?? "",
             isError: cmdItem?.status === "failed" || !!params.isError,
-            exitCode: cmdItem?.exitCode,
-            durationMs: cmdItem?.durationMs ?? params.durationMs,
+            exitCode: cmdItem?.exitCode ?? undefined,
+            durationMs: cmdItem?.durationMs ?? params.durationMs ?? undefined,
           },
         };
       }
@@ -542,7 +564,7 @@ export class CodexAppServerEventMapper {
             toolName: mcpItem?.tool ?? "mcp",
             output: mcpItem?.result !== undefined ? JSON.stringify(mcpItem.result) : "",
             isError: mcpItem?.status === "failed",
-            durationMs: mcpItem?.durationMs,
+            durationMs: mcpItem?.durationMs ?? undefined,
             result: mcpItem?.result ?? mcpItem?.error,
           },
         };
@@ -558,7 +580,7 @@ export class CodexAppServerEventMapper {
             toolName: dynItem?.tool ?? "dynamic",
             output: dynItem?.contentItems !== undefined ? JSON.stringify(dynItem.contentItems) : "",
             isError: dynItem?.status === "failed" || dynItem?.success === false,
-            durationMs: dynItem?.durationMs,
+            durationMs: dynItem?.durationMs ?? undefined,
             contentItems: dynItem?.contentItems,
           },
         };
@@ -616,12 +638,28 @@ export class CodexAppServerEventMapper {
         };
       }
       case "reasoning": {
+        // item/completed reasoning = 最终权威快照（官方协议）。
+        // summary 优先：若有 summary 用 summary 全文；否则用 raw content 作回退。
+        // 标记 isSnapshot=true：builder 用快照替换累积的 delta，而非追加。
         const reasoningItem = item as Extract<CodexThreadItem, { type: "reasoning" }> | undefined;
+        const summaryParts = (reasoningItem?.summary ?? [])
+          .filter((part): part is string => typeof part === "string" && part.trim().length > 0);
+        const hasSummary = summaryParts.length > 0;
+        const summaryText = hasSummary ? summaryParts.join("\n") : "";
+        // raw content 仅作回退（无 summary 时）
+        const rawContent = (reasoningItem as { content?: unknown } | undefined)?.content;
+        const rawText = typeof rawContent === "string" ? rawContent : "";
+        const text = hasSummary ? summaryText : rawText;
+        if (!text.trim()) return null; // 空 summary + 空 content：不发事件
         return {
           ...base,
           payload: {
             kind: "thinking",
-            text: [...(reasoningItem?.summary ?? []), ...(reasoningItem?.content ?? [])].join("\n"),
+            text,
+            itemId,
+            summaryIndex: 0,
+            isSnapshot: true,
+            isRawFallback: !hasSummary,
           },
         };
       }
@@ -872,6 +910,123 @@ export class CodexAppServerEventMapper {
         threadId: params.threadId,
         turnId: params.turnId,
       },
+    };
+  }
+
+  // ---------- Round 4: 新增官方通知（映射到既有 NormalizedRuntimeEvent kind） ----------
+
+  /**
+   * item/reasoning/summaryPartAdded → thinking 分段边界。
+   * 插入换行，避免下一段 `**title**` 与上一段粘成 `****`。
+   */
+  mapItemReasoningSummaryPartAdded(params: ServerNotificationParams<"item/reasoning/summaryPartAdded">): NormalizedRuntimeEvent {
+    const ts = new Date().toISOString();
+    return {
+      providerId: this.providerId,
+      timestamp: ts,
+      sourceRef: this.sourceRef("item/reasoning/summaryPartAdded", params),
+      rawProviderEvent: this.developerMode ? { method: "item/reasoning/summaryPartAdded", params } : undefined,
+      payload: { kind: "thinking", text: "\n" },
+    };
+  }
+
+  /** turn/plan/updated（EXPERIMENTAL）→ progress（label="plan"，detail 为步骤摘要）。 */
+  mapTurnPlanUpdated(params: ServerNotificationParams<"turn/plan/updated">): NormalizedRuntimeEvent {
+    const ts = new Date().toISOString();
+    const steps = Array.isArray(params.plan) ? params.plan : [];
+    const detail = params.explanation
+      || steps.map((s) => `[${s.status}] ${s.step}`).join("; ")
+      || "updated";
+    return {
+      providerId: this.providerId,
+      timestamp: ts,
+      sourceRef: this.sourceRef("turn/plan/updated", params),
+      rawProviderEvent: this.developerMode ? { method: "turn/plan/updated", params } : undefined,
+      payload: { kind: "progress", label: "plan", detail, category: "thinking" },
+    };
+  }
+
+  /** thread/compacted（deprecated；见 ContextCompaction item type）→ progress（上下文压缩通知）。 */
+  mapThreadCompacted(params: ServerNotificationParams<"thread/compacted">): NormalizedRuntimeEvent {
+    const ts = new Date().toISOString();
+    return {
+      providerId: this.providerId,
+      timestamp: ts,
+      sourceRef: this.sourceRef("thread/compacted", params),
+      rawProviderEvent: this.developerMode ? { method: "thread/compacted", params } : undefined,
+      payload: { kind: "progress", label: "contextCompaction", detail: "completed", category: "status" },
+    };
+  }
+
+  /** model/rerouted → message/system（模型被安全策略切换，用户需可见）。 */
+  mapModelRerouted(params: ServerNotificationParams<"model/rerouted">): NormalizedRuntimeEvent {
+    const ts = new Date().toISOString();
+    return {
+      providerId: this.providerId,
+      timestamp: ts,
+      sourceRef: this.sourceRef("model/rerouted", params),
+      rawProviderEvent: this.developerMode ? { method: "model/rerouted", params } : undefined,
+      payload: {
+        kind: "message",
+        role: "system",
+        text: `模型已从 ${params.fromModel} 切换为 ${params.toModel}（原因：${params.reason}）`,
+        partial: false,
+      },
+    };
+  }
+
+  /** model/verification → message/system（安全校验状态通知，用户需可见）。 */
+  mapModelVerification(params: ServerNotificationParams<"model/verification">): NormalizedRuntimeEvent {
+    const ts = new Date().toISOString();
+    const verifications = Array.isArray(params.verifications) ? params.verifications : [];
+    return {
+      providerId: this.providerId,
+      timestamp: ts,
+      sourceRef: this.sourceRef("model/verification", params),
+      rawProviderEvent: this.developerMode ? { method: "model/verification", params } : undefined,
+      payload: {
+        kind: "message",
+        role: "system",
+        text: `模型安全校验：${verifications.join(", ") || "已完成"}`,
+        partial: false,
+      },
+    };
+  }
+
+  /** warning → message/system（server 主动推送的用户可见警告）。 */
+  mapWarning(params: ServerNotificationParams<"warning">): NormalizedRuntimeEvent {
+    const ts = new Date().toISOString();
+    return {
+      providerId: this.providerId,
+      timestamp: ts,
+      sourceRef: this.sourceRef("warning", { threadId: params.threadId ?? undefined }),
+      rawProviderEvent: this.developerMode ? { method: "warning", params } : undefined,
+      payload: { kind: "message", role: "system", text: params.message, partial: false },
+    };
+  }
+
+  /** configWarning → message/system（config.toml 解析/校验警告）。 */
+  mapConfigWarning(params: ServerNotificationParams<"configWarning">): NormalizedRuntimeEvent {
+    const ts = new Date().toISOString();
+    const text = params.details ? `${params.summary}（${params.details}）` : params.summary;
+    return {
+      providerId: this.providerId,
+      timestamp: ts,
+      sourceRef: this.sourceRef("configWarning", {}),
+      rawProviderEvent: this.developerMode ? { method: "configWarning", params } : undefined,
+      payload: { kind: "message", role: "system", text, partial: false },
+    };
+  }
+
+  /** skills/changed → progress（本地 skill 文件变更信号，提示可能需要重新 skills/list）。 */
+  mapSkillsChanged(): NormalizedRuntimeEvent {
+    const ts = new Date().toISOString();
+    return {
+      providerId: this.providerId,
+      timestamp: ts,
+      sourceRef: this.sourceRef("skills/changed", {}),
+      rawProviderEvent: this.developerMode ? { method: "skills/changed" } : undefined,
+      payload: { kind: "progress", label: "skillsChanged", detail: "changed", category: "notice" },
     };
   }
 

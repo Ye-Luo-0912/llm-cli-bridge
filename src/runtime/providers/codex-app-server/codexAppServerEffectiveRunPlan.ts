@@ -1,18 +1,12 @@
-// LLM CLI Bridge — Codex app-server EffectiveRunPlan (V2.17-A Completion)
+// LLM CLI Bridge — Codex app-server EffectiveRunPlan (Round 1)
 //
 // 从 Bridge Core 的 EffectiveRunPlan + BridgePromptPackage 派生 codex app-server
-// 特定的运行参数（thread/start instructions/config、turn/start input/attachments/effort）。
+// 特定的运行参数（thread/start developerInstructions、turn/start input/effort）。
 //
-// Prompt 拆分映射（task spec §5）：
+// Prompt 拆分映射（Round 1）：
 // - userPrompt → turn/start input（主输入）
-// - bridgeSystemAppend → Codex instructions/config/rules 层
-//   若 instructions/config/rules 暂不可用，则作为明确的 provider preamble，
-//   但必须单独标记来源（source: "bridge-system-append"），不与 userPrompt 混合。
-//
-// V2.17-A Completion 主线闭环：
-// - initialize.params 使用 clientInfo + capabilities（experimentalApi 审计）
-// - thread/start.params 使用 config 容器（不再塞 resumeSessionId；resume 走 thread/resume）
-// - experimentalApi 默认 false；若启用必须在 CodexRunOptions audit 记录
+// - Bridge 薄 Obsidian 约定 → developerInstructions（不覆盖模型 baseInstructions）
+// - 模型基础指令由 managed runtime 自行选择（不传 baseInstructions）
 
 import type { EffectiveRunPlan, LLMBridgeSettings } from "../../../types";
 import { pathToFileURL } from "url";
@@ -25,6 +19,10 @@ import {
   migrateLegacyPermissionToApprovalProfile,
   type AgentApprovalProfile,
 } from "../../../agentApprovalProfile";
+import {
+  buildCodexDeveloperInstructions,
+  CODEX_DEVELOPER_INSTRUCTIONS_META,
+} from "../../core/bridgePromptContract";
 import type {
   CodexClientCapabilities,
   CodexClientInfo,
@@ -45,10 +43,16 @@ export interface CodexAppServerRunOptions {
   threadStart: CodexThreadStartParams;
   /** turn/start 参数（threadId 由 provider 在 thread/start 后注入） */
   turnStart: Omit<CodexTurnStartParams, "threadId">;
-  /** bridgeSystemAppend 的承载层（审计用：标记它走了哪个 codex 字段） */
-  bridgeSystemAppendSource: "instructions" | "config" | "rules" | "provider-preamble";
+  /** Bridge 薄指令的承载层（审计用） */
+  bridgeSystemAppendSource: "developerInstructions" | "instructions" | "config" | "rules" | "provider-preamble";
   /** experimentalApi 是否启用（审计用；默认 false） */
   experimentalApi: boolean;
+  /** developer 层装配元数据（开发模式日志：id/version/chars，不默认打印全文） */
+  developerInstructionsMeta?: {
+    id: string;
+    version: string;
+    chars: number;
+  };
 }
 
 const CLIENT_NAME = "llm-cli-bridge";
@@ -66,15 +70,11 @@ function localFileUrl(resolvedPath: string | undefined): string | null {
 
 /**
  * 构造 EffectiveRunPlan（codex-app-server backend）。
- *
- * 返回 CodexAppServerEffectiveRunPlan（backend="codex-app-server"），
- * 含 instructionsSource 字段标记 bridgeSystemAppend 走 instructions 层。
  */
 export function buildCodexAppServerEffectiveRunPlan(
   input: RunInput,
   settings: LLMBridgeSettings,
 ): EffectiveRunPlan {
-  // attachmentPlan 从 promptPackage.attachmentEntries 聚合（counts + entry-level 审计）
   const attachmentPlan = buildAttachmentPlan(input.promptPackage.attachmentEntries);
   const profile: AgentApprovalProfile = isAgentApprovalProfile(settings.agentApprovalProfile)
     ? settings.agentApprovalProfile
@@ -84,8 +84,19 @@ export function buildCodexAppServerEffectiveRunPlan(
     backend: "codex-app-server",
     settings,
     cwd: input.cwd,
-    promptPackageText: input.promptPackage.auditHash,
-    settingSources: [], // codex app-server 当前不读 claude skills/setting sources
+    // Round 5: Codex 审计哈希基于实际 wire 层（developerInstructions + userPrompt），
+    // 不再用旧 bridgeSystemAppend 整包哈希冒充 Codex 收到的内容。
+    promptPackageText: computePromptPackageHash([
+      "developerInstructions",
+      buildCodexDeveloperInstructions(input.cwd),
+      input.promptPackage.userPrompt,
+      `model=${settings.model ?? ""}`,
+      `effort=${settings.effortLevel ?? ""}`,
+      `personality=${settings.codexPersonality ?? "pragmatic"}`,
+      `summary=${settings.codexReasoningSummary ?? "auto"}`,
+      input.promptPackage.attachmentEntries.map((e) => `${e.refId}:${e.packing}`).join("|"),
+    ].join("\n---\n")),
+    settingSources: [],
     skills: [],
     attachmentPlan,
     approvalProfile: profile,
@@ -98,25 +109,17 @@ export function buildCodexAppServerEffectiveRunPlan(
 /**
  * 从 EffectiveRunPlan + BridgePromptPackage 派生 codex app-server 运行参数。
  *
- * bridgeSystemAppend 映射策略（优先级）：
- * 1. instructions 字段（codex app-server 文档支持）—— 当前默认
- * 2. （未来）config/rules 层 —— 当 schema 生成版本暴露这些字段时切换
- * 3. provider-preamble —— 兜底，作为 turn/start input 头部 preamble，但 source 单独标记
- *
- * experimentalApi 审计：
- * - 默认 false（不启用 experimental fields，如 item/plan/delta）
- * - 若需启用（如 plan item 支持），必须在返回的 options.experimentalApi=true，
- *   并在 EffectiveRunPlan/CodexRunOptions audit 中记录。
+ * Round 1：developerInstructions = 薄 Obsidian 约定；不设置 baseInstructions。
  */
 export function buildCodexAppServerRunOptions(
   plan: EffectiveRunPlan,
   promptPackage: BridgePromptPackage,
-  opts?: { experimentalApi?: boolean },
+  opts?: { experimentalApi?: boolean; supportsPersonality?: boolean },
 ): CodexAppServerRunOptions {
-  // experimentalApi 默认 false；显式启用时审计记录
   const experimentalApi = !!opts?.experimentalApi;
+  // V20.10: personality 按 supportsPersonality 门控 — 模型不支持时发 "none"
+  const supportsPersonality = opts?.supportsPersonality !== false;
 
-  // initialize 参数：clientInfo + capabilities（官方 shape）
   const clientInfo: CodexClientInfo = {
     name: CLIENT_NAME,
     title: CLIENT_TITLE,
@@ -131,53 +134,52 @@ export function buildCodexAppServerRunOptions(
     cwd: plan.cwd,
   };
 
-  // bridgeSystemAppend → instructions（当前默认）
-  const bridgeSystemAppendSource: CodexAppServerRunOptions["bridgeSystemAppendSource"] = "instructions";
+  const bridgeSystemAppendSource: CodexAppServerRunOptions["bridgeSystemAppendSource"] = "developerInstructions";
+  const developerInstructions = buildCodexDeveloperInstructions(plan.cwd);
+  const developerInstructionsMeta = {
+    id: CODEX_DEVELOPER_INSTRUCTIONS_META.id,
+    version: CODEX_DEVELOPER_INSTRUCTIONS_META.version,
+    chars: developerInstructions.length,
+  };
 
-  // thread/start.config 容器（官方 shape；model 走 config.model）
   const threadConfig: CodexThreadConfig = plan.model ? { model: plan.model } : {};
-  // 真实 codex app-server binary 读取顶层 model + baseInstructions（与 codex-app-server-smoke
-  // / codex-managed-runtime-smoke 主线 wire 一致；缺失会导致 thread/start hang）。
-  // config/instructions 保留供 thread/resume 路径与审计哈希使用。
-  // plan.session 可选（部分测试 plan 不含 session 字段）；缺省按新会话处理。
-  const continueSession = !!plan.session?.continueSession;
-  // latest native session only: 总是持久化 rollout（ephemeral=false），
-  // 否则 codex app-server 不会把 rollout 写到 ~/.codex/sessions/，
-  // 下一轮 thread/resume 会报 "no rollout found"。
-  // 持久化 rollout 是 native session resume 的前提条件。
+  // Round 1：thread/start 恒为新建 thread（"startup"|"clear" 为 generated ThreadStartSource
+  // 仅有的两个取值；resume 走独立的 thread/resume RPC，不在 thread/start.sessionStartSource
+  // 内表达"续接"语义），故此处恒为 "clear"，不再依赖 continueSession 分支。
   const approvalProfile: AgentApprovalProfile = plan.backend === "codex-app-server" && isAgentApprovalProfile(plan.approvalProfile)
     ? plan.approvalProfile
     : "ask";
   const approvalWire = mapAgentApprovalProfileToCodex(approvalProfile, plan.cwd);
+  // Round 5: personality/reasoningSummary 来自用户设置（settings.codexPersonality/codexReasoningSummary），
+  // 经 CodexAppServerEffectiveRunPlan 传递（单一真相源），不再硬编码。
+  // V20.10: 按 supportsPersonality 门控 — 模型不支持时 personality="none"
+  const userPersonality = plan.backend === "codex-app-server" ? plan.personality : "pragmatic";
+  const personality = supportsPersonality ? userPersonality : "none";
+  const reasoningSummary = plan.backend === "codex-app-server" ? plan.reasoningSummary : "auto";
   const threadStart: CodexThreadStartParams = {
     config: threadConfig,
-    instructions: promptPackage.bridgeSystemAppend,
     cwd: plan.cwd,
-    // 顶层字段（binary 实际读取）
     model: plan.model,
-    baseInstructions: promptPackage.bridgeSystemAppend,
+    // Round 1：不传 baseInstructions；Bridge 薄规则走 developerInstructions
+    developerInstructions,
     approvalPolicy: approvalWire.approvalPolicy,
     approvalsReviewer: approvalWire.approvalsReviewer,
     sandbox: approvalWire.sandbox,
-    personality: "pragmatic",
-    // latest native session only: ephemeral=false（总是持久化 rollout，让 thread/resume 可用）
+    personality,
     ephemeral: false,
-    sessionStartSource: continueSession ? "resume" : "clear",
+    sessionStartSource: "clear",
   };
-  // 不再把 resumeSessionId 塞进 thread/start；resume 走 thread/resume。
 
-  // turn/start.input 为 content item array（V2.17-A Completion wire 校准）
   const inputItems: CodexTurnInputItem[] = [
-    { type: "text", text: promptPackage.userPrompt },
+    { type: "text", text: promptPackage.userPrompt, text_elements: [] },
   ];
-  // 本地图片用 localImage 作为 input item 一并送入。
-  // native-ref-only 文件不进入 input item；否则真实 app-server 会返回
-  // unknown variant `file`, expected text/image/localImage/skill/mention。
   for (const entry of promptPackage.attachmentEntries) {
     if (entry.packing === "sdk-streaming-block" && entry.fileType === "image") {
+      // localFileUrl 仅用于校验 path 能解析出有效 file:// URL（wire 上只发 path 字段，
+      // generated UserInput.localImage 不含 refId/url）。
       const url = localFileUrl(entry.resolvedPath);
       if (url) {
-        inputItems.push({ type: "localImage", refId: entry.refId, path: entry.resolvedPath, url });
+        inputItems.push({ type: "localImage", path: entry.resolvedPath });
       }
     }
   }
@@ -185,10 +187,12 @@ export function buildCodexAppServerRunOptions(
   const turnStart: Omit<CodexTurnStartParams, "threadId"> = {
     input: inputItems,
     effort: plan.effort || undefined,
-    // 每次 turn/start 都带上审批/沙箱/reviewer，恢复会话后切换权限从下一轮立即生效
+    model: plan.model || undefined,
+    personality,
+    summary: reasoningSummary,
     approvalPolicy: approvalWire.approvalPolicy,
     approvalsReviewer: approvalWire.approvalsReviewer,
-    sandboxPolicy: approvalWire.sandboxPolicy as unknown as Record<string, unknown>,
+    sandboxPolicy: approvalWire.sandboxPolicy,
   };
 
   return {
@@ -197,34 +201,39 @@ export function buildCodexAppServerRunOptions(
     turnStart,
     bridgeSystemAppendSource,
     experimentalApi,
+    developerInstructionsMeta,
   };
 }
 
 /**
  * 审计哈希（与 plan.promptPackageHash 互验；保证 prompt 拆分跨 provider 一致）。
- *
- * 包含 experimentalApi 字段，确保 experimental 启用状态可审计。
  */
 export function computeCodexRunOptionsAuditHash(options: CodexAppServerRunOptions): string {
-  const inputItemsStr = (options.turnStart.input ?? [])
+  const inputItems = options.turnStart.input ?? [];
+  const inputItemsStr = inputItems
     .map((it) => {
-      if (it.type === "text") return `${it.type}:${it.text}`;
-      if (it.type === "skill") return `${it.type}:${it.name}`;
-      return `${it.type}:${it.refId ?? it.path ?? ""}`;
+      switch (it.type) {
+        case "text": return `${it.type}:${it.text}`;
+        case "skill": return `${it.type}:${it.name}`;
+        case "mention": return `${it.type}:${it.name}:${it.path}`;
+        case "image": return `${it.type}:${it.url}`;
+        case "localImage": return `${it.type}:${it.path}`;
+        default: return `${(it as { type: string }).type}`;
+      }
     })
     .join("|");
   const capabilitiesStr = JSON.stringify(options.initialize.capabilities ?? {});
   const configStr = JSON.stringify(options.threadStart.config ?? {});
-  // 任务3: attachments 收敛 —— managed path 不发送 turnStart.attachments，
-  // 审计哈希明确写入 "attachments=disabled" 而非读取空 attachments 字段。
-  const attachmentsAudit = "attachments=disabled";
+  // Round 5: attachments 走 turn/start.input 的 localImage/mention 条目（非独立 attachments 字段），
+  // 用条目数审计取代 Round 1 遗留的静态 "disabled" 标记（该标记已不反映真实 wire 行为）。
+  const attachmentsAudit = `attachments=input(${inputItems.length - 1 >= 0 ? inputItems.length - 1 : 0})`;
   const input = [
     options.bridgeSystemAppendSource,
     options.experimentalApi ? "experimentalApi=true" : "experimentalApi=false",
     capabilitiesStr,
     options.initialize.clientInfo.name,
     options.initialize.clientInfo.version,
-    options.threadStart.instructions ?? "",
+    options.threadStart.developerInstructions ?? "",
     configStr,
     `approvalPolicy=${options.threadStart.approvalPolicy ?? ""}`,
     `approvalsReviewer=${options.threadStart.approvalsReviewer ?? ""}`,
@@ -232,6 +241,9 @@ export function computeCodexRunOptionsAuditHash(options: CodexAppServerRunOption
     `turnApprovalPolicy=${options.turnStart.approvalPolicy ?? ""}`,
     `turnApprovalsReviewer=${options.turnStart.approvalsReviewer ?? ""}`,
     `turnSandboxPolicy=${JSON.stringify(options.turnStart.sandboxPolicy ?? {})}`,
+    `turnModel=${options.turnStart.model ?? ""}`,
+    `turnPersonality=${options.turnStart.personality ?? ""}`,
+    `turnSummary=${options.turnStart.summary ?? ""}`,
     inputItemsStr,
     options.turnStart.effort ?? "",
     attachmentsAudit,

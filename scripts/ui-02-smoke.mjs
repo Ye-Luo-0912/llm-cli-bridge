@@ -1,6 +1,6 @@
 // UI-02 Smoke: Composer 与上下文工作台验收
 // 验证紧凑态输入框、自动增高、上下文分组、布局防竖排、"需要你操作"状态、文件 chip 键盘删除
-// 独立于 run-tests.mjs，按 spec 要求作为独立 UI 收尾 smoke 的一部分
+// 独立 UI 收尾 smoke
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

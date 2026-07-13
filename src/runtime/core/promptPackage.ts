@@ -1,7 +1,8 @@
-// LLM CLI Bridge — BridgePromptPackage Builder (V2.17-A Completion, V16.5-C slimmed)
+// LLM CLI Bridge — BridgePromptPackage Builder (V2.17-A Completion, V16.5-C slimmed, Round 5 SSOT)
 //
-// Provider-neutral prompt 拆分：把现有 promptPackage.ts 的单一字符串拆为
+// Provider-neutral prompt 拆分：把原 legacy src/promptPackage.ts 的单一字符串拆为
 // bridgeSystemAppend + userPrompt + attachmentEntries + auditHash。
+// Round 5: legacy src/promptPackage.ts 已删除；StateSnapshot 等类型迁移至 ./types。
 //
 // V16.5-C: bridgeSystemAppend 改为组合 bridgePromptContract 的三个核心 section
 // （capability / autonomy / safety）+ 简短 attachment/output 提示。
@@ -19,12 +20,10 @@ import type { LLMBridgeSettings } from "../../types";
 import type {
   AttachmentEntry,
   BridgePromptPackage,
-} from "./types";
-import type {
   PromptAttachmentTextSnippet,
   PromptFileRefIndexEntry,
   StateSnapshot,
-} from "../../promptPackage";
+} from "./types";
 import { computePromptPackageHash } from "../../effectiveRunPlan";
 import {
   buildPromptContract,
@@ -259,7 +258,7 @@ export function buildBridgePromptPackage(
 
 // ---------- 工具函数 ----------
 
-function truncateText(text: string, maxChars: number): string {
+export function truncateText(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
   return text.slice(0, maxChars) + "\n\n...[truncated by LLM CLI Bridge]";
 }

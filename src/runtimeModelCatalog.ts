@@ -11,6 +11,24 @@
 export type ModelValidationStatus = "available" | "pending" | "incompatible";
 
 /**
+ * 推理等级目录条目
+ */
+export interface EffortCatalogEntry {
+  /** 推理等级标识（传给 SDK query 的参数） */
+  readonly value: string;
+  /** 显示标签（原始名称，不中文化） */
+  readonly label: string;
+  /** runtime 提供的 description（可选） */
+  readonly description?: string;
+}
+
+/** model/list 对象数组项（保留 description，供 UI / 审计） */
+export interface ReasoningEffortOptionDetail {
+  readonly value: string;
+  readonly description?: string;
+}
+
+/**
  * 模型目录条目
  */
 export interface ModelCatalogEntry {
@@ -18,8 +36,12 @@ export interface ModelCatalogEntry {
   readonly value: string;
   /** 显示标签（原始名称，不中文化） */
   readonly label: string;
-  /** 支持的推理等级列表（来自 runtime model/list） */
+  /** 模型描述（来自 runtime model/list） */
+  readonly description?: string;
+  /** 支持的推理等级列表（来自 runtime model/list；保持返回顺序） */
   readonly supportedReasoningEfforts?: ReadonlyArray<string>;
+  /** 带 description 的 reasoning effort 选项（与 supportedReasoningEfforts 同序） */
+  readonly reasoningEffortOptions?: ReadonlyArray<ReasoningEffortOptionDetail>;
   /** 默认推理等级 */
   readonly defaultReasoningEffort?: string;
   /** 输入模态列表（如 ["text", "image"]） */
@@ -30,20 +52,14 @@ export interface ModelCatalogEntry {
   readonly isDefault?: boolean;
   /** 模型所属 provider（如 "llm_bridge_relay"） */
   readonly provider?: string;
+  /** Round 3: 该模型支持的 service tier 列表（来自 runtime model/list，见 generated Model.serviceTiers） */
+  readonly serviceTiers?: ReadonlyArray<{ readonly id: string; readonly name: string; readonly description: string }>;
+  /** Round 3: 该模型 catalog 默认 service tier id（见 generated Model.defaultServiceTier） */
+  readonly defaultServiceTier?: string;
   /** 验证状态：available=可用，pending=待验证，incompatible=不兼容 */
   readonly validationStatus?: ModelValidationStatus;
   /** V20.3: 不兼容原因（仅在 validationStatus=incompatible 时有意义） */
   readonly incompatibleReason?: string;
-}
-
-/**
- * 推理等级目录条目
- */
-export interface EffortCatalogEntry {
-  /** 推理等级标识（传给 SDK query 的参数） */
-  readonly value: string;
-  /** 显示标签（原始名称，不中文化） */
-  readonly label: string;
 }
 
 /**
@@ -52,10 +68,15 @@ export interface EffortCatalogEntry {
 export interface RuntimeModelCatalog {
   /** 可用模型列表 */
   readonly models: ReadonlyArray<ModelCatalogEntry>;
-  /** 可用推理等级列表 */
+  /** 可用推理等级列表（static 兜底；runtime 目录优先用模型自带 efforts） */
   readonly efforts: ReadonlyArray<EffortCatalogEntry>;
   /** 目录来源：runtime=从 SDK/配置动态读取；static=fallback 静态列表 */
   readonly source: "runtime" | "static";
+  /**
+   * Round 1：runtime 目录解析失败或模型未返回 efforts 时为 true，
+   * UI 可区分「目录不可用」与「静态兜底」，避免静默用 STATIC_EFFORTS 冒充 Codex 能力。
+   */
+  readonly effortsUnavailable?: boolean;
 }
 
 export type RuntimeModelCatalogAgent = "claude" | "codex" | "custom";
@@ -168,7 +189,9 @@ export function setRuntimeModelCatalogForAgent(
     .map((item) => ({
       value: item.value.trim(),
       label: (item.label || item.value).trim(),
+      description: item.description,
       supportedReasoningEfforts: item.supportedReasoningEfforts,
+      reasoningEffortOptions: item.reasoningEffortOptions,
       defaultReasoningEffort: item.defaultReasoningEffort,
       inputModalities: item.inputModalities,
       supportsPersonality: item.supportsPersonality,
@@ -176,12 +199,28 @@ export function setRuntimeModelCatalogForAgent(
       provider: item.provider,
       validationStatus: item.validationStatus,
       incompatibleReason: item.incompatibleReason,
+      serviceTiers: item.serviceTiers,
+      defaultServiceTier: item.defaultServiceTier,
     }))
     .filter((item) => item.value.length > 0 && !seen.has(item.value) && !!seen.add(item.value));
+
+  // Round 1：runtime 目录的 effort 以模型自带列表为准；不再把 STATIC_EFFORTS 挂到 catalog.efforts 冒充能力。
+  const modelEffortValues = new Set<string>();
+  for (const model of normalized) {
+    for (const effort of model.supportedReasoningEfforts || []) {
+      modelEffortValues.add(effort);
+    }
+  }
+  const runtimeEfforts: EffortCatalogEntry[] = [...modelEffortValues].map((value) => ({
+    value,
+    label: effortDisplayLabel(value),
+  }));
+  const effortsUnavailable = agent === "codex" && runtimeEfforts.length === 0;
   const catalog: RuntimeModelCatalog = {
     models: normalized,
-    efforts: STATIC_EFFORTS,
+    efforts: runtimeEfforts,
     source: "runtime",
+    effortsUnavailable,
   };
   if (normalized.length > 0) runtimeCatalogByAgent.set(agent, catalog);
   return normalized.length > 0 ? catalog : getRuntimeModelCatalogForAgent(agent);
@@ -189,14 +228,27 @@ export function setRuntimeModelCatalogForAgent(
 
 /**
  * 获取指定模型的推理等级列表。如果模型自带 supportedReasoningEfforts 则用它；
- * 否则回退到静态列表。
- * V20.2: label 使用中文显示（低/中/高/极高），value 保持 low/medium/high/max。
+ * Round 1：runtime 目录若模型未返回 efforts，返回空并依赖 effortsUnavailable（不静默用 STATIC_EFFORTS）。
+ * 静态目录仍回退到 catalog.efforts。
  */
 export function getEffortsForModel(catalog: RuntimeModelCatalog, modelValue: string): ReadonlyArray<EffortCatalogEntry> {
   const entry = findModelEntry(catalog, modelValue);
-  const raw = entry?.supportedReasoningEfforts && entry.supportedReasoningEfforts.length > 0
-    ? entry.supportedReasoningEfforts.map((e) => ({ value: e, label: effortDisplayLabel(e) }))
-    : catalog.efforts.map((e) => ({ value: e.value, label: effortDisplayLabel(e.value) }));
+  const detailByValue = new Map(
+    (entry?.reasoningEffortOptions || []).map((opt) => [opt.value, opt.description] as const),
+  );
+  let raw: EffortCatalogEntry[];
+  if (entry?.supportedReasoningEfforts && entry.supportedReasoningEfforts.length > 0) {
+    raw = entry.supportedReasoningEfforts.map((e) => ({
+      value: e,
+      label: effortDisplayLabel(e),
+      description: detailByValue.get(e),
+    }));
+  } else if (catalog.source === "runtime") {
+    // Codex / runtime：目录不可用或模型无 efforts → 空列表（UI 可区分）
+    return [];
+  } else {
+    raw = catalog.efforts.map((e) => ({ value: e.value, label: effortDisplayLabel(e.value), description: e.description }));
+  }
   // 同一中文标签只保留一项（避免 max/xhigh 都显示「极高」造成重复）
   const seen = new Set<string>();
   const deduped: EffortCatalogEntry[] = [];

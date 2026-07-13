@@ -1,6 +1,6 @@
 // UI-03 Smoke: 导航、会话与页面层级验收
 // 验证左 rail active label、键盘焦点、History 首条+最后答复分行、Skills 分组、恢复提示
-// 独立于 run-tests.mjs，按 spec 要求作为独立 UI 收尾 smoke 的一部分
+// 独立 UI 收尾 smoke
 
 import { readFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

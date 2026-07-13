@@ -217,6 +217,12 @@
   color: var(--text-muted);
 }
 
+/* quiet reasoning：Markdown 渲染后去掉多余段落间距，保留 inline **bold** */
+.llm-bridge-codex-thinking-summary.is-reasoning-text > p {
+  margin: 0;
+  display: inline;
+}
+
 .llm-bridge-codex-answer-body {
   min-width: 0;
   color: var(--text-normal);

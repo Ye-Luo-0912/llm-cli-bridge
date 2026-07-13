@@ -43,6 +43,7 @@ import {
   buildCodexAppServerEffectiveRunPlan,
   buildCodexAppServerRunOptions,
 } from "./codexAppServerEffectiveRunPlan";
+import { findModelEntry, getRuntimeModelCatalogForAgent } from "../../../runtimeModelCatalog";
 import { AppServerProcessManager, type AppServerProcessLike, type AppServerSpawnOptions } from "./appServerProcessManager";
 import { JsonRpcClient } from "./jsonRpcClient";
 import { buildRuntimeEnv } from "../../config/runtimeRouter";
@@ -69,6 +70,15 @@ import type {
   CodexTurnInputItem,
   CodexTurnStartedParams,
   CodexThreadTokenUsageUpdatedParams,
+  ThreadCompactStartResponse,
+  ReviewStartParams,
+  ReviewStartResponse,
+  SkillsListParams,
+  SkillsListResponse,
+  PermissionProfileListParams,
+  PermissionProfileListResponse,
+  ThreadForkParams,
+  ThreadForkResponse,
 } from "./schema";
 import { execFileSync } from "child_process";
 import { buildEnhancedPath } from "../../../claudeCliBackend";
@@ -132,6 +142,17 @@ export const CODEX_APP_SERVER_STAGE_TIMEOUTS = {
   threadStart: 12_000,
   /** turn/start：提交本轮用户输入 */
   turnStart: 15_000,
+  /**
+   * Round 4: turn/interrupt（cancel() 优雅取消）。超时后 cancel() 兜底强杀进程
+   * （见 cancel() 内的 setTimeout(hardKill, ...)）；此值需明显小于用户等待耐心，
+   * 优雅取消失败时才不会让用户等太久看到"取消"生效。
+   */
+  turnInterrupt: 3_000,
+  /**
+   * Round 4: 辅助 RPC（thread/compact/start、review/start、skills/list、
+   * permissionProfile/list、thread/fork）的统一超时——非主 run 路径，容忍稍慢。
+   */
+  auxRpc: 10_000,
 } as const;
 
 /** V20.3: 分阶段超时错误，明确指出卡在哪一步 */
@@ -206,6 +227,10 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
   private currentClient: JsonRpcClient | null = null;
   /** 当前 runId（cancel 配对） */
   private currentRunId: string | null = null;
+  /** Round 4: 当前活动 threadId（cancel() 发 turn/interrupt 用） */
+  private currentThreadId: string | null = null;
+  /** Round 4: 当前活动 turnId（cancel() 发 turn/interrupt 用） */
+  private currentTurnId: string | null = null;
   /**
    * 任务3: serverRequestId → 本地 approval response 快照。
    * 当 serverRequest/resolved 通知缺 itemId/decision 时，用本地记录回填。
@@ -221,6 +246,10 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
   private readonly codexCommand: string;
   /** V17-F1.1 任务 B：app-server 启动参数（由 constructor 接收，子类不再需要 override） */
   private readonly appServerArgs: string[];
+  /** V20.10: skills 缓存（skills/changed 通知时自动刷新） */
+  private cachedSkills: SkillsListResponse | null = null;
+  /** V20.10: permissionProfile 缓存（首次 getCachedPermissionProfiles 时拉取） */
+  private cachedPermissionProfiles: PermissionProfileListResponse | null = null;
 
   constructor(
     _developerMode: boolean = false,
@@ -316,13 +345,29 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     return buildCodexAppServerEffectiveRunPlan(input, settings);
   }
 
+  /**
+   * V20.10: 查询当前模型的 supportsPersonality 能力。
+   * 从 runtime model catalog 读取；catalog 不可用时默认 true（不阻断）。
+   */
+  private resolveModelSupportsPersonality(model: string): boolean {
+    try {
+      const catalog = getRuntimeModelCatalogForAgent("codex");
+      const entry = findModelEntry(catalog, model);
+      // supportsPersonality 未定义时默认 true（兼容旧 catalog）
+      return entry?.supportsPersonality !== false;
+    } catch {
+      return true;
+    }
+  }
+
   async *run(ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     const developerMode = !!settings.developerMode;
     // 每个 run 用独立 eventMapper，保证 rawProviderEvent 正确填充
     const eventMapper = new CodexAppServerEventMapper(this.providerId, developerMode);
 
-    // 派生 codex 运行参数
-    const options = buildCodexAppServerRunOptions(ctx.plan, ctx.promptPackage);
+    // 派生 codex 运行参数（V20.10: 传入 supportsPersonality 门控）
+    const supportsPersonality = this.resolveModelSupportsPersonality(ctx.plan.model);
+    const options = buildCodexAppServerRunOptions(ctx.plan, ctx.promptPackage, { supportsPersonality });
 
     // V17-E 任务 A：启动 codex app-server 进程（command 来源 = this.codexCommand，env 含 enhanced PATH）
     const process = this.createProcess({
@@ -452,11 +497,16 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
 
       // 2. thread/start（新 thread；resume 路径走 thread/resume，不再塞 resumeSessionId）
       //    response result shape: { thread: { id, sessionId? } }
-      //    wire payload 剥离 config/instructions（真实 codex binary 读取顶层 model + baseInstructions；
-      //    config/instructions 保留在 options 对象供 thread/resume 路径与审计哈希使用，但发到
-      //    wire 上会导致 app-server hang）。与 codex-managed-runtime-smoke provider-wire 验证一致。
+      //    Round 1 wire：剥离 config/instructions；不发送 baseInstructions（保留 runtime 原生 base）；
+      //    发送 developerInstructions（薄 Obsidian 约定）。
       //    V20.3: 分阶段超时。
-      const { config: _wireDropConfig, instructions: _wireDropInstr, ...threadStartWire } = options.threadStart;
+      const {
+        config: _wireDropConfig,
+        baseInstructions: _wireDropBase,
+        ...threadStartWire
+      } = options.threadStart;
+      // 防御：即便上游误设 baseInstructions，也绝不发到 wire
+      delete (threadStartWire as { baseInstructions?: string }).baseInstructions;
       let threadResult: CodexThreadStartResult;
       try {
         threadResult = await client.send<CodexThreadStartResult>(
@@ -467,6 +517,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       }
       const threadId = threadResult.thread.id;
       const sessionId = threadResult.thread.sessionId;
+      this.currentThreadId = threadId;
       // V2.17-A Completion: 同时注册 runId 和 bridgeSessionId（若提供），供 resume 按 bridgeSessionId 查找。
       this.sessionMapper.register(ctx.runId, threadId, sessionId);
       if (ctx.bridgeSessionId && ctx.bridgeSessionId !== ctx.runId) {
@@ -480,10 +531,12 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       //    V20.3: 分阶段超时。
       turnSubmitted = true;
       try {
-        await client.send("turn/start", {
+        const turnResult = await client.send<{ turn?: { id?: string } }>("turn/start", {
           ...options.turnStart,
           threadId,
         }, CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart);
+        // Round 4: 记录 turnId，供 cancel() 发 turn/interrupt 用（官方 TurnStartResponse={turn:Turn}）。
+        this.currentTurnId = turnResult?.turn?.id ?? null;
       } catch (err) {
         throw new CodexAppServerStageTimeoutError("turn/start", CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart, err);
       }
@@ -511,25 +564,58 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       this.currentProcess = null;
       this.currentClient = null;
       this.currentRunId = null;
+      this.currentThreadId = null;
+      this.currentTurnId = null;
       // 任务2: 正常完成/异常时立即清理 approval bookkeeping，避免残留审批状态
       this.serverRequestBookkeeping.clear();
     }
   }
 
+  /**
+   * Round 4: 取消当前 run。
+   *
+   * 接口要求同步返回（RuntimeProvider.cancel 签名为 void），故优雅取消走后台异步：
+   * 1. 若已知 threadId/turnId，先发 `turn/interrupt`（带超时）——让 runtime 有机会正常收尾
+   *    （通常会推送 turn/completed，run() 主循环的 finally 会自行清理 process/client）。
+   * 2. 无论 turn/interrupt 成功/失败/超时，都调度一次兜底强杀（延迟 = 超时 + 缓冲）；
+   *    若 turn/interrupt 已让 run() 的 finally 跑完（currentRunId 已被清空），兜底强杀是 no-op。
+   * 3. 无法确定 threadId/turnId（尚未收到 thread/start 或 turn/start 响应）时，直接走原有硬杀路径。
+   */
   cancel(runId: string): void {
     // 仅取消匹配 currentRunId 的活动 run，防止迟到的 cancel 误杀无关 run
     if (runId !== this.currentRunId) return;
-    if (this.currentClient) {
-      this.currentClient.close();
+
+    const hardKill = () => {
+      // run() 的 finally 可能已经跑过（turn/interrupt 触发了 turn/completed）；
+      // 此时 currentRunId 已被清空，这里应是 no-op，避免误杀后续新 run。
+      if (this.currentRunId !== runId) return;
+      if (this.currentClient) {
+        try { this.currentClient.close(); } catch { /* swallow */ }
+      }
+      if (this.currentProcess) {
+        try { this.currentProcess.kill(); } catch { /* swallow */ }
+      }
+      this.currentProcess = null;
+      this.currentClient = null;
+      this.currentRunId = null;
+      this.currentThreadId = null;
+      this.currentTurnId = null;
+      // 任务2: cancel 后立即清理 approval bookkeeping，避免残留审批状态
+      this.serverRequestBookkeeping.clear();
+    };
+
+    const client = this.currentClient;
+    const threadId = this.currentThreadId;
+    const turnId = this.currentTurnId;
+    if (client && !client.isClosed() && threadId && turnId) {
+      const timeoutMs = CODEX_APP_SERVER_STAGE_TIMEOUTS.turnInterrupt;
+      // fire-and-forget：turn/interrupt 失败/超时不影响下面调度的兜底强杀。
+      void client.send("turn/interrupt", { threadId, turnId }, timeoutMs).catch(() => { /* 兜底强杀会处理 */ });
+      setTimeout(hardKill, timeoutMs + 500);
+    } else {
+      // 尚未拿到 threadId/turnId（早期取消）：无法发 turn/interrupt，直接硬杀。
+      hardKill();
     }
-    if (this.currentProcess) {
-      this.currentProcess.kill();
-    }
-    this.currentProcess = null;
-    this.currentClient = null;
-    this.currentRunId = null;
-    // 任务2: cancel 后立即清理 approval bookkeeping，避免残留审批状态
-    this.serverRequestBookkeeping.clear();
   }
 
   async *resume(ref: NativeSessionRef, ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
@@ -544,7 +630,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     // 有映射：走 thread/resume 路径
     const developerMode = !!settings.developerMode;
     const eventMapper = new CodexAppServerEventMapper(this.providerId, developerMode);
-    const options = buildCodexAppServerRunOptions(ctx.plan, ctx.promptPackage);
+    const supportsPersonality = this.resolveModelSupportsPersonality(ctx.plan.model);
+    const options = buildCodexAppServerRunOptions(ctx.plan, ctx.promptPackage, { supportsPersonality });
 
     const codexCommand = this.codexCommand;
     const process = this.createProcess({
@@ -674,11 +761,18 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
             threadId: codexThread,
             config: options.threadStart.config,
             cwd: ctx.plan.cwd,
+            // Round 1：resume 走 developer 层；不传 baseInstructions
+            developerInstructions: options.threadStart.developerInstructions,
+            personality: options.threadStart.personality,
+            approvalPolicy: options.threadStart.approvalPolicy,
+            approvalsReviewer: options.threadStart.approvalsReviewer,
+            sandbox: options.threadStart.sandbox,
           },
           CODEX_APP_SERVER_STAGE_TIMEOUTS.threadStart,
         );
         resumedThreadId = resumeResult.thread.id;
         resumedSessionId = resumeResult.thread.sessionId;
+        this.currentThreadId = resumedThreadId;
         // 同步更新 sessionMapper（runId + bridgeSessionId）
         this.sessionMapper.register(ctx.runId, resumedThreadId, resumedSessionId);
         if (ctx.bridgeSessionId && ctx.bridgeSessionId !== ctx.runId) {
@@ -695,6 +789,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
         try { process.kill(); } catch { /* swallow */ }
         this.currentProcess = null;
         this.currentClient = null;
+        this.currentThreadId = null;
+        this.currentTurnId = null;
         // 提示用户：原 native session 失效，已新开
         yield {
           providerId: this.providerId,
@@ -712,14 +808,15 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       push(eventMapper.mapNativeSessionBound(this.providerId, resumedThreadId, resumedSessionId));
 
       // 3. turn/start（input 为 content item array）
+      //    Round 1：不再把 Bridge 文案 prepend 进用户 turn input；developer 层已由 thread/resume 恢复。
       //    V20.3: 分阶段超时
       turnSubmitted = true;
       try {
-        await client.send("turn/start", {
+        const turnResult = await client.send<{ turn?: { id?: string } }>("turn/start", {
           ...options.turnStart,
-          input: buildResumeTurnInput(options.turnStart.input, options.threadStart.instructions),
           threadId: resumedThreadId,
         }, CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart);
+        this.currentTurnId = turnResult?.turn?.id ?? null;
       } catch (err) {
         throw new CodexAppServerStageTimeoutError("turn/start", CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart, err);
       }
@@ -746,6 +843,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       this.currentProcess = null;
       this.currentClient = null;
       this.currentRunId = null;
+      this.currentThreadId = null;
+      this.currentTurnId = null;
       // 任务2: 正常完成/异常时立即清理 approval bookkeeping，避免残留审批状态
       this.serverRequestBookkeeping.clear();
     }
@@ -899,6 +998,37 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     unreg.push(client.onNotification("thread/tokenUsage/updated", (params) => {
       push(eventMapper.mapThreadTokenUsageUpdated(params as CodexThreadTokenUsageUpdatedParams));
     }));
+
+    // Round 4：新增官方通知（映射到既有 thinking/progress/message/system NormalizedRuntimeEvent kind）
+    unreg.push(client.onNotification("item/reasoning/summaryPartAdded", (params) => {
+      push(eventMapper.mapItemReasoningSummaryPartAdded(params));
+    }));
+    unreg.push(client.onNotification("turn/plan/updated", (params) => {
+      push(eventMapper.mapTurnPlanUpdated(params));
+    }));
+    unreg.push(client.onNotification("thread/compacted", (params) => {
+      push(eventMapper.mapThreadCompacted(params));
+    }));
+    unreg.push(client.onNotification("model/rerouted", (params) => {
+      push(eventMapper.mapModelRerouted(params));
+    }));
+    unreg.push(client.onNotification("model/verification", (params) => {
+      push(eventMapper.mapModelVerification(params));
+    }));
+    unreg.push(client.onNotification("warning", (params) => {
+      push(eventMapper.mapWarning(params));
+    }));
+    unreg.push(client.onNotification("configWarning", (params) => {
+      push(eventMapper.mapConfigWarning(params));
+    }));
+    unreg.push(client.onNotification("skills/changed", () => {
+      push(eventMapper.mapSkillsChanged());
+      // V20.10: skills/changed → 自动拉取 skills/list 刷新缓存（供 UI 查询）
+      this.refreshCachedSkills(client).catch(() => { /* 静默失败，不影响主流程 */ });
+    }));
+
+    // V20.10: 后台预热 permissionProfile 缓存（供权限菜单 UI 同步读取）
+    this.warmPermissionProfileCache(client).catch(() => { /* 静默失败 */ });
 
     // approval server-request handler：item/commandExecution/requestApproval
     // client 按原 id 返回 result（{ decision: "accept"|"acceptForSession"|"decline"|"cancel" }）
@@ -1085,6 +1215,140 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     });
   }
 
+  // ---------- Round 4: 辅助 RPC 最小 stub ----------
+  // 均依赖 this.currentClient（run() 期间才有效）；无活动 run 时抛错，
+  // 供上层（settings/commands UI）按需调用，暂不接入自动触发逻辑。
+
+  private requireActiveClient(action: string): JsonRpcClient {
+    if (!this.currentClient || this.currentClient.isClosed()) {
+      throw new Error(`Codex app-server: 没有活动 run，无法执行 ${action}`);
+    }
+    return this.currentClient;
+  }
+
+  /**
+   * thread/compact/start：手动触发上下文压缩（无自动"token ratio 高时触发"逻辑——
+   * 需要 turn 级 token usage 阈值判断，留给上层按需调用 mapThreadTokenUsageUpdated
+   * 产出的 token_usage 事件自行决策）。
+   */
+  async compactThread(threadId: string): Promise<ThreadCompactStartResponse> {
+    const client = this.requireActiveClient("thread/compact/start");
+    return client.send<"thread/compact/start", ThreadCompactStartResponse>(
+      "thread/compact/start",
+      { threadId },
+      CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc,
+    );
+  }
+
+  /** review/start：对当前 thread 发起代码审查（默认 inline delivery）。 */
+  async startReview(params: ReviewStartParams): Promise<ReviewStartResponse> {
+    const client = this.requireActiveClient("review/start");
+    return client.send<"review/start", ReviewStartResponse>(
+      "review/start",
+      params,
+      CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc,
+    );
+  }
+
+  /** skills/list：探测本地可用 skills（用于 capability snapshot / skills UI）。 */
+  async listSkills(params: SkillsListParams = {}): Promise<SkillsListResponse> {
+    const client = this.requireActiveClient("skills/list");
+    return client.send<"skills/list", SkillsListResponse>(
+      "skills/list",
+      params,
+      CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc,
+    );
+  }
+
+  /**
+   * V20.10: 刷新 skills 缓存（skills/changed 通知触发）。
+   * 静默失败：client 不可用或 RPC 超时时不影响主流程。
+   */
+  private async refreshCachedSkills(client: JsonRpcClient): Promise<void> {
+    try {
+      const resp = await client.send<"skills/list", SkillsListResponse>(
+        "skills/list",
+        {},
+        CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc,
+      );
+      this.cachedSkills = resp;
+    } catch {
+      // 静默失败
+    }
+  }
+
+  /**
+   * V20.10: 获取缓存的 skills 列表（由 skills/changed 自动刷新）。
+   * UI 可调用此方法读取最近一次 skills/list 结果，无需主动拉取。
+   * 返回 null 表示尚无缓存（首次运行前或 RPC 不可用）。
+   */
+  getCachedSkills(): SkillsListResponse | null {
+    return this.cachedSkills;
+  }
+
+  /** permissionProfile/list：供 approval 菜单展示可选权限档案。 */
+  async listPermissionProfiles(
+    params: PermissionProfileListParams = {},
+  ): Promise<PermissionProfileListResponse> {
+    const client = this.requireActiveClient("permissionProfile/list");
+    return client.send<"permissionProfile/list", PermissionProfileListResponse>(
+      "permissionProfile/list",
+      params,
+      CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc,
+    );
+  }
+
+  /**
+   * V20.10: 获取缓存的 permissionProfile 列表（供权限菜单 UI 使用）。
+   * 首次调用时拉取并缓存；后续直接返回缓存。
+   * RPC 不可用时返回 null，UI 降级到硬编码常量。
+   */
+  async getCachedPermissionProfiles(): Promise<PermissionProfileListResponse | null> {
+    if (this.cachedPermissionProfiles) return this.cachedPermissionProfiles;
+    try {
+      this.cachedPermissionProfiles = await this.listPermissionProfiles();
+      return this.cachedPermissionProfiles;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * V20.10: 同步读取已缓存的 permissionProfile 列表（供 UI 同步渲染）。
+   * 未缓存时返回 null；UI 应降级到硬编码常量。
+   */
+  getCachedPermissionProfilesSync(): PermissionProfileListResponse | null {
+    return this.cachedPermissionProfiles;
+  }
+
+  /**
+   * V20.10: 后台拉取 permissionProfile 并填充缓存（run 开始时触发）。
+   * 静默失败：不影响主流程。
+   */
+  private async warmPermissionProfileCache(client: JsonRpcClient): Promise<void> {
+    if (this.cachedPermissionProfiles) return;
+    try {
+      const resp = await client.send<"permissionProfile/list", PermissionProfileListResponse>(
+        "permissionProfile/list",
+        {},
+        CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc,
+      );
+      this.cachedPermissionProfiles = resp;
+    } catch {
+      // 静默失败
+    }
+  }
+
+  /** thread/fork：从现有 thread（可选 lastTurnId 截断）派生新 thread。 */
+  async forkThread(params: ThreadForkParams): Promise<ThreadForkResponse> {
+    const client = this.requireActiveClient("thread/fork");
+    return client.send<"thread/fork", ThreadForkResponse>(
+      "thread/fork",
+      params,
+      CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc,
+    );
+  }
+
   /**
    * 暴露 ApprovalMapper（测试用）。
    */
@@ -1179,87 +1443,20 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
   }
 }
 
+/**
+ * Round 1：resume 不再把 Bridge 文案注入 turn input（developer 层由 thread/resume 恢复）。
+ * 保留导出供单测锁定为 no-op。
+ */
 export function buildResumeTurnInput(
   input: readonly CodexTurnInputItem[] | undefined,
-  bridgeSystemAppend: string | undefined,
+  _bridgeSystemAppend?: string | undefined,
 ): CodexTurnInputItem[] {
-  const items = Array.isArray(input) ? input.slice() : [];
-  const context = buildCompactResumeRuntimeContext(bridgeSystemAppend);
-  if (!context) return items;
-  return [
-    {
-      type: "text",
-      text: context,
-    },
-    ...items,
-  ];
+  return Array.isArray(input) ? input.slice() : [];
 }
 
-export function buildCompactResumeRuntimeContext(bridgeSystemAppend: string | undefined): string {
-  const capabilityLines = extractRuntimeSkillCapabilityLines(bridgeSystemAppend || "");
-  if (capabilityLines.length === 0) return "";
-  const compactLines = limitRuntimeCapabilityLines(capabilityLines, 52, 4200);
-  return [
-    "Available managed Codex plugins for this resumed turn (compact):",
-    "Bridge Plugin Skills are resolved through Codex native Skill discovery, not through this prompt preamble.",
-    ...compactLines,
-  ].join("\n");
-}
-
-function extractRuntimeSkillCapabilityLines(text: string): string[] {
-  const lines = text.split(/\r?\n/);
-  const start = lines.findIndex((line) => {
-    const trimmed = line.trim();
-    return trimmed.includes("Runtime Skills / Plugins")
-      || trimmed.includes("Bridge/Vault Agent Skills and managed runtime plugins")
-      || trimmed === "Managed Codex plugins:"
-      || trimmed === "Plugin-contained Skills:"
-      || trimmed === "Vault Agent Skills:"
-      || trimmed === "Bridge/Vault Agent Skills:";
-  });
-  if (start < 0) return [];
-
-  const result: string[] = [];
-  for (let i = start; i < lines.length; i++) {
-    const rawLine = lines[i] || "";
-    const trimmed = rawLine.trim();
-    if (i > start && (
-      trimmed.startsWith("==========")
-      || trimmed.startsWith("- Host approval")
-      || trimmed.startsWith("- Agent workspace:")
-      || trimmed.startsWith("- Vault Skill source:")
-      || trimmed.startsWith("- Runtime Skill target:")
-      || trimmed.startsWith("- Runtime facts:")
-    )) {
-      break;
-    }
-    if (!trimmed || trimmed.startsWith("Evidence:") || trimmed.startsWith("Instructions summary:")) {
-      continue;
-    }
-    result.push(trimCapabilityLine(rawLine));
-  }
-  return result;
-}
-
-function limitRuntimeCapabilityLines(lines: readonly string[], maxLines: number, maxChars: number): string[] {
-  const result: string[] = [];
-  let chars = 0;
-  for (const line of lines) {
-    const nextChars = chars + line.length + 1;
-    if (result.length >= maxLines || nextChars > maxChars) {
-      result.push(`- ... ${Math.max(0, lines.length - result.length)} more capability line(s) omitted for compact resume context.`);
-      break;
-    }
-    result.push(line);
-    chars = nextChars;
-  }
-  return result;
-}
-
-function trimCapabilityLine(line: string): string {
-  const normalized = line.replace(/\s+/g, " ").trim();
-  if (normalized.length <= 240) return normalized;
-  return `${normalized.slice(0, 225).trim()}...[truncated]`;
+/** @deprecated Round 1 起不再用于 resume preamble；保留空实现供旧测试引用。 */
+export function buildCompactResumeRuntimeContext(_bridgeSystemAppend: string | undefined): string {
+  return "";
 }
 
 /**

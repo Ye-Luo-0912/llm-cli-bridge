@@ -1,5 +1,5 @@
 // UI Smoke 测试包：聚合独立 smoke + Developer Mode 回归 + CDP 截图辅助
-// 独立于 run-tests.mjs，作为 UI 收尾 smoke 的统一入口
+// UI 收尾 smoke 的统一入口
 //
 // 组成：
 // 1. 聚合运行 5 个独立 smoke（F-01/UI-01/UI-02/UI-03/F-03）
@@ -147,17 +147,7 @@ if (cdpResult.available) {
   );
 }
 
-// === 4. 独立性验证：smoke 脚本不在 run-tests.mjs 中 ===
-{
-  const runTestsSrc = readFileSync(join(PROJECT_ROOT, "scripts", "run-tests.mjs"), "utf8");
-  const scriptsIndependent = !runTestsSrc.includes("f03-smoke") &&
-    !runTestsSrc.includes("ui-01-smoke") &&
-    !runTestsSrc.includes("ui-02-smoke") &&
-    !runTestsSrc.includes("ui-03-smoke");
-  add("独立性: smoke 脚本不在 run-tests.mjs 中（独立文件）", scriptsIndependent, scriptsIndependent ? "ok" : "smoke 引用混入了 run-tests.mjs");
-}
-
-// === 5. package.json smoke 脚本完整性 ===
+// === 4. package.json smoke 脚本完整性 ===
 {
   const pkgJson = JSON.parse(readFileSync(join(PROJECT_ROOT, "package.json"), "utf8"));
   const scripts = pkgJson.scripts || {};

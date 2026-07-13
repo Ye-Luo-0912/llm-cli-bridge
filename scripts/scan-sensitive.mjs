@@ -67,11 +67,9 @@ function walk(dir) {
 function isTestFile(rel, base) {
   const relLower = rel.toLowerCase();
   const baseLower = base.toLowerCase();
-  // 文件名或路径含 test / fixture / .test. 前缀
-  if (baseLower.includes(".test.") || baseLower.includes("test-") || baseLower.startsWith("test")) return true;
+  // 文件名或路径含 test / fixture / .test. 前缀；run-tests 本体也视为测试文件
+  if (baseLower.includes(".test.") || baseLower.includes("test-") || baseLower.startsWith("test") || baseLower.includes("run-tests")) return true;
   if (relLower.includes("/test/") || relLower.includes("/tests/") || relLower.includes("/fixture")) return true;
-  // scripts/run-tests.mjs 是测试脚本（含大量假 API key 用于验证 redact 函数）
-  if (relLower.includes("run-tests")) return true;
   return false;
 }
 

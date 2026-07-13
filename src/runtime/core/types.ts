@@ -154,6 +154,55 @@ export interface AttachmentEntry {
   truncated?: boolean;
 }
 
+// ---------- StateSnapshot（从 Obsidian 收集的状态，BridgePromptPackage 构造输入） ----------
+
+/**
+ * 状态快照（从 Obsidian 收集）。
+ *
+ * Round 5: 原定义在已删除的 legacy src/promptPackage.ts；迁移至此作为
+ * provider-neutral core types 的一部分（bridgePromptContract.ts / core/promptPackage.ts 复用）。
+ */
+export interface StateSnapshot {
+  vaultPath: string;
+  activeFilePath: string | null;
+  activeFileContent: string | null;
+  selection: string | null;
+  fileRefIndex?: PromptFileRefIndexEntry[];
+  attachmentTextSnippets?: PromptAttachmentTextSnippet[];
+  attachmentPackingPolicy?: {
+    smallTextInlineMaxBytes: number;
+    smallTextInlineMaxChars: number;
+    allowedTextExtensions: string[];
+    binaryAsNativeRef: boolean;
+    imageAsSdkAttachmentIfSupported: boolean;
+    sdkDirectAttachmentSupported: boolean;
+    sdkDirectAttachmentEvidence: string;
+  };
+  timestamp: string;
+}
+
+export interface PromptFileRefIndexEntry {
+  id: string;
+  displayName: string;
+  path: string;
+  kind: "vault" | "external" | "attachment";
+  fileType: "image" | "text" | "markdown" | "json" | "pdf" | "binary" | "unknown";
+  scope?: "message" | "pinned" | "session";
+  status: "active";
+}
+
+export interface PromptAttachmentTextSnippet {
+  refId: string;
+  displayName: string;
+  resolvedPath: string;
+  fileType: "text" | "markdown" | "json";
+  content: string;
+  bytesRead: number;
+  maxBytes: number;
+  maxChars: number;
+  truncated: boolean;
+}
+
 // ---------- NormalizedRuntimeEvent ----------
 
 /**
@@ -195,7 +244,25 @@ export interface RuntimeSourceRef {
 export type NormalizedRuntimeEventPayload =
   | { kind: "session_started"; text: string; sessionId?: string }
   | { kind: "native_session_bound"; ref: NativeSessionRef }
-  | { kind: "thinking"; text: string }
+  | {
+      kind: "thinking";
+      text: string;
+      /**
+       * 真实 itemId（来自 codex app-server item/reasoning/*）。
+       * 用于按 itemId + summaryIndex 分段聚合，取代合成 messageId。
+       * 其他 provider 可留空（builder 回退到合成 key）。
+       */
+      itemId?: string;
+      /** reasoning summary 段索引（同一 itemId 内的多段 summary） */
+      summaryIndex?: number;
+      /**
+       * true = raw reasoning content（item/reasoning/textDelta），仅作回退。
+       * Builder 优先保留 summary（非 raw）段；只有无 summary 时才展示 raw。
+       */
+      isRawFallback?: boolean;
+      /** true = item/completed 最终快照（替换累积的 delta，而非追加） */
+      isSnapshot?: boolean;
+    }
   | {
       kind: "message";
       role: "assistant" | "system";
@@ -586,6 +653,8 @@ export interface ThoughtSegment {
   contentBlockIndex?: number;
   /** V16.4-D: RunPhaseModel 填充 — 所属 phase id */
   phaseId?: string;
+  /** V20.10: true = 此段文本是 raw reasoning content（无 summary 时的回退） */
+  isRawFallback?: boolean;
 }
 
 /** 工具段（按 callId；含 progress 子条目） */

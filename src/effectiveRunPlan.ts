@@ -139,12 +139,15 @@ export function buildEffectiveRunPlan(args: {
     const codexPlan: CodexAppServerEffectiveRunPlan = {
       ...base,
       backend: "codex-app-server",
-      // bridgeSystemAppend 走 instructions 层（见 codexAppServerEffectiveRunPlan.ts）
-      instructionsSource: "instructions",
+      // Round 1：Bridge 薄约定走 developerInstructions（见 codexAppServerEffectiveRunPlan.ts）
+      instructionsSource: "developerInstructions",
       approvalProfile: args.approvalProfile ?? "ask",
       approvalPolicy: args.approvalPolicy ?? "on-request",
       approvalsReviewer: args.approvalsReviewer ?? "user",
       sandbox: args.sandbox ?? "workspace-write",
+      // Round 5: personality/summary 为用户可配置设置（settings 单一真相源），不再硬编码
+      personality: settings.codexPersonality ?? "pragmatic",
+      reasoningSummary: settings.codexReasoningSummary ?? "auto",
     };
     return codexPlan;
   }
@@ -178,6 +181,8 @@ export function formatEffectiveRunPlan(plan: EffectiveRunPlan): Array<{ label: s
     rows.push({ label: "approvalPolicy", value: plan.approvalPolicy });
     rows.push({ label: "approvalsReviewer", value: plan.approvalsReviewer });
     rows.push({ label: "sandbox", value: plan.sandbox });
+    rows.push({ label: "personality", value: plan.personality });
+    rows.push({ label: "reasoningSummary", value: plan.reasoningSummary });
   } else if (plan.backend === "codex-sdk") {
     rows.push({ label: "sdkConfigSource", value: plan.sdkConfigSource });
   } else {

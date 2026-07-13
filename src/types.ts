@@ -197,15 +197,15 @@ export interface ClaudeEffectiveRunPlan extends BaseEffectiveRunPlan {
  *
  * codex-app-server 不读 systemPrompt/tools preset 字段（这些是 Claude 专用），
  * 由 CodexAppServerEffectiveRunPlan.buildRunOptions 派生 codex instructions/config/rules。
- * bridgeSystemAppend 走 instructions 层（见 codexAppServerEffectiveRunPlan.ts）。
+ * bridgeSystemAppend 走 developerInstructions 层（见 codexAppServerEffectiveRunPlan.ts）。
  *
  * V17-F0 任务 B：CodexAppServerProvider 重命名为 CodexExternalAppServerProvider（向后兼容别名保留）。
  *           此 plan 类型保留 codex-app-server backend 标识（external fallback）。
  */
 export interface CodexAppServerEffectiveRunPlan extends BaseEffectiveRunPlan {
   backend: "codex-app-server";
-  /** bridgeSystemAppend 的承载层（审计用：标记它走了哪个 codex 字段） */
-  instructionsSource: "instructions" | "config" | "rules" | "provider-preamble";
+  /** Bridge 薄指令的承载层（审计用） */
+  instructionsSource: "developerInstructions" | "instructions" | "config" | "rules" | "provider-preamble";
   /** 实际生效的审批画像（provider-neutral） */
   approvalProfile: import("./agentApprovalProfile").AgentApprovalProfile;
   /** 映射后的 Codex approvalPolicy */
@@ -214,6 +214,10 @@ export interface CodexAppServerEffectiveRunPlan extends BaseEffectiveRunPlan {
   approvalsReviewer: string;
   /** 映射后的 sandbox 字符串 */
   sandbox: string;
+  /** Round 5: 用户配置的 personality（settings.codexPersonality，默认 pragmatic） */
+  personality: "none" | "friendly" | "pragmatic";
+  /** Round 5: 用户配置的 reasoning summary（settings.codexReasoningSummary，默认 auto） */
+  reasoningSummary: "auto" | "concise" | "detailed" | "none";
 }
 
 /**
@@ -310,6 +314,16 @@ export interface LLMBridgeSettings {
    * Codex 由此映射 approvalPolicy/sandbox；不再用 claudePermissionMode 驱动 Codex。
    */
   agentApprovalProfile: import("./agentApprovalProfile").AgentApprovalProfile;
+  /**
+   * Round 5: Codex personality（用户可配置；默认 pragmatic）。
+   * 直接对应 generated Personality（"none" | "friendly" | "pragmatic"）。
+   */
+  codexPersonality: "none" | "friendly" | "pragmatic";
+  /**
+   * Round 5: Codex reasoning summary（用户可配置；默认 auto）。
+   * 直接对应 generated ReasoningSummary（"auto" | "concise" | "detailed" | "none"）。
+   */
+  codexReasoningSummary: "auto" | "concise" | "detailed" | "none";
   // V2.1: 被禁用的 skill 名称列表（数据驱动，skills 从 .llm-bridge/skills.md 读取）
   disabledSkills: string[];
   // V2.3: 权限策略（low/medium/high，控制修改类操作的授权门槛）
@@ -360,6 +374,9 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   claudePermissionMode: "default",
   claudeExtraArgs: "",
   agentApprovalProfile: "ask",
+  // Round 5: Codex personality/summary 默认值（用户可在设置中覆盖）
+  codexPersonality: "pragmatic",
+  codexReasoningSummary: "auto",
   // V2.1: 默认所有 skill 启用
   disabledSkills: [],
   // V2.3: 默认标准策略（medium 风险需本轮授权，读操作自动允许）

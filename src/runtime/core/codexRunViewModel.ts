@@ -19,6 +19,7 @@ import type {
   ToolCallCard,
 } from "./agentRunDisplayModel";
 import type { AssistantTurnView, RuntimeSourceRef } from "./types";
+import { formatQuietReasoningSummary } from "./assistantTurnView";
 
 export type CodexRunStatusKind = "running" | "blocked" | "completed" | "failed" | "stopped" | "idle";
 export type CodexRunStepKind =
@@ -314,7 +315,8 @@ function thinkingSummary(card: Extract<AgentRunCard, { kind: "thinking" }>): str
   const title = card.title.trim();
   // 正文与标题相同且很短时多半是占位标题（Reasoning/思考），不当作可读摘要
   if (value && value === title && value.length <= 24) return "";
-  return value;
+  // quiet 展示：拆开粘连 **A****B**，去掉 markdown 加粗标记
+  return formatQuietReasoningSummary(value);
 }
 
 function assistantNarrativeText(card: TimelineCard): string {

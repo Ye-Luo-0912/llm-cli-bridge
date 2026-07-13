@@ -5,7 +5,6 @@ import * as fs from "fs";
 import * as path from "path";
 import { pathToFileURL } from "url";
 import type LLMBridgePlugin from "../main";
-import { buildPromptPackage, StateSnapshot } from "./promptPackage";
 import { SdkImageContentBlock, SdkStreamingInput } from "./agentBackend";
 import { extractRelPath } from "./fileDiff";
 import { AgentType, ChatMessage, EffectiveRunPlan, RunStatus } from "./types";
@@ -19,7 +18,8 @@ import { buildCommandLine } from "./commandProfile";
 import { workflowStageLabel, workflowStageClass, WorkflowTraceStage } from "./workflowTrace";
 import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { type BridgeSessionImpl } from "./runtime/core/bridgeSession";
-import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment, AssistantTurnView, TurnTimelineNode, NativeSessionRef } from "./runtime/core/types";
+import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment, AssistantTurnView, TurnTimelineNode, NativeSessionRef, StateSnapshot } from "./runtime/core/types";
+import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
 import { getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, toolDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
 import { getActiveProvider, readProviderForm } from "./runtime/config/runtimeRouter";
 import { resolveUiLocale, type Locale } from "./runtime/core/toolPresentation";
@@ -30,7 +30,7 @@ import type { ManagedRuntimeInstallStatus } from "./runtime/providers/codex-mana
 import { listManagedCodexPluginsAsync, type CodexManagedPluginCatalog, type CodexManagedPluginEntry } from "./runtime/providers/codex-managed-app-server/codexManagedPluginCatalog";
 import { RunSessionController, type RunSessionHost } from "./runtime/RunSessionController";
 import { getRuntimeModelCatalogForAgent, setRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, getEffortsForModel, getDefaultEffortForModel, type ModelCatalogEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
-import { loadCodexManagedModelCatalog } from "./runtime/providers/codex-managed-app-server/codexManagedModelCatalog";
+import { loadCodexRuntimeCapabilitySnapshot } from "./runtime/providers/codex-managed-app-server/codexManagedModelCatalog";
 import { WorkflowEvent, PermissionEvent, truncateText, redactSecrets } from "./workflowEvent";
 import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
 import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscript";
@@ -1092,10 +1092,12 @@ export class LLMBridgeView extends ItemView {
       // 本地 Codex config.toml 是用户选择的第一真相源；runtime model/list 只补能力目录。
       const localForm = readProviderForm(vaultPath, "codex");
       const localModel = localForm.ok && localForm.form ? localForm.form.model : "";
-      const runtimeCatalog = await loadCodexManagedModelCatalog(this.plugin.pluginDir, vaultPath);
+      // Round 3: 直接读取能力快照（model/list 全量分页 + modelProvider/capabilities/read）；
+      // 目前只消费 models，modelProviderCapabilities 留作后续能力门控 UI 的扩展点。
+      const runtimeSnapshot = await loadCodexRuntimeCapabilitySnapshot(this.plugin.pluginDir, vaultPath);
 
       // 构建 catalog：runtime 官方模型 + 本地配置模型（去重）
-      const catalogEntries: ModelCatalogEntry[] = [...(runtimeCatalog?.models ?? [])];
+      const catalogEntries: ModelCatalogEntry[] = [...(runtimeSnapshot?.models ?? [])];
       if (localModel && !catalogEntries.some((m) => m.value === localModel)) {
         // 本地配置模型作为第一项（优先选择）
         catalogEntries.unshift({
@@ -1943,6 +1945,18 @@ export class LLMBridgeView extends ItemView {
       effectiveApprovalProfile: () => view.effectiveApprovalProfile(),
       autoGrowInput: () => view.autoGrowInput(),
       getMessageFileRefs: () => view.messageFileRefs,
+      getCachedPermissionProfilesSync: () => {
+        try {
+          const provider = view.runSession?.getSession()?.provider as
+            { getCachedPermissionProfilesSync?: () => { data: Array<{ id: string; description: string | null; allowed: boolean }> } | null } | undefined;
+          const fn = provider?.getCachedPermissionProfilesSync;
+          if (typeof fn !== "function") return null;
+          const resp = fn.call(provider);
+          return resp?.data ?? null;
+        } catch {
+          return null;
+        }
+      },
     };
   }
 
@@ -2150,6 +2164,7 @@ export class LLMBridgeView extends ItemView {
       refreshHistory: (force?) => view.refreshHistory(force),
       refreshSessionState: () => view.refreshSessionState(),
       applyRuntimeTokenUsage: (usedTokens, contextWindow) => view.applyRuntimeTokenUsage(usedTokens, contextWindow),
+      onSkillsChanged: () => { void view.refreshAgentSkills(); },
     };
   }
 
@@ -5031,10 +5046,21 @@ export class LLMBridgeView extends ItemView {
       }
     }
 
+    // Basename-only / ambiguous relative links: retry linkpath resolution from vault root.
+    const baseName = directPath.split("/").pop() || directPath;
+    if (baseName && baseName !== linkText) {
+      const byName = this.app.metadataCache.getFirstLinkpathDest(baseName, "");
+      if (byName instanceof TFile) {
+        return { file: byName, path: byName.path, absolutePath, line: parsed.line };
+      }
+    }
+
     return {
       file: null,
       path: directPath || linkText,
-      absolutePath: absolutePath || (path.isAbsolute(linkText) ? linkText.replace(/\//g, path.sep) : undefined),
+      absolutePath: absolutePath || (path.isAbsolute(linkText) || /^[A-Za-z]:\//.test(linkText)
+        ? linkText.replace(/\//g, path.sep)
+        : undefined),
       line: parsed.line,
     };
   }
@@ -5046,6 +5072,9 @@ export class LLMBridgeView extends ItemView {
       text = decodeURIComponent(text);
     } catch {
       // Keep the raw link if it is not URI encoded.
+    }
+    if (/^file:/i.test(text)) {
+      text = this.parseFileUriToPath(text).replace(/\\/g, "/");
     }
     if (/^app:\/\/obsidian\.md\//i.test(text)) {
       text = text.replace(/^app:\/\/obsidian\.md\//i, "");
@@ -5081,15 +5110,60 @@ export class LLMBridgeView extends ItemView {
       return;
     }
 
-    const openedInVault = await this.openVaultFileByPath(target.absolutePath || target.path);
-    if (openedInVault) return;
+    const vaultRel = this.toVaultRelativeAssistantPath(target.absolutePath || target.path);
+    if (vaultRel) {
+      // Newly written notes may not be indexed yet — retry briefly before failing.
+      const indexed = await this.getIndexedVaultFile(vaultRel);
+      if (indexed) {
+        await this.openVaultFileFromAssistantLink(indexed, target.line);
+        return;
+      }
+      try {
+        await this.app.workspace.openLinkText(vaultRel, "", false);
+        return;
+      } catch {
+        // Fall through to not-found modal for vault-scoped targets.
+      }
+      // Vault-intent links must never hit Windows shell.openPath (shows a system error dialog).
+      this.showFileNotFoundModal(vaultRel);
+      return;
+    }
 
+    // Truly external (outside vault): keep system-open behavior.
     const systemTarget = target.absolutePath
-      || (path.isAbsolute(target.path) ? target.path : path.join(this.getVaultPath(), target.path));
+      || (path.isAbsolute(target.path) ? target.path : "");
+    if (!systemTarget) {
+      new Notice(`未找到可打开的文件：${target.path}`, 4000);
+      return;
+    }
     const opened = await this.openPathWithSystemDefault(systemTarget, true);
     if (!opened) {
-      new Notice(`未在 Vault 中找到可打开的文件：${target.path}`, 4000);
+      new Notice(`无法打开外部文件：${systemTarget}`, 4000);
     }
+  }
+
+  /** Map absolute / vault-relative assistant link targets to a vault-relative path, or null if outside vault. */
+  private toVaultRelativeAssistantPath(rawPath: string): string | null {
+    const vaultPath = this.getVaultPath();
+    if (!rawPath || !vaultPath) return null;
+    let candidate = rawPath.trim().replace(/\\/g, "/");
+    if (/^file:/i.test(candidate)) {
+      candidate = this.parseFileUriToPath(candidate).replace(/\\/g, "/");
+    }
+    candidate = candidate.replace(/:(\d+)(?::\d+)?$/, "");
+
+    if (path.isAbsolute(candidate) || /^[A-Za-z]:\//.test(candidate)) {
+      const absolute = candidate.replace(/\//g, path.sep);
+      const relative = path.relative(vaultPath, absolute);
+      if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
+      return normalizePath(relative.replace(/\\/g, "/"));
+    }
+
+    const vaultPosix = vaultPath.replace(/\\/g, "/");
+    if (candidate.toLowerCase().startsWith(vaultPosix.toLowerCase() + "/")) {
+      return normalizePath(candidate.slice(vaultPosix.length + 1));
+    }
+    return normalizePath(candidate.replace(/^\/+/, ""));
   }
 
   private async openVaultFileFromAssistantLink(file: TFile, line?: number): Promise<void> {
@@ -7157,7 +7231,10 @@ export class LLMBridgeView extends ItemView {
           attachmentTextSnippets: this.getPromptAttachmentSnippets(this.getPromptFileRefs()),
           timestamp: new Date().toISOString(),
         };
-        const promptPackageText = buildPromptPackage("", snapshot, settings);
+        // Round 5: legacy buildPromptPackage() 字符串已废弃，改用 BridgePromptPackage
+        // 的两段实际内容拼接估算——与真正发给 provider 的内容口径一致。
+        const bridgePromptPackage = buildBridgePromptPackage("", snapshot, settings);
+        const promptPackageText = bridgePromptPackage.bridgeSystemAppend + "\n" + bridgePromptPackage.userPrompt;
         const messageAttachmentsText = this.messageFileRefs.filter((r) => r.status === "active").map((r) => r.resolvedPath).join("\n");
         const pinnedContextText = this.pinnedFileRefs.filter((r) => r.status === "active").map((r) => r.resolvedPath).join("\n");
         const historyText = this.messages.map((m) => m.content || "").join("\n");
