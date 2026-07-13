@@ -2545,6 +2545,80 @@
 .llm-bridge-tl-node.is-active .llm-bridge-tl-dot {
   animation: llm-bridge-pulse 1.2s infinite;
 }
+
+/* ===== V17-APPEND: 持久追加时间线项（正在追加 → 已追加 → 追加失败） ===== */
+.llm-bridge-tl-append {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: var(--background-secondary);
+  margin-bottom: 2px;
+  font-size: 12px;
+}
+.llm-bridge-tl-append::before { display: none; }
+.llm-bridge-tl-append-icon.is-spinning {
+  animation: llm-bridge-spin 1s linear infinite;
+}
+.llm-bridge-tl-append.is-pending .llm-bridge-tl-append-icon { color: var(--text-muted); }
+.llm-bridge-tl-append.is-completed .llm-bridge-tl-append-icon { color: var(--text-success, #4caf50); }
+.llm-bridge-tl-append.is-failed .llm-bridge-tl-append-icon { color: var(--text-error, #f44336); }
+.llm-bridge-tl-append.is-failed {
+  /* V17-APPEND-UI: 不使用红色大背景卡片，只染红图标和文字 */
+}
+.llm-bridge-tl-append-label {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.llm-bridge-tl-append.is-pending .llm-bridge-tl-append-label { color: var(--text-muted); }
+.llm-bridge-tl-append.is-completed .llm-bridge-tl-append-label { color: var(--text-success, #4caf50); }
+.llm-bridge-tl-append.is-failed .llm-bridge-tl-append-label { color: var(--text-error, #f44336); }
+.llm-bridge-tl-append-time {
+  color: var(--text-faint);
+  font-family: var(--font-monospace);
+  font-size: 10px;
+  margin-left: auto;
+}
+.llm-bridge-tl-append-text {
+  display: block;
+  color: var(--text-normal);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.llm-bridge-tl-append-error {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-error, #f44336);
+  font-size: 11px;
+}
+@keyframes llm-bridge-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+/* V17-RESUME-DEGRADED: Resume 降级持久状态横幅 */
+.llm-bridge-resume-degraded-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: var(--background-modifier-warning, rgba(255,193,7,0.12));
+  border: 1px solid var(--text-warning, rgba(255,193,7,0.3));
+  color: var(--text-warning, #b8860b);
+  font-size: 12px;
+  font-weight: 500;
+}
+.llm-bridge-resume-degraded-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.llm-bridge-resume-degraded-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .llm-bridge-tl-node {
   position: relative;
   padding: 3px 0 3px 0;
@@ -2583,7 +2657,7 @@
 }
 .llm-bridge-tl-thought-text {
   font-style: italic;
-  color: var(--text-faint);
+  color: var(--text-muted);
 }
 .llm-bridge-tl-agent-text {
   color: var(--text-normal);
@@ -3808,6 +3882,14 @@
 .llm-bridge-tl-thinking-title.is-expanded {
   color: var(--interactive-accent);
 }
+/* V17-THINKING: 运行中思考文字轻微光效，完成恢复统一 text-muted */
+.llm-bridge-timeline-live .llm-bridge-tl-thought-body .llm-bridge-tl-thought-text {
+  animation: llm-bridge-thinking-glow 2.5s ease-in-out infinite;
+}
+@keyframes llm-bridge-thinking-glow {
+  0%, 100% { opacity: 0.78; }
+  50% { opacity: 1; }
+}
 .llm-bridge-tl-tool-path-inline {
   font-family: var(--font-monospace);
   font-size: var(--font-smallest);
@@ -4295,8 +4377,8 @@
 }
 
 .llm-bridge-tl-node {
-  gap: 10px;
-  padding: 4px 0;
+  gap: 8px;
+  padding: 2px 0;
 }
 
 .llm-bridge-tl-node::before {
@@ -10643,6 +10725,78 @@
   font-size: 13px;
   font-weight: 600;
   color: var(--text-normal);
+}
+
+/* ===== V17-TOPBAR-2ROW: 顶部栏两排布局（扁平次级操作）===== */
+.llm-bridge-topbar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 12px;
+}
+
+.llm-bridge-topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 第二排工具行：左侧审查/压缩，右侧设置 + runtime 状态 */
+.llm-bridge-topbar-row-tools {
+  flex-wrap: wrap;
+}
+
+/* 扁平次级操作按钮：去阴影和过强描边 */
+.llm-bridge-topbar-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.llm-bridge-topbar-action-btn:hover:not(:disabled) {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.llm-bridge-topbar-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.llm-bridge-topbar-action-btn .llm-bridge-icon,
+.llm-bridge-topbar-action-btn .llm-bridge-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.llm-bridge-topbar-action-label {
+  white-space: nowrap;
+}
+
+/* 第二排的右侧容器靠右对齐 */
+.llm-bridge-topbar-row-tools .llm-bridge-header-right {
+  margin-left: auto;
+}
+
+/* 窄栏：只保留图标，tooltip 显示名称 */
+@media (max-width: 420px) {
+  .llm-bridge-topbar-action-label {
+    display: none;
+  }
+  .llm-bridge-topbar-action-btn {
+    padding: 4px 6px;
+  }
 }
 
 /* ===== composer.css ===== */

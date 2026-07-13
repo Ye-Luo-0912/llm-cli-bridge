@@ -151,6 +151,7 @@ function collectTurnEvents(client, timeoutMs = 120000) {
     client.on("item/agentMessage/delta", (p) => events.push({ method: "item/agentMessage/delta", params: p }));
     client.on("item/reasoning/summaryTextDelta", (p) => events.push({ method: "item/reasoning/summaryTextDelta", params: p }));
     client.on("item/reasoning/textDelta", (p) => events.push({ method: "item/reasoning/textDelta", params: p }));
+    client.on("item/reasoning/summaryPartAdded", (p) => events.push({ method: "item/reasoning/summaryPartAdded", params: p }));
     client.on("item/argument/delta", (p) => events.push({ method: "item/argument/delta", params: p }));
     client.on("item/commandExecution/outputDelta", (p) => events.push({ method: "item/commandExecution/outputDelta", params: p }));
     client.on("item/fileChange/outputDelta", (p) => events.push({ method: "item/fileChange/outputDelta", params: p }));
@@ -261,6 +262,11 @@ async function testReasoning() {
     const threadId = thread?.thread?.id;
     if (!threadId) throw new Error("thread/start 未返回 threadId");
 
+    // V17-REASONING-FIX: 在 turn/start 之前注册事件处理器，避免竞态：
+    // turn/start 响应和早期 item/completed(reasoning) 可能同在 stdout 一个 chunk，
+    // 若处理器在 await turn/start 之后才注册，早期通知会被静默丢弃。
+    const eventsPromise = collectTurnEvents(client, 120000);
+
     // 用需要推理的 prompt，effort=high 触发 reasoning summary
     await client.request("turn/start", {
       threadId,
@@ -268,18 +274,19 @@ async function testReasoning() {
       effort: "high",
     }, 30000);
 
-    const { events, reason } = await collectTurnEvents(client, 120000);
+    const { events, reason } = await eventsPromise;
 
-    // 验证：捕获到 reasoning 事件（summaryTextDelta 或 textDelta 或 item/completed reasoning）
+    // 验证：捕获到 reasoning 事件（summaryTextDelta / textDelta / summaryPartAdded / item/completed reasoning）
     const hasSummaryDelta = events.some((e) => e.method === "item/reasoning/summaryTextDelta");
     const hasTextDelta = events.some((e) => e.method === "item/reasoning/textDelta");
+    const hasSummaryPartAdded = events.some((e) => e.method === "item/reasoning/summaryPartAdded");
     const hasReasoningCompleted = events.some((e) =>
       e.method === "item/completed" && e.params?.item?.type === "reasoning");
-    const hasAnyReasoning = hasSummaryDelta || hasTextDelta || hasReasoningCompleted;
+    const hasAnyReasoning = hasSummaryDelta || hasTextDelta || hasSummaryPartAdded || hasReasoningCompleted;
     const turnOk = reason === "completed";
 
     record("思考：捕获 reasoning 事件", hasAnyReasoning ? "pass" : "fail",
-      `summaryDelta=${hasSummaryDelta}, textDelta=${hasTextDelta}, reasoningCompleted=${hasReasoningCompleted}, turnReason=${reason}`);
+      `summaryDelta=${hasSummaryDelta}, textDelta=${hasTextDelta}, partAdded=${hasSummaryPartAdded}, reasoningCompleted=${hasReasoningCompleted}, turnReason=${reason}` + (hasAnyReasoning ? "" : ` | events=[${events.map(e => e.method).join(",")}]`));
     record("思考：turn/completed 到达", turnOk ? "pass" : "fail", `reason=${reason}`);
   } catch (e) {
     record("思考：捕获 reasoning 事件", "fail", e?.message || String(e));

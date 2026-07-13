@@ -957,6 +957,27 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       signalDone();
     };
 
+    // V17-COMPACT: 压缩 RPC 接受后独立短超时兜底，不依赖通用 90s watchdog
+    if (ctx.nativeAction?.kind === "compact") {
+      const COMPACT_TIMEOUT_MS = 30_000;
+      const compactTimer = setTimeout(() => {
+        if (!nativeCompactionCompleted) {
+          nativeCompactionCompleted = true;
+          push({
+            providerId: this.providerId,
+            timestamp: new Date().toISOString(),
+            payload: {
+              kind: "failed",
+              message: "上下文压缩超时：RPC 已接受但未在 30 秒内收到完成通知。",
+              recoverable: true,
+            },
+          });
+          signalDone();
+        }
+      }, COMPACT_TIMEOUT_MS);
+      unreg.push(() => clearTimeout(compactTimer));
+    }
+
     // 任务2: transport 错误处理（invalid JSON / unrecognized JSON-RPC message）
     // - turn 前（turnSubmitted=false）错误：直接 failed + signalDone（run 无法启动）
     // - turn 中错误：push stderr_delta（进入 error timeline，用户可见），不立即终止；

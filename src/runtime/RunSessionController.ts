@@ -148,6 +148,8 @@ export interface RunSessionHost {
   completeAppendTimelineItem(id: string): void;
   /** 标记追加项为 failed 并记录错误。 */
   failAppendTimelineItem(id: string, error: string): void;
+  /** V17-APPEND: 获取追加时间线项对应的 TurnTimelineNode[]，用于终态合并到 turnTimeline 持久化。 */
+  getAppendTimelineNodes(): import("./core/types").TurnTimelineNode[];
 
   // --- Resume degraded status（Resume 降级持久状态） ---
   /** 设置/清除 Resume 降级状态（thread/resume 失败后 fallback 到新 session）。 */
@@ -841,13 +843,20 @@ export class RunSessionController {
 
     const isTerminal = p.kind === "completed" || p.kind === "failed";
     if (isTerminal) {
+      // V17-APPEND: 终态时把运行中追加的时间线项合并到 turnTimeline，随会话持久化/恢复
+      let finalTurnView = turnView;
+      const appendNodes = host.getAppendTimelineNodes();
+      if (appendNodes.length > 0) {
+        finalTurnView = { ...turnView, turnTimeline: [...turnView.turnTimeline, ...appendNodes] };
+        if (msg) msg.assistantTurnView = finalTurnView;
+      }
       host.flushStreamDetailsRefresh();
       host.updateAssistantMessage(ctx.assistantId, {
         content: turnView.finalAnswer,
         stderr: host.plugin.settings.showStderr
           ? turnView.warnings.filter((w) => w).join("\n")
           : undefined,
-        assistantTurnView: turnView,
+        assistantTurnView: finalTurnView,
       });
     } else if (structuralChanged) {
       host.scheduleStreamDetailsRefresh(ctx.assistantId);

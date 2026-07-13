@@ -1,13 +1,18 @@
 {
   "toolId": "ripgrep",
-  "version": "0.1.0-fixture",
-  "fixture": true,
+  "version": "14.1.1",
+  "fixture": false,
   "platforms": {
     "win32-x64": {
-      "path": "runtime/win32-x64/rg-fake.bat",
-      "sha256": "d26cf61eec858ded16cc1aadc2d94c9de1113996f19548c0600293efd2d691f4",
-      "size": 152,
-      "executableName": "rg-fake.bat"
+      "path": "runtime/win32-x64/rg.exe",
+      "sha256": "f162b54de2adfc72d78adb1dbada2dedda111ae0a5e2f6e9500f4f909664c5d2",
+      "size": 5407744,
+      "executableName": "rg.exe",
+      "artifact": {
+        "url": "https://github.com/BurntSushi/ripgrep/releases/download/14.1.1/ripgrep-14.1.1-x86_64-pc-windows-msvc.zip",
+        "artifactSha256": "d0f534024c42afd6cb4d38907c25cd2b249b79bbe6cc1dbee8e3e37c2b6e25a1",
+        "vendorPath": "ripgrep-14.1.1-x86_64-pc-windows-msvc/rg.exe"
+      }
     }
   }
 }

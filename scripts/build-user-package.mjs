@@ -269,34 +269,39 @@ if (!rgPlatformEntry) {
 const rgBinarySrc = path.resolve(rgSrcDir, rgPlatformEntry.path);
 const rgBinaryDest = path.resolve(rgDestDir, rgPlatformEntry.path);
 if (!fs.existsSync(rgBinarySrc)) {
-  console.error(`[user-package] 错误：rg binary 不存在: ${rgBinarySrc}`);
-  process.exit(1);
-}
-fs.mkdirSync(path.dirname(rgBinaryDest), { recursive: true });
-fs.copyFileSync(rgBinarySrc, rgBinaryDest);
-
-// 校验 binary size 与 manifest 声明一致
-const rgBinaryStat = fs.statSync(rgBinaryDest);
-if (rgBinaryStat.size !== rgPlatformEntry.size) {
-  console.error(`[user-package] 错误：rg binary size 不匹配（期望 ${rgPlatformEntry.size}，实际 ${rgBinaryStat.size}）`);
-  process.exit(1);
-}
-console.log(`  ✓ ${rgPlatformEntry.path} 已复制（size=${rgBinaryStat.size} 校验通过）`);
-
-// fixture 模式跳过 SHA256 校验；真实 binary 模式校验 sha256
-if (rgManifest.fixture !== true && rgPlatformEntry.sha256) {
-  const crypto = await import("crypto");
-  const hash = crypto.createHash("sha256");
-  const stream = fs.createReadStream(rgBinaryDest);
-  for await (const chunk of stream) hash.update(chunk);
-  const actualSha = hash.digest("hex");
-  if (actualSha !== rgPlatformEntry.sha256) {
-    console.error(`[user-package] 错误：rg binary sha256 不匹配（期望 ${rgPlatformEntry.sha256}，实际 ${actualSha}）`);
+  if (rgManifest.fixture === true) {
+    console.error(`[user-package] 错误：fixture rg binary 不存在: ${rgBinarySrc}`);
     process.exit(1);
   }
-  console.log(`  ✓ rg binary sha256 校验通过`);
+  // V17-RG B4：真实 binary 模式下源树不 vendor rg.exe，首次运行按 pinned artifact 下载
+  console.log(`  ✓ 默认包不复制 rg binary（首次运行按 pinned artifact 下载 ${rgManifest.version}）`);
 } else {
-  console.log(`  ✓ fixture 模式跳过 sha256 校验`);
+  fs.mkdirSync(path.dirname(rgBinaryDest), { recursive: true });
+  fs.copyFileSync(rgBinarySrc, rgBinaryDest);
+
+  // 校验 binary size 与 manifest 声明一致
+  const rgBinaryStat = fs.statSync(rgBinaryDest);
+  if (rgBinaryStat.size !== rgPlatformEntry.size) {
+    console.error(`[user-package] 错误：rg binary size 不匹配（期望 ${rgPlatformEntry.size}，实际 ${rgBinaryStat.size}）`);
+    process.exit(1);
+  }
+  console.log(`  ✓ ${rgPlatformEntry.path} 已复制（size=${rgBinaryStat.size} 校验通过）`);
+
+  // fixture 模式跳过 SHA256 校验；真实 binary 模式校验 sha256
+  if (rgManifest.fixture !== true && rgPlatformEntry.sha256) {
+    const crypto = await import("crypto");
+    const hash = crypto.createHash("sha256");
+    const stream = fs.createReadStream(rgBinaryDest);
+    for await (const chunk of stream) hash.update(chunk);
+    const actualSha = hash.digest("hex");
+    if (actualSha !== rgPlatformEntry.sha256) {
+      console.error(`[user-package] 错误：rg binary sha256 不匹配（期望 ${rgPlatformEntry.sha256}，实际 ${actualSha}）`);
+      process.exit(1);
+    }
+    console.log(`  ✓ rg binary sha256 校验通过`);
+  } else {
+    console.log(`  ✓ fixture 模式跳过 sha256 校验`);
+  }
 }
 console.log(`  ✓ managed ripgrep 分发元数据已集成到 user-package`);
 

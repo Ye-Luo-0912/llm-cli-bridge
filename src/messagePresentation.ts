@@ -56,6 +56,17 @@ export interface PresentationOptions {
 
 const OCCUPANCY_CHIP_THRESHOLD = 0.35;
 
+/**
+ * V17-FORK: 仅 Codex app-server 系列 provider 且存在 turnId 时才支持分叉。
+ * Claude/Pi 不显示 fork 按钮，避免点击后才报"不支持"。
+ */
+function forkableActions(msg: ChatMessage): ReadonlyArray<MessageActionId> {
+  const turn = msg.assistantTurnView;
+  const isCodex = turn?.providerId === "codex-managed-app-server" || turn?.providerId === "codex-app-server";
+  const hasTurnId = !!(turn?.turnId);
+  return isCodex && hasTurnId ? ["copy", "fork"] : ["copy"];
+}
+
 export function shouldShowContextOccupancyChip(usedRatio: number): boolean {
   return usedRatio >= OCCUPANCY_CHIP_THRESHOLD;
 }
@@ -162,7 +173,7 @@ export function buildMessagePresentation(
       showProcessFeed: true,
       showRunChrome: false,
       errorSummary: null,
-      actions: ["copy", "fork"],
+      actions: forkableActions(msg),
     });
   }
 
@@ -180,7 +191,7 @@ export function buildMessagePresentation(
     showProcessFeed: false,
     showRunChrome: false,
     errorSummary: null,
-    actions: ["copy", "fork"],
+    actions: forkableActions(msg),
   });
 }
 
@@ -377,7 +388,7 @@ function buildDeveloperPresentation(msg: ChatMessage, options: PresentationOptio
       ? []
       : msg.status === "failed" || msg.status === "stopped"
         ? ["retry", "copy"]
-        : ["copy", "fork"],
+        : forkableActions(msg),
   });
 }
 

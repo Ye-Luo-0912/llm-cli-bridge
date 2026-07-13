@@ -62,3 +62,75 @@
   font-weight: 600;
   color: var(--text-normal);
 }
+
+/* ===== V17-TOPBAR-2ROW: 顶部栏两排布局（扁平次级操作）===== */
+.llm-bridge-topbar {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 12px;
+}
+
+.llm-bridge-topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* 第二排工具行：左侧审查/压缩，右侧设置 + runtime 状态 */
+.llm-bridge-topbar-row-tools {
+  flex-wrap: wrap;
+}
+
+/* 扁平次级操作按钮：去阴影和过强描边 */
+.llm-bridge-topbar-action-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: var(--font-smallest);
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.llm-bridge-topbar-action-btn:hover:not(:disabled) {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.llm-bridge-topbar-action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.llm-bridge-topbar-action-btn .llm-bridge-icon,
+.llm-bridge-topbar-action-btn .llm-bridge-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.llm-bridge-topbar-action-label {
+  white-space: nowrap;
+}
+
+/* 第二排的右侧容器靠右对齐 */
+.llm-bridge-topbar-row-tools .llm-bridge-header-right {
+  margin-left: auto;
+}
+
+/* 窄栏：只保留图标，tooltip 显示名称 */
+@media (max-width: 420px) {
+  .llm-bridge-topbar-action-label {
+    display: none;
+  }
+  .llm-bridge-topbar-action-btn {
+    padding: 4px 6px;
+  }
+}

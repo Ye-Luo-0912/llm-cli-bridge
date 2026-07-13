@@ -1043,7 +1043,7 @@ export class LLMBridgeView extends ItemView {
     const actionCol = rightTools.createDiv({ cls: "llm-bridge-action-col" });
     this.stopBtn = actionCol.createEl("button", {
       cls: "llm-bridge-stop-btn",
-      attr: { title: "停止", "aria-label": "停止" },
+      attr: { title: "停止运行", "aria-label": "停止运行" },
     });
     this.stopBtn.createEl("span", { cls: "llm-bridge-stop-icon", text: "" });
     this.stopBtn.style.display = "none";
@@ -2075,6 +2075,7 @@ export class LLMBridgeView extends ItemView {
       beginAppendTimelineItem: (text) => view.beginAppendTimelineItem(text),
       completeAppendTimelineItem: (id) => view.completeAppendTimelineItem(id),
       failAppendTimelineItem: (id, error) => view.failAppendTimelineItem(id, error),
+      getAppendTimelineNodes: () => view.getAppendTimelineNodes(),
       setResumeDegraded: (degraded) => view.setResumeDegraded(degraded),
       showRunFlowStarted: (promptLength) => view.showRunFlowStarted(promptLength),
       showRunFlowTrace: (trace, finalStatus) => view.showRunFlowTrace(trace, finalStatus as RunStatus),
@@ -4249,8 +4250,14 @@ export class LLMBridgeView extends ItemView {
       new Notice("当前会话没有 native thread，无法分叉");
       return;
     }
+    // V17-FORK: 传入目标回答的 turnId，使分叉从指定回答处切断而非整个 thread
+    const lastTurnId = msg.assistantTurnView?.turnId;
+    if (!lastTurnId) {
+      new Notice("该回答缺少 turnId，无法定位分叉点");
+      return;
+    }
     this.beginLocalSessionFork();
-    await this.runSession.runNativeAction({ kind: "fork" });
+    await this.runSession.runNativeAction({ kind: "fork", lastTurnId });
   }
 
   private renderMessageContent(content: HTMLElement, msg: ChatMessage): void {
@@ -5471,6 +5478,25 @@ export class LLMBridgeView extends ItemView {
     item.error = error;
     item.endedAt = new Date().toISOString();
     this.scheduleLiveTimelineRender();
+  }
+
+  /**
+   * V17-APPEND: 把 appendTimelineItems 转为 TurnTimelineNode[]，供终态合并到
+   * AssistantTurnView.turnTimeline 实现持久化与随会话恢复。
+   */
+  getAppendTimelineNodes(): TurnTimelineNode[] {
+    return this.appendTimelineItems.map((item) => ({
+      id: item.id,
+      kind: "status" as const,
+      status: item.status === "pending" ? "running" as const
+        : item.status === "completed" ? "completed" as const
+        : "failed" as const,
+      title: "追加指令",
+      summary: item.text,
+      detail: item.error,
+      startedAt: item.timestamp,
+      endedAt: item.endedAt,
+    }));
   }
 
   /** V17-RESUME-DEGRADED: 设置/清除 Resume 降级持久状态 */
@@ -6884,18 +6910,30 @@ export class LLMBridgeView extends ItemView {
     // 清除与当前 refs 相关的旧片段（按 refId 过滤）
     const refIds = new Set(refs.map((r) => r.id));
     this.attachmentTextSnippets = this.attachmentTextSnippets.filter((s) => !refIds.has(s.refId));
-    // 重新 ingest 文本附件
+    // V17-RETRY: 重建 attachmentReadGrants，恢复附件读取授权
+    this.attachmentReadGrants = refs
+      .filter((ref) => ref.kind === "attachment" && ref.grantScope === "attachment")
+      .map((ref) => ({
+        path: ref.resolvedPath,
+        scope: "attachment" as const,
+        match: "file" as const,
+        grantedAt: ref.createdAt,
+        source: ref.source,
+      }));
+    // 重新 ingest 文本附件；读取失败时提示附件已失效（不再静默跳过）
+    const failedNames: string[] = [];
     for (const ref of refs) {
       if (ref.status !== "active") continue;
       if (!isBoundedTextAttachmentType(ref.fileType)) continue;
-      try {
-        const result = await ingestAttachmentTextSnippet(ref);
-        if (result.snippet) {
-          this.attachmentTextSnippets.push(result.snippet);
-        }
-      } catch {
-        // 读取失败时静默跳过（文件可能已被删除）
+      const result = await ingestAttachmentTextSnippet(ref);
+      if (result.snippet) {
+        this.attachmentTextSnippets.push(result.snippet);
+      } else if (result.skippedReason === "read_error") {
+        failedNames.push(ref.displayName);
       }
+    }
+    if (failedNames.length > 0) {
+      new Notice(`附件已失效，未能读取：${failedNames.join("、")}`, 6000);
     }
   }
 

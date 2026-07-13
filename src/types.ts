@@ -108,14 +108,15 @@ export interface CodexManagedRuntimeManifest {
  * manifest 文件位于 src/runtime/managed-tools/rg/rg-manifest.json，
  * 复制到 user-package 时随 dist/user-package/managed-tools/rg/ 分发。
  *
- * 本轮为 fixture（fixture=true），后续接入真实 binary 时 fixture 改为 false。
+ * V17-RG B4：已接入真实 ripgrep 14.1.1 pinned binary（fixture=false）。
+ * 源树不 vendor rg.exe，首次运行按 manifest.artifact.url 下载并校验。
  */
 export interface ManagedToolManifest {
   /** 工具唯一标识（如 "ripgrep"） */
   toolId: string;
-  /** 工具版本（fixture 为 0.1.0-fixture） */
+  /** 工具版本（如 "14.1.1"） */
   version: string;
-  /** 是否为 fixture（本轮 true，真实 binary 接入后 false） */
+  /** 是否为 fixture（真实 binary 为 false） */
   fixture: boolean;
   /** 平台 -> binary 信息映射 */
   platforms: {
