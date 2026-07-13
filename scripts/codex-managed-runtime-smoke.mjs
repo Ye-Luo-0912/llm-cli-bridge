@@ -403,7 +403,7 @@ async function runProtocolSmoke(runtimePath, appServerArgs) {
  *
  * 验证目标：
  * - final answer 非空且包含目标 token SMOKE_OK
- * - provider wire shape 不需要额外 text_elements（schema 中 text item 只有 type+text）
+ * - provider wire shape：text item 含 schema 必填的 text_elements 数组（空数组 OK）
  * - thread/start payload 用 provider 实际生成的 config/instructions/cwd（非手动拼）
  */
 async function runProviderWireSmoke(runtimePath, appServerArgs) {
@@ -442,7 +442,8 @@ async function runProviderWireSmoke(runtimePath, appServerArgs) {
   };
   const options = buildCodexAppServerRunOptions(plan, promptPackage);
 
-  // 验证 wire shape：text item 不含 text_elements；Round 1 含 developerInstructions、不含 baseInstructions
+  // 验证 wire shape：text item 含 schema 必填的 text_elements 数组（空数组 OK）；
+  // Round 1 含 developerInstructions、不含 baseInstructions；turnStart 无 attachments 字段。
   const firstInputItem = options.turnStart.input?.[0];
   const threadStartHasDeveloper = typeof options.threadStart.developerInstructions === "string"
     && options.threadStart.developerInstructions.length > 0;
@@ -454,10 +455,10 @@ async function runProviderWireSmoke(runtimePath, appServerArgs) {
   const wireShapeOk = !!firstInputItem
     && firstInputItem.type === "text"
     && typeof firstInputItem.text === "string"
-    && !("text_elements" in firstInputItem)
+    && Array.isArray(firstInputItem.text_elements)
     && !("attachments" in options.turnStart)
     && threadStartHasWireFields;
-  step("provider-wire smoke: wire shape (developerInstructions only, no baseInstructions, turnStart 无 attachments)",
+  step("provider-wire smoke: wire shape (developerInstructions only, no baseInstructions, text_elements 数组, turnStart 无 attachments)",
     wireShapeOk, wireShapeOk ? "" : `firstInput=${JSON.stringify(firstInputItem)}, turnStart keys=${Object.keys(options.turnStart).join(",")}, threadStart keys=${Object.keys(options.threadStart).join(",")}`);
 
   const proc = spawn(runtimePath, appServerArgs, {
@@ -543,7 +544,7 @@ async function runProviderWireSmoke(runtimePath, appServerArgs) {
     const wireSmokePass = turnResult.status === "completed" && !!observed && hasTarget && wireShapeOk;
     report.providerWireSmokeStatus = wireSmokePass ? "pass" : "fail";
     report.providerWireSmokeFailureReason = wireSmokePass ? null
-      : (!wireShapeOk ? "provider wire shape mismatch (text_elements or attachments present)"
+      : (!wireShapeOk ? "provider wire shape mismatch (text_elements 非数组 或 turnStart 含 attachments)"
         : turnResult.status !== "completed" ? `turn did not complete: ${turnResult.status}`
         : !observed ? "provider-wire smoke: final answer empty"
         : !hasTarget ? `provider-wire smoke missing target token SMOKE_OK (observed="${observed.slice(0, 200)}")`

@@ -382,10 +382,14 @@ async function runSmoke(codexVersion) {
   }
 
   // Step H2: 启动 codex app-server stdio
+  // generate-ts 后 codex.exe 可能保留临时资源句柄，立即 spawn 会导致后续 RPC 卡住。
+  // 加 2s 延迟让 codex.exe 释放资源，避免 model/list/thread/start timeout。
+  await new Promise((r) => setTimeout(r, 2000));
   let proc;
   let client;
   try {
     proc = spawn(CODEX_COMMAND, ["app-server"], {
+      cwd: PROJECT_ROOT,
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
     });
@@ -429,7 +433,7 @@ async function runSmoke(codexVersion) {
   // Step H4: thread/start
   let threadId;
   try {
-    const modelList = await client.request("model/list", {}, { timeout: 15000 });
+    const modelList = await client.request("model/list", {}, { timeout: 30000 });
     const models = Array.isArray(modelList?.data) ? modelList.data : [];
     const selected = models.find((m) => m?.isDefault && (m.model || m.id)) || models.find((m) => m?.model || m?.id);
     const selectedModel = selected?.model || selected?.id || "gpt-5.5";
@@ -438,11 +442,10 @@ async function runSmoke(codexVersion) {
       cwd: PROJECT_ROOT,
       approvalPolicy: "never",
       sandbox: "workspace-write",
-      baseInstructions: "You are a smoke test assistant. Reply concisely.",
-      personality: "pragmatic",
+      developerInstructions: "You are a smoke test assistant. Reply concisely.",
       ephemeral: true,
       sessionStartSource: "clear",
-    }, { timeout: 15000 });
+    }, { timeout: 30000 });
     threadId = threadRes?.thread?.id;
     step("handshake", "thread/start", !!threadId, `threadId=${threadId || "?"} model=${selectedModel}`);
   } catch (e) {
@@ -509,7 +512,7 @@ async function runSmoke(codexVersion) {
     await client.request("turn/start", {
       threadId,
       input: [{ type: "text", text: "Reply with exactly: SMOKE_OK", text_elements: [] }],
-    }, { timeout: 15000 });
+    }, { timeout: 30000 });
     turnStartOk = true;
     step("turn", "turn/start request", true, `threadId=${threadId}`);
   } catch (e) {

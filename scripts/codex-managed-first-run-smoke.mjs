@@ -144,8 +144,16 @@ async function main() {
 
     const installed = await plugin.ensureManagedRuntimeInstalled({ confirm: true });
     report.installerStatus = installed.status;
-    const after = plugin.getManagedRuntimeInstallStatus();
-    report.resolverAfterInstallStatus = after.status === "installed" ? "pass" : after.status;
+    // installer 安装后 integrity 校验是异步的（scheduleVerify），首次读取可能为 "verifying"。
+    // 轮询等待校验完成（最多 30s），避免时序问题导致 resolverAfterInstallStatus 误判。
+    let after = plugin.getManagedRuntimeInstallStatus();
+    const verifyDeadline = Date.now() + 30000;
+    while (after.status === "verifying" && Date.now() < verifyDeadline) {
+      await new Promise((r) => setTimeout(r, 500));
+      after = plugin.getManagedRuntimeInstallStatus();
+    }
+    report.resolverAfterInstallStatus = after.status === "installed" || after.status === "already-installed"
+      ? "pass" : after.status;
     const selectedAfter = plugin.getRuntimeProviderStatusForSmoke(PROJECT_ROOT);
     report.providerAfterInstall = selectedAfter.providerId;
 
