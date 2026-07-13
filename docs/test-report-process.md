@@ -1,24 +1,24 @@
 # LLM CLI Bridge 测试报告 — 进程测试（process）
 
-- **测试时间**: 2026-07-12T21:58:48.053Z
-- **测试环境**: win32 / Node.js v24.14.0
+- **测试时间**: 2026-07-13T07:36:39.328Z
+- **测试环境**: win32 / Node.js v22.22.2
 - **插件版本**: 2.18.0
-- **main.js 大小**: 1379.8 KB
+- **main.js 大小**: 1388.3 KB
 - **main.js bundle content smoke**: PASS ({"HttpBridge":true,"writeHelperAndWrappers":true,"CodexAppServerProvider":true,"vault_api":true})
 - **Vault 路径**: `D:\Users\Ye_Luo\APP\Test\Obsidian\LLM-Wiki`
 - **bridge.json 存在**: 是
 - **HTTP 端口**: 63359
-- **commit sha**: 6329c318735ae38f3d76ce167d942e44f4bab6da
-- **commit 短 sha**: 6329c318735a
+- **commit sha**: b350f81bb76a98a6f5a4e709778845005f54eb44
+- **commit 短 sha**: b350f81bb76a
 - **运行命令**: node scripts/run-tests.mjs --process
 
 ## 测试汇总
 
 - ✅ **通过**: 280
-- ❌ **失败**: 0
+- ❌ **失败**: 1
 - ⏭️ **跳过**: 63
 - ⚪ **需人工验证**: 0
-- **总计**: 343
+- **总计**: 344
 
 ### 审计模式说明
 
@@ -172,7 +172,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | 生成运行前快照 | 文件数: 62 |
+| ✅ | 生成运行前快照 | 文件数: 58 |
 
 ### diff
 
@@ -273,25 +273,25 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3379ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
+| ✅ | --wait --timeout 超时行为（fake server） | exit=1 elapsed=3651ms hasTimeout=true hasAssertion=false stderr=等待超时（2s）。actionId: timeout-test-id
  |
-| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=4643ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783893532517
+| ✅ | --wait 成功路径（fake server 第 3 次轮询转 completed） | exit=0 elapsed=5053ms hasCompleted=true stdout=Action 已完成。actionId: fake-id-1783928204495
  |
 | ✅ | health 命令（fake server） | - |
 | ✅ | --json 标志输出有效 JSON（fake server） | - |
 | ✅ | 非修改类 action 直接输出（不轮询） | {
   "ok": true,
-  "id": "fake-id-1783893537571",
+  "id": "fake-id-1783928210057",
   "status": "completed",
   "result": {
     "type":  |
 | ✅ | --stdin 模式读取 JSON params | {
   "ok": true,
-  "id": "fake-id-1783893537687",
+  "id": "fake-id-1783928210188",
   "status": "completed",
   "result": {
     "type":  |
-| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783893537798","status":"completed","result":{"type":"tags_list","fake":tru |
+| ✅ | --raw 输出纯 JSON（单行） | {"ok":true,"id":"fake-id-1783928210308","status":"completed","result":{"type":"tags_list","fake":tru |
 | ✅ | 错误分级 - bridge.json 缺失 exit 2 | exit=2 stderr=[bridge 未启动] 未找到 .llm-bridge/bridge.json。
   请确认 Obsidian 已启动且 llm-cli-bridge 插件已 |
 | ✅ | 错误分级 - JSON 解析失败 exit 5 | exit=5 stderr=[参数解析失败] JSON 格式错误: Expected property name or '}' in JSON at position 1 (line 1  |
@@ -907,7 +907,7 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | Steps 折叠、Final answer、sessions 与 modal 表面继续收口 | - |
+| ❌ | Steps 折叠、Final answer、sessions 与 modal 表面继续收口 | - |
 
 ### V17-G57 UI
 
@@ -1082,11 +1082,17 @@
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| ✅ | codex 本地配置存在 → CODEX_HOME 设置 | CODEX_HOME=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-xgNf65\.llm-bridge\private\runtime\codex, hasKey=true |
+| ✅ | codex 本地配置存在 → CODEX_HOME 设置 | CODEX_HOME=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-IuLsrX\.llm-bridge\private\runtime\codex, hasKey=true |
 | ✅ | codex 本地配置缺失 → CODEX_HOME 不设置 | CODEX_HOME=undefined, hasKey=true |
-| ✅ | claude 本地配置存在 → CLAUDE_CONFIG_DIR 设置 | CLAUDE_CONFIG_DIR=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-s5ORy3\.llm-bridge\private\runtime\claude, hasKey=true |
-| ✅ | pi 本地配置存在 → PI_CODING_AGENT_DIR 设置 | PI_CODING_AGENT_DIR=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-yzbAc9\.llm-bridge\private\runtime\pi, hasKey=true |
+| ✅ | claude 本地配置存在 → CLAUDE_CONFIG_DIR 设置 | CLAUDE_CONFIG_DIR=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-ByTBBf\.llm-bridge\private\runtime\claude, hasKey=true |
+| ✅ | pi 本地配置存在 → PI_CODING_AGENT_DIR 设置 | PI_CODING_AGENT_DIR=C:\Users\Ye_Luo\AppData\Local\Temp\v205-test-OvtlCa\.llm-bridge\private\runtime\pi, hasKey=true |
 | ✅ | 无密钥 → env 不含 CODEX_RELAY_API_KEY | hasKey=false |
+
+### Runtime env
+
+| 状态 | 测试项 | 详情 |
+|------|--------|------|
+| ✅ | 显式 provider override 不受 active tab 污染 | CODEX_HOME=true, CODEX_KEY=true, CLAUDE_HOME=false |
 
 ### V20.5 getRouterState
 
@@ -1241,7 +1247,7 @@
 
 ## 失败项详情
 
-无失败项。
+- **V17-G56 UI: Steps 折叠、Final answer、sessions 与 modal 表面继续收口**: 
 
 ## 需人工验证项
 
