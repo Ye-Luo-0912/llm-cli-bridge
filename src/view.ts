@@ -131,9 +131,7 @@ import { AttachmentTextSnippet, ingestAttachmentTextSnippet, isBoundedTextAttach
 import { FileToolExecutionRequest, FileToolResult, executeFileTool } from "./fileToolExecutor";
 import { AgentFileToolRouteRequest, AgentFileToolRouteResult, executeAgentFileToolRoute as routeAgentFileTool } from "./agentFileToolBridge";
 import {
-  defaultClipboardTextAttachmentFileName as chooseClipboardTextAttachmentFileName,
-  isClipboardTextBlobDescriptor,
-  shouldPersistLargeClipboardText as shouldPersistClipboardTextAttachment,
+  shouldPersistLargeClipboardText,
 } from "./clipboardPastePolicy";
 
 export const VIEW_TYPE_LLM_BRIDGE = "llm-cli-bridge-view";
@@ -164,21 +162,20 @@ import {
   getFileRefShortLabel as getFileRefShortLabelFn,
   imageMimeTypeForPath as imageMimeTypeForPathFn,
 } from "./ui/fileRefMetaUtil";
-// 附件文件名规范已抽取到 ./ui/attachmentFileNameUtil（渐进拆分 P3）
+// 附件摄入服务（路径提取 + blob 落盘）已抽取到 ./ui/attachmentIngestionService（渐进拆分 P3 batch 7）
 import {
-  sanitizeAttachmentFileName as sanitizeAttachmentFileNameFn,
-  isUsableAttachmentFileName as isUsableAttachmentFileNameFn,
-  defaultAttachmentFileName as defaultAttachmentFileNameFn,
-} from "./ui/attachmentFileNameUtil";
+  collectFilePathsFromClipboardEvent as collectFilePathsFromClipboardEventFn,
+  hasNonTextClipboardFileBlob as hasNonTextClipboardFileBlobFn,
+  collectPathsAndCacheBlobsFromFileList as collectPathsAndCacheBlobsFromFileListFn,
+  cachePathlessFilesFromFileList as cachePathlessFilesFromFileListFn,
+  persistClipboardTextToVault as persistClipboardTextToVaultFn,
+  persistElectronClipboardImageToVault as persistElectronClipboardImageToVaultFn,
+  type AttachmentVaultWriter,
+} from "./ui/attachmentIngestionService";
 // 剪贴板/拖拽文件路径提取已抽取到 ./ui/clipboardPathExtractor（渐进拆分 P3）
 import {
-  isUsableNativeFilePath as isUsableNativeFilePathFn,
   parseFileUriToPath as parseFileUriToPathFn,
-  extractPastedFilePaths as extractPastedFilePathsFn,
-  extractNativeFilePath as extractNativeFilePathFn,
-  extractPathsFromFileList as extractPathsFromFileListFn,
   collectFilePathsFromDataTransfer as collectFilePathsFromDataTransferFn,
-  readElectronClipboardFilePaths as readElectronClipboardFilePathsFn,
 } from "./ui/clipboardPathExtractor";
 // Timeline 工具函数已抽取到 ./ui/timelineUtil（渐进拆分 P2-B）
 import {
@@ -274,10 +271,6 @@ const STATUS_LABEL: Record<RunStatus, string> = {
   failed: "Failed",
   stopped: "Stopped",
 };
-
-// Phase 3: 图片附件大小限制（超过则降级为路径引用，不直接上传）
-const MAX_IMAGE_ATTACHMENT_BYTES = 10 * 1024 * 1024; // 10MB
-const SUPPORTED_IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".svg", ".avif", ".ico"];
 
 const AGENT_OPTIONS = [
   { value: "claude", label: "Claude Code" },
@@ -3098,7 +3091,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   private async addFilesFromFileList(files: FileList, source = "native-picker"): Promise<FileRef[]> {
-    const paths = await this.collectPathsAndCacheBlobsFromFileList(files, source);
+    const paths = await collectPathsAndCacheBlobsFromFileListFn(files, source, this.attachmentVaultWriter());
     if (paths.length === 0) {
       new Notice("未拿到可附加的文件对象；请使用 @ 选择 Vault 文件，或拖拽/选择本地文件。");
       return [];
@@ -3111,18 +3104,18 @@ export class LLMBridgeView extends ItemView {
   private async handleComposerPaste(event: ClipboardEvent): Promise<void> {
     const data = event.clipboardData;
     const plainText = data?.getData("text/plain") ?? "";
-    const shouldAutoAttachText = this.shouldPersistLargeClipboardText(plainText);
-    const paths = this.collectFilePathsFromClipboardEvent(event);
-    for (const cachedPath of await this.cachePathlessFilesFromFileList(data?.files, "paste", { clipboardText: plainText })) {
+    const shouldAutoAttachText = shouldPersistLargeClipboardText(plainText);
+    const paths = collectFilePathsFromClipboardEventFn(event);
+    for (const cachedPath of await cachePathlessFilesFromFileListFn(data?.files, "paste", this.attachmentVaultWriter(), { clipboardText: plainText })) {
       if (!paths.includes(cachedPath)) paths.push(cachedPath);
     }
-    const hasBinaryClipboardFile = this.hasNonTextClipboardFileBlob(data?.files);
+    const hasBinaryClipboardFile = hasNonTextClipboardFileBlobFn(data?.files);
     if (paths.length === 0 && !hasBinaryClipboardFile && shouldAutoAttachText) {
-      const textPath = await this.persistClipboardTextToVault(plainText, "paste");
+      const textPath = await persistClipboardTextToVaultFn(plainText, "paste", this.attachmentVaultWriter());
       if (textPath) paths.push(textPath);
     }
     if (paths.length === 0 && !plainText.trim()) {
-      const imagePath = await this.persistElectronClipboardImageToVault();
+      const imagePath = await persistElectronClipboardImageToVaultFn(this.attachmentVaultWriter());
       if (imagePath) paths.push(imagePath);
     }
     // 普通复制文本保持 textarea 默认粘贴行为；只有真实文件 / 图片 / 超大文本才接管为附件。
@@ -3136,17 +3129,9 @@ export class LLMBridgeView extends ItemView {
     new Notice(`已从粘贴内容添加 ${refs.length}/${paths.length} 个本轮附件`);
   }
 
-  private hasNonTextClipboardFileBlob(files: FileList | null | undefined): boolean {
-    if (!files?.length) return false;
-    return Array.from(files).some((file) => {
-      if (this.extractNativeFilePath(file)) return true;
-      return !this.isClipboardTextBlob(file);
-    });
-  }
-
   private async handleComposerDrop(event: DragEvent): Promise<void> {
-    const paths = this.collectFilePathsFromDataTransfer(event.dataTransfer);
-    for (const cachedPath of await this.cachePathlessFilesFromFileList(event.dataTransfer?.files, "drop")) {
+    const paths = collectFilePathsFromDataTransferFn(event.dataTransfer);
+    for (const cachedPath of await cachePathlessFilesFromFileListFn(event.dataTransfer?.files, "drop", this.attachmentVaultWriter())) {
       if (!paths.includes(cachedPath)) paths.push(cachedPath);
     }
     if (paths.length === 0) {
@@ -3157,202 +3142,14 @@ export class LLMBridgeView extends ItemView {
     new Notice(`已从拖拽添加 ${refs.length}/${paths.length} 个本轮附件`);
   }
 
-  private collectFilePathsFromClipboardEvent(event: ClipboardEvent): string[] {
-    const paths = this.collectFilePathsFromDataTransfer(event.clipboardData);
-    for (const filePath of this.readElectronClipboardFilePaths()) {
-      if (!paths.includes(filePath)) paths.push(filePath);
-    }
-    return paths;
-  }
-
-  private collectFilePathsFromDataTransfer(data: DataTransfer | null): string[] {
-    return collectFilePathsFromDataTransferFn(data);
-  }
-
-  private extractPathsFromFileList(files: FileList | null | undefined): string[] {
-    return extractPathsFromFileListFn(files);
-  }
-
-  private async collectPathsAndCacheBlobsFromFileList(files: FileList | null | undefined, source: string): Promise<string[]> {
-    const paths = this.extractPathsFromFileList(files);
-    for (const cachedPath of await this.cachePathlessFilesFromFileList(files, source)) {
-      if (!paths.includes(cachedPath)) paths.push(cachedPath);
-    }
-    return paths;
-  }
-
-  private async cachePathlessFilesFromFileList(
-    files: FileList | null | undefined,
-    source: string,
-    options: { clipboardText?: string } = {},
-  ): Promise<string[]> {
-    if (!files?.length) return [];
-    const paths: string[] = [];
-    for (const file of Array.from(files)) {
-      if (this.extractNativeFilePath(file)) continue;
-      if (!this.shouldPersistPathlessAttachmentBlob(file, source, options)) continue;
-      const cachedPath = await this.persistBlobAttachmentToVault(file, source);
-      if (cachedPath) paths.push(cachedPath);
-    }
-    return paths;
-  }
-
-  private shouldPersistPathlessAttachmentBlob(
-    file: File,
-    source: string,
-    options: { clipboardText?: string } = {},
-  ): boolean {
-    if (file.size <= 0) return false;
-    if (!/^paste$/i.test(source)) return true;
-    if (!this.isClipboardTextBlob(file)) return true;
-    return this.shouldPersistLargeClipboardText(options.clipboardText);
-  }
-
-  private isClipboardTextBlob(file: File): boolean {
-    return isClipboardTextBlobDescriptor(file);
-  }
-
-  // 普通粘贴文本应保持原文输入；只有“特别大”的文本才退化为临时 txt/json/md 附件。
-  private shouldPersistLargeClipboardText(text?: string): boolean {
-    return shouldPersistClipboardTextAttachment(text);
-  }
-
-  private async persistClipboardTextToVault(text: string, source: string): Promise<string | null> {
-    const normalized = text.replace(/\r\n?/g, "\n").trim();
-    if (!normalized) return null;
-    try {
-      const folder = normalizePath("LLM-Bridge Attachments");
-      await this.ensureVaultFolder(folder);
-      const safeName = this.sanitizeAttachmentFileName(this.defaultClipboardTextAttachmentFileName(normalized));
-      const relPath = await this.allocateAttachmentPath(folder, safeName);
-      await this.app.vault.create(relPath, normalized);
-      new Notice(`已缓存 ${source} 文本附件：${safeName}`, 2500);
-      return relPath;
-    } catch (error) {
-      new Notice(`缓存文本附件失败：${error instanceof Error ? error.message : String(error)}`, 5000);
-      return null;
-    }
-  }
-
-  private defaultClipboardTextAttachmentFileName(text: string): string {
-    return chooseClipboardTextAttachmentFileName(text);
-  }
-
-  private async persistBlobAttachmentToVault(file: File, source: string): Promise<string | null> {
-    if (!file || file.size <= 0) return null;
-    // Phase 3: 图片大小限制 + 格式检查
-    const ext = "." + (file.name.split(".").pop() || "").toLowerCase();
-    const isImage = /\.(png|jpe?g|gif|webp|bmp|svg|avif|ico)$/i.test(file.name) || /^image\//i.test(file.type);
-    if (isImage) {
-      if (!MAX_IMAGE_ATTACHMENT_BYTES || file.size > MAX_IMAGE_ATTACHMENT_BYTES) {
-        const sizeMB = (file.size / 1024 / 1024).toFixed(1);
-        const limitMB = (MAX_IMAGE_ATTACHMENT_BYTES / 1024 / 1024).toFixed(0);
-        new Notice(`图片过大（${sizeMB}MB > ${limitMB}MB 限制），将以路径引用方式发送，不直接上传。`, 5000);
-      }
-      if (ext && !SUPPORTED_IMAGE_EXTENSIONS.includes(ext)) {
-        new Notice(`不支持的图片格式：${ext}（支持 PNG/JPG/GIF/WEBP/BMP/SVG）`, 5000);
-        return null;
-      }
-    }
-    try {
-      const folder = normalizePath("LLM-Bridge Attachments");
-      await this.ensureVaultFolder(folder);
-      const sourceName = this.isUsableAttachmentFileName(file.name)
-        ? file.name
-        : this.defaultAttachmentFileName(file.type);
-      const safeName = this.sanitizeAttachmentFileName(sourceName);
-      const relPath = await this.allocateAttachmentPath(folder, safeName);
-      const data = await file.arrayBuffer();
-      await this.app.vault.createBinary(relPath, data);
-      new Notice(`已缓存 ${source} 附件：${safeName}`, 2500);
-      return relPath;
-    } catch (error) {
-      new Notice(`缓存附件失败：${error instanceof Error ? error.message : String(error)}`, 5000);
-      return null;
-    }
-  }
-
-  private async persistElectronClipboardImageToVault(): Promise<string | null> {
-    try {
-      const requireFn = (window as unknown as { require?: (moduleName: string) => unknown }).require;
-      const electron = requireFn?.("electron") as {
-        clipboard?: {
-          readImage?: () => {
-            isEmpty?: () => boolean;
-            toPNG?: () => Buffer;
-          };
-        };
-      } | undefined;
-      const image = electron?.clipboard?.readImage?.();
-      if (!image || image.isEmpty?.()) return null;
-      const png = image.toPNG?.();
-      if (!png || png.length === 0) return null;
-      return await this.persistBinaryAttachmentToVault(png, `screenshot-${Date.now()}.png`, "paste");
-    } catch {
-      return null;
-    }
-  }
-
-  private async persistBinaryAttachmentToVault(data: ArrayBuffer | Uint8Array, fileName: string, source: string): Promise<string | null> {
-    const byteLength = data instanceof ArrayBuffer ? data.byteLength : data.length;
-    // Phase 3: 图片大小限制 + 降级提示
-    if (byteLength > MAX_IMAGE_ATTACHMENT_BYTES) {
-      const sizeMB = (byteLength / 1024 / 1024).toFixed(1);
-      const limitMB = (MAX_IMAGE_ATTACHMENT_BYTES / 1024 / 1024).toFixed(0);
-      new Notice(`图片过大（${sizeMB}MB > ${limitMB}MB 限制），将以路径引用方式发送，不直接上传。`, 5000);
-    }
-    try {
-      const folder = normalizePath("LLM-Bridge Attachments");
-      await this.ensureVaultFolder(folder);
-      const safeName = this.sanitizeAttachmentFileName(fileName);
-      const relPath = await this.allocateAttachmentPath(folder, safeName);
-      const binary = data instanceof ArrayBuffer
-        ? data
-        : new Uint8Array(data).slice().buffer;
-      await this.app.vault.createBinary(relPath, binary);
-      new Notice(`已缓存 ${source} 图片：${safeName}`, 2500);
-      return relPath;
-    } catch (error) {
-      new Notice(`缓存图片失败：${error instanceof Error ? error.message : String(error)}`, 5000);
-      return null;
-    }
-  }
-
-  private async ensureVaultFolder(folder: string): Promise<void> {
-    const parts = folder.split("/").filter(Boolean);
-    let current = "";
-    for (const part of parts) {
-      current = current ? `${current}/${part}` : part;
-      if (this.app.vault.getAbstractFileByPath(current)) continue;
-      try {
-        await this.app.vault.createFolder(current);
-      } catch {
-        // Another event may have created it between the existence check and createFolder.
-      }
-    }
-  }
-
-  private async allocateAttachmentPath(folder: string, fileName: string): Promise<string> {
-    const ext = path.extname(fileName);
-    const base = path.basename(fileName, ext) || "attachment";
-    for (let index = 0; index < 1000; index++) {
-      const suffix = index === 0 ? "" : `-${index + 1}`;
-      const relPath = normalizePath(`${folder}/${Date.now()}-${base}${suffix}${ext}`);
-      if (!this.app.vault.getAbstractFileByPath(relPath)) return relPath;
-    }
-    return normalizePath(`${folder}/${Date.now()}-${Math.random().toString(16).slice(2)}-${fileName}`);
-  }
-
-  private sanitizeAttachmentFileName(fileName: string): string {
-    return sanitizeAttachmentFileNameFn(fileName);
-  }
-
-  private isUsableAttachmentFileName(fileName: string | null | undefined): fileName is string {
-    return isUsableAttachmentFileNameFn(fileName);
-  }
-
-  private defaultAttachmentFileName(mimeType: string): string {
-    return defaultAttachmentFileNameFn(mimeType);
+  /** 附件摄入服务的 vault 写入接口（注入 this.app.vault 的子集） */
+  private attachmentVaultWriter(): AttachmentVaultWriter {
+    return {
+      create: (relPath, content) => this.app.vault.create(relPath, content),
+      createBinary: (relPath, data) => this.app.vault.createBinary(relPath, data),
+      createFolder: (folder) => this.app.vault.createFolder(folder),
+      getAbstractFileByPath: (relPath) => this.app.vault.getAbstractFileByPath(relPath),
+    };
   }
 
   private async addUserFilePathsToContext(requestedPaths: string[], source: string): Promise<FileRef[]> {
@@ -3467,24 +3264,8 @@ export class LLMBridgeView extends ItemView {
     return null;
   }
 
-  private extractPastedFilePaths(text: string, options?: { allowRawAbsolutePaths?: boolean }): string[] {
-    return extractPastedFilePathsFn(text, options);
-  }
-
-  private isUsableNativeFilePath(filePath: string): boolean {
-    return isUsableNativeFilePathFn(filePath);
-  }
-
   private parseFileUriToPath(rawUri: string): string {
     return parseFileUriToPathFn(rawUri);
-  }
-
-  private readElectronClipboardFilePaths(): string[] {
-    return readElectronClipboardFilePathsFn();
-  }
-
-  private extractNativeFilePath(file: File): string | null {
-    return extractNativeFilePathFn(file);
   }
 
   private refreshContextRefs(): void {
