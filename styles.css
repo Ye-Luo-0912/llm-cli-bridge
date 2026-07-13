@@ -5825,8 +5825,7 @@
 }
 .llm-bridge-composer-tool-btn,
 .llm-bridge-permission-chip,
-.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline,
-.llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline {
+{
   border-color: transparent;
   background: transparent;
   box-shadow: none;
@@ -6126,7 +6125,7 @@
 
 .llm-bridge-composer-context {
   position: relative;
-  z-index: 4;
+  z-index: 0;
   min-height: 22px;
   padding: 0 6px 1px;
   gap: 12px;
@@ -6167,10 +6166,7 @@
   font-size: var(--font-small);
 }
 
-.llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon {
-  background: color-mix(in srgb, var(--interactive-accent) 13%, transparent);
-  color: var(--interactive-accent);
-}
+/* active icon tint owned by styles/composer.css */
 
 /* ===== V17-G6: Codex-like files, request cards and tighter composer ===== */
 .llm-bridge-composer {
@@ -6473,8 +6469,7 @@
 .llm-bridge-composer-tool-btn,
 .llm-bridge-command-menu-summary,
 .llm-bridge-permission-chip,
-.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline,
-.llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline {
+{
   border-color: transparent;
   background: transparent;
   box-shadow: none;
@@ -7132,8 +7127,7 @@
 .llm-bridge-composer-tool-btn,
 .llm-bridge-command-menu-summary.llm-bridge-composer-tool-btn,
 .llm-bridge-permission-chip,
-.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline,
-.llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline {
+{
   min-height: 30px;
   background: transparent !important;
   box-shadow: none !important;
@@ -7196,7 +7190,7 @@
 }
 
 .llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon {
-  color: color-mix(in srgb, var(--interactive-accent) 68%, var(--text-normal));
+  /* color owned by composer.css */
 }
 
 .llm-bridge-perm-option-title {
@@ -9298,10 +9292,7 @@
   border-color: transparent !important;
 }
 
-.llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon {
-  color: color-mix(in srgb, var(--interactive-accent) 82%, var(--text-normal)) !important;
-  background: color-mix(in srgb, var(--interactive-accent) 12%, transparent) !important;
-}
+/* active icon tint owned by styles/composer.css */
 
 .llm-bridge-session-dropdown.llm-bridge-menu-surface,
 .llm-bridge-session-dropdown {
@@ -9377,6 +9368,8 @@
   max-width: 100%;
   white-space: pre-wrap;
 }
+
+/* user bubble + selectable text owned by styles/message.css */
 
 /* ===== V17-G75: command/file events render as compact process rows, not bubbles ===== */
 .llm-bridge-codex-event-block.llm-bridge-codex-feed-item,
@@ -11458,8 +11451,8 @@
 }
 
 .llm-bridge-perm-option.is-active {
-  border-color: color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border)) !important;
-  background: color-mix(in srgb, var(--background-modifier-hover) 28%, transparent) !important;
+  border-color: transparent !important;
+  background: transparent !important;
 }
 
 .llm-bridge-perm-option-check {
@@ -11637,25 +11630,7 @@
 
 /* ===== V17-G65: grouped lazy tool events and full-width composer input ===== */
 
-
-.llm-bridge-codex-tool-group {
-  display: block !important;
-  margin: 2px 0 4px 20px !important;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
-  border-radius: 13px !important;
-  background: color-mix(in srgb, var(--background-primary) 98%, var(--background-secondary)) !important;
-  overflow: hidden !important;
-}
-
-
-.llm-bridge-codex-tool-group[open] > .llm-bridge-codex-tool-group-summary::before {
-  transform: translateX(-14px) rotate(90deg) !important;
-}
-
-
-.llm-bridge-codex-event-summary {
-  min-height: 38px !important;
-}
+/* tool-group 边框/滚动壳层由 styles/run-view.css 唯一接管 */
 
 .llm-bridge-codex-event-title {
   min-width: 0 !important;
@@ -11667,10 +11642,6 @@
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
-}
-
-.llm-bridge-codex-event-block.is-command:not([open]) {
-  background: color-mix(in srgb, var(--background-primary) 98%, transparent) !important;
 }
 
 .llm-bridge-codex-event-block.is-command:not([open]) .llm-bridge-codex-event-hint {
@@ -11810,61 +11781,21 @@
 }
 
 
-.llm-bridge-codex-tool-group {
-  margin: 5px 0 6px 12px !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
+/* tool-group shell owned by run-view.css */
+
 
 
 .llm-bridge-composer-tools-right {
   gap: 12px !important;
 }
 
-.llm-bridge-model-effort-chip,
-.llm-bridge-model-effort-button {
-  min-height: 28px !important;
-  height: 28px !important;
-  padding: 0 1px !important;
-  border: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  color: var(--text-muted) !important;
-  line-height: 28px !important;
+.llm-bridge-model-effort-chip {
+  /* merged chip sizing owned by composer.css */
 }
 
-.llm-bridge-send-btn {
-  width: 36px !important;
-  min-width: 36px !important;
-  height: 36px !important;
-  min-height: 36px !important;
-  padding: 0 !important;
-  border: 0 !important;
-  border-radius: 999px !important;
-  background: var(--text-normal) !important;
-  color: var(--background-primary) !important;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.14) !important;
-}
-
-.llm-bridge-send-btn:hover:not(:disabled) {
-  transform: translateY(-1px) !important;
-  background: var(--text-normal) !important;
-}
-
-.llm-bridge-send-btn:disabled {
-  opacity: 0.42 !important;
-}
+/* send/stop 视觉由 styles/composer.css 接管 */
 
 /* ===== V17-G71: selected runtime capabilities are Codex-like composer chips ===== */
-
-.llm-bridge-send-btn svg {
-  width: 18px !important;
-  height: 18px !important;
-  stroke-width: 2.25 !important;
-}
 
 /* ===== V17-G72: compact shell chrome, linked session cleanup and calmer menus ===== */
 .llm-bridge-topbar {
@@ -12352,6 +12283,40 @@
   word-break: break-word !important;
 }
 
+/* Runtime 设置页：三个 provider 共用紧凑 tab，不再纵向重复三套大卡片。 */
+.llm-bridge-runtime-tabs {
+  margin: 12px 0 20px;
+}
+
+.llm-bridge-runtime-tab-buttons {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  margin-bottom: 10px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-secondary);
+}
+
+.llm-bridge-runtime-tab-buttons .llm-bridge-tab-button {
+  flex: 1 1 0;
+  min-height: 34px;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.llm-bridge-runtime-tab-buttons .llm-bridge-tab-button.active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
+}
+
+.llm-bridge-runtime-tab-content {
+  padding: 2px 4px 8px;
+}
+
 /* ===== shell.css ===== */
 /* styles/shell.css — 插件壳 / 左 rail / 顶栏 / 页面栈 */
 
@@ -12460,6 +12425,27 @@
   z-index: 5000;
 }
 
+/*
+ * Composer 内部层级：Note / 输入文字必须低于工具行，
+ * 否则向上弹出的选择框会被「Note · …」「输入消息…」盖住。
+ */
+.llm-bridge-composer-context,
+.llm-bridge-composer-runtime-capabilities,
+.llm-bridge-input-surface {
+  position: relative;
+  z-index: 0;
+}
+
+.llm-bridge-composer-toolbar {
+  position: relative;
+  z-index: 20;
+}
+
+/* @ 提及菜单挂在 input-surface 内，打开时临时抬高 */
+.llm-bridge-composer:has(.llm-bridge-mention-picker.is-open) .llm-bridge-input-surface {
+  z-index: 30;
+}
+
 .llm-bridge-composer-context {
   display: flex;
   flex-wrap: wrap;
@@ -12487,12 +12473,13 @@
 }
 
 .llm-bridge-context-strip.is-tooltip-only {
-  width: 10px;
-  height: 10px;
-  opacity: 0.45;
+  width: auto;
+  height: auto;
+  opacity: 1;
 }
 
-.llm-bridge-context-strip.is-tooltip-only .llm-bridge-context-label {
+.llm-bridge-context-strip.is-tooltip-only .llm-bridge-context-label,
+.llm-bridge-context-strip.is-tooltip-only .llm-bridge-context-detail {
   display: none;
 }
 
@@ -12716,8 +12703,6 @@
   gap: 8px;
   min-height: 32px;
   overflow: visible;
-  position: relative;
-  z-index: 2;
 }
 
 .llm-bridge-composer-tools-left,
@@ -12823,7 +12808,7 @@
 
 /* 窄屏下权限按钮保持完整显示（旧规则会隐藏标签文字，已移除） */
 
-/* 权限弹层：三项列表（样式权威来源；legacy 中重复规则已收敛） */
+/* 权限弹层：平面简洁；图标与标题首行对齐 */
 .llm-bridge-perm-popover.llm-bridge-menu-surface,
 .llm-bridge-perm-popover {
   position: absolute !important;
@@ -12831,18 +12816,18 @@
   bottom: calc(100% + 8px) !important;
   z-index: 50;
   box-sizing: border-box !important;
-  width: min(348px, calc(100vw - 28px)) !important;
-  max-width: min(348px, calc(100vw - 28px)) !important;
+  width: min(340px, calc(100vw - 28px)) !important;
+  max-width: min(340px, calc(100vw - 28px)) !important;
   min-width: 0 !important;
-  padding: 12px 10px 10px !important;
+  padding: 10px 8px 8px !important;
   display: flex !important;
   flex-direction: column !important;
   gap: 6px !important;
   overflow: hidden !important;
   border: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent) !important;
-  border-radius: 16px !important;
+  border-radius: 12px !important;
   background: var(--background-primary) !important;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1) !important;
   isolation: isolate !important;
   pointer-events: auto !important;
 }
@@ -12854,16 +12839,15 @@
 .llm-bridge-perm-popover-head {
   box-sizing: border-box !important;
   display: flex !important;
-  align-items: baseline !important;
-  justify-content: flex-start !important;
-  gap: 8px !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
   min-width: 0 !important;
   max-width: 100% !important;
   margin: 0 !important;
-  padding: 2px 8px 8px !important;
+  padding: 2px 8px 6px !important;
   overflow: hidden !important;
   border: 0 !important;
-  border-bottom: none !important;
 }
 
 .llm-bridge-perm-popover-question {
@@ -12871,15 +12855,31 @@
   min-width: 0;
   color: var(--text-muted);
   font-size: 12px;
-  font-weight: 500;
-  line-height: 1.35;
+  font-weight: 450;
+  line-height: 1.4;
+}
+
+.llm-bridge-perm-popover-more {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.llm-bridge-perm-popover-more:hover {
+  color: var(--text-muted);
 }
 
 .llm-bridge-perm-popover-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   min-width: 0;
+  padding: 0;
 }
 
 .llm-bridge-perm-option {
@@ -12890,14 +12890,15 @@
   min-width: 0 !important;
   min-height: 0 !important;
   margin: 0 !important;
-  padding: 10px 10px !important;
+  padding: 8px 10px !important;
   display: grid !important;
-  grid-template-columns: 28px minmax(0, 1fr) 18px !important;
+  grid-template-columns: 18px minmax(0, 1fr) 16px !important;
   align-items: start !important;
-  gap: 10px !important;
+  column-gap: 10px !important;
+  row-gap: 0 !important;
   overflow: hidden !important;
   border: 0 !important;
-  border-radius: 12px !important;
+  border-radius: 8px !important;
   background: transparent !important;
   box-shadow: none !important;
   color: var(--text-normal) !important;
@@ -12909,29 +12910,46 @@
   margin-top: 0 !important;
 }
 
-.llm-bridge-perm-option:hover {
-  background: color-mix(in srgb, var(--background-modifier-hover) 72%, transparent) !important;
+.llm-bridge-perm-option:hover,
+.llm-bridge-perm-option.is-active:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 55%, transparent) !important;
 }
 
 .llm-bridge-perm-option.is-active {
-  background: color-mix(in srgb, var(--background-modifier-hover) 88%, transparent) !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
 .llm-bridge-perm-option-icon {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 28px !important;
-  height: 28px !important;
-  margin-top: 0 !important;
-  border-radius: 8px !important;
+  width: 18px !important;
+  height: 18px !important;
+  margin: 1px 0 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
   background: transparent !important;
+  background-color: transparent !important;
   color: var(--text-muted) !important;
+  line-height: 1 !important;
+  box-shadow: none !important;
 }
 
 .llm-bridge-perm-option-icon svg {
-  width: 18px;
-  height: 18px;
+  display: block;
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+}
+
+.llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--text-muted) !important;
+  box-shadow: none !important;
 }
 
 .llm-bridge-perm-option-text {
@@ -12940,16 +12958,17 @@
   min-width: 0 !important;
   max-width: 100% !important;
   overflow: hidden !important;
-  padding-top: 2px !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 
 .llm-bridge-perm-option-title {
   display: block !important;
   min-width: 0 !important;
   color: var(--text-normal) !important;
-  font-size: 13px !important;
+  font-size: 13.5px !important;
   font-weight: 600 !important;
-  line-height: 1.3 !important;
+  line-height: 18px !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
@@ -12973,36 +12992,35 @@
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 18px !important;
+  width: 16px !important;
   height: 18px !important;
-  margin-top: 4px !important;
+  margin: 0 !important;
+  padding: 0 !important;
   justify-self: end !important;
+  align-self: start !important;
   visibility: hidden !important;
+  opacity: 0 !important;
   color: var(--text-normal) !important;
-  opacity: 0.85 !important;
+  line-height: 1 !important;
 }
 
 .llm-bridge-perm-option-check svg {
-  width: 16px;
-  height: 16px;
+  display: block;
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.5;
 }
 
 .llm-bridge-perm-option.is-active .llm-bridge-perm-option-check {
-  visibility: visible;
-}
-
-/* 三项审批画像：安静列表，不用五色大色块 */
-.llm-bridge-perm-option-icon {
-  color: var(--text-muted) !important;
-  background: transparent !important;
-}
-
-.llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon {
+  visibility: visible !important;
+  opacity: 1 !important;
   color: var(--text-normal) !important;
 }
 
-.llm-bridge-perm-option.is-active .llm-bridge-perm-option-check {
-  color: var(--interactive-accent);
+.llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--text-muted) !important;
 }
 
 .llm-bridge-permission-chip.is-ask,
@@ -13014,18 +13032,34 @@
   color: var(--text-warning, #d97706);
 }
 
-.llm-bridge-model-effort-picker .llm-bridge-effort-chip-inline {
-  display: none;
-}
 
+/* Fig.1: 合并 chip — 「5.6 Sol 极高」 */
 .llm-bridge-model-effort-chip.llm-bridge-model-chip-merged {
-  max-width: 160px;
-  padding: 0 8px;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 200px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-modifier-hover) 55%, var(--background-primary));
   color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-merged:hover:not(:disabled),
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-merged[aria-expanded="true"] {
+  border-color: transparent;
+  color: var(--text-normal);
+  background: color-mix(in srgb, var(--background-modifier-hover) 78%, var(--background-primary));
 }
 
 @media (max-width: 760px) {
@@ -13226,25 +13260,25 @@
 }
 
 .llm-bridge-context-strip {
+  position: relative;
   flex: 0 0 auto;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 0;
   padding: 0;
+  margin: 0;
+  border: 0;
   border-top: 0;
   background: transparent;
   cursor: pointer;
   user-select: none;
   font-size: var(--font-smallest);
   color: var(--text-faint);
-  align-self: flex-end;
-  width: fit-content;
-  max-width: calc(100% - 48px);
-  margin: 0 24px -3px auto;
-  margin-right: 0;
-  opacity: 0.78;
-  margin-left: auto;
-  border: 0;
+  align-self: center;
+  width: auto;
+  max-width: none;
+  opacity: 1;
 }
 
 .llm-bridge-context-strip:hover {
@@ -13253,20 +13287,81 @@
   opacity: 1;
 }
 
+/* Fig.2：方底按钮 + 空心占用环 */
 .llm-bridge-context-ring {
+  box-sizing: border-box;
   flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: var(--background-modifier-hover);
+  box-shadow: none;
+  opacity: 1;
+  color: inherit;
+}
+
+.llm-bridge-context-ring::before {
+  content: "";
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: var(--background-modifier-border);
-  border: 1.5px solid var(--background-primary);
-  box-shadow: 0 0 0 1px var(--background-modifier-border);
-  border-width: 1px;
-  opacity: 0.74;
+  background: conic-gradient(
+    var(--llm-bridge-context-ring-fg, var(--text-muted))
+      calc(var(--llm-bridge-context-ring-pct, 0) * 1%),
+    var(--llm-bridge-context-ring-track, var(--background-modifier-border)) 0
+  );
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+}
+
+.llm-bridge-context-strip:hover .llm-bridge-context-ring {
+  background: color-mix(in srgb, var(--background-modifier-hover) 85%, var(--background-modifier-border));
 }
 
 .llm-bridge-context-ring.is-compressed {
-  box-shadow: 0 0 0 1px var(--background-modifier-border), 0 0 0 3px color-mix(in srgb, #f59e0b 40%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, #f59e0b 45%, transparent);
+}
+
+.llm-bridge-context-tip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 148px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.llm-bridge-context-strip:hover .llm-bridge-context-tip:not([hidden]),
+.llm-bridge-context-strip:focus-within .llm-bridge-context-tip:not([hidden]) {
+  display: flex;
+}
+
+.llm-bridge-context-tip-pct {
+  color: var(--text-normal);
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.3;
+}
+
+.llm-bridge-context-tip-tokens {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 450;
+  line-height: 1.3;
 }
 
 .llm-bridge-context-label {
@@ -13520,107 +13615,218 @@
 }
 
 .llm-bridge-model-effort-chip:hover:not(:disabled) {
-  border-color: rgba(var(--interactive-accent-rgb), 0.45);
-  color: var(--interactive-accent);
+  /* chip hover owned by .llm-bridge-model-chip-merged */
 }
 
-.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline, .llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline {
-  max-width: 88px;
-  height: auto;
-  padding: 0 5px;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--font-smallest);
-  font-weight: 500;
-  line-height: 1.6;
-  cursor: pointer;
-  box-shadow: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-height: 29px;
-}
 
-.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline:hover:not(:disabled), .llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline:hover:not(:disabled) {
-  border: none;
-  background: transparent;
-  color: var(--interactive-accent);
-}
 
-.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline[aria-expanded="true"], .llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline[aria-expanded="true"] {
-  color: var(--interactive-accent);
-}
 
 .llm-bridge-model-effort-popover {
   position: absolute;
   right: 0;
   bottom: calc(100% + 8px);
   z-index: 50;
-  width: min(360px, calc(100vw - 32px));
-  display: grid;
-  grid-template-columns: minmax(130px, 1fr) minmax(110px, 0.8fr);
-  gap: 8px;
-  padding: 9px;
-  border: 1px solid var(--background-modifier-border);
+  width: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
   border-radius: 12px;
-  background: var(--background-secondary);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  background: var(--background-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
 }
 
 .llm-bridge-model-effort-popover[hidden] {
   display: none !important;
 }
 
-.llm-bridge-model-effort-popover-single {
-  width: min(220px, calc(100vw - 32px));
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+
+/* 主列表紧贴内容高度，不随右侧 flyout 被拉高留白 */
+.llm-bridge-model-menu-nested {
+  display: flex !important;
+  flex-direction: row;
+  align-items: flex-start;
+  min-width: 0;
+  width: max-content;
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 6px;
+  gap: 0;
+  background: var(--background-primary);
+  border-radius: 12px;
 }
 
-/* V20.2: 两级紧凑菜单 — 模型 chip 和 effort chip 各自独立 popover */
-.llm-bridge-model-popover-two-level,
-.llm-bridge-effort-popover-two-level {
-  width: min(240px, calc(100vw - 32px));
+.llm-bridge-model-menu-nested[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-model-menu-primary {
   display: flex;
   flex-direction: column;
+  gap: 0;
+  width: max-content;
+  min-width: 180px;
+  max-width: 220px;
+  padding: 2px 4px;
+  height: auto;
+  align-self: flex-start;
+}
+
+.llm-bridge-model-menu-row {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 8px 6px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-normal) !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  line-height: 1.3 !important;
+  text-align: left !important;
+  cursor: pointer !important;
+}
+
+.llm-bridge-model-menu-row:hover,
+.llm-bridge-model-menu-row:focus,
+.llm-bridge-model-menu-row:focus-visible,
+.llm-bridge-model-menu-row.is-active {
+  border: 0 !important;
+  outline: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-model-menu-row:hover .llm-bridge-model-menu-row-label,
+.llm-bridge-model-menu-row.is-active .llm-bridge-model-menu-row-label {
+  color: var(--text-normal);
+}
+
+.llm-bridge-model-menu-row.is-active .llm-bridge-model-menu-row-value,
+.llm-bridge-model-menu-row.is-active .llm-bridge-model-menu-row-chevron {
+  color: var(--text-normal);
+}
+
+.llm-bridge-model-menu-row-label {
+  flex: 0 0 auto;
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+.llm-bridge-model-menu-row-trailing {
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
-  padding: 8px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-weight: 450;
+}
+
+.llm-bridge-model-menu-row-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 110px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  font-weight: 450;
+}
+
+.llm-bridge-model-menu-row-chevron {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.75;
+}
+
+.llm-bridge-model-menu-flyout {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 168px;
+  max-width: 220px;
+  max-height: min(320px, 46vh);
+  margin-left: 2px;
+  padding: 0 0 0 8px;
+  border-left: 1px solid color-mix(in srgb, var(--background-modifier-border) 50%, transparent);
+  overflow: auto;
+  align-self: flex-start;
+}
+
+.llm-bridge-model-menu-flyout[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-model-menu-flyout-title {
+  padding: 4px 8px 6px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  font-weight: 500;
 }
 
 .llm-bridge-model-options,
 .llm-bridge-effort-options {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  max-height: 240px;
-  overflow-y: auto;
+  gap: 0;
+  max-height: none;
+  overflow: visible;
 }
 
 .llm-bridge-model-option,
 .llm-bridge-effort-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: var(--text-normal);
-  cursor: pointer;
-  text-align: left;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 7px 8px !important;
+  border-radius: 6px !important;
+  border: 0 !important;
+  outline: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-normal) !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  font-size: 13px !important;
+  min-height: 0 !important;
 }
 
 .llm-bridge-model-option:hover,
-.llm-bridge-effort-option:hover {
-  background: var(--background-modifier-hover);
+.llm-bridge-effort-option:hover,
+.llm-bridge-model-option.is-active:hover,
+.llm-bridge-effort-option.is-active:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 45%, transparent) !important;
+  border: 0 !important;
+  outline: none !important;
+  color: var(--text-normal) !important;
+  box-shadow: none !important;
 }
 
 .llm-bridge-model-option.is-active,
 .llm-bridge-effort-option.is-active {
-  background: var(--background-modifier-active-hover);
-  color: var(--interactive-accent);
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  outline: none !important;
+  color: var(--text-normal) !important;
+  box-shadow: none !important;
 }
 
 .llm-bridge-model-option-label,
@@ -13630,23 +13836,31 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.3;
 }
 
 .llm-bridge-option-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  margin-left: 8px;
-  color: var(--interactive-accent);
+  width: 14px;
+  height: 14px;
+  margin-left: 6px;
+  color: var(--text-normal);
   font-weight: 600;
+  font-size: 13px;
+  line-height: 1;
 }
 
 /* V20.3: 模型三分类 — 分组标题 / 待验证标签 / 不兼容原因 */
 .llm-bridge-model-section-header {
-  padding: 6px 8px 2px;
+  padding: 8px 10px 4px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .llm-bridge-model-section-header:first-child {
@@ -13654,7 +13868,7 @@
 }
 
 .llm-bridge-model-option.is-disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
   flex-wrap: wrap;
   align-items: center;
@@ -13697,36 +13911,9 @@
   word-break: break-word;
 }
 
-.llm-bridge-model-effort-section {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
 
-.llm-bridge-model-effort-section-title {
-  padding: 2px 4px;
-  color: var(--text-faint);
-  font-size: var(--font-smallest);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: 2px;
-}
 
-.llm-bridge-model-effort-column {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-}
 
-.llm-bridge-model-effort-label {
-  padding: 0 4px 2px;
-  color: var(--text-faint);
-  font-size: var(--font-smallest);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
 
 .llm-bridge-mention-picker {
   position: absolute;
@@ -13898,18 +14085,6 @@
   gap: 10px;
   display: flex;
   align-items: center;
-}
-
-.llm-bridge-composer-context .llm-bridge-context-strip {
-  flex: 0 0 auto;
-  width: auto;
-  max-width: 34%;
-  margin: 0;
-  padding: 0;
-  gap: 4px;
-  align-self: center;
-  color: var(--text-faint);
-  justify-content: flex-end;
 }
 
 .llm-bridge-context-tag.is-empty {
@@ -15141,7 +15316,7 @@
   color: var(--text-on-accent);
 }
 
-.llm-bridge-model-effort-chip:hover, .llm-bridge-model-effort-button:hover {
+.llm-bridge-model-effort-chip:hover {
   color: var(--text-normal) !important;
   background: transparent !important;
 }
@@ -15305,6 +15480,79 @@
   background: var(--background-modifier-active-hover);
 }
 
+/* ===== Send / Stop：可发送 vs 不可发送一眼可辨；运行中停止钮独立红色 ===== */
+.llm-bridge-action-col {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.llm-bridge-send-btn,
+.llm-bridge-stop-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+}
+
+.llm-bridge-send-btn {
+  background: var(--text-normal);
+  color: var(--background-primary);
+}
+
+.llm-bridge-send-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.llm-bridge-send-btn:disabled,
+.llm-bridge-send-btn.is-unsendable {
+  background: color-mix(in srgb, var(--background-modifier-border) 72%, var(--background-primary));
+  color: var(--text-faint);
+  opacity: 1;
+  cursor: not-allowed;
+  box-shadow: none;
+  filter: none;
+  transform: none;
+}
+
+.llm-bridge-send-btn svg,
+.llm-bridge-stop-btn svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.25;
+}
+
+.llm-bridge-stop-btn {
+  background: color-mix(in srgb, var(--text-error, #e74c3c) 88%, #000);
+  color: #fff;
+}
+
+.llm-bridge-stop-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.llm-bridge-stop-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: currentColor;
+  font-size: 0;
+  line-height: 0;
+  color: inherit;
+}
+
 /* ===== message.css ===== */
 /* styles/message.css — 语义对话气泡 */
 /* 字体规范（三类，不再追加覆盖规则）：
@@ -15393,12 +15641,12 @@
   border-left: 3px solid var(--text-error);
 }
 
-/* 完成回答：底部左侧复制图标；失败态可有 retry */
+/* 完成回答：复制按钮常驻，避免 hover 才渲染导致布局跳动 */
 .llm-bridge-msg-actions {
   display: none;
   align-items: center;
   gap: 2px;
-  margin-top: 6px;
+  margin-top: 4px;
   padding: 0;
   border: none;
   background: transparent;
@@ -15406,44 +15654,54 @@
 }
 
 .llm-bridge-msg.is-answer .llm-bridge-msg-actions,
-.llm-bridge-msg.is-summary .llm-bridge-msg-actions {
+.llm-bridge-msg.is-summary .llm-bridge-msg-actions,
+.llm-bridge-msg.is-failed .llm-bridge-msg-actions,
+.llm-bridge-msg.is-stopped .llm-bridge-msg-actions {
+  display: inline-flex;
   position: static;
   justify-content: flex-start;
 }
 
-.llm-bridge-msg:hover .llm-bridge-msg-actions,
-.llm-bridge-msg:focus-within .llm-bridge-msg-actions {
-  display: inline-flex;
-}
-
-.llm-bridge-msg.is-failed .llm-bridge-msg-actions,
-.llm-bridge-msg.is-stopped .llm-bridge-msg-actions {
-  display: inline-flex;
+.llm-bridge-msg-user .llm-bridge-msg-actions {
+  display: none !important;
 }
 
 .llm-bridge-msg-action-btn {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
   padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
+  margin: 0;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  outline: none;
+  color: var(--text-faint);
   cursor: pointer;
 }
 
-.llm-bridge-msg-action-btn:hover {
-  color: var(--text-normal);
-  background: var(--background-modifier-hover);
+.llm-bridge-msg-action-btn:hover,
+.llm-bridge-msg-action-btn:focus,
+.llm-bridge-msg-action-btn:focus-visible {
+  color: var(--text-muted);
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none;
 }
 
 .llm-bridge-msg-action-btn svg {
   width: 14px;
   height: 14px;
+  stroke-width: 1.75;
 }
 
 /* 消息附件：预览 + hover 复制 */
@@ -15550,26 +15808,53 @@
 }
 
 .llm-bridge-msg-status {
-  padding: 1px 6px;
-  border: 1px solid var(--llm-agent-line);
-  border-radius: 999px;
-  background: var(--llm-agent-surface);
-  font-size: 10px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
   line-height: 1.4;
 }
 
-.llm-bridge-msg-status.is-running { color: var(--interactive-accent); border-color: rgba(var(--interactive-accent-rgb), 0.36); }
+.llm-bridge-msg-status.is-running { color: var(--interactive-accent); }
 
-.llm-bridge-msg-status.is-completed { color: var(--llm-agent-success); border-color: color-mix(in srgb, var(--llm-agent-success) 32%, transparent); }
+.llm-bridge-msg-status.is-completed { color: var(--text-muted); }
 
-.llm-bridge-msg-status.is-failed { color: var(--llm-agent-danger); border-color: color-mix(in srgb, var(--llm-agent-danger) 36%, transparent); }
+.llm-bridge-msg-status.is-failed { color: var(--llm-agent-danger); }
 
-.llm-bridge-msg-status.is-stopped { color: var(--llm-agent-warning); border-color: color-mix(in srgb, var(--llm-agent-warning) 36%, transparent); }
+.llm-bridge-msg-status.is-stopped { color: var(--llm-agent-warning); }
 
 .llm-bridge-msg-user .llm-bridge-msg-content {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.llm-bridge-msg-user .llm-bridge-user-message-text {
+  display: inline-block;
+  max-width: 100%;
+  padding: 8px 12px;
+  border-radius: 14px 14px 4px 14px;
+  background: color-mix(in srgb, var(--background-modifier-hover) 55%, var(--background-secondary));
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  color: var(--text-normal);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.llm-bridge-msg.is-running .llm-bridge-msg-status-line,
+.llm-bridge-msg.is-running .llm-bridge-run-status-text {
+  display: inline;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .llm-bridge-msg-assistant .llm-bridge-msg-content {
@@ -16214,22 +16499,88 @@
   display: none;
 }
 
-.llm-bridge-codex-process-quiet-title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group-summary {
+  list-style: none;
 }
 
-.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head.is-collapsible {
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group-title {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-weight: 560;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group {
+  margin: 4px 0 8px;
+}
+
+.llm-bridge-codex-process-quiet-title {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin: 0 0 6px;
-  padding: 2px 0;
-  border: none;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--text-muted);
   background: transparent;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.llm-bridge-codex-process-quiet-icon {
+  display: none !important;
+}
+
+/* Processed：左对齐纯文本，无气泡边框；显示用时 */
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head.is-collapsible {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: auto;
+  max-width: 100%;
+  margin: 0 0 8px;
+  padding: 2px 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
   cursor: pointer;
   user-select: none;
+  color: var(--text-muted);
+  box-sizing: border-box;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-quiet-title,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-section-title {
+  color: var(--text-muted) !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-toggle {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head .llm-bridge-codex-section-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-quiet-title,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-section-title {
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-feed-batch-text.is-quiet-narrative {
@@ -16255,15 +16606,6 @@
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-final-answer-title {
   display: none;
-}
-
-.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group-summary {
-  list-style: none;
-}
-
-.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group-title {
-  font-size: 13px;
-  color: var(--text-muted);
 }
 
 /* 运行中思考：柔和光效；完成后弱化、不再发光 */
@@ -16311,8 +16653,311 @@
   line-height: 1.6;
 }
 
-.llm-bridge-codex-feed-entry.is-tool-group > .llm-bridge-codex-tool-group {
+.llm-bridge-codex-feed-entry.is-tool-group > .llm-bridge-codex-tool-group,
+.llm-bridge-codex-feed-entry.is-cluster > .llm-bridge-codex-tool-group {
   margin: 0;
+}
+
+/* 统一工具块：扁平行，无气泡包裹；超出部分在 body 内滚动 */
+.llm-bridge-codex-tool-group {
+  display: block;
+  margin: 2px 0 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.llm-bridge-codex-tool-group-summary {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 28px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 0;
+  cursor: pointer;
+  list-style: none !important;
+  border-radius: 0;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.llm-bridge-codex-tool-group[open] > .llm-bridge-codex-tool-group-summary {
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
+}
+
+.llm-bridge-codex-tool-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+/* V19: 展开箭头 ">" 放在文字右侧，通过旋转表现展开状态 */
+.llm-bridge-codex-tool-group-chevron {
+  display: inline-block;
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+  transform: rotate(0deg);
+}
+
+.llm-bridge-codex-tool-group-chevron.is-expanded {
+  transform: rotate(90deg);
+}
+
+.llm-bridge-codex-tool-group-icon {
+  color: color-mix(in srgb, var(--text-muted) 80%, transparent);
+}
+
+.llm-bridge-codex-tool-group-icon,
+.llm-bridge-codex-tool-group-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.llm-bridge-codex-tool-group-main {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.llm-bridge-codex-tool-group-title {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 560;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-tool-group-preview {
+  min-width: 0;
+  color: color-mix(in srgb, var(--text-muted) 74%, transparent);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-tool-group-meta {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-faint);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-tool-group-body {
+  display: grid;
+  gap: 0;
+  padding: 2px 0 4px;
+  max-height: min(240px, 32vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  box-sizing: border-box;
+}
+
+.llm-bridge-codex-tool-group-member {
+  min-width: 0;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-item,
+.llm-bridge-codex-tool-group-member > .llm-bridge-codex-feed-item {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 28%, transparent);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-tool-group-member:first-child > .llm-bridge-codex-feed-item,
+.llm-bridge-codex-tool-group-body > .llm-bridge-codex-feed-item:first-child {
+  border-top: 0;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-summary-row,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-summary {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 28px;
+  margin: 0;
+  padding: 5px 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  list-style: none;
+  position: relative;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-summary-row::-webkit-details-marker,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-summary::-webkit-details-marker {
+  display: none;
+}
+
+/* 杀掉 legacy summary::before 幽灵 ›，避免空行 / 假气泡 */
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-summary::before,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-summary-row::before {
+  content: none !important;
+  display: none !important;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-step-status {
+  display: none;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-change-path-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-change-diff-summary {
+  display: inline;
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-label {
+  font-size: 12px;
+  font-weight: 560;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-summary,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-change-path {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-change-path {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+  white-space: nowrap;
+  padding-top: 1px;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-row-chevron {
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+  transform: rotate(0deg);
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-row-chevron.is-expanded,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-item[open] > .llm-bridge-codex-feed-summary-row .llm-bridge-codex-feed-row-chevron {
+  transform: rotate(90deg);
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-item.is-failed .llm-bridge-codex-feed-icon,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-item.is-failed .llm-bridge-codex-feed-label {
+  color: var(--text-error);
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-body {
+  margin: 0 0 6px 26px;
+  min-width: 0;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-inline-shell-panel,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-shell-panel {
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
+  border-radius: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-shell-pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block {
+  margin-left: 0;
+}
+
+/* 覆盖 legacy G66 在 cluster 内的独立卡片边框，保持扁平行 */
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.is-command,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.is-file,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.llm-bridge-codex-change-row,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.llm-bridge-codex-feed-item {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 28%, transparent) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-tool-group-member:first-child > .llm-bridge-codex-event-block,
+.llm-bridge-codex-tool-group-body > .llm-bridge-codex-event-block:first-child {
+  border-top: 0 !important;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.is-file:not([open]) > .llm-bridge-codex-event-summary,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.llm-bridge-codex-change-row:not([open]) > .llm-bridge-codex-event-summary,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.is-command:not([open]) > .llm-bridge-codex-event-summary {
+  min-height: 28px !important;
+  padding: 6px 2px !important;
 }
 
 /* ===== 从 legacy.css 迁移（Run/Waterfall，去除 !important）===== */
@@ -16606,8 +17251,8 @@
 .llm-bridge-codex-process-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: flex-start;
+  gap: 8px;
   padding: 0 2px;
 }
 
@@ -16869,99 +17514,6 @@
   text-overflow: clip;
 }
 
-.llm-bridge-codex-tool-group-summary {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  min-height: 30px;
-  min-width: 0;
-  max-width: 100%;
-  padding: 2px 0;
-  cursor: pointer;
-  list-style: none !important;
-  border-radius: 0;
-  background: transparent;
-}
-
-.llm-bridge-codex-tool-group-summary::-webkit-details-marker {
-  display: none;
-}
-
-/* V19: 展开箭头 ">" 放在文字右侧，通过旋转表现展开状态 */
-.llm-bridge-codex-tool-group-chevron {
-  display: inline-block;
-  margin-left: 4px;
-  color: var(--text-faint);
-  font-size: 13px;
-  line-height: 1;
-  transition: transform 0.15s ease;
-  transform: rotate(0deg);
-}
-
-.llm-bridge-codex-tool-group-chevron.is-expanded {
-  transform: rotate(90deg);
-}
-
-.llm-bridge-codex-tool-group-icon {
-  color: color-mix(in srgb, var(--text-muted) 80%, transparent);
-}
-
-.llm-bridge-codex-tool-group-icon,
-.llm-bridge-codex-tool-group-icon svg {
-  width: 15px;
-  height: 15px;
-}
-
-.llm-bridge-codex-tool-group-main {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.llm-bridge-codex-tool-group-title {
-  min-width: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 560;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.llm-bridge-codex-tool-group-preview {
-  min-width: 0;
-  color: color-mix(in srgb, var(--text-muted) 74%, transparent);
-  font-size: 11.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.llm-bridge-codex-tool-group-meta {
-  display: inline-flex !important;
-  align-items: center;
-  gap: 7px;
-  color: var(--text-faint);
-  font-size: 9.5px;
-  white-space: nowrap;
-}
-
-.llm-bridge-codex-tool-group-body {
-  display: grid;
-  gap: 0;
-  padding: 0 0 3px 20px;
-  max-height: min(280px, 36vh);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block {
-  margin-left: 0;
-}
-
 /* V18: 状态指示器——运行中"正在思考"+光效，完成"· {duration}" */
 .llm-bridge-codex-tool-group-status {
   font-size: 11px;
@@ -17080,19 +17632,20 @@
 
 .llm-bridge-codex-tool-group-body .llm-bridge-codex-event-summary {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
   gap: 7px;
-  min-height: 29px;
-  padding: 3px 0;
+  min-height: 28px;
+  padding: 5px 2px;
   border: 0;
   border-radius: 0;
-  background: transparent;
-  background-color: transparent;
-  box-shadow: none;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
 }
 
 .llm-bridge-codex-tool-group-body .llm-bridge-codex-event-summary::before {
-  margin-left: -3px;
+  content: none !important;
+  display: none !important;
 }
 
 .llm-bridge-codex-tool-group-body .llm-bridge-codex-event-main {
