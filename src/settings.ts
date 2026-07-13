@@ -12,6 +12,7 @@ import {
   mapAgentApprovalProfileToClaudePermissionMode,
   type AgentApprovalProfile,
 } from "./agentApprovalProfile";
+import { AGENT_RUNTIME_PROVIDER_CONFIG_REL } from "./agentRuntimeWorkspace";
 
 export class LLMBridgeSettingTab extends PluginSettingTab {
   plugin: LLMBridgePlugin;
@@ -34,7 +35,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       .setName("运行方式")
       .setDesc(
         s.backendMode === "auto"
-          ? "自动选择（推荐）：优先使用插件管理的 Codex runtime，不可用时再按高级设置回退。聊天面板状态栏显示本轮真实 runtime。"
+          ? "自动选择（推荐）：按「运行时配置」中的 active provider 路由（默认托管 Codex runtime）。配置缺失时使用全局配置，配置错误时展示原生错误，不静默回退。状态栏显示本轮真实 runtime。"
           : `当前固定为 ${s.backendMode}。可在下方高级设置中改回自动选择。`,
       );
 
@@ -205,6 +206,16 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
       // --- 第三方服务表单 ---
       content.createEl("h4", { text: "第三方服务" });
 
+      // 用户手写配置保护：本地配置存在且非 Bridge 生成 → 只读展示，不整文件重写
+      const isCreate = !status.localConfigExists;
+      const isUserHandWritten = status.localConfigExists && !router.isBridgeGeneratedConfig(vaultPath, pid);
+      if (isUserHandWritten) {
+        content.createEl("p", {
+          cls: "llm-bridge-setting-hint",
+          text: "🔒 检测到用户手写的官方配置，已转为只读保护（Bridge 表单不会覆盖它）。如需修改请直接编辑文件，或点下方「打开本地配置文件」。",
+        });
+      }
+
       // 地址
       const urlInput = new Setting(content)
         .setName("服务地址")
@@ -213,6 +224,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           t.setPlaceholder("https://api.example.com/v1");
           t.setValue(formRead.ok && formRead.form ? formRead.form.baseURL : "");
           t.inputEl.dataset.field = "baseURL";
+          if (isUserHandWritten) t.setDisabled(true);
         });
       void urlInput;
 
@@ -224,14 +236,14 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           t.setPlaceholder("gpt-5.4");
           t.setValue(formRead.ok && formRead.form ? formRead.form.model : "");
           t.inputEl.dataset.field = "model";
+          if (isUserHandWritten) t.setDisabled(true);
         });
       void modelInput;
 
       // Key（password 输入框，保存时才写入）
       // V20.8: 首次创建时 Key 必填；更新时可为空
-      const isCreate = !status.localConfigExists;
       const keyStatusLabel = status.keyStatus === "saved"
-        ? "已加密保存"
+        ? "已持久化保存"
         : status.keyStatus === "session-only"
           ? "⚠ 仅本次会话有效（safeStorage 不可用，插件重载后丢失）"
           : "未配置";
@@ -243,9 +255,29 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           t.setPlaceholder(isCreate ? "首次创建必填…" : "留空不更新，填写则替换…");
           t.setValue("");
           t.inputEl.dataset.field = "apiKey";
+          if (isUserHandWritten) t.setDisabled(true);
         });
       void keyInput;
 
+      // 保存按钮 / 只读保护
+      if (isUserHandWritten) {
+        // 用户手写配置：提供打开本地配置文件，不提供保存并应用
+        new Setting(content)
+          .setName("本地配置文件")
+          .setDesc("该配置由用户手写，Bridge 表单已转只读。点此打开文件所在目录直接编辑。")
+          .addButton((b) => {
+            b.setButtonText("打开本地配置文件");
+            b.onClick(() => {
+              try {
+                const electron = require("electron") as { shell: { openPath: (p: string) => Promise<string> } };
+                const localConfigAbs = join(vaultPath, status.localConfigPath);
+                void electron.shell.openPath(localConfigAbs);
+              } catch (e) {
+                new Notice("打开失败：" + (e instanceof Error ? e.message : String(e)), 5000);
+              }
+            });
+          });
+      } else {
       // 保存按钮
       new Setting(content)
         .setName("保存并应用")
@@ -273,16 +305,20 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
                 if (result.keyStatus === "session-only") {
                   parts.push("⚠ Key 仅本次会话有效（safeStorage 不可用，插件重载后丢失）");
                 } else if (result.keyStatus === "saved") {
-                  parts.push("Key 已加密保存");
+                  parts.push("Key 已持久化保存");
                 }
                 new Notice(parts.join(" | "), 6000);
                 // 清空 Key 输入框
                 const keyEl = content.querySelector('input[data-field="apiKey"]') as HTMLInputElement | null;
                 if (keyEl) keyEl.value = "";
-                // V20.8: 保存成功后立即刷新设置页 + 模型目录 + Runtime
-                this.plugin.refreshBridgeView();
-                // 同步聊天框当前模型（通过 refreshBridgeView 触发 catalog 刷新）
+                // 配置文件中的模型与聊天框保持一致；Codex 目录缓存按新配置重新探测。
+                s.model = model;
                 await this.plugin.saveSettings();
+                if (pid === "codex") {
+                  const { clearCodexManagedModelCatalogCache } = await import("./runtime/providers/codex-managed-app-server/codexManagedModelCatalog");
+                  clearCodexManagedModelCatalogCache();
+                }
+                this.plugin.refreshBridgeView();
               } else {
                 new Notice(`保存失败：${result.error}`, 6000);
               }
@@ -317,28 +353,27 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
             }
           });
         });
+      } // end else（非用户手写：显示保存并应用 / 清除 Key / 打开全局配置目录）
     }
 
-    // --- V20.4 迁移 ---
-    new Setting(containerEl)
-      .setName("从 V20.4 迁移")
-      .setDesc("从旧 runtime-provider.json 迁移 active.json 和密钥。relayUrl/model 需在上方表单中重新填写。")
-      .addButton((b) => {
-        b.setButtonText("迁移");
-        b.onClick(async () => {
-          try {
-            const result = router.migrateFromV20_4(vaultPath);
-            if (result.migrated) {
-              new Notice(`迁移完成：${result.createdFiles.join(", ")}`, 5000);
-            } else {
-              new Notice(result.reason, 4000);
+    // 旧文件确实存在时才显示一次性迁移入口，避免正常设置页长期暴露废弃概念。
+    if (existsSync(join(vaultPath, AGENT_RUNTIME_PROVIDER_CONFIG_REL))) {
+      new Setting(containerEl)
+        .setName("迁移旧版 Runtime 配置")
+        .setDesc("检测到旧 runtime-provider.json。迁移 active provider 与密钥后即可删除旧文件。")
+        .addButton((b) => {
+          b.setButtonText("迁移");
+          b.onClick(async () => {
+            try {
+              const result = router.migrateFromV20_4(vaultPath);
+              new Notice(result.migrated ? `迁移完成：${result.createdFiles.join(", ")}` : result.reason, 5000);
+            } catch (e) {
+              new Notice("迁移失败：" + (e instanceof Error ? e.message : String(e)), 5000);
             }
-          } catch (e) {
-            new Notice("迁移失败：" + (e instanceof Error ? e.message : String(e)), 5000);
-          }
-          this.plugin.refreshBridgeView();
+            this.plugin.refreshBridgeView();
+          });
         });
-      });
+    }
 
     // ===== Managed Runtime =====
     containerEl.createEl("h3", { text: "Managed Runtime" });
@@ -742,98 +777,6 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
           await this.plugin.saveSettings();
           this.plugin.refreshBridgeView();
           this.display();
-        });
-      });
-
-    // V17-D 任务 F：Pi SDK Auth 设置 section（runtime override，不写 ~/.pi/agent）
-    // RuntimeProfileResolver: 此 section 作为高级回退（原生认证），本地中转已配置时优先使用中转
-    advancedEl.createEl("h3", { text: "Pi SDK Auth (Runtime Override — Optional/Advanced)" });
-    advancedEl.createEl("p", {
-      cls: "llm-bridge-setting-hint",
-      text: "高级回退（原生认证）：本地中转未配置时回退到此处的 Pi SDK 原生认证。已配置本地中转时，以上方「本地认证配置」为准。",
-    });
-
-    new Setting(advancedEl)
-      .setName("Provider")
-      .setDesc("V17-D 任务 F：API Key 所属 provider（默认 anthropic；可选 openai 等）。仅运行时注入，不写 ~/.pi/agent。")
-      .addText((t) => {
-        t.setValue(s.piAuthProvider);
-        t.onChange(async (v) => {
-          s.piAuthProvider = v.trim() || "anthropic";
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(advancedEl)
-      .setName("Model")
-      .setDesc("显式指定 model id（如 claude-haiku-4-5）。留空则用 SDK 默认选择。")
-      .addText((t) => {
-        t.setValue(s.piApiModel);
-        t.onChange(async (v) => {
-          s.piApiModel = v.trim();
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(advancedEl)
-      .setName("API Key")
-      .setDesc("Pi SDK runtime API key。仅运行时注入 session.authStorage，不写磁盘全局配置。留空则 fallback 到 ~/.pi/agent 或 ~/.claude/settings.json env。")
-      .addText((t) => {
-        t.inputEl.type = "password";
-        t.setValue(s.piApiKey);
-        t.onChange(async (v) => {
-          s.piApiKey = v.trim();
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(advancedEl)
-      .setName("Base URL")
-      .setDesc("自定义 API base URL（可选，如 https://us.pinai-cn.com）。留空则用 provider 默认。")
-      .addText((t) => {
-        t.setValue(s.piApiBaseUrl);
-        t.onChange(async (v) => {
-          s.piApiBaseUrl = v.trim();
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(advancedEl)
-      .setName("Test connection")
-      .setDesc("V17-D 任务 F：探测当前 Pi SDK + auth override 是否可用。不发起真实请求，仅检查 auth/model 配置。")
-      .addButton((b) => {
-        b.setButtonText("Test connection");
-        b.onClick(async () => {
-          b.setButtonText("Testing...");
-          b.setDisabled(true);
-          try {
-            const { PiSdkProvider, tryLoadPiSdkAsync } = await import("./runtime/providers/pi-sdk/piSdkProvider");
-            await tryLoadPiSdkAsync(true);
-            const provider = new PiSdkProvider();
-            const probe = provider.getProbeResult();
-            if (!probe.available) {
-              new Notice("Pi SDK 不可用：" + (probe.error || probe.reason), 6000);
-            } else {
-              const override = {
-                apiKey: s.piApiKey || undefined,
-                provider: s.piAuthProvider || undefined,
-                baseUrl: s.piApiBaseUrl || undefined,
-                model: s.piApiModel || undefined,
-              };
-              const { probePiSdkAuth } = await import("./runtime/providers/pi-sdk/piSdkProvider");
-              const authProbe = probePiSdkAuth(probe, override);
-              if (authProbe.hasAuth && authProbe.hasModel) {
-                new Notice("Pi SDK 连接测试通过：auth + model 已配置。", 5000);
-              } else {
-                new Notice("Pi SDK 认证/模型未配置：" + authProbe.hint, 8000);
-              }
-            }
-          } catch (e) {
-            new Notice("Pi SDK Test connection 失败：" + (e instanceof Error ? e.message : String(e)), 6000);
-          } finally {
-            b.setButtonText("Test connection");
-            b.setDisabled(false);
-          }
         });
       });
 

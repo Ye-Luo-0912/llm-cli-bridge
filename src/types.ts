@@ -284,18 +284,6 @@ export interface LLMBridgeSettings {
   piToolMode: PiToolMode;
   // V17-C: Pi native tools 首次确认状态（portable + pi-native 启动前需确认一次）
   piNativeTrustConfirmed: boolean;
-  // V17-D 任务 F: Pi SDK runtime auth override（不写 ~/.pi/agent，仅运行时注入）
-  // 优先级：settings.piApiKey > ~/.pi/agent/auth.json > ~/.claude/settings.json env
-  piAuthProvider: string; // 默认 "anthropic"
-  piApiModel: string; // 显式指定 model id（覆盖 SDK 默认选择）
-  piApiKey: string; // runtime API key（不持久化到磁盘全局配置）
-  piApiBaseUrl: string; // 自定义 base URL（可选，如 https://us.pinai-cn.com）
-  // RuntimeProfileResolver: Codex 主 runtime 的 OpenAI-compatible 本地中转认证
-  // Vault 内 .llm-bridge/runtime-profile.json 保存 relayUrl/model（可同步）；apiKey 仅存内存或用户指定便携目录
-  localRelayUrl: string; // 中转站地址（如 https://api.example.com）
-  localRelayModel: string; // 旧版兼容字段；新版本统一使用 model
-  localRelayApiKey: string; // 中转站 API Key（仅当前进程内存；不写入 data.json）
-  localRelayPortableKeyPath: string; // 便携目录路径（非空时从该目录读 key，实现多 Vault 共用）
   customCommand: string;
   customArgs: string;
   includeActiveNote: boolean;
@@ -351,16 +339,6 @@ export const DEFAULT_SETTINGS: LLMBridgeSettings = {
   piToolMode: "pi-native",
   // V17-C: Pi native tools 首次确认状态（默认未确认）
   piNativeTrustConfirmed: false,
-  // V17-D 任务 F: Pi SDK runtime auth override 默认值（空 = 未配置，fallback 到 ~/.pi/agent）
-  piAuthProvider: "anthropic",
-  piApiModel: "",
-  piApiKey: "",
-  piApiBaseUrl: "",
-  // RuntimeProfileResolver 默认值（空 = 未配置，自动回退到原生认证）
-  localRelayUrl: "",
-  localRelayModel: "",
-  localRelayApiKey: "",
-  localRelayPortableKeyPath: "",
   customCommand: "",
   customArgs: "",
   includeActiveNote: false,

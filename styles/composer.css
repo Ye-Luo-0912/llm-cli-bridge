@@ -39,10 +39,32 @@
   z-index: 5000;
 }
 
+/*
+ * Composer 内部层级：Note / 输入文字必须低于工具行，
+ * 否则向上弹出的选择框会被「Note · …」「输入消息…」盖住。
+ */
+.llm-bridge-composer-context,
+.llm-bridge-composer-runtime-capabilities,
+.llm-bridge-input-surface {
+  position: relative;
+  z-index: 0;
+}
+
+.llm-bridge-composer-toolbar {
+  position: relative;
+  z-index: 20;
+}
+
+/* @ 提及菜单挂在 input-surface 内，打开时临时抬高 */
+.llm-bridge-composer:has(.llm-bridge-mention-picker.is-open) .llm-bridge-input-surface {
+  z-index: 30;
+}
+
 .llm-bridge-composer-context {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
   min-height: 0;
 }
@@ -66,12 +88,13 @@
 }
 
 .llm-bridge-context-strip.is-tooltip-only {
-  width: 10px;
-  height: 10px;
-  opacity: 0.45;
+  width: auto;
+  height: auto;
+  opacity: 1;
 }
 
-.llm-bridge-context-strip.is-tooltip-only .llm-bridge-context-label {
+.llm-bridge-context-strip.is-tooltip-only .llm-bridge-context-label,
+.llm-bridge-context-strip.is-tooltip-only .llm-bridge-context-detail {
   display: none;
 }
 
@@ -295,8 +318,6 @@
   gap: 8px;
   min-height: 32px;
   overflow: visible;
-  position: relative;
-  z-index: 2;
 }
 
 .llm-bridge-composer-tools-left,
@@ -402,7 +423,7 @@
 
 /* 窄屏下权限按钮保持完整显示（旧规则会隐藏标签文字，已移除） */
 
-/* 权限弹层：三项列表（样式权威来源；legacy 中重复规则已收敛） */
+/* 权限弹层：平面简洁；图标与标题首行对齐 */
 .llm-bridge-perm-popover.llm-bridge-menu-surface,
 .llm-bridge-perm-popover {
   position: absolute !important;
@@ -410,18 +431,18 @@
   bottom: calc(100% + 8px) !important;
   z-index: 50;
   box-sizing: border-box !important;
-  width: min(348px, calc(100vw - 28px)) !important;
-  max-width: min(348px, calc(100vw - 28px)) !important;
+  width: min(340px, calc(100vw - 28px)) !important;
+  max-width: min(340px, calc(100vw - 28px)) !important;
   min-width: 0 !important;
-  padding: 12px 10px 10px !important;
+  padding: 10px 8px 8px !important;
   display: flex !important;
   flex-direction: column !important;
   gap: 6px !important;
   overflow: hidden !important;
   border: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent) !important;
-  border-radius: 16px !important;
+  border-radius: 12px !important;
   background: var(--background-primary) !important;
-  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.16) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1) !important;
   isolation: isolate !important;
   pointer-events: auto !important;
 }
@@ -433,16 +454,15 @@
 .llm-bridge-perm-popover-head {
   box-sizing: border-box !important;
   display: flex !important;
-  align-items: baseline !important;
-  justify-content: flex-start !important;
-  gap: 8px !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 12px !important;
   min-width: 0 !important;
   max-width: 100% !important;
   margin: 0 !important;
-  padding: 2px 8px 8px !important;
+  padding: 2px 8px 6px !important;
   overflow: hidden !important;
   border: 0 !important;
-  border-bottom: none !important;
 }
 
 .llm-bridge-perm-popover-question {
@@ -450,15 +470,31 @@
   min-width: 0;
   color: var(--text-muted);
   font-size: 12px;
-  font-weight: 500;
-  line-height: 1.35;
+  font-weight: 450;
+  line-height: 1.4;
+}
+
+.llm-bridge-perm-popover-more {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 12px;
+  font-weight: 450;
+  line-height: 1.4;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.llm-bridge-perm-popover-more:hover {
+  color: var(--text-muted);
 }
 
 .llm-bridge-perm-popover-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   min-width: 0;
+  padding: 0;
 }
 
 .llm-bridge-perm-option {
@@ -469,14 +505,15 @@
   min-width: 0 !important;
   min-height: 0 !important;
   margin: 0 !important;
-  padding: 10px 10px !important;
+  padding: 8px 10px !important;
   display: grid !important;
-  grid-template-columns: 28px minmax(0, 1fr) 18px !important;
+  grid-template-columns: 18px minmax(0, 1fr) 16px !important;
   align-items: start !important;
-  gap: 10px !important;
+  column-gap: 10px !important;
+  row-gap: 0 !important;
   overflow: hidden !important;
   border: 0 !important;
-  border-radius: 12px !important;
+  border-radius: 8px !important;
   background: transparent !important;
   box-shadow: none !important;
   color: var(--text-normal) !important;
@@ -488,29 +525,46 @@
   margin-top: 0 !important;
 }
 
-.llm-bridge-perm-option:hover {
-  background: color-mix(in srgb, var(--background-modifier-hover) 72%, transparent) !important;
+.llm-bridge-perm-option:hover,
+.llm-bridge-perm-option.is-active:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 55%, transparent) !important;
 }
 
 .llm-bridge-perm-option.is-active {
-  background: color-mix(in srgb, var(--background-modifier-hover) 88%, transparent) !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
 }
 
 .llm-bridge-perm-option-icon {
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 28px !important;
-  height: 28px !important;
-  margin-top: 0 !important;
-  border-radius: 8px !important;
+  width: 18px !important;
+  height: 18px !important;
+  margin: 1px 0 0 !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
   background: transparent !important;
+  background-color: transparent !important;
   color: var(--text-muted) !important;
+  line-height: 1 !important;
+  box-shadow: none !important;
 }
 
 .llm-bridge-perm-option-icon svg {
-  width: 18px;
-  height: 18px;
+  display: block;
+  width: 16px;
+  height: 16px;
+  stroke-width: 1.75;
+}
+
+.llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--text-muted) !important;
+  box-shadow: none !important;
 }
 
 .llm-bridge-perm-option-text {
@@ -519,16 +573,17 @@
   min-width: 0 !important;
   max-width: 100% !important;
   overflow: hidden !important;
-  padding-top: 2px !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 
 .llm-bridge-perm-option-title {
   display: block !important;
   min-width: 0 !important;
   color: var(--text-normal) !important;
-  font-size: 13px !important;
+  font-size: 13.5px !important;
   font-weight: 600 !important;
-  line-height: 1.3 !important;
+  line-height: 18px !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
@@ -552,36 +607,35 @@
   display: inline-flex !important;
   align-items: center !important;
   justify-content: center !important;
-  width: 18px !important;
+  width: 16px !important;
   height: 18px !important;
-  margin-top: 4px !important;
+  margin: 0 !important;
+  padding: 0 !important;
   justify-self: end !important;
+  align-self: start !important;
   visibility: hidden !important;
+  opacity: 0 !important;
   color: var(--text-normal) !important;
-  opacity: 0.85 !important;
+  line-height: 1 !important;
 }
 
 .llm-bridge-perm-option-check svg {
-  width: 16px;
-  height: 16px;
+  display: block;
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.5;
 }
 
 .llm-bridge-perm-option.is-active .llm-bridge-perm-option-check {
-  visibility: visible;
-}
-
-/* 三项审批画像：安静列表，不用五色大色块 */
-.llm-bridge-perm-option-icon {
-  color: var(--text-muted) !important;
-  background: transparent !important;
-}
-
-.llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon {
+  visibility: visible !important;
+  opacity: 1 !important;
   color: var(--text-normal) !important;
 }
 
-.llm-bridge-perm-option.is-active .llm-bridge-perm-option-check {
-  color: var(--interactive-accent);
+.llm-bridge-perm-option.is-active .llm-bridge-perm-option-icon {
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--text-muted) !important;
 }
 
 .llm-bridge-permission-chip.is-ask,
@@ -593,18 +647,34 @@
   color: var(--text-warning, #d97706);
 }
 
-.llm-bridge-model-effort-picker .llm-bridge-effort-chip-inline {
-  display: none;
-}
 
+/* Fig.1: 合并 chip — 「5.6 Sol 极高」 */
 .llm-bridge-model-effort-chip.llm-bridge-model-chip-merged {
-  max-width: 160px;
-  padding: 0 8px;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 200px;
+  height: 28px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--background-modifier-hover) 55%, var(--background-primary));
   color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  box-shadow: none;
+  cursor: pointer;
+}
+
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-merged:hover:not(:disabled),
+.llm-bridge-model-effort-chip.llm-bridge-model-chip-merged[aria-expanded="true"] {
+  border-color: transparent;
+  color: var(--text-normal);
+  background: color-mix(in srgb, var(--background-modifier-hover) 78%, var(--background-primary));
 }
 
 @media (max-width: 760px) {
@@ -632,42 +702,6 @@
   outline: 1px dashed var(--interactive-accent);
   outline-offset: -5px;
   background: var(--background-secondary);
-}
-
-.llm-bridge-composer-file-chip {
-  display: grid;
-  align-items: center;
-  justify-content: flex-start;
-  position: relative;
-  width: auto;
-  height: auto;
-  padding: 3px 4px;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--background-secondary) 28%, transparent);
-  color: var(--text-normal);
-  cursor: pointer;
-  overflow: hidden;
-  max-width: 132px;
-  min-height: 30px;
-  gap: 5px;
-  border-color: color-mix(in srgb, var(--text-muted) 10%, transparent);
-  grid-template-columns: 22px minmax(0, 1fr) 16px 16px;
-  box-shadow: none;
-  min-width: 0;
-}
-
-.llm-bridge-composer-file-chip:hover {
-  border-color: color-mix(in srgb, var(--text-muted) 18%, transparent);
-  background: color-mix(in srgb, var(--background-secondary) 45%, transparent);
-}
-
-.llm-bridge-composer-file-chip.is-attachment {
-  border-color: rgba(var(--color-green-rgb), 0.35);
-}
-
-.llm-bridge-composer-file-chip.is-external {
-  border-color: rgba(var(--color-orange-rgb), 0.35);
 }
 
 .llm-bridge-composer-file-thumb {
@@ -742,10 +776,6 @@
   transform: translateY(-50%);
 }
 
-.llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-remove {
-  opacity: 1;
-}
-
 .llm-bridge-composer-file-remove:hover {
   color: var(--text-error);
   border-color: rgba(var(--color-red-rgb), 0.35);
@@ -805,25 +835,25 @@
 }
 
 .llm-bridge-context-strip {
+  position: relative;
   flex: 0 0 auto;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  gap: 0;
   padding: 0;
+  margin: 0 0 0 auto;
+  border: 0;
   border-top: 0;
   background: transparent;
-  cursor: pointer;
+  cursor: default;
   user-select: none;
   font-size: var(--font-smallest);
   color: var(--text-faint);
-  align-self: flex-end;
-  width: fit-content;
-  max-width: calc(100% - 48px);
-  margin: 0 24px -3px auto;
-  margin-right: 0;
-  opacity: 0.78;
-  margin-left: auto;
-  border: 0;
+  align-self: center;
+  width: auto;
+  max-width: none;
+  opacity: 1;
 }
 
 .llm-bridge-context-strip:hover {
@@ -832,20 +862,89 @@
   opacity: 1;
 }
 
+/* Fig.2：无方底按钮，仅粗空心占用环 */
 .llm-bridge-context-ring {
+  box-sizing: border-box;
   flex: 0 0 auto;
-  width: 9px;
-  height: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 1;
+  color: inherit;
+}
+
+.llm-bridge-context-ring::before {
+  content: "";
+  width: 14px;
+  height: 14px;
   border-radius: 50%;
-  background: var(--background-modifier-border);
-  border: 1.5px solid var(--background-primary);
-  box-shadow: 0 0 0 1px var(--background-modifier-border);
-  border-width: 1px;
-  opacity: 0.74;
+  background: conic-gradient(
+    var(--llm-bridge-context-ring-fg, color-mix(in srgb, var(--text-normal) 78%, transparent))
+      calc(var(--llm-bridge-context-ring-pct, 0) * 1%),
+    var(--llm-bridge-context-ring-track, var(--background-modifier-border)) 0
+  );
+  /* 粗环：约半径的 22–25% */
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3.2px), #000 calc(100% - 2.6px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3.2px), #000 calc(100% - 2.6px));
+}
+
+.llm-bridge-context-strip:hover .llm-bridge-context-ring {
+  background: transparent;
+}
+
+.llm-bridge-context-ring.is-unavailable {
+  opacity: 0.45;
 }
 
 .llm-bridge-context-ring.is-compressed {
-  box-shadow: 0 0 0 1px var(--background-modifier-border), 0 0 0 3px color-mix(in srgb, #f59e0b 40%, transparent);
+  box-shadow: none;
+  outline: 1px solid color-mix(in srgb, #f59e0b 45%, transparent);
+  outline-offset: 1px;
+  border-radius: 50%;
+}
+
+.llm-bridge-context-tip {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 40;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 148px;
+  padding: 10px 12px;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 10px;
+  background: var(--background-primary);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.llm-bridge-context-strip:hover .llm-bridge-context-tip:not([hidden]),
+.llm-bridge-context-strip:focus-within .llm-bridge-context-tip:not([hidden]) {
+  display: flex;
+}
+
+.llm-bridge-context-tip-pct {
+  color: var(--text-normal);
+  font-size: 12px;
+  font-weight: 560;
+  line-height: 1.3;
+}
+
+.llm-bridge-context-tip-tokens {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 450;
+  line-height: 1.3;
 }
 
 .llm-bridge-context-label {
@@ -1076,10 +1175,6 @@
   right: 2px;
 }
 
-.llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-pin {
-  opacity: 1;
-}
-
 .llm-bridge-composer-file-pin:hover {
   color: var(--interactive-accent);
   border-color: rgba(var(--interactive-accent-rgb), 0.45);
@@ -1099,107 +1194,218 @@
 }
 
 .llm-bridge-model-effort-chip:hover:not(:disabled) {
-  border-color: rgba(var(--interactive-accent-rgb), 0.45);
-  color: var(--interactive-accent);
+  /* chip hover owned by .llm-bridge-model-chip-merged */
 }
 
-.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline, .llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline {
-  max-width: 88px;
-  height: auto;
-  padding: 0 5px;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--font-smallest);
-  font-weight: 500;
-  line-height: 1.6;
-  cursor: pointer;
-  box-shadow: none;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  min-height: 29px;
-}
 
-.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline:hover:not(:disabled), .llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline:hover:not(:disabled) {
-  border: none;
-  background: transparent;
-  color: var(--interactive-accent);
-}
 
-.llm-bridge-model-effort-chip.llm-bridge-model-chip-inline[aria-expanded="true"], .llm-bridge-model-effort-chip.llm-bridge-effort-chip-inline[aria-expanded="true"] {
-  color: var(--interactive-accent);
-}
 
 .llm-bridge-model-effort-popover {
   position: absolute;
   right: 0;
   bottom: calc(100% + 8px);
   z-index: 50;
-  width: min(360px, calc(100vw - 32px));
-  display: grid;
-  grid-template-columns: minmax(130px, 1fr) minmax(110px, 0.8fr);
-  gap: 8px;
-  padding: 9px;
-  border: 1px solid var(--background-modifier-border);
+  width: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent);
   border-radius: 12px;
-  background: var(--background-secondary);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  background: var(--background-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
 }
 
 .llm-bridge-model-effort-popover[hidden] {
   display: none !important;
 }
 
-.llm-bridge-model-effort-popover-single {
-  width: min(220px, calc(100vw - 32px));
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
+
+/* 主列表紧贴内容高度，不随右侧 flyout 被拉高留白 */
+.llm-bridge-model-menu-nested {
+  display: flex !important;
+  flex-direction: row;
+  align-items: flex-start;
+  min-width: 0;
+  width: max-content;
+  max-width: min(520px, calc(100vw - 24px));
+  padding: 6px;
+  gap: 0;
+  background: var(--background-primary);
+  border-radius: 12px;
 }
 
-/* V20.2: 两级紧凑菜单 — 模型 chip 和 effort chip 各自独立 popover */
-.llm-bridge-model-popover-two-level,
-.llm-bridge-effort-popover-two-level {
-  width: min(240px, calc(100vw - 32px));
+.llm-bridge-model-menu-nested[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-model-menu-primary {
   display: flex;
   flex-direction: column;
+  gap: 0;
+  width: max-content;
+  min-width: 180px;
+  max-width: 220px;
+  padding: 2px 4px;
+  height: auto;
+  align-self: flex-start;
+}
+
+.llm-bridge-model-menu-row {
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 16px !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 8px 6px !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  outline: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-normal) !important;
+  font-size: 13.5px !important;
+  font-weight: 500 !important;
+  line-height: 1.3 !important;
+  text-align: left !important;
+  cursor: pointer !important;
+}
+
+.llm-bridge-model-menu-row:hover,
+.llm-bridge-model-menu-row:focus,
+.llm-bridge-model-menu-row:focus-visible,
+.llm-bridge-model-menu-row.is-active {
+  border: 0 !important;
+  outline: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-model-menu-row:hover .llm-bridge-model-menu-row-label,
+.llm-bridge-model-menu-row.is-active .llm-bridge-model-menu-row-label {
+  color: var(--text-normal);
+}
+
+.llm-bridge-model-menu-row.is-active .llm-bridge-model-menu-row-value,
+.llm-bridge-model-menu-row.is-active .llm-bridge-model-menu-row-chevron {
+  color: var(--text-normal);
+}
+
+.llm-bridge-model-menu-row-label {
+  flex: 0 0 auto;
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+.llm-bridge-model-menu-row-trailing {
+  display: inline-flex;
+  align-items: center;
   gap: 4px;
-  padding: 8px;
+  min-width: 0;
+  color: var(--text-muted);
+  font-weight: 450;
+}
+
+.llm-bridge-model-menu-row-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 110px;
+  color: var(--text-muted);
+  font-size: 13.5px;
+  font-weight: 450;
+}
+
+.llm-bridge-model-menu-row-chevron {
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.75;
+}
+
+.llm-bridge-model-menu-flyout {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  min-width: 168px;
+  max-width: 220px;
+  max-height: min(320px, 46vh);
+  margin-left: 2px;
+  padding: 0 0 0 8px;
+  border-left: 1px solid color-mix(in srgb, var(--background-modifier-border) 50%, transparent);
+  overflow: auto;
+  align-self: flex-start;
+}
+
+.llm-bridge-model-menu-flyout[hidden] {
+  display: none !important;
+}
+
+.llm-bridge-model-menu-flyout-title {
+  padding: 4px 8px 6px;
+  color: var(--text-faint);
+  font-size: 11.5px;
+  font-weight: 500;
 }
 
 .llm-bridge-model-options,
 .llm-bridge-effort-options {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  max-height: 240px;
-  overflow-y: auto;
+  gap: 0;
+  max-height: none;
+  overflow: visible;
 }
 
 .llm-bridge-model-option,
 .llm-bridge-effort-option {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 8px;
-  border-radius: 6px;
-  border: none;
-  background: transparent;
-  color: var(--text-normal);
-  cursor: pointer;
-  text-align: left;
+  appearance: none !important;
+  -webkit-appearance: none !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  gap: 8px !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 7px 8px !important;
+  border-radius: 6px !important;
+  border: 0 !important;
+  outline: none !important;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  color: var(--text-normal) !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  font-size: 13px !important;
+  min-height: 0 !important;
 }
 
 .llm-bridge-model-option:hover,
-.llm-bridge-effort-option:hover {
-  background: var(--background-modifier-hover);
+.llm-bridge-effort-option:hover,
+.llm-bridge-model-option.is-active:hover,
+.llm-bridge-effort-option.is-active:hover {
+  background: color-mix(in srgb, var(--background-modifier-hover) 45%, transparent) !important;
+  border: 0 !important;
+  outline: none !important;
+  color: var(--text-normal) !important;
+  box-shadow: none !important;
 }
 
 .llm-bridge-model-option.is-active,
 .llm-bridge-effort-option.is-active {
-  background: var(--background-modifier-active-hover);
-  color: var(--interactive-accent);
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  outline: none !important;
+  color: var(--text-normal) !important;
+  box-shadow: none !important;
 }
 
 .llm-bridge-model-option-label,
@@ -1209,23 +1415,31 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  line-height: 1.3;
 }
 
 .llm-bridge-option-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
-  margin-left: 8px;
-  color: var(--interactive-accent);
+  width: 14px;
+  height: 14px;
+  margin-left: 6px;
+  color: var(--text-normal);
   font-weight: 600;
+  font-size: 13px;
+  line-height: 1;
 }
 
 /* V20.3: 模型三分类 — 分组标题 / 待验证标签 / 不兼容原因 */
 .llm-bridge-model-section-header {
-  padding: 6px 8px 2px;
+  padding: 8px 10px 4px;
   font-size: 11px;
   font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--text-faint);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 .llm-bridge-model-section-header:first-child {
@@ -1233,7 +1447,7 @@
 }
 
 .llm-bridge-model-option.is-disabled {
-  opacity: 0.6;
+  opacity: 0.55;
   cursor: not-allowed;
   flex-wrap: wrap;
   align-items: center;
@@ -1276,36 +1490,9 @@
   word-break: break-word;
 }
 
-.llm-bridge-model-effort-section {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
 
-.llm-bridge-model-effort-section-title {
-  padding: 2px 4px;
-  color: var(--text-faint);
-  font-size: var(--font-smallest);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  border-bottom: 1px solid var(--background-modifier-border);
-  margin-bottom: 2px;
-}
 
-.llm-bridge-model-effort-column {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  min-width: 0;
-}
 
-.llm-bridge-model-effort-label {
-  padding: 0 4px 2px;
-  color: var(--text-faint);
-  font-size: var(--font-smallest);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-}
 
 .llm-bridge-mention-picker {
   position: absolute;
@@ -1477,18 +1664,6 @@
   gap: 10px;
   display: flex;
   align-items: center;
-}
-
-.llm-bridge-composer-context .llm-bridge-context-strip {
-  flex: 0 0 auto;
-  width: auto;
-  max-width: 34%;
-  margin: 0;
-  padding: 0;
-  gap: 4px;
-  align-self: center;
-  color: var(--text-faint);
-  justify-content: flex-end;
 }
 
 .llm-bridge-context-tag.is-empty {
@@ -1913,10 +2088,6 @@
   opacity: 1;
 }
 
-.llm-bridge-composer-file-chip.is-image .llm-bridge-composer-file-ext {
-  display: none;
-}
-
 .llm-bridge-composer-file-remove:hover, .llm-bridge-composer-file-pin:hover {
   background: color-mix(in srgb, var(--background-modifier-hover) 82%, transparent);
   color: var(--text-normal);
@@ -1967,29 +2138,6 @@
 .llm-bridge-perm-popover-head-icon svg {
   width: 14px;
   height: 14px;
-}
-
-.llm-bridge-perm-popover-head-text {
-  display: grid;
-  min-width: 0;
-  gap: 1px;
-}
-
-.llm-bridge-perm-popover-head-text strong {
-  color: var(--text-normal);
-  font-size: var(--font-smallest);
-  font-weight: 620;
-  line-height: 1.2;
-  letter-spacing: 0.02em;
-}
-
-.llm-bridge-perm-popover-head-text span {
-  overflow: hidden;
-  color: var(--text-faint);
-  font-size: 11px;
-  line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .llm-bridge-perm-popover-risk {
@@ -2085,28 +2233,7 @@
   opacity: 0.78;
 }
 
-.llm-bridge-composer-file-chip, .llm-bridge-composer-file-chip:not(.is-preview-only), .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
-  flex: 0 0 32px;
-  width: 32px;
-  min-width: 32px;
-  max-width: 32px;
-  height: 32px;
-  min-height: 32px;
-  max-height: 32px;
-  border-radius: 9px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  aspect-ratio: 1 / 1;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 8%, transparent);
-  background: color-mix(in srgb, var(--background-secondary) 34%, transparent);
-  position: relative;
-  box-shadow: none;
-}
-
-.llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
+.llm-bridge-composer-file-thumb {
   width: 100%;
   min-width: 100%;
   max-width: 100%;
@@ -2168,61 +2295,6 @@
   display: none;
 }
 
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
-  display: inline-flex;
-  width: 38px;
-  min-width: 38px;
-  max-width: 38px;
-  height: 38px;
-  min-height: 38px;
-  padding: 0;
-  overflow: visible;
-  border-radius: 11px;
-  flex: 0 0 38px;
-  max-height: 38px;
-  aspect-ratio: 1 / 1;
-}
-
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
-  width: 38px;
-  min-width: 38px;
-  height: 38px;
-  min-height: 38px;
-  border-radius: 10px;
-  max-width: 38px;
-  max-height: 38px;
-  aspect-ratio: 1 / 1;
-}
-
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-text {
-  display: none;
-}
-
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-pin {
-  position: absolute;
-  top: -6px;
-  width: 18px;
-  min-width: 18px;
-  height: 18px;
-  min-height: 18px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--background-primary) 94%, transparent);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  opacity: 0;
-}
-
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:hover .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:hover .llm-bridge-composer-file-pin, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:focus-within .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:focus-within .llm-bridge-composer-file-pin {
-  opacity: 1;
-}
-
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-remove {
-  right: -6px;
-}
-
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-pin {
-  left: -6px;
-}
-
 .llm-bridge-composer-file-pin svg {
   width: 11px;
   height: 11px;
@@ -2235,73 +2307,6 @@
   text-decoration: none !important;
 }
 
-.llm-bridge-composer-file-chip:not(.is-preview-only) {
-  grid-template-columns: 28px minmax(0, 1fr) 14px 14px;
-  max-width: 118px;
-  min-height: 32px;
-  padding: 3px 5px 3px 3px;
-}
-
-.llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb {
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  min-height: 28px;
-}
-
-.llm-bridge-composer-file-chip:hover, .llm-bridge-composer-file-chip:not(.is-preview-only):hover, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:hover {
-  border-color: color-mix(in srgb, var(--text-muted) 22%, transparent);
-  background: color-mix(in srgb, var(--background-secondary) 54%, var(--background-primary));
-}
-
-.llm-bridge-composer-file-chip.has-preview .llm-bridge-composer-file-thumb {
-  background-color: color-mix(in srgb, var(--background-secondary) 58%, var(--background-primary));
-  background-size: cover;
-  background-position: center;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 9%, transparent);
-}
-
-.llm-bridge-composer-file-doc-thumb {
-  display: grid;
-  align-content: center;
-  gap: 3px;
-  width: 100%;
-  height: 100%;
-  padding: 8px 7px;
-  border-radius: inherit;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--background-primary) 82%, var(--background-secondary)) 0%,
-    color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary)) 100%
-  );
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 10%, transparent);
-}
-
-.llm-bridge-composer-file-doc-line {
-  display: block;
-  width: 100%;
-  height: 2px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text-muted) 42%, transparent);
-}
-
-.llm-bridge-composer-file-doc-line:nth-child(2) {
-  width: 76%;
-}
-
-.llm-bridge-composer-file-doc-line:nth-child(3) {
-  width: 90%;
-}
-
-.llm-bridge-composer-file-doc-line:nth-child(4) {
-  width: 58%;
-}
-
-.llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-pin, .llm-bridge-composer-file-chip:focus-within .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip:focus-within .llm-bridge-composer-file-pin {
-  opacity: 1;
-  pointer-events: auto;
-}
-
 .llm-bridge-composer-status-rail.is-running .llm-bridge-composer-status-text, .llm-bridge-composer-status-rail.is-running .llm-bridge-composer-step-pill {
   color: color-mix(in srgb, var(--text-muted) 82%, transparent);
 }
@@ -2310,31 +2315,7 @@
   opacity: 1;
 }
 
-.llm-bridge-composer-file-chip, .llm-bridge-composer-file-chip:not(.is-preview-only), .llm-bridge-composer-file-chip.is-preview-only, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 28px;
-  width: 28px;
-  min-width: 28px;
-  max-width: 28px;
-  height: 28px;
-  min-height: 28px;
-  max-height: 28px;
-  padding: 0;
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--background-secondary) 52%, transparent);
-  box-shadow: none;
-  font-size: 0;
-  line-height: 0;
-  grid-template-columns: none;
-}
-
-.llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip .llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
+.llm-bridge-composer-file-thumb {
   display: block;
   align-items: center;
   justify-content: center;
@@ -2351,16 +2332,6 @@
   background-size: cover;
   overflow: hidden;
   background: color-mix(in srgb, var(--background-secondary) 48%, var(--background-primary));
-}
-
-.llm-bridge-composer-file-chip .llm-bridge-composer-file-text {
-  display: none !important;
-}
-
-.llm-bridge-composer-file-chip .llm-bridge-composer-file-doc-thumb, .llm-bridge-composer-file-chip .llm-bridge-composer-file-icon {
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
 }
 
 .llm-bridge-context-label, .llm-bridge-context-detail {
@@ -2473,10 +2444,6 @@
 .llm-bridge-command-menu-summary-icon, .llm-bridge-command-menu-summary-icon svg {
   width: 12px;
   height: 12px;
-}
-
-.llm-bridge-composer-file-chip .llm-bridge-composer-file-text, .llm-bridge-composer-file-chip .llm-bridge-composer-file-name, .llm-bridge-composer-file-chip .llm-bridge-composer-file-meta, .llm-bridge-composer-file-chip .llm-bridge-composer-file-ext {
-  display: none !important;
 }
 
 .llm-bridge-command-menu-plugins {
@@ -2720,7 +2687,7 @@
   color: var(--text-on-accent);
 }
 
-.llm-bridge-model-effort-chip:hover, .llm-bridge-model-effort-button:hover {
+.llm-bridge-model-effort-chip:hover {
   color: var(--text-normal) !important;
   background: transparent !important;
 }
@@ -2882,4 +2849,77 @@
 .llm-bridge-init-error-retry-btn:hover,
 .llm-bridge-init-error-diag-btn:hover {
   background: var(--background-modifier-active-hover);
+}
+
+/* ===== Send / Stop：可发送 vs 不可发送一眼可辨；运行中停止钮独立红色 ===== */
+.llm-bridge-action-col {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.llm-bridge-send-btn,
+.llm-bridge-stop-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  min-width: 32px;
+  height: 32px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background 0.12s ease, color 0.12s ease, opacity 0.12s ease;
+}
+
+.llm-bridge-send-btn {
+  background: var(--text-normal);
+  color: var(--background-primary);
+}
+
+.llm-bridge-send-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.llm-bridge-send-btn:disabled,
+.llm-bridge-send-btn.is-unsendable {
+  background: color-mix(in srgb, var(--background-modifier-border) 72%, var(--background-primary));
+  color: var(--text-faint);
+  opacity: 1;
+  cursor: not-allowed;
+  box-shadow: none;
+  filter: none;
+  transform: none;
+}
+
+.llm-bridge-send-btn svg,
+.llm-bridge-stop-btn svg {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2.25;
+}
+
+.llm-bridge-stop-btn {
+  background: color-mix(in srgb, var(--text-error, #e74c3c) 88%, #000);
+  color: #fff;
+}
+
+.llm-bridge-stop-btn:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+
+.llm-bridge-stop-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  background: currentColor;
+  font-size: 0;
+  line-height: 0;
+  color: inherit;
 }

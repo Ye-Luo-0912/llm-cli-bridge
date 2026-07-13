@@ -19,7 +19,7 @@ import { sumCodexEventDuration } from "./codexProcessFeed";
 // ---------- 分段模型 ----------
 
 /** cluster 类型：由首个成员决定，后续追加事件不能改变 key */
-type CodexClusterKind = "execution" | "image" | "tool";
+type CodexClusterKind = "execution" | "file" | "image" | "web" | "tool";
 
 type CodexFeedEntry =
   | { kind: "item"; key: string; item: CodexRunFeedItem }
@@ -66,11 +66,24 @@ export function isCodexImageFeedItem(item: CodexRunFeedItem): boolean {
   return /imageview|viewing image|viewed image|分析图片|查看图片/i.test(blob);
 }
 
+export function isCodexWebFeedItem(item: CodexRunFeedItem): boolean {
+  if (item.icon === "globe") return true;
+  const blob = `${item.label} ${item.summary || ""} ${item.step?.label || ""} ${item.step?.kind || ""}`;
+  return /websearch|web search|searched web|已搜索网页|联网/i.test(blob);
+}
+
 export function formatCodexImageGroupTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
   const loc = resolveUiLocale() === "en" ? "en" : "zh";
   const active = items.some((item) => item.status === "running" || item.status === "pending");
   if (loc === "zh") return active ? "正在分析图片" : items.length > 1 ? `已查看 ${items.length} 张图片` : "已查看图片";
   return active ? "Viewing image" : items.length > 1 ? `Viewed ${items.length} images` : "Viewed image";
+}
+
+export function formatCodexWebGroupTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
+  const loc = resolveUiLocale() === "en" ? "en" : "zh";
+  const active = items.some((item) => item.status === "running" || item.status === "pending");
+  if (loc === "zh") return active ? "正在搜索网页" : items.length > 1 ? `已搜索 ${items.length} 个网页` : "已搜索网页";
+  return active ? "Searching web" : items.length > 1 ? `Searched ${items.length} pages` : "Searched web";
 }
 
 // ---------- 边界与分类判定 ----------
@@ -88,7 +101,9 @@ function isStandaloneItem(item: CodexRunFeedItem): boolean {
 /** 判断 item 属于哪种 cluster 类型；非 cluster 成员返回 null */
 function classifyClusterMember(item: CodexRunFeedItem): CodexClusterKind | null {
   if (isCodexImageFeedItem(item)) return "image";
-  if (item.kind === "command" || item.kind === "file") return "execution";
+  if (isCodexWebFeedItem(item)) return "web";
+  if (item.kind === "command") return "execution";
+  if (item.kind === "file" || !!item.change) return "file";
   if (item.kind === "mcp" || item.kind === "dynamic") return "tool";
   return null;
 }
@@ -96,9 +111,9 @@ function classifyClusterMember(item: CodexRunFeedItem): CodexClusterKind | null 
 /**
  * 唯一分段函数：按时间线顺序分组。
  * - thinking/assistant/approval/user-input/status 作为边界，单独 item
- * - 连续的 execution 成员（command+file）组成一个 execution cluster
- * - 连续的 image 成员组成一个 image cluster
- * - 连续的 tool 成员（mcp+dynamic）组成一个 tool cluster
+ * - 连续的 command 成员组成 execution cluster
+ * - 连续的 file 成员组成 file cluster
+ * - 连续的 image / web / tool 成员各自成 cluster
  * - cluster 类型由首个成员决定，后续追加同类成员合入同一 cluster
  * - 不同类型成员相遇时开启新 cluster
  */
@@ -195,24 +210,67 @@ function computeEntrySignature(entry: CodexFeedEntry): string {
 // ---------- cluster 摘要与标题 ----------
 
 function formatExecutionClusterTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
-  const commandCount = items.filter((item) => item.kind === "command").length;
-  const fileCount = items.filter((item) => item.kind === "file" || !!item.change).length;
-  const parts: string[] = [];
-  if (commandCount) parts.push(`${commandCount} 条命令`);
-  if (fileCount) parts.push(`${fileCount} 个文件`);
-  return parts.length > 0 ? `已处理 ${parts.join(" · ")}` : `已处理 ${items.length} 个操作`;
+  // Always English: avoids garbled "已处理" under some vault encodings.
+  const count = items.length;
+  const active = items.some((item) => item.status === "running" || item.status === "pending");
+  if (active) return count > 1 ? `Running ${count} commands` : "Running command";
+  return count > 1 ? `Processed ${count} commands` : "Processed command";
+}
+
+function sumFileDiffSummary(items: ReadonlyArray<CodexRunFeedItem>): string {
+  let additions = 0;
+  let deletions = 0;
+  let matched = false;
+  for (const item of items) {
+    const summary = item.change?.diffSummary?.trim() || "";
+    const m = summary.match(/\+(\d+)\s+-(\d+)/);
+    if (!m) continue;
+    matched = true;
+    additions += Number(m[1]);
+    deletions += Number(m[2]);
+  }
+  return matched ? `+${additions} -${deletions}` : "";
+}
+
+function formatFileClusterTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
+  const loc = resolveUiLocale() === "en" ? "en" : "zh";
+  const count = items.length;
+  const active = items.some((item) => item.status === "running" || item.status === "pending");
+  const diff = sumFileDiffSummary(items);
+  let title: string;
+  if (loc === "zh") {
+    title = active
+      ? (count > 1 ? `正在编辑 ${count} 个文件` : "正在编辑文件")
+      : (count > 1 ? `编辑了 ${count} 个文件` : "编辑了文件");
+  } else {
+    title = active
+      ? (count > 1 ? `Editing ${count} files` : "Editing file")
+      : (count > 1 ? `Edited ${count} files` : "Edited files");
+  }
+  return diff ? `${title} · ${diff}` : title;
 }
 
 function formatToolClusterTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
+  const loc = resolveUiLocale() === "en" ? "en" : "zh";
   const labels = items.map((item) => item.label).filter(Boolean);
   if (labels.length === 1) return labels[0];
-  return `已使用 ${items.length} 个工具`;
+  return loc === "zh" ? `已使用 ${items.length} 个工具` : `Used ${items.length} tools`;
 }
 
 function formatClusterTitle(clusterKind: CodexClusterKind, items: ReadonlyArray<CodexRunFeedItem>): string {
   if (clusterKind === "image") return formatCodexImageGroupTitle(items);
+  if (clusterKind === "web") return formatCodexWebGroupTitle(items);
+  if (clusterKind === "file") return formatFileClusterTitle(items);
   if (clusterKind === "tool") return formatToolClusterTitle(items);
   return formatExecutionClusterTitle(items);
+}
+
+function clusterGroupIcon(clusterKind: CodexClusterKind): string {
+  if (clusterKind === "image") return "image";
+  if (clusterKind === "web") return "globe";
+  if (clusterKind === "file") return "pencil";
+  if (clusterKind === "tool") return "wrench";
+  return "terminal";
 }
 
 function clusterGroupStatus(items: ReadonlyArray<CodexRunFeedItem>): "running" | "failed" | "completed" {
@@ -233,6 +291,69 @@ function formatCodexFeedSummary(item: CodexRunFeedItem, developerMode: boolean):
       .join(" · ");
   }
   return summary.replace(/[A-Za-z]:\\[^\s·]+/g, (match) => path.basename(match));
+}
+
+/** 折叠态命令标题：单行简介，避免 "Run command" + summary 双行重复 */
+function formatShellCommandPreview(command?: string): string {
+  if (!command?.trim()) return "";
+  let preview = command.replace(/\s+/g, " ").trim();
+  const isWrappedShell = /^(?:"[^"]*(?:powershell|pwsh)(?:\.exe)?"|(?:powershell|pwsh)(?:\.exe)?)(?:\s|$)/i.test(preview);
+  if (isWrappedShell) {
+    const commandArgMatch = preview.match(/\s-(?:Command|c)\s+([\s\S]+)$/i);
+    if (commandArgMatch?.[1]) preview = commandArgMatch[1].trim();
+  }
+  if ((preview.startsWith("'") && preview.endsWith("'")) || (preview.startsWith("\"") && preview.endsWith("\""))) {
+    preview = preview.slice(1, -1).trim();
+  }
+  return preview.replace(/[A-Za-z]:\\[^\s·]+/g, (match) => path.basename(match)).trim();
+}
+
+function formatCommandRowTitle(item: CodexRunFeedItem): string {
+  const loc = resolveUiLocale() === "en" ? "en" : "zh";
+  const active = item.status === "running" || item.status === "pending";
+  const preview = formatShellCommandPreview(item.step?.command);
+  const short = preview ? truncateText(preview, 72) : "";
+  if (short) {
+    if (loc === "zh") return active ? `正在运行 ${short}` : `已运行 ${short}`;
+    return active ? `Running ${short}` : `Ran ${short}`;
+  }
+  if (loc === "zh") return active ? "正在运行命令" : "已运行命令";
+  return active ? "Running command" : "Ran command";
+}
+
+function formatCodexFeedItemLabel(item: CodexRunFeedItem): string {
+  const loc = resolveUiLocale() === "en" ? "en" : "zh";
+  if (item.kind === "command") return formatCommandRowTitle(item);
+  if (item.change) {
+    if (loc === "zh") {
+      if (item.change.action === "create") return "已创建";
+      if (item.change.action === "delete") return "已删除";
+      return "已编辑";
+    }
+    if (item.change.action === "create") return "Created";
+    if (item.change.action === "delete") return "Deleted";
+    return "Edited";
+  }
+  if (isCodexWebFeedItem(item)) {
+    return loc === "zh" ? "已搜索网页" : "Searched web";
+  }
+  if (isCodexImageFeedItem(item)) {
+    const active = item.status === "running" || item.status === "pending";
+    if (loc === "zh") return active ? "正在分析图片" : "已查看图片";
+    return active ? "Viewing image" : "Viewed image";
+  }
+  return item.label;
+}
+
+function feedItemHasExpandableDetail(item: CodexRunFeedItem): boolean {
+  if (item.kind === "command" && item.step) {
+    return !!(item.step.command || item.step.stdout || item.step.stderr);
+  }
+  if (item.change?.diff) return true;
+  if ((item.kind === "mcp" || item.kind === "dynamic") && item.step) {
+    return !!(item.step.stdout || item.step.stderr || item.step.args || item.step.command);
+  }
+  return false;
 }
 
 function shouldRenderExpandedThinkingLine(item: CodexRunFeedItem, developerMode: boolean): boolean {
@@ -310,8 +431,9 @@ function renderCodexFeedNarrative(
 }
 
 /**
- * 渲染单个 feed item 作为扁平成员行（cluster body 内）或独立行。
- * 不再使用 nestedEvent 分支；成员行全部扁平，不嵌套 <details>。
+ * 渲染单个 feed item：
+ * - thinking/assistant：安静过程行
+ * - 命令/文件/工具：可点击展开的 details（折叠态单行简介，展开后看 shell/diff）
  */
 export function renderCodexFeedItem(
   parent: HTMLElement,
@@ -327,28 +449,43 @@ export function renderCodexFeedItem(
     renderCodexFeedNarrative(parent, item, deps);
     return;
   }
+
+  const expandable = feedItemHasExpandableDetail(item);
   const changeCls = item.change ? ` llm-bridge-codex-change-row is-${item.change.action}` : "";
-  const row = parent.createDiv({
-    cls: `llm-bridge-codex-feed-item llm-bridge-codex-step-row is-${item.kind} is-${item.status}${changeCls}`,
-  });
+  const row = expandable
+    ? parent.createEl("details", {
+      cls: `llm-bridge-codex-feed-item llm-bridge-codex-event-block llm-bridge-codex-step-row is-${item.kind} is-${item.status}${changeCls}`,
+    })
+    : parent.createDiv({
+      cls: `llm-bridge-codex-feed-item llm-bridge-codex-step-row is-${item.kind} is-${item.status}${changeCls}`,
+    });
   row.setAttribute("data-step-kind", item.kind);
   if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
 
-  const icon = row.createEl("span", { cls: "llm-bridge-codex-feed-icon llm-bridge-codex-step-icon" });
+  const summaryHost = expandable
+    ? row.createEl("summary", { cls: "llm-bridge-codex-event-summary llm-bridge-codex-feed-summary-row" })
+    : row;
+
+  const icon = summaryHost.createEl("span", { cls: "llm-bridge-codex-feed-icon llm-bridge-codex-step-icon" });
   setIcon(icon, item.icon);
 
-  const main = row.createDiv({ cls: "llm-bridge-codex-feed-main" });
+  const main = summaryHost.createDiv({ cls: "llm-bridge-codex-feed-main" });
   const title = main.createDiv({ cls: "llm-bridge-codex-feed-title" });
-  title.createEl("span", { cls: "llm-bridge-codex-feed-label llm-bridge-codex-step-label", text: item.label, attr: { title: item.label } });
+  const displayLabel = formatCodexFeedItemLabel(item);
+  title.createEl("span", {
+    cls: "llm-bridge-codex-feed-label llm-bridge-codex-step-label",
+    text: displayLabel,
+    attr: { title: displayLabel },
+  });
   if (item.change) {
     title.createEl("span", {
       cls: `llm-bridge-codex-change-approval is-${item.change.approvalStatus ?? "resolved"}`,
       text: item.change.approvalStatus ?? "changed",
     });
-    // 文件路径渲染为可点击链接：左键 Obsidian 打开，右键复制路径/系统打开
-    const pathLink = main.createEl("a", {
+    const pathRow = main.createDiv({ cls: "llm-bridge-codex-change-path-row" });
+    const pathLink = pathRow.createEl("a", {
       cls: `llm-bridge-codex-change-path is-${item.change.action}`,
-      text: item.change.relativePath,
+      text: item.change.fileName || item.change.relativePath,
       attr: { title: item.change.fullPath, href: "#" },
     });
     if (item.change.action === "delete") {
@@ -357,7 +494,14 @@ export function renderCodexFeedItem(
     } else {
       attachFilePathLinkHandlers(pathLink, item.change, deps);
     }
-  } else if (item.summary) {
+    if (item.change.diffSummary) {
+      pathRow.createEl("span", {
+        cls: "llm-bridge-codex-change-diff-summary",
+        text: item.change.diffSummary,
+      });
+    }
+  } else if (!expandable && item.summary) {
+    // 不可展开行仍可显示摘要；命令折叠态只用单行标题，避免与 summary 重复
     const feedSummary = formatCodexFeedSummary(item, developerMode);
     if (feedSummary) {
       const summaryText = item.kind === "assistant" ? truncateText(feedSummary, 420) : truncateText(feedSummary, 180);
@@ -365,19 +509,40 @@ export function renderCodexFeedItem(
     }
   }
 
-  const meta = row.createDiv({ cls: "llm-bridge-codex-feed-meta" });
+  const meta = summaryHost.createDiv({ cls: "llm-bridge-codex-feed-meta" });
   meta.createEl("span", { cls: `llm-bridge-codex-step-status is-${item.status}`, text: item.status });
   if (item.durationMs) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: deps.formatDurationMs(item.durationMs) });
-  if (item.step?.exitCode !== undefined) meta.createEl("span", { cls: "llm-bridge-codex-step-exit", text: `exit ${item.step.exitCode}` });
-  if (item.change) meta.createEl("span", { cls: "llm-bridge-codex-change-diff-summary", text: item.change.diffSummary });
-
-  // raw stdout / 完整 diff 只在开发者模式或失败场景展示
-  const showFullOutput = developerMode || item.status === "failed";
-  if (item.change && item.change.diff && showFullOutput) {
-    deps.renderCodexDiffPreview(row, item.change.diff, item.change.diffSummary);
+  if (item.step?.exitCode !== undefined && developerMode) {
+    meta.createEl("span", { cls: "llm-bridge-codex-step-exit", text: `exit ${item.step.exitCode}` });
   }
-  if (item.step && showFullOutput) {
-    deps.renderCodexStepPayload(row, item.step, developerMode);
+  if (expandable) {
+    summaryHost.createEl("span", { cls: "llm-bridge-codex-tool-group-chevron llm-bridge-codex-feed-row-chevron", text: "›" });
+  }
+
+  if (expandable) {
+    const body = row.createDiv({ cls: "llm-bridge-codex-event-body" });
+    if (item.change?.diff) {
+      deps.renderCodexDiffPreview(body, item.change.diff, item.change.diffSummary);
+    }
+    if (item.step) {
+      deps.renderCodexStepPayload(body, item.step, developerMode, {
+        inlineShellPanel: item.kind === "command",
+      });
+    }
+    // 展开箭头随 open 状态旋转
+    row.addEventListener("toggle", () => {
+      const chevron = row.querySelector<HTMLElement>(".llm-bridge-codex-feed-row-chevron");
+      if (chevron) chevron.classList.toggle("is-expanded", (row as HTMLDetailsElement).open);
+    });
+  } else {
+    // 无展开内容：开发者模式仍可挂原始 payload
+    const showFullOutput = developerMode || item.status === "failed";
+    if (item.change && item.change.diff && showFullOutput) {
+      deps.renderCodexDiffPreview(row, item.change.diff, item.change.diffSummary);
+    }
+    if (item.step && showFullOutput) {
+      deps.renderCodexStepPayload(row, item.step, developerMode);
+    }
   }
 
   deps.renderCodexSourceRef(row, item.sourceRef, developerMode);
@@ -555,8 +720,18 @@ function patchClusterBody(
       const outputGrew = Math.abs((Number(prevParts[4]) || 0) - stdoutLen) > 0
         || Math.abs((Number(prevParts[5]) || 0) - stderrLen) > 0;
       if (statusChanged || outputGrew) {
+        const openDetails = node.querySelector<HTMLDetailsElement>("details.llm-bridge-codex-feed-item");
+        const wasOpen = !!openDetails?.open;
         node.empty();
         deps.renderCodexFeedItem(node, item, developerMode);
+        if (wasOpen) {
+          const next = node.querySelector<HTMLDetailsElement>("details.llm-bridge-codex-feed-item");
+          if (next) {
+            next.open = true;
+            const chevron = next.querySelector<HTMLElement>(".llm-bridge-codex-feed-row-chevron");
+            if (chevron) chevron.classList.add("is-expanded");
+          }
+        }
       } else {
         // 仅 summary/duration 变化：局部更新文字与 meta，不重建
         updateMemberTextInPlace(node, item, developerMode, deps);
@@ -584,7 +759,15 @@ function updateMemberTextInPlace(
   developerMode: boolean,
   deps: CodexWaterfallPatchDeps,
 ): void {
-  // 更新 summary 文字
+  const labelEl = node.querySelector<HTMLElement>(".llm-bridge-codex-feed-label");
+  if (labelEl) {
+    const displayLabel = formatCodexFeedItemLabel(item);
+    if (labelEl.textContent !== displayLabel) {
+      labelEl.textContent = displayLabel;
+      labelEl.setAttribute("title", displayLabel);
+    }
+  }
+  // 更新 summary 文字（非命令展开行才有）
   const summaryEl = node.querySelector<HTMLElement>(".llm-bridge-codex-feed-summary");
   if (summaryEl) {
     const feedSummary = formatCodexFeedSummary(item, developerMode);
@@ -595,24 +778,28 @@ function updateMemberTextInPlace(
     }
   }
   // 更新 duration
-  const durationEl = node.querySelector<HTMLElement>(".llm-bridge-codex-step-duration");
+  const meta = node.querySelector<HTMLElement>(".llm-bridge-codex-feed-meta");
+  let durationEl = node.querySelector<HTMLElement>(".llm-bridge-codex-step-duration");
   const durationText = item.durationMs ? deps.formatDurationMs(item.durationMs) : "";
   if (durationText) {
-    if (!durationEl) {
-      const meta = node.querySelector<HTMLElement>(".llm-bridge-codex-feed-meta");
-      if (meta) meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: durationText });
-    } else if (durationEl.textContent !== durationText) {
+    if (!durationEl && meta) {
+      durationEl = meta.createEl("span", { cls: "llm-bridge-codex-step-duration", text: durationText });
+    } else if (durationEl && durationEl.textContent !== durationText) {
       durationEl.textContent = durationText;
     }
   } else if (durationEl) {
     durationEl.remove();
   }
-  // 更新 status 文字
   const statusEl = node.querySelector<HTMLElement>(".llm-bridge-codex-step-status");
   if (statusEl) {
     statusEl.className = `llm-bridge-codex-step-status is-${item.status}`;
     if (statusEl.textContent !== item.status) statusEl.textContent = item.status;
   }
+  const feedItem = node.querySelector<HTMLElement>(".llm-bridge-codex-feed-item") || node;
+  feedItem.classList.toggle("is-running", item.status === "running");
+  feedItem.classList.toggle("is-failed", item.status === "failed");
+  feedItem.classList.toggle("is-completed", item.status === "completed");
+  feedItem.classList.toggle("is-pending", item.status === "pending");
 }
 
 function isScrolledToBottom(el: HTMLElement): boolean {
@@ -649,7 +836,7 @@ export function patchCodexFeedEntryCluster(
     group = entry.createEl("details", { cls: `llm-bridge-codex-tool-group is-${groupStatus}` });
     const summary = group.createEl("summary", { cls: "llm-bridge-codex-tool-group-summary" });
     const icon = summary.createEl("span", { cls: "llm-bridge-codex-tool-group-icon" });
-    setIcon(icon, clusterKind === "image" ? "image" : clusterKind === "tool" ? "wrench" : "terminal");
+    setIcon(icon, clusterGroupIcon(clusterKind));
     const main = summary.createDiv({ cls: "llm-bridge-codex-tool-group-main" });
     main.createEl("span", { cls: "llm-bridge-codex-tool-group-title", text: "" });
     // 状态指示器：运行中"正在思考"+光效，完成"· {duration}"，失败"· 失败"
@@ -673,6 +860,9 @@ export function patchCodexFeedEntryCluster(
         }
       }
     });
+  } else {
+    const icon = group.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-icon");
+    if (icon) setIcon(icon, clusterGroupIcon(clusterKind));
   }
   group.className = `llm-bridge-codex-tool-group is-${groupStatus}`;
   if (wasOpen) group.open = true;
@@ -698,7 +888,7 @@ export function patchCodexFeedEntryCluster(
       statusText = "· 失败";
       statusCls = "llm-bridge-codex-tool-group-status is-failed";
     } else {
-      statusText = totalDuration ? `· ${deps.formatDurationMs(totalDuration)}` : "· 已处理";
+      statusText = totalDuration ? `· ${deps.formatDurationMs(totalDuration)}` : "· done";
       statusCls = "llm-bridge-codex-tool-group-status is-done";
     }
     if (statusIndicator.className !== statusCls) statusIndicator.className = statusCls;
@@ -849,6 +1039,7 @@ function patchChangedFeedEntries(
  * 独立最终回答区：在 process 之后的兄弟节点中渲染最终回答。
  * 过程区只保留中间说明和工具调用；最终回答由独立节点持有。
  * 流式期间更新纯文本，完成后原地升级 Markdown 一次。
+ * finalAnswer 清空（例如过程说明被工具调用降级）时必须移除旧节点，避免与 feed 过程文本重复。
  */
 export function upgradeCodexCandidateAnswerInFeed(
   body: HTMLElement,
@@ -857,8 +1048,11 @@ export function upgradeCodexCandidateAnswerInFeed(
   deps: Pick<CodexWaterfallPatchDeps, "renderMarkdownInto">,
 ): void {
   const normalized = text.trim();
-  if (!normalized) return;
   body.querySelectorAll(".llm-bridge-codex-final-answer").forEach((el) => el.remove());
+  if (!normalized) {
+    body.querySelectorAll(".llm-bridge-codex-final-answer-section").forEach((el) => el.remove());
+    return;
+  }
 
   let answerSection = body.querySelector<HTMLElement>(".llm-bridge-codex-final-answer-section");
   if (!answerSection) {
@@ -910,8 +1104,6 @@ export function reconcileCodexRunWaterfall(
       patchCodexFeedStable(feedList, items, options.developerMode, deps);
     }
   }
-  const text = run.finalAnswer.trim();
-  if (!text) return;
   const body = processBody.closest<HTMLElement>(".llm-bridge-codex-run-body") || processBody;
-  upgradeCodexCandidateAnswerInFeed(body, text, options.streaming, deps);
+  upgradeCodexCandidateAnswerInFeed(body, run.finalAnswer, options.streaming, deps);
 }

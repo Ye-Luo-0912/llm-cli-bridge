@@ -7,18 +7,21 @@
 
 /* 完成问答：隐藏 chrome / Answer 标题，但绝不隐藏已展示的过程区 */
 .llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-header,
-.llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-final-answer-title,
+
 .llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-provider,
+
 .llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-status,
+
 .llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-metrics {
   display: none;
 }
 
 /* 运行中：隐藏 chrome，保留过程流与当前状态 */
 .llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-run-header,
+
 .llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-run-provider,
-.llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-run-metrics,
-.llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-final-answer-title {
+
+.llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-run-metrics {
   display: none;
 }
 
@@ -35,15 +38,17 @@
 
 /* 有工具的完成态：隐藏 chrome / Answer 标题，保留过程流 */
 .llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-run-status,
+
 .llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-run-provider,
-.llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-final-answer-title,
+
 .llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-run-metrics,
+
 .llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-run-header {
   display: none;
 }
 
 .llm-bridge-codex-run-view.is-semantic-failed .llm-bridge-codex-run-provider,
-.llm-bridge-codex-run-view.is-semantic-failed .llm-bridge-codex-final-answer-title,
+
 .llm-bridge-codex-run-view.is-semantic-failed .llm-bridge-codex-run-header {
   display: none;
 }
@@ -64,26 +69,88 @@
   display: none;
 }
 
-.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-feed-batch.is-empty-narrative > .llm-bridge-codex-feed-batch-summary {
-  display: none;
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group-summary {
+  list-style: none;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group-title {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  font-weight: 560;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group {
+  margin: 4px 0 8px;
 }
 
 .llm-bridge-codex-process-quiet-title {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-muted);
-}
-
-.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head.is-collapsible {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin: 0 0 6px;
-  padding: 2px 0;
-  border: none;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 560;
+  color: var(--text-muted);
   background: transparent;
+  border: none;
+  padding: 0;
+  border-radius: 0;
+}
+
+.llm-bridge-codex-process-quiet-icon {
+  display: none !important;
+}
+
+/* Processed：左对齐纯文本，无气泡边框；显示用时 */
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head.is-collapsible {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: auto;
+  max-width: 100%;
+  margin: 0 0 8px;
+  padding: 2px 0 !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
   cursor: pointer;
   user-select: none;
+  color: var(--text-muted);
+  box-sizing: border-box;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-quiet-title,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-section-title {
+  color: var(--text-muted) !important;
+  background: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-toggle {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 0 !important;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head .llm-bridge-codex-section-title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-quiet-title,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-section-title {
+  color: var(--text-muted);
+  background: transparent;
+  border: none;
+  box-shadow: none;
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-feed-batch-text.is-quiet-narrative {
@@ -104,19 +171,6 @@
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-thinking-summary {
   font-size: 13px;
   line-height: 1.45;
-  color: var(--text-muted);
-}
-
-.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-final-answer-title {
-  display: none;
-}
-
-.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group-summary {
-  list-style: none;
-}
-
-.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-tool-group-title {
-  font-size: 13px;
   color: var(--text-muted);
 }
 
@@ -165,8 +219,311 @@
   line-height: 1.6;
 }
 
-.llm-bridge-codex-feed-entry.is-tool-group > .llm-bridge-codex-tool-group {
+.llm-bridge-codex-feed-entry.is-tool-group > .llm-bridge-codex-tool-group,
+.llm-bridge-codex-feed-entry.is-cluster > .llm-bridge-codex-tool-group {
   margin: 0;
+}
+
+/* 统一工具块：扁平行，无气泡包裹；超出部分在 body 内滚动 */
+.llm-bridge-codex-tool-group {
+  display: block;
+  margin: 2px 0 6px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.llm-bridge-codex-tool-group-summary {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 28px;
+  min-width: 0;
+  max-width: 100%;
+  padding: 4px 0;
+  cursor: pointer;
+  list-style: none !important;
+  border-radius: 0;
+  background: transparent;
+  box-sizing: border-box;
+}
+
+.llm-bridge-codex-tool-group[open] > .llm-bridge-codex-tool-group-summary {
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 40%, transparent);
+}
+
+.llm-bridge-codex-tool-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+/* V19: 展开箭头 ">" 放在文字右侧，通过旋转表现展开状态 */
+.llm-bridge-codex-tool-group-chevron {
+  display: inline-block;
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+  transform: rotate(0deg);
+}
+
+.llm-bridge-codex-tool-group-chevron.is-expanded {
+  transform: rotate(90deg);
+}
+
+.llm-bridge-codex-tool-group-icon {
+  color: color-mix(in srgb, var(--text-muted) 80%, transparent);
+}
+
+.llm-bridge-codex-tool-group-icon,
+.llm-bridge-codex-tool-group-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.llm-bridge-codex-tool-group-main {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.llm-bridge-codex-tool-group-title {
+  min-width: 0;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 560;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-tool-group-preview {
+  min-width: 0;
+  color: color-mix(in srgb, var(--text-muted) 74%, transparent);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-tool-group-meta {
+  display: inline-flex !important;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-faint);
+  font-size: 9.5px;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-tool-group-body {
+  display: grid;
+  gap: 0;
+  padding: 2px 0 4px;
+  max-height: min(240px, 32vh);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  box-sizing: border-box;
+}
+
+.llm-bridge-codex-tool-group-member {
+  min-width: 0;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-item,
+.llm-bridge-codex-tool-group-member > .llm-bridge-codex-feed-item {
+  display: block;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 28%, transparent);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  overflow: hidden;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-tool-group-member:first-child > .llm-bridge-codex-feed-item,
+.llm-bridge-codex-tool-group-body > .llm-bridge-codex-feed-item:first-child {
+  border-top: 0;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-summary-row,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-summary {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 28px;
+  margin: 0;
+  padding: 5px 2px;
+  border: 0;
+  border-radius: 0;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  cursor: pointer;
+  list-style: none;
+  position: relative;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-summary-row::-webkit-details-marker,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-summary::-webkit-details-marker {
+  display: none;
+}
+
+/* 杀掉 legacy summary::before 幽灵 ›，避免空行 / 假气泡 */
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-summary::before,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-summary-row::before {
+  content: none !important;
+  display: none !important;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-step-status {
+  display: none;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-change-path-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-change-diff-summary {
+  display: inline;
+  flex: 0 0 auto;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-label {
+  font-size: 12px;
+  font-weight: 560;
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-summary,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-change-path {
+  color: var(--text-muted);
+  font-size: 11.5px;
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-change-path {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  color: var(--text-faint);
+  font-size: 11px;
+  white-space: nowrap;
+  padding-top: 1px;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-row-chevron {
+  color: var(--text-faint);
+  font-size: 13px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+  transform: rotate(0deg);
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-row-chevron.is-expanded,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-item[open] > .llm-bridge-codex-feed-summary-row .llm-bridge-codex-feed-row-chevron {
+  transform: rotate(90deg);
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-item.is-failed .llm-bridge-codex-feed-icon,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-item.is-failed .llm-bridge-codex-feed-label {
+  color: var(--text-error);
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-body {
+  margin: 0 0 6px 26px;
+  min-width: 0;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-inline-shell-panel,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-shell-panel {
+  border: 0;
+  border-left: 1px solid color-mix(in srgb, var(--background-modifier-border) 55%, transparent);
+  border-radius: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-shell-pre {
+  max-height: 180px;
+  overflow: auto;
+  margin: 0;
+  padding: 8px 10px;
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block {
+  margin-left: 0;
+}
+
+/* 覆盖 legacy G66 在 cluster 内的独立卡片边框，保持扁平行 */
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.is-command,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.is-file,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.llm-bridge-codex-change-row,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.llm-bridge-codex-feed-item {
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 28%, transparent) !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-tool-group-member:first-child > .llm-bridge-codex-event-block,
+.llm-bridge-codex-tool-group-body > .llm-bridge-codex-event-block:first-child {
+  border-top: 0 !important;
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.is-file:not([open]) > .llm-bridge-codex-event-summary,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.llm-bridge-codex-change-row:not([open]) > .llm-bridge-codex-event-summary,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block.is-command:not([open]) > .llm-bridge-codex-event-summary {
+  min-height: 28px !important;
+  padding: 6px 2px !important;
 }
 
 /* ===== 从 legacy.css 迁移（Run/Waterfall，去除 !important）===== */
@@ -217,21 +574,6 @@
   box-shadow: none;
 }
 
-.llm-bridge-codex-feed-item .llm-bridge-codex-change-actions {
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.llm-bridge-codex-feed-item:hover .llm-bridge-codex-change-actions,
-.llm-bridge-codex-feed-item:focus-within .llm-bridge-codex-change-actions {
-  opacity: 1;
-}
-
-.llm-bridge-codex-final-answer-body {
-  font-size: var(--font-ui-small);
-  line-height: 1.58;
-}
-
 .llm-bridge-codex-run-summary {
   gap: 6px;
 }
@@ -259,10 +601,6 @@
   display: flex;
   align-items: center;
   min-height: 16px;
-}
-
-.llm-bridge-codex-current-activity-icon {
-  display: none;
 }
 
 .llm-bridge-codex-process-head {
@@ -305,11 +643,6 @@
   font-size: 12px;
 }
 
-.llm-bridge-codex-feed-output-text {
-  font-size: 11px;
-  line-height: 1.5;
-}
-
 .llm-bridge-codex-feed-meta {
   gap: 6px;
   font-size: 10px;
@@ -324,17 +657,7 @@
   font-size: 11px;
 }
 
-.llm-bridge-codex-final-answer-title {
-  color: var(--text-faint);
-}
-
-.llm-bridge-codex-final-answer-body {
-  font-size: 12px;
-  line-height: 1.62;
-}
-
-.llm-bridge-codex-process-head .llm-bridge-codex-section-title,
-.llm-bridge-codex-final-answer-title {
+.llm-bridge-codex-process-head .llm-bridge-codex-section-title {
   text-transform: none;
   letter-spacing: 0;
 }
@@ -350,18 +673,6 @@
   margin-left: -12px;
   color: var(--text-faint);
   font-size: 11px;
-}
-
-.llm-bridge-codex-feed-batch:not([open]) > .llm-bridge-codex-feed-batch-summary::before {
-  content: "▸";
-}
-
-.llm-bridge-codex-feed-batch.is-summary-only > .llm-bridge-codex-feed-batch-summary {
-  cursor: default;
-}
-
-.llm-bridge-codex-feed-batch.is-summary-only > .llm-bridge-codex-feed-batch-summary::before {
-  content: "";
 }
 
 .llm-bridge-codex-feed-batch-summary-main {
@@ -440,11 +751,6 @@
   line-height: 1.45;
 }
 
-.llm-bridge-codex-feed-output-text {
-  font-size: 11px;
-  line-height: 1.5;
-}
-
 .llm-bridge-codex-run-summary {
   display: grid;
   gap: 2px;
@@ -460,8 +766,8 @@
 .llm-bridge-codex-process-head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: flex-start;
+  gap: 8px;
   padding: 0 2px;
 }
 
@@ -508,20 +814,6 @@
 
 .llm-bridge-codex-process-body {
   gap: 8px;
-}
-
-.llm-bridge-codex-final-answer-title {
-  color: var(--text-faint);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.llm-bridge-codex-final-answer-body {
-  color: var(--text-normal);
-  font-size: 13px;
-  line-height: 1.6;
 }
 
 .llm-bridge-codex-run-header {
@@ -585,21 +877,7 @@
   text-transform: none;
 }
 
-.llm-bridge-codex-final-answer-title {
-  letter-spacing: 0.03em;
-}
 
-.llm-bridge-codex-final-answer-body {
-  font-size: 12.5px;
-  line-height: 1.62;
-}
-
-.llm-bridge-codex-feed-output {
-  margin: 0 0 0 19px;
-  padding: 1px 0 0;
-}
-
-.llm-bridge-codex-feed-output-text,
 .llm-bridge-codex-thinking-summary {
   font-size: 11.5px !important;
   line-height: 1.58 !important;
@@ -650,13 +928,6 @@
   gap: var(--llm-bridge-codex-gap-stage);
 }
 
-.llm-bridge-codex-feed-batch {
-  display: grid;
-  gap: var(--llm-bridge-codex-gap-tool-internal);
-  padding: 0 0 0 13px;
-  border-left: var(--llm-bridge-codex-guide-border);
-}
-
 .llm-bridge-codex-feed-batch-summary {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr);
@@ -670,8 +941,7 @@
   border-left: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
 }
 
-.llm-bridge-codex-feed-batch-summary::before,
-.llm-bridge-codex-feed-batch:not([open]) > .llm-bridge-codex-feed-batch-summary::before {
+.llm-bridge-codex-feed-batch-summary::before {
   display: none !important;
   content: none;
 }
@@ -680,10 +950,6 @@
   display: grid;
   gap: 4px;
   padding: 0 0 0 12px;
-}
-
-.llm-bridge-codex-feed-batch.is-summary-only .llm-bridge-codex-feed-batch-summary {
-  padding-bottom: 1px;
 }
 
 .llm-bridge-codex-thinking-line.is-narrative {
@@ -723,99 +989,6 @@
   text-overflow: clip;
 }
 
-.llm-bridge-codex-tool-group-summary {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  min-height: 30px;
-  min-width: 0;
-  max-width: 100%;
-  padding: 2px 0;
-  cursor: pointer;
-  list-style: none !important;
-  border-radius: 0;
-  background: transparent;
-}
-
-.llm-bridge-codex-tool-group-summary::-webkit-details-marker {
-  display: none;
-}
-
-/* V19: 展开箭头 ">" 放在文字右侧，通过旋转表现展开状态 */
-.llm-bridge-codex-tool-group-chevron {
-  display: inline-block;
-  margin-left: 4px;
-  color: var(--text-faint);
-  font-size: 13px;
-  line-height: 1;
-  transition: transform 0.15s ease;
-  transform: rotate(0deg);
-}
-
-.llm-bridge-codex-tool-group-chevron.is-expanded {
-  transform: rotate(90deg);
-}
-
-.llm-bridge-codex-tool-group-icon {
-  color: color-mix(in srgb, var(--text-muted) 80%, transparent);
-}
-
-.llm-bridge-codex-tool-group-icon,
-.llm-bridge-codex-tool-group-icon svg {
-  width: 15px;
-  height: 15px;
-}
-
-.llm-bridge-codex-tool-group-main {
-  display: flex;
-  min-width: 0;
-  align-items: baseline;
-  gap: 6px;
-}
-
-.llm-bridge-codex-tool-group-title {
-  min-width: 0;
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 560;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.llm-bridge-codex-tool-group-preview {
-  min-width: 0;
-  color: color-mix(in srgb, var(--text-muted) 74%, transparent);
-  font-size: 11.5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.llm-bridge-codex-tool-group-meta {
-  display: inline-flex !important;
-  align-items: center;
-  gap: 7px;
-  color: var(--text-faint);
-  font-size: 9.5px;
-  white-space: nowrap;
-}
-
-.llm-bridge-codex-tool-group-body {
-  display: grid;
-  gap: 0;
-  padding: 0 0 3px 20px;
-  max-height: min(280px, 36vh);
-  overflow-y: auto;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-block {
-  margin-left: 0;
-}
-
 /* V18: 状态指示器——运行中"正在思考"+光效，完成"· {duration}" */
 .llm-bridge-codex-tool-group-status {
   font-size: 11px;
@@ -837,12 +1010,14 @@
 }
 
 .llm-bridge-codex-run-view,
+
 .llm-bridge-codex-run-body,
+
 .llm-bridge-codex-process-body,
+
 .llm-bridge-codex-feed-list,
-.llm-bridge-codex-feed-batch,
-.llm-bridge-codex-feed-batch-body,
-.llm-bridge-codex-final-answer-body {
+
+.llm-bridge-codex-feed-batch-body {
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
@@ -874,11 +1049,6 @@
   min-width: 0;
 }
 
-.llm-bridge-codex-final-answer-body,
-.llm-bridge-codex-final-answer-body * {
-  overflow-wrap: anywhere;
-}
-
 @media (max-width: 760px) {
 .llm-bridge-codex-run-view {
     margin-left: 0;
@@ -899,8 +1069,7 @@
   width: 100%;
 }
 
-.llm-bridge-codex-final-answer-body,
-.llm-bridge-codex-feed-output-text,
+
 .llm-bridge-codex-thinking-summary {
   user-select: text !important;
   -webkit-user-select: text !important;
@@ -934,51 +1103,26 @@
 
 .llm-bridge-codex-tool-group-body .llm-bridge-codex-event-summary {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 18px minmax(0, 1fr) auto auto;
   gap: 7px;
-  min-height: 29px;
-  padding: 3px 0;
+  min-height: 28px;
+  padding: 5px 2px;
   border: 0;
   border-radius: 0;
-  background: transparent;
-  background-color: transparent;
-  box-shadow: none;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
 }
 
 .llm-bridge-codex-tool-group-body .llm-bridge-codex-event-summary::before {
-  margin-left: -3px;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-main {
-  min-width: 0;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-title {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  min-width: 0;
+  content: none !important;
+  display: none !important;
 }
 
 .llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-label {
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 560;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-hint {
-  display: block;
-  min-width: 0;
-  color: var(--text-faint);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-meta {
-  color: var(--text-faint);
-  font-size: 10px;
 }
 
 .llm-bridge-codex-tool-group-body .llm-bridge-codex-event-body {

@@ -5,7 +5,7 @@
 // LLMBridgeView supplies settings/session mutation and file-ingest callbacks.
 
 import * as path from "path";
-import { App, setIcon, TFile } from "obsidian";
+import { App, Notice, setIcon, TFile } from "obsidian";
 import {
   AGENT_APPROVAL_PROFILES,
   getAgentApprovalProfileInfo,
@@ -13,7 +13,7 @@ import {
 } from "../agentApprovalProfile";
 import type { FileRef } from "../fileRefs";
 import type { RuntimeModelCatalog } from "../runtimeModelCatalog";
-import { findModelEntry, getEffortsForModel } from "../runtimeModelCatalog";
+import { findModelEntry, getEffortsForModel, effortDisplayLabel } from "../runtimeModelCatalog";
 
 export interface ComposerMenuItemOptions {
   className: string;
@@ -170,6 +170,19 @@ export function renderPermissionPopover(
     cls: "llm-bridge-perm-popover-question",
     text: "应如何批准 Agent 操作？",
   });
+  const more = head.createEl("a", {
+    cls: "llm-bridge-perm-popover-more",
+    text: "了解更多",
+    attr: { href: "#", role: "button" },
+  });
+  more.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    new Notice(
+      "请求批准：编辑外部文件与联网时始终询问\n替我审批：仅对检测到的风险操作询问\n完全访问：可跳过审批（高风险）",
+      7000,
+    );
+  });
 
   const list = popover.createDiv({ cls: "llm-bridge-perm-popover-list" });
   for (const profile of AGENT_APPROVAL_PROFILES) {
@@ -207,13 +220,16 @@ export function renderModelEffortOptions(
     onSelect: (model: string, effort: string) => void;
     closeModel: () => void;
     closeEffort: () => void;
+    /** Fig.1 嵌套主菜单：写入 模型/推理强度 行 */
+    primaryMenuEl?: HTMLElement | null;
+    openFlyout?: (panel: "model" | "effort") => void;
+    activeFlyout?: "model" | "effort" | null;
   },
 ): void {
   modelOptionsEl.empty();
   effortOptionsEl.empty();
 
   // V20.3: 模型三分类 — 已验证（available）/ 待验证（pending）/ 不兼容（incompatible）
-  // 已验证和待验证可选；不兼容仅展示原因，禁用点击。
   const availableModels = catalog.models.filter((m) => !m.validationStatus || m.validationStatus === "available");
   const pendingModels = catalog.models.filter((m) => m.validationStatus === "pending");
   const incompatibleModels = catalog.models.filter((m) => m.validationStatus === "incompatible");
@@ -253,8 +269,6 @@ export function renderModelEffortOptions(
   appendSection("待验证", pendingModels);
   appendSection("不兼容", incompatibleModels);
 
-  // effort 跟随当前选中模型刷新：优先用模型自带的 supportedReasoningEfforts，
-  // 否则回退到目录全局 efforts。V20.2: label 使用中文（低/中/高/极高）。
   const efforts = getEffortsForModel(catalog, currentModel);
   for (const effort of efforts) {
     const isActive = effort.value === currentEffort;
@@ -270,41 +284,77 @@ export function renderModelEffortOptions(
       deps.onSelect(currentModel, effort.value);
     });
   }
+
+  // Fig.1: 主菜单行（模型 / 推理强度），右侧展开子菜单
+  if (deps.primaryMenuEl) {
+    const model = findModelEntry(catalog, currentModel);
+    const effort = efforts.find((e) => e.value === currentEffort) ?? null;
+    const modelLabel = shortModelChipLabel(model?.label ?? currentModel);
+    const effortLabel = effort?.label ?? effortDisplayLabel(currentEffort);
+    deps.primaryMenuEl.empty();
+
+    const addRow = (panel: "model" | "effort", name: string, value: string) => {
+      const row = deps.primaryMenuEl!.createEl("button", {
+        cls: `llm-bridge-model-menu-row${deps.activeFlyout === panel ? " is-active" : ""}`,
+        attr: { type: "button", "data-panel": panel },
+      });
+      row.createEl("span", { cls: "llm-bridge-model-menu-row-label", text: name });
+      const trailing = row.createDiv({ cls: "llm-bridge-model-menu-row-trailing" });
+      trailing.createEl("span", { cls: "llm-bridge-model-menu-row-value", text: value });
+      trailing.createEl("span", { cls: "llm-bridge-model-menu-row-chevron", text: "›" });
+      row.addEventListener("click", (event) => {
+        event.stopPropagation();
+        deps.openFlyout?.(panel);
+      });
+    };
+    addRow("model", "模型", modelLabel);
+    addRow("effort", "推理强度", effortLabel);
+  }
+}
+
+/** Chip 上的短模型名：去掉 GPT-/Claude 前缀，贴近图 1 的「5.6 Sol」观感 */
+export function shortModelChipLabel(label: string): string {
+  return (label || "")
+    .replace(/^GPT[-\s]*/i, "")
+    .replace(/^Claude[-\s]*/i, "")
+    .trim() || label;
 }
 
 export function refreshModelEffortPickerLabels(
   buttonEl: HTMLElement,
-  effortChipEl: HTMLElement | null | undefined,
-  modelPopoverEl: HTMLElement | null | undefined,
-  effortPopoverEl: HTMLElement | null | undefined,
+  menuEl: HTMLElement | null | undefined,
   catalog: RuntimeModelCatalog,
   modelValue: string,
   effortValue: string,
 ): void {
   const model = findModelEntry(catalog, modelValue);
-  // effort 标签按模型实际支持的 effort 列表查找，而非全局 catalog.efforts
   const modelEfforts = getEffortsForModel(catalog, modelValue);
   const effort = modelEfforts.find((e) => e.value === effortValue) ?? null;
-  const modelLabel = model?.label ?? modelValue ?? "unknown";
-  const effortLabel = effort?.label ?? effortValue ?? "unknown";
-  // V20.2: 两级紧凑结构 — 模型 chip 和 effort chip 分开显示
-  buttonEl.textContent = `模型 ${modelLabel} ›`;
-  if (effortChipEl) effortChipEl.textContent = `推理强度 ${effortLabel} ›`;
+  const modelLabel = shortModelChipLabel(model?.label ?? modelValue ?? "unknown");
+  const effortLabel = effort?.label ?? effortDisplayLabel(effortValue ?? "unknown");
+  buttonEl.textContent = `${modelLabel} ${effortLabel}`;
   const currentModelValue = model?.value ?? modelValue;
   const currentEffortValue = effort?.value ?? effortValue;
-  // V20.2: 更新两个独立 popover 的 active 状态和勾选标记
-  modelPopoverEl?.querySelectorAll<HTMLElement>(".llm-bridge-model-option").forEach((option) => {
+  menuEl?.querySelectorAll<HTMLElement>(".llm-bridge-model-option").forEach((option) => {
     const active = option.getAttribute("data-model") === currentModelValue;
     option.classList.toggle("is-active", active);
     const check = option.querySelector<HTMLElement>(".llm-bridge-option-check");
     if (check) check.textContent = active ? "✓" : "";
   });
-  effortPopoverEl?.querySelectorAll<HTMLElement>(".llm-bridge-effort-option").forEach((option) => {
+  menuEl?.querySelectorAll<HTMLElement>(".llm-bridge-effort-option").forEach((option) => {
     const active = option.getAttribute("data-effort") === currentEffortValue;
     option.classList.toggle("is-active", active);
     const check = option.querySelector<HTMLElement>(".llm-bridge-option-check");
     if (check) check.textContent = active ? "✓" : "";
   });
+  const modelRowValue = menuEl?.querySelector<HTMLElement>(
+    '.llm-bridge-model-menu-row[data-panel="model"] .llm-bridge-model-menu-row-value',
+  );
+  const effortRowValue = menuEl?.querySelector<HTMLElement>(
+    '.llm-bridge-model-menu-row[data-panel="effort"] .llm-bridge-model-menu-row-value',
+  );
+  if (modelRowValue) modelRowValue.textContent = modelLabel;
+  if (effortRowValue) effortRowValue.textContent = effortLabel;
 }
 
 export function renderComposerFileRefs(
@@ -600,10 +650,8 @@ export interface ComposerHost {
   getComposerEl(): HTMLElement | null;
   getComposerBarEl(): HTMLElement | null;
   getModelEffortButtonEl(): HTMLButtonElement | null;
-  getEffortChipEl(): HTMLButtonElement | null;
   getModelOptionsEl(): HTMLElement | null;
   getEffortOptionsEl(): HTMLElement | null;
-  getEffortPopoverEl(): HTMLElement | null;
   getPermissionModePickerEl(): HTMLElement | null;
   getPermissionModeChipEl(): HTMLButtonElement | null;
   // 模型目录与设置值
@@ -632,7 +680,6 @@ export class ComposerController {
   private _attachmentContextMenuEl: HTMLElement | null = null;
   private _closeCommandMenuPopover: (() => void) | null = null;
   private _modelEffortPopoverEl: HTMLElement | null = null;
-  private _effortPopoverEl: HTMLElement | null = null;
   private _permissionPopoverEl: HTMLDivElement | null = null;
   private _mentionPickerEl: HTMLElement | null = null;
   private _mentionPickerRange: { start: number; end: number } | null = null;
@@ -664,10 +711,6 @@ export class ComposerController {
     return this._modelEffortPopoverEl;
   }
 
-  get effortPopoverEl(): HTMLElement | null {
-    return this._effortPopoverEl;
-  }
-
   get permissionPopoverEl(): HTMLDivElement | null {
     return this._permissionPopoverEl;
   }
@@ -676,14 +719,9 @@ export class ComposerController {
     return this._mentionPickerEl;
   }
 
-  /** view.ts renderModelEffortPicker 创建 popover 元素后注入 */
+  /** view.ts renderModelEffortPicker 创建嵌套菜单后注入 */
   setModelEffortPopoverEl(el: HTMLElement): void {
     this._modelEffortPopoverEl = el;
-  }
-
-  /** V20.2: view.ts renderModelEffortPicker 创建 effort popover 元素后注入 */
-  setEffortPopoverEl(el: HTMLElement): void {
-    this._effortPopoverEl = el;
   }
 
   /** view.ts 创建 mention picker 元素后注入 */
@@ -716,8 +754,7 @@ export class ComposerController {
     this._activePopup = kind;
     if (prev === "attachment" && kind !== "attachment") this.closeAttachmentContextMenu(false);
     if (prev === "command" && kind !== "command") this._closeCommandMenuPopover?.();
-    if (prev === "model" && kind !== "model") this.closeModelEffortPopover(false);
-    if (prev === "effort" && kind !== "effort") this.closeEffortPopover(false);
+    if ((prev === "model" || prev === "effort") && kind !== "model" && kind !== "effort") this.closeModelEffortPopover(false);
     if (prev === "permission" && kind !== "permission") this.closePermissionPopover(false);
     if (prev === "mention" && kind !== "mention") this.closeMentionPicker();
     if (prev === "session" && kind !== "session") {
@@ -735,7 +772,6 @@ export class ComposerController {
     this._closeCommandMenuPopover?.();
     this.closePermissionPopover(false);
     this.closeModelEffortPopover(false);
-    this.closeEffortPopover(false);
     this.closeMentionPicker();
     this.closeAttachmentContextMenu(false);
     document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
@@ -781,12 +817,16 @@ export class ComposerController {
     }
   }
 
-  // ---- Model / Effort popover (V20.2: 两个独立 popover) ----
+  // ---- Model / Effort popover (Fig.1: 嵌套主菜单 + 右侧 flyout) ----
+
+  private _activeModelFlyout: "model" | "effort" | null = null;
 
   renderModelEffortOptions(): void {
     const modelOptionsEl = this.host.getModelOptionsEl();
     const effortOptionsEl = this.host.getEffortOptionsEl();
     if (!modelOptionsEl || !effortOptionsEl) return;
+    const menuEl = this._modelEffortPopoverEl;
+    const primaryMenuEl = menuEl?.querySelector<HTMLElement>(".llm-bridge-model-menu-primary") ?? null;
     renderModelEffortOptions(
       modelOptionsEl,
       effortOptionsEl,
@@ -795,10 +835,29 @@ export class ComposerController {
       this.host.getModel(),
       {
         closeModel: () => this.closeModelEffortPopover(),
-        closeEffort: () => this.closeEffortPopover(),
+        closeEffort: () => this.closeModelEffortPopover(),
         onSelect: (model, effort) => { void this.host.setModelEffort(model, effort); },
+        primaryMenuEl,
+        activeFlyout: this._activeModelFlyout,
+        openFlyout: (panel) => this.openModelMenuFlyout(panel),
       },
     );
+    // 保持当前 flyout 可见状态
+    if (this._activeModelFlyout) this.openModelMenuFlyout(this._activeModelFlyout);
+  }
+
+  private openModelMenuFlyout(panel: "model" | "effort"): void {
+    this._activeModelFlyout = panel;
+    const menuEl = this._modelEffortPopoverEl;
+    if (!menuEl) return;
+    menuEl.querySelectorAll<HTMLElement>(".llm-bridge-model-menu-flyout").forEach((el) => {
+      const match = el.getAttribute("data-panel") === panel;
+      if (match) el.removeAttribute("hidden");
+      else el.setAttribute("hidden", "");
+    });
+    menuEl.querySelectorAll<HTMLElement>(".llm-bridge-model-menu-row").forEach((row) => {
+      row.classList.toggle("is-active", row.getAttribute("data-panel") === panel);
+    });
   }
 
   toggleModelEffortPopover(): void {
@@ -808,6 +867,15 @@ export class ComposerController {
       this._modelEffortPopoverEl.removeAttribute("hidden");
       this._modelEffortPopoverEl.classList.add("is-open");
       this.host.getModelEffortButtonEl()?.setAttribute("aria-expanded", "true");
+      // Fig.1：默认只显示主列表行；点「模型 / 推理强度」再展开子菜单
+      this._activeModelFlyout = null;
+      this.renderModelEffortOptions();
+      this._modelEffortPopoverEl.querySelectorAll<HTMLElement>(".llm-bridge-model-menu-flyout").forEach((el) => {
+        el.setAttribute("hidden", "");
+      });
+      this._modelEffortPopoverEl.querySelectorAll<HTMLElement>(".llm-bridge-model-menu-row").forEach((row) => {
+        row.classList.remove("is-active");
+      });
     } else {
       this.closeModelEffortPopover();
     }
@@ -818,27 +886,24 @@ export class ComposerController {
     this._modelEffortPopoverEl.setAttribute("hidden", "");
     this._modelEffortPopoverEl.classList.remove("is-open");
     this.host.getModelEffortButtonEl()?.setAttribute("aria-expanded", "false");
+    this._modelEffortPopoverEl.querySelectorAll<HTMLElement>(".llm-bridge-model-menu-flyout").forEach((el) => {
+      el.setAttribute("hidden", "");
+    });
+    this._activeModelFlyout = null;
     if (updateActive && this._activePopup === "model") this.setActivePopup(null);
   }
 
   toggleEffortPopover(): void {
-    if (!this._effortPopoverEl) return;
-    if (this._effortPopoverEl.hasAttribute("hidden")) {
-      this.setActivePopup("effort");
-      this._effortPopoverEl.removeAttribute("hidden");
-      this._effortPopoverEl.classList.add("is-open");
-      this.host.getEffortChipEl()?.setAttribute("aria-expanded", "true");
-    } else {
-      this.closeEffortPopover();
+    // Fig.1: 推理强度已并入嵌套菜单，打开主菜单并切到 effort flyout
+    if (!this._modelEffortPopoverEl) return;
+    if (this._modelEffortPopoverEl.hasAttribute("hidden")) {
+      this.toggleModelEffortPopover();
     }
+    this.openModelMenuFlyout("effort");
   }
 
   closeEffortPopover(updateActive = true): void {
-    if (!this._effortPopoverEl) return;
-    this._effortPopoverEl.setAttribute("hidden", "");
-    this._effortPopoverEl.classList.remove("is-open");
-    this.host.getEffortChipEl()?.setAttribute("aria-expanded", "false");
-    if (updateActive && this._activePopup === "effort") this.setActivePopup(null);
+    this.closeModelEffortPopover(updateActive);
   }
 
   // ---- Permission popover ----

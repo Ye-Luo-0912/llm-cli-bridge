@@ -7,15 +7,6 @@
 
   user-select: text !important;
   -webkit-user-select: text !important;
-}.llm-bridge-codex-event-title .llm-bridge-codex-feed-label {
-
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}.llm-bridge-codex-event-title,
-.llm-bridge-codex-event-hint {
-
-  min-width: 0 !important;
 }.llm-bridge-codex-event-summary {
 
   min-width: 0 !important;
@@ -26,35 +17,24 @@
   min-width: 0 !important;
   max-width: 100% !important;
   box-sizing: border-box !important;
-}.llm-bridge-codex-event-hint,
+}
 .llm-bridge-codex-change-path {
 
   font-size: 11px !important;
   line-height: 1.5 !important;
-}.llm-bridge-codex-change-meta {
-
-  gap: 6px !important;
-  font-size: 10px !important;
-}.llm-bridge-codex-event-hint,
+}
 .llm-bridge-codex-change-path,
+
 .llm-bridge-codex-approval-gate-summary,
+
 .llm-bridge-codex-approval-gate-reason {
 
   font-size: 11px !important;
   line-height: 1.5 !important;
-}.llm-bridge-codex-change-name,
-.llm-bridge-codex-change-action,
+}
 .llm-bridge-codex-approval-gate-action {
 
   font-size: 12px !important;
-}.llm-bridge-codex-change-row:hover .llm-bridge-codex-change-actions,
-.llm-bridge-codex-change-row:focus-within .llm-bridge-codex-change-actions {
-
-  opacity: 1 !important;
-}.llm-bridge-codex-change-actions {
-
-  opacity: 0 !important;
-  transition: opacity 120ms ease !important;
 }.llm-bridge-codex-change-row,
 .llm-bridge-codex-event-block.llm-bridge-codex-feed-item {
 
@@ -90,32 +70,6 @@
   padding: 10px 4px;
   border-right: 1px solid var(--background-modifier-border);
   background: color-mix(in srgb, var(--background-secondary-alt) 80%, transparent);
-}
-
-.llm-bridge-nav-brand {
-  display: none;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 8px 16px;
-  color: var(--text-normal);
-  font-weight: 700;
-  letter-spacing: 0.02em;
-}
-
-.llm-bridge-nav-logo {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border-radius: 9px;
-  color: var(--text-on-accent);
-  background: var(--interactive-accent);
-  box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb), 0.14);
-}
-
-.llm-bridge-nav-title {
-  font-size: var(--font-ui-medium);
 }
 
 .llm-bridge-nav-item {
@@ -162,10 +116,6 @@
 
 .llm-bridge-nav-label {
   font-size: var(--font-ui-smaller);
-}
-
-.llm-bridge-nav-spacer {
-  flex: 1 1 auto;
 }
 
 .llm-bridge-nav-collapse {
@@ -228,13 +178,6 @@
   color: var(--text-on-accent);
   background: var(--interactive-accent);
   box-shadow: 0 0 0 3px rgba(var(--interactive-accent-rgb), 0.12);
-}
-
-.llm-bridge-topbar-title {
-  color: var(--text-normal);
-  font-size: var(--font-ui-medium);
-  font-weight: 700;
-  white-space: nowrap;
 }
 
 .llm-bridge-page-title {
@@ -301,14 +244,6 @@
   border: 1px solid var(--background-modifier-border);
   border-radius: 999px;
   background: var(--background-secondary);
-}
-
-.llm-bridge-title {
-  font-weight: 600;
-  font-size: var(--font-small);
-  color: var(--text-normal);
-  letter-spacing: 0.3px;
-  flex: 0 0 auto;
 }
 
 .llm-bridge-agent-select {
@@ -673,15 +608,6 @@
 .llm-bridge-stop-btn:disabled { opacity: 0.3; cursor: not-allowed; }
 .llm-bridge-stop-icon { font-size: 10px; line-height: 1; }
 
-/* ===== compact chips 行 ===== */
-.llm-bridge-chips-row {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
-}
-
-.llm-bridge-chip-wrap { display: inline-flex; align-items: center; gap: 4px; }
 .llm-bridge-chip-check { display: none; }
 
 .llm-bridge-chip {
@@ -703,178 +629,18 @@
 }
 .llm-bridge-chip:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* toggle chip 激活态：保留状态感，但不再像主操作按钮 */
-.llm-bridge-chip-toggle.is-active {
-  background: rgba(var(--interactive-accent-rgb), 0.12);
-  color: var(--text-normal);
-  border-color: rgba(var(--interactive-accent-rgb), 0.4);
-  box-shadow: inset 0 0 0 1px rgba(var(--interactive-accent-rgb), 0.12);
-}
-
-/* agent chip 只读显示 */
-.llm-bridge-chip-readonly {
-  padding: 2px 9px;
-  font-size: var(--font-smallest);
-  font-weight: 500;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-normal);
-  cursor: pointer;
-  border-radius: 6px;
-}
-.llm-bridge-chip-readonly:hover { border-color: var(--interactive-accent); }
-
-/* 文件名标注（Note/Selection 旁） */
-.llm-bridge-chip-file {
-  font-size: var(--font-smallest);
-  color: var(--text-faint);
-  font-family: var(--font-monospace);
-  max-width: 96px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.llm-bridge-chip-file:empty { display: none; }
-
-/* Clear 按钮 */
-.llm-bridge-chip-ghost {
-  margin-left: auto;
-  padding: 2px 9px;
-  font-size: var(--font-smallest);
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--text-muted);
-  cursor: pointer;
-  border-radius: 6px;
-}
-.llm-bridge-chip-ghost:hover:not(:disabled) { color: var(--text-normal); background: var(--background-secondary); }
-.llm-bridge-chip-ghost:disabled { opacity: 0.4; cursor: not-allowed; }
-
 .llm-bridge-attach-file-btn {
   border-style: dashed;
-}
-.llm-bridge-attach-path-btn {
-  opacity: 0.82;
 }
 .llm-bridge-native-file-input {
   display: none;
 }
 
-.llm-bridge-working-set-strip {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  padding: 8px 20px;
-  border-top: 1px solid var(--background-modifier-border);
-  background: color-mix(in srgb, var(--background-primary) 84%, transparent);
-}
 
-/* V2.16-D: Context indicator strip（composer 上方轻量条） */
-/* P4-D: Compression feedback on ring */
-
-.llm-bridge-working-set-context {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.llm-bridge-working-set {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  min-height: 20px;
-}
-
-.llm-bridge-working-set-refs {
-  flex: 1 1 auto;
-  min-width: 160px;
-}
-
-.llm-bridge-working-set-page {
-  align-items: flex-start;
-  margin: 12px 0;
-  padding: 12px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  background: var(--background-secondary);
-}
-
-.llm-bridge-working-set-label {
-  font-size: var(--font-smallest);
-  color: var(--text-faint);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.llm-bridge-working-set-empty {
-  color: var(--text-faint);
-  font-size: var(--font-smallest);
-  line-height: 1.4;
-}
-
-.llm-bridge-working-set-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
-  padding: 2px 6px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 7px;
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  font-size: var(--font-smallest);
-}
-
-.llm-bridge-working-set-chip.is-attachment {
-  border-color: rgba(var(--color-green-rgb), 0.35);
-}
-
-.llm-bridge-working-set-chip.is-external {
-  border-color: rgba(var(--color-orange-rgb), 0.35);
-}
-
-.llm-bridge-working-set-name {
-  max-width: 150px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-normal);
-  font-family: var(--font-monospace);
-}
-
-.llm-bridge-working-set-meta,
-.llm-bridge-working-set-ingested {
-  color: var(--text-faint);
-}
-
-.llm-bridge-working-set-ingested {
-  border-left: 1px solid var(--background-modifier-border);
-  padding-left: 5px;
-}
-.llm-bridge-working-set-ingested:not(:empty) {
-  color: var(--text-muted);
-}
-
-.llm-bridge-working-set-remove {
-  border: none;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: pointer;
-  padding: 0 2px;
-  line-height: 1;
-}
-
-.llm-bridge-working-set-remove:hover {
-  color: var(--text-error);
-}
-
-.llm-bridge-context-toggles,
 .llm-bridge-pinned-context,
+
 .llm-bridge-context-refs,
+
 .llm-bridge-context-tags {
   flex: 0 0 auto;
   padding: 4px 12px;
@@ -1029,19 +795,6 @@
 .llm-bridge-sb-preflight.is-unavailable .llm-bridge-sb-value { color: #e53935; }
 .llm-bridge-sb-preflight.is-unknown .llm-bridge-sb-value { color: var(--text-muted); }
 
-.llm-bridge-sb-btn {
-  padding: 2px 8px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 4px;
-  background: var(--interactive-normal);
-  color: var(--text-normal);
-  font-size: var(--font-ui-smaller);
-  cursor: pointer;
-}
-
-.llm-bridge-sb-btn:hover:not(:disabled) { background: var(--interactive-hover); }
-.llm-bridge-sb-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
 /* === V1.2: First Use Guide === */
 
 .llm-bridge-guide {
@@ -1136,14 +889,6 @@
   border-left: 2px solid var(--background-modifier-border);
   margin-left: 2px;
   padding-left: 10px;
-}
-
-.llm-bridge-timeline-title {
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  margin-bottom: 2px;
 }
 
 .llm-bridge-timeline-item {
@@ -1346,14 +1091,6 @@
   padding-left: 10px;
 }
 
-.llm-bridge-workflow-trace-title {
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  margin-bottom: 2px;
-}
-
 .llm-bridge-workflow-trace-item {
   display: flex;
   align-items: center;
@@ -1418,229 +1155,13 @@
   flex: 0 0 auto;
 }
 
-/* === V1.6: SDK Workflow（实验性，仅 sdk-experimental backend 产生） === */
-
-.llm-bridge-sdk-workflow {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 4px 0 2px;
-  border-left: 2px solid var(--background-modifier-border);
-  margin-left: 2px;
-  padding-left: 10px;
-}
-
-.llm-bridge-sdk-workflow-title {
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  margin-bottom: 2px;
-}
-
-/* 工具调用时间线 */
-.llm-bridge-sdk-tool-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.llm-bridge-sdk-tool-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-}
-
-.llm-bridge-sdk-tool-icon {
-  font-size: var(--font-smallest);
-  flex: 0 0 auto;
-  width: 12px;
-  text-align: center;
-}
-.llm-bridge-sdk-tool-item.is-done .llm-bridge-sdk-tool-icon { color: #4caf50; }
-.llm-bridge-sdk-tool-item.is-error .llm-bridge-sdk-tool-icon { color: #e53935; }
-.llm-bridge-sdk-tool-item.is-running .llm-bridge-sdk-tool-icon { color: var(--text-muted); }
-
-.llm-bridge-sdk-tool-text {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  flex: 1;
-  min-width: 0;
-}
-
-.llm-bridge-sdk-tool-name {
-  font-size: var(--font-smallest);
-  font-weight: 600;
-  color: var(--text-normal);
-}
-.llm-bridge-sdk-tool-item.is-error .llm-bridge-sdk-tool-name { color: #e53935; }
-
-.llm-bridge-sdk-tool-input,
-.llm-bridge-sdk-tool-output {
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
-  font-family: var(--font-monospace);
-  word-break: break-all;
-}
-
-/* 非工具事件列表 */
-.llm-bridge-sdk-event-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.llm-bridge-sdk-event-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-}
-
-.llm-bridge-sdk-event-icon {
-  font-size: var(--font-smallest);
-  flex: 0 0 auto;
-  width: 12px;
-  text-align: center;
-}
-
-.llm-bridge-sdk-event-text {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1;
-  min-width: 0;
-  flex-wrap: wrap;
-}
-
-.llm-bridge-sdk-event-label {
-  font-size: var(--font-smallest);
-  font-weight: 600;
-  color: var(--text-normal);
-  flex: 0 0 auto;
-}
-
-.llm-bridge-sdk-event-item.is-tool-error .llm-bridge-sdk-event-label,
-.llm-bridge-sdk-event-item.is-error-fatal .llm-bridge-sdk-event-label { color: #e53935; }
-.llm-bridge-sdk-event-item.is-tool-done .llm-bridge-sdk-event-label,
-.llm-bridge-sdk-event-item.is-perm-granted .llm-bridge-sdk-event-label { color: #4caf50; }
-.llm-bridge-sdk-event-item.is-error-recoverable .llm-bridge-sdk-event-label,
-.llm-bridge-sdk-event-item.is-perm-denied .llm-bridge-sdk-event-label { color: #fb8c00; }
-
-.llm-bridge-sdk-event-detail {
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
-  font-family: var(--font-monospace);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-
-.llm-bridge-sdk-event-time {
-  font-size: 10px;
-  color: var(--text-muted);
-  opacity: 0.7;
-  margin-left: auto;
-  flex: 0 0 auto;
-}
-
-/* V2.0: SDK workflow 按阶段分组 */
-.llm-bridge-sdk-group {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 4px;
-}
-.llm-bridge-sdk-group:first-child { margin-top: 0; }
-.llm-bridge-sdk-group-title {
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.3px;
-  font-weight: 600;
-  margin-bottom: 1px;
-}
-.llm-bridge-sdk-group-items {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* V2.0: 工具耗时 */
-.llm-bridge-sdk-tool-duration {
-  font-size: 10px;
-  color: var(--text-muted);
-  font-family: var(--font-monospace);
-  margin-left: 4px;
-}
-
-/* V2.0: error/failed 复制按钮（便于复制错误信息用于诊断） */
-.llm-bridge-sdk-event-copy {
-  font-size: var(--font-smallest);
-  padding: 1px 6px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  border-radius: 4px;
-  cursor: pointer;
-  flex: 0 0 auto;
-  align-self: center;
-}
-.llm-bridge-sdk-event-copy:hover { color: var(--text-normal); border-color: var(--interactive-accent); }
-
-/* V2.0: 新事件类型颜色（thinking/completed/failed） */
-.llm-bridge-sdk-event-item.is-thinking .llm-bridge-sdk-event-label { color: var(--text-muted); font-style: italic; }
-.llm-bridge-sdk-event-item.is-completed .llm-bridge-sdk-event-label { color: #4caf50; }
-.llm-bridge-sdk-event-item.is-failed-fatal .llm-bridge-sdk-event-label { color: #e53935; }
-.llm-bridge-sdk-event-item.is-failed-recoverable .llm-bridge-sdk-event-label { color: #fb8c00; }
-
-/* V2.3: SDK agents 列表（主 agent ★ / subagent ↳） */
-.llm-bridge-sdk-agent-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.llm-bridge-sdk-agent-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 2px 4px;
-  font-size: var(--font-smallest);
-  border-radius: 3px;
-}
-.llm-bridge-sdk-agent-item.is-main { background: var(--background-secondary); }
-.llm-bridge-sdk-agent-item.is-subagent { background: var(--background-secondary-alt); margin-left: 12px; }
-.llm-bridge-sdk-agent-icon { font-size: 12px; flex: 0 0 auto; }
-.llm-bridge-sdk-agent-item.is-main .llm-bridge-sdk-agent-icon { color: #4caf50; }
-.llm-bridge-sdk-agent-item.is-subagent .llm-bridge-sdk-agent-icon { color: var(--text-muted); }
-.llm-bridge-sdk-agent-text {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.llm-bridge-sdk-agent-name { font-weight: 600; color: var(--text-normal); }
-.llm-bridge-sdk-agent-session,
-.llm-bridge-sdk-agent-parent {
-  font-family: var(--font-monospace);
-  font-size: 10px;
-  color: var(--text-muted);
-}
-.llm-bridge-sdk-agent-count {
-  font-size: 10px;
-  color: var(--text-muted);
-  margin-left: auto;
-  flex: 0 0 auto;
-}
-
 /* V2.3: 状态栏新字段（权限策略 / Skills / Tools / Agents）颜色提示 */
 .llm-bridge-sb-permission.is-low .llm-bridge-sb-value { color: #4caf50; }
 .llm-bridge-sb-permission.is-medium .llm-bridge-sb-value { color: var(--text-normal); }
 .llm-bridge-sb-permission.is-high .llm-bridge-sb-value { color: #e53935; }
-.llm-bridge-sb-skills .llm-bridge-sb-value,
+
 .llm-bridge-sb-tools .llm-bridge-sb-value,
+
 .llm-bridge-sb-agents .llm-bridge-sb-value {
   font-family: var(--font-monospace);
   font-size: var(--font-smallest);
@@ -1730,26 +1251,6 @@
 .llm-bridge-sb-title-row.is-completed .llm-bridge-sb-session-title { color: #4caf50; }
 .llm-bridge-sb-title-row.is-failed .llm-bridge-sb-session-title { color: #e53935; }
 .llm-bridge-sb-title-row.is-stopped .llm-bridge-sb-session-title { color: #fb8c00; }
-
-.llm-bridge-sb-new-session {
-  flex: 0 0 auto;
-  padding: 2px 8px;
-  font-size: var(--font-smallest);
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  color: var(--text-muted);
-  border-radius: 4px;
-  cursor: pointer;
-}
-.llm-bridge-sb-new-session:hover:not(:disabled) { color: var(--text-normal); border-color: var(--interactive-accent); }
-.llm-bridge-sb-new-session:disabled { opacity: 0.4; cursor: not-allowed; }
-
-/* === V2.0: Skills 面板 === */
-
-.llm-bridge-skills-panel {
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-}
 .llm-bridge-skills-head {
   padding: 4px 10px;
   cursor: pointer;
@@ -1777,66 +1278,6 @@
   color: var(--text-muted);
   font-style: italic;
   padding: 4px 0;
-}
-.llm-bridge-skills-seed-btn {
-  align-self: flex-start;
-  padding: 3px 9px;
-  font-size: var(--font-smallest);
-  border: 1px solid var(--interactive-accent);
-  background: transparent;
-  color: var(--interactive-accent);
-  border-radius: 6px;
-  cursor: pointer;
-  font-style: normal;
-}
-.llm-bridge-skills-seed-btn:hover { background: var(--interactive-accent); color: var(--text-on-accent); }
-.llm-bridge-skills-list {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.llm-bridge-skill-item {
-  display: flex;
-  flex-direction: row;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 4px 8px;
-  border: 1px solid var(--background-modifier-border);
-  background: var(--background-primary);
-  border-radius: 5px;
-  transition: border-color 0.1s;
-}
-.llm-bridge-skill-item:hover { border-color: var(--interactive-accent); }
-.llm-bridge-skill-item.is-disabled { opacity: 0.45; }
-.llm-bridge-skill-check {
-  flex: 0 0 auto;
-  display: inline-flex;
-  align-items: center;
-  margin-top: 2px;
-  cursor: pointer;
-}
-.llm-bridge-skill-check input { margin: 0; cursor: pointer; }
-.llm-bridge-skill-main {
-  flex: 1 1 auto;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-.llm-bridge-skill-item.is-disabled .llm-bridge-skill-main { cursor: default; }
-.llm-bridge-skill-main:hover .llm-bridge-skill-name { color: var(--interactive-accent); }
-.llm-bridge-skill-name {
-  font-size: var(--font-smaller);
-  font-weight: 600;
-  color: var(--text-normal);
-}
-.llm-bridge-skill-desc {
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
 }
 
 /* === V2.15-F: Agent Skills registry === */
@@ -2009,19 +1450,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.llm-bridge-agent-skill-doc-copy {
-  min-height: 28px;
-  padding: 3px 9px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--interactive-normal);
-  color: var(--text-normal);
-  font-size: var(--font-smallest);
-  cursor: pointer;
-}
-.llm-bridge-agent-skill-doc-copy:hover {
-  background: var(--interactive-hover);
-}
 .llm-bridge-agent-skill-doc-body {
   max-width: 880px;
   margin: 0 auto;
@@ -2139,32 +1567,6 @@
   overflow-y: auto;
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
 }
-.llm-bridge-perm-panel-header {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 5px;
-}
-.llm-bridge-perm-panel-title {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  font-size: var(--font-smallest);
-  font-weight: 600;
-  color: var(--text-normal);
-}
-.llm-bridge-perm-panel-title-icon {
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  color: var(--interactive-accent);
-}
-.llm-bridge-perm-panel-count {
-  margin-left: auto;
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
-  font-weight: 500;
-}
 
 /* V16.4-F: Codex-style approval card（替代旧 llm-bridge-perm-card 系列） */
 .llm-bridge-approval-card {
@@ -2244,17 +1646,6 @@
 }
 .llm-bridge-approval-card-row-risk.is-risk-low {
   color: var(--text-muted);
-}
-.llm-bridge-approval-card-risk-icon {
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  flex-shrink: 0;
-}
-.llm-bridge-approval-card-row-highrisk {
-  color: var(--text-error);
-  font-weight: 600;
-  font-size: var(--font-small);
 }
 .llm-bridge-approval-card-row-subagent {
   color: var(--text-muted);
@@ -2601,168 +1992,6 @@
   color: var(--background-primary);
 }
 
-/* V16.4-G legacy developer-only: 旧权限请求卡片样式（已由 .llm-bridge-approval-card 取代） */
-/* 普通用户态不再使用；保留供 developerMode 历史消息兼容，不影响主链路 */
-/* 权限请求卡片 */
-.llm-bridge-perm-card {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 6px 8px;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 5px 6px;
-  margin-bottom: 4px;
-  background: transparent;
-}
-.llm-bridge-perm-card.is-risk-medium { border-color: rgba(251, 140, 0, 0.22); }
-.llm-bridge-perm-card.is-risk-high {
-  border-color: rgba(229, 57, 53, 0.38);
-  background: rgba(229, 57, 53, 0.06);
-}
-
-.llm-bridge-perm-card-header {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-}
-.llm-bridge-perm-card-icon {
-  display: inline-flex;
-  width: 14px;
-  height: 14px;
-  flex: 0 0 auto;
-  color: var(--text-muted);
-}
-.llm-bridge-perm-card.is-risk-high .llm-bridge-perm-card-icon { color: #e53935; }
-.llm-bridge-perm-card-tool {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--font-smallest);
-  font-weight: 600;
-  color: var(--text-normal);
-}
-.llm-bridge-perm-card-source {
-  font-size: var(--font-smallest);
-  padding: 1px 6px;
-  border-radius: 3px;
-}
-.llm-bridge-perm-card-source.is-main { background: rgba(76, 175, 80, 0.15); color: #4caf50; }
-.llm-bridge-perm-card-source.is-subagent { background: rgba(251, 140, 0, 0.15); color: #fb8c00; }
-.llm-bridge-perm-card-merge-count {
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
-  font-weight: 500;
-}
-
-.llm-bridge-perm-card-risk {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 4px;
-}
-.llm-bridge-perm-risk-level {
-  font-size: var(--font-smallest);
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 3px;
-  text-transform: uppercase;
-}
-.llm-bridge-perm-risk-level.is-high { background: rgba(229, 57, 53, 0.15); color: #e53935; }
-.llm-bridge-perm-risk-level.is-medium { background: rgba(251, 140, 0, 0.15); color: #fb8c00; }
-.llm-bridge-perm-risk-level.is-low { background: rgba(76, 175, 80, 0.15); color: #4caf50; }
-.llm-bridge-perm-risk-reason {
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
-}
-
-.llm-bridge-perm-card-flags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 4px;
-}
-.llm-bridge-perm-flags-label {
-  font-size: var(--font-smallest);
-  font-weight: 600;
-  color: #e53935;
-}
-.llm-bridge-perm-flag {
-  font-size: var(--font-smallest);
-  padding: 1px 5px;
-  border-radius: 3px;
-  background: rgba(229, 57, 53, 0.1);
-  color: #e53935;
-  border: 1px solid rgba(229, 57, 53, 0.3);
-}
-
-.llm-bridge-perm-card-input {
-  font-size: var(--font-smallest);
-  font-family: var(--font-monospace);
-  color: var(--text-muted);
-  margin-bottom: 4px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.llm-bridge-perm-card-subagent-warn {
-  font-size: var(--font-smallest);
-  color: #fb8c00;
-  margin-bottom: 6px;
-  font-style: italic;
-}
-
-.llm-bridge-perm-card-btns {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  white-space: nowrap;
-}
-.llm-bridge-perm-btn {
-  font-size: var(--font-smallest);
-  padding: 3px 8px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 6px;
-  cursor: pointer;
-  background: var(--background-primary);
-  color: var(--text-normal);
-  line-height: 1.3;
-}
-.llm-bridge-perm-btn:hover { border-color: var(--interactive-accent); }
-.llm-bridge-perm-btn.is-allow-once { color: var(--text-normal); }
-.llm-bridge-perm-btn.is-allow-session { color: #4caf50; border-color: rgba(76, 175, 80, 0.4); }
-.llm-bridge-perm-btn.is-allow-session:hover { background: rgba(76, 175, 80, 0.1); }
-.llm-bridge-perm-btn.is-deny { color: #e53935; border-color: rgba(229, 57, 53, 0.4); }
-.llm-bridge-perm-btn.is-deny:hover { background: rgba(229, 57, 53, 0.1); }
-.llm-bridge-perm-card-details {
-  grid-column: 1 / -1;
-  color: var(--text-muted);
-  font-size: 10px;
-}
-.llm-bridge-perm-card-details > summary {
-  width: max-content;
-  cursor: pointer;
-  user-select: none;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 600;
-}
-.llm-bridge-perm-card-details-body {
-  display: grid;
-  gap: 3px;
-  margin-top: 4px;
-  padding-top: 4px;
-  border-top: 1px dashed var(--background-modifier-border);
-}
-.llm-bridge-perm-card-detail-line {
-  font-family: var(--font-monospace);
-  color: var(--text-muted);
-  word-break: break-word;
-}
-
 /* V2.14.0-E: 外部读取授权请求（仅管理授权，不读取文件） */
 .llm-bridge-external-read-panel {
   border-top: 2px solid var(--interactive-accent);
@@ -2846,60 +2075,6 @@
   border-color: rgba(229, 57, 53, 0.45) !important;
 }
 
-/* 权限历史（SDK Workflow 中的 Permissions 分组） */
-.llm-bridge-perm-hist-row1 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 2px;
-}
-.llm-bridge-perm-hist-tool {
-  font-size: var(--font-small);
-  font-weight: 600;
-  color: var(--text-normal);
-}
-.llm-bridge-perm-hist-source {
-  font-size: var(--font-smallest);
-  padding: 1px 5px;
-  border-radius: 3px;
-}
-.llm-bridge-perm-hist-source.is-session_allow { background: rgba(76, 175, 80, 0.15); color: #4caf50; }
-.llm-bridge-perm-hist-source.is-session_deny { background: rgba(229, 57, 53, 0.15); color: #e53935; }
-.llm-bridge-perm-hist-source.is-mode { background: var(--background-modifier-border); color: var(--text-muted); }
-.llm-bridge-perm-hist-source.is-user { background: rgba(251, 140, 0, 0.15); color: #fb8c00; }
-.llm-bridge-perm-hist-agent {
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
-}
-.llm-bridge-perm-hist-agent.is-main { color: #4caf50; }
-.llm-bridge-perm-hist-agent.is-subagent { color: #fb8c00; }
-.llm-bridge-perm-hist-row2 {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 2px;
-}
-.llm-bridge-perm-hist-flags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 2px;
-}
-.llm-bridge-perm-hist-input {
-  font-size: var(--font-smallest);
-  font-family: var(--font-monospace);
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.llm-bridge-perm-hist-subagent-warn {
-  font-size: var(--font-smallest);
-  color: #fb8c00;
-  font-style: italic;
-}
-
 /* === V2.12.1: UI Recovery — 布局分层 + header 按钮对齐 + 输入区约束 === */
 /* 目标：修复 Bridge View 真实可用性退化（拥挤/错位/挤压），最小 patch，不新增功能 */
 /* 1. 统一折叠区 head 为 flex 布局，确保按钮在 header 内对齐，不漂浮到下一行 */
@@ -2923,9 +2098,11 @@
   flex: 0 0 auto;
 }
 .llm-bridge-sb-advanced-toggle:hover { background: var(--interactive-hover); }
-.llm-bridge-skills-import-btn,
+
 .llm-bridge-history-refresh-btn,
+
 .llm-bridge-history-edit-btn,
+
 .llm-bridge-history-del-btn {
   padding: 1px 6px;
   border: 1px solid var(--background-modifier-border);
@@ -2937,8 +2114,9 @@
   flex: 0 0 auto;
   line-height: 1.4;
 }
-.llm-bridge-skills-import-btn:hover,
+
 .llm-bridge-history-refresh-btn:hover,
+
 .llm-bridge-history-edit-btn:hover { background: var(--interactive-hover); }
 .llm-bridge-history-del-btn:hover { background: rgba(229,57,53,0.15); color: #e53935; }
 .llm-bridge-history-toggle {
@@ -2973,8 +2151,7 @@
 .llm-bridge-history-search {
   margin-bottom: 4px;
 }
-.llm-bridge-history-search-input,
-.llm-bridge-skills-search-input {
+.llm-bridge-history-search-input {
   width: 100%;
   font-size: var(--font-smallest);
   padding: 3px 6px;
@@ -2984,8 +2161,7 @@
   color: var(--text-normal);
   box-sizing: border-box;
 }
-.llm-bridge-history-search-input:focus,
-.llm-bridge-skills-search-input:focus {
+.llm-bridge-history-search-input:focus {
   outline: none;
   border-color: var(--interactive-accent);
 }
@@ -3035,13 +2211,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.llm-bridge-history-meta {
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .llm-bridge-history-item.is-completed { border-left: 3px solid #4caf50; }
 .llm-bridge-history-item.is-failed { border-left: 3px solid #e53935; }
 .llm-bridge-history-item.is-stopped { border-left: 3px solid #fb8c00; }
@@ -3056,16 +2225,6 @@
   gap: 12px;
   width: 100%;
   padding-top: 2px;
-}
-
-/* === V2.12.1 UI Refactor: 标签页三分布 === */
-.llm-bridge-tab-bar {
-  display: flex;
-  flex: 0 0 auto;
-  border-bottom: 1px solid var(--background-modifier-border);
-  background: var(--background-secondary);
-  padding: 0 8px;
-  gap: 2px;
 }
 .llm-bridge-tab {
   padding: 5px 14px;
@@ -3091,8 +2250,7 @@
   flex-direction: column;
 }
 .llm-bridge-tab-panel.is-active { display: flex; }
-/* tab 模式下 Skills/History panel 不需要 border-bottom（已在 tab-bar 下） */
-.llm-bridge-tab-panel[data-panel="skills"] .llm-bridge-skills-panel,
+
 .llm-bridge-tab-panel[data-panel="history"] .llm-bridge-history-panel {
   border-bottom: none;
   background: transparent;
@@ -3182,7 +2340,7 @@
     padding-inline: 3px;
   }
 
-  .llm-bridge-nav-title,
+  
   .llm-bridge-nav-label {
     display: none;
   }
@@ -3203,10 +2361,6 @@
   .llm-bridge-new-chat-btn {
     padding: 4px 8px;
     font-size: var(--font-smallest);
-  }
-
-  .llm-bridge-topbar-title {
-    display: none;
   }
 
   .llm-bridge-composer-bar {
@@ -3280,31 +2434,7 @@
   border-color: rgba(var(--interactive-accent-rgb), 0.45);
   background: rgba(var(--interactive-accent-rgb), 0.08);
 }
-.llm-bridge-session-dropdown-name {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.llm-bridge-session-dropdown-request,
-.llm-bridge-session-dropdown-reply {
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-muted);
-  font-size: var(--font-smallest);
-  line-height: 1.35;
-}
-.llm-bridge-session-dropdown-request::before {
-  content: "User: ";
-  color: var(--text-faint);
-}
-.llm-bridge-session-dropdown-reply::before {
-  content: "Agent: ";
-  color: var(--text-faint);
-}
-.llm-bridge-session-dropdown-meta,
+
 .llm-bridge-session-dropdown-empty {
   color: var(--text-muted);
   font-size: var(--font-smallest);
@@ -3367,105 +2497,10 @@
   color: var(--interactive-accent);
 }
 
-.llm-bridge-attachment-menu,
+
 .llm-bridge-command-menu {
   position: relative;
   flex: 0 0 auto;
-}
-.llm-bridge-attachment-menu summary {
-  list-style: none;
-}
-.llm-bridge-attachment-menu summary::-webkit-details-marker {
-  display: none;
-}
-.llm-bridge-attachment-menu[open] .llm-bridge-attach-file-btn {
-  border-color: rgba(var(--interactive-accent-rgb), 0.55);
-  color: var(--interactive-accent);
-}
-.llm-bridge-attachment-menu-body {
-  position: absolute;
-  left: 0;
-  bottom: calc(100% + 8px);
-  z-index: 24;
-  min-width: 190px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 8px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 12px;
-  background: var(--background-secondary);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
-}
-.llm-bridge-attachment-menu-item,
-.llm-bridge-vault-file-picker-item {
-  width: 100%;
-  padding: 6px 9px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-normal);
-  text-align: left;
-  cursor: pointer;
-}
-.llm-bridge-attachment-menu-item:hover,
-.llm-bridge-vault-file-picker-item:hover {
-  background: var(--background-modifier-hover);
-  border-color: rgba(var(--interactive-accent-rgb), 0.35);
-}
-.llm-bridge-vault-file-picker-list {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-height: 320px;
-  margin-top: 8px;
-  overflow: auto;
-}
-.llm-bridge-vault-file-picker-empty {
-  padding: 8px;
-  color: var(--text-muted);
-  font-size: var(--font-small);
-}
-/* V2.15-H: @ 提及文件选择器（输入框上方 inline popup） */
-
-.llm-bridge-skills-list {
-  gap: 6px;
-}
-.llm-bridge-agent-skill-item {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  align-items: start;
-}
-.llm-bridge-skill-check {
-  width: 22px;
-  min-width: 22px;
-  height: 22px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 0;
-}
-.llm-bridge-skill-main {
-  min-width: 0;
-  gap: 2px;
-}
-.llm-bridge-skill-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.llm-bridge-skill-desc,
-.llm-bridge-skill-stats {
-  overflow-wrap: anywhere;
-}
-.llm-bridge-skill-view-btn {
-  min-height: 28px;
-  padding: 3px 9px;
-  border-radius: 8px;
-  white-space: nowrap;
-}
-.llm-bridge-skill-view-btn {
-  min-width: 30px;
 }
 
 @media (max-width: 720px) {
@@ -3487,57 +2522,6 @@
     right: -4px;
     grid-template-columns: 1fr 0.8fr;
   }
-}
-
-/* V2.16-C: SDK Live Progress 实时过程展示 */
-.llm-bridge-live-progress {
-  margin: 4px 0;
-  padding: 6px 8px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 8px;
-  background: var(--background-secondary-alt);
-  font-size: var(--font-smallest);
-}
-.llm-bridge-live-progress-title {
-  color: var(--text-faint);
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
-  margin-bottom: 4px;
-}
-.llm-bridge-live-progress-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 0;
-  color: var(--text-normal);
-  line-height: 1.4;
-}
-.llm-bridge-live-progress-icon {
-  flex-shrink: 0;
-  width: 16px;
-  text-align: center;
-  color: var(--interactive-accent);
-}
-.llm-bridge-live-progress-label {
-  flex-shrink: 0;
-  font-weight: 500;
-  min-width: 64px;
-}
-.llm-bridge-live-progress-detail {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-muted);
-}
-.llm-bridge-live-progress-item.llm-bridge-live-error .llm-bridge-live-progress-icon,
-.llm-bridge-live-progress-item.llm-bridge-live-failed .llm-bridge-live-progress-icon {
-  color: var(--text-error);
-}
-.llm-bridge-live-progress-item.llm-bridge-live-completed .llm-bridge-live-progress-icon {
-  color: var(--text-success);
 }
 
 /* ===== V2.16-C: 现代 Claude/Codex 风格垂直 Timeline ===== */
@@ -3930,25 +2914,6 @@
 .llm-bridge-phase-reasoning.is-expanded .llm-bridge-phase-reasoning-content::after {
   display: none;
 }
-/* 旧 thought 样式保留兼容（developer mode raw trace 可能引用） */
-.llm-bridge-phase-thought {
-  font-size: var(--font-smallest);
-  color: var(--text-muted);
-  padding: 2px 6px;
-  background: var(--background-secondary);
-  border-radius: 3px;
-  border-left: 2px solid var(--text-faint);
-}
-.llm-bridge-phase-thought-meta {
-  font-size: 10px;
-  color: var(--text-faint);
-  margin-bottom: 2px;
-}
-.llm-bridge-phase-thought-text {
-  color: var(--text-muted);
-  line-height: 1.4;
-  word-break: break-word;
-}
 .llm-bridge-phase-file-change {
   display: flex;
   align-items: center;
@@ -4142,78 +3107,6 @@
   font-family: var(--font-monospace);
   word-break: break-word;
 }
-.llm-bridge-phase-approval {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-  font-size: var(--font-smallest);
-  color: var(--text-normal);
-  padding: 0;
-  border: 0;
-  background: transparent;
-  border-radius: 8px;
-}
-/* V16.4-D: 内联 approval chips — 低风险嵌入 phase，高风险强调 */
-.llm-bridge-phase-approval.is-pending {
-  padding: 0;
-}
-.llm-bridge-phase-approval.is-risk-low.is-pending {
-  color: var(--text-normal);
-}
-.llm-bridge-phase-approval.is-risk-high.is-pending {
-  padding: 6px 8px;
-  border: 1px solid rgba(229, 57, 53, 0.35);
-  background: rgba(229, 57, 53, 0.08);
-}
-.llm-bridge-phase-approval.is-resolved {
-  color: var(--text-muted);
-  background: transparent;
-  font-weight: 400;
-}
-.llm-bridge-phase-approval-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-.llm-bridge-phase-approval-head {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.llm-bridge-phase-approval-tool {
-  font-weight: 500;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.llm-bridge-phase-approval-risk {
-  flex-shrink: 0;
-  padding: 1px 6px;
-  border-radius: 999px;
-  border: 1px solid rgba(229, 57, 53, 0.25);
-  background: rgba(229, 57, 53, 0.1);
-  color: #e53935;
-  font-size: 10px;
-  font-weight: 600;
-}
-.llm-bridge-phase-approval-resolution {
-  color: var(--text-muted);
-  font-size: var(--font-smallest);
-  font-style: italic;
-}
-.llm-bridge-phase-approval-btns {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  flex-shrink: 0;
-  white-space: nowrap;
-}
 .llm-bridge-approval-btn {
   padding: 1px 8px;
   border: 1px solid var(--background-modifier-border);
@@ -4233,27 +3126,6 @@
 .llm-bridge-approval-btn.is-allow-session:hover { background: rgba(76, 175, 80, 0.1); }
 .llm-bridge-approval-btn.is-deny { color: #e53935; border-color: rgba(229, 57, 53, 0.4); }
 .llm-bridge-approval-btn.is-deny:hover { background: rgba(229, 57, 53, 0.1); }
-.llm-bridge-phase-approval-details {
-  margin-top: 0;
-  font-size: 10px;
-  color: var(--text-muted);
-}
-.llm-bridge-phase-approval-details > summary {
-  cursor: pointer;
-  user-select: none;
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 600;
-}
-.llm-bridge-phase-approval-risk-reason,
-.llm-bridge-phase-approval-flags,
-.llm-bridge-phase-approval-input {
-  margin-top: 3px;
-  padding: 0;
-  font-family: var(--font-monospace);
-  font-size: 10px;
-  word-break: break-word;
-}
 
 /* ===== V17-G: Codex native run UI ===== */
 .llm-bridge-codex-run-view {
@@ -4317,10 +3189,11 @@
   font-variant-numeric: tabular-nums;
 }
 .llm-bridge-codex-run-metric-icon,
-.llm-bridge-codex-current-activity-icon,
+
 .llm-bridge-codex-approval-gate-icon,
-.llm-bridge-codex-change-icon,
+
 .llm-bridge-codex-step-icon,
+
 .llm-bridge-codex-diagnostics-icon {
   display: inline-flex;
   align-items: center;
@@ -4342,12 +3215,6 @@
   color: var(--text-muted);
   font-size: var(--font-smallest);
 }
-.llm-bridge-codex-current-activity-icon,
-.llm-bridge-codex-current-activity-icon svg {
-  width: 14px;
-  height: 14px;
-}
-.llm-bridge-codex-current-activity.is-running .llm-bridge-codex-current-activity-icon { color: var(--interactive-accent); }
 .llm-bridge-codex-current-activity.is-running .llm-bridge-run-status-text {
   background: linear-gradient(90deg, var(--text-muted), var(--interactive-accent), var(--text-muted));
   background-size: 220% 100%;
@@ -4356,7 +3223,6 @@
   color: transparent;
   animation: llm-bridge-codex-working-shimmer 2.4s ease-in-out infinite;
 }
-.llm-bridge-codex-current-activity.is-blocked .llm-bridge-codex-current-activity-icon { color: var(--text-warning); }
 @keyframes llm-bridge-codex-working-shimmer {
   0% { background-position: 180% 0; }
   100% { background-position: -40% 0; }
@@ -4373,8 +3239,9 @@
   min-height: 20px;
 }
 .llm-bridge-codex-approval-gates,
+
 .llm-bridge-codex-changes-panel,
-.llm-bridge-codex-steps,
+
 .llm-bridge-codex-diagnostics {
   display: grid;
   gap: 6px;
@@ -4461,7 +3328,7 @@
 }
 .llm-bridge-codex-approval-btn.is-allow-session { color: var(--text-success); }
 .llm-bridge-codex-approval-btn.is-deny { color: var(--text-error); }
-.llm-bridge-codex-change-list,
+
 .llm-bridge-codex-step-list {
   display: grid;
   gap: 0;
@@ -4475,44 +3342,16 @@
   border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 72%, transparent);
 }
 .llm-bridge-codex-change-row:first-child { border-top: 0; }
-.llm-bridge-codex-change-icon,
-.llm-bridge-codex-change-icon svg {
-  width: 16px;
-  height: 16px;
-}
-.llm-bridge-codex-change-icon { margin-top: 2px; color: var(--text-muted); }
-.llm-bridge-codex-change-row.is-create .llm-bridge-codex-change-icon { color: var(--text-success); }
-.llm-bridge-codex-change-row.is-delete .llm-bridge-codex-change-icon { color: var(--text-error); }
-.llm-bridge-codex-change-main {
-  display: grid;
-  gap: 2px;
-  min-width: 0;
-}
-.llm-bridge-codex-change-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.llm-bridge-codex-change-action {
-  color: var(--text-faint);
-  font-size: 10px;
-  text-transform: none;
-}
-.llm-bridge-codex-change-name,
+
 .llm-bridge-codex-change-path,
+
 .llm-bridge-codex-step-label,
-.llm-bridge-codex-step-command,
+
 .llm-bridge-codex-step-cwd {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-.llm-bridge-codex-change-name {
-  color: var(--text-normal);
-  font-size: var(--font-smallest);
-  font-weight: 650;
 }
 .llm-bridge-codex-change-path {
   color: var(--text-accent);
@@ -4529,47 +3368,19 @@
   text-decoration: line-through;
   pointer-events: none;
 }
-.llm-bridge-codex-change-meta {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
 .llm-bridge-codex-change-diff-summary,
-.llm-bridge-codex-change-duration,
+
 .llm-bridge-codex-step-status,
+
 .llm-bridge-codex-step-duration,
+
 .llm-bridge-codex-step-exit,
-.llm-bridge-codex-step-command,
+
 .llm-bridge-codex-step-cwd {
   color: var(--text-muted);
   font-size: 10px;
   font-variant-numeric: tabular-nums;
 }
-.llm-bridge-codex-change-actions {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-.llm-bridge-codex-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  padding: 0;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
-}
-.llm-bridge-codex-icon-btn:hover {
-  border-color: var(--background-modifier-border);
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
-}
-.llm-bridge-codex-icon-btn svg { width: 13px; height: 13px; }
 .llm-bridge-codex-diff-preview,
 .llm-bridge-codex-detail,
 .llm-bridge-codex-source-ref {
@@ -4681,15 +3492,6 @@
   display: grid;
   gap: var(--llm-bridge-codex-gap-tool-internal);
 }
-.llm-bridge-codex-feed-batch {
-  display: grid;
-  gap: var(--llm-bridge-codex-gap-tool-internal);
-  padding: 0 0 2px 12px;
-  border-left: var(--llm-bridge-codex-guide-border);
-}
-.llm-bridge-codex-feed-batch:first-child {
-  padding-top: 0;
-}
 .llm-bridge-codex-thinking-line {
   display: flex;
   align-items: baseline;
@@ -4732,9 +3534,6 @@
   padding: 5px 0;
   border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 34%, transparent);
 }
-.llm-bridge-codex-feed-batch .llm-bridge-codex-feed-item:first-child {
-  border-top: 0;
-}
 .llm-bridge-codex-feed-item.is-batch-event,
 .llm-bridge-codex-change-row.llm-bridge-codex-feed-item.is-batch-event {
   grid-template-columns: 16px minmax(0, 1fr) auto auto;
@@ -4742,17 +3541,6 @@
   min-height: 24px;
   margin-left: 13px;
   padding: 4px 0;
-}
-.llm-bridge-codex-feed-output {
-  min-width: 0;
-  margin: 0 0 0 20px;
-  color: var(--text-normal);
-  font-size: var(--font-small);
-  line-height: 1.5;
-}
-.llm-bridge-codex-feed-output-text {
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 .llm-bridge-codex-event-block.llm-bridge-codex-feed-item,
 .llm-bridge-codex-change-row.llm-bridge-codex-event-block.llm-bridge-codex-feed-item {
@@ -4795,45 +3583,10 @@
 .llm-bridge-codex-event-block[open] > .llm-bridge-codex-event-summary::before {
   transform: translateX(-14px) rotate(90deg);
 }
-.llm-bridge-codex-event-main,
-.llm-bridge-codex-event-title {
-  min-width: 0;
-}
-.llm-bridge-codex-event-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-.llm-bridge-codex-event-hint {
-  margin-top: 2px;
-  color: var(--text-muted);
-  font-size: var(--font-smallest);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.llm-bridge-codex-event-meta {
-  align-self: start;
-  padding-top: 1px;
-}
 .llm-bridge-codex-event-body {
   display: grid;
   gap: 6px;
   padding: 0 9px 9px 35px;
-}
-.llm-bridge-codex-event-change-info {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 0;
-}
-.llm-bridge-codex-event-text {
-  color: var(--text-muted);
-  font-size: var(--font-smallest);
-  line-height: 1.45;
-  white-space: pre-wrap;
-  word-break: break-word;
 }
 .llm-bridge-codex-feed-item.is-batch-event .llm-bridge-codex-feed-icon {
   opacity: 0.76;
@@ -4894,9 +3647,6 @@
   flex-wrap: wrap;
   justify-content: flex-end;
 }
-.llm-bridge-codex-feed-item .llm-bridge-codex-change-actions {
-  margin-top: -1px;
-}
 .llm-bridge-codex-feed-item .llm-bridge-codex-diff-preview,
 .llm-bridge-codex-feed-item .llm-bridge-codex-detail,
 .llm-bridge-codex-feed-item .llm-bridge-codex-source-ref {
@@ -4908,9 +3658,11 @@
 .llm-bridge-codex-event-body .llm-bridge-codex-step-cwd {
   grid-column: 1 / -1;
 }
-.llm-bridge-codex-step-command,
+
 .llm-bridge-codex-step-cwd,
+
 .llm-bridge-codex-detail,
+
 .llm-bridge-codex-source-ref {
   grid-column: 2 / -1;
 }
@@ -4950,18 +3702,6 @@
   color: var(--text-muted);
   font-size: var(--font-smallest);
   line-height: 1.45;
-}
-.llm-bridge-codex-final-answer-marker {
-  display: inline-flex;
-  align-items: center;
-  width: fit-content;
-  max-width: 100%;
-  padding-top: 2px;
-  border-top: 0;
-  color: var(--text-faint);
-  font-size: var(--font-smallest);
-  font-weight: 600;
-  text-transform: none;
 }
 /* V16.4-D: editing tool 自动批准来源标签 */
 .llm-bridge-phase-tool-auto-approval {
@@ -5349,8 +4089,7 @@
   border-bottom-color: var(--llm-agent-line);
 }
 
-.llm-bridge-topbar-logo,
-.llm-bridge-nav-logo {
+.llm-bridge-topbar-logo {
   color: var(--interactive-accent);
   background: var(--llm-agent-accent-soft);
   box-shadow: inset 0 0 0 1px rgba(var(--interactive-accent-rgb), 0.28);
@@ -5377,8 +4116,6 @@
 .llm-bridge-runtime-status,
 .llm-bridge-new-chat-btn,
 .llm-bridge-chip,
-.llm-bridge-chip-toggle,
-.llm-bridge-chip-readonly,
 .llm-bridge-permission-chip,
 .llm-bridge-model-effort-chip {
   border-color: var(--llm-agent-line);
@@ -5424,11 +4161,15 @@
 }
 
 .llm-bridge-composer-tool-btn,
+
 .llm-bridge-command-menu-item,
-.llm-bridge-perm-btn,
+
 .llm-bridge-external-read-actions button,
+
 .llm-bridge-debug-path-copy,
+
 .llm-bridge-debug-path-open,
+
 .llm-bridge-cmd-preview-copy {
   border-color: var(--llm-agent-line);
   border-radius: 7px;
@@ -5739,10 +4480,13 @@
 }
 
 .llm-bridge-tl-file-action-create .llm-bridge-tl-file-symbol,
+
 .llm-bridge-tl-file-action-modify .llm-bridge-tl-file-symbol,
+
 .llm-bridge-tl-file-action-delete .llm-bridge-tl-file-symbol,
+
 .llm-bridge-tl-chip,
-.llm-bridge-agent-tag,
+
 .llm-bridge-tl-agent-tag {
   border: 1px solid var(--llm-agent-line);
   background: var(--llm-agent-surface-muted);
@@ -5786,11 +4530,17 @@
   background: color-mix(in srgb, var(--llm-agent-success) 10%, transparent);
 }
 
-.llm-bridge-perm-card,
+
+
 .llm-bridge-external-read-card,
+
+
 .llm-bridge-pending-item,
+
+
 .llm-bridge-history-item,
-.llm-bridge-skill-item,
+
+
 .llm-bridge-agent-skill-registry-item {
   border-color: var(--llm-agent-line);
   border-radius: 8px;
@@ -6253,10 +5003,6 @@
   padding: 0 0 5px;
 }
 
-.llm-bridge-codex-run-toggle {
-  color: var(--text-faint);
-}
-
 .llm-bridge-codex-run-provider,
 .llm-bridge-codex-run-metric {
   color: color-mix(in srgb, var(--text-muted) 72%, transparent);
@@ -6273,10 +5019,6 @@
   color: var(--text-muted);
 }
 
-.llm-bridge-codex-current-activity-icon {
-  display: none;
-}
-
 .llm-bridge-codex-current-activity-text .llm-bridge-run-status-text {
   margin-right: 0;
   font-size: var(--font-smallest);
@@ -6289,18 +5031,6 @@
 
 .llm-bridge-codex-thinking-summary {
   color: var(--text-muted);
-}
-
-.llm-bridge-codex-feed-output {
-  margin-left: 0;
-  padding: 0 0 1px;
-  color: var(--text-normal);
-  font-size: var(--font-small);
-  line-height: 1.52;
-}
-
-.llm-bridge-codex-feed-output.is-batch-output {
-  margin-left: 0;
 }
 
 .llm-bridge-codex-event-block.llm-bridge-codex-feed-item,
@@ -6327,18 +5057,15 @@
   font-size: 17px;
 }
 
-.llm-bridge-codex-event-title {
-  gap: 7px;
-}
-
 .llm-bridge-codex-feed-label,
 .llm-bridge-codex-step-label {
   color: var(--text-normal);
   font-weight: 500;
 }
 
-.llm-bridge-codex-event-hint,
+
 .llm-bridge-codex-feed-summary,
+
 .llm-bridge-codex-change-path {
   color: var(--text-muted);
 }
@@ -6409,11 +5136,6 @@
 .llm-bridge-codex-change-approval {
   border-color: transparent;
   background: color-mix(in srgb, var(--background-secondary) 82%, transparent);
-}
-
-.llm-bridge-codex-icon-btn {
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--background-primary) 78%, transparent);
 }
 
 .llm-bridge-codex-diagnostics {
@@ -6650,18 +5372,6 @@
   white-space: nowrap;
 }
 
-.llm-bridge-codex-feed-output {
-  max-width: min(920px, 100%);
-  margin: 1px 0 3px;
-  padding: 0;
-  color: var(--text-normal);
-  font-size: var(--font-ui-small);
-}
-
-.llm-bridge-codex-feed-output-text {
-  white-space: pre-wrap;
-}
-
 .llm-bridge-codex-event-block.llm-bridge-codex-feed-item,
 .llm-bridge-codex-change-row.llm-bridge-codex-event-block.llm-bridge-codex-feed-item {
   margin: 3px 0 4px;
@@ -6686,8 +5396,8 @@
 }
 
 .llm-bridge-codex-feed-icon svg,
-.llm-bridge-codex-step-icon svg,
-.llm-bridge-codex-change-icon svg {
+
+.llm-bridge-codex-step-icon svg {
   width: 15px;
   height: 15px;
 }
@@ -6699,8 +5409,9 @@
   font-weight: 520;
 }
 
-.llm-bridge-codex-event-hint,
+
 .llm-bridge-codex-feed-summary,
+
 .llm-bridge-codex-change-path {
   font-size: var(--font-small);
 }
@@ -6782,12 +5493,6 @@
   padding: 1px 7px;
   border-radius: 999px;
   font-size: var(--font-smallest);
-}
-
-.llm-bridge-codex-icon-btn {
-  width: 28px;
-  height: 28px;
-  border: 0;
 }
 
 .llm-bridge-codex-diagnostics {
@@ -6962,7 +5667,7 @@
 }
 
 .llm-bridge-approval-card-btns,
-.llm-bridge-clarification-actions,
+
 .llm-bridge-external-read-actions {
   gap: 7px;
 }
@@ -7261,8 +5966,9 @@
 }
 
 .llm-bridge-approval-card-row-risk,
-.llm-bridge-approval-card-row-highrisk,
+
 .llm-bridge-approval-card-row-subagent,
+
 .llm-bridge-external-read-warning {
   border-radius: 10px;
   background: color-mix(in srgb, var(--background-secondary) 45%, transparent);
@@ -7427,24 +6133,6 @@
   height: 22px;
 }
 
-.llm-bridge-file-preview-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  color: var(--text-faint);
-  font-size: var(--font-smallest);
-}
-
-.llm-bridge-file-preview-meta span {
-  max-width: 100%;
-  overflow: hidden;
-  padding: 2px 7px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--background-secondary) 48%, transparent);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 /* ===== V17-G20: Codex-like right-aligned user messages ===== */
 
 
@@ -7533,9 +6221,8 @@
 }
 
 .llm-bridge-approval-card-title-icon,
-.llm-bridge-approval-card-title-icon svg,
-.llm-bridge-approval-card-risk-icon,
-.llm-bridge-approval-card-risk-icon svg {
+
+.llm-bridge-approval-card-title-icon svg {
   width: 14px;
   height: 14px;
 }
@@ -7572,8 +6259,9 @@
 }
 
 .llm-bridge-approval-card-row-risk,
-.llm-bridge-approval-card-row-highrisk,
+
 .llm-bridge-approval-card-row-subagent,
+
 .llm-bridge-external-read-warning {
   padding: 4px 7px;
   border-radius: 8px;
@@ -7583,8 +6271,9 @@
 }
 
 .llm-bridge-approval-card-btns,
-.llm-bridge-clarification-actions,
+
 .llm-bridge-clarification-footer,
+
 .llm-bridge-external-read-actions {
   justify-content: flex-end;
   gap: 5px;
@@ -7774,12 +6463,6 @@
   height: 16px;
 }
 
-.llm-bridge-topbar-title {
-  font-size: 15px;
-  font-weight: 650;
-  color: var(--text-normal);
-}
-
 .llm-bridge-page-title {
   color: var(--text-faint);
   font-size: 12px;
@@ -7908,10 +6591,6 @@
   font-weight: 600;
 }
 
-.llm-bridge-history-meta {
-  font-size: 11px;
-}
-
 .llm-bridge-history-preview {
   color: color-mix(in srgb, var(--text-muted) 82%, transparent);
   font-size: 11px;
@@ -7947,8 +6626,7 @@
   display: none;
 }
 
-.llm-bridge-codex-section-title,
-.llm-bridge-codex-final-answer-title {
+.llm-bridge-codex-section-title {
   color: var(--text-faint);
   font-size: 11px;
   font-weight: 620;
@@ -7988,15 +6666,6 @@
   padding: 0 12px 12px;
 }
 
-.llm-bridge-codex-feed-output {
-  padding: 0 2px 0 18px;
-}
-
-.llm-bridge-codex-feed-output-text {
-  color: var(--text-normal);
-  line-height: 1.6;
-}
-
 .llm-bridge-codex-final-answer {
   display: grid;
   gap: 8px;
@@ -8004,18 +6673,6 @@
   border: 1px solid color-mix(in srgb, var(--interactive-accent) 14%, transparent);
   border-radius: 14px;
   background: color-mix(in srgb, var(--background-primary) 92%, var(--background-secondary));
-}
-
-.llm-bridge-codex-final-answer-body {
-  color: var(--text-normal);
-}
-
-.llm-bridge-codex-final-answer-body > :first-child {
-  margin-top: 0;
-}
-
-.llm-bridge-codex-final-answer-body > :last-child {
-  margin-bottom: 0;
 }
 
 /* ===== V17-G38: text-aware file thumbnails and calmer session surfaces ===== */
@@ -8052,11 +6709,6 @@
   background: transparent;
   box-shadow: none;
   color: color-mix(in srgb, var(--text-normal) 74%, var(--text-muted));
-}
-
-.llm-bridge-topbar-title {
-  font-size: var(--font-ui-small);
-  font-weight: 620;
 }
 
 .llm-bridge-page-title {
@@ -8126,7 +6778,7 @@
   border-radius: 10px;
 }
 
-.llm-bridge-session-dropdown-summary,
+
 .llm-bridge-history-preview {
   overflow: hidden;
   color: color-mix(in srgb, var(--text-muted) 82%, transparent);
@@ -8134,10 +6786,6 @@
   line-height: 1.35;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.llm-bridge-session-dropdown-meta {
-  color: var(--text-faint);
 }
 
 .llm-bridge-history-list {
@@ -8162,20 +6810,16 @@
   font-weight: 580;
 }
 
-.llm-bridge-history-meta {
-  color: var(--text-faint);
-}
-
 .llm-bridge-context-ref-doc-thumb.has-text-preview,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb.has-text-preview,
-.llm-bridge-composer-file-doc-thumb.has-text-preview {
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb.has-text-preview {
   align-content: stretch;
   gap: 2px;
 }
 
 .llm-bridge-context-ref-doc-line.is-text,
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-text,
-.llm-bridge-composer-file-doc-line.is-text {
+
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-text {
   display: flex;
   align-items: center;
   width: 100% !important;
@@ -8216,16 +6860,6 @@
 .llm-bridge-file-preview-image {
   max-height: min(58vh, 520px);
   border-radius: 11px;
-}
-
-.llm-bridge-file-preview-meta {
-  gap: 4px;
-  opacity: 0.76;
-}
-
-.llm-bridge-file-preview-meta span {
-  padding: 1px 6px;
-  background: color-mix(in srgb, var(--background-secondary) 30%, transparent);
 }
 
 /* ===== V17-G25: composer attachments match Codex compact send tray ===== */
@@ -8304,11 +6938,6 @@
   object-fit: contain;
 }
 
-.llm-bridge-file-preview-meta {
-  gap: 4px;
-  opacity: 0.72;
-}
-
 .llm-bridge-agent-skills-panel {
   border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 8%, transparent);
   background: transparent;
@@ -8345,31 +6974,6 @@
 .llm-bridge-vc-status-badge {
   color: var(--text-normal);
   font-weight: 500;
-}
-
-.llm-bridge-vc-status-meta {
-  color: var(--text-muted);
-}
-
-.llm-bridge-vc-status-conflicts {
-  color: var(--text-warning, var(--text-accent));
-  font-weight: 500;
-}
-
-.llm-bridge-vc-undo-btn {
-  margin-left: auto;
-  padding: 1px 8px;
-  border: 1px solid var(--background-modifier-border);
-  border-radius: 3px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: var(--font-smallest);
-  cursor: pointer;
-}
-
-.llm-bridge-vc-undo-btn:hover {
-  background: var(--background-modifier-hover);
-  color: var(--text-normal);
 }
 
 .llm-bridge-agent-skills-list {
@@ -8507,25 +7111,6 @@
   user-select: text;
 }
 
-.llm-bridge-file-preview-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  color: var(--text-faint);
-  font-size: var(--font-smallest);
-  user-select: text;
-}
-
-.llm-bridge-file-preview-meta span {
-  max-width: 100%;
-  overflow: hidden;
-  padding: 0;
-  border: 0;
-  background: transparent;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .llm-bridge-agent-skill-doc {
   padding: 20px 26px 38px;
   background: var(--background-primary);
@@ -8557,10 +7142,6 @@
   color: var(--text-faint);
   user-select: text;
   cursor: text;
-}
-
-.llm-bridge-agent-skill-doc-copy {
-  display: none !important;
 }
 
 .llm-bridge-agent-skill-doc-body {
@@ -8949,11 +7530,6 @@
   height: 15px !important;
 }
 
-.llm-bridge-topbar-title {
-  font-size: 14px !important;
-  font-weight: 620 !important;
-}
-
 .llm-bridge-page-title {
   font-size: 11px !important;
   color: color-mix(in srgb, var(--text-faint) 88%, transparent) !important;
@@ -9108,16 +7684,6 @@
   min-width: 0 !important;
 }
 
-.llm-bridge-history-current {
-  flex: 0 0 auto !important;
-  padding: 1px 6px !important;
-  border-radius: 999px !important;
-  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent) !important;
-  color: color-mix(in srgb, var(--interactive-accent) 72%, var(--text-muted)) !important;
-  font-size: 10px !important;
-  line-height: 1.4 !important;
-}
-
 .llm-bridge-history-title {
   min-width: 0 !important;
   overflow: hidden !important;
@@ -9125,11 +7691,6 @@
   white-space: nowrap !important;
   font-size: 12px !important;
   font-weight: 590 !important;
-}
-
-.llm-bridge-history-meta {
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
 }
 
 .llm-bridge-history-preview {
@@ -9272,7 +7833,7 @@
   border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 36%, transparent) !important;
 }
 
-.llm-bridge-perm-popover-head-text,
+
 .llm-bridge-perm-option-text {
   min-width: 0 !important;
 }
@@ -9321,10 +7882,6 @@
 
 .llm-bridge-session-dropdown-item .llm-bridge-menu-item-meta {
   font-size: 10px !important;
-}
-
-.llm-bridge-session-dropdown-summary {
-  display: none !important;
 }
 
 /* ===== V17-G77: debug stays behind one drawer, not in the run waterfall ===== */
@@ -9438,47 +7995,6 @@
   text-align: left !important;
 }
 
-.llm-bridge-session-dropdown-title-row {
-  grid-area: title !important;
-  display: flex !important;
-  align-items: baseline !important;
-  min-width: 0 !important;
-  overflow: hidden !important;
-}
-
-.llm-bridge-session-dropdown-name {
-  min-width: 0 !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-session-dropdown-current {
-  grid-area: badge !important;
-  align-self: center !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-session-dropdown-inline-meta {
-  grid-area: meta !important;
-  display: block !important;
-  min-width: 0 !important;
-  margin-left: 0 !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
-  font-weight: 500 !important;
-}
-
-.llm-bridge-session-dropdown-summary {
-  grid-area: summary !important;
-  min-width: 0 !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-}
-
 .llm-bridge-history-refresh-btn,
 .llm-bridge-history-edit-btn,
 .llm-bridge-history-del-btn {
@@ -9585,26 +8101,6 @@
   box-shadow: none !important;
 }
 
-.llm-bridge-codex-change-actions {
-
-  opacity: 0 !important;
-  transition: opacity 120ms ease !important;
-}
-
-.llm-bridge-codex-change-row:hover .llm-bridge-codex-change-actions,
-.llm-bridge-codex-change-row:focus-within .llm-bridge-codex-change-actions {
-
-  opacity: 1 !important;
-}
-
-.llm-bridge-codex-icon-btn {
-  width: 20px !important;
-  height: 20px !important;
-  min-width: 20px !important;
-  min-height: 20px !important;
-  border-radius: 6px !important;
-}
-
 .llm-bridge-codex-final-answer {
   gap: 6px !important;
   padding: 11px 12px !important;
@@ -9631,11 +8127,6 @@
 
 .llm-bridge-topbar-brand {
   gap: 7px !important;
-}
-
-.llm-bridge-topbar-title {
-  font-size: 13px !important;
-  font-weight: 620 !important;
 }
 
 .llm-bridge-page-title {
@@ -9726,33 +8217,7 @@
   border-radius: 10px !important;
 }
 
-.llm-bridge-session-dropdown-title-row {
-  display: flex !important;
-  align-items: center !important;
-  gap: 6px !important;
-  min-width: 0 !important;
-}
 
-.llm-bridge-session-dropdown-name {
-  min-width: 0 !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-  font-size: 12px !important;
-  font-weight: 580 !important;
-}
-
-.llm-bridge-session-dropdown-current {
-  flex: 0 0 auto !important;
-  padding: 1px 6px !important;
-  border-radius: 999px !important;
-  background: color-mix(in srgb, var(--interactive-accent) 10%, transparent) !important;
-  color: color-mix(in srgb, var(--interactive-accent) 76%, var(--text-muted)) !important;
-  font-size: 10px !important;
-  line-height: 1.4 !important;
-}
-
-.llm-bridge-session-dropdown-summary,
 .llm-bridge-history-preview {
   line-height: 1.38 !important;
 }
@@ -9811,7 +8276,7 @@
   font-size: 12px !important;
 }
 
-.llm-bridge-history-meta,
+
 .llm-bridge-history-preview {
   font-size: 10px !important;
 }
@@ -9845,26 +8310,21 @@
   padding: 0 10px 10px !important;
 }
 
-.llm-bridge-codex-change-name,
-.llm-bridge-codex-change-action,
+
 .llm-bridge-codex-approval-gate-action {
 
   font-size: 12px !important;
 }
 
-.llm-bridge-codex-event-hint,
+
 .llm-bridge-codex-change-path,
+
 .llm-bridge-codex-approval-gate-summary,
+
 .llm-bridge-codex-approval-gate-reason {
 
   font-size: 11px !important;
   line-height: 1.5 !important;
-}
-
-.llm-bridge-codex-change-meta {
-
-  gap: 6px !important;
-  font-size: 10px !important;
 }
 
 .llm-bridge-codex-inline-shell-panel,
@@ -9997,7 +8457,7 @@
 
 
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb.is-icon-fallback,
-.llm-bridge-composer-file-doc-thumb.is-icon-fallback,
+
 .llm-bridge-context-ref-doc-thumb.is-icon-fallback {
   align-content: center !important;
   justify-items: center !important;
@@ -10019,8 +8479,7 @@
 }
 
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-text,
-.llm-bridge-composer-file-doc-line.is-text {
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-text {
   min-height: 0 !important;
   height: auto !important;
   padding: 0 !important;
@@ -10033,8 +8492,7 @@
   box-shadow: none !important;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line:not(.is-text),
-.llm-bridge-composer-file-doc-line:not(.is-text) {
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line:not(.is-text) {
   align-self: center !important;
   height: 2px !important;
   min-height: 2px !important;
@@ -10083,8 +8541,7 @@
   background: color-mix(in srgb, var(--background-primary) 96%, var(--background-secondary)) !important;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb,
-.llm-bridge-composer-file-doc-thumb {
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-thumb {
   display: grid !important;
   align-content: start !important;
   gap: 3px !important;
@@ -10097,32 +8554,28 @@
     ) !important;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line,
-.llm-bridge-composer-file-doc-line {
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line {
   display: block !important;
   width: 100% !important;
   margin: 0 !important;
   letter-spacing: 0 !important;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-primary,
-.llm-bridge-composer-file-doc-line.is-primary {
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-primary {
   color: color-mix(in srgb, var(--text-normal) 74%, var(--text-muted)) !important;
   font-size: 5.8px !important;
   font-weight: 600 !important;
   line-height: 1.15 !important;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-secondary,
-.llm-bridge-composer-file-doc-line.is-secondary {
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-secondary {
   color: color-mix(in srgb, var(--text-muted) 82%, transparent) !important;
   font-size: 5.2px !important;
   font-weight: 500 !important;
   line-height: 1.15 !important;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-placeholder,
-.llm-bridge-composer-file-doc-line.is-placeholder {
+.llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line.is-placeholder {
   align-self: center !important;
   height: 2px !important;
   min-height: 2px !important;
@@ -10270,11 +8723,6 @@
   color: color-mix(in srgb, var(--text-muted) 86%, transparent) !important;
 }
 
-.llm-bridge-topbar-title {
-  font-size: 12px !important;
-  font-weight: 620 !important;
-}
-
 .llm-bridge-page-title {
   padding-left: 6px !important;
   border-left: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent) !important;
@@ -10411,7 +8859,7 @@
   font-weight: 600 !important;
 }
 
-.llm-bridge-history-meta,
+
 .llm-bridge-history-preview {
   font-size: 11px !important;
   line-height: 1.45 !important;
@@ -10488,9 +8936,11 @@
 }
 
 .llm-bridge-approval-card-row-command,
+
 .llm-bridge-approval-card-row-risk,
-.llm-bridge-approval-card-row-highrisk,
+
 .llm-bridge-approval-card-row-subagent,
+
 .llm-bridge-clarification-question {
   font-size: 11px !important;
   line-height: 1.45 !important;
@@ -10529,7 +8979,7 @@
   padding: 0 11px 11px !important;
 }
 
-.llm-bridge-codex-event-hint,
+
 .llm-bridge-codex-change-path {
 
   font-size: 11px !important;
@@ -10541,42 +8991,8 @@
   padding: 8px 9px !important;
 }
 
-.llm-bridge-codex-shell-command {
-  overflow: hidden !important;
-  color: color-mix(in srgb, var(--text-muted) 88%, transparent) !important;
-  font-family: var(--font-monospace) !important;
-  font-size: 11px !important;
-  line-height: 1.5 !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-codex-shell-output-detail {
-  margin-top: 1px !important;
-}
-
-.llm-bridge-codex-shell-output-detail > summary {
-  font-size: 11px !important;
-}
-
 .llm-bridge-codex-shell-pre {
   max-height: 180px !important;
-}
-
-.llm-bridge-codex-change-actions,
-.llm-bridge-codex-icon-btn {
-  gap: 4px !important;
-}
-
-.llm-bridge-codex-icon-btn {
-  width: 22px !important;
-  min-width: 22px !important;
-  height: 22px !important;
-  min-height: 22px !important;
-  border: 0 !important;
-  border-radius: 8px !important;
-  background: color-mix(in srgb, var(--background-modifier-hover) 46%, transparent) !important;
-  box-shadow: none !important;
 }
 
 .llm-bridge-codex-final-answer {
@@ -10657,13 +9073,6 @@
   padding: 8px 8px !important;
 }
 
-.llm-bridge-session-dropdown-current {
-  padding: 0 5px !important;
-  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent) !important;
-  font-size: 9px !important;
-  font-weight: 650 !important;
-}
-
 .llm-bridge-history-item {
   border-radius: 13px !important;
 }
@@ -10674,15 +9083,6 @@
 
 .llm-bridge-history-title-row {
   align-items: center !important;
-}
-
-.llm-bridge-history-current {
-  padding: 0 5px !important;
-  border-radius: 999px !important;
-  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent) !important;
-  color: color-mix(in srgb, var(--interactive-accent) 70%, var(--text-muted)) !important;
-  font-size: 9px !important;
-  font-weight: 650 !important;
 }
 
 .llm-bridge-history-actions {
@@ -10715,14 +9115,6 @@
 .llm-bridge-topbar-brand {
   min-width: 0 !important;
   gap: 5px !important;
-}
-
-.llm-bridge-topbar-title {
-  color: var(--text-faint) !important;
-  font-size: 10px !important;
-  font-weight: 560 !important;
-  letter-spacing: 0.04em !important;
-  text-transform: uppercase !important;
 }
 
 .llm-bridge-page-title {
@@ -10864,42 +9256,28 @@
   background: transparent !important;
 }
 
-.llm-bridge-history-title-row,
-.llm-bridge-session-dropdown-title-row {
+.llm-bridge-history-title-row {
   display: flex !important;
   align-items: baseline !important;
   gap: 6px !important;
   min-width: 0 !important;
 }
 
-.llm-bridge-history-title,
-.llm-bridge-session-dropdown-name {
+.llm-bridge-history-title {
   min-width: 0 !important;
   overflow: hidden !important;
   text-overflow: ellipsis !important;
   white-space: nowrap !important;
 }
 
-.llm-bridge-history-inline-meta,
-.llm-bridge-session-dropdown-inline-meta {
+.llm-bridge-history-inline-meta {
   margin-left: auto !important;
   color: var(--text-faint) !important;
   font-size: 10px !important;
   white-space: nowrap !important;
 }
 
-.llm-bridge-history-current,
-.llm-bridge-session-dropdown-current {
-  padding: 0 !important;
-  border-radius: 0 !important;
-  background: transparent !important;
-  color: color-mix(in srgb, var(--interactive-accent) 74%, var(--text-muted)) !important;
-  font-size: 9px !important;
-  font-weight: 650 !important;
-}
-
-.llm-bridge-history-preview,
-.llm-bridge-session-dropdown-summary {
+.llm-bridge-history-preview {
   display: -webkit-box !important;
   overflow: hidden !important;
   -webkit-box-orient: vertical !important;
@@ -10924,11 +9302,6 @@
   gap: 3px !important;
   padding: 7px 8px !important;
   border-radius: 9px !important;
-}
-
-.llm-bridge-session-dropdown-meta,
-.llm-bridge-history-meta {
-  display: none !important;
 }
 
 .llm-bridge-history-actions {
@@ -11238,7 +9611,7 @@
 }
 
 .llm-bridge-approval-card-row-risk,
-.llm-bridge-approval-card-row-highrisk,
+
 .llm-bridge-approval-card-row-subagent {
   padding: 0 !important;
   border: 0 !important;
@@ -11628,26 +10001,6 @@
   background: color-mix(in srgb, var(--background-modifier-hover) 14%, transparent) !important;
 }
 
-/* ===== V17-G65: grouped lazy tool events and full-width composer input ===== */
-
-/* tool-group 边框/滚动壳层由 styles/run-view.css 唯一接管 */
-
-.llm-bridge-codex-event-title {
-  min-width: 0 !important;
-}
-
-.llm-bridge-codex-event-title .llm-bridge-codex-feed-label {
-  display: block !important;
-  max-width: 100% !important;
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
-}
-
-.llm-bridge-codex-event-block.is-command:not([open]) .llm-bridge-codex-event-hint {
-  display: none !important;
-}
-
 .llm-bridge-codex-shell-pre {
   max-height: 150px !important;
 }
@@ -11674,11 +10027,6 @@
 .llm-bridge-codex-event-block.llm-bridge-codex-change-row:not([open]) > .llm-bridge-codex-event-summary {
   min-height: 38px !important;
   padding: 9px 11px !important;
-}
-
-.llm-bridge-codex-event-block.is-file:not([open]) .llm-bridge-codex-event-hint,
-.llm-bridge-codex-event-block.llm-bridge-codex-change-row:not([open]) .llm-bridge-codex-event-hint {
-  display: none !important;
 }
 
 .llm-bridge-codex-event-block.llm-bridge-codex-change-row[open] {
@@ -11723,19 +10071,6 @@
 
   min-width: 0 !important;
   max-width: 100% !important;
-}
-
-.llm-bridge-codex-event-title,
-.llm-bridge-codex-event-hint {
-
-  min-width: 0 !important;
-}
-
-.llm-bridge-codex-event-title .llm-bridge-codex-feed-label {
-
-  overflow: hidden !important;
-  text-overflow: ellipsis !important;
-  white-space: nowrap !important;
 }
 
 
@@ -11805,10 +10140,6 @@
 
 .llm-bridge-topbar-brand {
   flex: 0 0 auto !important;
-}
-
-.llm-bridge-topbar-title {
-  display: none !important;
 }
 
 .llm-bridge-page-title {
@@ -11908,13 +10239,6 @@
   background: color-mix(in srgb, var(--interactive-accent) 7%, transparent) !important;
 }
 
-.llm-bridge-session-dropdown-summary {
-  -webkit-line-clamp: 1 !important;
-  line-clamp: 1 !important;
-  color: var(--text-faint) !important;
-  font-size: 10.5px !important;
-}
-
 .llm-bridge-session-dropdown-clear {
   margin-top: 2px !important;
   border-top: 1px solid color-mix(in srgb, var(--background-modifier-border) 60%, transparent) !important;
@@ -11949,11 +10273,6 @@
   width: 19px !important;
   height: 19px !important;
   stroke-width: 2.65 !important;
-}
-
-/* ===== V17-G73: native-linked history selection and plugin-list visual style ===== */
-.llm-bridge-topbar-title {
-  display: none !important;
 }
 
 .llm-bridge-history-page-head {
@@ -12271,7 +10590,7 @@
 }
 
 .llm-bridge-approval-card-row-risk,
-.llm-bridge-approval-card-row-highrisk,
+
 .llm-bridge-approval-card-row-subagent {
   min-width: 0 !important;
   overflow-wrap: anywhere !important;
@@ -12448,8 +10767,9 @@
 
 .llm-bridge-composer-context {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
+  justify-content: space-between;
   gap: 6px;
   min-height: 0;
 }
@@ -13089,42 +11409,6 @@
   background: var(--background-secondary);
 }
 
-.llm-bridge-composer-file-chip {
-  display: grid;
-  align-items: center;
-  justify-content: flex-start;
-  position: relative;
-  width: auto;
-  height: auto;
-  padding: 3px 4px;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--background-secondary) 28%, transparent);
-  color: var(--text-normal);
-  cursor: pointer;
-  overflow: hidden;
-  max-width: 132px;
-  min-height: 30px;
-  gap: 5px;
-  border-color: color-mix(in srgb, var(--text-muted) 10%, transparent);
-  grid-template-columns: 22px minmax(0, 1fr) 16px 16px;
-  box-shadow: none;
-  min-width: 0;
-}
-
-.llm-bridge-composer-file-chip:hover {
-  border-color: color-mix(in srgb, var(--text-muted) 18%, transparent);
-  background: color-mix(in srgb, var(--background-secondary) 45%, transparent);
-}
-
-.llm-bridge-composer-file-chip.is-attachment {
-  border-color: rgba(var(--color-green-rgb), 0.35);
-}
-
-.llm-bridge-composer-file-chip.is-external {
-  border-color: rgba(var(--color-orange-rgb), 0.35);
-}
-
 .llm-bridge-composer-file-thumb {
   width: 22px;
   height: 22px;
@@ -13197,10 +11481,6 @@
   transform: translateY(-50%);
 }
 
-.llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-remove {
-  opacity: 1;
-}
-
 .llm-bridge-composer-file-remove:hover {
   color: var(--text-error);
   border-color: rgba(var(--color-red-rgb), 0.35);
@@ -13267,11 +11547,11 @@
   justify-content: center;
   gap: 0;
   padding: 0;
-  margin: 0;
+  margin: 0 0 0 auto;
   border: 0;
   border-top: 0;
   background: transparent;
-  cursor: pointer;
+  cursor: default;
   user-select: none;
   font-size: var(--font-smallest);
   color: var(--text-faint);
@@ -13287,19 +11567,19 @@
   opacity: 1;
 }
 
-/* Fig.2：方底按钮 + 空心占用环 */
+/* Fig.2：无方底按钮，仅粗空心占用环 */
 .llm-bridge-context-ring {
   box-sizing: border-box;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: 0;
-  border-radius: 8px;
-  background: var(--background-modifier-hover);
+  border-radius: 0;
+  background: transparent;
   box-shadow: none;
   opacity: 1;
   color: inherit;
@@ -13311,20 +11591,28 @@
   height: 14px;
   border-radius: 50%;
   background: conic-gradient(
-    var(--llm-bridge-context-ring-fg, var(--text-muted))
+    var(--llm-bridge-context-ring-fg, color-mix(in srgb, var(--text-normal) 78%, transparent))
       calc(var(--llm-bridge-context-ring-pct, 0) * 1%),
     var(--llm-bridge-context-ring-track, var(--background-modifier-border)) 0
   );
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 1.5px));
+  /* 粗环：约半径的 22–25% */
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3.2px), #000 calc(100% - 2.6px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3.2px), #000 calc(100% - 2.6px));
 }
 
 .llm-bridge-context-strip:hover .llm-bridge-context-ring {
-  background: color-mix(in srgb, var(--background-modifier-hover) 85%, var(--background-modifier-border));
+  background: transparent;
+}
+
+.llm-bridge-context-ring.is-unavailable {
+  opacity: 0.45;
 }
 
 .llm-bridge-context-ring.is-compressed {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, #f59e0b 45%, transparent);
+  box-shadow: none;
+  outline: 1px solid color-mix(in srgb, #f59e0b 45%, transparent);
+  outline-offset: 1px;
+  border-radius: 50%;
 }
 
 .llm-bridge-context-tip {
@@ -13590,10 +11878,6 @@
   color: var(--text-faint);
   opacity: 0;
   right: 2px;
-}
-
-.llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-pin {
-  opacity: 1;
 }
 
 .llm-bridge-composer-file-pin:hover {
@@ -14509,10 +12793,6 @@
   opacity: 1;
 }
 
-.llm-bridge-composer-file-chip.is-image .llm-bridge-composer-file-ext {
-  display: none;
-}
-
 .llm-bridge-composer-file-remove:hover, .llm-bridge-composer-file-pin:hover {
   background: color-mix(in srgb, var(--background-modifier-hover) 82%, transparent);
   color: var(--text-normal);
@@ -14563,29 +12843,6 @@
 .llm-bridge-perm-popover-head-icon svg {
   width: 14px;
   height: 14px;
-}
-
-.llm-bridge-perm-popover-head-text {
-  display: grid;
-  min-width: 0;
-  gap: 1px;
-}
-
-.llm-bridge-perm-popover-head-text strong {
-  color: var(--text-normal);
-  font-size: var(--font-smallest);
-  font-weight: 620;
-  line-height: 1.2;
-  letter-spacing: 0.02em;
-}
-
-.llm-bridge-perm-popover-head-text span {
-  overflow: hidden;
-  color: var(--text-faint);
-  font-size: 11px;
-  line-height: 1.45;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .llm-bridge-perm-popover-risk {
@@ -14681,28 +12938,7 @@
   opacity: 0.78;
 }
 
-.llm-bridge-composer-file-chip, .llm-bridge-composer-file-chip:not(.is-preview-only), .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
-  flex: 0 0 32px;
-  width: 32px;
-  min-width: 32px;
-  max-width: 32px;
-  height: 32px;
-  min-height: 32px;
-  max-height: 32px;
-  border-radius: 9px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  aspect-ratio: 1 / 1;
-  padding: 0;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 8%, transparent);
-  background: color-mix(in srgb, var(--background-secondary) 34%, transparent);
-  position: relative;
-  box-shadow: none;
-}
-
-.llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
+.llm-bridge-composer-file-thumb {
   width: 100%;
   min-width: 100%;
   max-width: 100%;
@@ -14764,61 +13000,6 @@
   display: none;
 }
 
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
-  display: inline-flex;
-  width: 38px;
-  min-width: 38px;
-  max-width: 38px;
-  height: 38px;
-  min-height: 38px;
-  padding: 0;
-  overflow: visible;
-  border-radius: 11px;
-  flex: 0 0 38px;
-  max-height: 38px;
-  aspect-ratio: 1 / 1;
-}
-
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
-  width: 38px;
-  min-width: 38px;
-  height: 38px;
-  min-height: 38px;
-  border-radius: 10px;
-  max-width: 38px;
-  max-height: 38px;
-  aspect-ratio: 1 / 1;
-}
-
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-text {
-  display: none;
-}
-
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-pin {
-  position: absolute;
-  top: -6px;
-  width: 18px;
-  min-width: 18px;
-  height: 18px;
-  min-height: 18px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--background-primary) 94%, transparent);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
-  opacity: 0;
-}
-
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:hover .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:hover .llm-bridge-composer-file-pin, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:focus-within .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:focus-within .llm-bridge-composer-file-pin {
-  opacity: 1;
-}
-
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-remove {
-  right: -6px;
-}
-
-.llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-pin {
-  left: -6px;
-}
-
 .llm-bridge-composer-file-pin svg {
   width: 11px;
   height: 11px;
@@ -14831,73 +13012,6 @@
   text-decoration: none !important;
 }
 
-.llm-bridge-composer-file-chip:not(.is-preview-only) {
-  grid-template-columns: 28px minmax(0, 1fr) 14px 14px;
-  max-width: 118px;
-  min-height: 32px;
-  padding: 3px 5px 3px 3px;
-}
-
-.llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb {
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  min-height: 28px;
-}
-
-.llm-bridge-composer-file-chip:hover, .llm-bridge-composer-file-chip:not(.is-preview-only):hover, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only:hover {
-  border-color: color-mix(in srgb, var(--text-muted) 22%, transparent);
-  background: color-mix(in srgb, var(--background-secondary) 54%, var(--background-primary));
-}
-
-.llm-bridge-composer-file-chip.has-preview .llm-bridge-composer-file-thumb {
-  background-color: color-mix(in srgb, var(--background-secondary) 58%, var(--background-primary));
-  background-size: cover;
-  background-position: center;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 9%, transparent);
-}
-
-.llm-bridge-composer-file-doc-thumb {
-  display: grid;
-  align-content: center;
-  gap: 3px;
-  width: 100%;
-  height: 100%;
-  padding: 8px 7px;
-  border-radius: inherit;
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--background-primary) 82%, var(--background-secondary)) 0%,
-    color-mix(in srgb, var(--background-secondary) 76%, var(--background-primary)) 100%
-  );
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text-muted) 10%, transparent);
-}
-
-.llm-bridge-composer-file-doc-line {
-  display: block;
-  width: 100%;
-  height: 2px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text-muted) 42%, transparent);
-}
-
-.llm-bridge-composer-file-doc-line:nth-child(2) {
-  width: 76%;
-}
-
-.llm-bridge-composer-file-doc-line:nth-child(3) {
-  width: 90%;
-}
-
-.llm-bridge-composer-file-doc-line:nth-child(4) {
-  width: 58%;
-}
-
-.llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip:hover .llm-bridge-composer-file-pin, .llm-bridge-composer-file-chip:focus-within .llm-bridge-composer-file-remove, .llm-bridge-composer-file-chip:focus-within .llm-bridge-composer-file-pin {
-  opacity: 1;
-  pointer-events: auto;
-}
-
 .llm-bridge-composer-status-rail.is-running .llm-bridge-composer-status-text, .llm-bridge-composer-status-rail.is-running .llm-bridge-composer-step-pill {
   color: color-mix(in srgb, var(--text-muted) 82%, transparent);
 }
@@ -14906,31 +13020,7 @@
   opacity: 1;
 }
 
-.llm-bridge-composer-file-chip, .llm-bridge-composer-file-chip:not(.is-preview-only), .llm-bridge-composer-file-chip.is-preview-only, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex: 0 0 28px;
-  width: 28px;
-  min-width: 28px;
-  max-width: 28px;
-  height: 28px;
-  min-height: 28px;
-  max-height: 28px;
-  padding: 0;
-  gap: 0;
-  overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--background-secondary) 52%, transparent);
-  box-shadow: none;
-  font-size: 0;
-  line-height: 0;
-  grid-template-columns: none;
-}
-
-.llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip .llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip:not(.is-preview-only) .llm-bridge-composer-file-thumb, .llm-bridge-composer-file-chip.is-image.has-preview.is-preview-only .llm-bridge-composer-file-thumb {
+.llm-bridge-composer-file-thumb {
   display: block;
   align-items: center;
   justify-content: center;
@@ -14947,16 +13037,6 @@
   background-size: cover;
   overflow: hidden;
   background: color-mix(in srgb, var(--background-secondary) 48%, var(--background-primary));
-}
-
-.llm-bridge-composer-file-chip .llm-bridge-composer-file-text {
-  display: none !important;
-}
-
-.llm-bridge-composer-file-chip .llm-bridge-composer-file-doc-thumb, .llm-bridge-composer-file-chip .llm-bridge-composer-file-icon {
-  width: 100%;
-  height: 100%;
-  border-radius: inherit;
 }
 
 .llm-bridge-context-label, .llm-bridge-context-detail {
@@ -15069,10 +13149,6 @@
 .llm-bridge-command-menu-summary-icon, .llm-bridge-command-menu-summary-icon svg {
   width: 12px;
   height: 12px;
-}
-
-.llm-bridge-composer-file-chip .llm-bridge-composer-file-text, .llm-bridge-composer-file-chip .llm-bridge-composer-file-name, .llm-bridge-composer-file-chip .llm-bridge-composer-file-meta, .llm-bridge-composer-file-chip .llm-bridge-composer-file-ext {
-  display: none !important;
 }
 
 .llm-bridge-command-menu-plugins {
@@ -16438,18 +14514,21 @@
 
 /* 完成问答：隐藏 chrome / Answer 标题，但绝不隐藏已展示的过程区 */
 .llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-header,
-.llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-final-answer-title,
+
 .llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-provider,
+
 .llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-status,
+
 .llm-bridge-codex-run-view.is-semantic-answer .llm-bridge-codex-run-metrics {
   display: none;
 }
 
 /* 运行中：隐藏 chrome，保留过程流与当前状态 */
 .llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-run-header,
+
 .llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-run-provider,
-.llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-run-metrics,
-.llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-final-answer-title {
+
+.llm-bridge-codex-run-view.is-semantic-running .llm-bridge-codex-run-metrics {
   display: none;
 }
 
@@ -16466,15 +14545,17 @@
 
 /* 有工具的完成态：隐藏 chrome / Answer 标题，保留过程流 */
 .llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-run-status,
+
 .llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-run-provider,
-.llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-final-answer-title,
+
 .llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-run-metrics,
+
 .llm-bridge-codex-run-view.is-semantic-summary .llm-bridge-codex-run-header {
   display: none;
 }
 
 .llm-bridge-codex-run-view.is-semantic-failed .llm-bridge-codex-run-provider,
-.llm-bridge-codex-run-view.is-semantic-failed .llm-bridge-codex-final-answer-title,
+
 .llm-bridge-codex-run-view.is-semantic-failed .llm-bridge-codex-run-header {
   display: none;
 }
@@ -16492,10 +14573,6 @@
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-step-status,
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-step-exit,
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head-meta {
-  display: none;
-}
-
-.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-feed-batch.is-empty-narrative > .llm-bridge-codex-feed-batch-summary {
   display: none;
 }
 
@@ -16602,10 +14679,6 @@
   font-size: 13px;
   line-height: 1.45;
   color: var(--text-muted);
-}
-
-.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-final-answer-title {
-  display: none;
 }
 
 /* 运行中思考：柔和光效；完成后弱化、不再发光 */
@@ -17008,21 +15081,6 @@
   box-shadow: none;
 }
 
-.llm-bridge-codex-feed-item .llm-bridge-codex-change-actions {
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.llm-bridge-codex-feed-item:hover .llm-bridge-codex-change-actions,
-.llm-bridge-codex-feed-item:focus-within .llm-bridge-codex-change-actions {
-  opacity: 1;
-}
-
-.llm-bridge-codex-final-answer-body {
-  font-size: var(--font-ui-small);
-  line-height: 1.58;
-}
-
 .llm-bridge-codex-run-summary {
   gap: 6px;
 }
@@ -17050,10 +15108,6 @@
   display: flex;
   align-items: center;
   min-height: 16px;
-}
-
-.llm-bridge-codex-current-activity-icon {
-  display: none;
 }
 
 .llm-bridge-codex-process-head {
@@ -17096,11 +15150,6 @@
   font-size: 12px;
 }
 
-.llm-bridge-codex-feed-output-text {
-  font-size: 11px;
-  line-height: 1.5;
-}
-
 .llm-bridge-codex-feed-meta {
   gap: 6px;
   font-size: 10px;
@@ -17115,17 +15164,7 @@
   font-size: 11px;
 }
 
-.llm-bridge-codex-final-answer-title {
-  color: var(--text-faint);
-}
-
-.llm-bridge-codex-final-answer-body {
-  font-size: 12px;
-  line-height: 1.62;
-}
-
-.llm-bridge-codex-process-head .llm-bridge-codex-section-title,
-.llm-bridge-codex-final-answer-title {
+.llm-bridge-codex-process-head .llm-bridge-codex-section-title {
   text-transform: none;
   letter-spacing: 0;
 }
@@ -17141,18 +15180,6 @@
   margin-left: -12px;
   color: var(--text-faint);
   font-size: 11px;
-}
-
-.llm-bridge-codex-feed-batch:not([open]) > .llm-bridge-codex-feed-batch-summary::before {
-  content: "▸";
-}
-
-.llm-bridge-codex-feed-batch.is-summary-only > .llm-bridge-codex-feed-batch-summary {
-  cursor: default;
-}
-
-.llm-bridge-codex-feed-batch.is-summary-only > .llm-bridge-codex-feed-batch-summary::before {
-  content: "";
 }
 
 .llm-bridge-codex-feed-batch-summary-main {
@@ -17231,11 +15258,6 @@
   line-height: 1.45;
 }
 
-.llm-bridge-codex-feed-output-text {
-  font-size: 11px;
-  line-height: 1.5;
-}
-
 .llm-bridge-codex-run-summary {
   display: grid;
   gap: 2px;
@@ -17301,20 +15323,6 @@
   gap: 8px;
 }
 
-.llm-bridge-codex-final-answer-title {
-  color: var(--text-faint);
-  font-size: 10px;
-  font-weight: 650;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-}
-
-.llm-bridge-codex-final-answer-body {
-  color: var(--text-normal);
-  font-size: 13px;
-  line-height: 1.6;
-}
-
 .llm-bridge-codex-run-header {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -17376,21 +15384,7 @@
   text-transform: none;
 }
 
-.llm-bridge-codex-final-answer-title {
-  letter-spacing: 0.03em;
-}
 
-.llm-bridge-codex-final-answer-body {
-  font-size: 12.5px;
-  line-height: 1.62;
-}
-
-.llm-bridge-codex-feed-output {
-  margin: 0 0 0 19px;
-  padding: 1px 0 0;
-}
-
-.llm-bridge-codex-feed-output-text,
 .llm-bridge-codex-thinking-summary {
   font-size: 11.5px !important;
   line-height: 1.58 !important;
@@ -17441,13 +15435,6 @@
   gap: var(--llm-bridge-codex-gap-stage);
 }
 
-.llm-bridge-codex-feed-batch {
-  display: grid;
-  gap: var(--llm-bridge-codex-gap-tool-internal);
-  padding: 0 0 0 13px;
-  border-left: var(--llm-bridge-codex-guide-border);
-}
-
 .llm-bridge-codex-feed-batch-summary {
   display: grid !important;
   grid-template-columns: minmax(0, 1fr);
@@ -17461,8 +15448,7 @@
   border-left: 1px solid color-mix(in srgb, var(--text-muted) 12%, transparent);
 }
 
-.llm-bridge-codex-feed-batch-summary::before,
-.llm-bridge-codex-feed-batch:not([open]) > .llm-bridge-codex-feed-batch-summary::before {
+.llm-bridge-codex-feed-batch-summary::before {
   display: none !important;
   content: none;
 }
@@ -17471,10 +15457,6 @@
   display: grid;
   gap: 4px;
   padding: 0 0 0 12px;
-}
-
-.llm-bridge-codex-feed-batch.is-summary-only .llm-bridge-codex-feed-batch-summary {
-  padding-bottom: 1px;
 }
 
 .llm-bridge-codex-thinking-line.is-narrative {
@@ -17535,12 +15517,14 @@
 }
 
 .llm-bridge-codex-run-view,
+
 .llm-bridge-codex-run-body,
+
 .llm-bridge-codex-process-body,
+
 .llm-bridge-codex-feed-list,
-.llm-bridge-codex-feed-batch,
-.llm-bridge-codex-feed-batch-body,
-.llm-bridge-codex-final-answer-body {
+
+.llm-bridge-codex-feed-batch-body {
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
@@ -17572,11 +15556,6 @@
   min-width: 0;
 }
 
-.llm-bridge-codex-final-answer-body,
-.llm-bridge-codex-final-answer-body * {
-  overflow-wrap: anywhere;
-}
-
 @media (max-width: 760px) {
 .llm-bridge-codex-run-view {
     margin-left: 0;
@@ -17597,8 +15576,7 @@
   width: 100%;
 }
 
-.llm-bridge-codex-final-answer-body,
-.llm-bridge-codex-feed-output-text,
+
 .llm-bridge-codex-thinking-summary {
   user-select: text !important;
   -webkit-user-select: text !important;
@@ -17648,36 +15626,10 @@
   display: none !important;
 }
 
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-main {
-  min-width: 0;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-title {
-  display: flex;
-  align-items: baseline;
-  gap: 7px;
-  min-width: 0;
-}
-
 .llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-label {
   color: var(--text-muted);
   font-size: 12px;
   font-weight: 560;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-hint {
-  display: block;
-  min-width: 0;
-  color: var(--text-faint);
-  font-size: 11px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.llm-bridge-codex-tool-group-body .llm-bridge-codex-event-meta {
-  color: var(--text-faint);
-  font-size: 10px;
 }
 
 .llm-bridge-codex-tool-group-body .llm-bridge-codex-event-body {

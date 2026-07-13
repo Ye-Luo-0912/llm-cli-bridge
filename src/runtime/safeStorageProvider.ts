@@ -1,23 +1,16 @@
-// LLM CLI Bridge — Safe Storage Provider (V20.2)
+// LLM CLI Bridge — Safe Storage Provider (V20.5)
 //
-// 使用 Electron safeStorage 对 API Key 做本机加密后持久化。
-// 加密后的密文写入 runtime-provider.json 的 encryptedApiKey 字段（base64），
-// 明文 apiKey 字段不再写入磁盘。
+// 提供 Electron safeStorage 的低层 encrypt/decrypt 原语。
+// 上层由 secretsStore.ts 负责：把整份 secrets.env（Codex/Claude/Pi 三个 runtime 的
+// API Key，使用各运行时官方约定的环境变量名）加密后落盘到
+// .llm-bridge/private/runtime/secrets.env。
 //
-// 回退策略：
-// - safeStorage 不可用（非 Electron 环境 / 系统不支持加密）时，明文回退到内存，
-//   不落盘。用户重启后需重新输入。
-// - 读取时优先解密 encryptedApiKey；不存在时回退到旧明文 apiKey（兼容迁移）。
+// 回退策略（由 secretsStore 编排）：
+// - safeStorage 不可用（非 Electron 环境 / 系统不支持加密）时，若用户明确同意
+//   allowPlaintextSecretsFallback，明文写入 .secrets.plain；否则仅内存有效
+//   （session-only，重载丢失）。
 //
-// 仅用于 Codex/本地中转，不扩到 Pi、Claude。
-
-/** 加密后的 API Key 存储格式 */
-export interface EncryptedKeyStore {
-  /** base64 编码的加密密文 */
-  readonly encryptedApiKey?: string;
-  /** 旧明文 Key（仅迁移期读取，不再写入） */
-  readonly legacyApiKey?: string;
-}
+// 三个 runtime 的密钥彼此独立，互不混用。
 
 let safeStorageRef: {
   isEncryptionAvailable(): boolean;

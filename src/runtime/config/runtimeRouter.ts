@@ -29,7 +29,7 @@ import {
   loadAllSecrets, getSecret, setSecret, clearSecret, getSecretKeyStatus, getSecretStatus,
   type SecretVarName, type SecretKeyStatus,
 } from "./secretsStore";
-import { writeProviderForm, readProviderForm } from "./configForm";
+import { writeProviderForm, readProviderForm, isBridgeGeneratedConfig } from "./configForm";
 
 // ---------- 本地配置存在性检测 ----------
 
@@ -100,214 +100,6 @@ export function globalClaudeConfigExists(): boolean {
 }
 export function globalPiConfigExists(): boolean {
   try { return fs.existsSync(getGlobalPiConfigDir()); } catch { return false; }
-}
-
-// ---------- 创建本地配置（先复制全局，没有则用官方模板生成）----------
-
-export interface CreateLocalConfigResult {
-  readonly ok: boolean;
-  readonly source: "global-copy" | "template" | "already-exists";
-  readonly createdFiles: string[];
-  readonly reason?: string;
-}
-
-/** 原子写入文件（tmp + rename） */
-function atomicWrite(filePath: string, content: string): void {
-  fs.mkdirSync(path.dirname(filePath), { recursive: true });
-  const tmpPath = filePath + ".tmp-" + process.pid;
-  fs.writeFileSync(tmpPath, content, "utf8");
-  try {
-    fs.renameSync(tmpPath, filePath);
-  } catch (e) {
-    try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
-    throw e;
-  }
-}
-
-/** Codex config.toml 官方模板 */
-function codexConfigTemplate(): string {
-  return [
-    '# Codex 配置 — 由 Bridge 创建（基于官方文档模板）',
-    '# 请将 base_url 和 model 替换为你的中转站地址和模型',
-    "",
-    'model = "gpt-5.4"',
-    'model_provider = "relay"',
-    "",
-    "[model_providers.relay]",
-    'name = "Local Relay"',
-    'base_url = "https://api.example.com/v1"',
-    'env_key = "CODEX_RELAY_API_KEY"',
-    'wire_api = "responses"',
-    "",
-  ].join("\n");
-}
-
-/** Claude settings.json 官方模板 */
-function claudeConfigTemplate(): string {
-  return JSON.stringify({
-    $schema: "https://json.schemastore.org/claude-code-settings.json",
-    env: {
-      ANTHROPIC_BASE_URL: "https://api.example.com",
-      ANTHROPIC_MODEL: "claude-sonnet-4-5",
-    },
-  }, null, 2) + "\n";
-}
-
-/** Pi settings.json 官方模板 */
-function piSettingsTemplate(): string {
-  return JSON.stringify({
-    defaultProvider: "relay",
-    defaultModel: "gpt-5.4",
-    defaultThinkingLevel: "medium",
-  }, null, 2) + "\n";
-}
-
-/** Pi models.json 官方模板 */
-function piModelsTemplate(): string {
-  return JSON.stringify({
-    providers: {
-      relay: {
-        baseUrl: "https://api.example.com/v1",
-        apiKey: "PI_RELAY_API_KEY",
-        api: "openai-responses",
-        models: [
-          {
-            id: "gpt-5.4",
-            name: "GPT-5.4",
-            reasoning: true,
-            input: ["text", "image"],
-          },
-        ],
-      },
-    },
-  }, null, 2) + "\n";
-}
-
-/**
- * 创建 Codex 本地配置。
- * 先尝试从全局 ~/.codex/ 复制 config.toml；全局不存在则用官方模板生成。
- */
-export function createCodexLocalConfig(vaultPath: string): CreateLocalConfigResult {
-  const localPath = path.join(vaultPath, AGENT_RUNTIME_CODEX_CONFIG_REL);
-  if (fs.existsSync(localPath)) {
-    return { ok: true, source: "already-exists", createdFiles: [] };
-  }
-
-  // 尝试从全局复制
-  const globalDir = getGlobalCodexConfigDir();
-  const globalConfig = path.join(globalDir, "config.toml");
-  if (fs.existsSync(globalConfig)) {
-    try {
-      const content = fs.readFileSync(globalConfig, "utf8");
-      atomicWrite(localPath, content);
-      return { ok: true, source: "global-copy", createdFiles: [AGENT_RUNTIME_CODEX_CONFIG_REL] };
-    } catch (e) {
-      return { ok: false, source: "template", createdFiles: [], reason: `复制全局配置失败：${e instanceof Error ? e.message : String(e)}` };
-    }
-  }
-
-  // 全局不存在，用模板生成
-  try {
-    atomicWrite(localPath, codexConfigTemplate());
-    return { ok: true, source: "template", createdFiles: [AGENT_RUNTIME_CODEX_CONFIG_REL] };
-  } catch (e) {
-    return { ok: false, source: "template", createdFiles: [], reason: `生成模板配置失败：${e instanceof Error ? e.message : String(e)}` };
-  }
-}
-
-/**
- * 创建 Claude 本地配置。
- * 先尝试从全局 ~/.claude/ 复制 settings.json；全局不存在则用官方模板生成。
- */
-export function createClaudeLocalConfig(vaultPath: string): CreateLocalConfigResult {
-  const localPath = path.join(vaultPath, AGENT_RUNTIME_CLAUDE_CONFIG_REL);
-  if (fs.existsSync(localPath)) {
-    return { ok: true, source: "already-exists", createdFiles: [] };
-  }
-
-  // 尝试从全局复制（优先 settings.json，其次 settings.local.json）
-  const globalDir = getGlobalClaudeConfigDir();
-  for (const name of ["settings.json", "settings.local.json"]) {
-    const globalConfig = path.join(globalDir, name);
-    if (fs.existsSync(globalConfig)) {
-      try {
-        const content = fs.readFileSync(globalConfig, "utf8");
-        atomicWrite(localPath, content);
-        return { ok: true, source: "global-copy", createdFiles: [AGENT_RUNTIME_CLAUDE_CONFIG_REL] };
-      } catch (e) {
-        return { ok: false, source: "template", createdFiles: [], reason: `复制全局配置失败：${e instanceof Error ? e.message : String(e)}` };
-      }
-    }
-  }
-
-  // 全局不存在，用模板生成
-  try {
-    atomicWrite(localPath, claudeConfigTemplate());
-    return { ok: true, source: "template", createdFiles: [AGENT_RUNTIME_CLAUDE_CONFIG_REL] };
-  } catch (e) {
-    return { ok: false, source: "template", createdFiles: [], reason: `生成模板配置失败：${e instanceof Error ? e.message : String(e)}` };
-  }
-}
-
-/**
- * 创建 Pi 本地配置。
- * 先尝试从全局 ~/.pi/ 复制 settings.json + models.json；全局不存在则用官方模板生成。
- */
-export function createPiLocalConfig(vaultPath: string): CreateLocalConfigResult {
-  const localSettingsPath = path.join(vaultPath, AGENT_RUNTIME_PI_SETTINGS_REL);
-  const localModelsPath = path.join(vaultPath, AGENT_RUNTIME_PI_MODELS_REL);
-  if (fs.existsSync(localSettingsPath)) {
-    return { ok: true, source: "already-exists", createdFiles: [] };
-  }
-
-  const createdFiles: string[] = [];
-  let source: "global-copy" | "template" = "template";
-  const globalDir = getGlobalPiConfigDir();
-  const globalSettings = path.join(globalDir, "settings.json");
-  const globalModels = path.join(globalDir, "models.json");
-
-  // settings.json
-  if (fs.existsSync(globalSettings)) {
-    try {
-      const content = fs.readFileSync(globalSettings, "utf8");
-      atomicWrite(localSettingsPath, content);
-      createdFiles.push(AGENT_RUNTIME_PI_SETTINGS_REL);
-      source = "global-copy";
-    } catch (e) {
-      return { ok: false, source: "template", createdFiles: [], reason: `复制全局 settings.json 失败：${e instanceof Error ? e.message : String(e)}` };
-    }
-  } else {
-    try {
-      atomicWrite(localSettingsPath, piSettingsTemplate());
-      createdFiles.push(AGENT_RUNTIME_PI_SETTINGS_REL);
-    } catch (e) {
-      return { ok: false, source: "template", createdFiles: [], reason: `生成模板 settings.json 失败：${e instanceof Error ? e.message : String(e)}` };
-    }
-  }
-
-  // models.json
-  if (fs.existsSync(globalModels)) {
-    try {
-      const content = fs.readFileSync(globalModels, "utf8");
-      atomicWrite(localModelsPath, content);
-      createdFiles.push(AGENT_RUNTIME_PI_MODELS_REL);
-    } catch (e) {
-      // models.json 复制失败不阻塞，用模板补充
-      try {
-        atomicWrite(localModelsPath, piModelsTemplate());
-        createdFiles.push(AGENT_RUNTIME_PI_MODELS_REL);
-      } catch { /* ignore */ }
-    }
-  } else {
-    try {
-      atomicWrite(localModelsPath, piModelsTemplate());
-      createdFiles.push(AGENT_RUNTIME_PI_MODELS_REL);
-    } catch (e) {
-      return { ok: false, source, createdFiles, reason: `生成模板 models.json 失败：${e instanceof Error ? e.message : String(e)}` };
-    }
-  }
-
-  return { ok: true, source, createdFiles };
 }
 
 // ---------- 路由状态 ----------
@@ -433,9 +225,10 @@ export function checkRuntimeReadiness(vaultPath: string): ReadinessResult {
   }
 
   if (!hasKey) {
+    const providerLabel = provider === "codex" ? "Codex" : provider === "claude" ? "Claude" : "Pi";
     return {
       ok: false,
-      reason: `${provider} 本地配置已创建但缺少 API Key。请在设置页填写 Key 后重试。`,
+      reason: `${providerLabel} 本地配置已创建但缺少 API Key。请在设置页「运行时配置」→ ${providerLabel} →「API Key」中填写后点「保存并应用」。`,
       preSendBlock: true,
     };
   }
@@ -453,8 +246,8 @@ export function checkRuntimeReadiness(vaultPath: string): ReadinessResult {
  * - 本地配置缺失 → 不设置 *_HOME（agent 使用全局配置，Bridge 不干预）
  * - 密钥始终注入（从 secrets.env 读取）
  */
-export function buildRuntimeEnv(vaultPath: string): Record<string, string> {
-  const provider = getActiveProvider(vaultPath);
+export function buildRuntimeEnv(vaultPath: string, providerOverride?: RuntimeProviderId): Record<string, string> {
+  const provider = providerOverride ?? getActiveProvider(vaultPath);
   const secrets = loadAllSecrets(vaultPath);
   const env: Record<string, string> = {};
 
@@ -551,6 +344,9 @@ export interface MigrationResult {
  *
  * 旧的 relayUrl/model 由用户手动写入各 agent 的原生配置文件。
  * Bridge 不自动生成 config.toml / settings.local.json / settings.json。
+ *
+ * 密钥独立性：旧 legacyApiKey 最多迁移给当时的 active provider（旧配置未记录
+ * activeProvider 时默认 codex），绝不同时分发给 Codex/Claude/Pi——三者密钥必须独立。
  */
 export function migrateFromV20_4(vaultPath: string): MigrationResult {
   const oldConfigPath = path.join(vaultPath, AGENT_RUNTIME_PROVIDER_CONFIG_REL);
@@ -576,21 +372,20 @@ export function migrateFromV20_4(vaultPath: string): MigrationResult {
   const runtimeDir = path.join(vaultPath, AGENT_RUNTIME_PRIVATE_RUNTIME_DIR_REL);
   fs.mkdirSync(runtimeDir, { recursive: true });
 
-  // 创建 active.json（默认 codex）
+  // 旧配置未记录 activeProvider（V20.4 是单一 relay 后端），默认迁移到 codex。
+  // 三者密钥必须独立：旧 Key 只迁移给这一个 active provider，不分发给其余两者。
   saveActiveProvider(vaultPath, "codex");
   createdFiles.push("active.json");
 
-  // 迁移 API Key 到 secrets.env
+  // 迁移 API Key 到 secrets.env（仅 codex 对应的变量名，不分发给 Claude/Pi）
   if (apiKey) {
     setSecret(vaultPath, "CODEX_RELAY_API_KEY", apiKey);
-    setSecret(vaultPath, "ANTHROPIC_API_KEY", apiKey);
-    setSecret(vaultPath, "PI_RELAY_API_KEY", apiKey);
     createdFiles.push("secrets.env");
   }
 
   return {
     migrated: true,
-    reason: "已从 V20.4 迁移 active.json + 密钥。请手动在各 agent 配置文件中填写 relayUrl/model（Bridge 不再自动生成配置文件内容）",
+    reason: "已从 V20.4 迁移 active.json (codex) + 密钥（仅 codex，不分发给 Claude/Pi）。请手动在各 agent 配置文件中填写 relayUrl/model（Bridge 不再自动生成配置文件内容）",
     createdFiles,
   };
 }
@@ -617,6 +412,7 @@ export {
   readCodexForm, writeCodexForm,
   readClaudeForm, writeClaudeForm,
   readPiForm, writePiForm,
+  isBridgeGeneratedConfig,
   type ProviderForm, type ProviderFormReadResult,
 } from "./configForm";
 
@@ -645,6 +441,9 @@ export interface SaveProviderFormResult {
  * 2. 如果 apiKey 非空，调用 setXxxKey 注入到 secrets.env
  *
  * 配置错误时直接抛出，不静默回退。
+ *
+ * 用户手写配置保护：本地配置文件已存在且非 Bridge 生成时，拒绝整文件重写，
+ * 返回只读提示（调用方应引导用户直接编辑文件或打开文件）。
  */
 export function saveProviderForm(
   vaultPath: string,
@@ -652,6 +451,21 @@ export function saveProviderForm(
   input: SaveProviderFormInput,
 ): SaveProviderFormResult {
   const createdFiles: string[] = [];
+
+  // 保护用户手写配置：本地配置存在且非 Bridge 生成 → 拒绝整文件重写
+  const localExists = provider === "codex"
+    ? codexConfigExists(vaultPath)
+    : provider === "claude"
+      ? claudeConfigExists(vaultPath)
+      : piConfigExists(vaultPath);
+  if (localExists && !isBridgeGeneratedConfig(vaultPath, provider)) {
+    return {
+      ok: false,
+      error: "检测到用户手写的官方配置文件，已转为只读保护。请直接编辑该文件，或点「打开本地配置文件」修改；如需改用 Bridge 表单托管，请先删除或备份该文件。",
+      createdFiles,
+    };
+  }
+
   try {
     writeProviderForm(vaultPath, provider, { baseURL: input.baseURL, model: input.model });
     // 记录生成的文件路径

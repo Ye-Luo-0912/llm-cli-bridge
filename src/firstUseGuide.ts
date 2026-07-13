@@ -23,7 +23,7 @@ export interface GuideContent {
 /**
  * 构造首次使用提示内容（纯函数）
  * - V1.8: 3 步用户导向，不展开技术细节
- * - 默认 auto 模式即最佳路径，无需理解 backend
+ * - 默认即托管 Codex runtime 路径，无需用户安装 Claude Code
  */
 export function buildFirstUseGuide(): GuideContent {
   return {
@@ -31,8 +31,8 @@ export function buildFirstUseGuide(): GuideContent {
     steps: [
       {
         index: 1,
-        title: "确认 Claude Code 已安装",
-        detail: "在终端执行 `claude --version` 能看到版本号即可。若未安装，参考 Claude Code 官方文档。安装后无需任何配置，插件默认使用 auto 模式。",
+        title: "确认托管 Runtime 已就绪",
+        detail: "插件默认使用托管 Codex runtime（无需手动安装 Claude Code）。首次发送时若状态栏提示未安装，到设置页「Managed Runtime」点「安装 Runtime」即可；使用第三方中转则还需在「运行时配置」填写服务地址、模型与 API Key。",
       },
       {
         index: 2,
@@ -45,7 +45,7 @@ export function buildFirstUseGuide(): GuideContent {
         detail: "底部有 3 个按钮：自由提问（清空输入框）、解释选区（解释选中文字）、总结当前笔记（生成摘要笔记）。点击后自动填充 prompt，再点 ↑ 或 Ctrl/Cmd+Enter 发送。",
       },
     ],
-    footer: "提示：日常使用只需 auto 模式，无需理解 backend / SDK / mock。点 × 关闭此提示后不再显示。",
+    footer: "提示：日常使用只需保持默认运行方式，无需理解 backend / SDK / mock。点 × 关闭此提示后不再显示。",
   };
 }
 

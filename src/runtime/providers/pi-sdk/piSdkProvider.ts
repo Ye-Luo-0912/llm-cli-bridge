@@ -39,7 +39,7 @@
 
 import type { LLMBridgeSettings, PiToolMode } from "../../../types";
 import { buildAttachmentPlan, buildEffectiveRunPlan } from "../../../effectiveRunPlan";
-import { buildRuntimeSpawnEnv } from "../../runtimeProfileResolver";
+import { buildRuntimeEnv } from "../../config/runtimeRouter";
 import type {
   EffectiveRunPlan,
   NativeSessionRef,
@@ -429,18 +429,18 @@ export function probePiSdkAuth(probe: PiSdkProbeResult, override?: PiSdkAuthOver
     let hint = "";
     if (!hasAuth && !hasModel) {
       // V17-D 任务 F：提示用户可在插件设置中配置（不强制 ~/.pi/agent 或命令行）
-      hint = "Pi SDK 未配置认证和模型。请在插件设置「Pi SDK Auth」中配置 Provider / API Key / Model，或运行 pi login。";
+      hint = "Pi SDK 未配置认证和模型。请在插件设置「运行时配置」的 Pi 标签中填写地址、模型和 API Key，或使用 Pi 全局配置。";
     } else if (!hasAuth) {
-      hint = "Pi SDK 未配置认证。请在插件设置「Pi SDK Auth」中配置 Provider / API Key，或运行 pi login。";
+      hint = "Pi SDK 未配置认证。请在插件设置「运行时配置」的 Pi 标签中填写 API Key，或使用 Pi 全局配置。";
     } else if (!hasModel) {
-      hint = "Pi SDK 未选择模型。请在插件设置「Pi SDK Auth」中选择 Model。";
+      hint = "Pi SDK 未选择模型。请在插件设置「运行时配置」的 Pi 标签中填写模型。";
     }
     return { hasAuth, hasModel, hint };
   } catch {
     return {
       hasAuth: false,
       hasModel: false,
-      hint: "Pi SDK 认证探测失败。请检查插件设置「Pi SDK Auth」或运行 pi login。",
+      hint: "Pi SDK 认证探测失败。请检查插件设置「运行时配置」的 Pi 标签或 Pi 全局配置。",
     };
   }
 }
@@ -1154,11 +1154,11 @@ export class PiSdkProvider implements RuntimeProvider {
     }
 
     // V20.5: Bridge 不再解析 Pi 配置内容，也不传 authOverride。
-    // 通过 buildRuntimeSpawnEnv 注入 PI_CODING_AGENT_DIR（本地配置存在时）+ PI_RELAY_API_KEY。
+    // 通过统一 runtime router 注入 PI_CODING_AGENT_DIR（本地配置存在时）+ PI_RELAY_API_KEY。
     // Pi SDK 从 PI_CODING_AGENT_DIR 读取 settings.json + models.json。
     // 本地配置错误时展示 Pi SDK 原生错误，不自动回退。
     try {
-      const runtimeEnv = buildRuntimeSpawnEnv(ctx.plan.cwd);
+      const runtimeEnv = buildRuntimeEnv(ctx.plan.cwd, "pi");
       // Pi SDK 是 in-process，需要设置到 process.env
       for (const [k, v] of Object.entries(runtimeEnv)) {
         process.env[k] = v;

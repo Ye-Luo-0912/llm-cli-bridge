@@ -27,6 +27,7 @@ import type {
   RuntimeProvider,
 } from "../../core/types";
 import { composePromptForBackend } from "../agentBackendAdapter";
+import { buildRuntimeEnv } from "../../config/runtimeRouter";
 
 // 运行时动态 require（避免顶层 import 导致 renderer 加载失败）
 function requireNode<T>(name: string): T {
@@ -274,7 +275,7 @@ export class PiRpcProvider implements RuntimeProvider {
     try {
       child = childSpawn.spawn(settings.piCommand || "pi", args, {
         cwd: ctx.plan.cwd,
-        env: { ...process.env, PI_SESSION_DIR: sessionDir },
+        env: { ...process.env, ...buildRuntimeEnv(ctx.plan.cwd, "pi"), PI_SESSION_DIR: sessionDir },
       });
       this.currentChild = child;
     } catch (e) {

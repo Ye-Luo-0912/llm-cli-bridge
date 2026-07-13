@@ -1,27 +1,21 @@
 // LLM CLI Bridge — BridgeSession 实现 (V2.17-A Completion)
 //
 // UI 与 provider 之间的会话编排器。职责：
-// 1. 按 settings.backendMode + provider 可用性选择 RuntimeProvider
+// 1. 按 settings.backendMode；auto 时按 Vault active provider 选择 RuntimeProvider
 // 2. 构造 RunInput → BridgePromptPackage → EffectiveRunPlan（通过 provider.buildPlan）
 // 3. 调用 provider.run(ctx) 返回 AsyncIterable<NormalizedRuntimeEvent>
 // 4. cancel(runId) / resume(sessionId)
 //
 // UI 不直接接触 provider 实例，只通过 BridgeSession 交互。
 //
-// provider 选择策略（V17-E 任务 B：codex-first；V17-E 任务 F：Pi 降级为 optional/advanced backend；
-//                    V17-E1 任务 B：portable auto 也改为 Codex-first，Pi 仅显式选择）：
-// - auto（不论 portable 还是 developer）：codex-app-server → claude-sdk → claude-cli（Codex-first，普通用户默认主线）
+// provider 选择策略：
+// - auto：读取 Vault .llm-bridge/private/runtime/active.json，分别进入 Codex managed / Claude CLI / Pi SDK
 // - codex:            强制 Codex app-server（不可用时不静默 fallback）
 // - cli:              claude-cli
 // - sdk:              claude-sdk（strict，不可用时报错不 fallback）
 // - pi-sdk / pi-rpc:  对应 Pi provider（optional/advanced backend；仅显式选择才进入 Pi；不可用时不静默 fallback）
 // - mock-success / mock-failure: mock
 //
-// V17-E1 任务 B：portable profile 不再默认 Pi-first。Pi 降级为 optional/advanced backend，
-// 普通用户（无论 developer 还是 portable）的 auto 默认主线是 Codex-first。
-// V17-E 任务 F：friendReady 字段废弃，改名为 piAdvancedReady。
-// Pi provider ESM dynamic import 修复作为独立修复项，不阻塞 Codex-first audit。
-
 import type { LLMBridgeSettings } from "../../types";
 import type {
   BridgeSession,
@@ -44,13 +38,13 @@ import { CodexManagedAppServerProvider } from "../providers/codex-managed-app-se
 import { resolveManagedRuntime, resolveManifestPath } from "../providers/codex-managed-app-server/codexManagedRuntimeResolver";
 import { PiRpcProvider } from "../providers/pi-rpc/piRpcProvider";
 import { PiSdkProvider } from "../providers/pi-sdk/piSdkProvider";
+import { getActiveProvider } from "../config/activeProvider";
 
 /**
  * 选择 RuntimeProvider（按 settings.backendMode + provider 可用性）。
  *
  * V17-F1 任务 D：Managed runtime 主线。
- * - auto（不论 portable 还是 developer）：codex-managed-app-server → codex-sdk → claude-sdk → pi-sdk → claude-cli
- *   不依赖用户安装 Codex CLI / Desktop App，使用我们管理的 pinned runtime binary。
+ * - auto：由 Vault active provider 决定；Codex 使用我们管理的 pinned runtime binary。
  * - codex-managed-app-server: V17-F1 主线，使用 manifest + sha256 + executable 校验的 pinned binary
  * - codex-sdk: 显式 Codex SDK（本轮占位，未完整实现时 unavailable）
  * - codex-app-server-external: 显式 external app-server（高级/开发者 fallback）
@@ -128,9 +122,22 @@ export function selectProvider(
     return { provider: piSdk, label: "Pi SDK (unavailable)" };
   }
 
-  // V17-F1 任务 D + V17-F3.2 任务 A：auto = Managed runtime first 链。
-  // 若 managed runtime manifest 存在但 binary 缺失，普通用户需要 first-run installer，
-  // 不静默 fallback 到 Claude/Pi；其它不可用原因才继续兼容链。
+  // auto 模式由 Vault 本地 active.json 决定真正的 runtime。
+  // 设置页切换 Codex / Claude / Pi 后必须直接影响 session 选择，不能只改变 env。
+  const activeProvider = getActiveProvider(cwd);
+  if (activeProvider === "claude") {
+    return { provider: new ClaudeCliProvider(), label: "Claude Code" };
+  }
+  if (activeProvider === "pi") {
+    const piSdk = new PiSdkProvider();
+    if (piSdk.isAvailable(cwd)) {
+      return { provider: piSdk, label: "Pi SDK" };
+    }
+    return { provider: piSdk, label: "Pi SDK (unavailable)" };
+  }
+
+  // Codex 是默认 active provider，使用插件管理的 pinned runtime。
+  // binary 缺失时交给 first-run installer，不静默切换到另一类 agent。
   const managed = createManagedProvider(pluginDir);
   if (managed.resolver.available) {
     return { provider: managed.provider, label: managed.fixture ? "Codex managed (fixture)" : "Codex managed" };
@@ -138,23 +145,7 @@ export function selectProvider(
   if (managed.resolver.reason === "path-not-exist") {
     return { provider: managed.provider, label: "Codex runtime install required" };
   }
-  const codexSdk = new CodexSdkProvider();
-  if (codexSdk.isAvailable(cwd)) {
-    return { provider: codexSdk, label: "Codex SDK" };
-  }
-  const sdk = new ClaudeSdkProvider(false);
-  if (sdk.isAvailable(cwd)) {
-    return { provider: sdk, label: "Claude SDK" };
-  }
-  const piSdk = new PiSdkProvider();
-  if (piSdk.isAvailable(cwd)) {
-    return { provider: piSdk, label: "Pi SDK" };
-  }
-  // V17-F: auto 模式不预加载 Pi；到达此处时触发后台懒加载，下次运行可能可用
-  if (pluginDir) {
-    void PiSdkProvider.preload(false, pluginDir).catch(() => { /* ignore */ });
-  }
-  return { provider: new ClaudeCliProvider(), label: "Claude Code fallback" };
+  return { provider: managed.provider, label: `Codex managed (unavailable: ${managed.resolver.reason})` };
 }
 
 /**

@@ -841,3 +841,29 @@ export interface CodexTurnFailedParams {
   recoverable?: boolean;
   sessionId?: string;
 }
+
+// ---------- thread/tokenUsage/updated（上下文占用，非 timeline） ----------
+
+/** Codex TokenUsageBreakdown（camelCase wire） */
+export interface CodexTokenUsageBreakdown {
+  totalTokens: number;
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningOutputTokens: number;
+}
+
+/** Codex ThreadTokenUsage */
+export interface CodexThreadTokenUsage {
+  total: CodexTokenUsageBreakdown;
+  last: CodexTokenUsageBreakdown;
+  /** 当前模型 context window；官方暂为 optional */
+  modelContextWindow?: number | null;
+}
+
+/** `thread/tokenUsage/updated` notification params */
+export interface CodexThreadTokenUsageUpdatedParams {
+  threadId: string;
+  turnId?: string;
+  tokenUsage: CodexThreadTokenUsage;
+}

@@ -45,7 +45,7 @@ import {
 } from "./codexAppServerEffectiveRunPlan";
 import { AppServerProcessManager, type AppServerProcessLike, type AppServerSpawnOptions } from "./appServerProcessManager";
 import { JsonRpcClient } from "./jsonRpcClient";
-import { buildRuntimeSpawnEnv } from "../../runtimeProfileResolver";
+import { buildRuntimeEnv } from "../../config/runtimeRouter";
 import type {
   CodexFileChangeItem,
   CodexInitializeResult,
@@ -68,6 +68,7 @@ import type {
   CodexTurnFailedParams,
   CodexTurnInputItem,
   CodexTurnStartedParams,
+  CodexThreadTokenUsageUpdatedParams,
 } from "./schema";
 import { execFileSync } from "child_process";
 import { buildEnhancedPath } from "../../../claudeCliBackend";
@@ -290,7 +291,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
 
   /**
    * V17-E 任务 A：构建 spawn env（含 enhanced PATH）。
-   * V20.5: 通过 buildRuntimeSpawnEnv 注入 CODEX_HOME（本地配置存在时）+ CODEX_RELAY_API_KEY。
+   * 通过统一 runtime router 注入 CODEX_HOME（本地配置存在时）+ CODEX_RELAY_API_KEY。
    * Bridge 不再解析 Codex config.toml 内容——Codex 自己读取配置。
    */
   private buildSpawnEnv(cwd: string): NodeJS.ProcessEnv {
@@ -304,7 +305,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
 
     // V20.5: 注入 CODEX_HOME（本地配置存在时）+ CODEX_RELAY_API_KEY
     try {
-      const runtimeEnv = buildRuntimeSpawnEnv(cwd);
+      const runtimeEnv = buildRuntimeEnv(cwd, "codex");
       Object.assign(env, runtimeEnv);
     } catch { /* fallthrough: runtime env 不可用时退回 process.env */ }
 
@@ -893,6 +894,10 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     unreg.push(client.onNotification("turn/failed", (params) => {
       push(eventMapper.mapTurnFailed(params as CodexTurnFailedParams));
       signalDone();
+    }));
+    // 上下文占用：不进 timeline，仅驱动 UI ring
+    unreg.push(client.onNotification("thread/tokenUsage/updated", (params) => {
+      push(eventMapper.mapThreadTokenUsageUpdated(params as CodexThreadTokenUsageUpdatedParams));
     }));
 
     // approval server-request handler：item/commandExecution/requestApproval

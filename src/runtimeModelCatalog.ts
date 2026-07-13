@@ -84,15 +84,18 @@ const CODEX_MODELS: ReadonlyArray<ModelCatalogEntry> = [
  * 发送给 runtime 的值仍保持 low/medium/high/max，仅 UI 显示中文。
  */
 const EFFORT_DISPLAY_LABELS: Record<string, string> = {
-  low: "低",
+  none: "关闭",
+  minimal: "轻度",
+  low: "轻度",
   medium: "中",
   high: "高",
+  xhigh: "极高",
   max: "极高",
 };
 
 /** V20.2: 获取 effort 的中文显示标签，未知值原样返回。 */
 export function effortDisplayLabel(value: string): string {
-  return EFFORT_DISPLAY_LABELS[value] ?? value;
+  return EFFORT_DISPLAY_LABELS[value.toLowerCase()] ?? value;
 }
 
 /**
@@ -100,7 +103,7 @@ export function effortDisplayLabel(value: string): string {
  * V20.2: label 使用中文显示，value 保持 low/medium/high/max
  */
 const STATIC_EFFORTS: ReadonlyArray<EffortCatalogEntry> = [
-  { value: "low", label: "低" },
+  { value: "low", label: "轻度" },
   { value: "medium", label: "中" },
   { value: "high", label: "高" },
   { value: "max", label: "极高" },
@@ -191,10 +194,18 @@ export function setRuntimeModelCatalogForAgent(
  */
 export function getEffortsForModel(catalog: RuntimeModelCatalog, modelValue: string): ReadonlyArray<EffortCatalogEntry> {
   const entry = findModelEntry(catalog, modelValue);
-  if (entry?.supportedReasoningEfforts && entry.supportedReasoningEfforts.length > 0) {
-    return entry.supportedReasoningEfforts.map((e) => ({ value: e, label: effortDisplayLabel(e) }));
+  const raw = entry?.supportedReasoningEfforts && entry.supportedReasoningEfforts.length > 0
+    ? entry.supportedReasoningEfforts.map((e) => ({ value: e, label: effortDisplayLabel(e) }))
+    : catalog.efforts.map((e) => ({ value: e.value, label: effortDisplayLabel(e.value) }));
+  // 同一中文标签只保留一项（避免 max/xhigh 都显示「极高」造成重复）
+  const seen = new Set<string>();
+  const deduped: EffortCatalogEntry[] = [];
+  for (const effort of raw) {
+    if (seen.has(effort.label)) continue;
+    seen.add(effort.label);
+    deduped.push(effort);
   }
-  return catalog.efforts;
+  return deduped;
 }
 
 /**

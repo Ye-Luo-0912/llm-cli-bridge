@@ -253,6 +253,71 @@ export function writeProviderForm(vaultPath: string, provider: RuntimeProviderId
   }
 }
 
+// ---------- 用户手写配置保护 ----------
+
+/**
+ * 检测本地配置文件是否由 Bridge 表单生成（可安全整文件覆盖）。
+ *
+ * 配置表单只能覆盖 Bridge 自己生成的配置；遇到用户手写的官方配置应转只读展示，
+ * 不能整文件重写。检测基于 Bridge 模板的特征形状（不向官方配置注入额外字段）：
+ * - Codex: 含 `由 Bridge 表单生成` 标记注释
+ * - Claude: 顶层键 ⊆ {$schema, env}，env 键 ⊆ {ANTHROPIC_BASE_URL, ANTHROPIC_MODEL}
+ * - Pi: settings.json 顶层键 ⊆ {defaultProvider, defaultModel, defaultThinkingLevel}
+ *
+ * 文件不存在时返回 false（无文件可保护，由调用方决定是否新建）。
+ */
+export function isBridgeGeneratedConfig(vaultPath: string, provider: RuntimeProviderId): boolean {
+  switch (provider) {
+    case "codex": return isCodexBridgeGenerated(vaultPath);
+    case "claude": return isClaudeBridgeGenerated(vaultPath);
+    case "pi": return isPiBridgeGenerated(vaultPath);
+  }
+}
+
+function isCodexBridgeGenerated(vaultPath: string): boolean {
+  try {
+    const content = fs.readFileSync(path.join(vaultPath, AGENT_RUNTIME_CODEX_CONFIG_REL), "utf8");
+    return content.includes("由 Bridge 表单生成");
+  } catch {
+    return false;
+  }
+}
+
+function isClaudeBridgeGenerated(vaultPath: string): boolean {
+  let content: string;
+  try {
+    content = fs.readFileSync(path.join(vaultPath, AGENT_RUNTIME_CLAUDE_CONFIG_REL), "utf8");
+  } catch {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    const allowedTop = new Set(["$schema", "env"]);
+    if (!Object.keys(parsed).every((k) => allowedTop.has(k))) return false;
+    const env = (parsed.env as Record<string, unknown> | undefined) ?? {};
+    const allowedEnv = new Set(["ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"]);
+    return Object.keys(env).every((k) => allowedEnv.has(k));
+  } catch {
+    return false;
+  }
+}
+
+function isPiBridgeGenerated(vaultPath: string): boolean {
+  let content: string;
+  try {
+    content = fs.readFileSync(path.join(vaultPath, AGENT_RUNTIME_PI_SETTINGS_REL), "utf8");
+  } catch {
+    return false;
+  }
+  try {
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    const allowedTop = new Set(["defaultProvider", "defaultModel", "defaultThinkingLevel"]);
+    return Object.keys(parsed).every((k) => allowedTop.has(k));
+  } catch {
+    return false;
+  }
+}
+
 // ---------- TOML 轻量正则提取 ----------
 
 /**

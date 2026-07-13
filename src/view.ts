@@ -21,7 +21,7 @@ import { formatEffectiveRunPlan } from "./effectiveRunPlan";
 import { type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment, AssistantTurnView, TurnTimelineNode, NativeSessionRef } from "./runtime/core/types";
 import { getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, toolDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
-import { loadVaultRuntimeProfileSync, resolveRuntimeProfileSync, formatRelayStatusLabel, formatRelayStatusDetail } from "./runtime/runtimeProfileResolver";
+import { getActiveProvider, readProviderForm } from "./runtime/config/runtimeRouter";
 import { resolveUiLocale, type Locale } from "./runtime/core/toolPresentation";
 import { formatCodexRunValue, type CodexRunFeedItem, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
@@ -29,7 +29,6 @@ import { type ProviderCapabilityInfo, type ObsidianCliAvailability, type Provide
 import type { ManagedRuntimeInstallStatus } from "./runtime/providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge";
 import { listManagedCodexPluginsAsync, type CodexManagedPluginCatalog, type CodexManagedPluginEntry } from "./runtime/providers/codex-managed-app-server/codexManagedPluginCatalog";
 import { RunSessionController, type RunSessionHost } from "./runtime/RunSessionController";
-import { undoVaultContextMaintain, type AutoMaintainResult } from "./runtime/vaultContextAutoMaintainer";
 import { getRuntimeModelCatalogForAgent, setRuntimeModelCatalogForAgent, normalizeModelValue, normalizeEffortValue, getEffortsForModel, getDefaultEffortForModel, type ModelCatalogEntry, type RuntimeModelCatalog } from "./runtimeModelCatalog";
 import { loadCodexManagedModelCatalog } from "./runtime/providers/codex-managed-app-server/codexManagedModelCatalog";
 import { WorkflowEvent, PermissionEvent, truncateText, redactSecrets } from "./workflowEvent";
@@ -54,7 +53,6 @@ import {
 } from "./agentSkills";
 import {
   buildMessagePresentation,
-  shouldShowContextOccupancyChip,
   NAV_TAB_LABELS,
   type MessagePresentation,
   type MessageActionId,
@@ -289,8 +287,9 @@ export class LLMBridgeView extends ItemView {
   private runSession!: RunSessionController;
   /** P3: 当前会话是否为恢复的历史会话（true=恢复，false=fresh）。用于 UI 标注"恢复的会话"。 */
   private sessionResumed: boolean = false;
-  /** V2.16-B: 实际 runtime 标签（供 UI 显示，区分 auto→SDK / auto→CLI fallback） */
-  private actualRuntimeLabel: string = "Claude Code";
+  /** V2.16-B: 实际 runtime 标签（供 UI 显示，区分 auto→SDK / auto→CLI fallback）。
+   *  默认 Codex（与默认 active provider / 托管 runtime 一致），首帧 refreshStatusBar 后由 session.displayLabel 覆盖。 */
+  private actualRuntimeLabel: string = "Codex";
   private messages: ChatMessage[] = [];
   private currentAssistantId: string | null = null;
   /**
@@ -327,13 +326,6 @@ export class LLMBridgeView extends ItemView {
   /** P0: Codex Skills 物化去重缓存（同 vault 连续发送不重复全量物化） */
   private codexSkillPrepCache: { vaultPath: string; preparedAt: number; ok: boolean; reason?: string } | null = null;
   private codexSkillPrepInFlight: Promise<{ ok: boolean; reason?: string }> | null = null;
-  /** VC-4: Vault Context 最近一次自动维护记录（内存，跨会话不持久化） */
-  private lastVaultContextMaintain: {
-    timestamp: string;
-    updatedFiles: string[];
-    conflicts: string[];
-    backups: Map<string, string>;
-  } | null = null;
   private vaultContextStatusEl: HTMLElement | null = null;
   /** P0: managed plugin 列表刷新去重 */
   private managedPluginsRefreshInFlight: Promise<void> | null = null;
@@ -383,7 +375,6 @@ export class LLMBridgeView extends ItemView {
   private effortChipGroup!: HTMLElement;
   private modelEffortPickerEl!: HTMLElement;
   private modelEffortButtonEl!: HTMLButtonElement;
-  private effortChipEl!: HTMLButtonElement;
   private modelOptionsEl!: HTMLElement;
   private effortOptionsEl!: HTMLElement;
   /** V2.16-C: 运行时模型目录（不再硬编码） */
@@ -465,8 +456,13 @@ export class LLMBridgeView extends ItemView {
   private lastActiveMarkdownFile: TFile | null = null;
   // V2.16-D: Context metrics UI 元素
   private contextRingEl!: HTMLElement;
+  private contextTipEl!: HTMLElement;
+  private contextTipPctEl!: HTMLElement;
+  private contextTipTokensEl!: HTMLElement;
   private contextLabelEl!: HTMLElement;
   private contextDetailEl!: HTMLElement;
+  /** Codex thread/tokenUsage/updated 最新快照；ring 只吃这份数据 */
+  private lastRuntimeTokenUsage: { usedTokens: number; contextWindow: number | null; updatedAt: string } | null = null;
   private composerStatusRailEl!: HTMLElement;
   private composerStatusTextEl!: HTMLElement;
   private composerStepPillEl!: HTMLElement;
@@ -605,7 +601,7 @@ export class LLMBridgeView extends ItemView {
     this.tabPanels = { chat: chatPanel, files: filesPanel, skills: skillsPanel, history: historyPanel };
     const switchTab = (tab: "chat" | "files" | "skills" | "history") => {
       this.closeModelEffortPopover();
-      this.composerController.closeEffortPopover();
+      this.composerController.closeModelEffortPopover();
       for (const t of [chatTab, filesTab, skillsTab, historyTab]) t.classList.remove("is-active");
       for (const p of [chatPanel, filesPanel, skillsPanel, historyPanel]) p.classList.remove("is-active");
       if (tab === "chat") { chatTab.classList.add("is-active"); chatPanel.classList.add("is-active"); }
@@ -782,16 +778,21 @@ export class LLMBridgeView extends ItemView {
 
     const composerContextRow = composer.createDiv({ cls: "llm-bridge-composer-context" });
     const contextTagsRow = composerContextRow.createDiv({ cls: "llm-bridge-context-tags" });
-    // V2.16-D: Context indicator（V16.3: 普通用户态只显示 ring，developer mode 点击展开明细）
-    const contextStrip = composerContextRow.createDiv({ cls: "llm-bridge-context-strip" });
-    this.contextRingEl = contextStrip.createDiv({ cls: "llm-bridge-context-ring" });
-    this.contextLabelEl = contextStrip.createDiv({ cls: "llm-bridge-context-label", text: "Context estimate" });
+    // 上下文占用环：composer 右上角；数值只吃 agent-runtime（Codex tokenUsage）
+    const contextStrip = composerContextRow.createDiv({
+      cls: "llm-bridge-context-strip is-tooltip-only",
+      attr: { role: "img", "aria-label": "Context" },
+    });
+    this.contextRingEl = contextStrip.createDiv({ cls: "llm-bridge-context-ring is-unavailable" });
+    this.contextTipEl = contextStrip.createDiv({ cls: "llm-bridge-context-tip", attr: { hidden: "" } });
+    this.contextTipPctEl = this.contextTipEl.createDiv({ cls: "llm-bridge-context-tip-pct" });
+    this.contextTipTokensEl = this.contextTipEl.createDiv({ cls: "llm-bridge-context-tip-tokens" });
+    this.contextLabelEl = contextStrip.createDiv({ cls: "llm-bridge-context-label", text: "" });
     this.contextDetailEl = contextStrip.createDiv({ cls: "llm-bridge-context-detail" });
     this.contextDetailEl.setAttribute("hidden", "");
     contextStrip.addEventListener("click", (e) => {
       const target = e.target as HTMLElement;
       if (target.closest(".llm-bridge-context-detail")) return;
-      // V16.3: 普通用户态不展开明细，只 hover/title 看 used/total；developer mode 可点击展开
       if (!this.plugin.settings.developerMode) return;
       if (this.contextDetailEl.hasAttribute("hidden")) {
         this.contextDetailEl.removeAttribute("hidden");
@@ -799,7 +800,6 @@ export class LLMBridgeView extends ItemView {
         this.contextDetailEl.setAttribute("hidden", "");
       }
     });
-
     const composerBar = composer.createDiv({ cls: "llm-bridge-composer-bar" });
     this.composerBarEl = composerBar;
     composerBar.appendChild(composerContextRow);
@@ -892,7 +892,7 @@ export class LLMBridgeView extends ItemView {
       this.composerController.setActivePopup("command");
       this.closePermissionPopover();
       this.closeModelEffortPopover();
-      this.composerController.closeEffortPopover();
+      this.composerController.closeModelEffortPopover();
       this.closeMentionPicker();
       this.closeAttachmentContextMenu();
       document.querySelectorAll(".llm-bridge-session-dropdown:not([hidden])")
@@ -946,6 +946,7 @@ export class LLMBridgeView extends ItemView {
       if (e.key === "Enter" && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
         if (e.ctrlKey || e.metaKey || !e.altKey) {
           e.preventDefault();
+          if (this.sendBtn?.disabled) return;
           void this.runSession.run();
         }
       }
@@ -957,6 +958,7 @@ export class LLMBridgeView extends ItemView {
       }
       this.handleMentionInput();
       this.autoGrowInput();
+      this.refreshSendButtonState();
     });
     this.inputEl.addEventListener("paste", (event) => {
       void this.handleComposerPaste(event);
@@ -972,12 +974,13 @@ export class LLMBridgeView extends ItemView {
     const rightTools = toolbar.createDiv({ cls: "llm-bridge-composer-tools llm-bridge-composer-tools-right" });
     this.agentChipTextEl = agentSelect;
     this.renderModelEffortPicker(rightTools);
+
     const actionCol = rightTools.createDiv({ cls: "llm-bridge-action-col" });
     this.stopBtn = actionCol.createEl("button", {
       cls: "llm-bridge-stop-btn",
       attr: { title: "停止", "aria-label": "停止" },
     });
-    this.stopBtn.createEl("span", { cls: "llm-bridge-stop-icon", text: "■" });
+    this.stopBtn.createEl("span", { cls: "llm-bridge-stop-icon", text: "" });
     this.stopBtn.style.display = "none";
     this.stopBtn.addEventListener("click", () => this.runSession.stop());
     this.sendBtn = actionCol.createEl("button", {
@@ -1086,26 +1089,21 @@ export class LLMBridgeView extends ItemView {
     const settings = this.plugin.settings;
 
     try {
-      const runtimeCatalog = await loadCodexManagedModelCatalog(this.plugin.pluginDir, vaultPath, settings);
-      if (!runtimeCatalog || runtimeCatalog.models.length === 0) return;
-
-      // V20.8: 读取本地配置文件中的模型（不请求 /v1/models）
-      const { readProviderForm, getActiveProvider } = await import("./runtime/config/runtimeRouter");
-      const activeProvider = getActiveProvider(vaultPath);
-      const localForm = readProviderForm(vaultPath, activeProvider);
+      // 本地 Codex config.toml 是用户选择的第一真相源；runtime model/list 只补能力目录。
+      const localForm = readProviderForm(vaultPath, "codex");
       const localModel = localForm.ok && localForm.form ? localForm.form.model : "";
+      const runtimeCatalog = await loadCodexManagedModelCatalog(this.plugin.pluginDir, vaultPath);
 
       // 构建 catalog：runtime 官方模型 + 本地配置模型（去重）
-      const catalogEntries: ModelCatalogEntry[] = [...runtimeCatalog.models];
+      const catalogEntries: ModelCatalogEntry[] = [...(runtimeCatalog?.models ?? [])];
       if (localModel && !catalogEntries.some((m) => m.value === localModel)) {
         // 本地配置模型作为第一项（优先选择）
         catalogEntries.unshift({
           value: localModel,
           label: localModel,
-          supportedReasoningEfforts: ["medium"],
-          defaultReasoningEffort: "medium",
         });
       }
+      if (catalogEntries.length === 0) return;
 
       setRuntimeModelCatalogForAgent("codex", catalogEntries);
 
@@ -1695,44 +1693,38 @@ export class LLMBridgeView extends ItemView {
 
   private renderModelEffortPicker(parent: HTMLElement): void {
     this.modelEffortPickerEl = parent.createDiv({ cls: "llm-bridge-model-effort-picker" });
-    // V20.2: 两级紧凑结构 — 模型 chip + 推理强度 chip 分开
+    // Fig.1: 单一合并 chip（模型 + 推理强度），嵌套主菜单 + 右侧 flyout
     this.modelEffortButtonEl = this.modelEffortPickerEl.createEl("button", {
-      cls: "llm-bridge-model-effort-chip llm-bridge-model-chip-inline llm-bridge-model-chip-two-level",
-      attr: { title: "选择模型", "aria-haspopup": "true", "aria-expanded": "false" },
+      cls: "llm-bridge-model-effort-chip llm-bridge-model-chip-merged",
+      attr: { title: "选择模型与推理强度", "aria-haspopup": "true", "aria-expanded": "false" },
     });
     this.modelEffortButtonEl.addEventListener("click", (event) => {
       event.stopPropagation();
       if (this.runSession.runHandle) return;
       this.toggleModelEffortPopover();
     });
-    // V20.2: effort chip 不再隐藏，作为独立的第二级入口
-    this.effortChipEl = this.modelEffortPickerEl.createEl("button", {
-      cls: "llm-bridge-model-effort-chip llm-bridge-effort-chip-inline llm-bridge-effort-chip-two-level",
-      attr: { title: "选择推理强度", "aria-haspopup": "true", "aria-expanded": "false" },
-    });
-    this.effortChipEl.addEventListener("click", (event) => {
-      event.stopPropagation();
-      if (this.runSession.runHandle) return;
-      this.toggleEffortPopover();
-    });
 
-    // V20.2: 两个独立的 popover — 扁平行、选中勾选、限高滚动
-    const modelPopoverEl = this.modelEffortPickerEl.createDiv({
-      cls: "llm-bridge-model-effort-popover llm-bridge-model-popover-two-level",
+    const menuEl = this.modelEffortPickerEl.createDiv({
+      cls: "llm-bridge-model-effort-popover llm-bridge-model-menu-nested",
       attr: { hidden: "" },
     });
-    this.composerController.setModelEffortPopoverEl(modelPopoverEl);
-    this.modelOptionsEl = modelPopoverEl.createDiv({ cls: "llm-bridge-model-options" });
+    this.composerController.setModelEffortPopoverEl(menuEl);
 
-    const effortPopoverEl = this.modelEffortPickerEl.createDiv({
-      cls: "llm-bridge-model-effort-popover llm-bridge-effort-popover-two-level",
-      attr: { hidden: "" },
+    menuEl.createDiv({ cls: "llm-bridge-model-menu-primary" });
+    const modelFlyout = menuEl.createDiv({
+      cls: "llm-bridge-model-menu-flyout",
+      attr: { "data-panel": "model", hidden: "" },
     });
-    this.composerController.setEffortPopoverEl(effortPopoverEl);
-    this.effortOptionsEl = effortPopoverEl.createDiv({ cls: "llm-bridge-effort-options" });
+    modelFlyout.createDiv({ cls: "llm-bridge-model-menu-flyout-title", text: "模型" });
+    this.modelOptionsEl = modelFlyout.createDiv({ cls: "llm-bridge-model-options" });
 
-    // 两阶段初始化：这里只创建静态 DOM，不立即访问 runSession。
-    // 模型目录和选项的动态填充在 hydrateComposerRuntime() 中统一执行。
+    const effortFlyout = menuEl.createDiv({
+      cls: "llm-bridge-model-menu-flyout",
+      attr: { "data-panel": "effort", hidden: "" },
+    });
+    effortFlyout.createDiv({ cls: "llm-bridge-model-menu-flyout-title", text: "推理强度" });
+    this.effortOptionsEl = effortFlyout.createDiv({ cls: "llm-bridge-effort-options" });
+
     this.modelEffortPickerEl.addEventListener("keydown", (event) => {
       if (event.key === "Escape") this.closeModelEffortPopover();
     });
@@ -1769,17 +1761,20 @@ export class LLMBridgeView extends ItemView {
   }
 
   private getEffectiveModelCatalogAgent(): "claude" | "codex" | "custom" {
-    // 保险：runSession 尚未初始化时，仅基于配置推断 agent（不访问 providerId）
-    if (!this.runSession) {
-      const mode = this.plugin.settings.backendMode;
-      if (mode === "codex-managed-app-server" || mode === "codex-app-server-external" || mode === "codex-sdk") return "codex";
-      return this.plugin.settings.agentType;
-    }
-    const providerId = this.runSession.getSession()?.providerId;
+    const providerId = this.runSession?.getSession()?.providerId;
     if (providerId && /codex/.test(providerId)) return "codex";
+    if (providerId && /pi/.test(providerId)) return "custom";
+    if (providerId && /claude/.test(providerId)) return "claude";
     const mode = this.plugin.settings.backendMode;
     if (mode === "codex-managed-app-server" || mode === "codex-app-server-external" || mode === "codex-sdk") return "codex";
-    if (mode === "auto" && /codex/i.test(this.actualRuntimeLabel)) return "codex";
+    if (mode === "pi-sdk" || mode === "pi-rpc") return "custom";
+    if (mode === "auto") {
+      const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      const activeProvider = getActiveProvider(vaultPath);
+      if (activeProvider === "codex") return "codex";
+      if (activeProvider === "pi") return "custom";
+      return "claude";
+    }
     return this.plugin.settings.agentType;
   }
 
@@ -1789,10 +1784,6 @@ export class LLMBridgeView extends ItemView {
 
   private toggleModelEffortPopover(): void {
     this.composerController.toggleModelEffortPopover();
-  }
-
-  private toggleEffortPopover(): void {
-    this.composerController.toggleEffortPopover();
   }
 
   private closeModelEffortPopover(updateActive = true): void {
@@ -1805,9 +1796,7 @@ export class LLMBridgeView extends ItemView {
     this.renderModelEffortOptions();
     refreshModelEffortPickerLabelsDom(
       this.modelEffortButtonEl,
-      this.effortChipEl,
       this.composerController.modelEffortPopoverEl,
-      this.composerController.effortPopoverEl,
       this.modelCatalog,
       this.plugin.settings.model,
       this.plugin.settings.effortLevel,
@@ -1937,10 +1926,8 @@ export class LLMBridgeView extends ItemView {
       getComposerEl: () => view.composerEl,
       getComposerBarEl: () => view.composerBarEl,
       getModelEffortButtonEl: () => view.modelEffortButtonEl,
-      getEffortChipEl: () => view.effortChipEl,
       getModelOptionsEl: () => view.modelOptionsEl,
       getEffortOptionsEl: () => view.effortOptionsEl,
-      getEffortPopoverEl: () => view.composerController?.effortPopoverEl ?? null,
       getPermissionModePickerEl: () => view.permissionModePickerEl,
       getPermissionModeChipEl: () => view.permissionModeChipEl,
       getModelCatalog: () => view.modelCatalog,
@@ -2154,8 +2141,6 @@ export class LLMBridgeView extends ItemView {
       buildSdkStreamingInput: (userPrompt, refs) => view.buildSdkStreamingInput(userPrompt, refs),
       ensureManagedCodexPluginsCached: () => view.ensureManagedCodexPluginsCached(),
       ensureCodexSkillsPreparedCached: (vaultPath) => view.ensureCodexSkillsPreparedCached(vaultPath),
-      invalidateCodexSkillPrepCache: () => view.invalidateCodexSkillPrepCache(),
-      onVaultContextMaintained: (result, timestamp) => view.onVaultContextMaintained(result, timestamp),
       getManagedRuntimeInstallStatusForCurrentMode: () => view.getManagedRuntimeInstallStatusForCurrentMode(),
       refreshManagedRuntimeInstallAction: (status) => view.refreshManagedRuntimeInstallAction(status),
       commandLine: () => view.commandLine(),
@@ -2164,6 +2149,7 @@ export class LLMBridgeView extends ItemView {
       displayApprovalProfile: () => view.displayApprovalProfile(),
       refreshHistory: (force?) => view.refreshHistory(force),
       refreshSessionState: () => view.refreshSessionState(),
+      applyRuntimeTokenUsage: (usedTokens, contextWindow) => view.applyRuntimeTokenUsage(usedTokens, contextWindow),
     };
   }
 
@@ -2240,7 +2226,7 @@ export class LLMBridgeView extends ItemView {
     // 停止按钮只在运行中显示，发送按钮反之
     this.stopBtn.style.display = running ? "inline-flex" : "none";
     this.sendBtn.style.display = running ? "none" : "inline-flex";
-    this.sendBtn.disabled = running;
+    this.refreshSendButtonState(running);
     // 仅禁用真实 <button>；summary（扳手菜单）不是 button，不可设 disabled
     const allChips = this.contentEl.querySelectorAll(".llm-bridge-chip, .llm-bridge-agent-select, .llm-bridge-composer-tool-btn, .llm-bridge-command-menu-item, .llm-bridge-permission-chip, .llm-bridge-model-effort-chip, .llm-bridge-model-option, .llm-bridge-effort-option");
     allChips.forEach((c) => {
@@ -2254,6 +2240,26 @@ export class LLMBridgeView extends ItemView {
     // V2.0: 同步会话状态
     this.sessionState = updateSession(this.sessionState, { status });
     this.refreshSessionState();
+  }
+
+  /** 空输入 / 无附件时发送钮灰显，不依赖 Notice 才能感知不可发送 */
+  private refreshSendButtonState(runningOverride?: boolean): void {
+    if (!this.sendBtn) return;
+    const running = runningOverride ?? (this.sessionState?.status === "running");
+    if (running) {
+      this.sendBtn.disabled = true;
+      this.sendBtn.classList.remove("is-unsendable");
+      this.sendBtn.setAttribute("title", "发送 (Enter)");
+      this.sendBtn.setAttribute("aria-label", "发送");
+      return;
+    }
+    const hasText = !!(this.inputEl && this.inputEl.value.trim().length > 0);
+    const hasFiles = this.messageFileRefs.length > 0;
+    const canSend = hasText || hasFiles;
+    this.sendBtn.disabled = !canSend;
+    this.sendBtn.classList.toggle("is-unsendable", !canSend);
+    this.sendBtn.setAttribute("title", canSend ? "发送 (Enter)" : "输入内容后发送");
+    this.sendBtn.setAttribute("aria-label", canSend ? "发送" : "不可发送");
   }
 
   /**
@@ -2300,20 +2306,11 @@ export class LLMBridgeView extends ItemView {
     // V2.16-D: runtime status pill — Phase 3 统一使用 computeRuntimeStateLabel
     const installStatus = this.getManagedRuntimeInstallStatusForCurrentMode();
     const stateInfo = this.computeRuntimeStateLabel(this.sessionState.status, installStatus);
-    // RuntimeProfileResolver: 本地中转已配置时显示中转状态，否则显示原生 runtime 状态
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-    const vaultProfile = loadVaultRuntimeProfileSync(vaultPath);
-    const relayProfile = resolveRuntimeProfileSync(s, vaultProfile, vaultPath);
-    const relayStatus = formatRelayStatusLabel(relayProfile);
-    if (relayProfile.origin !== "none") {
-      this.statusLabelEl.textContent = relayStatus.label;
-      this.statusDotEl.setAttribute("title", formatRelayStatusDetail(relayProfile));
-    } else {
-      this.statusLabelEl.textContent = `${installStatus?.required ? "Codex runtime" : runtimeLabel} · ${stateInfo.label}`;
-      this.statusDotEl.setAttribute("title", installStatus?.required ? this.formatRuntimeInstallTitle(installStatus) : STATUS_LABEL[this.sessionState.status] || "Runtime status");
-    }
+    this.statusLabelEl.textContent = `${installStatus?.required ? "Codex runtime" : runtimeLabel} · ${stateInfo.label}`;
+    this.statusDotEl.setAttribute("title", installStatus?.required ? this.formatRuntimeInstallTitle(installStatus) : STATUS_LABEL[this.sessionState.status] || "Runtime status");
     this.refreshManagedRuntimeInstallAction(installStatus);
-    // Cwd（Vault 根目录）— vaultPath 已在上方 RuntimeProfileResolver 解析时获取
+    // Cwd（Vault 根目录）
     // 只显示最后两级目录，避免过长
     const shortPath = vaultPath.split(/[/\\]/).slice(-2).join("/");
     this.statusCwdEl.querySelector(".llm-bridge-sb-value")!.textContent = shortPath;
@@ -3716,6 +3713,7 @@ export class LLMBridgeView extends ItemView {
       setSelectedAttachmentId: (id) => { this.composerController.selectedAttachmentId = id; },
       renderToken: (container, ref, allowRemove) => this.renderComposerAttachmentToken(container, ref, allowRemove),
     });
+    this.refreshSendButtonState();
   }
 
   private shortAttachmentName(name: string, max = 14): string {
@@ -4433,24 +4431,42 @@ export class LLMBridgeView extends ItemView {
 
   /**
    * 通过完整路径打开 vault 内文件（Obsidian 新标签页）。
+   * `.obsidian/` 等配置区通常不是 TFile，优先走 openWithDefaultApp，再回退系统打开。
    * 返回 false 表示文件不在 vault 内，调用方应回退到系统默认应用。
    */
   private async openVaultFileByPath(fullPath: string): Promise<boolean> {
     const vaultPath = this.getVaultPath();
     let relPath: string;
-    if (path.isAbsolute(fullPath)) {
-      const relative = path.relative(vaultPath, fullPath);
+    let absolutePath = fullPath;
+    // Strip trailing :line / :line:col that often appear in assistant citations.
+    const stripped = fullPath.replace(/\\/g, "/").replace(/:(\d+)(?::\d+)?$/, "");
+    const candidate = stripped !== fullPath.replace(/\\/g, "/") ? stripped : fullPath;
+    if (path.isAbsolute(candidate) || /^[A-Za-z]:[\\/]/.test(candidate)) {
+      absolutePath = candidate.replace(/\//g, path.sep);
+      const relative = path.relative(vaultPath, absolutePath);
       if (relative.startsWith("..") || path.isAbsolute(relative)) return false;
       relPath = relative.replace(/\\/g, "/");
     } else {
-      relPath = fullPath.replace(/\\/g, "/").replace(/^\/+/, "");
+      relPath = candidate.replace(/\\/g, "/").replace(/^\/+/, "");
+      absolutePath = path.join(vaultPath, relPath);
     }
     const file = this.app.vault.getAbstractFileByPath(relPath);
     if (file instanceof TFile) {
       await this.openVaultFileFromAssistantLink(file);
       return true;
     }
-    return false;
+    const openWithDefault = (this.app as unknown as {
+      openWithDefaultApp?: (path: string) => Promise<void> | void;
+    }).openWithDefaultApp;
+    if (typeof openWithDefault === "function") {
+      try {
+        await openWithDefault.call(this.app, relPath);
+        return true;
+      } catch {
+        // Fall through to system open for hidden / non-indexed paths.
+      }
+    }
+    return this.openPathWithSystemDefault(absolutePath, false);
   }
 
   private resolveFileRefVaultPath(ref: FileRef): string | null {
@@ -4959,41 +4975,70 @@ export class LLMBridgeView extends ItemView {
       if (!targetFile) return;
       event.preventDefault();
       event.stopPropagation();
-      if (!targetFile.file) {
-        new Notice(`未在 Vault 中找到可打开的文件：${targetFile.path}`, 4000);
-        return;
-      }
-      void this.openVaultFileFromAssistantLink(targetFile.file);
+      void this.openAssistantMarkdownVaultTarget(targetFile);
     }, true);
   }
 
-  private resolveAssistantMarkdownVaultLink(anchor: HTMLAnchorElement): { file: TFile | null; path: string } | null {
+  private resolveAssistantMarkdownVaultLink(anchor: HTMLAnchorElement): {
+    file: TFile | null;
+    path: string;
+    absolutePath?: string;
+    line?: number;
+  } | null {
     const rawTarget = anchor.getAttribute("data-href")
       || anchor.getAttribute("href")
       || anchor.textContent
       || "";
-    const linkText = this.normalizeAssistantMarkdownLinkTarget(rawTarget);
-    if (!linkText) return null;
-    if (/^(?:https?:|mailto:|tel:|#)/i.test(linkText)) return null;
+    const parsed = this.normalizeAssistantMarkdownLinkTarget(rawTarget);
+    if (!parsed.path) return null;
+    if (/^(?:https?:|mailto:|tel:|#)/i.test(parsed.path)) return null;
 
+    const linkText = parsed.path;
     const sourcePath = this.getActiveFile()?.path || "";
     const linkedFile = this.app.metadataCache.getFirstLinkpathDest(linkText, sourcePath);
-    if (linkedFile instanceof TFile) return { file: linkedFile, path: linkedFile.path };
+    if (linkedFile instanceof TFile) {
+      return { file: linkedFile, path: linkedFile.path, line: parsed.line };
+    }
 
-    const directPath = normalizePath(linkText.replace(/^\/+/, ""));
+    const vaultPath = this.getVaultPath().replace(/\\/g, "/");
+    let vaultRel = linkText.replace(/^\/+/, "");
+    let absolutePath: string | undefined;
+
+    if (path.isAbsolute(linkText) || /^[A-Za-z]:\//.test(linkText)) {
+      absolutePath = linkText.replace(/\//g, path.sep);
+      const relative = path.relative(this.getVaultPath(), absolutePath).replace(/\\/g, "/");
+      if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
+        vaultRel = relative;
+      }
+    } else if (vaultPath && linkText.toLowerCase().startsWith(vaultPath.toLowerCase() + "/")) {
+      vaultRel = linkText.slice(vaultPath.length + 1);
+      absolutePath = linkText.replace(/\//g, path.sep);
+    }
+
+    const directPath = normalizePath(vaultRel);
     const directFile = this.app.vault.getAbstractFileByPath(directPath);
-    if (directFile instanceof TFile) return { file: directFile, path: directFile.path };
+    if (directFile instanceof TFile) {
+      return { file: directFile, path: directFile.path, absolutePath, line: parsed.line };
+    }
 
     if (!/\.[^/\\]+$/.test(directPath)) {
       const markdownFile = this.app.vault.getAbstractFileByPath(`${directPath}.md`);
-      if (markdownFile instanceof TFile) return { file: markdownFile, path: markdownFile.path };
+      if (markdownFile instanceof TFile) {
+        return { file: markdownFile, path: markdownFile.path, absolutePath, line: parsed.line };
+      }
     }
-    return { file: null, path: directPath || linkText };
+
+    return {
+      file: null,
+      path: directPath || linkText,
+      absolutePath: absolutePath || (path.isAbsolute(linkText) ? linkText.replace(/\//g, path.sep) : undefined),
+      line: parsed.line,
+    };
   }
 
-  private normalizeAssistantMarkdownLinkTarget(value: string): string {
+  private normalizeAssistantMarkdownLinkTarget(value: string): { path: string; line?: number } {
     let text = value.trim();
-    if (!text) return "";
+    if (!text) return { path: "" };
     try {
       text = decodeURIComponent(text);
     } catch {
@@ -5007,17 +5052,49 @@ export class LLMBridgeView extends ItemView {
       const params = new URLSearchParams(obsidianOpen[1]);
       text = params.get("path") || params.get("file") || text;
     }
-    return text
+    text = text
       .replace(/[?#].*$/, "")
       .replace(/\\/g, "/")
       .trim();
+
+    // Editor-style "path:line" / "path:line:column" (keep drive letters like D:/...)
+    let line: number | undefined;
+    const lineMatch = text.match(/^(.*):(\d+)(?::\d+)?$/);
+    if (lineMatch?.[1] && lineMatch[2] && !/^[A-Za-z]$/.test(lineMatch[1])) {
+      text = lineMatch[1];
+      line = Number(lineMatch[2]);
+    }
+    return { path: text, line: Number.isFinite(line) ? line : undefined };
   }
 
-  private async openVaultFileFromAssistantLink(file: TFile): Promise<void> {
+  private async openAssistantMarkdownVaultTarget(target: {
+    file: TFile | null;
+    path: string;
+    absolutePath?: string;
+    line?: number;
+  }): Promise<void> {
+    if (target.file) {
+      await this.openVaultFileFromAssistantLink(target.file, target.line);
+      return;
+    }
+
+    const openedInVault = await this.openVaultFileByPath(target.absolutePath || target.path);
+    if (openedInVault) return;
+
+    const systemTarget = target.absolutePath
+      || (path.isAbsolute(target.path) ? target.path : path.join(this.getVaultPath(), target.path));
+    const opened = await this.openPathWithSystemDefault(systemTarget, true);
+    if (!opened) {
+      new Notice(`未在 Vault 中找到可打开的文件：${target.path}`, 4000);
+    }
+  }
+
+  private async openVaultFileFromAssistantLink(file: TFile, line?: number): Promise<void> {
     try {
       const existingLeaf = this.findLeafForFile(file);
       const leaf = existingLeaf ?? this.app.workspace.getLeaf("tab");
-      await leaf.openFile(file);
+      const openState = line && line > 0 ? { eState: { line: Math.max(0, line - 1) } } : undefined;
+      await leaf.openFile(file, openState);
       this.app.workspace.revealLeaf(leaf);
       this.rememberActiveFile(file);
     } catch (error) {
@@ -6988,6 +7065,8 @@ export class LLMBridgeView extends ItemView {
     this.currentSessionId = null; // 新会话不绑定旧 id，下次运行将生成新 id
     this.messagesFoldExpanded = false; // V2.7: 重置折叠状态
     this.sessionState = createNewSession();
+    this.lastRuntimeTokenUsage = null;
+    this.renderRuntimeContextRing();
     // latest native session only: 新会话清空 activeNativeSessionRef 回填缓存，
     // 避免把旧会话的 native session 带到新 BridgeSession 导致误 resume。
     this.runSession.setRestoredActiveNativeSessionRef(undefined);
@@ -7039,10 +7118,7 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
-  // V2.16-D/E: 刷新 context metrics（估算 prompt/active note/selection/attachments/history/remaining）
-  // - 异步：需要读取 active note 内容
-  // - 标注 estimated（字符估算，非精确 token）
-  // - 更新 ring + label + detail
+  // V2.16-D/E: 刷新 context 相关 chip 状态；占用环只吃 agent-runtime tokenUsage
   private async refreshContextMetrics(): Promise<void> {
     if (!this.contextLabelEl || !this.contextRingEl || !this.contextDetailEl) return;
     try {
@@ -7066,109 +7142,116 @@ export class LLMBridgeView extends ItemView {
       } else {
         this.activeNoteAttachState = "path-only";
       }
-      const snapshot: StateSnapshot = {
-        vaultPath,
-        activeFilePath: activeFile?.path || null,
-        activeFileContent: activeNoteContent || null,
-        selection,
-        fileRefIndex: buildPromptFileRefIndex({ refs: this.getPromptFileRefs() }),
-        attachmentTextSnippets: this.getPromptAttachmentSnippets(this.getPromptFileRefs()),
-        timestamp: new Date().toISOString(),
-      };
-      const promptPackageText = buildPromptPackage("", snapshot, settings);
-      // V2.17-A: 拆分 message-scoped 附件与 pinned context 两段（不再合并为单一 workingSet）
-      const messageAttachmentsText = this.messageFileRefs.filter((r) => r.status === "active").map((r) => r.resolvedPath).join("\n");
-      const pinnedContextText = this.pinnedFileRefs.filter((r) => r.status === "active").map((r) => r.resolvedPath).join("\n");
-      const historyText = this.messages.map((m) => m.content || "").join("\n");
-      const metrics = computeContextMetrics(
-        promptPackageText, activeNoteContent, selection || "",
-        messageAttachmentsText, pinnedContextText, historyText, settings.model,
-      );
-      // V2.17-A: 不强制覆盖 precision 为 unavailable；让 computeContextMetrics 的 estimated 自然显示。
-      // - 当前运行时无 exact token usage 信号，按 estimated 展示本地估算（标明精度，不冒充 exact）
-      // - compression 无信号时不传，不伪造
-      this.lastContextMetrics = metrics;
-      this.renderContextMetrics(metrics);
+      // developerMode：本地估算仅作明细诊断，不驱动占用环数字
+      if (settings.developerMode) {
+        const snapshot: StateSnapshot = {
+          vaultPath,
+          activeFilePath: activeFile?.path || null,
+          activeFileContent: activeNoteContent || null,
+          selection,
+          fileRefIndex: buildPromptFileRefIndex({ refs: this.getPromptFileRefs() }),
+          attachmentTextSnippets: this.getPromptAttachmentSnippets(this.getPromptFileRefs()),
+          timestamp: new Date().toISOString(),
+        };
+        const promptPackageText = buildPromptPackage("", snapshot, settings);
+        const messageAttachmentsText = this.messageFileRefs.filter((r) => r.status === "active").map((r) => r.resolvedPath).join("\n");
+        const pinnedContextText = this.pinnedFileRefs.filter((r) => r.status === "active").map((r) => r.resolvedPath).join("\n");
+        const historyText = this.messages.map((m) => m.content || "").join("\n");
+        this.lastContextMetrics = computeContextMetrics(
+          promptPackageText, activeNoteContent, selection || "",
+          messageAttachmentsText, pinnedContextText, historyText, settings.model,
+        );
+        this.renderContextDetail(this.lastContextMetrics);
+      } else {
+        this.contextDetailEl.empty();
+        this.contextDetailEl.setAttribute("hidden", "");
+      }
+      this.renderRuntimeContextRing();
       this.refreshComposerStatusRail();
-      // V16.3: chip 三态刷新（依赖 activeNoteAttachState，在异步读取后设置）
       this.refreshAllChips();
     } catch {
-      this.contextLabelEl.textContent = "Context estimate";
       this.refreshComposerStatusRail();
     }
   }
 
-  private renderAgentRunDebugDrawer(parent: HTMLElement, debug: AgentRunDebugView): void {
-    const drawer = parent.createEl("details", { cls: "llm-bridge-codex-debug-drawer" });
-    const summary = drawer.createEl("summary", { cls: "llm-bridge-codex-debug-drawer-summary" });
-    summary.createEl("span", { cls: "llm-bridge-codex-debug-drawer-title", text: "Debug" });
-    const count = debug.rawProviderEvents?.length ?? 0;
-    if (count > 0) {
-      summary.createEl("span", { cls: "llm-bridge-codex-debug-drawer-meta", text: `${count} raw events` });
-    }
-    const body = drawer.createDiv({ cls: "llm-bridge-codex-debug-drawer-body" });
-    this.renderAgentRunDebugView(body, debug);
+  /** RunSessionHost：Codex thread/tokenUsage/updated → 精确占用环 */
+  private applyRuntimeTokenUsage(usedTokens: number, contextWindow: number | null): void {
+    this.lastRuntimeTokenUsage = {
+      usedTokens: Math.max(0, usedTokens),
+      contextWindow,
+      updatedAt: new Date().toISOString(),
+    };
+    this.renderRuntimeContextRing();
   }
 
-  // V2.16-D: 渲染 context metrics 到 UI
-  // V16.3 Round 3: 普通用户态只显示 ring + 简短标签；developerMode=true 才填充明细
-  private renderContextMetrics(metrics: ContextMetrics): void {
-    const total = metrics.total.tokens;
-    const win = metrics.contextWindow;
-    const pct = win > 0 ? Math.min(100, (total / win) * 100) : 0;
-    const color = metrics.precision === "unavailable" ? "var(--text-faint)" : pct > 80 ? "#e53935" : pct > 50 ? "#f59e0b" : "var(--interactive-accent)";
+  /** 占用环唯一数据源：agent-runtime tokenUsage；无信号时 unavailable */
+  private renderRuntimeContextRing(): void {
+    if (!this.contextRingEl || !this.contextTipEl) return;
+    const usage = this.lastRuntimeTokenUsage;
+    const win = usage?.contextWindow && usage.contextWindow > 0 ? usage.contextWindow : 0;
+    const used = usage?.usedTokens ?? 0;
+    const hasExact = !!usage && win > 0;
+    const pct = hasExact ? Math.min(100, (used / win) * 100) : 0;
+    const color = !hasExact
+      ? "var(--text-faint)"
+      : pct > 80
+        ? "#e53935"
+        : pct > 50
+          ? "#f59e0b"
+          : "var(--text-muted)";
+
     this.contextRingEl.classList.remove("is-exact", "is-estimated", "is-unavailable", "is-compressed");
-    this.contextRingEl.classList.add(`is-${metrics.precision}`);
-    if (metrics.compression) this.contextRingEl.classList.add("is-compressed");
-    this.contextRingEl.style.cssText = `background: conic-gradient(${color} ${pct * 3.6}deg, var(--background-modifier-border) ${pct * 3.6}deg);`;
-    const isDev = !!this.plugin.settings.developerMode;
-    const usedRatio = win > 0 ? total / win : 0;
-    const showOccupancyChip = isDev || shouldShowContextOccupancyChip(usedRatio);
+    this.contextRingEl.classList.add(hasExact ? "is-exact" : "is-unavailable");
+    this.contextRingEl.style.cssText = [
+      `--llm-bridge-context-ring-pct: ${pct.toFixed(2)}`,
+      `--llm-bridge-context-ring-fg: ${color}`,
+      `--llm-bridge-context-ring-track: var(--background-modifier-border)`,
+    ].join(";");
+
     const strip = this.contextRingEl.parentElement;
-    if (strip) {
-      strip.classList.toggle("is-tooltip-only", !showOccupancyChip);
-    }
-    if (isDev) {
-      const tipParts = [`${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`];
-      if (metrics.compression) {
-        tipParts.push(`Compression: ${formatTokens(metrics.compression.beforeTokens)} → ${formatTokens(metrics.compression.afterTokens)}`);
-      }
-      this.contextRingEl.setAttribute("title", tipParts.join("\n"));
-    } else {
-      this.contextRingEl.setAttribute("title", `上下文占用: ${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`);
-    }
-    if (isDev) {
-      if (metrics.precision === "exact") {
-        this.contextLabelEl.textContent = `Context ${formatTokens(total)} / ${formatTokens(win)}`;
-      } else {
-        this.contextLabelEl.textContent = "Context estimate";
-      }
-      this.contextLabelEl.setAttribute("title", `Exact runtime usage: ${metrics.precision === "exact" ? "available" : "unavailable"}\nLocal estimate: ${metrics.total.tokens} tokens (${metrics.total.chars} chars)\nWindow: ${formatTokens(win)}\nPrecision: ${metrics.precision}`);
-    } else if (showOccupancyChip) {
-      this.contextLabelEl.textContent = `${pct > 0 && pct < 0.1 ? "<0.1" : Math.round(pct * 10) / 10}%`;
-      this.contextLabelEl.setAttribute("title", `上下文占用: ${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`);
-    } else {
+    if (strip) strip.classList.add("is-tooltip-only");
+
+    if (!hasExact) {
+      this.contextTipPctEl.textContent = "Context unavailable";
+      this.contextTipTokensEl.textContent = "Waiting for runtime usage";
+      this.contextTipEl.removeAttribute("hidden");
       this.contextLabelEl.textContent = "";
-      this.contextLabelEl.setAttribute("title", `上下文占用: ${formatTokens(total)} / ${formatTokens(win)} tokens (${Math.round(pct)}%)`);
-    }
-    // V16.3 Round 3: 普通用户态不填充明细；developerMode 保留完整明细
-    this.contextDetailEl.empty();
-    if (!isDev) {
-      // 普通用户态：明细区保持空且隐藏（click handler 已 gate developerMode）
       return;
     }
+
+    const tokensLine = `${formatTokens(used).toUpperCase()} / ${formatTokens(win).toUpperCase()} tokens`;
+    const tipPct = `${Math.round(pct)}% context used`;
+    this.contextTipPctEl.textContent = tipPct;
+    this.contextTipTokensEl.textContent = tokensLine;
+    this.contextTipEl.removeAttribute("hidden");
+    // 不用 title/长 aria-label，避免 Obsidian 再出一层黑色 tip
+    this.contextRingEl.removeAttribute("title");
+    this.contextLabelEl.textContent = "";
+    this.contextLabelEl.removeAttribute("title");
+    if (strip) strip.setAttribute("aria-label", "Context");
+  }
+
+  private renderContextDetail(metrics: ContextMetrics): void {
+    const isDev = !!this.plugin.settings.developerMode;
+    this.contextDetailEl.empty();
+    if (!isDev) {
+      this.contextDetailEl.setAttribute("hidden", "");
+      return;
+    }
+    this.contextDetailEl.removeAttribute("hidden");
     const precisionRow = this.contextDetailEl.createDiv({ cls: "llm-bridge-context-detail-row" });
     precisionRow.createEl("span", { cls: "llm-bridge-context-detail-label", text: "Source" });
+    const runtime = this.lastRuntimeTokenUsage;
     precisionRow.createEl("span", {
       cls: "llm-bridge-context-detail-value",
-      text: metrics.precision === "exact" ? "exact runtime usage" : metrics.precision === "estimated" ? "local estimate" : "unavailable; showing local estimated breakdown",
+      text: runtime
+        ? `exact runtime usage (${formatTokens(runtime.usedTokens)} / ${runtime.contextWindow ? formatTokens(runtime.contextWindow) : "?"})`
+        : "runtime usage pending; local estimate below",
     });
-    // V2.17-A: 分开渲染 message attachments / pinned context / note / selection / history
     const parts = [metrics.promptPackage, metrics.activeNote, metrics.selection, metrics.messageAttachments, metrics.pinnedContext, metrics.history, metrics.remaining];
     for (const part of parts) {
       const row = this.contextDetailEl.createDiv({ cls: "llm-bridge-context-detail-row" });
       row.createEl("span", { cls: "llm-bridge-context-detail-label", text: part.label });
-      // V16.3: path-only active note 明确标注 0 content tokens 但路径已附带
       let valueText = `${formatTokens(part.tokens)} tokens estimated`;
       if (part.label === "Active note" && this.activeNoteAttachState === "path-only") {
         valueText = "0 content tokens（路径已附带，内容读取失败）";
@@ -7190,6 +7273,18 @@ export class LLMBridgeView extends ItemView {
       });
       compRow.setAttribute("title", `Source: ${comp.source}\nReason: ${comp.reason}`);
     }
+  }
+
+  private renderAgentRunDebugDrawer(parent: HTMLElement, debug: AgentRunDebugView): void {
+    const drawer = parent.createEl("details", { cls: "llm-bridge-codex-debug-drawer" });
+    const summary = drawer.createEl("summary", { cls: "llm-bridge-codex-debug-drawer-summary" });
+    summary.createEl("span", { cls: "llm-bridge-codex-debug-drawer-title", text: "Debug" });
+    const count = debug.rawProviderEvents?.length ?? 0;
+    if (count > 0) {
+      summary.createEl("span", { cls: "llm-bridge-codex-debug-drawer-meta", text: `${count} raw events` });
+    }
+    const body = drawer.createDiv({ cls: "llm-bridge-codex-debug-drawer-body" });
+    this.renderAgentRunDebugView(body, debug);
   }
 
   private refreshComposerStatusRail(): void {
@@ -7741,6 +7836,8 @@ export class LLMBridgeView extends ItemView {
     if (session.sessionMode) s.sessionMode = session.sessionMode as typeof s.sessionMode;
     await this.restoreContextAndSnippets(session);
     this.runSession.clearSession();
+    this.lastRuntimeTokenUsage = null;
+    this.renderRuntimeContextRing();
     // latest native session only: nativeSessionRef 只存在 session 文件（1:1 绑定）。
     // 恢复会话时直接用该 session 文件的 nativeSessionRef；不做 sessionFileId 比对
     // （session 文件本身就是绑定源，不会错位）。
@@ -8320,82 +8417,15 @@ export class LLMBridgeView extends ItemView {
     return this.codexSkillPrepInFlight;
   }
 
-  /** VC-3: 清除 Codex Skills 物化缓存，确保下次 turn start 重新物化（如 VC-2 自动维护后） */
-  private invalidateCodexSkillPrepCache(): void {
-    this.codexSkillPrepCache = null;
-  }
-
-  /** VC-4: 接收 Vault Context 自动维护结果，更新内存记录并刷新 UI */
-  private onVaultContextMaintained(result: AutoMaintainResult, timestamp: string): void {
-    this.lastVaultContextMaintain = {
-      timestamp,
-      updatedFiles: [...result.updatedFiles],
-      conflicts: [...result.conflicts],
-      backups: result.backups ? new Map(result.backups) : new Map(),
-    };
-    this.renderVaultContextStatus();
-    // 只有规则冲突才提醒用户；普通自动维护不弹通知
-    if (result.conflicts.length > 0) {
-      new Notice(`Vault Context: 检测到 ${result.conflicts.length} 条规则冲突，请手动处理`, 8000);
-    }
-  }
-
-  /** VC-4: 撤销最近一次自动维护 */
-  private async undoLastVaultContextMaintain(): Promise<void> {
-    const record = this.lastVaultContextMaintain;
-    if (!record || record.backups.size === 0) return;
-    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-    const result = await undoVaultContextMaintain(vaultPath, record.backups);
-    if (result.ok) {
-      new Notice("Vault Context: 已撤销最近一次自动维护");
-      this.lastVaultContextMaintain = null;
-      this.renderVaultContextStatus();
-      this.invalidateCodexSkillPrepCache();
-    } else {
-      new Notice(`Vault Context: 撤销失败 — ${result.reason || "未知错误"}`, 6000);
-    }
-  }
-
-  /** VC-4: 渲染 Vault Context 状态行（已启用 + 维护记录 + 冲突数 + 撤销入口） */
+  /** 渲染 Vault Context 状态行（仅展示「已启用」徽标）。
+   *  旧的 VC-2/3/4 后台自动维护 + 记录/冲突/撤销链路已移除（原 autoMaintainVaultContext
+   *  是 no-op）。Vault Context 的去重/备份/日志/INDEX 更新改由隐式触发的 Skill 完成。 */
   private renderVaultContextStatus(): void {
     const el = this.vaultContextStatusEl;
     if (!el) return;
     el.empty();
-
-    // 状态标签：Vault Context · 已启用
     const row = el.createDiv({ cls: "llm-bridge-vc-status-row" });
     row.createEl("span", { cls: "llm-bridge-vc-status-badge", text: "Vault Context · 已启用" });
-
-    const record = this.lastVaultContextMaintain;
-    if (!record) return;
-
-    // 最近维护记录
-    const time = new Date(record.timestamp);
-    const timeStr = `${time.getHours().toString().padStart(2, "0")}:${time.getMinutes().toString().padStart(2, "0")}`;
-    const updatedStr = record.updatedFiles.length > 0 ? record.updatedFiles.join(", ") : "无更新";
-    row.createEl("span", {
-      cls: "llm-bridge-vc-status-meta",
-      text: `最近维护 ${timeStr} · ${updatedStr}`,
-    });
-
-    // 冲突数量
-    if (record.conflicts.length > 0) {
-      row.createEl("span", {
-        cls: "llm-bridge-vc-status-conflicts",
-        text: `${record.conflicts.length} 冲突`,
-        attr: { title: record.conflicts.join("\n\n") },
-      });
-    }
-
-    // 撤销入口（仅有可撤销备份时显示）
-    if (record.backups.size > 0) {
-      const undoBtn = row.createEl("button", {
-        cls: "llm-bridge-vc-undo-btn",
-        text: "撤销",
-        attr: { type: "button", title: "撤销最近一次 Vault Context 自动维护" },
-      });
-      undoBtn.addEventListener("click", () => void this.undoLastVaultContextMaintain());
-    }
   }
 
   private renderManagedCodexPluginsList(): void {

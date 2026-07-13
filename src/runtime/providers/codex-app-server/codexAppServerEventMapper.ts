@@ -54,6 +54,7 @@ import type {
   CodexTurnDiffUpdatedParams,
   CodexTurnFailedParams,
   CodexTurnStartedParams,
+  CodexThreadTokenUsageUpdatedParams,
 } from "./schema";
 import type { NormalizedRuntimeEvent, ProviderId, NativeSessionRef } from "../../core/types";
 
@@ -834,6 +835,42 @@ export class CodexAppServerEventMapper {
         kind: "session_started",
         text: threadId,
         sessionId,
+      },
+    };
+  }
+
+  /**
+   * thread/tokenUsage/updated → token_usage（不进 timeline；驱动上下文占用环）
+   *
+   * 占用 = last.totalTokens / modelContextWindow（用 last 而非 cumulative total）
+   */
+  mapThreadTokenUsageUpdated(params: CodexThreadTokenUsageUpdatedParams): NormalizedRuntimeEvent | null {
+    const last = params?.tokenUsage?.last;
+    if (!last || typeof last.totalTokens !== "number" || !Number.isFinite(last.totalTokens)) {
+      return null;
+    }
+    const rawWindow = params.tokenUsage.modelContextWindow;
+    const contextWindow =
+      typeof rawWindow === "number" && Number.isFinite(rawWindow) && rawWindow > 0
+        ? rawWindow
+        : null;
+    const ts = new Date().toISOString();
+    return {
+      providerId: this.providerId,
+      timestamp: ts,
+      sourceRef: this.sourceRef("thread/tokenUsage/updated", {
+        threadId: params.threadId,
+        turnId: params.turnId,
+      }),
+      rawProviderEvent: this.developerMode
+        ? { method: "thread/tokenUsage/updated", params }
+        : undefined,
+      payload: {
+        kind: "token_usage",
+        usedTokens: Math.max(0, Math.round(last.totalTokens)),
+        contextWindow,
+        threadId: params.threadId,
+        turnId: params.turnId,
       },
     };
   }

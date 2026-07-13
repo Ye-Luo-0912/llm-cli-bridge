@@ -9,6 +9,7 @@
     "build:styles": "node scripts/build-styles.mjs",
     "test": "node scripts/run-tests.mjs",
     "test:unit": "node scripts/run-tests.mjs --unit",
+    "test:audit": "node scripts/run-tests.mjs --audit",
     "test:process": "node scripts/run-tests.mjs --process",
     "test:presentation": "node scripts/presentation/run-presentation-tests.mjs",
     "test:claude": "node scripts/run-tests.mjs --claude",

@@ -39,6 +39,8 @@ export interface CodexRunHeader {
   readonly provider: string;
   readonly model: string;
   readonly elapsed: string;
+  /** Wall-clock finish time, e.g. "05:05" */
+  readonly clock: string;
   readonly fileChangeCount: number;
   readonly commandCount: number;
   readonly approvalCount: number;
@@ -170,6 +172,21 @@ function formatDuration(ms?: number): string {
   return `${minutes}m ${remainder}s`;
 }
 
+function formatClock(createdAt?: string, durationMs?: number): string {
+  let ms = Date.now();
+  if (createdAt) {
+    const start = new Date(createdAt).getTime();
+    if (!Number.isNaN(start)) {
+      ms = durationMs != null && durationMs >= 0 ? start + durationMs : start;
+    }
+  }
+  try {
+    return new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return "";
+  }
+}
+
 function stringifyCompact(value: unknown): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value;
@@ -277,14 +294,23 @@ function toolStepKind(card: ToolCallCard): CodexRunStepKind {
   if (card.toolName === "imageView" || /imageview/i.test(card.toolName) || /imageview/i.test(card.label || "")) {
     return "dynamic";
   }
+  if (card.toolName === "webSearch" || /websearch/i.test(card.toolName) || /web search/i.test(card.label || "")) {
+    return "dynamic";
+  }
   if (card.toolName === "mcpToolCall" || card.summary.includes(".")) return "mcp";
   if (card.toolName === "dynamicToolCall") return "dynamic";
   if (card.command || /command|bash|shell|terminal|execute/i.test(card.toolName)) return "command";
   return "dynamic";
 }
 
+/** 生命周期占位词（started/completed 等）不是用户可读过程文本，应丢弃 */
+function isLifecycleNoiseText(value: string): boolean {
+  return /^(started|completed|failed|pending|running|idle|in[_-]?progress|done)$/i.test(value.trim());
+}
+
 function thinkingSummary(card: Extract<AgentRunCard, { kind: "thinking" }>): string {
   const value = (card.text || card.detail || card.summary || "").trim();
+  if (isLifecycleNoiseText(value)) return "";
   const title = card.title.trim();
   if (value && value !== title) return value;
   return "";
@@ -428,11 +454,12 @@ function buildChangeGroups(model: AgentRunDisplayModel, turnView: AssistantTurnV
 function stepFromToolCard(card: ToolCallCard): CodexRunStepGroup {
   const kind = toolStepKind(card);
   const isImage = card.toolName === "imageView" || /imageview/i.test(card.toolName) || /imageview/i.test(card.label || "");
+  const isWeb = card.toolName === "webSearch" || /websearch/i.test(card.toolName) || /web search/i.test(card.label || "");
   return {
     id: card.id,
     kind,
-    icon: isImage ? "image" : stepIcon(kind),
-    label: isImage ? "Viewing image" : (card.label || card.title),
+    icon: isImage ? "image" : isWeb ? "globe" : stepIcon(kind),
+    label: isImage ? "Viewing image" : isWeb ? "Web search" : (card.label || card.title),
     status: card.status,
     durationMs: card.durationMs,
     command: stringifyCommand(card.command),
@@ -558,7 +585,7 @@ function buildFeedItems(
       id: `feed-change-${change.id}`,
       kind: "file",
       icon: stepIcon("file"),
-      label: `${actionLabel(change.action)} ${change.fileName}`,
+      label: actionLabel(change.action),
       status: "completed",
       summary: [change.relativePath, change.diffSummary, change.approvalStatus ? `approval ${change.approvalStatus}` : ""].filter(Boolean).join(" · "),
       timestamp: change.timestamp ?? timestamp,
@@ -572,7 +599,12 @@ function buildFeedItems(
     if (card.kind === "warning" || card.kind === "error" || card.kind === "debug-raw-event") continue;
     if (card.kind === "final-answer") {
       // 每个 agentMessage 都进瀑布流（稳定节点）；终端 candidate 不另建 Final Answer 副本。
-      const text = (narrativeByCardId.get(card.id) || assistantNarrativeText(card)).trim();
+      // 注意：delta 为空串表示相对上一条无新增，不可用 || 回退到全文（否则过程文本重复）。
+      const text = (
+        narrativeByCardId.has(card.id)
+          ? (narrativeByCardId.get(card.id) || "")
+          : assistantNarrativeText(card)
+      ).trim();
       if (!text) continue;
       const cardIndex = model.timelineCards.indexOf(card);
       const demoted = hasSubsequentProcessEvents(model.timelineCards, cardIndex)
@@ -676,7 +708,7 @@ function buildFeedItems(
       id: `feed-change-${change.id}`,
       kind: "file",
       icon: stepIcon("file"),
-      label: `${actionLabel(change.action)} ${change.fileName}`,
+      label: actionLabel(change.action),
       status: "completed",
       summary: [change.relativePath, change.diffSummary, change.approvalStatus ? `approval ${change.approvalStatus}` : ""].filter(Boolean).join(" · "),
       timestamp: change.timestamp,
@@ -816,6 +848,7 @@ export function buildCodexRunViewModel(
       ? Math.max(0, Date.now() - new Date(model.debugView.effectiveRunPlan.createdAt).getTime())
       : undefined
   );
+  const createdAt = model.debugView?.effectiveRunPlan?.createdAt;
   return {
     runHeader: {
       status: statusLabel(kind, model),
@@ -823,6 +856,7 @@ export function buildCodexRunViewModel(
       provider: options.providerLabel || turnView.providerId,
       model: options.modelLabel || model.debugView?.effectiveRunPlan?.model || "",
       elapsed: formatDuration(durationMs),
+      clock: formatClock(createdAt, durationMs),
       fileChangeCount: changeGroups.length,
       commandCount,
       approvalCount,

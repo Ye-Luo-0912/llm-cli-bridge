@@ -2,13 +2,14 @@
 // 目录只缓存在当前插件进程中；模型选择仍以 settings.model 为单一真相源。
 // V20: 解析 model/list 返回的完整能力字段（efforts/modalities/personality 等）。
 
-import type { LLMBridgeSettings } from "../../../types";
 import type { ModelCatalogEntry } from "../../../runtimeModelCatalog";
 import { createHash } from "crypto";
+import * as fs from "fs";
+import * as path from "path";
 import { AppServerProcessManager } from "../codex-app-server/appServerProcessManager";
 import { JsonRpcClient } from "../codex-app-server/jsonRpcClient";
 import { CODEX_APP_SERVER_STAGE_TIMEOUTS } from "../codex-app-server/codexAppServerProvider";
-import { loadVaultRuntimeProfileSync, resolveRuntimeProfileSync } from "../../runtimeProfileResolver";
+import { buildRuntimeEnv } from "../../config/runtimeRouter";
 import { resolveManagedRuntime, resolveManifestPath } from "./codexManagedRuntimeResolver";
 
 export interface CodexRuntimeModelCatalogResult {
@@ -86,49 +87,19 @@ function parseModelList(payload: unknown): CodexRuntimeModelCatalogResult | null
   return { models, defaultModel };
 }
 
-/**
- * V20: 构建自定义 provider 的 `-c key=value` 配置覆盖参数。
- * 与 codexAppServerProvider.buildRelayProviderArgs 保持一致。
- */
-function buildRelayProviderArgs(baseArgs: string[], relayUrl: string): string[] {
-  const baseUrl = relayUrl.replace(/\/+$/, "") + "/v1";
-  return [
-    ...baseArgs,
-    "-c", `model_provider=llm_bridge_relay`,
-    "-c", `model_providers.llm_bridge_relay.base_url=${baseUrl}`,
-    "-c", `model_providers.llm_bridge_relay.env_key=LLM_BRIDGE_RELAY_API_KEY`,
-    "-c", `model_providers.llm_bridge_relay.wire_api=responses`,
-    "-c", `model_providers.llm_bridge_relay.requires_openai_auth=false`,
-  ];
-}
-
 async function probe(
   pluginDir: string,
   vaultPath: string,
-  settings: LLMBridgeSettings,
 ): Promise<CodexRuntimeModelCatalogResult | null> {
   const runtime = resolveManagedRuntime(resolveManifestPath(pluginDir), process.platform, process.arch, { scheduleVerify: false });
   if (!runtime.available || !runtime.runtimePath) return null;
 
-  const env: NodeJS.ProcessEnv = { ...process.env };
-  const relayProfile = resolveRuntimeProfileSync(settings, loadVaultRuntimeProfileSync(vaultPath), vaultPath);
-  // V20: 同时注入 OPENAI_BASE_URL/OPENAI_API_KEY（兼容旧 runtime）和 LLM_BRIDGE_RELAY_API_KEY（自定义 provider）
-  if (relayProfile.relayUrl) {
-    env.OPENAI_BASE_URL = relayProfile.relayUrl;
-    if (relayProfile.apiKey) {
-      env.OPENAI_API_KEY = relayProfile.apiKey;
-      env.LLM_BRIDGE_RELAY_API_KEY = relayProfile.apiKey;
-    }
-  }
-
-  // V20: 追加自定义 provider 配置覆盖
-  const args = relayProfile.relayUrl
-    ? buildRelayProviderArgs(runtime.appServerArgs, relayProfile.relayUrl)
-    : runtime.appServerArgs;
+  // 与真实 Codex run 共用同一 CODEX_HOME 和密钥；配置内容由 Codex 自己解析。
+  const env: NodeJS.ProcessEnv = { ...process.env, ...buildRuntimeEnv(vaultPath, "codex") };
 
   const processManager = new AppServerProcessManager({
     command: runtime.runtimePath,
-    args,
+    args: runtime.appServerArgs,
     cwd: vaultPath,
     env,
   });
@@ -163,18 +134,26 @@ async function probe(
 export function loadCodexManagedModelCatalog(
   pluginDir: string,
   vaultPath: string,
-  settings: LLMBridgeSettings,
 ): Promise<CodexRuntimeModelCatalogResult | null> {
-  const vaultProfile = loadVaultRuntimeProfileSync(vaultPath);
-  const resolvedProfile = resolveRuntimeProfileSync(settings, vaultProfile, vaultPath);
-  const profileUrl = resolvedProfile.relayUrl || "native";
-  const authFingerprint = resolvedProfile.apiKey
-    ? createHash("sha256").update(resolvedProfile.apiKey).digest("hex").slice(0, 12)
+  const runtimeEnv = buildRuntimeEnv(vaultPath, "codex");
+  const codexHome = runtimeEnv.CODEX_HOME || process.env.CODEX_HOME || "global";
+  const configPath = codexHome === "global" ? "" : path.join(codexHome, "config.toml");
+  let configFingerprint = "no-local-config";
+  try {
+    if (configPath && fs.existsSync(configPath)) {
+      configFingerprint = createHash("sha256").update(fs.readFileSync(configPath)).digest("hex").slice(0, 12);
+    }
+  } catch {
+    configFingerprint = "config-unreadable";
+  }
+  const relayKey = runtimeEnv.CODEX_RELAY_API_KEY || "";
+  const authFingerprint = relayKey
+    ? createHash("sha256").update(relayKey).digest("hex").slice(0, 12)
     : "no-key";
-  const key = [pluginDir, vaultPath, profileUrl, authFingerprint].join("|");
+  const key = [pluginDir, vaultPath, codexHome, configFingerprint, authFingerprint].join("|");
   const existing = cache.get(key);
   if (existing) return existing;
-  const pending = probe(pluginDir, vaultPath, settings);
+  const pending = probe(pluginDir, vaultPath);
   cache.set(key, pending);
   void pending.then((result) => {
     if (!result) cache.delete(key);

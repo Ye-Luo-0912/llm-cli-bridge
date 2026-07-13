@@ -59,6 +59,12 @@ interface CodexRunMountOrPatchArgs {
   messageStatus?: string;
 }
 
+function formatQuietProcessedLabel(run: CodexRunViewModel): string {
+  // 用时（elapsed），不显示墙钟时间
+  const elapsed = (run.runHeader.elapsed || "").trim();
+  return elapsed ? `Processed · ${elapsed}` : "Processed";
+}
+
 /**
  * 统一确保过程头可交互（折叠箭头 + 事件绑定）。
  * mount 和 reconcile 都调用，保证 running→completed 切换后仍可折叠。
@@ -259,15 +265,20 @@ function mountCodexRunView(
         });
       }
     } else if (presentation.kind !== "assistant-running") {
-      // 普通完成态：每轮最多一个简短状态入口，例如「已处理 6m42s」
-      const elapsed = (run.runHeader.elapsed || "").trim();
-      const quietLabel = loc === "zh"
-        ? (elapsed ? `已处理 ${elapsed}` : "已处理")
-        : (elapsed ? `Processed ${elapsed}` : "Processed");
-      processTitle.createDiv({
-        cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title",
-        text: quietLabel,
-      });
+      // 普通完成态：有工具 cluster 时不再单独挂 Processed 徽章（cluster 标题已表达）；
+      // 仅在过程流存在但无 cluster 标题时给一行安静状态（固定英文，避免编码乱码）。
+      const hasClusterTitle = processFeedItems.some((item) =>
+        item.kind === "command" || item.kind === "file" || !!item.change || item.kind === "mcp" || item.kind === "dynamic",
+      );
+      if (!hasClusterTitle) {
+        const quietLabel = formatQuietProcessedLabel(run);
+        processTitle.createDiv({
+          cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title",
+          text: quietLabel,
+        });
+      } else {
+        processHead.setAttribute("hidden", "");
+      }
     } else {
       // 运行中：不显示「运行详情」标题，过程流直接铺开
       processHead.setAttribute("hidden", "");
@@ -372,23 +383,28 @@ function reconcileCodexRunView(
     developerMode,
   });
 
-  // 完成态过程头：更新「已处理 Xs」+ 折叠交互
+  // 完成态过程头：有工具 cluster 时隐藏 quiet Processed 徽章；否则更新安静状态行
   const isCompletedQuiet = presentation.kind !== "assistant-running" && run.feedItems.length > 0;
   if (isCompletedQuiet) {
-    // ensureProcessHeadInteractive 会创建 processHead（插入到 processBody 之前）+ toggle + 事件
-    ensureProcessHeadInteractive(process, processBody, true);
+    const hasClusterTitle = run.feedItems.some((item) =>
+      item.kind === "command" || item.kind === "file" || !!item.change || item.kind === "mcp" || item.kind === "dynamic",
+    );
+    ensureProcessHeadInteractive(process, processBody, !hasClusterTitle);
     const processHead = process.querySelector<HTMLElement>(".llm-bridge-codex-process-head");
-    processHead?.removeAttribute("hidden");
-    let quietTitle = processHead?.querySelector<HTMLElement>(".llm-bridge-codex-process-quiet-title");
-    if (processHead && !quietTitle) {
-      const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
-      quietTitle = processTitle.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title" });
-    }
-    if (quietTitle) {
-      const elapsed = (run.runHeader.elapsed || "").trim();
-      quietTitle.textContent = loc === "zh"
-        ? (elapsed ? `已处理 ${elapsed}` : "已处理")
-        : (elapsed ? `Processed ${elapsed}` : "Processed");
+    if (hasClusterTitle) {
+      processHead?.setAttribute("hidden", "");
+    } else {
+      processHead?.removeAttribute("hidden");
+      let quietTitle = processHead?.querySelector<HTMLElement>(".llm-bridge-codex-process-quiet-title");
+      if (processHead && !quietTitle) {
+        const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
+        quietTitle = processTitle.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title" });
+      }
+      // 去掉历史勾选图标
+      processHead?.querySelector(".llm-bridge-codex-process-quiet-icon")?.remove();
+      if (quietTitle) {
+        quietTitle.textContent = formatQuietProcessedLabel(run);
+      }
     }
   } else {
     // 运行中：隐藏过程头，不可折叠

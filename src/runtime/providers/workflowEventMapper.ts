@@ -311,6 +311,7 @@ export function mapNormalizedToWorkflowEvent(
     case "stderr_delta":
     case "session_started":
     case "native_session_bound":
+    case "token_usage":
       return null;
   }
 }

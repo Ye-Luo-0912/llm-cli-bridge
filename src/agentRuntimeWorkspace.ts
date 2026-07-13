@@ -622,23 +622,41 @@ export async function generateInitialVaultSkill(
 /**
  * V3: 构建 agents/openai.yaml 内容。
  *
- * OpenAI agent 配置：声明本 Skill 的 name/description 与触发条件，
- * 供 OpenAI 风格 runtime 识别。保持与 SKILL.md frontmatter 一致（单一真相源）。
+ * 采用 OpenAI 风格 runtime 的标准 agent 配置 schema：
+ * - interface.display_name / interface.short_description：UI 展示名与简述
+ * - default_prompt：隐式触发时发送的指令
+ * - policy.allow_implicit_invocation：允许 runtime 根据上下文隐式调用
+ *
+ * 发现与触发入口仍是根 SKILL.md 的 frontmatter（单一真相源）；
+ * 本文件只声明 interface/policy，供 OpenAI 风格 runtime 识别。
  */
 function buildAgentsOpenaiYaml(): string {
   return [
     "# vault-context agent config (OpenAI-style runtime)",
-    "# 元数据与 SKILL.md frontmatter 保持一致，由系统生成，不手工编辑",
-    `name: "${VAULT_CONTEXT_SKILL_META.name}"`,
-    `description: "${VAULT_CONTEXT_SKILL_META.description}"`,
-    "type: skill",
-    "references:",
-    "  - references/vault-rules.md",
-    "  - references/directories.md",
-    "  - references/conventions.md",
-    "  - references/preferences.md",
+    "# 由系统生成，不手工编辑。发现/触发入口为根 SKILL.md frontmatter。",
+    'interface:',
+    '  display_name: "Vault Context"',
+    `  short_description: "${escapeYamlDoubleQuoted(VAULT_CONTEXT_SKILL_META.description.slice(0, 120))}"`,
+    'default_prompt: |',
+    '  Maintain and apply stable, reusable, verified context for the current Obsidian vault.',
+    '  Before creating/moving/renaming/deleting notes, or choosing paths/names/formats/workflows,',
+    '  read the relevant file under references/ (vault-rules.md / directories.md / conventions.md / preferences.md)',
+    '  and apply it. After completed work reveals a verified reusable convention or directory semantic,',
+    '  append it to the matching reference file. Never store transient tasks, guesses, credentials, or secrets.',
+    'policy:',
+    '  allow_implicit_invocation: true',
+    'references:',
+    '  - references/vault-rules.md',
+    '  - references/directories.md',
+    '  - references/conventions.md',
+    '  - references/preferences.md',
     "",
   ].join("\n");
+}
+
+/** YAML 双引号字符串转义：反斜杠与双引号 */
+function escapeYamlDoubleQuoted(s: string): string {
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
 /**

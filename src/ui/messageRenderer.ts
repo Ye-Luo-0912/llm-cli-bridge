@@ -203,7 +203,7 @@ export function renderMessageActions(
     });
   };
   for (const action of presentation.actions) {
-    if (action === "copy") addIcon("copy", "copy", "复制回答");
+    if (action === "copy") addIcon("copy", "copy", msg.role === "user" ? "复制" : "复制回答");
     if (action === "retry") addIcon("retry", "refresh-cw", "再次运行");
   }
 }

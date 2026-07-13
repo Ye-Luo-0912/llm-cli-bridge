@@ -20,7 +20,7 @@ import { diffSnapshots, FileSnapshot, snapshotVaultMarkdownFiles } from "../file
 import { buildPromptPackage, StateSnapshot } from "../promptPackage";
 import { SdkStreamingInput, AgentRunHandle } from "../agentBackend";
 import { AttachmentPlan, ChatMessage, RunResult, RunStatus } from "../types";
-import type { LLMBridgeSettings, BackendMode } from "../types";
+import type { LLMBridgeSettings } from "../types";
 import { buildCommandPreview, previewToRows } from "../commandProfile";
 import { buildTimeline, TimelineEventType } from "../runTimeline";
 import { buildWorkflowTrace, WorkflowTraceStage, WorkflowTraceEvent, WorkflowTraceEntry } from "../workflowTrace";
@@ -54,7 +54,7 @@ import {
   type AgentRunDebugView,
   type CodexRunViewModel,
 } from "./core/viewModels";
-import { autoMaintainVaultContext, type AutoMaintainResult } from "./vaultContextAutoMaintainer";
+import { getActiveProvider } from "./config/activeProvider";
 
 // Status label lookup (mirrors view.ts STATUS_LABEL)
 const STATUS_LABEL: Record<RunStatus, string> = {
@@ -158,10 +158,6 @@ export interface RunSessionHost {
   buildSdkStreamingInput(userPrompt: string, refs: ReadonlyArray<FileRef>): Promise<SdkStreamingInput | undefined>;
   ensureManagedCodexPluginsCached(): void;
   ensureCodexSkillsPreparedCached(vaultPath: string): Promise<{ ok: boolean; reason?: string }>;
-  /** VC-3: 清除 Codex Skills 物化缓存，确保下次 turn start 重新物化（如 VC-2 自动维护后） */
-  invalidateCodexSkillPrepCache(): void;
-  /** VC-4: 通知 UI 层 Vault Context 自动维护完成（用于状态/冲突/撤销展示） */
-  onVaultContextMaintained(result: AutoMaintainResult, timestamp: string): void;
   getManagedRuntimeInstallStatusForCurrentMode(): ManagedRuntimeInstallStatus | null;
   refreshManagedRuntimeInstallAction(status: ManagedRuntimeInstallStatus | null): void;
 
@@ -172,6 +168,8 @@ export interface RunSessionHost {
   displayApprovalProfile(): AgentApprovalProfile;
   refreshHistory(force?: boolean): void;
   refreshSessionState(): void;
+  /** Codex thread/tokenUsage/updated → 上下文占用环（精确 runtime 数据） */
+  applyRuntimeTokenUsage(usedTokens: number, contextWindow: number | null): void;
 }
 
 /**
@@ -187,7 +185,7 @@ export class RunSessionController {
 
   // --- Session state (owned by controller) ---
   private _session: BridgeSessionImpl | null = null;
-  private _sessionMode: BackendMode | null = null;
+  private _sessionKey: string | null = null;
   private _restoredActiveNativeSessionRef: NativeSessionRef | undefined = undefined;
   private _runHandle: AgentRunHandle | null = null;
   private _finishingRun = false;
@@ -219,7 +217,7 @@ export class RunSessionController {
   /** Clear session for doNewSession / restoreSession */
   clearSession(): void {
     this._session = null;
-    this._sessionMode = null;
+    this._sessionKey = null;
   }
 
   setRestoredActiveNativeSessionRef(ref: NativeSessionRef | undefined): void {
@@ -235,16 +233,17 @@ export class RunSessionController {
   // ===========================================================================
 
   /**
-   * 获取/缓存 BridgeSession（按 settings.backendMode）。
-   * mode 变化时重建；重建时回填 restoredActiveNativeSessionRef。
+   * 获取/缓存 BridgeSession（按 backendMode + Vault active provider）。
+   * 任一变化时重建；重建时回填 restoredActiveNativeSessionRef。
    */
   getSession(): BridgeSessionImpl {
     const mode = this.host.plugin.settings.backendMode;
-    if (this._session && this._sessionMode === mode) {
+    const vaultPath = (this.host.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const sessionKey = `${mode}:${mode === "auto" ? getActiveProvider(vaultPath) : "explicit"}`;
+    if (this._session && this._sessionKey === sessionKey) {
       this._session.rebuildPermissionBoundary(this.host.plugin.settings);
       return this._session;
     }
-    const vaultPath = (this.host.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     const sess = createBridgeSession(
       `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       this.host.plugin.settings,
@@ -255,7 +254,7 @@ export class RunSessionController {
       sess.restoreActiveNativeSessionRef(this._restoredActiveNativeSessionRef);
     }
     this._session = sess;
-    this._sessionMode = mode;
+    this._sessionKey = sessionKey;
     return sess;
   }
 
@@ -274,7 +273,7 @@ export class RunSessionController {
     const result = await this.host.plugin.ensureManagedRuntimeInstalled({ confirm: true });
     if (result.status === "installed" || result.status === "already-installed") {
       this._session = null;
-      this._sessionMode = null;
+      this._sessionKey = null;
       this._restoredActiveNativeSessionRef = undefined;
       new Notice("Codex runtime installed");
     } else {
@@ -323,6 +322,16 @@ export class RunSessionController {
       const readiness = checkRuntimeReadiness(vaultPathForGuard);
       if (!readiness.ok && readiness.preSendBlock) {
         new Notice(readiness.reason || "Runtime 未就绪，请在设置页检查配置。", 8000);
+        // 缺 Key/配置时直接打开设置页，避免用户对着弹窗找不到入口
+        try {
+          const setting = (this.host.plugin.app as unknown as {
+            setting?: { open: () => void; openTabById: (id: string) => void };
+          }).setting;
+          setting?.open();
+          setting?.openTabById(this.host.plugin.manifest.id);
+        } catch {
+          /* 打开设置失败不阻断 Notice */
+        }
         this._lifecycleState = "idle";
         return;
       }
@@ -715,6 +724,12 @@ export class RunSessionController {
       }
     }
 
+    // 上下文占用：仅更新 ring，不进 timeline / process feed
+    if (p.kind === "token_usage") {
+      host.applyRuntimeTokenUsage(p.usedTokens, p.contextWindow);
+      return;
+    }
+
     // 1. 首次 stdout/stderr 记录到 timeline/workflow log（legacy 兼容）
     if (p.kind === "stdout_delta" && !ctx.sawStdoutRef()) {
       ctx.setSawStdout(true);
@@ -997,28 +1012,9 @@ export class RunSessionController {
         // 保存失败不阻断主流程
       }
 
-      // VC-2: Vault Context 自动维护（后台 fire-and-forget，不阻塞主流程）
-      // 只在 completed 状态下执行；提取稳定候选 → 去重冲突检查 → 安全写入 → 异步更新索引
-      // VC-3: 维护后清除物化缓存，确保下次 turn start 重新物化更新后的 skill
-      // VC-4: 通知 UI 层维护结果（状态/冲突/撤销）
-      if (finalStatus === "completed") {
-        const turnView = msg?.assistantTurnView;
-        const maintainTimestamp = new Date().toISOString();
-        void autoMaintainVaultContext({
-          vaultPath,
-          turnView,
-          generatedFiles: newFiles,
-          status: "completed",
-        }).then((result) => {
-          if (result.updatedFiles.length > 0) {
-            host.invalidateCodexSkillPrepCache();
-          }
-          // 有更新或有冲突时通知 UI；无变化时不打扰
-          if (result.updatedFiles.length > 0 || result.conflicts.length > 0) {
-            host.onVaultContextMaintained(result, maintainTimestamp);
-          }
-        }).catch(() => { /* 后台维护失败静默 */ });
-      }
+      // VC-2/VC-3/VC-4: 旧的 Vault Context 后台自动维护链路已移除（原 autoMaintainVaultContext
+      // 是 no-op，却挂着 UI 记录/冲突/撤销的假后台）。Vault Context 的去重/备份/日志/INDEX
+      // 更新改由隐式触发的 vault-context Skill 在合适时调用结构化工具完成。
     } finally {
       this._finishingRun = false;
       // 所有收尾工作完成（文件扫描、历史保存等）后才回到 idle 并清空 _runHandle，

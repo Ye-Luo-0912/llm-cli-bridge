@@ -123,11 +123,11 @@ async function modelPickerUiSmoke(client) {
       view.toggleModelEffortPopover();
       await new Promise(r => setTimeout(r, 200));
       const isOpen = !popover.hasAttribute("hidden");
-      const hasSingle = popover.classList.contains("llm-bridge-model-effort-popover-single");
+      const hasSingle = popover.classList.contains("llm-bridge-model-menu-nested");
       const modelSection = popover.querySelector(".llm-bridge-model-list");
       const effortSection = popover.querySelector(".llm-bridge-effort-list");
-      const modelTitle = modelSection?.querySelector(".llm-bridge-model-effort-section-title")?.textContent;
-      const effortTitle = effortSection?.querySelector(".llm-bridge-model-effort-section-title")?.textContent;
+      const modelTitle = modelSection?.querySelector(".llm-bridge-model-menu-flyout-title")?.textContent;
+      const effortTitle = effortSection?.querySelector(".llm-bridge-model-menu-flyout-title")?.textContent;
       const modelOptions = Array.from(popover.querySelectorAll(".llm-bridge-model-option")).map(b => ({
         label: b.textContent.trim(),
         value: b.getAttribute("data-model"),

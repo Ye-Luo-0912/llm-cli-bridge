@@ -85,12 +85,12 @@
   border-left: 3px solid var(--text-error);
 }
 
-/* 完成回答：底部左侧复制图标；失败态可有 retry */
+/* 完成回答：复制按钮常驻，避免 hover 才渲染导致布局跳动 */
 .llm-bridge-msg-actions {
   display: none;
   align-items: center;
   gap: 2px;
-  margin-top: 6px;
+  margin-top: 4px;
   padding: 0;
   border: none;
   background: transparent;
@@ -98,44 +98,54 @@
 }
 
 .llm-bridge-msg.is-answer .llm-bridge-msg-actions,
-.llm-bridge-msg.is-summary .llm-bridge-msg-actions {
+.llm-bridge-msg.is-summary .llm-bridge-msg-actions,
+.llm-bridge-msg.is-failed .llm-bridge-msg-actions,
+.llm-bridge-msg.is-stopped .llm-bridge-msg-actions {
+  display: inline-flex;
   position: static;
   justify-content: flex-start;
 }
 
-.llm-bridge-msg:hover .llm-bridge-msg-actions,
-.llm-bridge-msg:focus-within .llm-bridge-msg-actions {
-  display: inline-flex;
-}
-
-.llm-bridge-msg.is-failed .llm-bridge-msg-actions,
-.llm-bridge-msg.is-stopped .llm-bridge-msg-actions {
-  display: inline-flex;
+.llm-bridge-msg-user .llm-bridge-msg-actions {
+  display: none !important;
 }
 
 .llm-bridge-msg-action-btn {
+  appearance: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
-  min-width: 28px;
+  width: 22px;
+  height: 22px;
+  min-width: 22px;
+  min-height: 22px;
   padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--text-muted);
+  margin: 0;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent !important;
+  background-color: transparent !important;
+  box-shadow: none !important;
+  outline: none;
+  color: var(--text-faint);
   cursor: pointer;
 }
 
-.llm-bridge-msg-action-btn:hover {
-  color: var(--text-normal);
-  background: var(--background-modifier-hover);
+.llm-bridge-msg-action-btn:hover,
+.llm-bridge-msg-action-btn:focus,
+.llm-bridge-msg-action-btn:focus-visible {
+  color: var(--text-muted);
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  box-shadow: none !important;
+  outline: none;
 }
 
 .llm-bridge-msg-action-btn svg {
   width: 14px;
   height: 14px;
+  stroke-width: 1.75;
 }
 
 /* 消息附件：预览 + hover 复制 */
@@ -242,26 +252,53 @@
 }
 
 .llm-bridge-msg-status {
-  padding: 1px 6px;
-  border: 1px solid var(--llm-agent-line);
-  border-radius: 999px;
-  background: var(--llm-agent-surface);
-  font-size: 10px;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
   line-height: 1.4;
 }
 
-.llm-bridge-msg-status.is-running { color: var(--interactive-accent); border-color: rgba(var(--interactive-accent-rgb), 0.36); }
+.llm-bridge-msg-status.is-running { color: var(--interactive-accent); }
 
-.llm-bridge-msg-status.is-completed { color: var(--llm-agent-success); border-color: color-mix(in srgb, var(--llm-agent-success) 32%, transparent); }
+.llm-bridge-msg-status.is-completed { color: var(--text-muted); }
 
-.llm-bridge-msg-status.is-failed { color: var(--llm-agent-danger); border-color: color-mix(in srgb, var(--llm-agent-danger) 36%, transparent); }
+.llm-bridge-msg-status.is-failed { color: var(--llm-agent-danger); }
 
-.llm-bridge-msg-status.is-stopped { color: var(--llm-agent-warning); border-color: color-mix(in srgb, var(--llm-agent-warning) 36%, transparent); }
+.llm-bridge-msg-status.is-stopped { color: var(--llm-agent-warning); }
 
 .llm-bridge-msg-user .llm-bridge-msg-content {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.llm-bridge-msg-user .llm-bridge-user-message-text {
+  display: inline-block;
+  max-width: 100%;
+  padding: 8px 12px;
+  border-radius: 14px 14px 4px 14px;
+  background: color-mix(in srgb, var(--background-modifier-hover) 55%, var(--background-secondary));
+  border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  color: var(--text-normal);
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.llm-bridge-msg.is-running .llm-bridge-msg-status-line,
+.llm-bridge-msg.is-running .llm-bridge-run-status-text {
+  display: inline;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .llm-bridge-msg-assistant .llm-bridge-msg-content {

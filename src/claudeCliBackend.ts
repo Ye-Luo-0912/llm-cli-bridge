@@ -10,7 +10,7 @@ import { AgentType, LLMBridgeSettings, EffectiveRunPlan } from "./types";
 import { buildCommandLine } from "./commandProfile";
 import { AgentSkillsRuntimePreparationResult, prepareAgentSkillsForClaudeRuntimeSync } from "./agentSkills";
 import { resolveClaudeRuntimeConfig } from "./claudeRuntimeConfig";
-import { buildRuntimeSpawnEnv } from "./runtime/runtimeProfileResolver";
+import { buildRuntimeEnv } from "./runtime/config/runtimeRouter";
 import { RuntimeFileToolAdapterResult, RuntimeFileToolCall, describeRuntimeFileToolAdapter } from "./runtimeFileToolAdapter";
 import { redactSecrets } from "./workflowEvent";
 
@@ -158,10 +158,10 @@ export function buildRunEnv(
     }
   }
 
-  // V20.5: 通过 buildRuntimeSpawnEnv 注入 CLAUDE_CONFIG_DIR（本地配置存在时）+ ANTHROPIC_API_KEY。
+  // 通过统一 runtime router 注入 CLAUDE_CONFIG_DIR（本地配置存在时）+ ANTHROPIC_API_KEY。
   // Bridge 不再解析 Claude settings.local.json 内容——Claude 自己读取配置。
   try {
-    const runtimeEnv = buildRuntimeSpawnEnv(cwd);
+    const runtimeEnv = buildRuntimeEnv(cwd, "claude");
     for (const [k, v] of Object.entries(runtimeEnv)) {
       env[k] = v;
       envKeys.push(k);

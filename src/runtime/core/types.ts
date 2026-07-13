@@ -281,6 +281,14 @@ export type NormalizedRuntimeEventPayload =
   | { kind: "error"; message: string; recoverable: boolean }
   | { kind: "stdout_delta"; data: string }
   | { kind: "stderr_delta"; data: string }
+  | {
+      /** agent-runtime 精确上下文占用（Codex thread/tokenUsage/updated） */
+      kind: "token_usage";
+      usedTokens: number;
+      contextWindow: number | null;
+      threadId?: string;
+      turnId?: string;
+    }
   | { kind: "completed"; text: string; durationMs?: number; sessionId?: string }
   | { kind: "failed"; message: string; recoverable: boolean; sessionId?: string };
 

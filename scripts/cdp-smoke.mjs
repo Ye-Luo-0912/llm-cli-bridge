@@ -599,8 +599,8 @@ async function testP4DContextRingAndTags(cdp) {
       const v = getView();
       const picker = v?.containerEl?.querySelector('.llm-bridge-model-effort-picker');
       if (!picker) return null;
-      const modelChip = picker.querySelector('.llm-bridge-model-chip-inline');
-      const effortChip = picker.querySelector('.llm-bridge-effort-chip-inline');
+      const modelChip = picker.querySelector('.llm-bridge-model-chip-merged');
+      const effortChip = picker.querySelector('.llm-bridge-model-chip-merged');
       return JSON.stringify({
         hasModel: !!modelChip,
         modelText: modelChip ? modelChip.textContent : null,

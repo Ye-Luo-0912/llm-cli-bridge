@@ -259,6 +259,8 @@ function buildTimelineToolLabel(node: TurnTimelineNode): string {
   if (node.kind === "commandExecution") return node.command ? "Run command" : (node.tool ?? node.title);
   if (node.kind === "mcpToolCall") return node.server ? `${node.server}.${node.tool ?? "tool"}` : (node.tool ?? node.title);
   if (node.kind === "dynamicToolCall") return node.tool ?? node.title;
+  if (node.kind === "webSearch") return "Web search";
+  if (node.kind === "imageView") return "Viewing image";
   return node.tool ?? node.title;
 }
 
@@ -287,11 +289,19 @@ function mapTurnTimelineNodeToCard(node: TurnTimelineNode, developerMode: boolea
   }
 
   if (node.kind === "reasoning" || node.kind === "plan" || node.kind === "contextCompaction" || node.kind === "reviewMode") {
+    // detail 常为生命周期占位（started/completed），不能当作思考正文展示
+    const rawText = (node.text || "").trim();
+    const rawDetail = (node.detail || "").trim();
+    const lifecycleNoise = /^(started|completed|failed|pending|running|idle|in[_-]?progress|done)$/i;
+    const usableDetail = rawDetail && !lifecycleNoise.test(rawDetail) ? rawDetail : "";
+    const usableSummary = summary && !lifecycleNoise.test(summary.trim()) ? summary : "";
+    const text = rawText || usableDetail || usableSummary || "";
     return {
       ...base,
       kind: "thinking",
       title: node.title,
-      text: node.text ?? node.detail ?? summary,
+      text,
+      summary: text || base.summary,
       meta: node.kind,
     };
   }
