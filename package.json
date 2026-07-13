@@ -12,6 +12,7 @@
     "smoke:codex-runtime-install-default-package": "node scripts/codex-runtime-install-default-package-smoke.mjs",
     "smoke:codex-runtime-install-download": "node scripts/codex-runtime-install-download-smoke.mjs",
     "smoke:codex-managed-first-run": "node scripts/codex-managed-first-run-smoke.mjs",
+    "smoke:e2e-port": "node scripts/e2e-port-smoke.mjs",
     "smoke:pi-sdk": "node scripts/pi-sdk-smoke.mjs",
     "smoke:user-package": "node scripts/user-package-smoke.mjs",
     "smoke:tool-presentation": "node scripts/tool-presentation-smoke.mjs",
