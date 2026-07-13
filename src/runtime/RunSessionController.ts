@@ -149,6 +149,10 @@ export interface RunSessionHost {
   /** 标记追加项为 failed 并记录错误。 */
   failAppendTimelineItem(id: string, error: string): void;
 
+  // --- Resume degraded status（Resume 降级持久状态） ---
+  /** 设置/清除 Resume 降级状态（thread/resume 失败后 fallback 到新 session）。 */
+  setResumeDegraded(degraded: boolean): void;
+
   // --- Run flow ---
   showRunFlowStarted(promptLength: number): void;
   showRunFlowTrace(trace: WorkflowTraceEntry[], finalStatus: string): void;
@@ -797,6 +801,11 @@ export class RunSessionController {
     if (p.kind === "progress" && p.label === "skillsChanged") {
       host.onSkillsChanged?.();
       return;
+    }
+
+    // V17-RESUME-DEGRADED: 检测 thread/resume 失败的 system 消息，设置持久降级状态
+    if (p.kind === "message" && p.role === "system" && p.text.includes("thread/resume 失败")) {
+      host.setResumeDegraded(true);
     }
 
     // 1. 首次 stdout/stderr 记录到 timeline/workflow log（legacy 兼容）

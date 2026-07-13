@@ -2596,6 +2596,29 @@
   from { transform: rotate(0deg); }
   to { transform: rotate(360deg); }
 }
+/* V17-RESUME-DEGRADED: Resume 降级持久状态横幅 */
+.llm-bridge-resume-degraded-banner {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  border-radius: 6px;
+  background: var(--background-modifier-warning, rgba(255,193,7,0.12));
+  border: 1px solid var(--text-warning, rgba(255,193,7,0.3));
+  color: var(--text-warning, #b8860b);
+  font-size: 12px;
+  font-weight: 500;
+}
+.llm-bridge-resume-degraded-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.llm-bridge-resume-degraded-text {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .llm-bridge-tl-node {
   position: relative;
   padding: 3px 0 3px 0;

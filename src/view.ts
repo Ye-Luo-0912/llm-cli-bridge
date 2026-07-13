@@ -323,6 +323,8 @@ export class LLMBridgeView extends ItemView {
   private liveAggregator: RunStateAggregator = new RunStateAggregator();
   /** V17-APPEND: 运行中追加的持久时间线项（pending → completed/failed） */
   private appendTimelineItems: AppendTimelineItem[] = [];
+  /** V17-RESUME-DEGRADED: Resume 降级持久状态（thread/resume 失败后 fallback 到新 session） */
+  private resumeDegradedEl: HTMLElement | null = null;
   private pendingActions: PendingActionEntry[] = [];
 
   // V1.1: preflight 结果缓存
@@ -2039,6 +2041,7 @@ export class LLMBridgeView extends ItemView {
       beginAppendTimelineItem: (text) => view.beginAppendTimelineItem(text),
       completeAppendTimelineItem: (id) => view.completeAppendTimelineItem(id),
       failAppendTimelineItem: (id, error) => view.failAppendTimelineItem(id, error),
+      setResumeDegraded: (degraded) => view.setResumeDegraded(degraded),
       showRunFlowStarted: (promptLength) => view.showRunFlowStarted(promptLength),
       showRunFlowTrace: (trace, finalStatus) => view.showRunFlowTrace(trace, finalStatus as RunStatus),
       autoGrowInput: () => view.autoGrowInput(),
@@ -4180,8 +4183,8 @@ export class LLMBridgeView extends ItemView {
       new Notice("找不到可重试的用户消息");
       return;
     }
-    if (this.runSession.lastRunHadFileChanges) {
-      const ok = window.confirm("上一轮已修改文件。再次运行可能重复执行相同操作，是否继续？");
+    if (msg.assistantTurnView?.fileChanges && msg.assistantTurnView.fileChanges.length > 0) {
+      const ok = window.confirm("该回答已修改文件。再次发送可能重复执行相同操作，是否继续？");
       if (!ok) return;
     }
     this.inputEl.value = userText;
@@ -5436,6 +5439,26 @@ export class LLMBridgeView extends ItemView {
     this.scheduleLiveTimelineRender();
   }
 
+  /** V17-RESUME-DEGRADED: 设置/清除 Resume 降级持久状态 */
+  setResumeDegraded(degraded: boolean): void {
+    if (degraded) {
+      if (this.resumeDegradedEl) return;
+      const banner = this.messagesEl.createDiv({
+        cls: "llm-bridge-resume-degraded-banner",
+        attr: { "data-persistent": "true" },
+      });
+      banner.createEl("span", { cls: "llm-bridge-resume-degraded-icon", text: "⚠" });
+      banner.createEl("span", { cls: "llm-bridge-resume-degraded-text", text: "仅恢复记录 · 模型上下文已断开" });
+      this.messagesEl.insertBefore(banner, this.messagesEl.firstChild);
+      this.resumeDegradedEl = banner;
+    } else {
+      if (this.resumeDegradedEl) {
+        this.resumeDegradedEl.remove();
+        this.resumeDegradedEl = null;
+      }
+    }
+  }
+
   private scheduleLiveTimelineRender(): void {
     if (this.liveTimelineTimerId !== null) return;
     this.liveTimelineTimerId = window.setTimeout(() => {
@@ -5974,6 +5997,7 @@ export class LLMBridgeView extends ItemView {
     this.currentAssistantId = null;
     this.currentSessionId = null; // 新会话不绑定旧 id，下次运行将生成新 id
     this.messagesFoldExpanded = false; // V2.7: 重置折叠状态
+    this.setResumeDegraded(false); // V17-RESUME-DEGRADED: 新会话清除降级状态
     this.sessionState = createNewSession();
     this.lastRuntimeTokenUsage = null;
     this.renderRuntimeContextRing();
