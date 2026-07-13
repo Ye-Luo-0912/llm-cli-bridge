@@ -228,6 +228,12 @@ import {
   renderTimelineNode as renderTimelineNodeDom,
   type LiveTimelineRendererDeps,
 } from "./ui/liveTimelineRenderer";
+// File preview modal 渲染已抽取到 ./ui/filePreviewOpener（渐进拆分 P4）
+import {
+  renderFilePreviewModalContent as renderFilePreviewModalContentFn,
+  readFileRefPreviewText as readFileRefPreviewTextFn,
+  type FilePreviewOpenerDeps,
+} from "./ui/filePreviewOpener";
 
 interface UserInputDraft {
   value: string;
@@ -463,7 +469,6 @@ export class LLMBridgeView extends ItemView {
   private pinnedContextEl!: HTMLElement;
   private composerFileRefsEl!: HTMLElement;
   private filesContextEl!: HTMLElement;
-  private filePreviewLeaf: WorkspaceLeaf | null = null;
   private filePreviewModal: Modal | null = null;
   private lastActiveMarkdownFile: TFile | null = null;
   // V2.16-D: Context metrics UI 元素
@@ -3965,63 +3970,25 @@ export class LLMBridgeView extends ItemView {
       if (this.filePreviewModal === modal) this.filePreviewModal = null;
       originalOnClose();
     };
-    modal.containerEl.addClass("llm-bridge-file-preview-container");
-    modal.titleEl.setText(ref.displayName);
-    modal.contentEl.empty();
-    modal.contentEl.addClass("llm-bridge-file-preview-modal");
-    modal.contentEl.createDiv({
-      cls: "llm-bridge-file-preview-path",
-      text: this.fileRefDisplayPath(ref),
-      attr: { title: ref.resolvedPath },
-    });
-
-    const preview = modal.contentEl.createDiv({ cls: `llm-bridge-file-preview is-${ref.fileType}` });
-    const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
-    if (thumbnailUrl) {
-      preview.createEl("img", {
-        cls: "llm-bridge-file-preview-image",
-        attr: { src: thumbnailUrl, alt: ref.displayName },
-      });
-    } else {
-      const previewText = await this.readFileRefPreviewText(ref);
-      if (previewText) {
-        preview.createEl("pre", { cls: "llm-bridge-file-preview-text", text: previewText });
-      } else {
-        const empty = preview.createDiv({ cls: "llm-bridge-file-preview-empty" });
-        const icon = empty.createSpan({ cls: "llm-bridge-file-preview-icon" });
-        setIcon(icon, this.getFileRefIconName(ref));
-        empty.createEl("span", { text: "此文件类型暂不支持轻量预览。" });
-      }
-    }
-
+    await renderFilePreviewModalContentFn(modal, ref, this.filePreviewOpenerDeps());
     modal.open();
   }
 
   private async readFileRefPreviewText(ref: FileRef): Promise<string | null> {
-    if (!isBoundedTextAttachmentType(ref.fileType)) return null;
-    const maxBytes = 256 * 1024;
-    const maxChars = 12000;
-    const inlinePreview = this.getFileRefPreviewText(ref);
-    if (inlinePreview) {
-      return inlinePreview.length > maxChars ? `${inlinePreview.slice(0, maxChars).trimEnd()}\n...` : inlinePreview;
-    }
-    const vaultRelPath = this.resolveFileRefVaultPath(ref);
-    try {
-      if (vaultRelPath) {
-        const file = await this.getIndexedVaultFile(vaultRelPath);
-        if (!(file instanceof TFile) || file.stat.size > maxBytes) return null;
-        const text = await this.app.vault.read(file);
-        return text.length > maxChars ? `${text.slice(0, maxChars).trimEnd()}\n...` : text;
-      }
-      const filePath = this.resolveFileRefAbsolutePath(ref);
-      if (!filePath) return null;
-      const stat = fs.statSync(filePath);
-      if (!stat.isFile() || stat.size > maxBytes) return null;
-      const text = fs.readFileSync(filePath, "utf8");
-      return text.length > maxChars ? `${text.slice(0, maxChars).trimEnd()}\n...` : text;
-    } catch {
-      return null;
-    }
+    return readFileRefPreviewTextFn(ref, this.filePreviewOpenerDeps());
+  }
+
+  private filePreviewOpenerDeps(): FilePreviewOpenerDeps {
+    return {
+      app: this.app,
+      fileRefDisplayPath: (ref) => this.fileRefDisplayPath(ref),
+      getFileRefThumbnailUrl: (ref) => this.getFileRefThumbnailUrl(ref),
+      getFileRefIconName: (ref) => this.getFileRefIconName(ref),
+      getFileRefPreviewText: (ref) => this.getFileRefPreviewText(ref),
+      resolveFileRefVaultPath: (ref) => this.resolveFileRefVaultPath(ref),
+      resolveFileRefAbsolutePath: (ref) => this.resolveFileRefAbsolutePath(ref),
+      getIndexedVaultFile: (vaultRelPath) => this.getIndexedVaultFile(vaultRelPath),
+    };
   }
 
   private async getIndexedVaultFile(vaultRelPath: string): Promise<TFile | null> {
