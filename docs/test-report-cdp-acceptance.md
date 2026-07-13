@@ -3,25 +3,17 @@
 > 本报告由 `scripts/cdp-acceptance-smoke.mjs` 自动生成。
 > 通过 CDP 端口 9223 连接 Obsidian 进行验收。
 
-- **测试时间**: 2026-07-13T19:16:44.048Z
+- **测试时间**: 2026-07-13T19:55:49.954Z
 - **CDP 端口**: 9223
-- **Passed**: 9
-- **Failed**: 0
+- **Passed**: 0
+- **Failed**: 1
 - **Skipped**: 0
 
 ## 测试项
 
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
-| PASS | CDP 端口 9223 可达 | Browser: Chrome/142.0.7444.265 |
-| PASS | Obsidian 页面 target 存在 | url=app://obsidian.md/index.html |
-| PASS | 插件已加载 | version=2.18.0 |
-| PASS | 重载插件成功 | version=2.18.0, hasView=undefined |
-| PASS | 状态栏 provider 派生显示 | agentValue="Claude Code", providerId=codex-managed-app-server |
-| PASS | 窄栏 UI 元素存在性（760px 验收） | width=562.5, composer=true, menu=true, scroll=true, input=true |
-| PASS | active provider 配置一致 | activeProvider=(未设置), agentType=claude (CLI fallback), developerMode=false |
-| PASS | diag-onload.txt 诊断副作用检查 | exists=true, developerMode=false |
-| PASS | 朋友版命令已删除 | main.js 源码中已移除 |
+| FAIL | CDP 端口 9223 可达 | connect ECONNREFUSED 127.0.0.1:9223 |
 
 ## 测试说明
 
