@@ -4148,6 +4148,9 @@ export class LLMBridgeView extends ItemView {
     if (action === "retry") {
       await this.retryFromMessage(msg);
     }
+    if (action === "fork") {
+      await this.forkFromMessage(msg);
+    }
   }
 
   private getAssistantCopyText(msg: ChatMessage): string {
@@ -4188,6 +4191,27 @@ export class LLMBridgeView extends ItemView {
     this.composerController.selectedAttachmentId = null;
     this.renderComposerFileRefs();
     await this.runSession.run();
+  }
+
+  /** V17-FORK: 从指定回答分叉会话（仅 codex-app-server 支持 native fork）。 */
+  private async forkFromMessage(msg: ChatMessage): Promise<void> {
+    if (this.runSession.runHandle) {
+      new Notice("当前仍有运行中的任务");
+      return;
+    }
+    const session = this.runSession.getSession();
+    const supportsNativeActions = session.providerId === "codex-managed-app-server"
+      || session.providerId === "codex-app-server";
+    if (!supportsNativeActions) {
+      new Notice("当前 provider 不支持分叉");
+      return;
+    }
+    if (!session.activeNativeSessionRef?.threadId) {
+      new Notice("当前会话没有 native thread，无法分叉");
+      return;
+    }
+    this.beginLocalSessionFork();
+    await this.runSession.runNativeAction({ kind: "fork" });
   }
 
   private renderMessageContent(content: HTMLElement, msg: ChatMessage): void {
@@ -6507,10 +6531,6 @@ export class LLMBridgeView extends ItemView {
       });
       addAction("压缩上下文", "minimize-2", hasThread, () => {
         void this.runSession.runNativeAction({ kind: "compact" });
-      });
-      addAction("分叉会话", "git-fork", hasThread, () => {
-        this.beginLocalSessionFork();
-        void this.runSession.runNativeAction({ kind: "fork" });
       });
     }
     const historyBtn = dropdown.createEl("button", { cls: "llm-bridge-session-dropdown-history" });

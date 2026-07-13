@@ -204,7 +204,8 @@ export function renderMessageActions(
   };
   for (const action of presentation.actions) {
     if (action === "copy") addIcon("copy", "copy", msg.role === "user" ? "复制" : "复制回答");
-    if (action === "retry") addIcon("retry", "refresh-cw", "再次运行");
+    if (action === "retry") addIcon("retry", "refresh-cw", "再次发送");
+    if (action === "fork") addIcon("fork", "git-branch", "分叉");
   }
 }
 

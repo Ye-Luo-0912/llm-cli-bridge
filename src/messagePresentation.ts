@@ -13,8 +13,8 @@ export type MessagePresentationKind =
   | "assistant-failed"
   | "assistant-stopped";
 
-/** 普通模式仅 copy / retry；copy-md 已废弃（与 copy 同为原始 Markdown） */
-export type MessageActionId = "copy" | "retry";
+/** 普通模式 copy / retry / fork；copy-md 已废弃（与 copy 同为原始 Markdown） */
+export type MessageActionId = "copy" | "retry" | "fork";
 
 export interface MessagePresentation {
   readonly kind: MessagePresentationKind;
@@ -162,7 +162,7 @@ export function buildMessagePresentation(
       showProcessFeed: true,
       showRunChrome: false,
       errorSummary: null,
-      actions: ["copy"],
+      actions: ["copy", "fork"],
     });
   }
 
@@ -180,7 +180,7 @@ export function buildMessagePresentation(
     showProcessFeed: false,
     showRunChrome: false,
     errorSummary: null,
-    actions: ["copy"],
+    actions: ["copy", "fork"],
   });
 }
 
@@ -327,7 +327,7 @@ export function buildPresentationFromCodexRun(
       showProcessFeed: true,
       showRunChrome: false,
       errorSummary: null,
-      actions: ["copy"],
+      actions: ["copy", "fork"],
     });
   }
 
@@ -346,7 +346,7 @@ export function buildPresentationFromCodexRun(
     showProcessFeed: false,
     showRunChrome: false,
     errorSummary: null,
-    actions: ["copy"],
+    actions: ["copy", "fork"],
   });
 }
 
@@ -377,7 +377,7 @@ function buildDeveloperPresentation(msg: ChatMessage, options: PresentationOptio
       ? []
       : msg.status === "failed" || msg.status === "stopped"
         ? ["retry", "copy"]
-        : ["copy"],
+        : ["copy", "fork"],
   });
 }
 
