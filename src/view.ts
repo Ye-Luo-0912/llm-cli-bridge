@@ -146,6 +146,16 @@ import {
   getSmartImageThumbnailCacheKey,
   maybeApplySmartImageThumbnail,
 } from "./ui/smartImageThumbnail";
+// Agent Skills 面板渲染已抽取到 ./ui/agentSkillsPanel（渐进拆分 P1）
+import {
+  renderAgentSkillsList as renderAgentSkillsListDom,
+  renderAgentSkillItem as renderAgentSkillItemDom,
+} from "./ui/agentSkillsPanel";
+// History 面板渲染已抽取到 ./ui/historyPanel（渐进拆分 P1）
+import {
+  renderHistoryList as renderHistoryListDom,
+  formatHistoryTime as formatHistoryTimeFn,
+} from "./ui/historyPanel";
 
 interface UserInputDraft {
   value: string;
@@ -7443,7 +7453,7 @@ export class LLMBridgeView extends ItemView {
       dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-empty", text: "暂无历史会话" });
     } else {
       for (const item of recent) {
-        const meta = `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条`;
+        const meta = `${formatHistoryTimeFn(item.savedAt)} · ${item.messageCount} 条`;
         const row = this.createComposerMenuItem(dropdown, {
           className: "llm-bridge-session-dropdown-item",
           title: item.title,
@@ -7540,92 +7550,21 @@ export class LLMBridgeView extends ItemView {
   // V2.8: 支持排序（时间/消息数）+ 每项加编辑按钮
   private renderHistoryList(): void {
     if (!this.historyListEl) return;
-    try {
-    this.historyListEl.empty();
-    const filtered = this.getFilteredHistoryItems();
-    this.reconcileSelectedHistorySessions();
-    this.updateHistoryBulkControls(filtered);
-    if (this.historyItems.length === 0) {
-      this.historyListEl.createDiv({ cls: "llm-bridge-history-empty", text: "暂无历史会话" });
-      this.updateHistoryCountLabel(0, 0);
-      return;
-    }
-    if (filtered.length === 0) {
-      this.historyListEl.createDiv({ cls: "llm-bridge-history-empty", text: `无匹配「${this.historySearchQuery.trim()}」的会话` });
-      this.updateHistoryCountLabel(0, this.historyItems.length);
-      return;
-    }
-    const list = this.historyListEl.createDiv({ cls: "llm-bridge-history-list" });
-    for (const item of filtered) {
-      const row = list.createDiv({
-        cls: `llm-bridge-history-item is-${item.status}${item.id === this.currentSessionId ? " is-current" : ""}`,
-        attr: { title: `${item.title} · ${item.messageCount} 条消息 · ${item.savedAt}` },
-      });
-      const selectWrap = row.createEl("label", { cls: "llm-bridge-history-select" });
-      const checkbox = selectWrap.createEl("input", {
-        type: "checkbox",
-        cls: "llm-bridge-history-select-input",
-        attr: { title: `选择 ${item.title}` },
-      }) as HTMLInputElement;
-      checkbox.checked = this.selectedHistorySessionIds.has(item.id);
-      checkbox.addEventListener("change", () => {
-        if (checkbox.checked) this.selectedHistorySessionIds.add(item.id);
-        else this.selectedHistorySessionIds.delete(item.id);
-        this.updateHistoryBulkControls(filtered);
-      });
-      const icon = row.createDiv({ cls: "llm-bridge-history-row-icon" });
-      setIcon(icon.createEl("span", { cls: "llm-bridge-icon" }), item.id === this.currentSessionId ? "circle-dot" : "history");
-      // 主信息（点击恢复）
-      const main = row.createEl("button", { cls: "llm-bridge-history-main" });
-      const titleRow = main.createDiv({ cls: "llm-bridge-history-title-row" });
-      titleRow.createEl("span", { cls: "llm-bridge-history-title", text: item.title });
-      const meta = `${this.formatHistoryTime(item.savedAt)} · ${item.messageCount} 条`;
-      titleRow.createEl("span", { cls: "llm-bridge-history-inline-meta", text: meta });
-      // UI-03: 分开显示首条请求 + 最后答复（而非单一 preview）
-      const firstUser = item.firstUserSummary || "";
-      const lastReply = item.lastAssistantSummary || "";
-      if (firstUser) {
-        main.createEl("span", { cls: "llm-bridge-history-preview llm-bridge-history-first-user", text: `首条：${firstUser}`, attr: { title: firstUser } });
-      }
-      if (lastReply) {
-        main.createEl("span", { cls: "llm-bridge-history-preview llm-bridge-history-last-reply", text: `答复：${lastReply}`, attr: { title: lastReply } });
-      }
-      if (!firstUser && !lastReply) {
-        main.createEl("span", { cls: "llm-bridge-history-preview", text: "无摘要" });
-      }
-      main.addEventListener("click", () => void this.restoreSession(item.id));
-      const status = row.createDiv({ cls: "llm-bridge-history-status" });
-      status.createEl("span", {
-        cls: `llm-bridge-history-status-text is-${item.id === this.currentSessionId ? "current" : item.status}`,
-        text: item.id === this.currentSessionId ? "current" : this.historyStatusText(item.status),
-      });
-      const actions = row.createDiv({ cls: "llm-bridge-history-actions" });
-      // V2.8: 编辑按钮（重命名标题）
-      const editBtn = actions.createEl("button", {
-        cls: "llm-bridge-history-edit-btn",
-        attr: { title: "重命名会话标题" },
-      });
-      setIcon(editBtn.createEl("span", { cls: "llm-bridge-icon" }), "pencil");
-      editBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        void this.renameHistorySession(item.id, item.title);
-      });
-      // 删除按钮
-      const delBtn = actions.createEl("button", {
-        cls: "llm-bridge-history-del-btn",
-        attr: { title: "删除此历史会话" },
-      });
-      setIcon(delBtn.createEl("span", { cls: "llm-bridge-icon" }), "trash-2");
-      delBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        void this.deleteHistorySession(item.id, item.title);
-      });
-    }
-    // V2.9: 搜索时显示「匹配数/总数」，否则显示总数
-    this.updateHistoryCountLabel(filtered.length, this.historyItems.length);
-    } catch (e) {
-      this.renderListError(this.historyListEl, "history", e);
-    }
+    renderHistoryListDom(this.historyListEl, {
+      currentSessionId: this.currentSessionId,
+      historyItems: this.historyItems,
+      historySearchQuery: this.historySearchQuery,
+      historySortMode: this.historySortMode,
+      selectedHistorySessionIds: this.selectedHistorySessionIds,
+      getFilteredHistoryItems: () => this.getFilteredHistoryItems(),
+      reconcileSelectedHistorySessions: () => this.reconcileSelectedHistorySessions(),
+      updateHistoryBulkControls: (visibleItems) => this.updateHistoryBulkControls(visibleItems),
+      updateHistoryCountLabel: (visibleCount, totalCount) => this.updateHistoryCountLabel(visibleCount, totalCount),
+      onRestore: (id) => { void this.restoreSession(id); },
+      onRename: (id, title) => { void this.renameHistorySession(id, title); },
+      onDelete: (id, title) => { void this.deleteHistorySession(id, title); },
+      renderListError: (container, kind, error) => this.renderListError(container, kind, error),
+    });
   }
 
   private getFilteredHistoryItems(): SessionListItem[] {
@@ -7659,37 +7598,7 @@ export class LLMBridgeView extends ItemView {
     if (label) label.textContent = selected > 0 ? `删除 ${selected} 个` : "删除所选";
   }
 
-  private historyStatusText(status: SessionListItem["status"]): string {
-    switch (status) {
-      case "completed":
-        return "completed";
-      case "failed":
-        return "failed";
-      case "stopped":
-        return "stopped";
-      case "running":
-        return "running";
-      default:
-        return status;
-    }
-  }
-
-  // V2.5: 格式化历史会话时间（简化展示）
-  private formatHistoryTime(iso: string): string {
-    try {
-      const d = new Date(iso);
-      const now = new Date();
-      const sameDay = d.toDateString() === now.toDateString();
-      const hh = String(d.getHours()).padStart(2, "0");
-      const mm = String(d.getMinutes()).padStart(2, "0");
-      if (sameDay) return `今天 ${hh}:${mm}`;
-      const mo = String(d.getMonth() + 1).padStart(2, "0");
-      const dd = String(d.getDate()).padStart(2, "0");
-      return `${mo}-${dd} ${hh}:${mm}`;
-    } catch {
-      return iso;
-    }
-  }
+  // historyStatusText / formatHistoryTime 已抽取到 ./ui/historyPanel（渐进拆分 P1）
 
   // V2.5: 恢复历史会话（确认后加载消息 + 状态 + workflow trace）
   private async restoreSession(sessionId: string): Promise<void> {
@@ -8232,85 +8141,20 @@ export class LLMBridgeView extends ItemView {
 
   private renderAgentSkillsList(): void {
     if (!this.agentSkillsListEl) return;
-    try {
-      this.renderManagedCodexPluginsList();
-      this.agentSkillsListEl.empty();
-      if (this.agentSkills.length === 0) {
-        this.agentSkillsListEl.createDiv({
-          cls: "llm-bridge-skills-empty",
-          text: "无 Agent Skills。可通过 .llm-bridge/agent-skills.json 管理，或导入外部 skill pack。",
-        });
-        this.updateAgentSkillsToggle();
-        return;
-      }
-
-      const list = this.agentSkillsListEl.createDiv({ cls: "llm-bridge-agent-skills-list" });
-      const sorted = this.agentSkills.slice().sort((a, b) => a.slug.localeCompare(b.slug));
-      // UI-03: Skills 页区分"本轮已启用能力"和"可用但未启用能力"
-      const enabledSkills = sorted.filter((s) => s.enabled);
-      const disabledSkills = sorted.filter((s) => !s.enabled);
-
-      if (enabledSkills.length > 0) {
-        const enabledSection = list.createDiv({ cls: "llm-bridge-agent-skills-group is-enabled-group" });
-        enabledSection.createDiv({ cls: "llm-bridge-agent-skills-group-label", text: `本轮已启用（${enabledSkills.length}）` });
-        for (const skill of enabledSkills) {
-          this.renderAgentSkillItem(list, skill);
-        }
-      }
-
-      if (disabledSkills.length > 0) {
-        const disabledSection = list.createDiv({ cls: "llm-bridge-agent-skills-group is-disabled-group" });
-        disabledSection.createDiv({ cls: "llm-bridge-agent-skills-group-label", text: `可用但未启用（${disabledSkills.length}）` });
-        for (const skill of disabledSkills) {
-          this.renderAgentSkillItem(list, skill);
-        }
-      }
-
-      if (enabledSkills.length === 0 && disabledSkills.length === 0) {
-        list.createDiv({ cls: "llm-bridge-skills-empty", text: "无 Agent Skills。" });
-      }
-      this.updateAgentSkillsToggle();
-    } catch (e) {
-      this.renderListError(this.agentSkillsListEl, "agent-skills", e);
-    }
+    renderAgentSkillsListDom(this.agentSkillsListEl, this.agentSkills, {
+      renderManagedCodexPluginsList: () => this.renderManagedCodexPluginsList(),
+      updateAgentSkillsToggle: () => this.updateAgentSkillsToggle(),
+      renderAgentSkillItem: (parent, skill) => this.renderAgentSkillItem(parent, skill),
+      renderListError: (container, kind, error) => this.renderListError(container, kind, error),
+    });
   }
 
-  // UI-03: 抽取单个 skill 项渲染为独立方法
+  // UI-03: 抽取单个 skill 项渲染 — 委托到 ./ui/agentSkillsPanel
   private renderAgentSkillItem(parent: HTMLElement, skill: AgentSkillRecord): void {
-    // V20.12: 检测 Runtime 是否发现此 skill（name 匹配 llm-bridge-{name} 或 slug 匹配）
-    const runtimeName = `llm-bridge-${skill.name}`;
-    const runtimeDiscovered = this.runtimeDiscoveredSkillNames.has(runtimeName)
-      || this.runtimeDiscoveredSkillNames.has(skill.slug);
-    const item = parent.createDiv({
-      cls: `llm-bridge-agent-skill-registry-item${skill.enabled ? "" : " is-disabled"}`,
-      attr: { title: skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md` },
-    });
-    const icon = item.createEl("span", { cls: "llm-bridge-agent-skill-icon" });
-    setIcon(icon, skill.enabled ? "sparkles" : "circle-dashed");
-    const main = item.createEl("button", {
-      cls: "llm-bridge-agent-skill-open",
-      attr: { title: `在 Obsidian 中打开 ${skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md`}` },
-    });
-    const titleRow = main.createDiv({ cls: "llm-bridge-agent-skill-title-row" });
-    titleRow.createEl("span", { cls: "llm-bridge-agent-skill-name", text: skill.name || skill.slug });
-    titleRow.createEl("span", { cls: `llm-bridge-agent-skill-badge ${skill.enabled ? "is-enabled" : "is-disabled"}`, text: skill.enabled ? "已启用" : "已禁用" });
-    if (runtimeDiscovered) {
-      titleRow.createEl("span", { cls: "llm-bridge-agent-skill-badge is-runtime", text: "Runtime 已发现", attr: { title: "Codex Runtime skills/list 已识别此 skill" } });
-    }
-    main.createEl("span", { cls: "llm-bridge-agent-skill-desc", text: skill.description || "No description" });
-    const meta = main.createDiv({ cls: "llm-bridge-agent-skill-meta" });
-    meta.createEl("span", { text: `slug: ${skill.slug}` });
-    meta.createEl("span", { text: `source: ${skill.source}` });
-    main.addEventListener("click", () => void this.openAgentSkillFile(skill));
-
-    const toggleBtn = item.createEl("button", {
-      cls: `llm-bridge-agent-skill-toggle ${skill.enabled ? "is-enabled" : "is-disabled"}`,
-      text: skill.enabled ? "关闭" : "启用",
-      attr: { title: "启用/禁用此 Agent Skill（只更新 manifest，不插入输入框）" },
-    });
-    toggleBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      void this.toggleAgentSkillEnabled(skill.id, !skill.enabled);
+    renderAgentSkillItemDom(parent, skill, {
+      runtimeDiscoveredSkillNames: this.runtimeDiscoveredSkillNames,
+      onOpen: (s) => { void this.openAgentSkillFile(s); },
+      onToggle: (id, enabled) => { void this.toggleAgentSkillEnabled(id, enabled); },
     });
   }
 
