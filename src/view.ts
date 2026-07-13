@@ -234,6 +234,19 @@ import {
   readFileRefPreviewText as readFileRefPreviewTextFn,
   type FilePreviewOpenerDeps,
 } from "./ui/filePreviewOpener";
+// Composer runtime tools 能力闭环已抽取到 ./ui/composerRuntimeCapabilitiesView（渐进拆分 P3）
+import {
+  renderComposerRuntimeToolsList as renderComposerRuntimeToolsListFn,
+  renderComposerRuntimeCapabilityChips as renderComposerRuntimeCapabilityChipsFn,
+  toggleComposerRuntimeCapability as toggleComposerRuntimeCapabilityFn,
+  useComposerManagedCodexPlugin as useComposerManagedCodexPluginFn,
+  useComposerAgentSkill as useComposerAgentSkillFn,
+  buildUserInputWithRuntimeCapabilityHints as buildUserInputWithRuntimeCapabilityHintsFn,
+  composerToolVisualKey as composerToolVisualKeyFn,
+  describeComposerManagedCodexPlugin as describeComposerManagedCodexPluginFn,
+  type ComposerRuntimeCapabilitySelection,
+  type ComposerRuntimeCapabilitiesViewDeps,
+} from "./ui/composerRuntimeCapabilitiesView";
 
 interface UserInputDraft {
   value: string;
@@ -283,15 +296,6 @@ function nextMsgId(): string {
   msgIdSeq += 1;
   return `m${Date.now()}_${msgIdSeq}`;
 }
-
-type ComposerRuntimeCapabilitySelection = {
-  readonly kind: "plugin" | "skill";
-  readonly id: string;
-  readonly label: string;
-  readonly description: string;
-  readonly icon: string;
-  readonly visualKey: string;
-};
 
 export class LLMBridgeView extends ItemView {
   private plugin: LLMBridgePlugin;
@@ -1383,212 +1387,61 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderComposerRuntimeToolsList(parent: HTMLElement): void {
-    parent.empty();
-    this.renderComposerManagedCodexPluginsList(parent);
-    this.renderComposerAgentSkillsList(parent);
+    renderComposerRuntimeToolsListFn(parent, this.composerRuntimeCapabilitiesViewDeps());
   }
 
   private renderComposerRuntimeCapabilityChips(): void {
-    const container = this.composerRuntimeCapabilitiesEl;
-    if (!container) return;
-    container.empty();
-    if (this.selectedRuntimeCapabilities.length === 0) {
-      container.setAttribute("hidden", "");
-      return;
-    }
-    container.removeAttribute("hidden");
-    // UI-02: 分组标签 — Skill
-    const loc = resolveUiLocale();
-    container.createDiv({ cls: "llm-bridge-composer-context-group-label", text: loc === "zh" ? "Skill" : "Skill" });
-    for (const selection of this.selectedRuntimeCapabilities) {
-      const chip = container.createEl("button", {
-        cls: "llm-bridge-composer-runtime-chip",
-        attr: {
-          title: `${selection.kind === "plugin" ? "Plugin" : "Skill"} · ${selection.description || selection.id}。点击移除。`,
-          "data-plugin-key": selection.visualKey,
-        },
-      });
-      const icon = chip.createEl("span", { cls: "llm-bridge-composer-runtime-chip-icon" });
-      setIcon(icon, selection.icon);
-      chip.createEl("span", { cls: "llm-bridge-composer-runtime-chip-label", text: selection.label });
-      chip.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        this.selectedRuntimeCapabilities = this.selectedRuntimeCapabilities.filter((item) =>
-          !(item.kind === selection.kind && item.id === selection.id)
-        );
-        this.renderComposerRuntimeCapabilityChips();
-        this.inputEl.focus();
-      });
-    }
+    renderComposerRuntimeCapabilityChipsFn(this.composerRuntimeCapabilitiesViewDeps());
   }
 
   private toggleComposerRuntimeCapability(selection: ComposerRuntimeCapabilitySelection): void {
-    const exists = this.selectedRuntimeCapabilities.some((item) => item.kind === selection.kind && item.id === selection.id);
-    this.selectedRuntimeCapabilities = exists
-      ? this.selectedRuntimeCapabilities.filter((item) => !(item.kind === selection.kind && item.id === selection.id))
-      : [...this.selectedRuntimeCapabilities.filter((item) => item.kind !== selection.kind || item.id !== selection.id), selection];
-    this.renderComposerRuntimeCapabilityChips();
+    toggleComposerRuntimeCapabilityFn(selection, this.composerRuntimeCapabilitiesViewDeps());
   }
 
   private renderComposerManagedCodexPluginsList(parent: HTMLElement): void {
-    const section = parent.createDiv({ cls: "llm-bridge-command-menu-runtime-section" });
-    section.createDiv({ cls: "llm-bridge-command-menu-subtitle", text: "Installed plugins" });
-    if (!this.managedCodexPluginCatalog?.available) {
-      section.createDiv({
-        cls: "llm-bridge-command-menu-plugin-empty is-error",
-        text: this.managedCodexPluginCatalog?.error || "managed runtime unavailable",
-      });
-      return;
-    }
-    if (this.managedCodexPlugins.length === 0) {
-      section.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "当前 runtime 没有已安装插件。" });
-      return;
-    }
-    for (const plugin of this.managedCodexPlugins) {
-      const presentation = this.describeComposerManagedCodexPlugin(plugin);
-      const item = section.createEl("button", {
-        cls: `llm-bridge-command-menu-plugin${plugin.enabled ? "" : " is-disabled"}`,
-        attr: {
-          "data-plugin-key": this.composerToolVisualKey(presentation.label, plugin.pluginId),
-          title: plugin.enabled
-            ? `使用 ${presentation.label} 插件`
-            : `${presentation.label} 已安装但当前未启用`,
-        },
-      });
-      item.disabled = !plugin.enabled;
-      item.addEventListener("click", () => this.useComposerManagedCodexPlugin(plugin));
-      const icon = item.createEl("span", { cls: "llm-bridge-command-menu-plugin-icon" });
-      setIcon(icon, presentation.icon);
-      const main = item.createDiv({ cls: "llm-bridge-command-menu-plugin-main" });
-      const title = main.createDiv({ cls: "llm-bridge-command-menu-plugin-title" });
-      title.createEl("span", { cls: "llm-bridge-command-menu-plugin-name", text: presentation.label });
-      main.createDiv({
-        cls: "llm-bridge-command-menu-plugin-desc",
-        text: presentation.description,
-      });
-    }
+    // 已合并到 renderComposerRuntimeToolsList；保留签名以兼容旧调用。
+    renderComposerRuntimeToolsListFn(parent, this.composerRuntimeCapabilitiesViewDeps());
   }
 
   private renderComposerAgentSkillsList(parent: HTMLElement): void {
-    const section = parent.createDiv({ cls: "llm-bridge-command-menu-runtime-section" });
-    section.createDiv({ cls: "llm-bridge-command-menu-subtitle", text: "Agent Skills" });
-    const sorted = this.agentSkills
-      .filter((skill) => skill.enabled)
-      .slice()
-      .sort((a, b) => (a.name || a.slug).localeCompare(b.name || b.slug));
-    if (sorted.length === 0) {
-      section.createDiv({ cls: "llm-bridge-command-menu-plugin-empty", text: "当前 Vault 没有启用 Agent Skills。" });
-      return;
-    }
-    for (const skill of sorted) {
-      const label = skill.name || skill.slug;
-      const item = section.createEl("button", {
-        cls: "llm-bridge-command-menu-plugin is-skill",
-        attr: {
-          "data-plugin-key": this.composerToolVisualKey(label, skill.slug),
-          title: `使用 ${label} Skill`,
-        },
-      });
-      item.addEventListener("click", () => this.useComposerAgentSkill(skill));
-      const icon = item.createEl("span", { cls: "llm-bridge-command-menu-plugin-icon" });
-      setIcon(icon, "sparkles");
-      const main = item.createDiv({ cls: "llm-bridge-command-menu-plugin-main" });
-      const title = main.createDiv({ cls: "llm-bridge-command-menu-plugin-title" });
-      title.createEl("span", { cls: "llm-bridge-command-menu-plugin-name", text: label });
-      main.createDiv({
-        cls: "llm-bridge-command-menu-plugin-desc",
-        text: skill.description || skill.slug,
-      });
-    }
+    // 已合并到 renderComposerRuntimeToolsList；保留签名以兼容旧调用。
+    renderComposerRuntimeToolsListFn(parent, this.composerRuntimeCapabilitiesViewDeps());
   }
 
   private composerToolVisualKey(label: string, id: string): string {
-    const key = `${label} ${id}`.toLowerCase();
-    if (key.includes("chrome")) return "chrome";
-    if (key.includes("document")) return "documents";
-    if (key.includes("pdf")) return "pdf";
-    if (key.includes("spreadsheet") || key.includes("sheet")) return "spreadsheets";
-    if (key.includes("presentation") || key.includes("slide")) return "presentations";
-    if (key.includes("template")) return "template";
-    if (key.includes("computer")) return "computer";
-    if (key.includes("github")) return "github";
-    if (key.includes("gmail")) return "gmail";
-    if (key.includes("google-drive") || key.includes("drive")) return "google-drive";
-    if (key.includes("imagegen") || key.includes("image")) return "imagegen";
-    if (key.includes("skill")) return "skill";
-    return "plugin";
+    return composerToolVisualKeyFn(label, id);
   }
 
   private describeComposerManagedCodexPlugin(plugin: CodexManagedPluginEntry): { label: string; description: string; icon: string } {
-    const key = `${plugin.pluginId} ${plugin.name} ${plugin.marketplaceName}`.toLowerCase();
-    if (key.includes("document")) return { label: "Documents", description: "Create and edit document artifacts", icon: "file-text" };
-    if (key.includes("pdf")) return { label: "PDF", description: "Read, create, and verify PDF files", icon: "file-type" };
-    if (key.includes("spreadsheet") || key.includes("sheet")) return { label: "Spreadsheets", description: "Create and edit spreadsheet files", icon: "table-2" };
-    if (key.includes("presentation") || key.includes("slide")) return { label: "Presentations", description: "Create and edit presentations", icon: "presentation" };
-    if (key.includes("template")) return { label: "Template Creator", description: "Create or update personal artifact templates", icon: "blocks" };
-    if (key.includes("computer")) return { label: "电脑", description: "Control Windows apps from Codex", icon: "monitor" };
-    if (key.includes("github")) return { label: "GitHub", description: "Triage PRs, issues, CI, and publish flows", icon: "github" };
-    if (key.includes("gmail")) return { label: "Gmail", description: "Read and manage Gmail", icon: "mail" };
-    if (key.includes("google-drive")) return { label: "Google Drive", description: "Search and work with Drive files", icon: "folder-sync" };
-    if (key.includes("google-doc")) return { label: "Google Docs", description: "Create and edit Google Docs", icon: "file-text" };
-    if (key.includes("google-sheet")) return { label: "Google Sheets", description: "Analyze and edit Google Sheets", icon: "table-2" };
-    if (key.includes("google-slide")) return { label: "Google Slides", description: "Create and edit Google Slides", icon: "presentation" };
-    if (key.includes("chrome")) return { label: "Chrome", description: "Use the local browser session", icon: "globe" };
-    const label = plugin.name || plugin.marketplaceName || plugin.pluginId;
-    return {
-      label,
-      description: plugin.marketplaceName && plugin.marketplaceName !== "unknown"
-        ? plugin.marketplaceName
-        : `Installed Codex plugin · ${plugin.version}`,
-      icon: plugin.enabled ? "plug" : "plug-zap",
-    };
+    return describeComposerManagedCodexPluginFn(plugin);
   }
 
   private useComposerManagedCodexPlugin(plugin: CodexManagedPluginEntry): void {
-    if (!plugin.enabled) {
-      new Notice(`${plugin.name} 已安装但当前未启用`);
-      return;
-    }
-    const presentation = this.describeComposerManagedCodexPlugin(plugin);
-    this.toggleComposerRuntimeCapability({
-      kind: "plugin",
-      id: plugin.pluginId,
-      label: presentation.label,
-      description: presentation.description,
-      icon: presentation.icon,
-      visualKey: this.composerToolVisualKey(presentation.label, plugin.pluginId),
-    });
     const menu = this.inputEl.closest(".llm-bridge-composer-bar")?.querySelector(".llm-bridge-command-menu") as HTMLDetailsElement | null;
     menu?.removeAttribute("open");
-    this.inputEl.focus();
+    useComposerManagedCodexPluginFn(plugin, this.composerRuntimeCapabilitiesViewDeps());
   }
 
   private useComposerAgentSkill(skill: AgentSkillRecord): void {
-    if (!skill.enabled) {
-      new Notice(`${skill.name || skill.slug} 当前未启用`);
-      return;
-    }
-    const label = skill.name || skill.slug;
-    this.toggleComposerRuntimeCapability({
-      kind: "skill",
-      id: skill.slug,
-      label,
-      description: skill.description || skill.slug,
-      icon: "sparkles",
-      visualKey: this.composerToolVisualKey(label, skill.slug),
-    });
     const menu = this.inputEl.closest(".llm-bridge-composer-bar")?.querySelector(".llm-bridge-command-menu") as HTMLDetailsElement | null;
     menu?.removeAttribute("open");
-    this.inputEl.focus();
+    useComposerAgentSkillFn(skill, this.composerRuntimeCapabilitiesViewDeps());
   }
 
   private buildUserInputWithRuntimeCapabilityHints(userInput: string): string {
-    if (this.selectedRuntimeCapabilities.length === 0) return userInput;
-    const hints = this.selectedRuntimeCapabilities.map((selection) =>
-      `- ${selection.kind === "plugin" ? "Plugin" : "Skill"}: ${selection.label} (${selection.id}) — ${selection.description}`
-    ).join("\n");
-    return `Preferred runtime capabilities for this turn:\n${hints}\n\nUser request:\n${userInput}`;
+    return buildUserInputWithRuntimeCapabilityHintsFn(userInput, this.composerRuntimeCapabilitiesViewDeps());
+  }
+
+  private composerRuntimeCapabilitiesViewDeps(): ComposerRuntimeCapabilitiesViewDeps {
+    return {
+      getChipsContainerEl: () => this.composerRuntimeCapabilitiesEl,
+      focusInput: () => this.inputEl.focus(),
+      getManagedCodexPlugins: () => this.managedCodexPlugins,
+      getManagedCodexPluginCatalog: () => this.managedCodexPluginCatalog,
+      getAgentSkills: () => this.agentSkills,
+      getSelectedRuntimeCapabilities: () => this.selectedRuntimeCapabilities,
+      setSelectedRuntimeCapabilities: (v) => { this.selectedRuntimeCapabilities = v; },
+    };
   }
 
   private refreshAllChips(): void {
@@ -2719,7 +2572,7 @@ export class LLMBridgeView extends ItemView {
     const askUserQuestionAvailable = true;
     const managedCodexPlugins: ProviderRuntimeSkillEntry[] = providerId === "codex-managed-app-server"
       ? this.managedCodexPlugins.map((plugin) => {
-        const presentation = this.describeComposerManagedCodexPlugin(plugin);
+        const presentation = describeComposerManagedCodexPluginFn(plugin);
         return {
           id: plugin.pluginId,
           name: presentation.label,
