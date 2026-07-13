@@ -141,6 +141,14 @@ export interface RunSessionHost {
   isStructuralTurnChange(prev: AssistantTurnView | undefined, next: AssistantTurnView): boolean;
   appendLiveSdkEvent(ev: WorkflowEvent): void;
 
+  // --- Persistent append timeline items（运行中追加的持久时间线项） ---
+  /** 创建持久追加时间线项（pending 态），返回 id；立即渲染。 */
+  beginAppendTimelineItem(text: string): string;
+  /** 标记追加项为 completed。 */
+  completeAppendTimelineItem(id: string): void;
+  /** 标记追加项为 failed 并记录错误。 */
+  failAppendTimelineItem(id: string, error: string): void;
+
   // --- Run flow ---
   showRunFlowStarted(promptLength: number): void;
   showRunFlowTrace(trace: WorkflowTraceEntry[], finalStatus: string): void;
@@ -325,14 +333,18 @@ export class RunSessionController {
       new Notice("当前 Runtime 不支持运行中追加指令");
       return;
     }
+    // 创建持久追加时间线项（pending → completed/failed），不再只显示 Notice
+    const appendId = this.host.beginAppendTimelineItem(text);
     try {
       await steer.call(this._session.provider, text);
       // 不插入独立 user bubble：当前 assistant card 仍在流式更新，插入后会形成
       // “最终回答显示在追加指令上方”的错误时间顺序。Runtime thread 已保存该 steer。
       this.host.clearComposerInput();
       this.host.autoGrowInput();
+      this.host.completeAppendTimelineItem(appendId);
       new Notice("已追加到当前运行");
     } catch (error) {
+      this.host.failAppendTimelineItem(appendId, (error as Error).message);
       new Notice(`追加指令失败：${(error as Error).message}`);
     }
   }

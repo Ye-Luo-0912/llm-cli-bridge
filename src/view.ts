@@ -254,6 +254,16 @@ interface UserInputDraft {
   stepIndex: number;
 }
 
+/** V17-APPEND: 运行中追加的持久时间线项状态 */
+interface AppendTimelineItem {
+  readonly id: string;
+  readonly text: string;
+  readonly timestamp: string;
+  status: "pending" | "completed" | "failed";
+  error?: string;
+  endedAt?: string;
+}
+
 const USER_INPUT_OPTIONS_PER_PAGE = 6;
 
 // V0.9: FileSnapshot / snapshotVaultMarkdownFiles / diffSnapshots 已抽取到 fileDiff.ts
@@ -311,6 +321,8 @@ export class LLMBridgeView extends ItemView {
    * - 历史消息渲染用 aggregateEventsToTimeline(events) 一次性构建
    */
   private liveAggregator: RunStateAggregator = new RunStateAggregator();
+  /** V17-APPEND: 运行中追加的持久时间线项（pending → completed/failed） */
+  private appendTimelineItems: AppendTimelineItem[] = [];
   private pendingActions: PendingActionEntry[] = [];
 
   // V1.1: preflight 结果缓存
@@ -2024,6 +2036,9 @@ export class LLMBridgeView extends ItemView {
       patchRunningStatusLine: (id) => view.patchRunningStatusLine(id),
       isStructuralTurnChange: (prev, next) => view.isStructuralTurnChange(prev, next),
       appendLiveSdkEvent: (ev) => view.appendLiveSdkEvent(ev),
+      beginAppendTimelineItem: (text) => view.beginAppendTimelineItem(text),
+      completeAppendTimelineItem: (id) => view.completeAppendTimelineItem(id),
+      failAppendTimelineItem: (id, error) => view.failAppendTimelineItem(id, error),
       showRunFlowStarted: (promptLength) => view.showRunFlowStarted(promptLength),
       showRunFlowTrace: (trace, finalStatus) => view.showRunFlowTrace(trace, finalStatus as RunStatus),
       autoGrowInput: () => view.autoGrowInput(),
@@ -2146,7 +2161,7 @@ export class LLMBridgeView extends ItemView {
       const canSteer = hasText && this.messageFileRefs.length === 0;
       this.sendBtn.disabled = !canSteer;
       this.sendBtn.classList.toggle("is-unsendable", !canSteer);
-      this.sendBtn.setAttribute("title", canSteer ? "追加到当前运行 (Enter)" : "输入文本后追加到当前运行");
+      this.sendBtn.setAttribute("title", canSteer ? "追加到当前任务 (Enter)" : "输入文本后追加到当前任务");
       this.sendBtn.setAttribute("aria-label", canSteer ? "追加指令" : "不可追加");
       return;
     }
@@ -4081,6 +4096,7 @@ export class LLMBridgeView extends ItemView {
     this.messages.push(msg);
     this.currentAssistantId = id;
     this.liveAggregator.reset(); // V2.17-A: 重置聚合器，清空实时 timeline 状态
+    this.appendTimelineItems = []; // V17-APPEND: 清空上一轮追加项
     this.renderMessage(msg);
     return id;
   }
@@ -5363,6 +5379,37 @@ export class LLMBridgeView extends ItemView {
     this.scheduleLiveTimelineRender();
   }
 
+  // ===== V17-APPEND: 持久追加时间线项（正在追加 → 已追加 → 追加失败） =====
+
+  beginAppendTimelineItem(text: string): string {
+    const item: AppendTimelineItem = {
+      id: `append-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+      text,
+      timestamp: new Date().toISOString(),
+      status: "pending",
+    };
+    this.appendTimelineItems.push(item);
+    this.scheduleLiveTimelineRender();
+    return item.id;
+  }
+
+  completeAppendTimelineItem(id: string): void {
+    const item = this.appendTimelineItems.find((it) => it.id === id);
+    if (!item) return;
+    item.status = "completed";
+    item.endedAt = new Date().toISOString();
+    this.scheduleLiveTimelineRender();
+  }
+
+  failAppendTimelineItem(id: string, error: string): void {
+    const item = this.appendTimelineItems.find((it) => it.id === id);
+    if (!item) return;
+    item.status = "failed";
+    item.error = error;
+    item.endedAt = new Date().toISOString();
+    this.scheduleLiveTimelineRender();
+  }
+
   private scheduleLiveTimelineRender(): void {
     if (this.liveTimelineTimerId !== null) return;
     this.liveTimelineTimerId = window.setTimeout(() => {
@@ -5387,6 +5434,7 @@ export class LLMBridgeView extends ItemView {
       localizeRunStatus: (text) => this.localizeRunStatus(text),
       scrollToBottom: () => this.scrollToBottom(),
       getLiveAggregatorNodes: () => this.liveAggregator.toTimelineNodes(),
+      getAppendTimelineItems: () => this.appendTimelineItems,
     };
   }
 

@@ -2542,6 +2542,60 @@
 .llm-bridge-tl-node.is-active .llm-bridge-tl-dot {
   animation: llm-bridge-pulse 1.2s infinite;
 }
+
+/* ===== V17-APPEND: 持久追加时间线项（正在追加 → 已追加 → 追加失败） ===== */
+.llm-bridge-tl-append {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--background-secondary);
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+.llm-bridge-tl-append::before { display: none; }
+.llm-bridge-tl-append-icon.is-spinning {
+  animation: llm-bridge-spin 1s linear infinite;
+}
+.llm-bridge-tl-append.is-pending .llm-bridge-tl-append-icon { color: var(--text-muted); }
+.llm-bridge-tl-append.is-completed .llm-bridge-tl-append-icon { color: var(--text-success, #4caf50); }
+.llm-bridge-tl-append.is-failed .llm-bridge-tl-append-icon { color: var(--text-error, #f44336); }
+.llm-bridge-tl-append.is-failed {
+  background: var(--background-modifier-error, rgba(244,67,54,0.08));
+}
+.llm-bridge-tl-append-label {
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.llm-bridge-tl-append.is-pending .llm-bridge-tl-append-label { color: var(--text-muted); }
+.llm-bridge-tl-append.is-completed .llm-bridge-tl-append-label { color: var(--text-success, #4caf50); }
+.llm-bridge-tl-append.is-failed .llm-bridge-tl-append-label { color: var(--text-error, #f44336); }
+.llm-bridge-tl-append-time {
+  color: var(--text-faint);
+  font-family: var(--font-monospace);
+  font-size: 10px;
+  margin-left: auto;
+}
+.llm-bridge-tl-append-text {
+  display: block;
+  color: var(--text-normal);
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+.llm-bridge-tl-append-error {
+  display: block;
+  margin-top: 4px;
+  padding: 4px 6px;
+  border-radius: 4px;
+  background: var(--background-modifier-error, rgba(244,67,54,0.12));
+  color: var(--text-error, #f44336);
+  font-size: 11px;
+}
+@keyframes llm-bridge-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 .llm-bridge-tl-node {
   position: relative;
   padding: 3px 0 3px 0;

@@ -1,6 +1,7 @@
 // LLM CLI Bridge — Live Timeline 渲染（从 view.ts 渐进拆分 P2-C）
 // 纯渲染：renderLiveTimeline（运行中）+ appendSdkWorkflow（终态/历史）+ renderTimelineNode（单节点核心）。
 // 状态（liveAggregator / timerId）保留在 view，通过 deps 回调访问。
+import { setIcon } from "obsidian";
 import { WorkflowEvent, truncateText } from "../workflowEvent";
 import {
   computeTimelineStats,
@@ -31,6 +32,18 @@ export interface LiveTimelineRendererDeps {
   scrollToBottom: () => void;
   /** 获取 live aggregator 的当前 timeline nodes（供 completed/failed 分支使用） */
   getLiveAggregatorNodes: () => TimelineNode[];
+  /** V17-APPEND: 获取运行中追加的持久时间线项 */
+  getAppendTimelineItems: () => AppendTimelineItem[];
+}
+
+/** V17-APPEND: 运行中追加的持久时间线项（正在追加 → 已追加 → 追加失败） */
+export interface AppendTimelineItem {
+  readonly id: string;
+  readonly text: string;
+  readonly timestamp: string;
+  status: "pending" | "completed" | "failed";
+  error?: string;
+  endedAt?: string;
 }
 
 /**
@@ -52,13 +65,18 @@ export function renderLiveTimeline(
     block.insertBefore(liveEl, contentEl);
   }
   const nodes = filterUserFacingTimelineNodes(aggregator.toTimelineNodes(), deps.isDeveloperMode());
+  const appendItems = deps.getAppendTimelineItems();
   liveEl.empty();
   liveEl.createDiv({
     cls: "llm-bridge-timeline-live-head",
     text: `过程 · 运行中${nodes.length > 0 ? ` · ${nodes.length} steps` : ""}`,
   });
   const nodeHost = liveEl.createDiv({ cls: "llm-bridge-timeline-live-nodes" });
-  if (nodes.length === 0) {
+  // V17-APPEND: 渲染持久追加时间线项（在 SDK 节点之前，按时间顺序体现用户追加）
+  for (const item of appendItems) {
+    renderAppendTimelineItem(nodeHost, item);
+  }
+  if (nodes.length === 0 && appendItems.length === 0) {
     nodeHost.createDiv({
       cls: "llm-bridge-timeline-waiting",
       text: "正在等待 SDK 首个 stream/progress 事件...",
@@ -69,6 +87,41 @@ export function renderLiveTimeline(
     }
   }
   deps.scrollToBottom();
+}
+
+/**
+ * V17-APPEND: 渲染持久追加时间线项（正在追加 → 已追加 → 追加失败）。
+ * 不依赖 Notice，用户可在时间线中看到追加状态迁移。
+ */
+function renderAppendTimelineItem(parent: HTMLElement, item: AppendTimelineItem): void {
+  const cls = `llm-bridge-tl-node llm-bridge-tl-append is-${item.status}`;
+  const node = parent.createDiv({ cls, attr: { "data-append-id": item.id } });
+  const icon = node.createEl("span", { cls: "llm-bridge-tl-node-icon" });
+  const iconEl = icon.createEl("span", { cls: "llm-bridge-tl-append-icon" });
+  let iconName = "loader";
+  let statusLabel = "正在追加";
+  if (item.status === "completed") {
+    iconName = "check";
+    statusLabel = "已追加";
+  } else if (item.status === "failed") {
+    iconName = "alert-triangle";
+    statusLabel = "追加失败";
+  }
+  setIcon(iconEl, iconName);
+  if (item.status === "pending") iconEl.addClass("is-spinning");
+
+  const body = node.createDiv({ cls: "llm-bridge-tl-node-body" });
+  const head = body.createDiv({ cls: "llm-bridge-tl-node-head" });
+  head.createEl("span", { cls: "llm-bridge-tl-append-label", text: statusLabel });
+  head.createEl("span", { cls: "llm-bridge-tl-append-time", text: item.timestamp.slice(11, 19) });
+
+  const content = body.createDiv({ cls: "llm-bridge-tl-node-content" });
+  const preview = item.text.length > 120 ? item.text.slice(0, 120) + "…" : item.text;
+  content.createEl("span", { cls: "llm-bridge-tl-append-text", text: preview, attr: { title: item.text } });
+
+  if (item.status === "failed" && item.error) {
+    content.createDiv({ cls: "llm-bridge-tl-append-error", text: item.error });
+  }
 }
 
 /**
