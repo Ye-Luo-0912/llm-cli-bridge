@@ -221,6 +221,13 @@ import {
   renderExternalReadField as renderExternalReadFieldDom,
   externalReadReasonLabel as externalReadReasonLabelFn,
 } from "./ui/externalReadPanel";
+// Live timeline 渲染已抽取到 ./ui/liveTimelineRenderer（渐进拆分 P2-C）
+import {
+  renderLiveTimeline as renderLiveTimelineDom,
+  appendSdkWorkflow as appendSdkWorkflowDom,
+  renderTimelineNode as renderTimelineNodeDom,
+  type LiveTimelineRendererDeps,
+} from "./ui/liveTimelineRenderer";
 
 interface UserInputDraft {
   value: string;
@@ -5770,33 +5777,16 @@ export class LLMBridgeView extends ItemView {
     if (!this.currentAssistantId) return;
     const block = this.messagesEl.querySelector<HTMLElement>('[data-msg-id="' + this.currentAssistantId + '"]');
     if (!block) return;
-    block.querySelector<HTMLElement>(".llm-bridge-process-placeholder")?.remove();
-    let liveEl = Array.from(block.children).find((el) => el instanceof HTMLElement && el.hasClass("llm-bridge-timeline-live")) as HTMLElement | undefined;
-    if (!liveEl) {
-      liveEl = block.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-live", attr: { "data-live": "true" } });
-    }
-    const contentEl = block.querySelector<HTMLElement>(".llm-bridge-msg-content");
-    if (contentEl && liveEl.parentElement === block && liveEl.nextElementSibling !== contentEl) {
-      block.insertBefore(liveEl, contentEl);
-    }
-    const nodes = this.filterUserFacingTimelineNodes(this.liveAggregator.toTimelineNodes());
-    liveEl.empty();
-    liveEl.createDiv({
-      cls: "llm-bridge-timeline-live-head",
-      text: `过程 · 运行中${nodes.length > 0 ? ` · ${nodes.length} steps` : ""}`,
-    });
-    const nodeHost = liveEl.createDiv({ cls: "llm-bridge-timeline-live-nodes" });
-    if (nodes.length === 0) {
-      nodeHost.createDiv({
-        cls: "llm-bridge-timeline-waiting",
-        text: "正在等待 SDK 首个 stream/progress 事件...",
-      });
-    } else {
-      for (const node of nodes) {
-        this.renderTimelineNode(nodeHost, node, true);
-      }
-    }
-    this.scrollToBottom();
+    renderLiveTimelineDom(block, this.liveAggregator, this.liveTimelineRendererDeps());
+  }
+
+  private liveTimelineRendererDeps(): LiveTimelineRendererDeps {
+    return {
+      isDeveloperMode: () => !!this.plugin.settings.developerMode,
+      localizeRunStatus: (text) => this.localizeRunStatus(text),
+      scrollToBottom: () => this.scrollToBottom(),
+      getLiveAggregatorNodes: () => this.liveAggregator.toTimelineNodes(),
+    };
   }
 
   /** V2.16-C: 工具图标 + 颜色分类 — F-01: 委托到 toolPresentation 单一入口 */
@@ -5812,142 +5802,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderTimelineNode(parent: HTMLElement, node: TimelineNode, isLive: boolean): void {
-    const item = parent.createDiv({ cls: "llm-bridge-tl-node llm-bridge-tl-" + node.kind });
-    item.createDiv({ cls: "llm-bridge-tl-dot" });
-    const content = item.createDiv({ cls: "llm-bridge-tl-content" });
-    if (node.kind === "session_started") {
-      content.createEl("div", { cls: "llm-bridge-tl-title", text: "Session started" });
-      if (node.text) content.createEl("div", { cls: "llm-bridge-tl-detail", text: node.text, attr: { title: node.text } });
-    } else if (node.kind === "progress") {
-      content.createEl("div", { cls: "llm-bridge-tl-title", text: node.progressLabel ?? "Progress" });
-      if (node.progressDetail) {
-        content.createEl("div", {
-          cls: "llm-bridge-tl-detail",
-          text: truncateText(node.progressDetail, 160),
-          attr: { title: node.progressDetail },
-        });
-      }
-    } else if (node.kind === "thought") {
-      // V2.16-D: 思考过程默认折叠为一行摘要，点击展开全文（Claude Code 风格）
-      const detailText = node.text ?? "";
-      const hasDetail = detailText.trim().length > 0;
-      const titleEl = content.createDiv({ cls: "llm-bridge-tl-title llm-bridge-tl-thinking-title llm-bridge-tl-expandable" });
-      titleEl.createEl("span", { cls: "llm-bridge-tl-thinking-icon", text: "💭" });
-      titleEl.createEl("span", { text: this.localizeRunStatus("Thinking") });
-      if (isLive) titleEl.createEl("span", { cls: "llm-bridge-tl-thinking-star", text: "•" });
-      if (node.progressDetail) {
-        titleEl.createEl("span", { cls: "llm-bridge-tl-thinking-meta", text: `· ${node.progressDetail}` });
-      } else if (hasDetail) {
-        // 摘要：取首行前 80 字符
-        const firstLine = detailText.split(/\r?\n/)[0] ?? "";
-        const summary = truncateText(firstLine, 80);
-        titleEl.createEl("span", { cls: "llm-bridge-tl-thinking-meta", text: `· ${summary}` });
-      }
-      if (hasDetail) {
-        const thoughtEl = content.createEl("div", { cls: "llm-bridge-tl-thought-body", attr: { hidden: "" } });
-        thoughtEl.createEl("div", { cls: "llm-bridge-tl-thought-text", text: detailText });
-        // 点击标题切换展开
-        titleEl.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const hidden = thoughtEl.hasAttribute("hidden");
-          if (hidden) { thoughtEl.removeAttribute("hidden"); titleEl.addClass("is-expanded"); }
-          else { thoughtEl.setAttribute("hidden", ""); titleEl.removeClass("is-expanded"); }
-        });
-      } else {
-        content.createEl("div", {
-          cls: "llm-bridge-tl-thought-text is-placeholder",
-          text: isLive ? "Reasoning in progress..." : "Reasoning details were not provided by the SDK.",
-        });
-      }
-    } else if (node.kind === "agent") {
-      if (node.isSubagent) content.createEl("span", { cls: "llm-bridge-tl-agent-tag is-subagent", text: "Subagent" });
-      content.createEl("div", { cls: "llm-bridge-tl-agent-text", text: truncateText(node.text ?? "", 200), attr: { title: node.text ?? "" } });
-    } else if (node.kind === "tool_call") {
-      // V2.16-D: 工具调用卡片化 — head 紧凑一行 + 结构化参数 + 折叠结果
-      const toolInfo = this.getToolIconAndCategory(node.toolName ?? "");
-      item.addClass("llm-bridge-tl-tool-cat-" + toolInfo.category);
-      const headEl = content.createDiv({ cls: "llm-bridge-tl-tool-head" });
-      headEl.createEl("span", { cls: "llm-bridge-tl-tool-badge", text: toolInfo.icon });
-      headEl.createEl("span", { cls: "llm-bridge-tl-tool-name", text: this.plugin.settings.developerMode ? (node.toolName ?? "unknown") : toolDisplayLabel(node.toolName ?? "", node.toolInput) });
-      // 状态标记：运行中无标记；成功无标记；错误 ✗
-      if (node.toolError) headEl.createEl("span", { cls: "llm-bridge-tl-tool-err", text: "✗" });
-      // 路径直接放 head 行（basename 紧凑，title 全路径）
-      if (node.toolInput) {
-        const path = extractToolPath(node.toolName ?? "", node.toolInput);
-        if (path) {
-          headEl.createEl("code", { cls: "llm-bridge-tl-tool-path-inline", text: pathBasename(path), attr: { title: path } });
-        }
-      }
-      // 耗时右对齐
-      if (node.durationMs !== undefined && node.durationMs > 0) {
-        headEl.createEl("span", { cls: "llm-bridge-tl-tool-duration", text: this.formatDurationMs(node.durationMs) });
-      }
-      // 结构化参数（key-value，跳过已展示的 path）
-      if (node.toolInput) {
-        const params = extractToolParams(node.toolName ?? "", node.toolInput);
-        if (params.length > 0) {
-          const paramsEl = content.createDiv({ cls: "llm-bridge-tl-tool-params" });
-          for (const p of params) {
-            const row = paramsEl.createDiv({ cls: "llm-bridge-tl-tool-param-row" });
-            row.createEl("span", { cls: "llm-bridge-tl-tool-param-key", text: p.key });
-            row.createEl("span", { cls: "llm-bridge-tl-tool-param-val", text: p.value, attr: { title: p.value } });
-          }
-        }
-      }
-      // 结果：默认折叠，显示行数提示
-      if (node.toolOutput) {
-        const lineCount = countLines(node.toolOutput);
-        const outputWrap = content.createDiv({ cls: "llm-bridge-tl-tool-output-wrap llm-bridge-tl-expandable" });
-        const outputHead = outputWrap.createDiv({ cls: "llm-bridge-tl-tool-output-head" });
-        outputHead.createEl("span", { cls: "llm-bridge-tl-tool-output-toggle", text: "▶" });
-        outputHead.createEl("span", { cls: "llm-bridge-tl-tool-output-label", text: `Output${lineCount > 1 ? ` · ${lineCount} lines` : ""}` });
-        const outputBody = outputWrap.createDiv({ cls: "llm-bridge-tl-tool-output-body", attr: { hidden: "" } });
-        const pre = outputBody.createEl("pre", { cls: "llm-bridge-tl-tool-output" });
-        pre.textContent = node.toolOutput;
-        if (node.toolError) pre.addClass("is-error");
-        outputHead.addEventListener("click", (e) => {
-          e.stopPropagation();
-          const hidden = outputBody.hasAttribute("hidden");
-          if (hidden) {
-            outputBody.removeAttribute("hidden");
-            outputHead.querySelector(".llm-bridge-tl-tool-output-toggle")!.textContent = "▼";
-          } else {
-            outputBody.setAttribute("hidden", "");
-            outputHead.querySelector(".llm-bridge-tl-tool-output-toggle")!.textContent = "▶";
-          }
-        });
-      }
-    } else if (node.kind === "file_change") {
-      // V2.16-D: 文件变更用符号图标 + basename + 动词颜色
-      const symbol = node.fileAction === "create" ? "+" : node.fileAction === "modify" ? "~" : "-";
-      const verb = node.fileAction === "create" ? "Created" : node.fileAction === "modify" ? "Modified" : "Deleted";
-      const headEl = content.createDiv({ cls: "llm-bridge-tl-file-head llm-bridge-tl-file-action-" + (node.fileAction ?? "modify") });
-      headEl.createEl("span", { cls: "llm-bridge-tl-file-symbol", text: symbol });
-      headEl.createEl("span", { cls: "llm-bridge-tl-file-action", text: verb });
-      const full = node.filePath ?? "";
-      headEl.createEl("code", { cls: "llm-bridge-tl-file-path", text: pathBasename(full), attr: { title: full } });
-    } else if (node.kind === "warning") {
-      content.createEl("span", { cls: "llm-bridge-tl-warning-icon", text: "⚠" });
-      content.createEl("span", { cls: "llm-bridge-tl-warning-text", text: truncateText(node.message ?? "", 120), attr: { title: node.message ?? "" } });
-    } else if (node.kind === "error") {
-      content.createEl("span", { cls: "llm-bridge-tl-error-icon", text: "✗" });
-      content.createEl("span", { cls: "llm-bridge-tl-error-text", text: truncateText(node.message ?? "", 200), attr: { title: node.message ?? "" } });
-    } else if (node.kind === "completed") {
-      const stats = computeTimelineStats(this.liveAggregator.toTimelineNodes());
-      // V2.16-D: chip 形式摘要
-      const chipsEl = content.createDiv({ cls: "llm-bridge-tl-completed-chips" });
-      chipsEl.createEl("span", { cls: "llm-bridge-tl-chip llm-bridge-tl-chip-success", text: "✓ Completed" });
-      if (stats.toolCount > 0) chipsEl.createEl("span", { cls: "llm-bridge-tl-chip", text: `${stats.toolCount} tool${stats.toolCount > 1 ? "s" : ""}` });
-      if (stats.fileChangeCount > 0) chipsEl.createEl("span", { cls: "llm-bridge-tl-chip", text: `${stats.fileChangeCount} file${stats.fileChangeCount > 1 ? "s" : ""}` });
-      if (stats.thoughtCount > 0) chipsEl.createEl("span", { cls: "llm-bridge-tl-chip", text: `${stats.thoughtCount} thinking` });
-      if (stats.durationMs !== undefined && stats.durationMs > 0) {
-        const secs = Math.round(stats.durationMs / 1000);
-        if (secs > 0) chipsEl.createEl("span", { cls: "llm-bridge-tl-chip", text: `${secs}s` });
-      }
-    } else if (node.kind === "failed") {
-      const allNodes = this.liveAggregator.toTimelineNodes();
-      content.createEl("div", { cls: "llm-bridge-tl-failed", text: formatFailedSummary(allNodes), attr: { title: node.message ?? "" } });
-    }
+    renderTimelineNodeDom(parent, node, isLive, this.liveTimelineRendererDeps());
   }
 
   private appendSdkWorkflow(
@@ -5955,74 +5810,7 @@ export class LLMBridgeView extends ItemView {
     events: ReadonlyArray<WorkflowEvent>,
     options: { processOnly?: boolean } = {},
   ): void {
-    // V2.17-A: 用 RunStateAggregator 聚合（单 thinking block / tool_progress 合并 / 无重复 final message）
-    // 历史消息 / 完成态渲染均走此路径，与实时 renderLiveTimeline 一致
-    const nodes = this.filterUserFacingTimelineNodes(aggregateEventsToTimeline(events));
-    const visibleNodes = nodes;
-    if (visibleNodes.length === 0 && options.processOnly) return;
-    const stats = computeTimelineStats(nodes);
-    const hasFailed = nodes.some((n) => n.kind === "failed" || n.kind === "error");
-    const summary = options.processOnly
-      ? this.formatProcessSummary(stats)
-      : hasFailed ? formatFailedSummary(nodes) : formatCompletedSummary(stats);
-
-    // 折叠区容器：completed 后默认折叠（只保留摘要），failed 时展开错误
-    const wrap = parent.createDiv({ cls: "llm-bridge-timeline-wrap" });
-    // V2.16-D: completed 后隐藏 live timeline（仅保留折叠摘要），避免过程与摘要同时展示
-    const block = parent.parentElement;
-    if (block) {
-      const liveSibling = block.querySelector<HTMLElement>(".llm-bridge-timeline-live");
-      if (liveSibling) liveSibling.setAttribute("hidden", "");
-    }
-    const headEl = wrap.createDiv({ cls: "llm-bridge-timeline-head" });
-    headEl.createEl("span", { cls: "llm-bridge-timeline-toggle", text: hasFailed ? "▼ " : "▶ " });
-    headEl.createEl("span", { cls: "llm-bridge-timeline-summary", text: summary });
-
-    // timeline body：completed 默认折叠，failed 默认展开
-    const bodyEl = wrap.createDiv({ cls: "llm-bridge-timeline-body" });
-    if (!hasFailed) bodyEl.setAttribute("hidden", "");
-
-    // 渲染完整 timeline
-    const timelineEl = bodyEl.createDiv({ cls: "llm-bridge-timeline llm-bridge-timeline-final" });
-    for (const node of visibleNodes) {
-      this.renderTimelineNode(timelineEl, node, false);
-    }
-
-    let rawToggle: Element | null = null;
-    let rawContent: HTMLElement | null = null;
-    if (this.plugin.settings.developerMode) {
-      // raw log 默认折叠；普通用户态不渲染
-      const rawBody = bodyEl.createDiv({ cls: "llm-bridge-timeline-raw" });
-      const rawHead = rawBody.createDiv({ cls: "llm-bridge-timeline-raw-head" });
-      rawHead.createEl("span", { cls: "llm-bridge-timeline-raw-toggle", text: "▶ Raw log" });
-      rawContent = rawBody.createDiv({ cls: "llm-bridge-timeline-raw-body", attr: { hidden: "" } });
-      rawContent.createEl("pre", { cls: "llm-bridge-timeline-raw-text", text: JSON.stringify(events, null, 2) });
-      rawToggle = rawHead.querySelector(".llm-bridge-timeline-raw-toggle");
-    }
-
-    // 折叠交互
-    const toggle = headEl.querySelector(".llm-bridge-timeline-toggle")!;
-    headEl.addEventListener("click", () => {
-      const hidden = bodyEl.hasAttribute("hidden");
-      if (hidden) {
-        bodyEl.removeAttribute("hidden");
-        toggle.textContent = "▼ ";
-      } else {
-        bodyEl.setAttribute("hidden", "");
-        toggle.textContent = "▶ ";
-      }
-    });
-    rawToggle?.addEventListener("click", () => {
-      if (!rawContent) return;
-      const hidden = rawContent.hasAttribute("hidden");
-      if (hidden) {
-        rawContent.removeAttribute("hidden");
-        rawToggle.textContent = "▼ Raw log";
-      } else {
-        rawContent.setAttribute("hidden", "");
-        rawToggle.textContent = "▶ Raw log";
-      }
-    });
+    appendSdkWorkflowDom(parent, events, options, this.liveTimelineRendererDeps());
   }
 
   private formatProcessSummary(stats: ReturnType<typeof computeTimelineStats>): string {
