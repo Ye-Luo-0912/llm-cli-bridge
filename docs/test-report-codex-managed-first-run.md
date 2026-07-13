@@ -3,7 +3,7 @@
 > 本报告由 `scripts/codex-managed-first-run-smoke.mjs` 自动生成。
 > 加载 dist/user-package/main.js 的插件类，验证 runtime missing → install required → install → resolver pass → managed provider selected。
 
-- **测试时间**: 2026-07-06T06:33:56.349Z
+- **测试时间**: 2026-07-13T17:16:19.666Z
 - **runtimeFirstRunIntegrationStatus**: pass
 - **resolverBeforeInstallStatus**: path-not-exist
 - **installRequiredSurfaced**: true

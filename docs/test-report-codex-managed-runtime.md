@@ -3,7 +3,7 @@
 > 本报告由 `scripts/codex-managed-runtime-smoke.mjs` 自动生成。
 > 验证 production manifest + pinned binary + app-server protocol proof。
 
-- **测试时间**: 2026-07-13T11:44:00.365Z
+- **测试时间**: 2026-07-13T17:13:27.817Z
 - **resolverSmokeStatus**: pass
 - **runtimeSmokeStatus**: pass
 - **managedAppServerProtocolStatus**: pass
@@ -55,20 +55,20 @@
 | PASS | size valid | 341200688 |
 | PASS | sha256 valid | cbacbb9726262ef558b4af0438a1b2a5bba9076132401d947b5b4d2bf92ab0e4 |
 | PASS | executable valid | - |
-| PASS | spawn managed runtime | pid=24000 |
+| PASS | spawn managed runtime | pid=50012 |
 | PASS | initialize | llm-cli-bridge-managed-smoke/0.144.1 (Windows 10.0.26300; x86_64) dumb (llm-cli-bridge-managed-smoke; 17-f2) |
 | PASS | initialized | - |
 | PASS | model/list | selected=gpt-5.6-sol |
-| PASS | thread/start | threadId=019f5b4a-95c1-77d1-ba20-7a2a18ce358d |
+| PASS | thread/start | threadId=019f5c78-3421-76d2-a5b6-5911cd786ee1 |
 | PASS | turn/start | - |
 | PASS | turn/completed | status=completed |
 | PASS | turn smoke (meaningful output + SMOKE_OK) | 4 event(s), final="SMOKE_OK" |
-| PASS | clean shutdown / cancel | - |
+| PASS | clean shutdown / cancel | [2m2026-07-13T17:13:28.805483Z[0m [32m INFO[0m [2mcodex_http_client::custom_ca[0m[2m:[0m using system root certificates because no CA override environment variable was selected [3mcodex_ca_ce |
 | PASS | no vault root pollution | - |
-| PASS | provider-wire smoke: wire shape (developerInstructions only, no baseInstructions, turnStart 无 attachments) | - |
-| PASS | provider-wire smoke: spawn | pid=24492 |
+| PASS | provider-wire smoke: wire shape (developerInstructions only, no baseInstructions, text_elements 数组, turnStart 无 attachments) | - |
+| PASS | provider-wire smoke: spawn | pid=31128 |
 | PASS | provider-wire smoke: initialize | llm-cli-bridge/0.144.1 (Windows 10.0.26300; x86_64) dumb (llm-cli-bridge; 2.17-A) |
-| PASS | provider-wire smoke: thread/start | threadId=019f5b4a-a89b-73f1-9429-97b75d917c9d |
+| PASS | provider-wire smoke: thread/start | threadId=019f5c78-4040-74c0-9c5a-d209b4e12307 |
 | PASS | provider-wire smoke: turn/start | - |
 | PASS | provider-wire smoke: turn/completed | status=completed |
 | PASS | provider-wire smoke: final answer 含 SMOKE_OK | final="SMOKE_OK" |
