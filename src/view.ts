@@ -156,6 +156,44 @@ import {
   renderHistoryList as renderHistoryListDom,
   formatHistoryTime as formatHistoryTimeFn,
 } from "./ui/historyPanel";
+// FileRef 元数据工具已抽取到 ./ui/fileRefMetaUtil（渐进拆分 P4）
+import {
+  fileTypeIconName as fileTypeIconNameFn,
+  getFileRefIconName as getFileRefIconNameFn,
+  shortLabelForPath as shortLabelForPathFn,
+  getFileRefShortLabel as getFileRefShortLabelFn,
+  imageMimeTypeForPath as imageMimeTypeForPathFn,
+} from "./ui/fileRefMetaUtil";
+// 附件文件名规范已抽取到 ./ui/attachmentFileNameUtil（渐进拆分 P3）
+import {
+  sanitizeAttachmentFileName as sanitizeAttachmentFileNameFn,
+  isUsableAttachmentFileName as isUsableAttachmentFileNameFn,
+  defaultAttachmentFileName as defaultAttachmentFileNameFn,
+} from "./ui/attachmentFileNameUtil";
+// 剪贴板/拖拽文件路径提取已抽取到 ./ui/clipboardPathExtractor（渐进拆分 P3）
+import {
+  isUsableNativeFilePath as isUsableNativeFilePathFn,
+  parseFileUriToPath as parseFileUriToPathFn,
+  extractPastedFilePaths as extractPastedFilePathsFn,
+  extractNativeFilePath as extractNativeFilePathFn,
+  extractPathsFromFileList as extractPathsFromFileListFn,
+  collectFilePathsFromDataTransfer as collectFilePathsFromDataTransferFn,
+  readElectronClipboardFilePaths as readElectronClipboardFilePathsFn,
+} from "./ui/clipboardPathExtractor";
+// Timeline 工具函数已抽取到 ./ui/timelineUtil（渐进拆分 P2-B）
+import {
+  formatDurationMs as formatDurationMsFn,
+  formatProcessSummary as formatProcessSummaryFn,
+  getToolIconAndCategory as getToolIconAndCategoryFn,
+  filterUserFacingTimelineNodes as filterUserFacingTimelineNodesFn,
+} from "./ui/timelineUtil";
+// AgentRun 卡片渲染辅助已抽取到 ./ui/agentRunCardHelpers（渐进拆分 P2-A）
+import {
+  toolDisplayLabelForPhase as toolDisplayLabelForPhaseFn,
+  renderCollapsedText as renderCollapsedTextFn,
+  renderCollapsedJson as renderCollapsedJsonFn,
+  renderSourceRefDetail as renderSourceRefDetailFn,
+} from "./ui/agentRunCardHelpers";
 
 interface UserInputDraft {
   value: string;
@@ -3236,30 +3274,11 @@ export class LLMBridgeView extends ItemView {
   }
 
   private collectFilePathsFromDataTransfer(data: DataTransfer | null): string[] {
-    const seen = new Set<string>();
-    const paths: string[] = [];
-    const addPath = (filePath: string | null | undefined) => {
-      const trimmed = filePath?.trim();
-      if (!trimmed || seen.has(trimmed)) return;
-      seen.add(trimmed);
-      paths.push(trimmed);
-    };
-
-    if (!data) return paths;
-    for (const filePath of this.extractPathsFromFileList(data.files)) addPath(filePath);
-
-    // 只从原生 file / uri-list 通道提取文件；普通 text/plain 即使像路径，也保持原文本输入。
-    const uriList = data.getData("text/uri-list");
-    for (const filePath of this.extractPastedFilePaths(uriList)) addPath(filePath);
-
-    return paths;
+    return collectFilePathsFromDataTransferFn(data);
   }
 
   private extractPathsFromFileList(files: FileList | null | undefined): string[] {
-    if (!files?.length) return [];
-    return Array.from(files)
-      .map((file) => this.extractNativeFilePath(file))
-      .filter((filePath): filePath is string => !!filePath);
+    return extractPathsFromFileListFn(files);
   }
 
   private async collectPathsAndCacheBlobsFromFileList(files: FileList | null | undefined, source: string): Promise<string[]> {
@@ -3433,31 +3452,15 @@ export class LLMBridgeView extends ItemView {
   }
 
   private sanitizeAttachmentFileName(fileName: string): string {
-    const trimmed = fileName.trim() || "attachment";
-    return trimmed
-      .replace(/[<>:"/\\|?*\x00-\x1F]/g, "-")
-      .replace(/\s+/g, " ")
-      .slice(0, 120);
+    return sanitizeAttachmentFileNameFn(fileName);
   }
 
   private isUsableAttachmentFileName(fileName: string | null | undefined): fileName is string {
-    const trimmed = (fileName || "").trim();
-    if (!trimmed) return false;
-    if (trimmed.includes("\uFFFD")) return false;
-    if (/[\x00-\x1F]/.test(trimmed)) return false;
-    if (!path.extname(trimmed) && trimmed.length > 48) return false;
-    return true;
+    return isUsableAttachmentFileNameFn(fileName);
   }
 
   private defaultAttachmentFileName(mimeType: string): string {
-    if (/png/i.test(mimeType)) return "pasted-image.png";
-    if (/jpe?g/i.test(mimeType)) return "pasted-image.jpg";
-    if (/gif/i.test(mimeType)) return "pasted-image.gif";
-    if (/webp/i.test(mimeType)) return "pasted-image.webp";
-    if (/pdf/i.test(mimeType)) return "pasted-document.pdf";
-    if (/json/i.test(mimeType)) return "pasted-data.json";
-    if (/text|plain/i.test(mimeType)) return "pasted-text.txt";
-    return "pasted-file.bin";
+    return defaultAttachmentFileNameFn(mimeType);
   }
 
   private async addUserFilePathsToContext(requestedPaths: string[], source: string): Promise<FileRef[]> {
@@ -3573,117 +3576,23 @@ export class LLMBridgeView extends ItemView {
   }
 
   private extractPastedFilePaths(text: string, options?: { allowRawAbsolutePaths?: boolean }): string[] {
-    const seen = new Set<string>();
-    const paths: string[] = [];
-    for (const rawLine of text.split(/\r?\n/)) {
-      let candidate = rawLine.trim();
-      if (!candidate) continue;
-      candidate = candidate.replace(/^["'`]+|["'`]+$/g, "");
-      const isFileUri = /^file:\/\//i.test(candidate);
-      if (isFileUri) {
-        candidate = this.parseFileUriToPath(candidate);
-      } else {
-        try {
-          candidate = decodeURIComponent(candidate);
-        } catch {
-          // Keep the original text if it is not URL encoded.
-        }
-      }
-      const looksLikePath = path.isAbsolute(candidate) || /^[A-Za-z]:[\\/]/.test(candidate);
-      if (!looksLikePath) continue;
-      if (!isFileUri && !options?.allowRawAbsolutePaths) continue;
-      if (!this.isUsableNativeFilePath(candidate)) continue;
-      if (!seen.has(candidate)) {
-        seen.add(candidate);
-        paths.push(candidate);
-      }
-    }
-    return paths;
+    return extractPastedFilePathsFn(text, options);
   }
 
   private isUsableNativeFilePath(filePath: string): boolean {
-    if (!filePath.trim()) return false;
-    if (filePath.includes("\uFFFD")) return false;
-    if (/[\x00-\x08\x0B\x0C\x0E-\x1F]/.test(filePath)) return false;
-    return true;
+    return isUsableNativeFilePathFn(filePath);
   }
 
   private parseFileUriToPath(rawUri: string): string {
-    try {
-      const uri = new URL(rawUri);
-      if (uri.protocol !== "file:") return rawUri;
-      const decodedPath = decodeURIComponent(uri.pathname || "");
-      if (uri.hostname) {
-        return `\\\\${uri.hostname}${decodedPath.replace(/\//g, "\\")}`;
-      }
-      if (/^\/[A-Za-z]:/.test(decodedPath)) {
-        return decodedPath.slice(1).replace(/\//g, "\\");
-      }
-      return decodedPath.replace(/\//g, path.sep);
-    } catch {
-      return rawUri.replace(/^file:\/+/i, "").replace(/\//g, path.sep);
-    }
+    return parseFileUriToPathFn(rawUri);
   }
 
   private readElectronClipboardFilePaths(): string[] {
-    try {
-      const requireFn = (window as unknown as { require?: (moduleName: string) => unknown }).require;
-      const electron = requireFn?.("electron") as {
-        clipboard?: {
-          availableFormats?: () => string[];
-          readText?: (type?: string) => string;
-          readBuffer?: (format: string) => Buffer;
-        };
-      } | undefined;
-      const clipboard = electron?.clipboard;
-      if (!clipboard) return [];
-
-      const values: string[] = [];
-      const addText = (text: string | undefined, options?: { allowRawAbsolutePaths?: boolean }) => {
-        if (!text) return;
-        for (const filePath of this.extractPastedFilePaths(text, options)) values.push(filePath);
-      };
-
-      for (const format of clipboard.availableFormats?.() ?? []) {
-        if (/text\/uri-list/i.test(format)) {
-          try {
-            addText(clipboard.readText?.(format));
-          } catch {
-            // Some native formats are buffer-only.
-          }
-        }
-      }
-
-      for (const format of ["FileNameW", "FileName", "text/uri-list"]) {
-        try {
-          const buffer = clipboard.readBuffer?.(format);
-          if (!buffer || buffer.length === 0) continue;
-          const text = format === "FileNameW" ? buffer.toString("utf16le") : buffer.toString("utf8");
-          addText(text.replace(/\0/g, "\n"), { allowRawAbsolutePaths: format !== "text/uri-list" });
-        } catch {
-          // Native clipboard formats vary by OS/Electron version.
-        }
-      }
-
-      return Array.from(new Set(values));
-    } catch {
-      return [];
-    }
+    return readElectronClipboardFilePathsFn();
   }
 
   private extractNativeFilePath(file: File): string | null {
-    const electronFile = file as File & { path?: string };
-    if (typeof electronFile.path === "string" && electronFile.path.trim().length > 0) {
-      return electronFile.path;
-    }
-    try {
-      const requireFn = (window as unknown as { require?: (moduleName: string) => unknown }).require;
-      const electron = requireFn?.("electron") as { webUtils?: { getPathForFile?: (file: File) => string } } | undefined;
-      const filePath = electron?.webUtils?.getPathForFile?.(file);
-      return typeof filePath === "string" && filePath.trim().length > 0 ? filePath : null;
-    } catch {
-      return null;
-    }
+    return extractNativeFilePathFn(file);
   }
 
   private refreshContextRefs(): void {
@@ -3779,30 +3688,19 @@ export class LLMBridgeView extends ItemView {
   }
 
   private getFileRefShortLabel(ref: FileRef): string {
-    return this.shortLabelForPath(ref.displayName, ref.fileType);
+    return getFileRefShortLabelFn(ref);
   }
 
   private shortLabelForPath(displayPath: string, fileType: string): string {
-    const ext = path.extname(displayPath).replace(".", "").trim();
-    if (ext) return ext.slice(0, 4).toUpperCase();
-    if (fileType === "markdown") return "MD";
-    if (fileType === "text") return "TXT";
-    if (fileType === "json") return "JSON";
-    if (fileType === "pdf") return "PDF";
-    if (fileType === "binary") return "BIN";
-    return "FILE";
+    return shortLabelForPathFn(displayPath, fileType);
   }
 
   private getFileRefIconName(ref: FileRef): string {
-    return this.fileTypeIconName(ref.fileType);
+    return getFileRefIconNameFn(ref);
   }
 
   private fileTypeIconName(fileType: string): string {
-    if (fileType === "image") return "image";
-    if (fileType === "markdown" || fileType === "text" || fileType === "pdf") return "file-text";
-    if (fileType === "json") return "braces";
-    if (fileType === "binary") return "file";
-    return "file";
+    return fileTypeIconNameFn(fileType);
   }
 
   private getFileRefThumbnailUrl(ref: FileRef): string | null {
@@ -3834,13 +3732,7 @@ export class LLMBridgeView extends ItemView {
   }
 
   private imageMimeTypeForPath(filePath: string): string {
-    const ext = path.extname(filePath).toLowerCase();
-    if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
-    if (ext === ".gif") return "image/gif";
-    if (ext === ".webp") return "image/webp";
-    if (ext === ".svg") return "image/svg+xml";
-    if (ext === ".bmp") return "image/bmp";
-    return "image/png";
+    return imageMimeTypeForPathFn(filePath);
   }
 
   // getSmartImageThumbnailCacheKey / maybeApplySmartImageThumbnail / buildSmartImageThumbnailDataUrl
@@ -5669,7 +5561,7 @@ export class LLMBridgeView extends ItemView {
    * F-01: 委托到 toolPresentation 单一入口（经 toolDisplayLabel），消除重复逻辑。
    */
   private toolDisplayLabelForPhase(toolName: string, toolInput?: string): string {
-    return toolDisplayLabel(toolName, toolInput);
+    return toolDisplayLabelForPhaseFn(toolName, toolInput);
   }
 
   /**
@@ -5758,34 +5650,15 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderCollapsedText(parent: HTMLElement, label: string, value?: string): void {
-    if (!value) return;
-    const details = parent.createEl("details", { cls: "llm-bridge-tl-details" });
-    details.createEl("summary", { text: `${label}: ${truncateText(value.replace(/\s+/g, " "), 120)}` });
-    details.createEl("pre", { cls: "llm-bridge-tl-pre", text: value });
+    renderCollapsedTextFn(parent, label, value);
   }
 
   private renderCollapsedJson(parent: HTMLElement, label: string, value: unknown): void {
-    if (value === undefined || value === null) return;
-    let text = "";
-    try {
-      text = JSON.stringify(value, null, 2);
-    } catch {
-      text = String(value);
-    }
-    this.renderCollapsedText(parent, label, text);
+    renderCollapsedJsonFn(parent, label, value);
   }
 
   private renderSourceRefDetail(parent: HTMLElement, card: AgentRunCard): void {
-    if (!card.sourceRef) return;
-    const parts = [
-      card.sourceRef.threadId ? `threadId=${card.sourceRef.threadId}` : "",
-      card.sourceRef.turnId ? `turnId=${card.sourceRef.turnId}` : "",
-      card.sourceRef.itemId ? `itemId=${card.sourceRef.itemId}` : "",
-      card.sourceRef.serverRequestId !== undefined ? `serverRequestId=${card.sourceRef.serverRequestId}` : "",
-      card.sourceRef.method ? `method=${card.sourceRef.method}` : "",
-      card.sourceRef.sequence !== undefined ? `sequence=${card.sourceRef.sequence}` : "",
-    ].filter(Boolean).join(" · ");
-    if (parts) parent.createEl("div", { cls: "llm-bridge-tl-detail", text: parts });
+    renderSourceRefDetailFn(parent, card);
   }
 
   private renderFileChangeCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "file-change" }>): void {
@@ -6194,34 +6067,14 @@ export class LLMBridgeView extends ItemView {
 
   /** V2.16-C: 工具图标 + 颜色分类 — F-01: 委托到 toolPresentation 单一入口 */
   private getToolIconAndCategory(toolName: string): { icon: string; category: string } {
-    return getToolIconCategory(toolName);
+    return getToolIconAndCategoryFn(toolName);
   }
 
   /**
    * V2.16-C: 渲染单个 timeline node（现代 Claude/Codex 风格垂直节点）
    */
   private filterUserFacingTimelineNodes(nodes: TimelineNode[]): TimelineNode[] {
-    if (this.plugin.settings.developerMode) return nodes;
-    const completedToolNames = new Set(
-      nodes
-        .filter((node) => node.kind === "tool_call" && node.toolName)
-        .map((node) => (node.toolName ?? "").toLowerCase()),
-    );
-    return nodes.filter((node) => {
-      if (node.kind === "session_started") return false;
-      if (node.kind === "agent") return false;
-      if (node.kind === "progress" && node.progressCategory === "tool") {
-        if (node.progressLabel === "Preparing tool input") return false;
-        const preparingMatch = node.progressLabel?.match(/^Preparing\s+(.+)$/i);
-        if (preparingMatch && completedToolNames.has(preparingMatch[1].toLowerCase())) return false;
-      }
-      if (node.kind === "tool_call" && node.toolInput) {
-        const toolPath = extractToolPath(node.toolName ?? "", node.toolInput);
-        if (toolPath && isInternalFilePath(toolPath)) return false;
-      }
-      if (node.kind === "file_change" && node.filePath && isInternalFilePath(node.filePath)) return false;
-      return true;
-    });
+    return filterUserFacingTimelineNodesFn(nodes, this.plugin.settings.developerMode);
   }
 
   private renderTimelineNode(parent: HTMLElement, node: TimelineNode, isLive: boolean): void {
@@ -6439,22 +6292,12 @@ export class LLMBridgeView extends ItemView {
   }
 
   private formatProcessSummary(stats: ReturnType<typeof computeTimelineStats>): string {
-    const parts = ["过程"];
-    if (stats.progressCount > 0) parts.push(`${stats.progressCount} progress`);
-    if (stats.thoughtCount > 0) parts.push(`${stats.thoughtCount} thinking`);
-    if (stats.toolCount > 0) parts.push(`${stats.toolCount} tool${stats.toolCount > 1 ? "s" : ""}`);
-    if (stats.fileChangeCount > 0) parts.push(`${stats.fileChangeCount} file change${stats.fileChangeCount > 1 ? "s" : ""}`);
-    if (stats.durationMs !== undefined && stats.durationMs > 0) {
-      const secs = Math.round(stats.durationMs / 1000);
-      if (secs > 0) parts.push(`${secs}s`);
-    }
-    return parts.join(" · ");
+    return formatProcessSummaryFn(stats);
   }
 
   // V2.0: 格式化耗时（ms → 可读字符串）
   private formatDurationMs(ms: number): string {
-    if (ms < 1000) return `${ms}ms`;
-    return `${(ms / 1000).toFixed(1)}s`;
+    return formatDurationMsFn(ms);
   }
 
   // V1.2: 渲染运行过程时间线
