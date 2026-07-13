@@ -4190,6 +4190,8 @@ export class LLMBridgeView extends ItemView {
     this.messageFileRefs = userFileRefs.map((ref) => ({ ...ref }));
     this.composerController.selectedAttachmentId = null;
     this.renderComposerFileRefs();
+    // V17-RETRY: 重新读取、授权和生成附件片段（不依赖旧 attachmentTextSnippets 运行时状态）
+    await this.recomputeMessageAttachmentSnippetsForRetry(this.messageFileRefs);
     await this.runSession.run();
   }
 
@@ -6822,6 +6824,30 @@ export class LLMBridgeView extends ItemView {
       }
     }
     this.attachmentTextSnippets = snippets;
+  }
+
+  /**
+   * V17-RETRY: 再次发送时重新读取、授权和生成附件片段。
+   * 对当前 messageFileRefs 中的文本附件重新 ingest（不依赖旧运行时状态）。
+   * 图片附件由 buildSdkStreamingInput 在 run() 内部重新读取，无需此处处理。
+   */
+  private async recomputeMessageAttachmentSnippetsForRetry(refs: ReadonlyArray<FileRef>): Promise<void> {
+    // 清除与当前 refs 相关的旧片段（按 refId 过滤）
+    const refIds = new Set(refs.map((r) => r.id));
+    this.attachmentTextSnippets = this.attachmentTextSnippets.filter((s) => !refIds.has(s.refId));
+    // 重新 ingest 文本附件
+    for (const ref of refs) {
+      if (ref.status !== "active") continue;
+      if (!isBoundedTextAttachmentType(ref.fileType)) continue;
+      try {
+        const result = await ingestAttachmentTextSnippet(ref);
+        if (result.snippet) {
+          this.attachmentTextSnippets.push(result.snippet);
+        }
+      } catch {
+        // 读取失败时静默跳过（文件可能已被删除）
+      }
+    }
   }
 
   // V2.16-D: 会话保持 — onOpen 时静默恢复上次活动会话（不弹确认对话框）
