@@ -324,10 +324,12 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
    * 通过统一 runtime router 注入 CODEX_HOME（本地配置存在时）+ CODEX_RELAY_API_KEY。
    * Bridge 不再解析 Codex config.toml 内容——Codex 自己读取配置。
    */
-  private buildSpawnEnv(cwd: string): NodeJS.ProcessEnv {
+  private buildSpawnEnv(cwd: string, pluginDir?: string): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env };
+    // V17-RG: pluginDir 优先取参数，其次 globalThis.__dirname（与 managed runtime resolver 一致）
+    const resolvedPluginDir = pluginDir ?? (globalThis as { __dirname?: string }).__dirname ?? undefined;
     try {
-      const extraPath = buildEnhancedPath(cwd);
+      const extraPath = buildEnhancedPath(cwd, resolvedPluginDir);
       if (extraPath) {
         env.PATH = extraPath + (process.platform === "win32" ? ";" : ":") + (env.PATH || "");
       }

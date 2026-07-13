@@ -57,6 +57,8 @@ export interface AgentTask {
   runtimePermission?: PermissionBoundary;
   /** V16.4-E2: 允许 callback-based backend 直接发出 provider-native normalized events。 */
   emitRuntimeEvent?: (event: NormalizedRuntimeEvent) => void;
+  /** V17-RG: 插件目录（用于托管 rg.exe PATH 前置；可选，未传时降级到纯系统 PATH） */
+  pluginDir?: string;
 }
 
 /**

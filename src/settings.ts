@@ -410,6 +410,30 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
+    // V17-RG: Managed ripgrep（状态/修复；不增加复杂配置）
+    const rgStatus = this.plugin.getManagedToolInstallStatus();
+    const rgReady = rgStatus.status === "installed" || rgStatus.status === "fixture-skip";
+    new Setting(containerEl)
+      .setName("Managed ripgrep")
+      .setDesc(`版本：${rgStatus.version || "未知"} | 状态：${rgReady ? "可用" : "未安装/校验中"} | 路径：${rgStatus.installPath || "（未解析）"}${rgStatus.error ? ` | 错误：${rgStatus.error}` : ""}`)
+      .addButton((b) => {
+        b.setButtonText(rgReady ? "修复 rg" : "安装 rg");
+        b.onClick(async () => {
+          b.setButtonText("修复中...");
+          b.setDisabled(true);
+          try {
+            await this.plugin.ensureManagedToolInstalled({ confirm: true });
+            new Notice("Managed ripgrep 状态已更新", 4000);
+          } catch (e) {
+            new Notice("修复失败：" + (e instanceof Error ? e.message : String(e)), 6000);
+          } finally {
+            b.setButtonText(rgReady ? "修复 rg" : "安装 rg");
+            b.setDisabled(false);
+          }
+          this.plugin.refreshBridgeView();
+        });
+      });
+
     // ===== 高级设置（折叠） =====
     const advancedDetails = containerEl.createEl("details", { cls: "llm-bridge-advanced-settings" });
     advancedDetails.createEl("summary", { text: "高级设置（命令参数、开发者选项、Runtime 详细配置）" });

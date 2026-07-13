@@ -58,9 +58,21 @@ export function scanVersionedDirs(parent: string, sub: string): string[] {
 }
 
 // 构建 PATH 增量：Vault 局部优先（便携可移动），多版本管理器 + 全局 fallback
-export function buildEnhancedPath(cwd: string): string {
+// V17-RG: 当传入 pluginDir 时，把托管 rg 目录前置到 PATH 最前（仅子进程，不污染系统 PATH）。
+export function buildEnhancedPath(cwd: string, pluginDir?: string): string {
   const paths: string[] = [];
   const win = process.platform === "win32";
+
+  // V17-RG: 托管 ripgrep 优先级最高（仅当 pluginDir 提供 且 rg 可用时）
+  if (pluginDir) {
+    try {
+      const { resolveManagedToolDir } = require("./runtime/managed-tools/rg/rgManagedResolver");
+      const rgDir = resolveManagedToolDir(pluginDir);
+      if (rgDir) paths.push(rgDir);
+    } catch {
+      // rg resolver 不可用时静默降级（不影响主 PATH 构建）
+    }
+  }
 
   // 1. Vault 局部路径（便携版优先级最高，相对 cwd 健壮）
   paths.push(path.join(cwd, "LLM-AgentRuntime", "node_modules", ".bin"));
@@ -149,6 +161,7 @@ export function buildRunEnv(
   settings: LLMBridgeSettings,
   cwd: string,
   plan?: EffectiveRunPlan,
+  pluginDir?: string,
 ): { env: NodeJS.ProcessEnv; envKeys: string[] } {
   const env = { ...process.env };
   const envKeys: string[] = [];
@@ -186,7 +199,7 @@ export function buildRunEnv(
   } catch { /* fallthrough */ }
 
   // 增强 PATH
-  const extraPath = buildEnhancedPath(cwd);
+  const extraPath = buildEnhancedPath(cwd, pluginDir);
   if (extraPath) {
     env.PATH = extraPath + path.delimiter + (env.PATH || "");
     envKeys.push("PATH(enhanced)");
@@ -376,8 +389,8 @@ export class ClaudeCliBackend implements AgentBackend {
     onEvent({ type: "started", task });
 
     // 构造环境变量（V2.17-A: 传入 EffectiveRunPlan，model/effort 取自单一真相源）
-    const { env, envKeys } = buildRunEnv(settings, task.cwd, task.effectiveRunPlan);
-    const extraPath = buildEnhancedPath(task.cwd);
+    const { env, envKeys } = buildRunEnv(settings, task.cwd, task.effectiveRunPlan, task.pluginDir);
+    const extraPath = buildEnhancedPath(task.cwd, task.pluginDir);
     const injectedPaths = extraPath ? extraPath.split(path.delimiter) : [];
 
     // 构造启动诊断并写入 debug log

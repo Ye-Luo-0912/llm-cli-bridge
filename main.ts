@@ -20,6 +20,11 @@ import {
   getManagedRuntimeInstallStatus,
   type ManagedRuntimeInstallStatus,
 } from "./src/runtime/providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge";
+import {
+  ensureManagedToolInstalledFromPlugin,
+  getManagedToolInstallStatus,
+  type ManagedToolInstallStatus,
+} from "./src/runtime/managed-tools/rg/rgManagedInstallerBridge";
 
 const BRIDGE_FILE_REL = ".llm-bridge/bridge.json";
 
@@ -209,6 +214,18 @@ export default class LLMBridgePlugin extends Plugin {
 
   async ensureManagedRuntimeInstalled(options: { confirm?: boolean } = {}): Promise<ManagedRuntimeInstallStatus> {
     const result = await ensureManagedRuntimeInstalledFromPlugin(this.pluginDir, options);
+    this.refreshBridgeView();
+    return result;
+  }
+
+  /** V17-RG: 托管 ripgrep 状态（设置页面"状态/修复"用） */
+  getManagedToolInstallStatus(): ManagedToolInstallStatus {
+    return getManagedToolInstallStatus(this.pluginDir);
+  }
+
+  /** V17-RG: 修复托管 ripgrep（触发校验或安装） */
+  async ensureManagedToolInstalled(options: { confirm?: boolean } = {}): Promise<ManagedToolInstallStatus> {
+    const result = await ensureManagedToolInstalledFromPlugin(this.pluginDir, options);
     this.refreshBridgeView();
     return result;
   }

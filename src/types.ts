@@ -102,6 +102,46 @@ export interface CodexManagedRuntimeManifest {
 }
 
 /**
+ * V17-RG: Managed ripgrep tool manifest 类型。
+ *
+ * 描述我们管理的 pinned rg.exe（不依赖用户系统 PATH 上的 rg）。
+ * manifest 文件位于 src/runtime/managed-tools/rg/rg-manifest.json，
+ * 复制到 user-package 时随 dist/user-package/managed-tools/rg/ 分发。
+ *
+ * 本轮为 fixture（fixture=true），后续接入真实 binary 时 fixture 改为 false。
+ */
+export interface ManagedToolManifest {
+  /** 工具唯一标识（如 "ripgrep"） */
+  toolId: string;
+  /** 工具版本（fixture 为 0.1.0-fixture） */
+  version: string;
+  /** 是否为 fixture（本轮 true，真实 binary 接入后 false） */
+  fixture: boolean;
+  /** 平台 -> binary 信息映射 */
+  platforms: {
+    [platformArch: string]: {
+      /** 相对 manifest 目录的 binary 路径 */
+      path: string;
+      /** binary 文件的 sha256 校验值 */
+      sha256: string;
+      /** 文件大小（字节） */
+      size: number;
+      /** 可执行文件名（Windows 含 .exe/.bat，Unix 无扩展名） */
+      executableName: string;
+      /** 固定 artifact 来源；安装脚本用它安装 pinned binary */
+      artifact?: {
+        /** 下载 URL（zip 格式） */
+        url: string;
+        /** artifact（zip）的 sha256 校验值 */
+        artifactSha256: string;
+        /** zip 内 binary 的相对路径 */
+        vendorPath: string;
+      };
+    };
+  };
+}
+
+/**
  * V17-A: 后端配置档（朋友版 portable vs 开发者 developer）。
  *
  * - developer: 全后端可选，auto 按 Vault active provider 路由

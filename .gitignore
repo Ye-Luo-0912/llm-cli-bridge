@@ -61,3 +61,11 @@ src/runtime/providers/codex-managed-app-server/runtime/linux-x64/codex
 src/runtime/providers/codex-managed-app-server/runtime/linux-arm64/codex
 src/runtime/providers/codex-managed-app-server/runtime/darwin-x64/codex
 src/runtime/providers/codex-managed-app-server/runtime/darwin-arm64/codex
+
+# Managed tools artifacts（由 pinned manifest/source 安装，不进代码提交）
+src/runtime/managed-tools/rg/runtime/win32-x64/rg.exe
+src/runtime/managed-tools/rg/runtime/win32-arm64/rg.exe
+src/runtime/managed-tools/rg/runtime/linux-x64/rg
+src/runtime/managed-tools/rg/runtime/linux-arm64/rg
+src/runtime/managed-tools/rg/runtime/darwin-x64/rg
+src/runtime/managed-tools/rg/runtime/darwin-arm64/rg

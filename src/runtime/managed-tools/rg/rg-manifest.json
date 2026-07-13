@@ -1,0 +1,13 @@
+{
+  "toolId": "ripgrep",
+  "version": "0.1.0-fixture",
+  "fixture": true,
+  "platforms": {
+    "win32-x64": {
+      "path": "runtime/win32-x64/rg-fake.bat",
+      "sha256": "d26cf61eec858ded16cc1aadc2d94c9de1113996f19548c0600293efd2d691f4",
+      "size": 152,
+      "executableName": "rg-fake.bat"
+    }
+  }
+}
