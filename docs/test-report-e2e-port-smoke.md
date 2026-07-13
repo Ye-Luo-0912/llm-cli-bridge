@@ -3,7 +3,7 @@
 > 本报告由 `scripts/e2e-port-smoke.mjs` 自动生成。
 > 用 managed runtime codex.exe 做真实协议层端到端验证。
 
-- **测试时间**: 2026-07-13T21:13:04.507Z
+- **测试时间**: 2026-07-13T21:23:36.732Z
 - **Passed**: 10
 - **Failed**: 0
 - **Skipped (manual required)**: 1
@@ -19,10 +19,10 @@
 | PASS | 思考：turn/completed 到达 | reason=completed |
 | PASS | 工具：捕获 item/started (commandExecution) | hasCmdStarted=true |
 | PASS | 工具：捕获 item/completed (commandExecution) | hasCmdCompleted=true, turnReason=completed |
-| PASS | 审批：捕获 requestApproval server-request | method=fileChange |
+| PASS | 审批：捕获 requestApproval server-request | method=commandExecution |
 | PASS | 审批：accept 后文件创建 | approval-test.txt 已创建 |
-| PASS | 恢复会话：Phase 1 创建会话 | threadId=019f5d53-541b-7142-bd52-4d4e65c5d0f9 |
-| PASS | 恢复会话：Phase 2 thread/resume | resumedThreadId=019f5d53-541b-7142-bd52-4d4e65c5d0f9 |
+| PASS | 恢复会话：Phase 1 创建会话 | threadId=019f5d5c-f8f5-70b0-97f6-afabbf242e9c |
+| PASS | 恢复会话：Phase 2 thread/resume | resumedThreadId=019f5d5c-f8f5-70b0-97f6-afabbf242e9c |
 | PASS | 恢复会话：Phase 2 上下文保留验证 | agentMessage="RESUME_42" |
 
 ## 测试说明
