@@ -73,6 +73,16 @@ export const AGENT_RUNTIME_PROVIDER_CONFIG_REL = "LLM-AgentRuntime/private/runti
 export const AGENT_RUNTIME_PRIVATE_RUNTIME_DIR_REL = ".llm-bridge/private/runtime";
 export const AGENT_RUNTIME_ACTIVE_PROVIDER_REL = ".llm-bridge/private/runtime/active.json";
 export const AGENT_RUNTIME_SECRETS_ENV_REL = ".llm-bridge/private/runtime/secrets.env";
+/**
+ * V20.9: Bridge 所有权 sidecar — 记录哪些 provider 的本地配置由 Bridge 表单创建。
+ *
+ * 取代"根据内容形状猜所有权"的旧逻辑。只有 sidecar 中明确记录的 provider，
+ * 其本地配置文件才允许被 Bridge 表单整文件覆盖；否则视为用户手写，转只读保护。
+ *
+ * sidecar 本身只在 writeProviderForm 成功后写入，删除本地配置文件不自动清除 sidecar
+ * （下次 Bridge 重新生成会再次标记）。
+ */
+export const AGENT_RUNTIME_BRIDGE_OWNED_REL = ".llm-bridge/private/runtime/bridge-owned.json";
 export const AGENT_RUNTIME_CODEX_CONFIG_DIR_REL = ".llm-bridge/private/runtime/codex";
 export const AGENT_RUNTIME_CODEX_CONFIG_REL = ".llm-bridge/private/runtime/codex/config.toml";
 export const AGENT_RUNTIME_CLAUDE_CONFIG_DIR_REL = ".llm-bridge/private/runtime/claude";
@@ -502,6 +512,8 @@ const VAULT_CONTEXT_TOPIC_MAP: Readonly<Record<string, string>> = {
 export const VAULT_CONTEXT_SKILL_META = {
   name: "vault-context",
   description: "Maintain and apply stable, reusable, verified context for the current Obsidian vault. Invoke before creating, moving, renaming, or deleting notes; when choosing paths, names, properties, formats, or stable workflows; when the user states a lasting preference; and after completed work reveals verified reusable directory semantics or conventions. Read only the relevant reference file. Never store transient tasks, guesses, session content, credentials, or secrets.",
+  /** 独立短描述，用于 agents/openai.yaml 的 interface.short_description（25-64 字符） */
+  shortDescription: "Maintain and apply stable, reusable vault context.",
 } as const;
 
 /**
@@ -636,7 +648,7 @@ function buildAgentsOpenaiYaml(): string {
     "# 由系统生成，不手工编辑。发现/触发入口为根 SKILL.md frontmatter。",
     'interface:',
     '  display_name: "Vault Context"',
-    `  short_description: "${escapeYamlDoubleQuoted(VAULT_CONTEXT_SKILL_META.description.slice(0, 120))}"`,
+    `  short_description: "${escapeYamlDoubleQuoted(VAULT_CONTEXT_SKILL_META.shortDescription)}"`,
     'default_prompt: |',
     '  Maintain and apply stable, reusable, verified context for the current Obsidian vault.',
     '  Before creating/moving/renaming/deleting notes, or choosing paths/names/formats/workflows,',
@@ -1416,7 +1428,7 @@ export function buildAgentRuntimeReadme(): string {
     "## 结构",
     "",
     "- `runtime/RUNTIME_FACTS.json`: 机器事实（provider/shell/capability），不进 prompt。",
-    "- `skills/vault-context/`: vault-context Skill 包（SKILL.md 清单 + 子 skill .md + INDEX.md 索引）。agent 自维护的 vault 认知包。",
+    "- `skills/vault-context/`: vault-context Skill 包（SKILL.md 清单 + references/ 分区 + INDEX.md 索引）。agent 自维护的 vault 认知包。",
     "- `skills/vault-api/SKILL.md`: V2.18 vault-api Skill 源文件（Obsidian Plugin API 能力：property/tags/backlinks/tasks/daily/trash）。",
     "- `sessions/`: 会话摘要（agent 写入，不进 VAULT_SKILL）。",
     "- `work/`: 临时工作文件（agent 写入，不进 VAULT_SKILL）。",
@@ -1424,7 +1436,7 @@ export function buildAgentRuntimeReadme(): string {
     "",
     "## 说明",
     "",
-    "- vault-context 包物化到 `.claude/skills/vault-context/`（SKILL.md + 子 .md + INDEX.md）才能被 provider 按需识别。",
+    "- vault-context 包物化到 `.claude/skills/vault-context/`（SKILL.md + references/ + INDEX.md）才能被 provider 按需识别。",
     "- vault-api Skill 源文件物化到 `.claude/skills/vault-api/SKILL.md`（以及 .agents/skills / .pi/skills）。",
     "- 用户可查看/重置/清理本目录，但默认不需要维护。",
     "- 所有写入仍走 PermissionBoundary，不绕过权限系统。",

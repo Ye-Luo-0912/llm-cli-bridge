@@ -14607,30 +14607,33 @@
   display: none !important;
 }
 
-/* Processed：左对齐纯文本，无气泡边框；显示用时 */
+/* Processed：Fig.2 — 左对齐灰字 + 用时 + ›，底部分割线 */
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head,
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head.is-collapsible {
   display: inline-flex !important;
   align-items: center;
   justify-content: flex-start;
   gap: 6px;
-  width: auto;
+  width: 100%;
   max-width: 100%;
-  margin: 0 0 8px;
-  padding: 2px 0 !important;
+  margin: 0 0 10px;
+  padding: 2px 0 8px !important;
   border: 0 !important;
+  border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent) !important;
   border-radius: 0 !important;
   background: transparent !important;
   box-shadow: none !important;
   cursor: pointer;
   user-select: none;
-  color: var(--text-muted);
+  color: var(--text-faint);
   box-sizing: border-box;
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-quiet-title,
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-section-title {
-  color: var(--text-muted) !important;
+  color: var(--text-faint) !important;
+  font-size: 12px !important;
+  font-weight: 450 !important;
   background: transparent !important;
   border: 0 !important;
   box-shadow: none !important;
@@ -14642,6 +14645,9 @@
   background: transparent !important;
   box-shadow: none !important;
   padding: 0 !important;
+  color: var(--text-faint) !important;
+  font-size: 12px;
+  opacity: 0.85;
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head .llm-bridge-codex-section-title-row {

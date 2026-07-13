@@ -17,11 +17,13 @@ Thumbs.db
 # Editor
 .idea/
 .vscode/
+.cursor/
 
 # Test temp bundles
 .test-*.mjs
 .git-commit-msg.txt
 temp-debug*/
+_legacy_backup.css
 
 # Build distribution（本地构建产物，不入库）
 dist/

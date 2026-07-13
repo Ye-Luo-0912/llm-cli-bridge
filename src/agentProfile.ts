@@ -3,7 +3,24 @@
 // 不引入 SDK / ACP / MCP，不新增 npm 依赖
 // V1.5: resolveProfile / CommandProfile 统一到 commandProfile.ts
 
-import { spawn } from "child_process";
+import { spawn, type SpawnOptions } from "child_process";
+
+/**
+ * 跨平台 spawn：Windows 下用 cmd.exe /d /s /c 显式调用，兼容 .cmd/.ps1 垫片，
+ * 避免 shell:true 的 DEP0190 弃用警告。非 Windows 直接 spawn（不加 shell）。
+ */
+function spawnCompat(command: string, args: string[], options: SpawnOptions): ReturnType<typeof spawn> {
+  if (process.platform === "win32") {
+    const quoteIfNeeded = (a: string) => (a.includes(" ") && !a.startsWith('"') ? `"${a}"` : a);
+    const cmdLine = [quoteIfNeeded(command), ...args.map(quoteIfNeeded)].join(" ");
+    return spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", cmdLine], {
+      ...options,
+      shell: false,
+      windowsHide: true,
+    });
+  }
+  return spawn(command, args, { ...options, shell: false, windowsHide: true });
+}
 import * as fs from "fs";
 import * as path from "path";
 import { LLMBridgeSettings } from "./types";
@@ -143,7 +160,7 @@ export function runPreflight(
       return;
     }
 
-    // 执行 version 探测：shell:true 兼容 Windows .cmd/.ps1 垫片和带空格路径
+    // 执行 version 探测：spawnCompat 兼容 Windows .cmd/.ps1 垫片和带空格路径（无 shell:true DEP0190）
     let versionStdout = "";
     let versionStderr = "";
     let versionExitCode: number | null = null;
@@ -152,9 +169,8 @@ export function runPreflight(
 
     let child: ReturnType<typeof spawn>;
     try {
-      child = spawn(profile.command, profile.versionArgs, {
+      child = spawnCompat(profile.command, profile.versionArgs, {
         cwd,
-        shell: true,
         env,
         windowsHide: true,
       });

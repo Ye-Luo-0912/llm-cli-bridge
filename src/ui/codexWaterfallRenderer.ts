@@ -33,6 +33,7 @@ export interface CodexWaterfallPatchDeps {
   ) => void;
   renderMarkdownInto: (host: HTMLElement, text: string) => void;
   formatDurationMs: (ms: number) => string;
+  localizeRunStatus: (status: string) => string;
 }
 
 export interface CodexFeedItemRenderDeps {
@@ -210,9 +211,13 @@ function computeEntrySignature(entry: CodexFeedEntry): string {
 // ---------- cluster 摘要与标题 ----------
 
 function formatExecutionClusterTitle(items: ReadonlyArray<CodexRunFeedItem>): string {
-  // Always English: avoids garbled "已处理" under some vault encodings.
+  const loc = resolveUiLocale() === "en" ? "en" : "zh";
   const count = items.length;
   const active = items.some((item) => item.status === "running" || item.status === "pending");
+  if (loc === "zh") {
+    if (active) return count > 1 ? `正在运行 ${count} 个命令` : "正在运行命令";
+    return count > 1 ? `已处理 ${count} 个命令` : "已处理命令";
+  }
   if (active) return count > 1 ? `Running ${count} commands` : "Running command";
   return count > 1 ? `Processed ${count} commands` : "Processed command";
 }
@@ -371,12 +376,9 @@ function renderCodexFeedThinking(
   item: CodexRunFeedItem,
   deps: CodexFeedItemRenderDeps,
 ): void {
-  // 普通模式不显示 Thinking 标签，仅展示摘要文本
   const isLive = item.status === "running" || item.status === "pending";
-  let summary = formatCodexFeedSummary(item, false).trim();
-  if (!summary && isLive) {
-    summary = deps.localizeRunStatus("Thinking");
-  }
+  const summary = formatCodexFeedSummary(item, false).trim();
+  // 普通模式不显示 Thinking 标签；空 summary 直接跳过（buildFeedItems 已过滤，此处为防御）
   if (!summary) return;
   const row = parent.createDiv({
     cls: `llm-bridge-codex-thinking-line is-${item.status}${isLive ? " is-thinking-live" : " is-thinking-done"}`,
@@ -386,9 +388,8 @@ function renderCodexFeedThinking(
   if (deps.developerMode) {
     row.createEl("span", { cls: "llm-bridge-codex-thinking-label", text: deps.localizeRunStatus("Thinking") });
   }
-  const isPlaceholder = isLive && summary === deps.localizeRunStatus("Thinking");
   row.createEl("span", {
-    cls: `llm-bridge-codex-thinking-summary${isPlaceholder ? " llm-bridge-codex-thinking-placeholder" : " is-reasoning-text"}${isLive ? " llm-bridge-codex-thinking-status is-running llm-bridge-run-glow is-thinking-faded" : ""}`,
+    cls: `llm-bridge-codex-thinking-summary is-reasoning-text${isLive ? " llm-bridge-codex-thinking-status is-running llm-bridge-run-glow is-thinking-faded" : ""}`,
     text: truncateText(summary, 360),
     attr: { title: summary },
   });
@@ -647,7 +648,14 @@ export function patchCodexFeedEntryItem(
     deps.renderCodexFeedItem(entry, item, developerMode);
   } else {
     const streamEl = entry.querySelector<HTMLElement>(".llm-bridge-msg-stream-text, .llm-bridge-codex-thinking-summary");
-    const nextSummary = text || (item.label || "").trim();
+    let nextSummary = text;
+    if (!nextSummary && item.kind === "thinking") {
+      const live = item.status === "running" || item.status === "pending";
+      nextSummary = live
+        ? deps.localizeRunStatus("Thinking")
+        : (resolveUiLocale() === "en" ? "Thought" : "已思考");
+    }
+    if (!nextSummary) nextSummary = (item.label || "").trim();
     if (streamEl && nextSummary) {
       const clipped = streamEl.classList.contains("llm-bridge-msg-stream-text")
         || streamEl.classList.contains("llm-bridge-codex-thinking-summary")
@@ -882,13 +890,15 @@ export function patchCodexFeedEntryCluster(
     let statusText = "";
     let statusCls = "llm-bridge-codex-tool-group-status";
     if (groupStatus === "running") {
-      statusText = "正在思考";
+      statusText = clusterKind === "execution"
+        ? (resolveUiLocale() === "en" ? "Running" : "正在运行")
+        : (resolveUiLocale() === "en" ? "Thinking" : "正在思考");
       statusCls = "llm-bridge-codex-tool-group-status is-running llm-bridge-run-glow";
     } else if (groupStatus === "failed") {
-      statusText = "· 失败";
+      statusText = resolveUiLocale() === "en" ? "· failed" : "· 失败";
       statusCls = "llm-bridge-codex-tool-group-status is-failed";
     } else {
-      statusText = totalDuration ? `· ${deps.formatDurationMs(totalDuration)}` : "· done";
+      statusText = totalDuration ? `· ${deps.formatDurationMs(totalDuration)}` : "";
       statusCls = "llm-bridge-codex-tool-group-status is-done";
     }
     if (statusIndicator.className !== statusCls) statusIndicator.className = statusCls;

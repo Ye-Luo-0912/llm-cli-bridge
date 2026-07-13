@@ -2,7 +2,24 @@
 // 把现有 Claude CLI（spawn）调用逻辑封装为 AgentBackend 实现
 // UI 层通过 AgentBackend 接口调用，不再直接接触 child_process
 
-import { ChildProcess, spawn } from "child_process";
+import { ChildProcess, spawn, type SpawnOptions } from "child_process";
+
+/**
+ * 跨平台 spawn：Windows 下用 cmd.exe /d /s /c 显式调用，兼容 .cmd/.ps1 垫片，
+ * 避免 shell:true 的 DEP0190 弃用警告。非 Windows 直接 spawn（不加 shell）。
+ */
+function spawnCompat(command: string, args: string[], options: SpawnOptions): ChildProcess {
+  if (process.platform === "win32") {
+    const quoteIfNeeded = (a: string) => (a.includes(" ") && !a.startsWith('"') ? `"${a}"` : a);
+    const cmdLine = [quoteIfNeeded(command), ...args.map(quoteIfNeeded)].join(" ");
+    return spawn(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", cmdLine], {
+      ...options,
+      shell: false,
+      windowsHide: true,
+    }) as ChildProcess;
+  }
+  return spawn(command, args, { ...options, shell: false, windowsHide: true }) as ChildProcess;
+}
 import * as fs from "fs";
 import * as path from "path";
 import { AgentBackend, AgentEvent, AgentEventHandler, AgentRunHandle, AgentTask } from "./agentBackend";
@@ -401,13 +418,10 @@ export class ClaudeCliBackend implements AgentBackend {
       debugLog += "\n=== Agent Skills Runtime ===\nskipped: agentType is not claude\n";
     }
 
-    // spawn：使用 shell:true 兼容 Windows .cmd/.ps1 垫片和带空格的路径
-    // 注意：shell:true 下 command 字符串由 shell 解析，带空格的路径需用引号包裹
-    // 但 Node.js spawn shell:true 会自动处理，无需额外引号
+    // spawn：spawnCompat 兼容 Windows .cmd/.ps1 垫片和带空格的路径（无 shell:true DEP0190）
     try {
-      child = spawn(command, args, {
+      child = spawnCompat(command, args, {
         cwd: task.cwd,
-        shell: true,
         env,
         windowsHide: true,
       });
@@ -511,9 +525,8 @@ export class ClaudeCliBackend implements AgentBackend {
         const pid = child.pid;
         try {
           if (process.platform === "win32" && pid) {
-            // Windows 下 shell:true 会产生中间 shell，需杀整棵进程树
+            // Windows 下 spawnCompat 通过 cmd.exe 产生中间 shell，需杀整棵进程树
             spawn("taskkill", ["/pid", String(pid), "/T", "/F"], {
-              shell: true,
               windowsHide: true,
             });
           } else {

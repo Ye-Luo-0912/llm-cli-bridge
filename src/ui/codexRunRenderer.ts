@@ -59,10 +59,25 @@ interface CodexRunMountOrPatchArgs {
   messageStatus?: string;
 }
 
-function formatQuietProcessedLabel(run: CodexRunViewModel): string {
-  // 用时（elapsed），不显示墙钟时间
+function formatQuietProcessHeadLabel(run: CodexRunViewModel, running: boolean): string {
+  const loc = resolveUiLocale() === "en" ? "en" : "zh";
+  if (running) {
+    const activity = (run.currentActivity?.label || "").trim();
+    if (/command|shell|bash|check|test/i.test(activity)) {
+      return loc === "zh" ? "正在运行" : "Running";
+    }
+    if (/edit|write|patch|file/i.test(activity)) {
+      return loc === "zh" ? "正在编辑" : "Editing";
+    }
+    if (/approval|input/i.test(activity)) {
+      return loc === "zh" ? "等待确认" : "Waiting";
+    }
+    return loc === "zh" ? "正在思考" : "Thinking";
+  }
+  // Fig.2：已处理 + 用时（空格分隔，无中点）
   const elapsed = (run.runHeader.elapsed || "").trim();
-  return elapsed ? `Processed · ${elapsed}` : "Processed";
+  if (loc === "zh") return elapsed ? `已处理 ${elapsed}` : "已处理";
+  return elapsed ? `Processed ${elapsed}` : "Processed";
 }
 
 /**
@@ -264,24 +279,13 @@ function mountCodexRunView(
           text: `${processEventCount} ${processEventCount === 1 ? "step" : "steps"}`,
         });
       }
-    } else if (presentation.kind !== "assistant-running") {
-      // 普通完成态：有工具 cluster 时不再单独挂 Processed 徽章（cluster 标题已表达）；
-      // 仅在过程流存在但无 cluster 标题时给一行安静状态（固定英文，避免编码乱码）。
-      const hasClusterTitle = processFeedItems.some((item) =>
-        item.kind === "command" || item.kind === "file" || !!item.change || item.kind === "mcp" || item.kind === "dynamic",
-      );
-      if (!hasClusterTitle) {
-        const quietLabel = formatQuietProcessedLabel(run);
-        processTitle.createDiv({
-          cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title",
-          text: quietLabel,
-        });
-      } else {
-        processHead.setAttribute("hidden", "");
-      }
     } else {
-      // 运行中：不显示「运行详情」标题，过程流直接铺开
-      processHead.setAttribute("hidden", "");
+      // Fig.2：安静过程头始终展示（有工具 cluster 也不隐藏）；运行中=正在思考，完成=已处理
+      const quietLabel = formatQuietProcessHeadLabel(run, presentation.kind === "assistant-running");
+      processTitle.createDiv({
+        cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title",
+        text: quietLabel,
+      });
     }
     const processBody = process.createDiv({ cls: "llm-bridge-codex-process-body" });
     // 禁止自动折叠：过程体始终可见
@@ -294,7 +298,7 @@ function mountCodexRunView(
     }
     if (diagnosticsForDisplay.length > 0) renderCodexDiagnosticsDrawer(processBody, diagnosticsForDisplay, developerMode, deps);
 
-    const canToggle = showFeed && presentation.kind !== "assistant-running" && !processHead.hasAttribute("hidden");
+    const canToggle = showFeed && presentation.kind !== "assistant-running";
     ensureProcessHeadInteractive(process, processBody, canToggle);
   } else {
     process.setAttribute("hidden", "");
@@ -383,31 +387,24 @@ function reconcileCodexRunView(
     developerMode,
   });
 
-  // 完成态过程头：有工具 cluster 时隐藏 quiet Processed 徽章；否则更新安静状态行
-  const isCompletedQuiet = presentation.kind !== "assistant-running" && run.feedItems.length > 0;
-  if (isCompletedQuiet) {
-    const hasClusterTitle = run.feedItems.some((item) =>
-      item.kind === "command" || item.kind === "file" || !!item.change || item.kind === "mcp" || item.kind === "dynamic",
-    );
-    ensureProcessHeadInteractive(process, processBody, !hasClusterTitle);
+  // 过程头：安静模式下始终显示（Fig.2 已处理 / 正在思考），有工具 cluster 也不隐藏
+  const hasFeed = run.feedItems.length > 0;
+  const isRunning = presentation.kind === "assistant-running" || options.streaming;
+  if (hasFeed) {
+    ensureProcessHeadInteractive(process, processBody, !isRunning);
     const processHead = process.querySelector<HTMLElement>(".llm-bridge-codex-process-head");
-    if (hasClusterTitle) {
-      processHead?.setAttribute("hidden", "");
-    } else {
-      processHead?.removeAttribute("hidden");
-      let quietTitle = processHead?.querySelector<HTMLElement>(".llm-bridge-codex-process-quiet-title");
-      if (processHead && !quietTitle) {
-        const processTitle = processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
-        quietTitle = processTitle.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title" });
-      }
-      // 去掉历史勾选图标
-      processHead?.querySelector(".llm-bridge-codex-process-quiet-icon")?.remove();
-      if (quietTitle) {
-        quietTitle.textContent = formatQuietProcessedLabel(run);
-      }
+    processHead?.removeAttribute("hidden");
+    let quietTitle = processHead?.querySelector<HTMLElement>(".llm-bridge-codex-process-quiet-title");
+    if (processHead && !quietTitle && !showChrome) {
+      const processTitle = processHead.querySelector<HTMLElement>(".llm-bridge-codex-section-title-row")
+        ?? processHead.createDiv({ cls: "llm-bridge-codex-section-title-row" });
+      quietTitle = processTitle.createDiv({ cls: "llm-bridge-codex-section-title llm-bridge-codex-process-quiet-title" });
+    }
+    processHead?.querySelector(".llm-bridge-codex-process-quiet-icon")?.remove();
+    if (quietTitle && !showChrome) {
+      quietTitle.textContent = formatQuietProcessHeadLabel(run, isRunning);
     }
   } else {
-    // 运行中：隐藏过程头，不可折叠
     ensureProcessHeadInteractive(process, processBody, false);
     const processHead = process.querySelector<HTMLElement>(".llm-bridge-codex-process-head");
     processHead?.setAttribute("hidden", "");

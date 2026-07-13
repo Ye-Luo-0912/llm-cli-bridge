@@ -21054,12 +21054,15 @@ if (!runNoteSummarizeSmoke) {
         ok ? "pass" : "fail",
         `collapsible=${hasCollapsible} role=${roleButton} expanded=${ariaExpanded} toggleExp=${toggleExpanded} -> collapsed: aria=${ariaCollapsed} toggle=${toggleCollapsed} -> expanded: aria=${ariaExpandedAgain} toggle=${toggleExpandedAgain}`);
 
-      // 验证 formatQuietProcessedLabel 产出：已完成 run 有 elapsed → quiet label 含 "Processed · 3.2s"
+      // 验证安静过程头：已完成 run 有 elapsed → 「已处理 / Processed {elapsed}」
       const quietTitle = parent.querySelector(".llm-bridge-codex-process-quiet-title");
-      const quietLabelOk = !!quietTitle && quietTitle.textContent.includes("Processed") && quietTitle.textContent.includes("3.2s");
-      addTest("V17-G56 行为: formatQuietProcessedLabel 产出 'Processed · {elapsed}'（无 cluster title 时渲染 quiet label）",
+      const quietText = quietTitle?.textContent ?? "";
+      const quietLabelOk = !!quietTitle
+        && (quietText.includes("已处理") || quietText.includes("Processed"))
+        && quietText.includes("3.2s");
+      addTest("V17-G56 行为: formatQuietProcessHeadLabel 产出 '已处理/Processed {elapsed}'（始终渲染 quiet label）",
         quietLabelOk ? "pass" : "fail",
-        `quietLabel=${quietTitle?.textContent ?? "(null)"}`);
+        `quietLabel=${quietText || "(null)"}`);
 
       // 验证 reconcileCodexRunView 存在（patch 模式入口）
       const hasReconcile = typeof rendererMod.mountOrReconcileCodexRun === "function";
@@ -25757,6 +25760,7 @@ try {
   const CLAUDE_CONFIG_REL = ".llm-bridge/private/runtime/claude/settings.json";
   const PI_SETTINGS_REL = ".llm-bridge/private/runtime/pi/settings.json";
   const PI_MODELS_REL = ".llm-bridge/private/runtime/pi/models.json";
+  const BRIDGE_OWNED_REL = ".llm-bridge/private/runtime/bridge-owned.json";
   const OLD_PROVIDER_CONFIG_REL = "LLM-AgentRuntime/private/runtime-provider.json";
 
   function makeTempVault() {
@@ -26228,6 +26232,109 @@ try {
     addTest("V20.7 writePiForm: apiKey 字段为环境变量名",
       hasVarName && noKeyLeak ? "pass" : "fail",
       `hasVarName=${hasVarName}, noKeyLeak=${noKeyLeak}`);
+  }
+
+  // --- V20.9: bridge-owned.json sidecar 所有权记录（3 组覆盖保护测试） ---
+
+  // Test A: Bridge 生成配置 → sidecar 记录 → isBridgeGeneratedConfig=true → saveProviderForm 可覆盖
+  {
+    const vault = makeTempVault();
+    // 初始: 无 sidecar → isBridgeGeneratedConfig=false
+    const beforeOwned = routerMod.isBridgeGeneratedConfig(vault, "codex");
+    // Bridge 生成配置
+    routerMod.saveProviderForm(vault, "codex", {
+      baseURL: "https://relay.example.com/v1",
+      model: "gpt-5.4",
+      apiKey: "test-key-a",
+    });
+    // 生成后: sidecar 记录 → isBridgeGeneratedConfig=true
+    const afterOwned = routerMod.isBridgeGeneratedConfig(vault, "codex");
+    // sidecar 文件存在且内容正确
+    const sidecarExists = fileExists(vault, BRIDGE_OWNED_REL);
+    const sidecarContent = sidecarExists
+      ? JSON.parse(readFileSync(join(vault, BRIDGE_OWNED_REL), "utf8"))
+      : null;
+    const sidecarCorrect = sidecarContent?.schemaVersion === 1
+      && sidecarContent?.providers?.codex === true
+      && sidecarContent?.providers?.claude === false
+      && sidecarContent?.providers?.pi === false;
+    // 再次 saveProviderForm 应成功(可覆盖)
+    const reSave = routerMod.saveProviderForm(vault, "codex", {
+      baseURL: "https://relay2.example.com/v1",
+      model: "gpt-5.5",
+      apiKey: "test-key-b",
+    });
+    addTest("V20.9 sidecar A: Bridge 生成 → sidecar 记录 → 可覆盖",
+      !beforeOwned && afterOwned && sidecarCorrect && reSave.ok ? "pass" : "fail",
+      `before=${beforeOwned}, after=${afterOwned}, sidecar=${sidecarCorrect}, reSave=${reSave.ok}`);
+  }
+
+  // Test B: 用户手写配置(无 sidecar 记录) → isBridgeGeneratedConfig=false → saveProviderForm 拒绝覆盖
+  {
+    const vault = makeTempVault();
+    // 用户手写 Codex 配置(内容恰好与 Bridge 模板形状相似,但无 sidecar 记录)
+    writeFile(vault, CODEX_CONFIG_REL, [
+      '# 用户自己写的配置',
+      'model = "custom-model"',
+      'model_provider = "my-provider"',
+      '',
+      '[model_providers.my-provider]',
+      'name = "My Provider"',
+      'base_url = "https://my.example.com/v1"',
+      'env_key = "MY_API_KEY"',
+      'wire_api = "chat"',
+      '',
+    ].join('\n'));
+    // 无 sidecar → isBridgeGeneratedConfig=false
+    const owned = routerMod.isBridgeGeneratedConfig(vault, "codex");
+    // saveProviderForm 应拒绝覆盖
+    const result = routerMod.saveProviderForm(vault, "codex", {
+      baseURL: "https://relay.example.com/v1",
+      model: "gpt-5.4",
+      apiKey: "test-key",
+    });
+    // 用户配置未被覆盖
+    const contentAfter = readFileSync(join(vault, CODEX_CONFIG_REL), "utf8");
+    const userContentPreserved = contentAfter.includes("用户自己写的配置")
+      && contentAfter.includes("custom-model");
+    addTest("V20.9 sidecar B: 用户手写(无 sidecar) → 拒绝覆盖 + 保留原文",
+      !owned && !result.ok && userContentPreserved ? "pass" : "fail",
+      `owned=${owned}, saveOk=${result.ok}, preserved=${userContentPreserved}`);
+  }
+
+  // Test C: sidecar 记录但配置文件被用户后续修改 → 仍可覆盖(sidecar 是所有权声明,不校验内容)
+  {
+    const vault = makeTempVault();
+    // Bridge 先生成配置
+    routerMod.saveProviderForm(vault, "claude", {
+      baseURL: "https://relay.example.com",
+      model: "claude-sonnet-4-5",
+      apiKey: "test-key",
+    });
+    // 用户后续手动修改了配置文件内容
+    writeFile(vault, CLAUDE_CONFIG_REL, JSON.stringify({
+      $schema: "https://json.schemastore.org/claude-code-settings.json",
+      env: {
+        ANTHROPIC_BASE_URL: "https://custom.example.com",
+        ANTHROPIC_MODEL: "custom-model",
+        ANTHROPIC_CUSTOM: "user-added-field",
+      },
+      permissions: { allow: ["Read(**)"] },
+    }, null, 2) + "\n");
+    // sidecar 仍记录所有权 → isBridgeGeneratedConfig=true → 可覆盖
+    const owned = routerMod.isBridgeGeneratedConfig(vault, "claude");
+    const reSave = routerMod.saveProviderForm(vault, "claude", {
+      baseURL: "https://new-relay.example.com",
+      model: "claude-sonnet-4-7",
+      apiKey: "new-key",
+    });
+    // 配置已被 Bridge 模板覆盖
+    const contentAfter = readFileSync(join(vault, CLAUDE_CONFIG_REL), "utf8");
+    const overwritten = contentAfter.includes("claude-sonnet-4-7")
+      && !contentAfter.includes("user-added-field");
+    addTest("V20.9 sidecar C: sidecar 记录 + 用户改内容 → 仍可覆盖(sidecar=所有权声明)",
+      owned && reSave.ok && overwritten ? "pass" : "fail",
+      `owned=${owned}, saveOk=${reSave.ok}, overwritten=${overwritten}`);
   }
 
   // --- V20.8: readiness 检查 + 按 Provider keyStatus + 集成测试 ---

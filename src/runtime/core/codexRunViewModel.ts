@@ -312,8 +312,9 @@ function thinkingSummary(card: Extract<AgentRunCard, { kind: "thinking" }>): str
   const value = (card.text || card.detail || card.summary || "").trim();
   if (isLifecycleNoiseText(value)) return "";
   const title = card.title.trim();
-  if (value && value !== title) return value;
-  return "";
+  // 正文与标题相同且很短时多半是占位标题（Reasoning/思考），不当作可读摘要
+  if (value && value === title && value.length <= 24) return "";
+  return value;
 }
 
 function assistantNarrativeText(card: TimelineCard): string {
@@ -721,9 +722,12 @@ function buildFeedItems(
 
   return feed.filter((item) => {
     if (item.kind !== "thinking") return true;
-    if ((item.summary || "").trim().length > 0) return true;
-    if ((item.detail || "").trim().length > 0) return true;
-    return item.status === "running" || item.status === "pending";
+    // 合成占位仅在运行中保留；真实 reasoning 卡片需要正文（thinkingSummary 已过滤 lifecycle 噪声）
+    if (item.id === "feed-synthetic-thinking") {
+      return item.status === "running" || item.status === "pending";
+    }
+    // 空 summary（无正文、lifecycle 占位、与标题相同的短占位）一律丢弃，避免噪声
+    return !!(item.summary || "").trim();
   });
 }
 

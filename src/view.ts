@@ -2611,8 +2611,11 @@ export class LLMBridgeView extends ItemView {
       "Answered": "已完成",
       "Completed": "已完成",
       "Done": "已完成",
+      "Processed": "已处理",
+      "Processing": "正在处理",
       "Running": "正在处理",
       "Thinking": "正在思考",
+      "Thought": "已思考",
       "Failed": "失败",
       "Stopped": "已停止",
       "Idle": "空闲",
@@ -6881,6 +6884,7 @@ export class LLMBridgeView extends ItemView {
         this.renderCodexFeedItem(parent, item, developerMode),
       renderMarkdownInto: (host, text) => this.renderMarkdownInto(host, text),
       formatDurationMs: (ms) => this.formatDurationMs(ms),
+      localizeRunStatus: (status) => this.localizeRunStatus(status),
     };
   }
 
