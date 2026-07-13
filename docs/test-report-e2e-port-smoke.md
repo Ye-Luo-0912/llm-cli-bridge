@@ -3,7 +3,7 @@
 > 本报告由 `scripts/e2e-port-smoke.mjs` 自动生成。
 > 用 managed runtime codex.exe 做真实协议层端到端验证。
 
-- **测试时间**: 2026-07-13T22:24:05.890Z
+- **测试时间**: 2026-07-13T22:28:29.955Z
 - **Passed**: 10
 - **Failed**: 0
 - **Skipped (manual required)**: 1
@@ -14,15 +14,15 @@
 | 状态 | 测试项 | 详情 |
 |------|--------|------|
 | SKIP | 窄栏：UI 布局验证 | manual required — 纯 UI 布局，需在 Obsidian 内人工验收 |
-| PASS | 附件：turn/start 含 localImage 被接受 | events=21, reason=completed |
+| PASS | 附件：turn/start 含 localImage 被接受 | events=25, reason=completed |
 | PASS | 思考：捕获 reasoning 事件 | summaryDelta=false, textDelta=false, reasoningCompleted=true, turnReason=completed |
 | PASS | 思考：turn/completed 到达 | reason=completed |
 | PASS | 工具：捕获 item/started (commandExecution) | hasCmdStarted=true |
 | PASS | 工具：捕获 item/completed (commandExecution) | hasCmdCompleted=true, turnReason=completed |
 | PASS | 审批：捕获 requestApproval server-request | method=fileChange |
 | PASS | 审批：accept 后文件创建 | approval-test.txt 已创建 |
-| PASS | 恢复会话：Phase 1 创建会话 | threadId=019f5d94-5380-76e0-826e-ebf032a17ca3 |
-| PASS | 恢复会话：Phase 2 thread/resume | resumedThreadId=019f5d94-5380-76e0-826e-ebf032a17ca3 |
+| PASS | 恢复会话：Phase 1 创建会话 | threadId=019f5d98-623d-7802-b314-520727399caf |
+| PASS | 恢复会话：Phase 2 thread/resume | resumedThreadId=019f5d98-623d-7802-b314-520727399caf |
 | PASS | 恢复会话：Phase 2 上下文保留验证 | agentMessage="RESUME_42" |
 
 ## 测试说明
