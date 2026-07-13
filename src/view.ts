@@ -52,6 +52,10 @@ import {
   saveAgentSkillsManifest,
 } from "./agentSkills";
 import {
+  VAULT_SKILL_SOURCE_REL,
+  VAULT_SKILL_UPDATE_LOG_REL,
+} from "./agentRuntimeWorkspace";
+import {
   buildMessagePresentation,
   NAV_TAB_LABELS,
   type MessagePresentation,
@@ -315,6 +319,8 @@ export class LLMBridgeView extends ItemView {
   private sessionTitleEl!: HTMLElement;
   // V2.13.0-F / V17-G71: Agent Skills 是 runtime capability；composer 只显示轻量选择 chip。
   private agentSkills: AgentSkillRecord[] = [];
+  // V20.12: Runtime skills/list 发现的 skill name 集合（由 getCachedSkills 同步读取）
+  private runtimeDiscoveredSkillNames: Set<string> = new Set();
   private agentSkillsToggleEl!: HTMLElement;
   private agentSkillsToggleChevronEl!: HTMLElement;
   private agentSkillsToggleCountEl!: HTMLElement;
@@ -8265,8 +8271,34 @@ export class LLMBridgeView extends ItemView {
 
   private async refreshAgentSkills(): Promise<void> {
     await this.refreshAgentSkillsManifestOnly();
+    this.refreshRuntimeDiscoveredSkills();
     await this.refreshManagedCodexPlugins();
     this.renderAgentSkillsList();
+    this.renderVaultContextStatus();
+  }
+
+  /**
+   * V20.12: 从当前 provider 的 skills/list 缓存读取 Runtime 实际发现的 skill 名称。
+   * 仅 Codex app-server provider 支持 getCachedSkills；其他 provider 返回空集合。
+   * 缓存由 skills/changed 通知自动刷新（见 RunSessionHost.onSkillsChanged）。
+   */
+  private refreshRuntimeDiscoveredSkills(): void {
+    const next = new Set<string>();
+    try {
+      const provider = this.runSession?.getSession()?.provider as
+        { getCachedSkills?: () => { data: Array<{ cwd: string; skills: Array<{ name: string }> }> } | null } | undefined;
+      const resp = provider?.getCachedSkills?.();
+      if (resp?.data) {
+        for (const entry of resp.data) {
+          for (const skill of entry.skills ?? []) {
+            if (skill?.name) next.add(skill.name);
+          }
+        }
+      }
+    } catch {
+      // 静默失败：provider 不支持或缓存不可用
+    }
+    this.runtimeDiscoveredSkillNames = next;
   }
 
   private async deleteSelectedHistorySessions(): Promise<void> {
@@ -8398,6 +8430,10 @@ export class LLMBridgeView extends ItemView {
 
   // UI-03: 抽取单个 skill 项渲染为独立方法
   private renderAgentSkillItem(parent: HTMLElement, skill: AgentSkillRecord): void {
+    // V20.12: 检测 Runtime 是否发现此 skill（name 匹配 llm-bridge-{name} 或 slug 匹配）
+    const runtimeName = `llm-bridge-${skill.name}`;
+    const runtimeDiscovered = this.runtimeDiscoveredSkillNames.has(runtimeName)
+      || this.runtimeDiscoveredSkillNames.has(skill.slug);
     const item = parent.createDiv({
       cls: `llm-bridge-agent-skill-registry-item${skill.enabled ? "" : " is-disabled"}`,
       attr: { title: skill.materializedPath || `.claude/skills/${skill.slug}/SKILL.md` },
@@ -8411,6 +8447,9 @@ export class LLMBridgeView extends ItemView {
     const titleRow = main.createDiv({ cls: "llm-bridge-agent-skill-title-row" });
     titleRow.createEl("span", { cls: "llm-bridge-agent-skill-name", text: skill.name || skill.slug });
     titleRow.createEl("span", { cls: `llm-bridge-agent-skill-badge ${skill.enabled ? "is-enabled" : "is-disabled"}`, text: skill.enabled ? "已启用" : "已禁用" });
+    if (runtimeDiscovered) {
+      titleRow.createEl("span", { cls: "llm-bridge-agent-skill-badge is-runtime", text: "Runtime 已发现", attr: { title: "Codex Runtime skills/list 已识别此 skill" } });
+    }
     main.createEl("span", { cls: "llm-bridge-agent-skill-desc", text: skill.description || "No description" });
     const meta = main.createDiv({ cls: "llm-bridge-agent-skill-meta" });
     meta.createEl("span", { text: `slug: ${skill.slug}` });
@@ -8498,15 +8537,57 @@ export class LLMBridgeView extends ItemView {
     return this.codexSkillPrepInFlight;
   }
 
-  /** 渲染 Vault Context 状态行（仅展示「已启用」徽标）。
-   *  旧的 VC-2/3/4 后台自动维护 + 记录/冲突/撤销链路已移除（原 autoMaintainVaultContext
-   *  是 no-op）。Vault Context 的去重/备份/日志/INDEX 更新改由隐式触发的 Skill 完成。 */
+  /**
+   * V20.12: 渲染 Vault Context 真实状态行。
+   * 三维状态：
+   *  1. 已物化：检测 SKILL.md 源文件是否存在（LLM-AgentRuntime/skills/vault-context/SKILL.md）
+   *  2. Runtime 已发现：getCachedSkills 中是否包含 llm-bridge-vault-context
+   *  3. 最后更新时间：读取 update-log.md 的 mtime
+   */
   private renderVaultContextStatus(): void {
     const el = this.vaultContextStatusEl;
     if (!el) return;
     el.empty();
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+
+    // 1. 检测物化文件
+    const skillSourceAbs = path.join(vaultPath, VAULT_SKILL_SOURCE_REL);
+    const materialized = fs.existsSync(skillSourceAbs);
+
+    // 2. 检测 Runtime 发现
+    const runtimeDiscovered = this.runtimeDiscoveredSkillNames.has("llm-bridge-vault-context")
+      || this.runtimeDiscoveredSkillNames.has("vault-context");
+
+    // 3. 读取 update-log 最后更新时间
+    let updatedAt: string | null = null;
+    try {
+      const logAbs = path.join(vaultPath, VAULT_SKILL_UPDATE_LOG_REL);
+      if (fs.existsSync(logAbs)) {
+        const stat = fs.statSync(logAbs);
+        updatedAt = stat.mtime.toISOString();
+      }
+    } catch {
+      // 静默失败
+    }
+
     const row = el.createDiv({ cls: "llm-bridge-vc-status-row" });
-    row.createEl("span", { cls: "llm-bridge-vc-status-badge", text: "Vault Context · 已启用" });
+    row.createEl("span", {
+      cls: `llm-bridge-vc-status-badge${materialized ? " is-ok" : " is-warn"}`,
+      text: materialized ? "Vault Context · 已物化" : "Vault Context · 未物化",
+    });
+    row.createEl("span", {
+      cls: `llm-bridge-vc-status-badge${runtimeDiscovered ? " is-ok" : " is-muted"}`,
+      text: runtimeDiscovered ? "Runtime 已发现" : "Runtime 未发现",
+      attr: { title: runtimeDiscovered ? "Codex Runtime skills/list 已识别 vault-context" : "尚未运行或 Runtime 未识别（运行一次后自动刷新）" },
+    });
+    if (updatedAt) {
+      const dateStr = new Date(updatedAt).toLocaleString();
+      row.createEl("span", {
+        cls: "llm-bridge-vc-status-badge is-muted",
+        text: `更新于 ${dateStr}`,
+        attr: { title: `update-log.md 最后修改时间：${updatedAt}` },
+      });
+    }
   }
 
   private renderManagedCodexPluginsList(): void {

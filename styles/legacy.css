@@ -6973,6 +6973,18 @@
   font-weight: 500;
 }
 
+.llm-bridge-vc-status-badge.is-ok {
+  color: var(--color-green, #4caf50);
+}
+
+.llm-bridge-vc-status-badge.is-warn {
+  color: var(--color-orange, #ff9800);
+}
+
+.llm-bridge-vc-status-badge.is-muted {
+  color: var(--text-muted);
+}
+
 .llm-bridge-agent-skills-list {
   display: flex;
   flex-direction: column;
@@ -7047,6 +7059,10 @@
   border: 0;
   background: transparent;
   font-size: 10px;
+}
+
+.llm-bridge-agent-skill-badge.is-runtime {
+  color: var(--color-blue, #2196f3);
 }
 
 .llm-bridge-agent-skill-desc {

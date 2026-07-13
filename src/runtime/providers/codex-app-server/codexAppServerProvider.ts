@@ -1011,9 +1011,10 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       push(eventMapper.mapConfigWarning(params));
     }));
     unreg.push(client.onNotification("skills/changed", () => {
-      push(eventMapper.mapSkillsChanged());
-      // V20.10: skills/changed → 自动拉取 skills/list 刷新缓存（供 UI 查询）
-      this.refreshCachedSkills(client).catch(() => { /* 静默失败，不影响主流程 */ });
+      // V20.12: 先刷新缓存，完成后再发 skillsChanged 事件触发 UI 读取最新数据
+      this.refreshCachedSkills(client)
+        .then(() => { push(eventMapper.mapSkillsChanged()); })
+        .catch(() => { push(eventMapper.mapSkillsChanged()); /* 缓存失败也通知 UI 刷新 */ });
     }));
 
     // V20.10: 后台预热 permissionProfile 缓存（供权限菜单 UI 同步读取）
