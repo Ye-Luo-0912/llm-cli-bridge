@@ -33,7 +33,6 @@ import { ClaudeSdkProvider } from "../providers/claude-sdk/claudeSdkProvider";
 import { ClaudeCliProvider } from "../providers/claude-cli/claudeCliProvider";
 import { MockProvider } from "../providers/mock/mockProvider";
 import { CodexExternalAppServerProvider } from "../providers/codex-app-server/codexAppServerProvider";
-import { CodexSdkProvider } from "../providers/codex-sdk/codexSdkProvider";
 import { CodexManagedAppServerProvider } from "../providers/codex-managed-app-server/codexManagedAppServerProvider";
 import { resolveManagedRuntime, resolveManifestPath } from "../providers/codex-managed-app-server/codexManagedRuntimeResolver";
 import { PiRpcProvider } from "../providers/pi-rpc/piRpcProvider";
@@ -46,13 +45,11 @@ import { getActiveProvider } from "../config/activeProvider";
  * V17-F1 任务 D：Managed runtime 主线。
  * - auto：由 Vault active provider 决定；Codex 使用我们管理的 pinned runtime binary。
  * - codex-managed-app-server: V17-F1 主线，使用 manifest + sha256 + executable 校验的 pinned binary
- * - codex-sdk: 显式 Codex SDK（本轮占位，未完整实现时 unavailable）
  * - codex-app-server-external: 显式 external app-server（高级/开发者 fallback）
  * - cli / sdk / pi-sdk / pi-rpc: 各自显式 provider
  *
- * V17-F0 任务 C：SDK-first 方向。
- * V17-E1 任务 B：portable auto 不再 Pi-first。
- * V17-E 任务 F：Pi 降级为 optional/advanced backend；friendReady 改名为 piAdvancedReady。
+ * auto 只负责路由，不再隐式尝试一条多 Runtime fallback 链。
+ * Pi 保留为 optional/advanced backend。
  *
  * @param settings 插件设置
  * @param cwd Vault 根目录
@@ -82,14 +79,6 @@ export function selectProvider(
       return { provider: managed.provider, label: "Codex runtime install required" };
     }
     return { provider: managed.provider, label: `Codex managed (unavailable: ${managed.resolver.reason})` };
-  }
-  // V17-F0 任务 C：codex-sdk 为主线占位（本轮未完整实现，readiness 以 smoke 报告为准）
-  if (mode === "codex-sdk") {
-    const codexSdk = new CodexSdkProvider();
-    if (codexSdk.isAvailable(cwd)) {
-      return { provider: codexSdk, label: "Codex SDK" };
-    }
-    return { provider: codexSdk, label: "Codex SDK (unavailable — mainline placeholder)" };
   }
   // V17-F0 任务 C：codex-app-server-external 为高级/开发者 fallback（不作为普通用户主线）
   if (mode === "codex-app-server-external") {
@@ -226,6 +215,7 @@ export class BridgeSessionImpl implements BridgeSession {
         activeNativeSessionRef: undefined,
         sdkStreamingInput: input.sdkStreamingInput,
         runtimeFileToolAdapter: input.runtimeFileToolAdapter,
+        nativeAction: input.nativeAction,
       };
       yield* this.provider.run(ctx, settings);
     } finally {
@@ -292,6 +282,7 @@ export class BridgeSessionImpl implements BridgeSession {
         activeNativeSessionRef: ref,
         sdkStreamingInput: input.sdkStreamingInput,
         runtimeFileToolAdapter: input.runtimeFileToolAdapter,
+        nativeAction: input.nativeAction,
       };
       yield* this.provider.resume(ref, ctx, settings);
     } finally {

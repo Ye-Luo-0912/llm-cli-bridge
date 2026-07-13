@@ -60,11 +60,17 @@ export default class LLMBridgePlugin extends Plugin {
     const bridgePath0 = path.join(vaultPath0, BRIDGE_FILE_REL);
     try {
       await fs.promises.mkdir(path.dirname(bridgePath0), { recursive: true });
-      await fs.promises.writeFile(path.join(vaultPath0, ".llm-bridge", "diag-onload.txt"),
-        `onload ${new Date().toISOString()}\nvaultPath: ${vaultPath0}\nbridgePath: ${bridgePath0}\nactualPort: (pending)\nbridgeWritten: (pending)\nbridgeWriteError: (pending)\n`,
-        "utf8");
     } catch { /* ignore */ }
     await this.loadSettings();
+    // 诊断文件仅在 developerMode 开启时写入，正式模式只在启动失败时保留诊断，
+    // 避免每次重载产生不必要的 Vault 写操作。
+    if (this.settings.developerMode) {
+      try {
+        await fs.promises.writeFile(path.join(vaultPath0, ".llm-bridge", "diag-onload.txt"),
+          `onload ${new Date().toISOString()}\nvaultPath: ${vaultPath0}\nbridgePath: ${bridgePath0}\nactualPort: (pending)\nbridgeWritten: (pending)\nbridgeWriteError: (pending)\n`,
+          "utf8");
+      } catch { /* ignore */ }
+    }
 
     this.registerView(VIEW_TYPE_LLM_BRIDGE, (leaf) => new LLMBridgeView(leaf, this));
     this.registerView(VIEW_TYPE_AGENT_SKILL_DOCUMENT, (leaf) => new AgentSkillDocumentView(leaf));
@@ -195,18 +201,21 @@ export default class LLMBridgePlugin extends Plugin {
       await writeHelperAndWrappers(vaultPath);
 
       // V1.0.1: 补充 onload 诊断文件（含 actualPort / bridgeWritten / bridgeWriteError）
-      try {
-        await fs.promises.writeFile(path.join(vaultPath, ".llm-bridge", "diag-onload.txt"),
-          `onload ${new Date().toISOString()}\n` +
-          `vaultPath: ${vaultPath}\n` +
-          `bridgePath: ${bridgePath}\n` +
-          `actualPort: ${info.port}\n` +
-          `bridgeWritten: ${writeResult?.written ?? false}\n` +
-          `bridgeWriteError: ${writeResult?.error ?? "(none)"}\n` +
-          `tokenPresent: ${!!token}\n` +
-          `tokenLength: ${token.length}\n`,
-          "utf8");
-      } catch { /* ignore */ }
+      // 仅在 developerMode 开启时写入，正式模式只在启动失败时保留诊断
+      if (this.settings.developerMode) {
+        try {
+          await fs.promises.writeFile(path.join(vaultPath, ".llm-bridge", "diag-onload.txt"),
+            `onload ${new Date().toISOString()}\n` +
+            `vaultPath: ${vaultPath}\n` +
+            `bridgePath: ${bridgePath}\n` +
+            `actualPort: ${info.port}\n` +
+            `bridgeWritten: ${writeResult?.written ?? false}\n` +
+            `bridgeWriteError: ${writeResult?.error ?? "(none)"}\n` +
+            `tokenPresent: ${!!token}\n` +
+            `tokenLength: ${token.length}\n`,
+            "utf8");
+        } catch { /* ignore */ }
+      }
 
       console.log("[llm-cli-bridge] HTTP Bridge started:", `http://${info.host}:${info.port}`, "bridgeWritten:", writeResult?.written ?? false);
     } catch (e) {
@@ -472,38 +481,6 @@ export default class LLMBridgePlugin extends Plugin {
       },
     });
 
-    // V17-C1 任务 B / V17-C2 任务 A：朋友版 preset 初始化命令
-    this.addCommand({
-      id: "enable-friend-preview",
-      name: "Enable Friend Preview / Portable Mode",
-      callback: async () => {
-        // V17-C2 任务 A：friend preset 必须显式设置 backendMode=auto（不保留旧 cli/sdk/mock）
-        // auto 让 provider 选择器按 backendProfile 优先选 pi-sdk
-        this.settings.backendProfile = "portable";
-        this.settings.backendMode = "auto";
-        this.settings.piToolMode = "pi-native";
-        this.settings.piNativeTrustConfirmed = false;
-        await this.saveSettings();
-        // 触发 view 刷新以展示 trust onboarding 卡片
-        this.refreshBridgeView?.();
-        new Notice("Friend Preview 已启用：portable + auto + pi-native。首次运行前需确认 Pi Native Trust。");
-      },
-    });
-
-    // V17-C1 任务 B / V17-C2 任务 A：切回 developer profile
-    this.addCommand({
-      id: "disable-friend-preview",
-      name: "Disable Friend Preview (back to Developer profile)",
-      callback: async () => {
-        this.settings.backendProfile = "developer";
-        this.settings.backendMode = "auto";
-        this.settings.piToolMode = "bridge-controlled";
-        await this.saveSettings();
-        this.refreshBridgeView?.();
-        new Notice("已切回 Developer profile（bridge-controlled）。");
-      },
-    });
-
     // V17-C2 任务 C：Pi SDK 依赖检查命令（朋友版手动检测 + 安装引导）
     // V17-D 任务 B：改用 tryLoadPiSdkAsync（多路径 + ESM 支持）
     this.addCommand({
@@ -618,6 +595,11 @@ export default class LLMBridgePlugin extends Plugin {
       // V17-F0 任务 C：迁移旧的 "codex" → "codex-app-server-external"
       if ((settings as { backendMode?: string }).backendMode === "codex") {
         settings.backendMode = "codex-app-server-external";
+        changed = true;
+      }
+      // 旧版本曾暴露未实现的 codex-sdk 占位入口；迁回真实 managed runtime。
+      if ((settings as { backendMode?: string }).backendMode === "codex-sdk") {
+        settings.backendMode = "codex-managed-app-server";
         changed = true;
       }
       // agentApprovalProfile：旧数据统一回到「请求批准」

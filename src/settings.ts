@@ -156,6 +156,9 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         if (pid !== router.getActiveProvider(vaultPath)) {
           try {
             router.setActiveProvider(vaultPath, pid);
+            s.backendMode = "auto";
+            s.agentType = pid === "codex" ? "codex" : pid === "pi" ? "custom" : "claude";
+            await this.plugin.saveSettings();
             new Notice(`已切换到 ${info.name}`, 2000);
           } catch (e) {
             new Notice("切换失败：" + (e instanceof Error ? e.message : String(e)), 5000);
@@ -636,11 +639,10 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(advancedEl)
       .setName("Backend 模式")
-      .setDesc("V17-F1 任务 D：auto = Managed runtime first（codex-managed→codex-sdk→claude-sdk→pi-sdk→cli）。codex-managed-app-server=我们管理的 pinned runtime binary（主线，不依赖用户安装 Codex CLI）；codex-sdk=Codex Agent SDK（占位）；codex-app-server-external=外部 codex app-server（高级/开发者 fallback）；cli=Claude Code CLI；sdk=Claude Agent SDK；pi-sdk/pi-rpc=Pi（optional/advanced）；mock=离线测试。")
+      .setDesc("auto 按 Vault 的 active provider 路由；Codex 使用插件管理的 app-server runtime。external/Claude/Pi/mock 仅供高级或开发测试使用。")
       .addDropdown((d) => {
-        d.addOption("auto", "auto（Managed：codex-managed→codex-sdk→claude-sdk→pi-sdk→cli）");
+        d.addOption("auto", "auto（按 active provider 路由，推荐）");
         d.addOption("codex-managed-app-server", "codex-managed-app-server（Managed pinned runtime 主线）");
-        d.addOption("codex-sdk", "codex-sdk（Codex Agent SDK 占位）");
         d.addOption("codex-app-server-external", "codex-app-server-external（高级 fallback）");
         d.addOption("cli", "cli（Claude Code CLI）");
         d.addOption("sdk", "sdk（Claude Agent SDK）");
@@ -703,7 +705,7 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
 
     new Setting(advancedEl)
       .setName("Backend 配置档")
-      .setDesc("V17-F0 任务 C：developer/portable 的 auto 均走 SDK-first 链；portable 仅 UI 精简不暴露实验选项。Pi 为 optional/advanced。")
+      .setDesc("developer 暴露高级 Runtime 选项；portable 仅精简 UI。auto 均按 Vault active provider 路由。")
       .addDropdown((d) => {
         d.addOption("developer", "developer（全后端可选）");
         d.addOption("portable", "portable（朋友版，UI 精简）");
@@ -715,18 +717,16 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         });
       });
 
-    // V17-F0 任务 D：Codex Desktop App 不是集成目标 — 普通用户主线不出现 Codex CLI 安装引导
-    advancedEl.createEl("h3", { text: "Codex Mainline Status (V17-F0 — SDK-first)" });
+    advancedEl.createEl("h3", { text: "Codex Runtime" });
     advancedEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
-      text: "V17-F0 任务 D：Codex 线以 SDK-first 为主（与 Claude/Pi 一致）。Desktop App / codex CLI 不是集成目标，不作为普通用户默认主线。codex-sdk 为本轮占位，readiness 以 smoke 报告为准（codexSdkAvailable / codexSdkAuthAvailable）。Desktop App is not an integration target.",
+      text: "Codex 主线统一使用插件管理的 app-server runtime；无需桌面版或全局 CLI。外部 app-server 仅保留为开发者 fallback。",
     });
 
-    // V17-E 任务 F：Pi SDK 降级为 optional/advanced backend — 普通用户无需配置
-    advancedEl.createEl("h3", { text: "Pi Backend (Optional / Advanced — V17-E 任务 F)" });
+    advancedEl.createEl("h3", { text: "Pi Backend (Optional / Advanced)" });
     advancedEl.createEl("p", {
       cls: "llm-bridge-setting-hint",
-      text: "Pi SDK/RPC 是可选 advanced backend，仅 portable profile 或显式选择 pi-sdk/pi-rpc 时启用。普通用户无需配置，默认走 SDK-first 路径。friendReady 字段已废弃，改名为 piAdvancedReady。",
+      text: "Pi SDK/RPC 是可选 advanced backend，仅显式选择 Pi 时启用；普通用户无需配置。",
     });
 
     new Setting(advancedEl)

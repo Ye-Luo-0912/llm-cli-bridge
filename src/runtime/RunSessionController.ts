@@ -35,7 +35,7 @@ import { saveSession, SessionExtras } from "../sessions";
 import { PreflightResult } from "../agentProfile";
 import { mapAgentApprovalProfileToClaudePermissionMode, type AgentApprovalProfile } from "../agentApprovalProfile";
 import { createBridgeSession, type BridgeSessionImpl } from "./core/bridgeSession";
-import type { RunInput, NormalizedRuntimeEvent, AssistantTurnView, NativeSessionRef, StateSnapshot } from "./core/types";
+import type { RunInput, NormalizedRuntimeEvent, AssistantTurnView, NativeSessionRef, StateSnapshot, NativeRunAction } from "./core/types";
 import type { ManagedRuntimeInstallStatus } from "./providers/codex-managed-app-server/codexManagedRuntimeInstallerBridge";
 import {
   ensureManagedRuntimeIntegrityVerified,
@@ -300,13 +300,51 @@ export class RunSessionController {
   // Run lifecycle
   // ===========================================================================
 
-  async run(): Promise<void> {
+  /** 执行 Codex 原生会话动作；与普通消息共用完整 run 生命周期。 */
+  async runNativeAction(action: NativeRunAction): Promise<void> {
+    await this.run(action);
+  }
+
+  /** 运行中把 composer 文本通过 turn/steer 追加到当前 Codex turn。 */
+  async steerCurrentTurn(): Promise<void> {
+    if (this._lifecycleState !== "running" || !this._session || !this._runHandle) {
+      new Notice("当前没有可追加指令的运行");
+      return;
+    }
+    const text = this.host.getComposerInput().trim();
+    if (!text) {
+      new Notice("请输入要追加的指令");
+      return;
+    }
+    if (this.host.messageFileRefs.length > 0) {
+      new Notice("运行中追加目前只支持文本；附件请在下一轮发送");
+      return;
+    }
+    const steer = this._session.provider.steerCurrentTurn;
+    if (typeof steer !== "function") {
+      new Notice("当前 Runtime 不支持运行中追加指令");
+      return;
+    }
+    try {
+      await steer.call(this._session.provider, text);
+      // 不插入独立 user bubble：当前 assistant card 仍在流式更新，插入后会形成
+      // “最终回答显示在追加指令上方”的错误时间顺序。Runtime thread 已保存该 steer。
+      this.host.clearComposerInput();
+      this.host.autoGrowInput();
+      new Notice("已追加到当前运行");
+    } catch (error) {
+      new Notice(`追加指令失败：${(error as Error).message}`);
+    }
+  }
+
+  async run(nativeAction?: NativeRunAction): Promise<void> {
     // P0: 生命周期锁——仅在 idle 时允许新一轮，覆盖 preparing/running/finalizing 全程
     if (this._lifecycleState !== "idle") return;
     this._lifecycleState = "preparing";
-    const userInput = this.host.getComposerInput().trim();
+    const composerInput = this.host.getComposerInput().trim();
+    const userInput = nativeAction ? this.nativeActionLabel(nativeAction) : composerInput;
     // V20: 允许附件-only 消息——有文字或有本轮附件任一成立即可发送
-    const hasMessageRefs = this.host.messageFileRefs.length > 0;
+    const hasMessageRefs = !nativeAction && this.host.messageFileRefs.length > 0;
     if (!userInput && !hasMessageRefs) {
       new Notice("请输入请求");
       this._lifecycleState = "idle";
@@ -340,7 +378,7 @@ export class RunSessionController {
 
     const activeFile = this.host.getActiveFile();
     const selection = settings.includeSelection ? this.host.getSelection() : null;
-    const messageRefsForRun = this.host.messageFileRefs.map((ref) => {
+    const messageRefsForRun = (nativeAction ? [] : this.host.messageFileRefs).map((ref) => {
       const previewText = this.host.getFileRefPreviewText(ref);
       return {
         ...ref,
@@ -352,11 +390,13 @@ export class RunSessionController {
     // P0: 用户消息 + assistant 占位在第一段同步逻辑中立刻写入 UI（目标 <150ms）
     this.host.appendUserMessage(userInput, messageRefsForRun);
     const assistantId = this.host.appendAssistantPlaceholder();
-    this.host.clearComposerInput();
-    this.host.autoGrowInput();
-    this.host.closeMentionPicker();
-    this.host.clearMessageContext();
-    this.host.clearRuntimeCapabilitySelection();
+    if (!nativeAction) {
+      this.host.clearComposerInput();
+      this.host.autoGrowInput();
+      this.host.closeMentionPicker();
+      this.host.clearMessageContext();
+      this.host.clearRuntimeCapabilitySelection();
+    }
 
     if (this.host.sessionState.messageCount === 0) {
       // V20: 附件-only 消息用首个附件名作为会话标题
@@ -526,6 +566,7 @@ export class RunSessionController {
           sdkStreamingInput: sdkStreamingInput ?? undefined,
           promptPackage,
           createdAt: startedAt,
+          nativeAction,
         };
         const effectiveRunPlan = session.provider.buildPlan(runInput, settings);
         host.updateAssistantMessage(assistantId, {
@@ -692,6 +733,12 @@ export class RunSessionController {
     })();
   }
 
+  private nativeActionLabel(action: NativeRunAction): string {
+    if (action.kind === "review") return "审查当前未提交更改";
+    if (action.kind === "compact") return "压缩当前会话上下文";
+    return "分叉当前会话";
+  }
+
   /**
    * 处理单个 NormalizedRuntimeEvent。
    * - 事件先 ingest 到 turnBuilder（主 UI 状态源）
@@ -731,6 +778,12 @@ export class RunSessionController {
     // 上下文占用：仅更新 ring，不进 timeline / process feed
     if (p.kind === "token_usage") {
       host.applyRuntimeTokenUsage(p.usedTokens, p.contextWindow);
+      return;
+    }
+
+    // Skills 缓存刷新是 UI 内部信号，不应渲染成一条运行过程。
+    if (p.kind === "progress" && p.label === "skillsChanged") {
+      host.onSkillsChanged?.();
       return;
     }
 
@@ -826,11 +879,6 @@ export class RunSessionController {
     }
     if (p.kind === "user_input_request" || p.kind === "user_input_resolved") {
       host.refreshUserInputPanel();
-    }
-
-    // V20.10: skills/changed → Skills 页面自动刷新
-    if (p.kind === "progress" && p.label === "skillsChanged") {
-      host.onSkillsChanged?.();
     }
 
     // 5. completed/failed 触发终态
@@ -1041,8 +1089,9 @@ export class RunSessionController {
     const logsDir = path.join(vaultPath, ".llm-bridge", "logs");
     await fs.promises.mkdir(logsDir, { recursive: true });
     const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    const agent = this.host.plugin.settings.agentType;
-    const file = path.join(logsDir, `${ts}-${agent}.log`);
+    // 日志文件名从本轮实际 session.providerId 派生（agentType 已降级为 CLI fallback 字段）
+    const providerId = this.getSession().providerId;
+    const file = path.join(logsDir, `${ts}-${providerId}.log`);
     const content =
       `# LLM CLI Bridge log\n` +
       `command: ${result.command} ${result.args.join(" ")}\n` +

@@ -396,7 +396,6 @@ const PROVIDER_TOOL_RULES: ProviderToolRule[] = [
 const PROVIDER_LABELS: Record<string, { zh: string; en: string; icon: string }> = {
   "codex-managed-app-server": { zh: "Codex 运行时", en: "Codex runtime", icon: "cpu" },
   "codex-app-server": { zh: "Codex 外部运行时", en: "Codex external runtime", icon: "cpu" },
-  "codex-sdk": { zh: "Codex SDK", en: "Codex SDK", icon: "cpu" },
   "claude-sdk": { zh: "Claude SDK", en: "Claude SDK", icon: "cpu" },
   "claude-cli": { zh: "Claude CLI", en: "Claude CLI", icon: "terminal" },
   "pi-sdk": { zh: "Pi SDK", en: "Pi SDK", icon: "cpu" },

@@ -15716,3 +15716,12 @@
   margin-top: 4px;
   color: var(--text-muted);
 }
+.llm-bridge-session-dropdown-actions {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.llm-bridge-session-dropdown-actions .llm-bridge-session-dropdown-history {
+  margin-top: 0;
+}

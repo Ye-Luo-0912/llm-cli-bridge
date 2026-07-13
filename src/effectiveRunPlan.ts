@@ -173,7 +173,7 @@ export function formatEffectiveRunPlan(plan: EffectiveRunPlan): Array<{ label: s
   rows.push({ label: "cwd", value: plan.cwd });
   rows.push({ label: "model", value: plan.model || "(default)" });
   rows.push({ label: "effort", value: plan.effort || "(default)" });
-  // 按 backend 收窄：codex-app-server 走 instructionsSource；codex-sdk 走 sdkConfigSource；sdk/cli 走 Claude preset 字段
+  // 按 backend 收窄：codex-app-server 走 instructionsSource；sdk/cli 走 Claude preset 字段
   if (plan.backend === "codex-app-server") {
     rows.push({ label: "instructionsSource", value: plan.instructionsSource });
     rows.push({ label: "approvalProfile", value: plan.approvalProfile });
@@ -182,13 +182,11 @@ export function formatEffectiveRunPlan(plan: EffectiveRunPlan): Array<{ label: s
     rows.push({ label: "sandbox", value: plan.sandbox });
     rows.push({ label: "personality", value: "(config.toml)" });
     rows.push({ label: "reasoningSummary", value: "(config.toml)" });
-  } else if (plan.backend === "codex-sdk") {
-    rows.push({ label: "sdkConfigSource", value: plan.sdkConfigSource });
   } else {
     rows.push({ label: "permission", value: plan.permission });
   }
   rows.push({ label: "session", value: plan.session.continueSession ? "continue" : plan.session.resumeId ? `resume:${plan.session.resumeId}` : "fresh" });
-  if (plan.backend !== "codex-app-server" && plan.backend !== "codex-sdk") {
+  if (plan.backend !== "codex-app-server") {
     rows.push({ label: "systemPrompt", value: `preset:${plan.systemPrompt.preset}` });
     rows.push({ label: "tools", value: `preset:${plan.tools.preset}` });
   }

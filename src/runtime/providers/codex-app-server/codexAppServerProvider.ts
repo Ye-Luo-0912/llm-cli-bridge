@@ -42,6 +42,7 @@ import { CodexAppServerSessionMapper } from "./codexAppServerSessionMapper";
 import {
   buildCodexAppServerEffectiveRunPlan,
   buildCodexAppServerRunOptions,
+  type CodexAppServerRunOptions,
 } from "./codexAppServerEffectiveRunPlan";
 import { AppServerProcessManager, type AppServerProcessLike, type AppServerSpawnOptions } from "./appServerProcessManager";
 import { JsonRpcClient } from "./jsonRpcClient";
@@ -78,6 +79,7 @@ import type {
   PermissionProfileListResponse,
   ThreadForkParams,
   ThreadForkResponse,
+  TurnSteerResponse,
 } from "./schema";
 import { execFileSync } from "child_process";
 import { buildEnhancedPath } from "../../../claudeCliBackend";
@@ -208,7 +210,7 @@ function buildNoOpFailedEvent(
  * 避免普通用户因 PATH 不完整被误判不可用。
  *
  * 注意：本 provider 是 external executable fallback，不是 Codex 线主线。
- * 主线为 CodexSdkProvider（嵌入式 SDK），本轮为占位。
+ * 普通用户主线由 CodexManagedAppServerProvider 复用本实现并注入受管 runtime。
  */
 export class CodexExternalAppServerProvider implements RuntimeProvider {
   // V17-F1.1 任务 B：providerId/displayName 改为 constructor 参数赋值（非 field initializer）
@@ -477,6 +479,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
 
       // notify initialized（handshake 完成）
       client.notify("initialized");
+      const initialSkillsPromise = this.discoverInitialSkills(client, eventMapper, push);
+      this.warmPermissionProfileCache(client).catch(() => { /* 权限缓存失败不阻断主流程 */ });
 
       // 2. thread/start（新 thread；resume 路径走 thread/resume，不再塞 resumeSessionId）
       //    response result shape: { thread: { id, sessionId? } }
@@ -509,19 +513,19 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       push(eventMapper.mapThreadStarted(threadId, sessionId));
       // latest native session only: 发 native_session_bound 让 UI 绑定 activeNativeSessionRef
       push(eventMapper.mapNativeSessionBound(this.providerId, threadId, sessionId));
+      // 首次连接必须完成一次 skills/list；与 thread/start 并行，减少首轮等待。
+      await initialSkillsPromise;
 
-      // 3. turn/start（input 为 content item array）
-      //    V20.3: 分阶段超时。
+      // 3. 普通消息走 turn/start；审查/压缩/分叉走同一连接上的原生 RPC。
+      //    这些动作复用事件 handler、审批边界和历史收尾，不再依赖 run 结束即失效的 stub。
       turnSubmitted = true;
       try {
-        const turnResult = await client.send<{ turn?: { id?: string } }>("turn/start", {
-          ...options.turnStart,
-          threadId,
-        }, CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart);
-        // Round 4: 记录 turnId，供 cancel() 发 turn/interrupt 用（官方 TurnStartResponse={turn:Turn}）。
-        this.currentTurnId = turnResult?.turn?.id ?? null;
+        this.currentTurnId = await this.submitTurnOrNativeAction(
+          client, threadId, options, ctx, eventMapper, push, signalDone,
+        );
       } catch (err) {
-        throw new CodexAppServerStageTimeoutError("turn/start", CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart, err);
+        const stage = ctx.nativeAction ? this.nativeActionMethod(ctx.nativeAction.kind) : "turn/start";
+        throw new CodexAppServerStageTimeoutError(stage, CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart, err);
       }
 
       // 等待事件流直到 done
@@ -727,6 +731,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       }
       push(eventMapper.mapInitialized(initResult));
       client.notify("initialized");
+      const initialSkillsPromise = this.discoverInitialSkills(client, eventMapper, push);
+      this.warmPermissionProfileCache(client).catch(() => { /* 权限缓存失败不阻断主流程 */ });
 
       // 2. thread/resume（恢复已有 threadId；失败时 fallback 到 thread/start）
       // latest native session only: native session 可能在 provider 侧已失效
@@ -787,19 +793,17 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
         return;
       }
       push(eventMapper.mapNativeSessionBound(this.providerId, resumedThreadId, resumedSessionId));
+      await initialSkillsPromise;
 
-      // 3. turn/start（input 为 content item array）
-      //    Round 1：不再把 Bridge 文案 prepend 进用户 turn input；developer 层已由 thread/resume 恢复。
-      //    V20.3: 分阶段超时
+      // 3. 普通消息走 turn/start；原生动作复用当前 resumed thread。
       turnSubmitted = true;
       try {
-        const turnResult = await client.send<{ turn?: { id?: string } }>("turn/start", {
-          ...options.turnStart,
-          threadId: resumedThreadId,
-        }, CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart);
-        this.currentTurnId = turnResult?.turn?.id ?? null;
+        this.currentTurnId = await this.submitTurnOrNativeAction(
+          client, resumedThreadId, options, ctx, eventMapper, push, signalDone,
+        );
       } catch (err) {
-        throw new CodexAppServerStageTimeoutError("turn/start", CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart, err);
+        const stage = ctx.nativeAction ? this.nativeActionMethod(ctx.nativeAction.kind) : "turn/start";
+        throw new CodexAppServerStageTimeoutError(stage, CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart, err);
       }
 
       while (!done) {
@@ -833,6 +837,80 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
 
   // ---------- 内部 ----------
 
+  private nativeActionMethod(kind: NonNullable<RunContext["nativeAction"]>["kind"]): string {
+    if (kind === "review") return "review/start";
+    if (kind === "compact") return "thread/compact/start";
+    return "thread/fork";
+  }
+
+  /**
+   * 在已经 initialize + thread/start|resume 的连接上提交普通 turn 或原生会话动作。
+   * 返回活动 turnId；压缩/分叉没有活动 turn，返回 null。
+   */
+  private async submitTurnOrNativeAction(
+    client: JsonRpcClient,
+    threadId: string,
+    options: CodexAppServerRunOptions,
+    ctx: RunContext,
+    eventMapper: CodexAppServerEventMapper,
+    push: (ev: NormalizedRuntimeEvent | null) => void,
+    signalDone: () => void,
+  ): Promise<string | null> {
+    const action = ctx.nativeAction;
+    if (!action) {
+      const result = await client.send<{ turn?: { id?: string } }>("turn/start", {
+        ...options.turnStart,
+        threadId,
+      }, CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart);
+      return result?.turn?.id ?? null;
+    }
+
+    if (action.kind === "review") {
+      const result = await client.send<"review/start", ReviewStartResponse>("review/start", {
+        threadId,
+        target: action.target,
+        delivery: action.delivery ?? "inline",
+      } satisfies ReviewStartParams, CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart);
+      if (result.reviewThreadId && result.reviewThreadId !== threadId) {
+        this.currentThreadId = result.reviewThreadId;
+        push(eventMapper.mapNativeSessionBound(this.providerId, result.reviewThreadId));
+      }
+      return result.turn?.id ?? null;
+    }
+
+    if (action.kind === "compact") {
+      await client.send<"thread/compact/start", ThreadCompactStartResponse>(
+        "thread/compact/start",
+        { threadId },
+        CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart,
+      );
+      // ContextCompaction item（新）或 thread/compacted 通知（兼容）会结束生成器。
+      return null;
+    }
+
+    const result = await client.send<"thread/fork", ThreadForkResponse>("thread/fork", {
+      threadId,
+      lastTurnId: action.lastTurnId ?? null,
+    } satisfies ThreadForkParams, CODEX_APP_SERVER_STAGE_TIMEOUTS.turnStart);
+    const forkedThreadId = result.thread.id;
+    const forkedSessionId = result.thread.sessionId;
+    this.currentThreadId = forkedThreadId;
+    this.sessionMapper.register(ctx.bridgeSessionId ?? ctx.runId, forkedThreadId, forkedSessionId);
+    push(eventMapper.mapNativeSessionBound(this.providerId, forkedThreadId, forkedSessionId));
+    push({
+      providerId: this.providerId,
+      timestamp: new Date().toISOString(),
+      payload: { kind: "message", role: "assistant", text: "已创建当前会话的独立分支。" },
+    });
+    push({
+      providerId: this.providerId,
+      timestamp: new Date().toISOString(),
+      payload: { kind: "completed", text: "已创建当前会话的独立分支。", sessionId: forkedSessionId },
+    });
+    signalDone();
+    return null;
+  }
+
   /**
    * 注册 codex app-server 通知 + server-request handler（run/resume 共用）。
    *
@@ -854,6 +932,22 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     isTurnSubmitted: () => boolean,
   ): Array<() => void> {
     const unreg: Array<() => void> = [];
+    let nativeCompactionCompleted = false;
+    const finishNativeCompaction = (): void => {
+      if (ctx.nativeAction?.kind !== "compact" || nativeCompactionCompleted) return;
+      nativeCompactionCompleted = true;
+      push({
+        providerId: this.providerId,
+        timestamp: new Date().toISOString(),
+        payload: { kind: "message", role: "assistant", text: "上下文已压缩。" },
+      });
+      push({
+        providerId: this.providerId,
+        timestamp: new Date().toISOString(),
+        payload: { kind: "completed", text: "上下文已压缩。" },
+      });
+      signalDone();
+    };
 
     // 任务2: transport 错误处理（invalid JSON / unrecognized JSON-RPC message）
     // - turn 前（turnSubmitted=false）错误：直接 failed + signalDone（run 无法启动）
@@ -944,6 +1038,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
         return;
       }
       push(eventMapper.mapItemCompleted(completedParams));
+      // 新协议以 ContextCompaction item 作为权威结果；旧 thread/compacted 通知仅作兼容。
+      if (item?.type === "contextCompaction") finishNativeCompaction();
     }));
 
     // turn/started（官方通知）
@@ -997,6 +1093,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     }));
     unreg.push(client.onNotification("thread/compacted", (params) => {
       push(eventMapper.mapThreadCompacted(params));
+      finishNativeCompaction();
     }));
     unreg.push(client.onNotification("model/rerouted", (params) => {
       push(eventMapper.mapModelRerouted(params));
@@ -1016,9 +1113,6 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
         .then(() => { push(eventMapper.mapSkillsChanged()); })
         .catch(() => { push(eventMapper.mapSkillsChanged()); /* 缓存失败也通知 UI 刷新 */ });
     }));
-
-    // V20.10: 后台预热 permissionProfile 缓存（供权限菜单 UI 同步读取）
-    this.warmPermissionProfileCache(client).catch(() => { /* 静默失败 */ });
 
     // approval server-request handler：item/commandExecution/requestApproval
     // client 按原 id 返回 result（{ decision: "accept"|"acceptForSession"|"decline"|"cancel" }）
@@ -1205,9 +1299,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     });
   }
 
-  // ---------- Round 4: 辅助 RPC 最小 stub ----------
-  // 均依赖 this.currentClient（run() 期间才有效）；无活动 run 时抛错，
-  // 供上层（settings/commands UI）按需调用，暂不接入自动触发逻辑。
+  // ---------- 运行期 RPC ----------
 
   private requireActiveClient(action: string): JsonRpcClient {
     if (!this.currentClient || this.currentClient.isClosed()) {
@@ -1216,28 +1308,21 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     return this.currentClient;
   }
 
-  /**
-   * thread/compact/start：手动触发上下文压缩（无自动"token ratio 高时触发"逻辑——
-   * 需要 turn 级 token usage 阈值判断，留给上层按需调用 mapThreadTokenUsageUpdated
-   * 产出的 token_usage 事件自行决策）。
-   */
-  async compactThread(threadId: string): Promise<ThreadCompactStartResponse> {
-    const client = this.requireActiveClient("thread/compact/start");
-    return client.send<"thread/compact/start", ThreadCompactStartResponse>(
-      "thread/compact/start",
-      { threadId },
-      CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc,
-    );
-  }
-
-  /** review/start：对当前 thread 发起代码审查（默认 inline delivery）。 */
-  async startReview(params: ReviewStartParams): Promise<ReviewStartResponse> {
-    const client = this.requireActiveClient("review/start");
-    return client.send<"review/start", ReviewStartResponse>(
-      "review/start",
-      params,
-      CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc,
-    );
+  /** turn/steer：向当前活动 turn 追加文本指令。 */
+  async steerCurrentTurn(text: string): Promise<void> {
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error("追加指令不能为空");
+    const client = this.requireActiveClient("turn/steer");
+    const threadId = this.currentThreadId;
+    const turnId = this.currentTurnId;
+    if (!threadId || !turnId) {
+      throw new Error("Codex app-server: 当前 turn 尚未就绪，无法追加指令");
+    }
+    await client.send<"turn/steer", TurnSteerResponse>("turn/steer", {
+      threadId,
+      expectedTurnId: turnId,
+      input: [{ type: "text", text: trimmed, text_elements: [] }],
+    }, CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc);
   }
 
   /** skills/list：探测本地可用 skills（用于 capability snapshot / skills UI）。 */
@@ -1254,17 +1339,31 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
    * V20.10: 刷新 skills 缓存（skills/changed 通知触发）。
    * 静默失败：client 不可用或 RPC 超时时不影响主流程。
    */
-  private async refreshCachedSkills(client: JsonRpcClient): Promise<void> {
+  private async refreshCachedSkills(
+    client: JsonRpcClient,
+    timeoutMs: number = CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc,
+  ): Promise<void> {
     try {
       const resp = await client.send<"skills/list", SkillsListResponse>(
         "skills/list",
         {},
-        CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc,
+        timeoutMs,
       );
       this.cachedSkills = resp;
     } catch {
       // 静默失败
     }
+  }
+
+  /** initialize/initialized 之后完成首次 Skills 发现；内部刷新事件不进入聊天过程。 */
+  private async discoverInitialSkills(
+    client: JsonRpcClient,
+    eventMapper: CodexAppServerEventMapper,
+    push: (ev: NormalizedRuntimeEvent | null) => void,
+  ): Promise<void> {
+    if (this.cachedSkills) return;
+    await this.refreshCachedSkills(client, 3_000);
+    if (this.cachedSkills) push(eventMapper.mapSkillsChanged());
   }
 
   /**
@@ -1327,16 +1426,6 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     } catch {
       // 静默失败
     }
-  }
-
-  /** thread/fork：从现有 thread（可选 lastTurnId 截断）派生新 thread。 */
-  async forkThread(params: ThreadForkParams): Promise<ThreadForkResponse> {
-    const client = this.requireActiveClient("thread/fork");
-    return client.send<"thread/fork", ThreadForkResponse>(
-      "thread/fork",
-      params,
-      CODEX_APP_SERVER_STAGE_TIMEOUTS.auxRpc,
-    );
   }
 
   /**

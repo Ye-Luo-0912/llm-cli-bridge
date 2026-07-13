@@ -21,7 +21,7 @@ import { type BridgeSessionImpl } from "./runtime/core/bridgeSession";
 import type { BridgeSession, RunInput, NormalizedRuntimeEvent, ApprovalResponse, UserInputQuestion, UserInputResponse, UserInputRequestSegment, AssistantTurnView, TurnTimelineNode, NativeSessionRef, StateSnapshot } from "./runtime/core/types";
 import { buildBridgePromptPackage } from "./runtime/core/promptPackage";
 import { getToolIconCategory, getPhaseIconName, explainAutoApprovalSource, approvalDisplayLabel, toolDisplayLabel, type AgentRunDisplayModel, type AgentRunCard, type AgentRunDebugView } from "./runtime/core/agentRunDisplayModel";
-import { getActiveProvider, readProviderForm } from "./runtime/config/runtimeRouter";
+import { getActiveProvider, readProviderForm, setActiveProvider } from "./runtime/config/runtimeRouter";
 import { resolveUiLocale, type Locale } from "./runtime/core/toolPresentation";
 import { formatCodexRunValue, type CodexRunFeedItem, type CodexRunStepGroup, type CodexRunViewModel } from "./runtime/core/codexRunViewModel";
 import type { RunPhase, RunPhaseModel } from "./runtime/core/runPhaseModel";
@@ -562,6 +562,12 @@ export class LLMBridgeView extends ItemView {
     agentSelect.addEventListener("change", async () => {
       if (this.runSession.runHandle) return;
       this.plugin.settings.agentType = agentSelect.value as AgentType;
+      const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      const provider = agentSelect.value === "claude" ? "claude" : agentSelect.value === "custom" ? "pi" : "codex";
+      setActiveProvider(vaultPath, provider);
+      this.plugin.settings.backendMode = "auto";
+      this.runSession.clearSession();
+      this.runSession.setRestoredActiveNativeSessionRef(undefined);
       this.syncModelCatalogForCurrentAgent(true);
       await this.plugin.saveSettings();
       this.lastPreflightResult = null; // V2.4: 切换 agent 后失效 preflight 缓存
@@ -953,7 +959,7 @@ export class LLMBridgeView extends ItemView {
         if (e.ctrlKey || e.metaKey || !e.altKey) {
           e.preventDefault();
           if (this.sendBtn?.disabled) return;
-          void this.runSession.run();
+          void (this.runSession.runHandle ? this.runSession.steerCurrentTurn() : this.runSession.run());
         }
       }
     });
@@ -994,7 +1000,9 @@ export class LLMBridgeView extends ItemView {
       attr: { title: "发送 (Enter)", "aria-label": "发送" },
     });
     setIcon(this.sendBtn.createEl("span", { cls: "llm-bridge-send-icon" }), "arrow-up");
-    this.sendBtn.addEventListener("click", () => void this.runSession.run());
+    this.sendBtn.addEventListener("click", () => {
+      void (this.runSession.runHandle ? this.runSession.steerCurrentTurn() : this.runSession.run());
+    });
 
     // P4-D: 轻量 context tags（替代 Note/Selection 大按钮）
     // Note tag renders as plain text; color/strikethrough indicate attach state.
@@ -1574,7 +1582,16 @@ export class LLMBridgeView extends ItemView {
 
   private refreshAllChips(): void {
     // composer agent 下拉
-    (this.agentChipGroup as HTMLSelectElement).value = this.plugin.settings.agentType;
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const activeProvider = this.plugin.settings.backendMode === "auto" ? getActiveProvider(vaultPath) : null;
+    const agentValue: AgentType = activeProvider === "codex"
+      ? "codex"
+      : activeProvider === "pi"
+        ? "custom"
+        : activeProvider === "claude"
+          ? "claude"
+          : this.plugin.settings.agentType;
+    (this.agentChipGroup as HTMLSelectElement).value = agentValue;
 
     // V2.15-E: composer 只保留一个 compact 模型/思考强度组合控件。
     this.refreshModelEffortPicker();
@@ -1774,7 +1791,7 @@ export class LLMBridgeView extends ItemView {
     if (providerId && /pi/.test(providerId)) return "custom";
     if (providerId && /claude/.test(providerId)) return "claude";
     const mode = this.plugin.settings.backendMode;
-    if (mode === "codex-managed-app-server" || mode === "codex-app-server-external" || mode === "codex-sdk") return "codex";
+    if (mode === "codex-managed-app-server" || mode === "codex-app-server-external") return "codex";
     if (mode === "pi-sdk" || mode === "pi-rpc") return "custom";
     if (mode === "auto") {
       const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
@@ -2244,9 +2261,9 @@ export class LLMBridgeView extends ItemView {
     this.statusDotEl.setAttribute("title", installStatus?.required ? this.formatRuntimeInstallTitle(installStatus) : STATUS_LABEL[status]);
     this.refreshManagedRuntimeInstallAction(installStatus);
     const running = status === "running";
-    // 停止按钮只在运行中显示，发送按钮反之
+    // 运行中同时保留停止与发送：发送按钮改为 turn/steer 的“追加指令”。
     this.stopBtn.style.display = running ? "inline-flex" : "none";
-    this.sendBtn.style.display = running ? "none" : "inline-flex";
+    this.sendBtn.style.display = "inline-flex";
     this.refreshSendButtonState(running);
     // 仅禁用真实 <button>；summary（扳手菜单）不是 button，不可设 disabled
     const allChips = this.contentEl.querySelectorAll(".llm-bridge-chip, .llm-bridge-agent-select, .llm-bridge-composer-tool-btn, .llm-bridge-command-menu-item, .llm-bridge-permission-chip, .llm-bridge-model-effort-chip, .llm-bridge-model-option, .llm-bridge-effort-option");
@@ -2268,10 +2285,12 @@ export class LLMBridgeView extends ItemView {
     if (!this.sendBtn) return;
     const running = runningOverride ?? (this.sessionState?.status === "running");
     if (running) {
-      this.sendBtn.disabled = true;
-      this.sendBtn.classList.remove("is-unsendable");
-      this.sendBtn.setAttribute("title", "发送 (Enter)");
-      this.sendBtn.setAttribute("aria-label", "发送");
+      const hasText = !!(this.inputEl && this.inputEl.value.trim().length > 0);
+      const canSteer = hasText && this.messageFileRefs.length === 0;
+      this.sendBtn.disabled = !canSteer;
+      this.sendBtn.classList.toggle("is-unsendable", !canSteer);
+      this.sendBtn.setAttribute("title", canSteer ? "追加到当前运行 (Enter)" : "输入文本后追加到当前运行");
+      this.sendBtn.setAttribute("aria-label", canSteer ? "追加指令" : "不可追加");
       return;
     }
     const hasText = !!(this.inputEl && this.inputEl.value.trim().length > 0);
@@ -2321,9 +2340,16 @@ export class LLMBridgeView extends ItemView {
     // Phase 4: 状态栏以实际 Runtime 为中心，显示 provider label 而非 backendMode 配置值
     this.statusBackendEl.querySelector(".llm-bridge-sb-value")!.textContent = runtimeLabel;
     this.statusBackendEl.setAttribute("title", `Runtime: ${runtimeLabel}（backend 模式: ${s.backendMode}）`);
-    // Agent 类型（移入高级指标区）
-    const agentLabel = AGENT_OPTIONS.find((a) => a.value === s.agentType)?.label ?? s.agentType;
-    this.statusAgentEl.querySelector(".llm-bridge-sb-value")!.textContent = agentLabel;
+    // Agent 类型：从本轮实际 session.providerId 派生（agentType 已降级为 CLI fallback 字段）
+    const providerId = this.runSession.getSession().providerId;
+    const providerLabel = providerId === "codex-managed-app-server" || providerId === "codex-app-server"
+      ? "Codex"
+      : providerId === "claude-cli" || providerId === "claude-sdk"
+        ? "Claude"
+        : providerId === "pi-sdk" || providerId === "pi-rpc"
+          ? "Pi"
+          : providerId;
+    this.statusAgentEl.querySelector(".llm-bridge-sb-value")!.textContent = providerLabel;
     // V2.16-D: runtime status pill — Phase 3 统一使用 computeRuntimeStateLabel
     const installStatus = this.getManagedRuntimeInstallStatusForCurrentMode();
     const stateInfo = this.computeRuntimeStateLabel(this.sessionState.status, installStatus);
@@ -6711,7 +6737,7 @@ export class LLMBridgeView extends ItemView {
         `显示标签: ${session.displayLabel}`,
         `Provider ID: ${session.providerId}`,
         `Backend 模式: ${s.backendMode}`,
-        `Agent 类型: ${s.agentType}`,
+        `Agent 类型: ${s.agentType} (CLI fallback)`,
         `模型: ${s.model}`,
         `Effort: ${s.effortLevel}`,
         `权限策略: ${s.permissionPolicy}`,
@@ -7682,6 +7708,37 @@ export class LLMBridgeView extends ItemView {
         });
       }
     }
+    const session = this.runSession.getSession();
+    const supportsNativeActions = session.providerId === "codex-managed-app-server"
+      || session.providerId === "codex-app-server";
+    if (supportsNativeActions) {
+      const actions = dropdown.createDiv({ cls: "llm-bridge-session-dropdown-actions" });
+      const hasThread = !!session.activeNativeSessionRef?.threadId;
+      const addAction = (label: string, icon: string, enabled: boolean, run: () => void) => {
+        const button = actions.createEl("button", {
+          cls: "llm-bridge-session-dropdown-history",
+          attr: { type: "button" },
+        });
+        const iconEl = button.createEl("span", { cls: "llm-bridge-session-dropdown-history-icon" });
+        setIcon(iconEl, icon);
+        button.createEl("span", { text: label });
+        button.disabled = !enabled || !!this.runSession.runHandle;
+        button.addEventListener("click", () => {
+          dropdown.setAttribute("hidden", "");
+          run();
+        });
+      };
+      addAction("审查当前更改", "search-check", true, () => {
+        void this.runSession.runNativeAction({ kind: "review", target: { type: "uncommittedChanges" }, delivery: "inline" });
+      });
+      addAction("压缩上下文", "minimize-2", hasThread, () => {
+        void this.runSession.runNativeAction({ kind: "compact" });
+      });
+      addAction("分叉会话", "git-fork", hasThread, () => {
+        this.beginLocalSessionFork();
+        void this.runSession.runNativeAction({ kind: "fork" });
+      });
+    }
     const historyBtn = dropdown.createEl("button", { cls: "llm-bridge-session-dropdown-history" });
     const historyIcon = historyBtn.createEl("span", { cls: "llm-bridge-session-dropdown-history-icon" });
     setIcon(historyIcon, "history");
@@ -7698,6 +7755,17 @@ export class LLMBridgeView extends ItemView {
       dropdown.setAttribute("hidden", "");
       void this.clearAllHistorySessions();
     });
+  }
+
+  /** 为 native thread/fork 切换到新的本地历史 id，保留原会话快照不被后续保存覆盖。 */
+  private beginLocalSessionFork(): void {
+    this.currentSessionId = null;
+    this.sessionState = updateSession(this.sessionState, {
+      title: `${this.sessionState.title || "新会话"} · 分支`,
+      startedAt: new Date().toISOString(),
+      status: "idle",
+    });
+    this.refreshSessionState();
   }
 
   // V2.5: 从 .llm-bridge/sessions/ 加载历史会话列表并渲染
@@ -7931,7 +7999,16 @@ export class LLMBridgeView extends ItemView {
     // 如果该 session 是最近活动的，native session 仍在 provider 侧 → resume 命中；
     // 否则 provider 会自然 fallback。
     this.sessionResumed = true;
-    this.runSession.setRestoredActiveNativeSessionRef(session.nativeSessionRef);
+    // provider 不一致时只恢复聊天记录，不恢复原生线程，提示用户切换后再继续。
+    const providerCompatible = this.isSessionProviderCompatible(session);
+    if (providerCompatible) {
+      this.runSession.setRestoredActiveNativeSessionRef(session.nativeSessionRef);
+    } else {
+      this.runSession.setRestoredActiveNativeSessionRef(undefined);
+      const vaultPath2 = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+      const activeProvider2 = getActiveProvider(vaultPath2);
+      new Notice(`历史会话使用 ${session.agentType || "codex"}，当前 provider 为 ${activeProvider2}。已恢复聊天记录，原生线程未恢复。如需继续，请在设置页切换到对应 provider。`, 6000);
+    }
     this.refreshAllChips();
     if (s.keepLastSession) {
       s.lastActiveSessionId = session.id;
@@ -7959,16 +8036,31 @@ export class LLMBridgeView extends ItemView {
     new Notice(`已恢复会话：${session.title}\n恢复状态：${restoredParts.join(" · ")}`);
   }
 
-  // V2.17-A: 恢复 pinned context（保留完整类型字段）+ 重算 message-scope 附件内联 snippet + 恢复 agentType
+  // 检测历史会话的 provider 与当前 active provider 是否一致。
+  // 不一致时只恢复聊天记录，不恢复原生线程（nativeSessionRef），提示用户切换后再继续。
+  // 返回 true 表示一致（可恢复原生线程），false 表示不一致（只恢复聊天记录）。
+  private isSessionProviderCompatible(session: PersistedSession): boolean {
+    const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
+    const activeProvider = getActiveProvider(vaultPath);
+    // 从 session.agentType（legacy）推断历史 provider
+    const sessionProvider = session.agentType === "claude" ? "claude"
+      : session.agentType === "custom" ? "pi"
+      : session.agentType === "codex" ? "codex"
+      : "codex"; // 默认 codex
+    return sessionProvider === activeProvider;
+  }
+
+  // V2.17-A: 恢复 pinned context（保留完整类型字段）+ 重算 message-scope 附件内联 snippet
   // - 供 restoreSession 与 restoreLastActiveSessionIfNeeded 复用，避免两处逻辑漂移
   // - fileType/pathKind/kind 等枚举字段保留原值，不强制 String 化
   // - 历史 message 的内联文本 snippet 在恢复后重算（prompt 仍含内联内容）
-  // - agentType 与 session 记录对齐，保证 EffectiveRunPlan 一致性
+  // - agentType 已降级为 CLI fallback 字段，恢复会话时不再用旧 agentType 覆盖当前 provider
   private async restoreContextAndSnippets(session: PersistedSession): Promise<void> {
     const s = this.plugin.settings;
-    if (typeof session.agentType === "string" && session.agentType) {
-      s.agentType = session.agentType as typeof s.agentType;
-    }
+    // agentType 已降级为 CLI fallback 字段，恢复会话时不再用旧 agentType 覆盖当前 provider。
+    // activeProvider 是唯一真相源，由 active.json 管理，恢复会话不触碰它。
+    // 若历史会话的 provider 与当前 active provider 不一致，只恢复聊天记录，
+    // 不恢复原生线程（nativeSessionRef），并在调用方提示用户切换后再继续。
     this.messageFileRefs = [];
     this.pinnedFileRefs = [];
     this.sessionFileRefs = [];
@@ -8100,7 +8192,12 @@ export class LLMBridgeView extends ItemView {
     // latest native session only: nativeSessionRef 只存在 session 文件（1:1 绑定）。
     // onOpen 静默恢复最近活动会话时，直接用该 session 文件的 nativeSessionRef。
     // 不依赖 settings.lastNativeSessionRef（已移除），避免双源错位。
-    this.runSession.setRestoredActiveNativeSessionRef(session.nativeSessionRef);
+    // provider 不一致时只恢复聊天记录，不恢复原生线程。
+    if (this.isSessionProviderCompatible(session)) {
+      this.runSession.setRestoredActiveNativeSessionRef(session.nativeSessionRef);
+    } else {
+      this.runSession.setRestoredActiveNativeSessionRef(undefined);
+    }
     this.refreshAllChips();
     this.renderMessagesFromHistory();
     this.refreshSessionState();

@@ -24,9 +24,8 @@ export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "auto" |
  * 主线策略：Managed runtime（不依赖用户安装 Codex CLI / Codex Desktop App）。
  * 主线依赖 App Server 协议 + 我们管理的 pinned runtime binary。
  *
- * - auto: codex-managed-app-server → codex-sdk → claude-sdk → pi-sdk → claude-cli
+ * - auto: 按 Vault active provider 路由；Codex 使用 managed app-server
  * - codex-managed-app-server: V17-F1 主线，使用我们管理的 pinned runtime binary（manifest + sha256 + executable）
- * - codex-sdk: Codex Agent SDK（占位，本轮未完整实现）
  * - codex-app-server-external: 外部 codex app-server（高级/开发者 fallback，需 codex CLI 可执行）
  * - cli: Claude Code CLI
  * - sdk: Claude Agent SDK（strict，不可用时报错不 fallback）
@@ -34,7 +33,6 @@ export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "auto" |
  * - mock-success / mock-failure: 离线测试
  *
  * V17-F1 任务 D：auto 默认改为 codex-managed-app-server 优先（不再依赖 external codex executable）。
- * V17-F0 任务 C：拆分原 "codex" → "codex-sdk" + "codex-app-server-external"。
  *
  * V17-E 任务 F：pi-sdk / pi-rpc 降级为 optional/advanced backend。
  * V17-E1 任务 B：portable auto 不再 Pi-first。
@@ -42,7 +40,6 @@ export type ClaudePermissionMode = "default" | "acceptEdits" | "plan" | "auto" |
 export type BackendMode =
   | "auto"
   | "codex-managed-app-server"
-  | "codex-sdk"
   | "codex-app-server-external"
   | "cli"
   | "sdk"
@@ -107,8 +104,8 @@ export interface CodexManagedRuntimeManifest {
 /**
  * V17-A: 后端配置档（朋友版 portable vs 开发者 developer）。
  *
- * - developer: 全后端可选，auto 默认 SDK-first 链
- * - portable:  与 developer 相同的 auto 链；UI 精简不暴露实验选项
+ * - developer: 全后端可选，auto 按 Vault active provider 路由
+ * - portable:  与 developer 相同的路由；UI 精简不暴露实验选项
  *
  * 朋友版 UI 只显示后端状态/模型/权限模式/Agent Runtime，不暴露实验选项。
  *
@@ -216,19 +213,8 @@ export interface CodexAppServerEffectiveRunPlan extends BaseEffectiveRunPlan {
   sandbox: string;
 }
 
-/**
- * V17-F0 任务 B：Codex SDK 主线 plan 占位。
- *
- * 后续完整实现时，由 CodexSdkProvider.buildPlan 构造此 plan。
- */
-export interface CodexSdkEffectiveRunPlan extends BaseEffectiveRunPlan {
-  backend: "codex-sdk";
-  /** SDK 嵌入式 runtime 的配置来源（占位，实际实现时替换） */
-  sdkConfigSource: "placeholder" | "configured";
-}
-
 /** EffectiveRunPlan 联合类型（按 backend 收窄） */
-export type EffectiveRunPlan = ClaudeEffectiveRunPlan | CodexAppServerEffectiveRunPlan | CodexSdkEffectiveRunPlan;
+export type EffectiveRunPlan = ClaudeEffectiveRunPlan | CodexAppServerEffectiveRunPlan;
 
 // 单条聊天消息
 export interface ChatMessage {

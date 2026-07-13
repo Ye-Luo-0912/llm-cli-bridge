@@ -182,16 +182,18 @@ export interface ReadinessResult {
  * V20.8: 发送前 readiness 检查。
  *
  * 检查 active provider 的本地配置 + 密钥是否就绪。
- * - 本地配置存在 + Key 已配置 → ok
- * - 本地配置存在但缺 Key → preSendBlock（不创建 assistant 失败消息）
  * - 本地配置缺失 → ok（使用全局配置，Bridge 不干预）
- * - 本地配置文件解析错误 → preSendBlock + 展示原生错误
+ * - 本地配置由 Bridge 生成 → 检查 Key（Bridge 管理的配置必须配 Key）
+ *   - Bridge 生成 + Key 已配置 → ok
+ *   - Bridge 生成 + 缺 Key → preSendBlock（不创建 assistant 失败消息）
+ *   - Bridge 生成 + 配置解析错误 → preSendBlock + 展示原生错误
+ * - 本地配置为用户手写 → ok（不做 Key 预阻断，直接交给原生 runtime）
+ *   配置有问题时展示 runtime 原生错误，不静默回退全局配置。
  *
  * 替代 RunSessionController 中的 loadRuntimeProviderState 调用。
  */
 export function checkRuntimeReadiness(vaultPath: string): ReadinessResult {
   const provider = getActiveProvider(vaultPath);
-  const secrets = loadAllSecrets(vaultPath);
   const state = getRouterState(vaultPath);
   const status = state.providers[provider];
 
@@ -200,7 +202,14 @@ export function checkRuntimeReadiness(vaultPath: string): ReadinessResult {
     return { ok: true, preSendBlock: false };
   }
 
-  // 本地配置存在，检查表单是否可解析
+  // 用户手写配置：不做 Key 预阻断，直接交给原生 runtime。
+  // 覆盖：用户手写的官方配置、使用原生 ChatGPT 登录的 Codex、
+  //       使用配置文件中其他 env_key 的情况。
+  if (!isBridgeGeneratedConfig(vaultPath, provider)) {
+    return { ok: true, preSendBlock: false };
+  }
+
+  // Bridge 生成的配置：检查表单是否可解析
   const formRead = readProviderForm(vaultPath, provider);
   if (!formRead.ok && formRead.error) {
     return {
@@ -210,7 +219,8 @@ export function checkRuntimeReadiness(vaultPath: string): ReadinessResult {
     };
   }
 
-  // 检查密钥
+  // Bridge 生成的配置：检查密钥
+  const secrets = loadAllSecrets(vaultPath);
   let hasKey = false;
   switch (provider) {
     case "codex":

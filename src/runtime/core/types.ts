@@ -43,11 +43,10 @@ export type { EffectiveRunPlan, AttachmentPlan } from "../../types";
  * - mock:             开发/测试用 mock provider
  *
  * V17-F1 任务 C：codex-managed-app-server 为 Managed runtime 主线（pinned binary）。
- * V17-F0 任务 B：codex-sdk 作为主线占位；codex-app-server 为 external fallback（保留兼容）。
+ * Codex 主线统一为 managed app-server；external app-server 仅作开发者 fallback。
  */
 export type ProviderId =
   | "codex-managed-app-server"
-  | "codex-sdk"
   | "codex-app-server"
   | "claude-sdk"
   | "claude-cli"
@@ -92,6 +91,23 @@ export interface NativeSessionRef {
  * RunInput 不含 backend/model/effort/permission —— 这些由 settings + provider 共同决定，
  * 在 buildPlan 阶段聚合成 EffectiveRunPlan。
  */
+export type NativeReviewTarget =
+  | { type: "uncommittedChanges" }
+  | { type: "baseBranch"; branch: string }
+  | { type: "commit"; sha: string; title: string | null }
+  | { type: "custom"; instructions: string };
+
+/**
+ * Codex app-server 原生会话动作。
+ *
+ * 它们复用正常 run/resume 的连接、事件映射、审批和历史收尾，避免在 UI
+ * 里保留一组只能在活动 run 瞬间调用的“半连接”辅助 RPC。
+ */
+export type NativeRunAction =
+  | { kind: "review"; target: NativeReviewTarget; delivery?: "inline" | "detached" }
+  | { kind: "compact" }
+  | { kind: "fork"; lastTurnId?: string };
+
 export interface RunInput {
   /** 用户原始输入文本（不含 bridge-native 指令） */
   userMessage: string;
@@ -109,6 +125,8 @@ export interface RunInput {
   promptPackage: BridgePromptPackage;
   /** 任务创建时间 ISO */
   createdAt: string;
+  /** 可选的 runtime 原生动作；普通消息不设置。 */
+  nativeAction?: NativeRunAction;
 }
 
 // ---------- BridgePromptPackage ----------
@@ -746,6 +764,8 @@ export interface RunContext {
   readonly sdkStreamingInput?: SdkStreamingInput;
   /** V2.14.0-K: runtime read-only file tool adapter */
   readonly runtimeFileToolAdapter?: RuntimeFileToolAdapter;
+  /** 可选的 runtime 原生动作；由 BridgeSession 原样传给 provider。 */
+  readonly nativeAction?: NativeRunAction;
 }
 
 /**
@@ -834,4 +854,6 @@ export interface RuntimeProvider {
    * 非 codex provider 无此方法时静默跳过。
    */
   restoreActiveNativeSessionRef?(ref?: NativeSessionRef): void;
+  /** 运行中向当前 turn 追加文本指令；仅支持声明该能力的 provider。 */
+  steerCurrentTurn?(text: string): Promise<void>;
 }
