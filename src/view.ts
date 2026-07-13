@@ -1851,6 +1851,7 @@ export class LLMBridgeView extends ItemView {
           return null;
         }
       },
+      isDeveloperMode: () => !!view.plugin.settings.developerMode,
     };
   }
 

@@ -881,6 +881,12 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     }
 
     if (action.kind === "compact") {
+      // V17-COMPACT: RPC 接受后立即推送 progress 事件，UI 显示"正在压缩上下文"
+      push({
+        providerId: this.providerId,
+        timestamp: new Date().toISOString(),
+        payload: { kind: "progress", label: "compact", detail: "正在压缩上下文" },
+      });
       await client.send<"thread/compact/start", ThreadCompactStartResponse>(
         "thread/compact/start",
         { threadId },

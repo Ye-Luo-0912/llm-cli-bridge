@@ -163,6 +163,7 @@ export function renderPermissionPopover(
     close: () => void;
   },
   runtimeProfiles?: Array<{ id: string; description: string | null; allowed: boolean }> | null,
+  developerMode?: boolean,
 ): HTMLDivElement {
   const popover = createComposerMenuSurface(mountEl, "llm-bridge-perm-popover", true);
 
@@ -210,7 +211,8 @@ export function renderPermissionPopover(
   }
 
   // V20.10: runtime permissionProfile/list 缓存 — 只读展示可用 runtime profiles
-  if (runtimeProfiles && runtimeProfiles.length > 0) {
+  // V17-PERM: 仅在开发者诊断模式展示原始 Runtime profiles 调试文本，普通权限菜单不展示
+  if (developerMode && runtimeProfiles && runtimeProfiles.length > 0) {
     const rtSection = popover.createDiv({ cls: "llm-bridge-perm-popover-runtime" });
     rtSection.createEl("span", {
       cls: "llm-bridge-perm-popover-runtime-label",
@@ -697,6 +699,8 @@ export interface ComposerHost {
   getMessageFileRefs(): ReadonlyArray<FileRef>;
   /** V20.10: 同步读取已缓存的 runtime permissionProfile 列表（未缓存返回 null） */
   getCachedPermissionProfilesSync?(): Array<{ id: string; description: string | null; allowed: boolean }> | null;
+  /** V17-PERM: 开发者诊断模式（控制 Runtime profiles 调试文本展示） */
+  isDeveloperMode?(): boolean;
 }
 
 export class ComposerController {
@@ -941,10 +945,11 @@ export class ComposerController {
     if (!mountEl) return;
     this._permissionPopoverEl?.remove();
     const runtimeProfiles = this.host.getCachedPermissionProfilesSync?.() ?? null;
+    const developerMode = this.host.isDeveloperMode?.() ?? false;
     this._permissionPopoverEl = renderPermissionPopover(mountEl, this.host.effectiveApprovalProfile(), {
       close: () => this.closePermissionPopover(),
       onSelectProfile: (profile) => { void this.host.setApprovalProfile(profile); },
-    }, runtimeProfiles);
+    }, runtimeProfiles, developerMode);
   }
 
   togglePermissionPopover(): void {
