@@ -396,6 +396,9 @@ export class LLMBridgeView extends ItemView {
   private statusDotEl!: HTMLElement;
   private statusLabelEl!: HTMLElement;
   private runtimeInstallBtnEl!: HTMLButtonElement;
+  /** V17-TOPBAR-2ROW: 第二排审查/压缩按钮（仅 Codex app-server 显示） */
+  private reviewBtn!: HTMLButtonElement;
+  private compactBtn!: HTMLButtonElement;
   private activeFileLabelEl!: HTMLElement;
   private selectionLabelEl!: HTMLElement;
   private agentChipGroup!: HTMLElement;
@@ -528,13 +531,18 @@ export class LLMBridgeView extends ItemView {
 
     const main = shell.createDiv({ cls: "llm-bridge-main" });
 
-    // ===== 顶部栏：会话 / 新聊天 / 设置 / compact runtime status =====
+    // ===== V17-TOPBAR-2ROW: 顶部栏两排布局（item 8）=====
+    // 第一排：会话 selector + 新聊天
+    // 第二排：审查/压缩 + 设置 + runtime 状态
     const header = main.createDiv({ cls: "llm-bridge-header llm-bridge-topbar" });
-    const topbarBrand = header.createDiv({ cls: "llm-bridge-topbar-brand" });
+
+    // --- 第一排 ---
+    const topbarRow1 = header.createDiv({ cls: "llm-bridge-topbar-row" });
+    const topbarBrand = topbarRow1.createDiv({ cls: "llm-bridge-topbar-brand" });
     const topbarLogo = topbarBrand.createEl("span", { cls: "llm-bridge-topbar-logo" });
     setIcon(topbarLogo, "message-square");
     this.pageTitleEl = topbarBrand.createEl("span", { cls: "llm-bridge-page-title", text: "Chat" });
-    const sessionPreview = header.createEl("button", {
+    const sessionPreview = topbarRow1.createEl("button", {
       cls: "llm-bridge-session-selector",
       attr: { title: "打开最近会话下拉；完整历史在 History 页面" },
     });
@@ -544,10 +552,10 @@ export class LLMBridgeView extends ItemView {
     this.sessionTitleEl = sessionPreview.createEl("span", { cls: "llm-bridge-sb-session-title", text: this.sessionState.title });
     const sessionCaret = sessionPreview.createEl("span", { cls: "llm-bridge-session-caret" });
     setIcon(sessionCaret, "chevron-down");
-    const sessionDropdown = header.createDiv({ cls: "llm-bridge-session-dropdown" });
+    const sessionDropdown = topbarRow1.createDiv({ cls: "llm-bridge-session-dropdown" });
     sessionDropdown.setAttribute("hidden", "");
 
-    const headerRight = header.createDiv({ cls: "llm-bridge-header-right" });
+    const headerRight = topbarRow1.createDiv({ cls: "llm-bridge-header-right" });
     this.clearBtn = headerRight.createEl("button", {
       cls: "llm-bridge-new-chat-btn",
       attr: { title: "新建会话（清空消息）" },
@@ -555,10 +563,33 @@ export class LLMBridgeView extends ItemView {
     setIcon(this.clearBtn.createEl("span", { cls: "llm-bridge-icon" }), "plus");
     this.clearBtn.createEl("span", { cls: "llm-bridge-new-chat-label", text: "新聊天" });
     this.clearBtn.addEventListener("click", () => this.newSession());
-    const settingsBtn = headerRight.createEl("button", { cls: "llm-bridge-icon-btn llm-bridge-settings-btn", attr: { title: "打开插件设置" } });
+
+    // --- 第二排：审查/压缩 + 设置 + runtime 状态 ---
+    const topbarRow2 = header.createDiv({ cls: "llm-bridge-topbar-row llm-bridge-topbar-row-tools" });
+    this.reviewBtn = topbarRow2.createEl("button", {
+      cls: "llm-bridge-topbar-action-btn",
+      attr: { type: "button", title: "审查当前更改（仅 Codex app-server）" },
+    });
+    setIcon(this.reviewBtn.createEl("span", { cls: "llm-bridge-icon" }), "search-check");
+    this.reviewBtn.createEl("span", { cls: "llm-bridge-topbar-action-label", text: "审查" });
+    this.reviewBtn.addEventListener("click", () => {
+      void this.runSession.runNativeAction({ kind: "review", target: { type: "uncommittedChanges" }, delivery: "inline" });
+    });
+    this.compactBtn = topbarRow2.createEl("button", {
+      cls: "llm-bridge-topbar-action-btn",
+      attr: { type: "button", title: "压缩上下文（仅 Codex app-server 且已有 thread）" },
+    });
+    setIcon(this.compactBtn.createEl("span", { cls: "llm-bridge-icon" }), "minimize-2");
+    this.compactBtn.createEl("span", { cls: "llm-bridge-topbar-action-label", text: "压缩" });
+    this.compactBtn.addEventListener("click", () => {
+      void this.runSession.runNativeAction({ kind: "compact" });
+    });
+
+    const toolsRight = topbarRow2.createDiv({ cls: "llm-bridge-header-right" });
+    const settingsBtn = toolsRight.createEl("button", { cls: "llm-bridge-icon-btn llm-bridge-settings-btn", attr: { title: "打开插件设置" } });
     setIcon(settingsBtn.createEl("span", { cls: "llm-bridge-icon" }), "settings");
     settingsBtn.addEventListener("click", () => this.openPluginSettings());
-    const runtimeStatus = headerRight.createDiv({ cls: "llm-bridge-runtime-status", attr: { title: "Runtime status" } });
+    const runtimeStatus = toolsRight.createDiv({ cls: "llm-bridge-runtime-status", attr: { title: "Runtime status" } });
     this.statusDotEl = runtimeStatus.createEl("span", {
       cls: "llm-bridge-status-dot llm-bridge-status-dot-idle",
       attr: { title: STATUS_LABEL.idle },
@@ -567,7 +598,7 @@ export class LLMBridgeView extends ItemView {
       cls: "llm-bridge-status-text",
       text: "正在初始化…",
     });
-    this.runtimeInstallBtnEl = headerRight.createEl("button", {
+    this.runtimeInstallBtnEl = toolsRight.createEl("button", {
       cls: "llm-bridge-runtime-install-btn",
       text: "Install Codex runtime",
       attr: { type: "button", title: "Install the pinned Codex managed runtime" },
@@ -1468,6 +1499,8 @@ export class LLMBridgeView extends ItemView {
     this.refreshModelEffortPicker();
     this.refreshPermissionModeChip();
     this.renderPermissionPopover();
+    // V17-TOPBAR-2ROW: 刷新第二排审查/压缩按钮的禁用/可见状态
+    this.refreshTopbarActionButtons();
     // V2.4: Mode chip 已移除（仅 Fresh 可用，无需 refresh）
 
     // 上下文 tag 勾选态
@@ -6027,6 +6060,23 @@ export class LLMBridgeView extends ItemView {
     this.refreshStatusBar();
   }
 
+  /**
+   * V17-TOPBAR-2ROW: 刷新第二排审查/压缩按钮的禁用/可见状态。
+   * 仅 Codex app-server 系列 provider 显示；压缩额外要求已有 thread。
+   */
+  private refreshTopbarActionButtons(): void {
+    if (!this.reviewBtn || !this.compactBtn) return;
+    const session = this.runSession.getSession();
+    const supportsNativeActions = session.providerId === "codex-managed-app-server"
+      || session.providerId === "codex-app-server";
+    const hasThread = !!session.activeNativeSessionRef?.threadId;
+    const running = !!this.runSession.runHandle;
+    this.reviewBtn.style.display = supportsNativeActions ? "" : "none";
+    this.reviewBtn.disabled = !supportsNativeActions || running;
+    this.compactBtn.style.display = supportsNativeActions ? "" : "none";
+    this.compactBtn.disabled = !supportsNativeActions || !hasThread || running;
+  }
+
   // V2.0: 刷新会话状态展示（标题 + 状态 + 消息数 + 上下文指标）
   private refreshSessionState(): void {
     // P3: 恢复的会话在标题后追加标记，让用户持久感知当前是恢复上下文而非新会话
@@ -6533,33 +6583,7 @@ export class LLMBridgeView extends ItemView {
         });
       }
     }
-    const session = this.runSession.getSession();
-    const supportsNativeActions = session.providerId === "codex-managed-app-server"
-      || session.providerId === "codex-app-server";
-    if (supportsNativeActions) {
-      const actions = dropdown.createDiv({ cls: "llm-bridge-session-dropdown-actions" });
-      const hasThread = !!session.activeNativeSessionRef?.threadId;
-      const addAction = (label: string, icon: string, enabled: boolean, run: () => void) => {
-        const button = actions.createEl("button", {
-          cls: "llm-bridge-session-dropdown-history",
-          attr: { type: "button" },
-        });
-        const iconEl = button.createEl("span", { cls: "llm-bridge-session-dropdown-history-icon" });
-        setIcon(iconEl, icon);
-        button.createEl("span", { text: label });
-        button.disabled = !enabled || !!this.runSession.runHandle;
-        button.addEventListener("click", () => {
-          dropdown.setAttribute("hidden", "");
-          run();
-        });
-      };
-      addAction("审查当前更改", "search-check", true, () => {
-        void this.runSession.runNativeAction({ kind: "review", target: { type: "uncommittedChanges" }, delivery: "inline" });
-      });
-      addAction("压缩上下文", "minimize-2", hasThread, () => {
-        void this.runSession.runNativeAction({ kind: "compact" });
-      });
-    }
+    // V17-TOPBAR-2ROW: 审查/压缩已移到 topbar 第二排，session dropdown 只保留会话管理
     const historyBtn = dropdown.createEl("button", { cls: "llm-bridge-session-dropdown-history" });
     const historyIcon = historyBtn.createEl("span", { cls: "llm-bridge-session-dropdown-history-icon" });
     setIcon(historyIcon, "history");

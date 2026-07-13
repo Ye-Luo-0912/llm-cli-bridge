@@ -10651,4 +10651,64 @@
   box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
 }
 
+/* ===== V17-TOPBAR-2ROW: 顶部栏两排布局（item 8）===== */
+/* 覆盖单排 grid 布局，改为 flex column 支持两排 */
+.llm-bridge-topbar {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 4px !important;
+  padding: 6px 12px !important;
+}
+
+.llm-bridge-topbar-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  min-width: 0 !important;
+}
+
+/* 第二排工具行：左侧审查/压缩，右侧设置 + runtime 状态 */
+.llm-bridge-topbar-row-tools {
+  flex-wrap: wrap !important;
+}
+
+.llm-bridge-topbar-action-btn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  padding: 4px 10px !important;
+  border: 1px solid var(--background-modifier-border) !important;
+  border-radius: 9px !important;
+  background: var(--background-secondary) !important;
+  color: var(--text-normal) !important;
+  font-size: var(--font-smallest) !important;
+  font-weight: 600 !important;
+  cursor: pointer !important;
+}
+
+.llm-bridge-topbar-action-btn:hover:not(:disabled) {
+  border-color: rgba(var(--interactive-accent-rgb), 0.45) !important;
+  background: var(--background-modifier-hover) !important;
+}
+
+.llm-bridge-topbar-action-btn:disabled {
+  opacity: 0.45 !important;
+  cursor: not-allowed !important;
+}
+
+.llm-bridge-topbar-action-btn .llm-bridge-icon,
+.llm-bridge-topbar-action-btn .llm-bridge-icon svg {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+.llm-bridge-topbar-action-label {
+  white-space: nowrap !important;
+}
+
+/* 第二排的右侧容器靠右对齐 */
+.llm-bridge-topbar-row-tools .llm-bridge-header-right {
+  margin-left: auto !important;
+}
+
 
