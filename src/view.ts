@@ -205,6 +205,22 @@ import {
   renderWarningCard as renderWarningCardFn,
   renderErrorCard as renderErrorCardFn,
 } from "./ui/agentRunCardRenderer";
+// Context ref chip 渲染已抽取到 ./ui/contextRefChips（渐进拆分 P4）
+import {
+  renderPinnedContext as renderPinnedContextDom,
+  renderFilesContext as renderFilesContextDom,
+  renderFileContextSection as renderFileContextSectionDom,
+  renderContextRefChip as renderContextRefChipDom,
+  renderContextRefVisual as renderContextRefVisualDom,
+  fileRefBadgeLabel as fileRefBadgeLabelFn,
+  type ContextRefChipDeps,
+} from "./ui/contextRefChips";
+// External read 面板渲染已抽取到 ./ui/externalReadPanel（渐进拆分 P4）
+import {
+  renderExternalReadTarget as renderExternalReadTargetDom,
+  renderExternalReadField as renderExternalReadFieldDom,
+  externalReadReasonLabel as externalReadReasonLabelFn,
+} from "./ui/externalReadPanel";
 
 interface UserInputDraft {
   value: string;
@@ -3851,54 +3867,32 @@ export class LLMBridgeView extends ItemView {
     }
   }
 
+  private contextRefChipDeps(): ContextRefChipDeps {
+    return {
+      fileRefDisplayPath: (ref) => this.fileRefDisplayPath(ref),
+      fileRefBadgeLabel: (ref) => this.fileRefBadgeLabel(ref),
+      getFileRefThumbnailUrl: (ref) => this.getFileRefThumbnailUrl(ref),
+      getFileRefIconName: (ref) => this.getFileRefIconName(ref),
+      renderDocumentPreviewThumb: (parent, thumbClass, lineClass, ref, maxLines, maxChars) =>
+        this.renderDocumentPreviewThumb(parent, thumbClass, lineClass, ref, maxLines, maxChars),
+      openFileRefPreview: (ref) => { void this.openFileRefPreview(ref); },
+      copyFileRefToClipboard: (ref) => { void this.copyFileRefToClipboard(ref); },
+      unpinFileRef: (refId) => this.unpinFileRef(refId),
+      removeContextFileRef: (refId) => this.removeContextFileRef(refId),
+      getFileRefPreviewText: (ref) => this.getFileRefPreviewText(ref),
+    };
+  }
+
   private renderPinnedContext(): void {
-    const container = this.pinnedContextEl;
-    container.empty();
-    if (this.pinnedFileRefs.length === 0) {
-      container.setAttribute("hidden", "");
-      return;
-    }
-    container.removeAttribute("hidden");
-    container.createEl("summary", { text: `Pinned context (${this.pinnedFileRefs.length})` });
-    const body = container.createDiv({ cls: "llm-bridge-pinned-context-body" });
-    for (const ref of this.pinnedFileRefs) {
-      this.renderContextRefChip(body, ref, { allowUnpin: true, allowRemove: true });
-    }
+    renderPinnedContextDom(this.pinnedContextEl, this.pinnedFileRefs, this.contextRefChipDeps());
   }
 
   private renderFilesContext(): void {
-    const container = this.filesContextEl;
-    container.empty();
-    this.renderFileContextSection(container, {
-      variant: "current",
-      icon: "paperclip",
-      title: "本轮附件",
-      description: "仅随下一条消息发送；移除不会删除原文件。",
-      refs: this.messageFileRefs,
-      emptyText: "拖拽、粘贴或输入 @ 添加文件。",
-      actions: { allowRemove: true, allowCopy: true },
-    });
-    // 旧会话 Pin：只读入口（查看/复制/移除），不提供新建 Pin
-    if (this.pinnedFileRefs.length > 0) {
-      this.renderFileContextSection(container, {
-        variant: "pinned",
-        icon: "pin",
-        title: "旧会话上下文",
-        description: "来自升级前的 Pin；可查看、复制或移除，不再支持新建。",
-        refs: this.pinnedFileRefs,
-        emptyText: "",
-        actions: { allowUnpin: true, allowRemove: true, allowCopy: true },
-      });
-    }
-    this.renderFileContextSection(container, {
-      variant: "session",
-      icon: "shield-check",
-      title: "会话授权",
-      description: "本会话允许的外部文件读取。",
-      refs: this.sessionFileRefs,
-      emptyText: "外部读取授权批准后会出现在这里。",
-      actions: { allowRemove: true, allowCopy: true },
-    });
+    renderFilesContextDom(this.filesContextEl, {
+      messageFileRefs: this.messageFileRefs,
+      pinnedFileRefs: this.pinnedFileRefs,
+      sessionFileRefs: this.sessionFileRefs,
+    }, this.contextRefChipDeps());
   }
 
   private renderFileContextSection(
@@ -3913,98 +3907,19 @@ export class LLMBridgeView extends ItemView {
       actions: { allowPin?: boolean; allowUnpin?: boolean; allowRemove?: boolean; allowCopy?: boolean };
     },
   ): void {
-    const section = container.createDiv({ cls: `llm-bridge-context-section is-${options.variant}` });
-    const head = section.createDiv({ cls: "llm-bridge-context-section-head" });
-    const icon = head.createEl("span", { cls: "llm-bridge-context-section-icon" });
-    setIcon(icon, options.icon);
-    const titleWrap = head.createDiv({ cls: "llm-bridge-context-section-title" });
-    titleWrap.createEl("strong", { text: options.title });
-    titleWrap.createEl("span", { text: options.description });
-    head.createEl("span", { cls: "llm-bridge-context-section-count", text: String(options.refs.length) });
-
-    const body = section.createDiv({ cls: "llm-bridge-context-section-body" });
-    if (options.refs.length === 0) {
-      body.createEl("span", { cls: "llm-bridge-context-empty", text: options.emptyText });
-      return;
-    }
-    for (const ref of options.refs) this.renderContextRefChip(body, ref, options.actions);
+    renderFileContextSectionDom(container, options, this.contextRefChipDeps());
   }
 
   private renderContextRefChip(container: HTMLElement, ref: FileRef, options: { allowPin?: boolean; allowUnpin?: boolean; allowRemove?: boolean; allowCopy?: boolean }): void {
-    const chip = container.createDiv({
-      cls: `llm-bridge-context-ref-chip is-${ref.kind} is-${ref.status} is-${ref.fileType}`,
-      attr: { title: `${ref.displayName}\n${this.fileRefDisplayPath(ref)}\n${this.fileRefBadgeLabel(ref)}` },
-    });
-    chip.addEventListener("click", () => void this.openFileRefPreview(ref));
-    this.renderContextRefVisual(chip, ref);
-    const text = chip.createDiv({ cls: "llm-bridge-context-ref-text" });
-    text.createEl("span", { cls: "llm-bridge-context-ref-name", text: ref.displayName, attr: { title: ref.resolvedPath } });
-    text.createEl("span", { cls: "llm-bridge-context-ref-meta", text: this.fileRefDisplayPath(ref), attr: { title: ref.resolvedPath } });
-    chip.createEl("span", { cls: "llm-bridge-context-ref-mode", text: this.fileRefBadgeLabel(ref) });
-    // 普通 UI 不再提供新建 Pin（allowPin 保留类型兼容，但不渲染）
-    if (options.allowCopy) {
-      const copyBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-action is-copy", attr: { title: "复制", "aria-label": `复制 ${ref.displayName}` } });
-      setIcon(copyBtn, "copy");
-      copyBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        void this.copyFileRefToClipboard(ref);
-      });
-    }
-    if (options.allowUnpin) {
-      const unpinActionBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-action is-unpin", attr: { title: "从旧会话上下文移除", "aria-label": "从旧会话上下文移除" } });
-      setIcon(unpinActionBtn, "pin-off");
-      unpinActionBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        this.unpinFileRef(ref.id);
-      });
-    }
-    if (options.allowRemove) {
-      const removeBtn = chip.createEl("button", { cls: "llm-bridge-context-ref-remove is-remove", attr: { title: "移除", "aria-label": "移除" } });
-      setIcon(removeBtn, "x");
-      removeBtn.addEventListener("click", (event) => {
-        event.stopPropagation();
-        this.removeContextFileRef(ref.id);
-      });
-    }
+    renderContextRefChipDom(container, ref, options, this.contextRefChipDeps());
   }
 
   private renderContextRefVisual(parent: HTMLElement, ref: FileRef): void {
-    const visual = parent.createEl("span", { cls: "llm-bridge-context-ref-icon llm-bridge-context-ref-thumb" });
-    const thumbnailUrl = ref.fileType === "image" ? this.getFileRefThumbnailUrl(ref) : null;
-    if (thumbnailUrl) {
-      visual.addClass("has-image-preview");
-      visual.style.setProperty("background-image", `url("${thumbnailUrl.replace(/"/g, '\\"')}")`);
-      const fallback = visual.createEl("span", { cls: "llm-bridge-context-ref-visual-icon is-fallback" });
-      setIcon(fallback, this.getFileRefIconName(ref));
-      const preview = new Image();
-      preview.addEventListener("load", () => visual.addClass("is-preview-loaded"));
-      preview.addEventListener("error", () => {
-        visual.removeClass("has-image-preview");
-        visual.removeClass("is-preview-loaded");
-        visual.addClass("is-preview-missing");
-        visual.style.removeProperty("background-image");
-      });
-      preview.src = thumbnailUrl;
-      return;
-    }
-    if (ref.fileType !== "image") {
-      visual.addClass("has-document-preview");
-      this.renderDocumentPreviewThumb(visual, "llm-bridge-context-ref-doc-thumb", "llm-bridge-context-ref-doc-line", ref, 4, 18);
-      return;
-    }
-    const fileIcon = visual.createEl("span", { cls: "llm-bridge-context-ref-visual-icon" });
-    setIcon(fileIcon, this.getFileRefIconName(ref));
+    renderContextRefVisualDom(parent, ref, this.contextRefChipDeps());
   }
 
   private fileRefBadgeLabel(ref: FileRef): string {
-    const type = this.getFileRefShortLabel(ref).toLowerCase();
-    if (ref.scope === "pinned") return `pinned · ${type}`;
-    if (ref.scope === "session") return `session · ${type}`;
-    if (ref.kind === "external") return `external · ${type}`;
-    if (this.getFileRefPreviewText(ref)) {
-      return `preview · ${type}`;
-    }
-    return `attached · ${type}`;
+    return fileRefBadgeLabelFn(ref, this.getFileRefPreviewText(ref));
   }
 
   private removeMessageFileRef(refId: string): void {
@@ -4248,37 +4163,15 @@ export class LLMBridgeView extends ItemView {
   }
 
   private renderExternalReadTarget(parent: HTMLElement, req: PendingExternalReadRequest): void {
-    const fileType = classifyFileTypeByPath(req.requestedPath);
-    const displayName = path.basename(req.requestedPath.replace(/\\/g, "/")) || req.requestedPath;
-    const target = parent.createDiv({
-      cls: `llm-bridge-external-read-target is-${fileType} is-risk-${req.risk}`,
-      attr: { title: `${req.requestedPath}\n${req.proposedGrantRoot || ""}`.trim() },
-    });
-    const thumb = target.createEl("span", { cls: "llm-bridge-external-read-target-thumb" });
-    setIcon(thumb.createEl("span", { cls: "llm-bridge-external-read-target-icon" }), this.fileTypeIconName(fileType));
-    thumb.createEl("span", { cls: "llm-bridge-external-read-target-ext", text: this.shortLabelForPath(displayName, fileType) });
-
-    const text = target.createDiv({ cls: "llm-bridge-external-read-target-text" });
-    text.createEl("span", { cls: "llm-bridge-external-read-target-name", text: displayName });
-    text.createEl("span", { cls: "llm-bridge-external-read-target-path", text: req.requestedPath, attr: { title: req.requestedPath } });
-
-    const badges = target.createDiv({ cls: "llm-bridge-external-read-target-badges" });
-    badges.createEl("span", { cls: `llm-bridge-external-read-target-risk is-${req.risk}`, text: req.risk === "high" ? "high risk" : req.risk === "medium" ? "medium risk" : "low risk" });
-    badges.createEl("span", { cls: "llm-bridge-external-read-target-scope", text: req.grantRootSafety === "deny" ? "file only" : req.proposedGrantRoot ? "file or folder" : "file" });
+    renderExternalReadTargetDom(parent, req);
   }
 
   private renderExternalReadField(parent: HTMLElement, label: string, value: string): void {
-    const row = parent.createDiv({ cls: "llm-bridge-external-read-field" });
-    row.createEl("span", { cls: "llm-bridge-external-read-field-label", text: label });
-    row.createEl("span", { cls: "llm-bridge-external-read-field-value", text: value, attr: { title: value } });
+    renderExternalReadFieldDom(parent, label, value);
   }
 
   private externalReadReasonLabel(reason: string): string {
-    if (reason === "pending_read_request") return "需要确认后读取外部文件。";
-    if (reason === "outside_read_roots") return "该路径不在当前允许读取范围内。";
-    if (reason === "high_risk_path") return "路径风险较高，请确认后继续。";
-    if (reason === "sensitive_path") return "路径可能包含敏感配置或凭据。";
-    return reason.replace(/[_-]+/g, " ");
+    return externalReadReasonLabelFn(reason);
   }
 
   private approveExternalReadRequest(requestId: string, forceFileScope: boolean, strongConfirm = false): void {
