@@ -249,7 +249,7 @@ async function executeRead(
       reason: "refs_only",
       fileType,
       readMode: "refs-only",
-      handoffHint: `Refs-only file. Ask Claude Code to use Read on this path if inspection is needed: ${resolvedPath}`,
+      handoffHint: `Refs-only file. Ask the agent to use Read on this path if inspection is needed: ${resolvedPath}`,
     };
   }
 

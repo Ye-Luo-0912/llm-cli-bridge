@@ -115,14 +115,6 @@
   font-size: var(--font-ui-smaller);
 }
 
-.llm-bridge-nav-collapse {
-  display: none;
-  border: none;
-  background: transparent;
-  color: var(--text-faint);
-  cursor: default;
-}
-
 .llm-bridge-main {
   flex: 1 1 auto;
   min-width: 0;
@@ -2565,14 +2557,11 @@
   background: var(--text-muted);
   border: 2px solid var(--background-primary);
 }
-.llm-bridge-tl-session_started .llm-bridge-tl-dot { background: var(--interactive-accent); }
-.llm-bridge-tl-thought .llm-bridge-tl-dot { background: var(--text-faint); }
 .llm-bridge-tl-agent .llm-bridge-tl-dot { background: var(--interactive-accent); }
 .llm-bridge-tl-tool_call .llm-bridge-tl-dot { background: var(--interactive-accent); }
 .llm-bridge-tl-file_change .llm-bridge-tl-dot { background: #4caf50; }
 .llm-bridge-tl-warning .llm-bridge-tl-dot { background: #fb8c00; }
 .llm-bridge-tl-error .llm-bridge-tl-dot { background: var(--text-error); }
-.llm-bridge-tl-completed .llm-bridge-tl-dot { background: var(--text-success); }
 .llm-bridge-tl-failed .llm-bridge-tl-dot { background: var(--text-error); }
 .llm-bridge-tl-content {
   flex: 1;
@@ -2633,19 +2622,6 @@
   color: var(--text-faint);
   font-size: 10px;
 }
-.llm-bridge-tl-tool-path {
-  display: block;
-  font-family: var(--font-monospace);
-  font-size: var(--font-smallest);
-  color: var(--interactive-accent);
-  background: var(--background-secondary);
-  padding: 2px 6px;
-  border-radius: 3px;
-  margin: 2px 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 .llm-bridge-tl-tool-output {
   font-family: var(--font-monospace);
   font-size: 10px;
@@ -2676,11 +2652,6 @@
   padding: 1px 5px;
   border-radius: 3px;
 }
-.llm-bridge-tl-final-text {
-  color: var(--text-normal);
-  line-height: 1.5;
-  padding: 4px 0;
-}
 .llm-bridge-tl-warning-icon {
   color: #fb8c00;
   margin-right: 4px;
@@ -2694,11 +2665,6 @@
 }
 .llm-bridge-tl-error-text {
   color: var(--text-error);
-}
-.llm-bridge-tl-completed {
-  font-weight: 600;
-  color: var(--text-success);
-  padding: 4px 0;
 }
 .llm-bridge-tl-failed {
   font-weight: 600;
@@ -3927,27 +3893,6 @@
   font-size: 11px;
   line-height: 1;
 }
-.llm-bridge-tl-file-action-create .llm-bridge-tl-file-symbol {
-  background: rgba(76, 175, 80, 0.15);
-  color: #4caf50;
-}
-.llm-bridge-tl-file-action-modify .llm-bridge-tl-file-symbol {
-  background: rgba(245, 158, 11, 0.15);
-  color: #f59e0b;
-}
-.llm-bridge-tl-file-action-delete .llm-bridge-tl-file-symbol {
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--text-error);
-}
-.llm-bridge-tl-file-action-create .llm-bridge-tl-file-action {
-  color: #4caf50;
-}
-.llm-bridge-tl-file-action-modify .llm-bridge-tl-file-action {
-  color: #f59e0b;
-}
-.llm-bridge-tl-file-action-delete .llm-bridge-tl-file-action {
-  color: var(--text-error);
-}
 .llm-bridge-tl-completed-chips {
   display: flex;
   flex-wrap: wrap;
@@ -4476,38 +4421,23 @@
   background: var(--llm-agent-surface-muted);
 }
 
-.llm-bridge-tl-file-action-create .llm-bridge-tl-file-symbol,
-
-.llm-bridge-tl-file-action-modify .llm-bridge-tl-file-symbol,
-
-.llm-bridge-tl-file-action-delete .llm-bridge-tl-file-symbol,
-
 .llm-bridge-tl-chip,
-
 .llm-bridge-tl-agent-tag {
   border: 1px solid var(--llm-agent-line);
   background: var(--llm-agent-surface-muted);
 }
 
-.llm-bridge-tl-file-action-create .llm-bridge-tl-file-symbol,
-.llm-bridge-tl-file-action-create .llm-bridge-tl-file-action,
 .llm-bridge-tl-file_change .llm-bridge-tl-dot,
-.llm-bridge-tl-completed .llm-bridge-tl-dot,
-.llm-bridge-tl-completed,
 .llm-bridge-tl-chip-success {
   color: var(--llm-agent-success);
 }
 
-.llm-bridge-tl-file-action-modify .llm-bridge-tl-file-symbol,
-.llm-bridge-tl-file-action-modify .llm-bridge-tl-file-action,
 .llm-bridge-tl-warning .llm-bridge-tl-dot,
 .llm-bridge-tl-warning-icon,
 .llm-bridge-tl-warning-text {
   color: var(--llm-agent-warning);
 }
 
-.llm-bridge-tl-file-action-delete .llm-bridge-tl-file-symbol,
-.llm-bridge-tl-file-action-delete .llm-bridge-tl-file-action,
 .llm-bridge-tl-error .llm-bridge-tl-dot,
 .llm-bridge-tl-failed .llm-bridge-tl-dot,
 .llm-bridge-tl-error-icon,
@@ -4516,8 +4446,7 @@
   color: var(--llm-agent-danger);
 }
 
-.llm-bridge-tl-file_change .llm-bridge-tl-dot,
-.llm-bridge-tl-completed .llm-bridge-tl-dot { background: var(--llm-agent-success); }
+.llm-bridge-tl-file_change .llm-bridge-tl-dot { background: var(--llm-agent-success); }
 .llm-bridge-tl-warning .llm-bridge-tl-dot { background: var(--llm-agent-warning); }
 .llm-bridge-tl-error .llm-bridge-tl-dot,
 .llm-bridge-tl-failed .llm-bridge-tl-dot { background: var(--llm-agent-danger); }
@@ -10645,6 +10574,4 @@
   box-shadow: 0 1px 3px rgb(0 0 0 / 10%);
 }
 
-.llm-bridge-runtime-tab-content {
-  padding: 2px 4px 8px;
-}
+

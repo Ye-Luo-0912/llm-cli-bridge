@@ -125,11 +125,55 @@ export default class LLMBridgePlugin extends Plugin {
     }
   }
 
-  /** V2.18 r5 / u5: onload 自动物化 SKILL.md — 统一入口（source→manifest 同步 + 四端物化） */
+  /** 计算 source 目录的递归内容指纹（用于 onload 跳过未变化的物化） */
+  private computeSourceDirFingerprint(dirAbs: string): string {
+    const crypto = require("crypto");
+    const hasher = crypto.createHash("sha256");
+    try {
+      if (!fs.existsSync(dirAbs)) return "empty";
+      const entries = fs.readdirSync(dirAbs, { withFileTypes: true });
+      const names = entries.map((e) => e.name).sort();
+      for (const name of names) {
+        const abs = path.join(dirAbs, name);
+        hasher.update(name);
+        hasher.update("\0");
+        try {
+          const stat = fs.statSync(abs);
+          if (stat.isDirectory()) {
+            hasher.update(this.computeSourceDirFingerprint(abs));
+          } else {
+            hasher.update(fs.readFileSync(abs));
+          }
+        } catch { /* 读取失败不影响整体 */ }
+        hasher.update("\0");
+      }
+    } catch { /* 目录不存在 */ }
+    return hasher.digest("hex");
+  }
+
+  /** V2.18 r5 / u5: onload 自动物化 SKILL.md — 统一入口（source→manifest 同步 + 四端物化）
+   *  内容指纹优化：source 目录指纹未变化时跳过 compact + materialize，避免每次加载完整同步 */
   private async materializeVaultSkillsOnload(vaultPath: string): Promise<void> {
     try {
-      const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllSkillsToAllTargets } = await import("./src/agentRuntimeWorkspace");
+      const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllSkillsToAllTargets, VAULT_SKILL_SOURCE_DIR_REL } = await import("./src/agentRuntimeWorkspace");
       await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
+
+      // 内容指纹检查：计算 vault-context source 目录的递归指纹
+      const sourceDirAbs = path.join(vaultPath, VAULT_SKILL_SOURCE_DIR_REL);
+      const fingerprintPath = path.join(vaultPath, ".llm-bridge", "skill-fingerprint.json");
+      const currentFingerprint = this.computeSourceDirFingerprint(sourceDirAbs);
+
+      let savedFingerprint: string | null = null;
+      try {
+        const saved = JSON.parse(fs.readFileSync(fingerprintPath, "utf8"));
+        savedFingerprint = saved.fingerprint || null;
+      } catch { /* 首次或文件损坏 → 强制执行 */ }
+
+      if (savedFingerprint !== null && savedFingerprint === currentFingerprint) {
+        console.log("[llm-cli-bridge] onload skill 指纹未变化，跳过物化");
+        return;
+      }
+
       try { await compactOrSplitVaultSkill(vaultPath); } catch { /* compact 失败不阻塞物化 */ }
       // u5: 统一物化 — sync manifest + 物化到 claude/.agents/.pi/codex 四端（均为 Agent Skill 格式）
       const result = materializeAllSkillsToAllTargets(vaultPath);
@@ -137,6 +181,12 @@ export default class LLMBridgePlugin extends Plugin {
       const syncOk = result.syncSummary.synced.length;
       const syncSkip = result.syncSummary.skipped.length;
       console.log(`[llm-cli-bridge] onload skill 物化完成: materialize=${okCount}/${result.results.length}, manifest sync=${syncOk}/${syncOk + syncSkip}, manifestSaved=${result.saved}`);
+
+      // 物化成功后保存指纹
+      try {
+        fs.mkdirSync(path.dirname(fingerprintPath), { recursive: true });
+        fs.writeFileSync(fingerprintPath, JSON.stringify({ fingerprint: currentFingerprint, updatedAt: new Date().toISOString() }, null, 2), "utf8");
+      } catch { /* 指纹保存失败不阻塞 */ }
     } catch (e) {
       console.warn("[llm-cli-bridge] onload skill 物化失败（不阻塞）：", e);
     }
@@ -245,10 +295,10 @@ export default class LLMBridgePlugin extends Plugin {
   }
 
   private registerCommands(): void {
-    // 1. Ask Claude about selection —— 预填选区作为上下文，不自动发送（用户接着输入问题）
+    // 1. Ask Agent about selection —— 预填选区作为上下文，不自动发送（用户接着输入问题）
     this.addCommand({
-      id: "ask-claude-about-selection",
-      name: "Ask Claude about selection",
+      id: "ask-agent-about-selection",
+      name: "Ask Agent about selection",
       editorCallback: async (editor: Editor) => {
         const sel = editor.getSelection();
         if (!sel) {
@@ -262,10 +312,10 @@ export default class LLMBridgePlugin extends Plugin {
       },
     });
 
-    // 2. Rewrite selection with Claude —— 预填指令并自动发送，要求用 replace_selection action 回写
+    // 2. Rewrite selection with Agent —— 预填指令并自动发送，要求用 replace_selection action 回写
     this.addCommand({
-      id: "rewrite-selection-with-claude",
-      name: "Rewrite selection with Claude",
+      id: "rewrite-selection-with-agent",
+      name: "Rewrite selection with Agent",
       editorCallback: async (editor: Editor) => {
         const sel = editor.getSelection();
         if (!sel) {
@@ -386,26 +436,6 @@ export default class LLMBridgePlugin extends Plugin {
         await fsPromises.writeFile(pathMod.join(agentsDir, "openai.yaml"), initial.agentsOpenaiYaml, "utf8");
         await fsPromises.writeFile(pathMod.join(skillDir, "INDEX.md"), initial.indexMd, "utf8");
         new Notice("VAULT_SKILL 初版已重建。");
-      },
-    });
-
-    this.addCommand({
-      id: "materialize-vault-skill",
-      name: "Materialize All Vault Skills to .claude/skills",
-      callback: async () => {
-        const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
-        const { ensureAgentRuntimeWorkspace, compactOrSplitVaultSkill, materializeAllSkillsToAllTargets } = await import("./src/agentRuntimeWorkspace");
-        await ensureAgentRuntimeWorkspace(vaultPath, { createVaultSkillIfMissing: true });
-        try { await compactOrSplitVaultSkill(vaultPath); } catch { /* compact 失败不阻塞物化 */ }
-        // u5: 统一物化 — sync manifest + 物化到 claude/.agents/.pi/codex 四端
-        const result = materializeAllSkillsToAllTargets(vaultPath);
-        const okCount = result.results.filter((r) => r.ok).length;
-        const conflictCount = result.results.filter((r) => r.status === "conflict").length;
-        if (conflictCount > 0) {
-          new Notice(`Materialized ${okCount}/${result.results.length} (4 targets); ${conflictCount} conflict`);
-        } else {
-          new Notice(`Materialized ${okCount}/${result.results.length} (4 targets: claude/.agents/.pi/codex)`);
-        }
       },
     });
 
