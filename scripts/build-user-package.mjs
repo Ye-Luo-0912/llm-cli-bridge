@@ -233,6 +233,73 @@ if (offlineRuntime) {
 }
 console.log(`  ✓ managed runtime 分发元数据已集成到 user-package`);
 
+// 4c. V17-RG B2/B3：复制 Managed ripgrep manifest + installer + fixture binary；
+//     校验 rg.exe 和 manifest 是否齐全（item 18）。
+console.log("\n[user-package] 步骤 4c: 准备 Managed ripgrep manifest + installer + binary...");
+const rgSrcDir = path.join(PROJECT_ROOT, "src", "runtime", "managed-tools", "rg");
+const rgDestDir = path.join(OUT_DIR, "managed-tools", "rg");
+const rgManifestSrc = path.join(rgSrcDir, "rg-manifest.json");
+const rgManifestDest = path.join(rgDestDir, "rg-manifest.json");
+const rgInstallerSrc = path.join(rgSrcDir, "install-rg.mjs");
+const rgInstallerDest = path.join(rgDestDir, "install-rg.mjs");
+
+if (!fs.existsSync(rgManifestSrc)) {
+  console.error(`[user-package] 错误：rg manifest 不存在: ${rgManifestSrc}`);
+  process.exit(1);
+}
+if (!fs.existsSync(rgInstallerSrc)) {
+  console.error(`[user-package] 错误：rg installer 不存在: ${rgInstallerSrc}`);
+  process.exit(1);
+}
+
+fs.rmSync(rgDestDir, { recursive: true, force: true });
+fs.mkdirSync(rgDestDir, { recursive: true });
+fs.copyFileSync(rgManifestSrc, rgManifestDest);
+fs.copyFileSync(rgInstallerSrc, rgInstallerDest);
+console.log(`  ✓ rg-manifest.json 已复制`);
+console.log(`  ✓ install-rg.mjs 已复制`);
+
+// 复制 fixture binary（或真实 binary）到 runtime/<platform>/
+const rgManifest = JSON.parse(fs.readFileSync(rgManifestSrc, "utf8"));
+const rgPlatformEntry = rgManifest.platforms?.[platformKey];
+if (!rgPlatformEntry) {
+  console.error(`[user-package] 错误：rg manifest 未声明当前平台 ${platformKey}`);
+  process.exit(1);
+}
+const rgBinarySrc = path.resolve(rgSrcDir, rgPlatformEntry.path);
+const rgBinaryDest = path.resolve(rgDestDir, rgPlatformEntry.path);
+if (!fs.existsSync(rgBinarySrc)) {
+  console.error(`[user-package] 错误：rg binary 不存在: ${rgBinarySrc}`);
+  process.exit(1);
+}
+fs.mkdirSync(path.dirname(rgBinaryDest), { recursive: true });
+fs.copyFileSync(rgBinarySrc, rgBinaryDest);
+
+// 校验 binary size 与 manifest 声明一致
+const rgBinaryStat = fs.statSync(rgBinaryDest);
+if (rgBinaryStat.size !== rgPlatformEntry.size) {
+  console.error(`[user-package] 错误：rg binary size 不匹配（期望 ${rgPlatformEntry.size}，实际 ${rgBinaryStat.size}）`);
+  process.exit(1);
+}
+console.log(`  ✓ ${rgPlatformEntry.path} 已复制（size=${rgBinaryStat.size} 校验通过）`);
+
+// fixture 模式跳过 SHA256 校验；真实 binary 模式校验 sha256
+if (rgManifest.fixture !== true && rgPlatformEntry.sha256) {
+  const crypto = await import("crypto");
+  const hash = crypto.createHash("sha256");
+  const stream = fs.createReadStream(rgBinaryDest);
+  for await (const chunk of stream) hash.update(chunk);
+  const actualSha = hash.digest("hex");
+  if (actualSha !== rgPlatformEntry.sha256) {
+    console.error(`[user-package] 错误：rg binary sha256 不匹配（期望 ${rgPlatformEntry.sha256}，实际 ${actualSha}）`);
+    process.exit(1);
+  }
+  console.log(`  ✓ rg binary sha256 校验通过`);
+} else {
+  console.log(`  ✓ fixture 模式跳过 sha256 校验`);
+}
+console.log(`  ✓ managed ripgrep 分发元数据已集成到 user-package`);
+
 // 5. 写元数据文件（V17-E1 任务 C：不写 package.json，避免 type=module 影响 main.js CJS 加载）
 //    main.js 是 esbuild format=cjs；若根目录有 package.json 含 "type":"module"，
 //    Node 会把 main.js 当 ESM 解析，导致 require() 失败。
