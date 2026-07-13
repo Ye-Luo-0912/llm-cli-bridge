@@ -303,6 +303,9 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
                 baseURL,
                 model,
                 apiKey,
+                // V20.11: personality/summary 迁移写入 config.toml 单一真相源（仅 codex 生效）
+                codexPersonality: s.codexPersonality,
+                codexReasoningSummary: s.codexReasoningSummary,
               });
               if (result.ok) {
                 const parts = [`已生成：${result.createdFiles.join(", ")}`];
@@ -559,34 +562,8 @@ export class LLMBridgeSettingTab extends PluginSettingTab {
         }),
       );
 
-    new Setting(advancedEl)
-      .setName("Codex personality")
-      .setDesc("Codex app-server 的人格设定（thread/start + turn/start personality 字段）。默认 pragmatic。")
-      .addDropdown((d) => {
-        d.addOption("pragmatic", "pragmatic（务实，默认）");
-        d.addOption("friendly", "friendly（友好）");
-        d.addOption("none", "none（无人格设定）");
-        d.setValue(s.codexPersonality);
-        d.onChange(async (v) => {
-          s.codexPersonality = v as LLMBridgeSettings["codexPersonality"];
-          await this.plugin.saveSettings();
-        });
-      });
-
-    new Setting(advancedEl)
-      .setName("Codex reasoning summary")
-      .setDesc("Codex app-server 的推理摘要详细程度（turn/start summary 字段）。默认 auto。")
-      .addDropdown((d) => {
-        d.addOption("auto", "auto（自动，默认）");
-        d.addOption("concise", "concise（简洁）");
-        d.addOption("detailed", "detailed（详细）");
-        d.addOption("none", "none（不显示）");
-        d.setValue(s.codexReasoningSummary);
-        d.onChange(async (v) => {
-          s.codexReasoningSummary = v as LLMBridgeSettings["codexReasoningSummary"];
-          await this.plugin.saveSettings();
-        });
-      });
+    // V20.11: personality / reasoning summary 移至 config.toml 单一真相源。
+    // 用户通过「打开本地配置文件」直接编辑 config.toml 的 personality / model_reasoning_summary。
 
     new Setting(advancedEl)
       .setName("Custom command")

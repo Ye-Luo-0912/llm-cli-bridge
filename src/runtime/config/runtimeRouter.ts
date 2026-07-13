@@ -425,6 +425,10 @@ export interface SaveProviderFormInput {
   readonly model: string;
   /** 空字符串表示不更新密钥 */
   readonly apiKey?: string;
+  /** Codex-only：personality（写入 config.toml 根表，单一真相源） */
+  readonly codexPersonality?: "none" | "friendly" | "pragmatic";
+  /** Codex-only：reasoning summary（写入 config.toml model_reasoning_summary） */
+  readonly codexReasoningSummary?: "auto" | "concise" | "detailed" | "none";
 }
 
 export interface SaveProviderFormResult {
@@ -472,7 +476,12 @@ export function saveProviderForm(
     writeProviderForm(
       vaultPath,
       provider,
-      { baseURL: input.baseURL, model: input.model },
+      {
+        baseURL: input.baseURL,
+        model: input.model,
+        codexPersonality: input.codexPersonality,
+        codexReasoningSummary: input.codexReasoningSummary,
+      },
     );
     // 记录生成的文件路径
     switch (provider) {

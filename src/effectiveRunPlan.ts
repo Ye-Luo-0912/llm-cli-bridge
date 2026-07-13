@@ -145,9 +145,8 @@ export function buildEffectiveRunPlan(args: {
       approvalPolicy: args.approvalPolicy ?? "on-request",
       approvalsReviewer: args.approvalsReviewer ?? "user",
       sandbox: args.sandbox ?? "workspace-write",
-      // Round 5: personality/summary 为用户可配置设置（settings 单一真相源），不再硬编码
-      personality: settings.codexPersonality ?? "pragmatic",
-      reasoningSummary: settings.codexReasoningSummary ?? "auto",
+      // V20.11: personality/reasoningSummary 移至 config.toml 单一真相源；
+      // turn/start 不再重复发送，由 Codex Runtime 解析 config.toml。
     };
     return codexPlan;
   }
@@ -181,8 +180,8 @@ export function formatEffectiveRunPlan(plan: EffectiveRunPlan): Array<{ label: s
     rows.push({ label: "approvalPolicy", value: plan.approvalPolicy });
     rows.push({ label: "approvalsReviewer", value: plan.approvalsReviewer });
     rows.push({ label: "sandbox", value: plan.sandbox });
-    rows.push({ label: "personality", value: plan.personality });
-    rows.push({ label: "reasoningSummary", value: plan.reasoningSummary });
+    rows.push({ label: "personality", value: "(config.toml)" });
+    rows.push({ label: "reasoningSummary", value: "(config.toml)" });
   } else if (plan.backend === "codex-sdk") {
     rows.push({ label: "sdkConfigSource", value: plan.sdkConfigSource });
   } else {

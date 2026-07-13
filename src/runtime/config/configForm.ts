@@ -28,6 +28,10 @@ export interface ProviderForm {
   readonly baseURL: string;
   /** 模型 ID，如 gpt-5.4 / claude-sonnet-4-5 */
   readonly model: string;
+  /** Codex-only：personality（写入 config.toml 根表，单一真相源） */
+  readonly codexPersonality?: "none" | "friendly" | "pragmatic";
+  /** Codex-only：reasoning summary（写入 config.toml model_reasoning_summary） */
+  readonly codexReasoningSummary?: "auto" | "concise" | "detailed" | "none";
 }
 
 export interface ProviderFormReadResult {
@@ -74,7 +78,20 @@ export function readCodexForm(vaultPath: string): ProviderFormReadResult {
     if (!model && !baseURL) {
       return { ok: true, form: null, localConfigExists: true };
     }
-    return { ok: true, form: { baseURL: baseURL || "", model: model || "" }, localConfigExists: true };
+    // personality / model_reasoning_summary 为 config.toml 单一真相源（V20.11）
+    const personalityRaw = extractTomlString(content, "personality");
+    const summaryRaw = extractTomlString(content, "model_reasoning_summary");
+    const codexPersonality = personalityRaw === "none" || personalityRaw === "friendly" || personalityRaw === "pragmatic"
+      ? personalityRaw
+      : undefined;
+    const codexReasoningSummary = summaryRaw === "auto" || summaryRaw === "concise" || summaryRaw === "detailed" || summaryRaw === "none"
+      ? summaryRaw
+      : undefined;
+    return {
+      ok: true,
+      form: { baseURL: baseURL || "", model: model || "", codexPersonality, codexReasoningSummary },
+      localConfigExists: true,
+    };
   } catch (e) {
     return {
       ok: false,
@@ -88,21 +105,25 @@ export function readCodexForm(vaultPath: string): ProviderFormReadResult {
 /**
  * 生成 Codex config.toml（基于官方文档模板）。
  * Key 不写入文件，由 env_key 引用环境变量 CODEX_RELAY_API_KEY。
- * Round 1：reasoning / personality 等写在根表，不落入 [model_providers.relay]。
+ * V20.11：personality / model_reasoning_summary 写入根表，作为单一真相源；
+ * turn/start 不再重复发送（直接让 Codex Runtime 解析 config.toml）。
  */
 export function writeCodexForm(
   vaultPath: string,
   form: ProviderForm,
 ): void {
+  const personality = form.codexPersonality ?? "pragmatic";
+  const reasoningSummary = form.codexReasoningSummary ?? "auto";
   const lines: string[] = [
     '# Codex 配置 — 由 Bridge 表单生成',
     '# Key 不写入此文件，由环境变量 CODEX_RELAY_API_KEY 注入（见 secrets.env）',
-    '# personality 不在此硬编码：由用户设置控制（settings.codexPersonality），运行时按模型 supportsPersonality 门控',
+    '# personality / model_reasoning_summary 为单一真相源；运行时不再在 turn/start 覆盖',
     '',
     `model = "${form.model}"`,
     'model_provider = "relay"',
-    'model_reasoning_summary = "auto"',
+    `model_reasoning_summary = "${reasoningSummary}"`,
     'model_supports_reasoning_summaries = true',
+    `personality = "${personality}"`,
     '',
     '[model_providers.relay]',
     'name = "Local Relay"',

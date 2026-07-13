@@ -214,10 +214,6 @@ export interface CodexAppServerEffectiveRunPlan extends BaseEffectiveRunPlan {
   approvalsReviewer: string;
   /** 映射后的 sandbox 字符串 */
   sandbox: string;
-  /** Round 5: 用户配置的 personality（settings.codexPersonality，默认 pragmatic） */
-  personality: "none" | "friendly" | "pragmatic";
-  /** Round 5: 用户配置的 reasoning summary（settings.codexReasoningSummary，默认 auto） */
-  reasoningSummary: "auto" | "concise" | "detailed" | "none";
 }
 
 /**

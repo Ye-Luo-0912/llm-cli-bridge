@@ -639,29 +639,11 @@ export class CodexAppServerEventMapper {
       }
       case "reasoning": {
         // item/completed reasoning = 最终权威快照（官方协议）。
-        // summary 优先：若有 summary 用 summary 全文；否则用 raw content 作回退。
-        // 标记 isSnapshot=true：builder 用快照替换累积的 delta，而非追加。
-        const reasoningItem = item as Extract<CodexThreadItem, { type: "reasoning" }> | undefined;
-        const summaryParts = (reasoningItem?.summary ?? [])
-          .filter((part): part is string => typeof part === "string" && part.trim().length > 0);
-        const hasSummary = summaryParts.length > 0;
-        const summaryText = hasSummary ? summaryParts.join("\n") : "";
-        // raw content 仅作回退（无 summary 时）
-        const rawContent = (reasoningItem as { content?: unknown } | undefined)?.content;
-        const rawText = typeof rawContent === "string" ? rawContent : "";
-        const text = hasSummary ? summaryText : rawText;
-        if (!text.trim()) return null; // 空 summary + 空 content：不发事件
-        return {
-          ...base,
-          payload: {
-            kind: "thinking",
-            text,
-            itemId,
-            summaryIndex: 0,
-            isSnapshot: true,
-            isRawFallback: !hasSummary,
-          },
-        };
+        // 按 itemId + summaryIndex 替换全部实时片段（而非只覆盖第 0 段）：
+        // 见 mapItemCompletedReasoningSnapshots。此处按 changeIndex 返回单段
+        // （与 fileChange 同模式）；provider 走数组方法逐段 push。
+        const snaps = this.mapItemCompletedReasoningSnapshots(params);
+        return snaps[changeIndex ?? 0] ?? null;
       }
       case "webSearch": {
         const webItem = item as Extract<CodexThreadItem, { type: "webSearch" }> | undefined;
@@ -720,6 +702,59 @@ export class CodexAppServerEventMapper {
         // completed 时不发独立事件（其 delta 已在 thinking 中累积）
         return null;
     }
+  }
+
+  /**
+   * item/completed (reasoning) → 多条 thinking snapshot（最终权威快照）。
+   *
+   * 官方协议把 item/completed 定义为最终状态来源：按 itemId + summaryIndex 替换
+   * 全部实时 delta 片段，而非只覆盖第 0 段。每个 summary part（或无 summary 时的
+   * content part）各发一个 snapshot 事件，与 delta 阶段 (itemId, summaryIndex)
+   * 分段一一对应（summaryTextDelta.summaryIndex / textDelta.contentIndex）。
+   *
+   * 返回数组（可能为空）：provider 逐条 push。
+   */
+  mapItemCompletedReasoningSnapshots(params: CodexItemCompletedParams): NormalizedRuntimeEvent[] {
+    const ts = new Date().toISOString();
+    const base = {
+      providerId: this.providerId,
+      timestamp: ts,
+      sourceRef: this.sourceRef("item/completed", params),
+      rawProviderEvent: this.developerMode ? { method: "item/completed", params } : undefined,
+    };
+    const item = params.item;
+    const itemId = item?.id ?? params.itemId;
+    const reasoningItem = item as Extract<CodexThreadItem, { type: "reasoning" }> | undefined;
+
+    // ThreadItem.summary / content: Array<string>（兼容 ResponseItem 的 {type,text} 对象形态）
+    const pickText = (v: unknown): string => {
+      if (typeof v === "string") return v;
+      const t = (v as { text?: unknown } | null | undefined)?.text;
+      return typeof t === "string" ? t : "";
+    };
+    const summaryParts = (reasoningItem?.summary ?? [])
+      .map(pickText)
+      .filter((t) => t.trim().length > 0);
+    const hasSummary = summaryParts.length > 0;
+    // summary 优先；无 summary 时回退到 content（raw）
+    const sourceParts = hasSummary
+      ? summaryParts
+      : (reasoningItem?.content ?? [])
+          .map(pickText)
+          .filter((t) => t.trim().length > 0);
+    if (sourceParts.length === 0) return [];
+
+    return sourceParts.map((text, idx) => ({
+      ...base,
+      payload: {
+        kind: "thinking",
+        text,
+        itemId,
+        summaryIndex: idx,
+        isSnapshot: true,
+        isRawFallback: !hasSummary,
+      },
+    }));
   }
 
   // ---------- initialize / turn / thread 事件 ----------

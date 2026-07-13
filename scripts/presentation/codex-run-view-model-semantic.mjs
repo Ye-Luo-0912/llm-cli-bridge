@@ -1,5 +1,5 @@
 // V17-G CodexRunViewModel presentation semantic tests (event-sequence → view model).
-// Agent B owned — import from run-tests.mjs or run standalone via run-presentation-tests.mjs.
+// 独立运行 via run-presentation-tests.mjs。
 
 import { DEFAULT_CODEX_RUN_VIEW_OPTS, mkCodexRunEvent } from "./fixtures/codex-run-events.mjs";
 

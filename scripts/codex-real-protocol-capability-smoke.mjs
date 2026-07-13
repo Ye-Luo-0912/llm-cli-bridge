@@ -398,6 +398,9 @@ async function runTurn({ client, mapper, Builder, providerId, model, name, promp
       const item = params.item;
       if (item?.type === "fileChange" && Array.isArray(item.changes) && item.changes.length > 0) {
         for (let i = 0; i < item.changes.length; i++) ingest(mapper.mapItemCompleted(params, i));
+      } else if (item?.type === "reasoning") {
+        // reasoning：每个 summary/content part 一条 snapshot（按 summaryIndex 替换全部 delta 段）
+        for (const ev of mapper.mapItemCompletedReasoningSnapshots(params)) ingest(ev);
       } else {
         ingest(mapper.mapItemCompleted(params));
       }

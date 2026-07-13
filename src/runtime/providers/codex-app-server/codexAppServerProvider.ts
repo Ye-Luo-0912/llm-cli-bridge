@@ -43,7 +43,6 @@ import {
   buildCodexAppServerEffectiveRunPlan,
   buildCodexAppServerRunOptions,
 } from "./codexAppServerEffectiveRunPlan";
-import { findModelEntry, getRuntimeModelCatalogForAgent } from "../../../runtimeModelCatalog";
 import { AppServerProcessManager, type AppServerProcessLike, type AppServerSpawnOptions } from "./appServerProcessManager";
 import { JsonRpcClient } from "./jsonRpcClient";
 import { buildRuntimeEnv } from "../../config/runtimeRouter";
@@ -345,29 +344,13 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     return buildCodexAppServerEffectiveRunPlan(input, settings);
   }
 
-  /**
-   * V20.10: 查询当前模型的 supportsPersonality 能力。
-   * 从 runtime model catalog 读取；catalog 不可用时默认 true（不阻断）。
-   */
-  private resolveModelSupportsPersonality(model: string): boolean {
-    try {
-      const catalog = getRuntimeModelCatalogForAgent("codex");
-      const entry = findModelEntry(catalog, model);
-      // supportsPersonality 未定义时默认 true（兼容旧 catalog）
-      return entry?.supportsPersonality !== false;
-    } catch {
-      return true;
-    }
-  }
-
   async *run(ctx: RunContext, settings: LLMBridgeSettings): AsyncIterable<NormalizedRuntimeEvent> {
     const developerMode = !!settings.developerMode;
     // 每个 run 用独立 eventMapper，保证 rawProviderEvent 正确填充
     const eventMapper = new CodexAppServerEventMapper(this.providerId, developerMode);
 
-    // 派生 codex 运行参数（V20.10: 传入 supportsPersonality 门控）
-    const supportsPersonality = this.resolveModelSupportsPersonality(ctx.plan.model);
-    const options = buildCodexAppServerRunOptions(ctx.plan, ctx.promptPackage, { supportsPersonality });
+    // 派生 codex 运行参数（V20.11: personality/summary 由 config.toml 单一真相源提供）
+    const options = buildCodexAppServerRunOptions(ctx.plan, ctx.promptPackage);
 
     // V17-E 任务 A：启动 codex app-server 进程（command 来源 = this.codexCommand，env 含 enhanced PATH）
     const process = this.createProcess({
@@ -630,8 +613,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     // 有映射：走 thread/resume 路径
     const developerMode = !!settings.developerMode;
     const eventMapper = new CodexAppServerEventMapper(this.providerId, developerMode);
-    const supportsPersonality = this.resolveModelSupportsPersonality(ctx.plan.model);
-    const options = buildCodexAppServerRunOptions(ctx.plan, ctx.promptPackage, { supportsPersonality });
+    const options = buildCodexAppServerRunOptions(ctx.plan, ctx.promptPackage);
 
     const codexCommand = this.codexCommand;
     const process = this.createProcess({
@@ -763,7 +745,6 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
             cwd: ctx.plan.cwd,
             // Round 1：resume 走 developer 层；不传 baseInstructions
             developerInstructions: options.threadStart.developerInstructions,
-            personality: options.threadStart.personality,
             approvalPolicy: options.threadStart.approvalPolicy,
             approvalsReviewer: options.threadStart.approvalsReviewer,
             sandbox: options.threadStart.sandbox,
@@ -940,7 +921,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       push(eventMapper.mapItemArgumentDelta(params as CodexItemArgumentDeltaParams));
     }));
 
-    // item/completed（官方 nested params.item；fileChange 多 changes 在此展开）
+    // item/completed（官方 nested params.item；fileChange/reasoning 多段在此展开）
     unreg.push(client.onNotification("item/completed", (params) => {
       const completedParams = params as CodexItemCompletedParams;
       const item = completedParams.item;
@@ -953,6 +934,14 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
           }
           return;
         }
+      }
+      // reasoning item：每个 summary/content part 一条 snapshot 事件
+      // （按 itemId + summaryIndex 替换全部实时 delta 片段，官方协议最终权威快照）
+      if (item?.type === "reasoning") {
+        for (const ev of eventMapper.mapItemCompletedReasoningSnapshots(completedParams)) {
+          push(ev);
+        }
+        return;
       }
       push(eventMapper.mapItemCompleted(completedParams));
     }));

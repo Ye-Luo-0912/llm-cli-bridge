@@ -92,8 +92,6 @@ export function buildCodexAppServerEffectiveRunPlan(
       input.promptPackage.userPrompt,
       `model=${settings.model ?? ""}`,
       `effort=${settings.effortLevel ?? ""}`,
-      `personality=${settings.codexPersonality ?? "pragmatic"}`,
-      `summary=${settings.codexReasoningSummary ?? "auto"}`,
       input.promptPackage.attachmentEntries.map((e) => `${e.refId}:${e.packing}`).join("|"),
     ].join("\n---\n")),
     settingSources: [],
@@ -114,11 +112,9 @@ export function buildCodexAppServerEffectiveRunPlan(
 export function buildCodexAppServerRunOptions(
   plan: EffectiveRunPlan,
   promptPackage: BridgePromptPackage,
-  opts?: { experimentalApi?: boolean; supportsPersonality?: boolean },
+  opts?: { experimentalApi?: boolean },
 ): CodexAppServerRunOptions {
   const experimentalApi = !!opts?.experimentalApi;
-  // V20.10: personality 按 supportsPersonality 门控 — 模型不支持时发 "none"
-  const supportsPersonality = opts?.supportsPersonality !== false;
 
   const clientInfo: CodexClientInfo = {
     name: CLIENT_NAME,
@@ -150,12 +146,8 @@ export function buildCodexAppServerRunOptions(
     ? plan.approvalProfile
     : "ask";
   const approvalWire = mapAgentApprovalProfileToCodex(approvalProfile, plan.cwd);
-  // Round 5: personality/reasoningSummary 来自用户设置（settings.codexPersonality/codexReasoningSummary），
-  // 经 CodexAppServerEffectiveRunPlan 传递（单一真相源），不再硬编码。
-  // V20.10: 按 supportsPersonality 门控 — 模型不支持时 personality="none"
-  const userPersonality = plan.backend === "codex-app-server" ? plan.personality : "pragmatic";
-  const personality = supportsPersonality ? userPersonality : "none";
-  const reasoningSummary = plan.backend === "codex-app-server" ? plan.reasoningSummary : "auto";
+  // V20.11: personality / reasoning summary 由 config.toml 单一真相源提供；
+  // thread/start 与 turn/start 均不再发送，直接让 Codex Runtime 解析 config.toml。
   const threadStart: CodexThreadStartParams = {
     config: threadConfig,
     cwd: plan.cwd,
@@ -165,7 +157,6 @@ export function buildCodexAppServerRunOptions(
     approvalPolicy: approvalWire.approvalPolicy,
     approvalsReviewer: approvalWire.approvalsReviewer,
     sandbox: approvalWire.sandbox,
-    personality,
     ephemeral: false,
     sessionStartSource: "clear",
   };
@@ -188,8 +179,6 @@ export function buildCodexAppServerRunOptions(
     input: inputItems,
     effort: plan.effort || undefined,
     model: plan.model || undefined,
-    personality,
-    summary: reasoningSummary,
     approvalPolicy: approvalWire.approvalPolicy,
     approvalsReviewer: approvalWire.approvalsReviewer,
     sandboxPolicy: approvalWire.sandboxPolicy,
@@ -242,8 +231,6 @@ export function computeCodexRunOptionsAuditHash(options: CodexAppServerRunOption
     `turnApprovalsReviewer=${options.turnStart.approvalsReviewer ?? ""}`,
     `turnSandboxPolicy=${JSON.stringify(options.turnStart.sandboxPolicy ?? {})}`,
     `turnModel=${options.turnStart.model ?? ""}`,
-    `turnPersonality=${options.turnStart.personality ?? ""}`,
-    `turnSummary=${options.turnStart.summary ?? ""}`,
     inputItemsStr,
     options.turnStart.effort ?? "",
     attachmentsAudit,
