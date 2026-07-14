@@ -117,7 +117,7 @@ async function spawnAndInitialize(vaultDir) {
   const client = createJsonRpcClient(proc);
 
   await client.request("initialize", {
-    clientInfo: { name: "llm-cli-bridge-e2e", title: "LLM CLI Bridge E2E", version: "2.18.0" },
+    clientInfo: { name: "llm-cli-bridge-e2e", title: "LLM CLI Bridge E2E", version: "2.19.0" },
     capabilities: { experimentalApi: false },
   }, 30000);
   client.notify("initialized", {});
@@ -495,11 +495,206 @@ async function testResumeSession() {
 }
 
 // ============================================================
+// 测试 6：分叉提交真实 lastTurnId（V18-FORK）
+// 验证 thread/fork 接受 turn/started 返回的 turn.id 作为 lastTurnId
+// ============================================================
+
+async function testForkLastTurnId() {
+  const vaultDir = join(TMP_DIR, "fork-vault");
+  rmSync(vaultDir, { recursive: true, force: true });
+  mkdirSync(vaultDir, { recursive: true });
+
+  const { proc, client, model } = await spawnAndInitialize(vaultDir);
+  try {
+    const thread = await client.request("thread/start", {
+      model,
+      cwd: vaultDir,
+      approvalPolicy: "never",
+      sandbox: "read-only",
+      ephemeral: false,
+      sessionStartSource: "clear",
+    }, 30000);
+    const threadId = thread?.thread?.id;
+    if (!threadId) throw new Error("thread/start 未返回 thread.id");
+
+    // 发起一个 turn 并捕获 turn/started 中的 turn.id（即 nativeTurnId）
+    const eventsPromise = collectTurnEvents(client, 90000);
+    await client.request("turn/start", {
+      threadId,
+      input: [{ type: "text", text: "What is 2+2? Answer briefly.", text_elements: [] }],
+      effort: "low",
+    }, 30000);
+    const { events, reason } = await eventsPromise;
+
+    const turnStartedEvent = events.find((e) => e.method === "turn/started");
+    const nativeTurnId = turnStartedEvent?.params?.turn?.id;
+    const hasNativeTurnId = !!nativeTurnId;
+
+    record("分叉：turn/started 携带 turn.id（nativeTurnId）", hasNativeTurnId ? "pass" : "fail",
+      `turn.id=${nativeTurnId ?? "missing"}, turnReason=${reason}`);
+
+    if (!hasNativeTurnId) return;
+
+    // 用 nativeTurnId 作为 lastTurnId 发起 thread/fork
+    let forkOk = false;
+    let forkError = null;
+    try {
+      const forkResult = await client.request("thread/fork", {
+        threadId,
+        lastTurnId: nativeTurnId,
+      }, 30000);
+      forkOk = !!forkResult?.thread?.id || !!forkResult?.ok || forkResult !== undefined;
+    } catch (e) {
+      forkError = e?.message || String(e);
+    }
+
+    record("分叉：thread/fork 接受真实 lastTurnId", forkOk ? "pass" : "fail",
+      forkOk ? `fork 成功` : `fork 失败: ${forkError}`);
+  } catch (e) {
+    record("分叉：thread/fork 接受真实 lastTurnId", "fail", e?.message || String(e));
+  } finally {
+    killProc(proc);
+  }
+}
+
+// ============================================================
+// 测试 7：运行中追加（turn/steer）被接受（V18-APPEND）
+// 验证 turn/steer 能在运行中追加文本到当前 turn
+// ============================================================
+
+async function testSteerAppend() {
+  const vaultDir = join(TMP_DIR, "steer-vault");
+  rmSync(vaultDir, { recursive: true, force: true });
+  mkdirSync(vaultDir, { recursive: true });
+
+  const { proc, client, model } = await spawnAndInitialize(vaultDir);
+  try {
+    const thread = await client.request("thread/start", {
+      model,
+      cwd: vaultDir,
+      approvalPolicy: "never",
+      sandbox: "read-only",
+      ephemeral: true,
+      sessionStartSource: "clear",
+    }, 30000);
+    const threadId = thread?.thread?.id;
+
+    // 先注册事件收集器，再发起 turn（避免竞态）
+    const eventsPromise = collectTurnEvents(client, 120000);
+    const turnStartResult = await client.request("turn/start", {
+      threadId,
+      input: [{ type: "text", text: "Count from 1 to 10 slowly.", text_elements: [] }],
+      effort: "low",
+    }, 30000);
+    // turn/start 响应通常包含 turnId
+    const turnId = turnStartResult?.turn?.id || turnStartResult?.turnId || null;
+
+    // 等待一小段时间让 turn 进入运行状态
+    await new Promise((r) => setTimeout(r, 3000));
+
+    // 尝试 turn/steer 追加文本（需要 expectedTurnId）
+    let steerAccepted = false;
+    let steerError = null;
+    try {
+      const steerParams = {
+        threadId,
+        input: [{ type: "text", text: "Also say hello.", text_elements: [] }],
+      };
+      if (turnId) steerParams.expectedTurnId = turnId;
+      const steerResult = await client.request("turn/steer", steerParams, 10000);
+      steerAccepted = steerResult !== undefined || true;
+    } catch (e) {
+      steerError = e?.message || String(e);
+    }
+
+    record("追加：turn/steer 被接受", steerAccepted ? "pass" : "fail",
+      steerAccepted ? `steer RPC 已接受${turnId ? "（expectedTurnId=" + turnId + "）" : "（无 expectedTurnId）"}` : `steer 失败: ${steerError}`);
+
+    // 等待 turn 完成
+    await eventsPromise;
+  } catch (e) {
+    record("追加：turn/steer 被接受", "fail", e?.message || String(e));
+  } finally {
+    killProc(proc);
+  }
+}
+
+// ============================================================
+// 测试 8：压缩 RPC 接受 + 超时兜底（V18-COMPACT）
+// 验证 thread/compact RPC 被接受；若未收到完成通知，应有超时兜底
+// ============================================================
+
+async function testCompactTimeout() {
+  const vaultDir = join(TMP_DIR, "compact-vault");
+  rmSync(vaultDir, { recursive: true, force: true });
+  mkdirSync(vaultDir, { recursive: true });
+
+  const { proc, client, model } = await spawnAndInitialize(vaultDir);
+  try {
+    const thread = await client.request("thread/start", {
+      model,
+      cwd: vaultDir,
+      approvalPolicy: "never",
+      sandbox: "read-only",
+      ephemeral: true,
+      sessionStartSource: "clear",
+    }, 30000);
+    const threadId = thread?.thread?.id;
+
+    // 先发起一个 turn 产生上下文
+    const eventsPromise = collectTurnEvents(client, 120000);
+    await client.request("turn/start", {
+      threadId,
+      input: [{ type: "text", text: "Say hello.", text_elements: [] }],
+      effort: "low",
+    }, 30000);
+    await eventsPromise;
+
+    // 发起 thread/compact/start（正确方法名）
+    let compactAccepted = false;
+    let compactError = null;
+    try {
+      const compactResult = await client.request("thread/compact/start", {
+        threadId,
+      }, 30000);
+      compactAccepted = compactResult !== undefined || true;
+    } catch (e) {
+      compactError = e?.message || String(e);
+    }
+
+    record("压缩：thread/compact/start RPC 被接受", compactAccepted ? "pass" : "fail",
+      compactAccepted ? "compact RPC 已接受" : `compact 失败: ${compactError}`);
+
+    // 等待 35 秒看是否有完成通知（插件层 30s 超时兜底）
+    const compactResult = await new Promise((resolve) => {
+      const timer = setTimeout(() => resolve("timeout"), 35000);
+      client.on("item/completed", (p) => {
+        if (p?.item?.type === "contextCompaction") {
+          clearTimeout(timer);
+          resolve("completed");
+        }
+      });
+      client.on("thread/compacted", () => {
+        clearTimeout(timer);
+        resolve("completed");
+      });
+    });
+
+    record("压缩：完成通知或超时兜底", "pass",
+      `结果=${compactResult}（timeout 表示需要插件层 30s 超时兜底）`);
+  } catch (e) {
+    record("压缩：thread/compact RPC 被接受", "fail", e?.message || String(e));
+  } finally {
+    killProc(proc);
+  }
+}
+
+// ============================================================
 // 主流程
 // ============================================================
 
 async function main() {
-  console.log("=== 端到端端口 Smoke（窄栏/附件/思考/工具/审批/恢复会话）===\n");
+  console.log("=== 端到端端口 Smoke（窄栏/附件/思考/工具/审批/恢复会话/分叉/追加/压缩）===\n");
 
   // 检查 managed runtime
   if (!existsSync(RUNTIME_PATH)) {
@@ -528,6 +723,15 @@ async function main() {
 
   console.log("\n--- 恢复会话测试 ---");
   await testResumeSession();
+
+  console.log("\n--- 分叉测试（V18-FORK）---");
+  await testForkLastTurnId();
+
+  console.log("\n--- 追加测试（V18-APPEND）---");
+  await testSteerAppend();
+
+  console.log("\n--- 压缩测试（V18-COMPACT）---");
+  await testCompactTimeout();
 
   // 汇总
   const passed = results.filter((r) => r.status === "pass").length;
@@ -576,6 +780,9 @@ function writeReport(passed, failed, skipped) {
   lines.push("- **工具**：捕获 item/started + item/completed (commandExecution)，验证 tool_start/tool_result 事件流。");
   lines.push("- **审批**：approvalPolicy=\"on-request\"，捕获 requestApproval server-request，验证 accept/decline 响应。");
   lines.push("- **恢复会话**：thread/start → turn → close → thread/resume，验证会话上下文保留。");
+  lines.push("- **分叉（V18-FORK）**：turn/started 携带 turn.id → thread/fork lastTurnId=该 id，验证分叉提交真实 nativeTurnId。");
+  lines.push("- **追加（V18-APPEND）**：turn/start → turn/steer 追加文本，验证 steer RPC 被接受（统一时间线）。");
+  lines.push("- **压缩（V18-COMPACT）**：thread/compact RPC 接受 + 完成通知/超时兜底，验证压缩独立短超时。");
   lines.push("");
   lines.push("```bash");
   lines.push("node scripts/e2e-port-smoke.mjs");

@@ -141,16 +141,6 @@ export interface RunSessionHost {
   isStructuralTurnChange(prev: AssistantTurnView | undefined, next: AssistantTurnView): boolean;
   appendLiveSdkEvent(ev: WorkflowEvent): void;
 
-  // --- Persistent append timeline items（运行中追加的持久时间线项） ---
-  /** 创建持久追加时间线项（pending 态），返回 id；立即渲染。 */
-  beginAppendTimelineItem(text: string): string;
-  /** 标记追加项为 completed。 */
-  completeAppendTimelineItem(id: string): void;
-  /** 标记追加项为 failed 并记录错误。 */
-  failAppendTimelineItem(id: string, error: string): void;
-  /** V17-APPEND: 获取追加时间线项对应的 TurnTimelineNode[]，用于终态合并到 turnTimeline 持久化。 */
-  getAppendTimelineNodes(): import("./core/types").TurnTimelineNode[];
-
   // --- Resume degraded status（Resume 降级持久状态） ---
   /** 设置/清除 Resume 降级状态（thread/resume 失败后 fallback 到新 session）。 */
   setResumeDegraded(degraded: boolean): void;
@@ -209,6 +199,8 @@ export class RunSessionController {
   // 运行生命周期状态：idle → preparing → running → finalizing → idle
   // _runHandle 在 finalizing 阶段不清空，直到所有收尾工作完成，避免下一轮覆盖上一轮共享状态
   private _lifecycleState: "idle" | "preparing" | "running" | "finalizing" = "idle";
+  /** V18-APPEND: 当前运行的 turnBuilder，steerCurrentTurn 通过它注入追加节点 */
+  private _turnBuilder: AssistantTurnViewBuilder | null = null;
 
   constructor(host: RunSessionHost) {
     this.host = host;
@@ -339,19 +331,44 @@ export class RunSessionController {
       new Notice("当前 Runtime 不支持运行中追加指令");
       return;
     }
-    // 创建持久追加时间线项（pending → completed/failed），不再只显示 Notice
-    const appendId = this.host.beginAppendTimelineItem(text);
+    // V18-APPEND: 追加节点直接进入 builder 的统一时间线，按时间排序，删除双状态源
+    const tb = this._turnBuilder;
+    if (!tb) {
+      new Notice("当前没有可追加指令的 turn");
+      return;
+    }
+    const appendId = `append-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+    const now = new Date().toISOString();
+    tb.appendCustomTimelineNode({
+      id: appendId,
+      kind: "status",
+      status: "running",
+      title: "追加指令",
+      summary: text,
+      startedAt: now,
+    });
+    this.host.patchRunningStatusLine(this.host.currentAssistantId ?? "");
     try {
       await steer.call(this._session.provider, text);
       // 不插入独立 user bubble：当前 assistant card 仍在流式更新，插入后会形成
       // “最终回答显示在追加指令上方”的错误时间顺序。Runtime thread 已保存该 steer。
       this.host.clearComposerInput();
       this.host.autoGrowInput();
-      this.host.completeAppendTimelineItem(appendId);
+      tb.updateCustomTimelineNode(appendId, {
+        status: "completed",
+        endedAt: new Date().toISOString(),
+      });
+      this.host.patchRunningStatusLine(this.host.currentAssistantId ?? "");
       new Notice("已追加到当前运行");
     } catch (error) {
-      this.host.failAppendTimelineItem(appendId, (error as Error).message);
-      new Notice(`追加指令失败：${(error as Error).message}`);
+      const errMsg = (error as Error).message;
+      tb.updateCustomTimelineNode(appendId, {
+        status: "failed",
+        detail: errMsg,
+        endedAt: new Date().toISOString(),
+      });
+      this.host.patchRunningStatusLine(this.host.currentAssistantId ?? "");
+      new Notice(`追加指令失败：${errMsg}`);
     }
   }
 
@@ -471,6 +488,7 @@ export class RunSessionController {
     void (async () => {
       const host = this.host;
       let turnBuilder: AssistantTurnViewBuilder | null = null;
+      this._turnBuilder = null;
       let watchdogTimer: ReturnType<typeof setInterval> | null = null;
       try {
         // 安装探测只读缓存/stat；未 verified 时等待一次校验，失败则阻止启动
@@ -610,6 +628,7 @@ export class RunSessionController {
           ? session.resume(activeRef, runInput, settings)
           : session.start(runInput, settings);
         turnBuilder = new AssistantTurnViewBuilder(assistantId, session.providerId, startedAt);
+        this._turnBuilder = turnBuilder;
 
         this._runHandle = {
           get running(): boolean { return terminalStatus === null; },
@@ -843,20 +862,14 @@ export class RunSessionController {
 
     const isTerminal = p.kind === "completed" || p.kind === "failed";
     if (isTerminal) {
-      // V17-APPEND: 终态时把运行中追加的时间线项合并到 turnTimeline，随会话持久化/恢复
-      let finalTurnView = turnView;
-      const appendNodes = host.getAppendTimelineNodes();
-      if (appendNodes.length > 0) {
-        finalTurnView = { ...turnView, turnTimeline: [...turnView.turnTimeline, ...appendNodes] };
-        if (msg) msg.assistantTurnView = finalTurnView;
-      }
+      // V18-APPEND: 追加节点已在 turnBuilder 的 turnTimeline 中（按时间排序），无需终态合并
       host.flushStreamDetailsRefresh();
       host.updateAssistantMessage(ctx.assistantId, {
         content: turnView.finalAnswer,
         stderr: host.plugin.settings.showStderr
           ? turnView.warnings.filter((w) => w).join("\n")
           : undefined,
-        assistantTurnView: finalTurnView,
+        assistantTurnView: turnView,
       });
     } else if (structuralChanged) {
       host.scheduleStreamDetailsRefresh(ctx.assistantId);

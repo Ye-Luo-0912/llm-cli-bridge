@@ -109,6 +109,11 @@ export class AssistantTurnViewBuilder {
   private readonly startedAt: string;
   private status: AssistantTurnView["status"] = "running";
 
+  /** V18-FORK: provider-native turnId，从 sourceRef.turnId 提取，分叉时用此字段 */
+  private nativeTurnId: string | undefined;
+  /** V18-APPEND: 统一时间线 — 用户追加指令直接进此数组，toView 时按时间排序合并 */
+  private readonly customTimelineNodes: import("./types").TurnTimelineNode[] = [];
+
   private finalAnswerBuffer = "";
   private hasPartialMessages = false;
   // P4-D: 追踪是否已有 message 事件填充了 finalAnswer（partial 或 full snapshot）。
@@ -171,6 +176,10 @@ export class AssistantTurnViewBuilder {
     this.codexTimelineReducer?.ingest(event);
     if (event.rawProviderEvent !== undefined) {
       this.rawProviderEvents.push(event.rawProviderEvent);
+    }
+    // V18-FORK: 从 sourceRef.turnId 提取 provider-native turnId（turn/started 等事件携带）
+    if (!this.nativeTurnId && event.sourceRef?.turnId) {
+      this.nativeTurnId = event.sourceRef.turnId;
     }
 
     const p = event.payload;
@@ -714,8 +723,18 @@ export class AssistantTurnViewBuilder {
     const thoughts: ThoughtSegment[] = this.thoughtsList.filter(
       (t) => t.text.trim().length > 0 || (t.meta !== undefined && t.meta.length > 0),
     );
+    // V18-APPEND: 合并 codex timeline + custom nodes，按 startedAt 排序（而非拼到末尾）
+    const sdkNodes = this.codexTimelineReducer?.toNodes() ?? [];
+    const mergedTimeline = this.customTimelineNodes.length > 0
+      ? [...sdkNodes, ...this.customTimelineNodes].sort((a, b) => {
+          const ta = a.startedAt ? Date.parse(a.startedAt) : 0;
+          const tb = b.startedAt ? Date.parse(b.startedAt) : 0;
+          return ta - tb;
+        })
+      : sdkNodes;
     return {
       turnId: this.turnId,
+      nativeTurnId: this.nativeTurnId,
       providerId: this.providerId,
       status: this.status,
       process: this.processList,
@@ -724,7 +743,7 @@ export class AssistantTurnViewBuilder {
       fileChanges: this.fileChangeList,
       approvals: Array.from(this.approvalMap.values()),
       userInputRequests: Array.from(this.userInputMap.values()),
-      turnTimeline: this.codexTimelineReducer?.toNodes() ?? [],
+      turnTimeline: mergedTimeline,
       finalAnswer: this.finalAnswerBuffer,
       warnings: this.warnings,
       errors: this.errors,
@@ -735,6 +754,23 @@ export class AssistantTurnViewBuilder {
       durationMs: this.durationMs,
       terminalSessionId: this.terminalSessionId,
     };
+  }
+
+  /**
+   * V18-APPEND: 添加自定义时间线节点（用户追加指令）。
+   * 节点直接进入 turnTimeline，按 startedAt 排序，无需终态合并。
+   */
+  appendCustomTimelineNode(node: import("./types").TurnTimelineNode): void {
+    this.customTimelineNodes.push(node);
+  }
+
+  /**
+   * V18-APPEND: 更新自定义时间线节点状态（pending → completed/failed）。
+   */
+  updateCustomTimelineNode(id: string, patch: Partial<import("./types").TurnTimelineNode>): void {
+    const idx = this.customTimelineNodes.findIndex((n) => n.id === id);
+    if (idx < 0) return;
+    this.customTimelineNodes[idx] = { ...this.customTimelineNodes[idx], ...patch };
   }
 
   private findRunningTool(): ToolSegment | null {

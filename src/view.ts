@@ -254,15 +254,7 @@ interface UserInputDraft {
   stepIndex: number;
 }
 
-/** V17-APPEND: 运行中追加的持久时间线项状态 */
-interface AppendTimelineItem {
-  readonly id: string;
-  readonly text: string;
-  readonly timestamp: string;
-  status: "pending" | "completed" | "failed";
-  error?: string;
-  endedAt?: string;
-}
+// V18-APPEND: AppendTimelineItem 接口已删除，追加节点直接用 TurnTimelineNode
 
 const USER_INPUT_OPTIONS_PER_PAGE = 6;
 
@@ -321,8 +313,7 @@ export class LLMBridgeView extends ItemView {
    * - 历史消息渲染用 aggregateEventsToTimeline(events) 一次性构建
    */
   private liveAggregator: RunStateAggregator = new RunStateAggregator();
-  /** V17-APPEND: 运行中追加的持久时间线项（pending → completed/failed） */
-  private appendTimelineItems: AppendTimelineItem[] = [];
+  // V18-APPEND: appendTimelineItems 已删除，追加节点直接进入 turnBuilder 的统一时间线
   /** V17-RESUME-DEGRADED: Resume 降级持久状态（thread/resume 失败后 fallback 到新 session） */
   private resumeDegradedEl: HTMLElement | null = null;
   private pendingActions: PendingActionEntry[] = [];
@@ -2072,10 +2063,7 @@ export class LLMBridgeView extends ItemView {
       patchRunningStatusLine: (id) => view.patchRunningStatusLine(id),
       isStructuralTurnChange: (prev, next) => view.isStructuralTurnChange(prev, next),
       appendLiveSdkEvent: (ev) => view.appendLiveSdkEvent(ev),
-      beginAppendTimelineItem: (text) => view.beginAppendTimelineItem(text),
-      completeAppendTimelineItem: (id) => view.completeAppendTimelineItem(id),
-      failAppendTimelineItem: (id, error) => view.failAppendTimelineItem(id, error),
-      getAppendTimelineNodes: () => view.getAppendTimelineNodes(),
+      // V18-APPEND: begin/complete/fail/getAppendTimelineNodes 已删除，追加节点在 controller 直接调用 turnBuilder
       setResumeDegraded: (degraded) => view.setResumeDegraded(degraded),
       showRunFlowStarted: (promptLength) => view.showRunFlowStarted(promptLength),
       showRunFlowTrace: (trace, finalStatus) => view.showRunFlowTrace(trace, finalStatus as RunStatus),
@@ -4134,7 +4122,7 @@ export class LLMBridgeView extends ItemView {
     this.messages.push(msg);
     this.currentAssistantId = id;
     this.liveAggregator.reset(); // V2.17-A: 重置聚合器，清空实时 timeline 状态
-    this.appendTimelineItems = []; // V17-APPEND: 清空上一轮追加项
+    // V18-APPEND: appendTimelineItems 已删除，追加节点在 turnBuilder 中随会话生命周期管理
     this.renderMessage(msg);
     return id;
   }
@@ -4250,10 +4238,10 @@ export class LLMBridgeView extends ItemView {
       new Notice("当前会话没有 native thread，无法分叉");
       return;
     }
-    // V17-FORK: 传入目标回答的 turnId，使分叉从指定回答处切断而非整个 thread
-    const lastTurnId = msg.assistantTurnView?.turnId;
+    // V18-FORK: 传入 provider-native turnId（非本地 assistantId），使分叉从指定回答处切断
+    const lastTurnId = msg.assistantTurnView?.nativeTurnId;
     if (!lastTurnId) {
-      new Notice("该回答缺少 turnId，无法定位分叉点");
+      new Notice("该回答缺少 nativeTurnId，无法定位分叉点（旧会话不支持分叉）");
       return;
     }
     this.beginLocalSessionFork();
@@ -5449,55 +5437,8 @@ export class LLMBridgeView extends ItemView {
     this.scheduleLiveTimelineRender();
   }
 
-  // ===== V17-APPEND: 持久追加时间线项（正在追加 → 已追加 → 追加失败） =====
-
-  beginAppendTimelineItem(text: string): string {
-    const item: AppendTimelineItem = {
-      id: `append-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
-      text,
-      timestamp: new Date().toISOString(),
-      status: "pending",
-    };
-    this.appendTimelineItems.push(item);
-    this.scheduleLiveTimelineRender();
-    return item.id;
-  }
-
-  completeAppendTimelineItem(id: string): void {
-    const item = this.appendTimelineItems.find((it) => it.id === id);
-    if (!item) return;
-    item.status = "completed";
-    item.endedAt = new Date().toISOString();
-    this.scheduleLiveTimelineRender();
-  }
-
-  failAppendTimelineItem(id: string, error: string): void {
-    const item = this.appendTimelineItems.find((it) => it.id === id);
-    if (!item) return;
-    item.status = "failed";
-    item.error = error;
-    item.endedAt = new Date().toISOString();
-    this.scheduleLiveTimelineRender();
-  }
-
-  /**
-   * V17-APPEND: 把 appendTimelineItems 转为 TurnTimelineNode[]，供终态合并到
-   * AssistantTurnView.turnTimeline 实现持久化与随会话恢复。
-   */
-  getAppendTimelineNodes(): TurnTimelineNode[] {
-    return this.appendTimelineItems.map((item) => ({
-      id: item.id,
-      kind: "status" as const,
-      status: item.status === "pending" ? "running" as const
-        : item.status === "completed" ? "completed" as const
-        : "failed" as const,
-      title: "追加指令",
-      summary: item.text,
-      detail: item.error,
-      startedAt: item.timestamp,
-      endedAt: item.endedAt,
-    }));
-  }
+  // V18-APPEND: begin/complete/fail/getAppendTimelineNodes 已删除，
+  // 追加节点直接进入 turnBuilder 的统一时间线（按时间排序），不再有独立双状态源。
 
   /** V17-RESUME-DEGRADED: 设置/清除 Resume 降级持久状态 */
   setResumeDegraded(degraded: boolean): void {
@@ -5543,7 +5484,7 @@ export class LLMBridgeView extends ItemView {
       localizeRunStatus: (text) => this.localizeRunStatus(text),
       scrollToBottom: () => this.scrollToBottom(),
       getLiveAggregatorNodes: () => this.liveAggregator.toTimelineNodes(),
-      getAppendTimelineItems: () => this.appendTimelineItems,
+      // V18-APPEND: getAppendTimelineItems 已删除，追加节点通过 turnView.turnTimeline 渲染
     };
   }
 

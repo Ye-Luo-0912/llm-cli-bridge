@@ -57,14 +57,14 @@ export interface PresentationOptions {
 const OCCUPANCY_CHIP_THRESHOLD = 0.35;
 
 /**
- * V17-FORK: 仅 Codex app-server 系列 provider 且存在 turnId 时才支持分叉。
- * Claude/Pi 不显示 fork 按钮，避免点击后才报"不支持"。
+ * V18-FORK: 仅 Codex app-server 系列 provider 且存在 nativeTurnId 时才支持分叉。
+ * 旧会话无 nativeTurnId（仅本地 turnId）时隐藏 fork 按钮。
  */
 function forkableActions(msg: ChatMessage): ReadonlyArray<MessageActionId> {
   const turn = msg.assistantTurnView;
   const isCodex = turn?.providerId === "codex-managed-app-server" || turn?.providerId === "codex-app-server";
-  const hasTurnId = !!(turn?.turnId);
-  return isCodex && hasTurnId ? ["copy", "fork"] : ["copy"];
+  const hasNativeTurnId = !!(turn?.nativeTurnId);
+  return isCodex && hasNativeTurnId ? ["copy", "fork"] : ["copy"];
 }
 
 export function shouldShowContextOccupancyChip(usedRatio: number): boolean {

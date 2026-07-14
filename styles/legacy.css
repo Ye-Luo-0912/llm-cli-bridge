@@ -6453,9 +6453,8 @@
 }
 
 /* ===== V17-G39: codex run hierarchy + calmer topbar/history/composer ===== */
+/* V18-CSS: topbar 布局规则已迁入 shell.css（V17-TOPBAR-2ROW），此处仅保留主题属性 */
 .llm-bridge-topbar {
-  gap: 10px;
-  padding: 12px 18px 10px;
   border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
   background: color-mix(in srgb, var(--background-primary) 94%, transparent);
   backdrop-filter: blur(14px);
@@ -7539,10 +7538,7 @@
 }
 
 /* ===== V17-G42: topbar / sessions / permission / files / run density cleanup ===== */
-.llm-bridge-topbar {
-  gap: 10px !important;
-  padding: 10px 14px 8px !important;
-}
+/* V18-CSS: topbar 布局 !important 已删除，由 shell.css V17-TOPBAR-2ROW 统一管理 */
 
 .llm-bridge-topbar-brand {
   gap: 7px !important;
@@ -8720,10 +8716,8 @@
   background: color-mix(in srgb, var(--interactive-accent) 76%, var(--text-muted)) !important;
 }
 
+/* V18-CSS: topbar 布局 !important 已删除，由 shell.css 统一管理；保留主题属性 */
 .llm-bridge-topbar {
-  min-height: 42px !important;
-  gap: 10px !important;
-  padding: 8px 14px 8px 12px !important;
   border-bottom: 1px solid color-mix(in srgb, var(--text-muted) 8%, transparent) !important;
   background: color-mix(in srgb, var(--background-primary) 98%, transparent) !important;
   backdrop-filter: blur(14px) !important;
@@ -9128,10 +9122,8 @@
 }
 
 /* ===== V17-G59: flatter top shell, denser sessions, lighter run header ===== */
+/* V18-CSS: topbar 布局 !important 已删除，由 shell.css 统一管理；保留主题属性 */
 .llm-bridge-topbar {
-  min-height: 38px !important;
-  gap: 8px !important;
-  padding: 7px 12px 7px 10px !important;
   background: color-mix(in srgb, var(--background-primary) 99%, transparent) !important;
   backdrop-filter: none !important;
 }
@@ -10157,9 +10149,9 @@
 /* ===== V17-G71: selected runtime capabilities are Codex-like composer chips ===== */
 
 /* ===== V17-G72: compact shell chrome, linked session cleanup and calmer menus ===== */
+/* V18-CSS: topbar gap !important 已删除，由 shell.css 统一管理 */
 .llm-bridge-topbar {
   grid-template-columns: auto minmax(0, 1fr) auto !important;
-  gap: 6px !important;
 }
 
 .llm-bridge-topbar-brand {

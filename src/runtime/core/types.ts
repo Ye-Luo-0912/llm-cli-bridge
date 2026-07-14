@@ -609,6 +609,12 @@ export interface SessionDenyEntry {
  */
 export interface AssistantTurnView {
   readonly turnId: string;
+  /**
+   * V18-FORK: provider-native turnId（从 turn/started 或 sourceRef.turnId 获取）。
+   * 分叉时传给 thread/fork 的 lastTurnId 必须用此字段，不能用本地 turnId。
+   * 旧会话无此字段时 fork 按钮隐藏。
+   */
+  readonly nativeTurnId?: string;
   readonly providerId: ProviderId;
   status: "running" | "completed" | "failed" | "stopped";
   readonly process: ReadonlyArray<ProcessSegment>;
