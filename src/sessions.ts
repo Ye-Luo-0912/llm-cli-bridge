@@ -151,6 +151,8 @@ export interface SessionDeleteResult {
   codexSessionFilesDeleted: number;
   codexSessionIndexEntriesDeleted: number;
   providerIds: string[];
+  /** V20-FORK: 删除后被 relink 的孤儿分支数（parentSessionId/rootSessionId 指向被删会话的子分支） */
+  orphanedBranchesRelinked: number;
 }
 
 export interface SessionsClearResult {
@@ -520,6 +522,62 @@ export async function deleteSession(vaultPath: string, sessionId: string): Promi
   }
 }
 
+/**
+ * V20-FORK: 删除父会话后，扫描所有 session 文件，将 parentSessionId/rootSessionId
+ * 指向被删会话的子分支更新为 orphan 状态（置 null），避免悬空引用。
+ *
+ * 规则：
+ * - parentSessionId === deletedSessionId → 置 null（孤儿分支，不再可回到父）
+ * - rootSessionId === deletedSessionId → 置 null（root 已被删，该分支成为新的独立 root）
+ * - 其他字段（forkedFromMessageId/turnId/timestamp/depth/createdAt）保留，用于审计
+ *
+ * best-effort：单个 session 更新失败不影响其他；整体失败不影响删除主流程结果。
+ * @returns 实际 relink 的孤儿分支数
+ */
+export async function relinkOrphanedBranches(
+  vaultPath: string,
+  deletedSessionId: string,
+): Promise<number> {
+  try {
+    validateSessionId(deletedSessionId);
+  } catch {
+    return 0;
+  }
+  const items = await listSessions(vaultPath);
+  let relinked = 0;
+  for (const item of items) {
+    if (!item.branchInfo) continue;
+    const parentMatches = item.branchInfo.parentSessionId === deletedSessionId;
+    const rootMatches = item.branchInfo.rootSessionId === deletedSessionId;
+    if (!parentMatches && !rootMatches) continue;
+    try {
+      const session = await loadSession(vaultPath, item.id);
+      if (!session || !session.branchInfo) continue;
+      const prev = session.branchInfo;
+      const updatedBranchInfo: SessionBranchInfo = {
+        ...prev,
+        rootSessionId: rootMatches ? null : prev.rootSessionId,
+        parentSessionId: parentMatches ? null : prev.parentSessionId,
+      };
+      const updated: PersistedSession = {
+        ...session,
+        branchInfo: updatedBranchInfo,
+        savedAt: new Date().toISOString(),
+      };
+      const dirPath = resolveSessionsDir(vaultPath);
+      const filePath = resolveSessionFilePath(vaultPath, item.id);
+      const tmpPath = path.join(dirPath, `${item.id}.json.tmp`);
+      assertPathWithinSessionsDir(dirPath, tmpPath);
+      await fs.promises.writeFile(tmpPath, JSON.stringify(updated, null, 2), "utf8");
+      await fs.promises.rename(tmpPath, filePath);
+      relinked += 1;
+    } catch {
+      // 单个 session 更新失败不影响其他孤儿分支清理
+    }
+  }
+  return relinked;
+}
+
 export async function deleteSessionWithProviderArtifacts(vaultPath: string, sessionId: string): Promise<SessionDeleteResult> {
   validateSessionId(sessionId);
   const session = await loadSession(vaultPath, sessionId);
@@ -527,11 +585,13 @@ export async function deleteSessionWithProviderArtifacts(vaultPath: string, sess
   const bridgeSessionDeleted = await deleteSession(vaultPath, sessionId);
   // bridge session 文件删除失败时不继续删除全局 Codex 历史，避免本地仍存在 session 却丢失 provider 侧映射
   if (!bridgeSessionDeleted) {
-    return { bridgeSessionDeleted, codexSessionFilesDeleted: 0, codexSessionIndexEntriesDeleted: 0, providerIds };
+    return { bridgeSessionDeleted, codexSessionFilesDeleted: 0, codexSessionIndexEntriesDeleted: 0, providerIds, orphanedBranchesRelinked: 0 };
   }
   const codexSessionFilesDeleted = await deleteCodexSessionFilesByProviderIds(providerIds);
   const codexSessionIndexEntriesDeleted = await deleteCodexSessionIndexEntriesByProviderIds(providerIds);
-  return { bridgeSessionDeleted, codexSessionFilesDeleted, codexSessionIndexEntriesDeleted, providerIds };
+  // V20-FORK: 删除父会话后，relink 指向该会话的子分支，避免悬空引用导致孤儿分支
+  const orphanedBranchesRelinked = await relinkOrphanedBranches(vaultPath, sessionId);
+  return { bridgeSessionDeleted, codexSessionFilesDeleted, codexSessionIndexEntriesDeleted, providerIds, orphanedBranchesRelinked };
 }
 
 export async function clearSessionsWithProviderArtifacts(vaultPath: string): Promise<SessionsClearResult> {

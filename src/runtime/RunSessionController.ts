@@ -791,6 +791,9 @@ export class RunSessionController {
           this._lifecycleState = "idle";
           this._runHandle = null;
           this._turnBuilder = null;
+          // 静默 fork 在开始时同样进入了全局 running 状态。必须经过统一的
+          // 状态复位入口，否则 composer 会一直保留停止图标、禁用发送和进度环。
+          this.host.setGlobalStatus("idle");
           // terminalStatus 由 onTerminal 回调设置（TS 无法追踪回调内赋值），需用 as 绕过收窄
           const status: RunStatus | null = terminalStatus as RunStatus | null;
           if (status === "completed") {

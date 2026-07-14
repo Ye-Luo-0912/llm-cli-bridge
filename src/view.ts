@@ -436,11 +436,10 @@ export class LLMBridgeView extends ItemView {
   private inputEl!: HTMLTextAreaElement;
   private composerEl!: HTMLElement;
   private composerBarEl!: HTMLElement;
-  /** Queued follow-up chip shown above the input while turn/steer is in flight. */
+  /** Queued follow-up prefix row above the input while turn/steer is in flight. */
   private composerPendingSendEl!: HTMLElement;
   private composerPendingSend = false;
   private sendBtn!: HTMLButtonElement;
-  private stopBtn!: HTMLButtonElement;
   private clearBtn!: HTMLButtonElement;
   private pendingActionsEl!: HTMLElement;
   private pendingActionsCountEl!: HTMLElement;
@@ -1068,20 +1067,17 @@ export class LLMBridgeView extends ItemView {
     this.renderModelEffortPicker(rightTools);
 
     const actionCol = rightTools.createDiv({ cls: "llm-bridge-action-col" });
-    this.stopBtn = actionCol.createEl("button", {
-      cls: "llm-bridge-stop-btn",
-      attr: { title: "停止运行", "aria-label": "停止运行" },
-    });
-    this.stopBtn.createEl("span", { cls: "llm-bridge-stop-icon", text: "" });
-    this.stopBtn.style.display = "none";
-    this.stopBtn.addEventListener("click", () => this.runSession.stop());
     this.sendBtn = actionCol.createEl("button", {
       cls: "llm-bridge-send-btn",
       attr: { title: "发送 (Enter)", "aria-label": "发送" },
     });
     setIcon(this.sendBtn.createEl("span", { cls: "llm-bridge-send-icon" }), "arrow-up");
     this.sendBtn.addEventListener("click", () => {
-      void (this.runSession.runHandle ? this.runSession.steerCurrentTurn() : this.runSession.run());
+      if (this.runSession.runHandle) {
+        this.runSession.stop();
+        return;
+      }
+      void this.runSession.run();
     });
 
     // P4-D: 轻量 context tags（替代 Note/Selection 大按钮）
@@ -2199,9 +2195,7 @@ export class LLMBridgeView extends ItemView {
     this.statusDotEl.setAttribute("title", installStatus?.required ? this.formatRuntimeInstallTitle(installStatus) : STATUS_LABEL[status]);
     this.refreshManagedRuntimeInstallAction(installStatus);
     const running = status === "running";
-    // 运行中同时保留停止与发送：发送按钮改为 turn/steer 的“追加指令”。
-    this.stopBtn.style.display = running ? "inline-flex" : "none";
-    this.sendBtn.style.display = "inline-flex";
+    // 发送/停止共用一个主按钮；运行中追加文本继续通过 Enter 触发 turn/steer。
     this.refreshSendButtonState(running);
     // 仅禁用真实 <button>；summary（扳手菜单）不是 button，不可设 disabled
     const allChips = this.contentEl.querySelectorAll(".llm-bridge-chip, .llm-bridge-agent-select, .llm-bridge-composer-tool-btn, .llm-bridge-command-menu-item, .llm-bridge-permission-chip, .llm-bridge-model-effort-chip, .llm-bridge-model-option, .llm-bridge-effort-option");
@@ -2222,6 +2216,18 @@ export class LLMBridgeView extends ItemView {
   private refreshSendButtonState(runningOverride?: boolean): void {
     if (!this.sendBtn) return;
     const running = runningOverride ?? (this.sessionState?.status === "running");
+    this.refreshPrimaryActionVisual(running);
+    if (this.inputEl) {
+      this.inputEl.placeholder = running ? "输入后按 Enter 追加到当前任务…" : "输入消息…";
+    }
+    if (running) {
+      // 主按钮在运行态始终承担停止职责，即使追加 RPC 正在发送也不能禁用停止。
+      this.sendBtn.disabled = false;
+      this.sendBtn.classList.remove("is-unsendable", "is-pending-send");
+      this.sendBtn.setAttribute("title", "停止运行");
+      this.sendBtn.setAttribute("aria-label", "停止运行");
+      return;
+    }
     if (this.composerPendingSend) {
       this.sendBtn.disabled = true;
       this.sendBtn.classList.add("is-unsendable", "is-pending-send");
@@ -2230,15 +2236,6 @@ export class LLMBridgeView extends ItemView {
       return;
     }
     this.sendBtn.classList.remove("is-pending-send");
-    if (running) {
-      const hasText = !!(this.inputEl && this.inputEl.value.trim().length > 0);
-      const canSteer = hasText && this.messageFileRefs.length === 0;
-      this.sendBtn.disabled = !canSteer;
-      this.sendBtn.classList.toggle("is-unsendable", !canSteer);
-      this.sendBtn.setAttribute("title", canSteer ? "追加到当前任务 (Enter)" : "输入文本后追加到当前任务");
-      this.sendBtn.setAttribute("aria-label", canSteer ? "追加指令" : "不可追加");
-      return;
-    }
     const hasText = !!(this.inputEl && this.inputEl.value.trim().length > 0);
     const hasFiles = this.messageFileRefs.length > 0;
     const canSend = hasText || hasFiles;
@@ -2248,8 +2245,23 @@ export class LLMBridgeView extends ItemView {
     this.sendBtn.setAttribute("aria-label", canSend ? "发送" : "不可发送");
   }
 
+  /** 主操作按钮图标只由运行状态决定，避免发送/停止两个 DOM 控件发生状态漂移。 */
+  private refreshPrimaryActionVisual(running: boolean): void {
+    const iconEl = this.sendBtn.querySelector<HTMLElement>(".llm-bridge-send-icon");
+    if (!iconEl) return;
+    const alreadyRunning = this.sendBtn.classList.contains("is-stop-mode");
+    if (alreadyRunning === running) return;
+    this.sendBtn.classList.toggle("is-stop-mode", running);
+    iconEl.empty();
+    if (running) {
+      iconEl.createEl("span", { cls: "llm-bridge-stop-icon" });
+    } else {
+      setIcon(iconEl, "arrow-up");
+    }
+  }
+
   /**
-   * Pending follow-up list above the composer textarea (code-agent style).
+   * Pending follow-up prefix row above the composer textarea (Cursor / code-agent style).
    * Cleared when steer completes or fails; completed feedback lives in the process feed.
    */
   private setComposerPendingSend(pending: boolean, text?: string): void {
@@ -2261,22 +2273,22 @@ export class LLMBridgeView extends ItemView {
       this.composerPendingSendEl.empty();
       if (pending) {
         const loc = resolveUiLocale();
-        const item = this.composerPendingSendEl.createDiv({ cls: "llm-bridge-composer-pending-send-item" });
-        const pendingIcon = item.createEl("span", { cls: "llm-bridge-composer-pending-send-icon" });
-        setIcon(pendingIcon, "loader");
-        const meta = item.createDiv({ cls: "llm-bridge-composer-pending-send-meta" });
-        meta.createEl("span", {
-          cls: "llm-bridge-composer-pending-send-label",
-          text: loc === "en" ? "Sending follow-up" : "正在追加",
-        });
         const body = (text || "").trim();
-        if (body) {
-          meta.createEl("span", {
-            cls: "llm-bridge-composer-pending-send-text",
-            text: body.length > 160 ? `${body.slice(0, 159)}…` : body,
-            attr: { title: body },
-          });
-        }
+        const item = this.composerPendingSendEl.createDiv({ cls: "llm-bridge-composer-pending-send-item" });
+        const pendingIcon = item.createEl("span", {
+          cls: "llm-bridge-composer-pending-send-icon",
+          attr: { "aria-hidden": "true" },
+        });
+        setIcon(pendingIcon, "corner-down-right");
+        item.createEl("span", {
+          cls: "llm-bridge-composer-pending-send-text",
+          text: body
+            ? (body.length > 160 ? `${body.slice(0, 159)}…` : body)
+            : (loc === "en" ? "Sending follow-up…" : "正在追加…"),
+          attr: body
+            ? { title: body, role: "status" }
+            : { role: "status" },
+        });
         this.composerPendingSendEl.removeAttribute("hidden");
       } else {
         this.composerPendingSendEl.setAttribute("hidden", "");
@@ -2663,7 +2675,7 @@ export class LLMBridgeView extends ItemView {
       "Compressing context": "正在压缩上下文",
       "Context compressed": "上下文已压缩",
       "Queuing follow-up": "正在追加",
-      "Follow-up": "追加消息",
+      "Follow-up": "已追加",
       "Follow-up sent": "已追加",
       "Follow-up failed": "追加失败",
       "Queued follow-up": "待追加",
@@ -6813,6 +6825,16 @@ export class LLMBridgeView extends ItemView {
       createdAt,
     };
 
+    // V20-FORK: 保存父会话快照，本地保存失败时回滚（原生 fork 已成功无法撤销，但本地视图回到父会话）
+    const parentSnapshot = {
+      messages: this.messages,
+      currentAssistantId: this.currentAssistantId,
+      currentSessionId: this.currentSessionId,
+      messagesFoldExpanded: this.messagesFoldExpanded,
+      sessionResumed: this.sessionResumed,
+      sessionState: this.sessionState,
+    };
+
     this.messages = inheritedMessages;
     this.currentAssistantId = null;
     this.currentSessionId = childSessionId;
@@ -6831,7 +6853,17 @@ export class LLMBridgeView extends ItemView {
 
     const persisted = await this.persistForkSessionSnapshot();
     if (!persisted) {
-      new Notice("分支已创建，但本地历史暂未保存；发送下一条消息时会再次保存", 5000);
+      // V20-FORK: 回滚到父会话状态，避免半成功状态（原生 thread 已分叉但本地无子分支文件）
+      this.messages = parentSnapshot.messages;
+      this.currentAssistantId = parentSnapshot.currentAssistantId;
+      this.currentSessionId = parentSnapshot.currentSessionId;
+      this.messagesFoldExpanded = parentSnapshot.messagesFoldExpanded;
+      this.sessionResumed = parentSnapshot.sessionResumed;
+      this.sessionState = parentSnapshot.sessionState;
+      this.renderMessagesFromHistory();
+      this.refreshSessionState();
+      this.refreshStatusBar();
+      throw new Error("原生分叉已成功，但本地保存失败；已回滚到父会话视图");
     }
     return branchInfo;
   }
@@ -7321,7 +7353,10 @@ export class LLMBridgeView extends ItemView {
       const nativeSuffix = nativeDeleted > 0
         ? `；已同步删除 ${nativeDeleted} 条 Codex 原生记录`
         : "";
-      new Notice(`已删除历史会话：${title}${nativeSuffix}`);
+      const orphanSuffix = result.orphanedBranchesRelinked > 0
+        ? `；已 relink ${result.orphanedBranchesRelinked} 个孤儿分支`
+        : "";
+      new Notice(`已删除历史会话：${title}${nativeSuffix}${orphanSuffix}`);
       // 若删除的是当前活动会话，清空 currentSessionId
       if (this.currentSessionId === sessionId) {
         this.currentSessionId = null;
@@ -7473,12 +7508,14 @@ export class LLMBridgeView extends ItemView {
     const vaultPath = (this.app.vault.adapter as unknown as { getBasePath: () => string }).getBasePath();
     let bridgeDeleted = 0;
     let codexNativeDeleted = 0;
+    let orphanedRelinked = 0;
     let deletedCurrent = false;
     for (const item of selectedItems) {
       const result = await deleteSessionWithProviderArtifacts(vaultPath, item.id);
       if (!result.bridgeSessionDeleted) continue;
       bridgeDeleted += 1;
       codexNativeDeleted += result.codexSessionFilesDeleted + result.codexSessionIndexEntriesDeleted;
+      orphanedRelinked += result.orphanedBranchesRelinked;
       if (this.currentSessionId === item.id) deletedCurrent = true;
     }
 
@@ -7490,7 +7527,8 @@ export class LLMBridgeView extends ItemView {
       this.doNewSession();
     }
     this.renderHistoryList();
-    new Notice(`已删除 ${bridgeDeleted} 个 Bridge 会话；同步删除 ${codexNativeDeleted} 条 Codex 原生记录`);
+    const orphanPart = orphanedRelinked > 0 ? `；relink ${orphanedRelinked} 个孤儿分支` : "";
+    new Notice(`已删除 ${bridgeDeleted} 个 Bridge 会话；同步删除 ${codexNativeDeleted} 条 Codex 原生记录${orphanPart}`);
   }
 
   private async refreshAgentSkillsManifestOnly(): Promise<void> {
