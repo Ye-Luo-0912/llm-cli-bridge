@@ -356,10 +356,10 @@ function formatCodexFeedItemLabel(item: CodexRunFeedItem): string {
     if (tone === "append") {
       if (loc === "zh") {
         if (failed) return "追加失败";
-        return active ? "正在追加" : "追加消息";
+        return active ? "正在追加" : "已追加";
       }
       if (failed) return "Follow-up failed";
-      return active ? "Queuing follow-up" : "Follow-up";
+      return active ? "Queuing follow-up" : "Follow-up sent";
     }
   }
   if (item.kind === "command") return formatCommandRowTitle(item);
@@ -385,9 +385,10 @@ function formatCodexFeedItemLabel(item: CodexRunFeedItem): string {
 }
 
 /**
- * Quiet agent-style status row: compaction chip / completed follow-up.
- * Append rows are trailing (right-aligned) user-follow-up chips — more prominent
- * than muted process chrome. Pending appends live above the composer.
+ * Quiet agent-style status row: compaction chip / completed follow-up prefix.
+ * Append rows use the same ↳ prefix language as the composer pending row —
+ * more prominent than muted process chrome, not a pill/chip.
+ * Pending appends live above the composer.
  */
 function renderCodexFeedStatus(
   parent: HTMLElement,
@@ -406,36 +407,34 @@ function renderCodexFeedStatus(
       `is-${item.status}`,
       `is-tone-${tone}`,
       isLive ? "is-status-live" : "is-status-done",
-      isAppend ? "is-trailing" : "",
       failed ? "is-failed" : "",
     ].filter(Boolean).join(" "),
   });
   row.setAttribute("data-step-kind", "status");
   if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
 
-  const shell = isAppend
-    ? row.createDiv({ cls: "llm-bridge-codex-append-chip" })
-    : row;
+  const icon = row.createEl("span", { cls: "llm-bridge-codex-status-icon" });
+  setIcon(icon, isAppend ? "corner-down-right" : (item.icon || "circle"));
 
-  const icon = shell.createEl("span", { cls: "llm-bridge-codex-status-icon" });
-  setIcon(icon, item.icon || "circle");
+  const main = row.createDiv({ cls: "llm-bridge-codex-status-main" });
+  const body = (item.summary || "").trim();
 
-  const main = shell.createDiv({ cls: "llm-bridge-codex-status-main" });
+  if (isAppend) {
+    // Prefix row: arrow + follow-up text (label only as failure fallback).
+    const display = body || formatCodexFeedItemLabel(item);
+    main.createEl("span", {
+      cls: "llm-bridge-codex-status-body",
+      text: display.length > 160 ? `${display.slice(0, 159)}…` : display,
+      attr: { title: body || display },
+    });
+    return;
+  }
+
   const label = formatCodexFeedItemLabel(item);
   main.createEl("span", {
     cls: `llm-bridge-codex-status-label${isLive ? " llm-bridge-run-glow" : ""}`,
     text: label,
   });
-
-  const body = (item.summary || "").trim();
-  // Follow-up: show user text prominently inside the trailing chip
-  if (isAppend && body) {
-    main.createEl("span", {
-      cls: "llm-bridge-codex-status-body",
-      text: body.length > 96 ? `${body.slice(0, 95)}…` : body,
-      attr: { title: body },
-    });
-  }
 }
 
 function feedItemHasExpandableDetail(item: CodexRunFeedItem): boolean {
@@ -529,7 +528,7 @@ function renderCodexFeedNarrative(
 /**
  * 渲染单个 feed item：
  * - thinking/assistant：安静过程行
- * - status（compaction）：安静状态 chip 行；append 完成后右侧 trailing 状态
+ * - status（compaction）：安静状态 chip 行；append 完成后 ↳ 前缀行
  * - 命令/文件/工具：可点击展开的 details（折叠态单行简介，展开后看 shell/diff）
  */
 export function renderCodexFeedItem(

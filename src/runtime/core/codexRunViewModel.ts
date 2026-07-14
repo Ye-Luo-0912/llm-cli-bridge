@@ -653,15 +653,15 @@ function buildFeedItems(
       continue;
     }
     if (card.kind === "status") {
-      // Pending follow-ups are owned by the composer pending list; only
-      // completed/failed appends appear as quiet trailing rows in the process feed.
+      // Pending follow-ups are owned by the composer pending prefix; only
+      // completed/failed appends appear as quiet prefix rows in the process feed.
       if (card.tone === "append" && (card.status === "running" || card.status === "pending")) {
         continue;
       }
       const icon = card.tone === "compaction"
         ? "minimize-2"
         : card.tone === "append"
-          ? "corner-down-left"
+          ? "corner-down-right"
           : stepIcon("status");
       feed.push({
         id: `feed-${card.id}`,
@@ -791,7 +791,7 @@ function buildStepGroups(model: AgentRunDisplayModel): CodexRunStepGroup[] {
         icon: card.tone === "compaction"
           ? "minimize-2"
           : card.tone === "append"
-            ? "corner-down-left"
+            ? "corner-down-right"
             : stepIcon("status"),
         label: card.title,
         status: card.status,

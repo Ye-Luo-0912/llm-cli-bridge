@@ -178,7 +178,7 @@
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-thinking-line,
-.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-status-line:not(.is-trailing),
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-status-line,
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-feed-entry {
   margin-left: 0;
   margin-right: 0;
@@ -1222,7 +1222,7 @@
   white-space: pre-wrap;
 }
 
-/* ===== Quiet status rows: context compaction + trailing follow-up ===== */
+/* ===== Quiet status rows: context compaction + follow-up prefix ===== */
 .llm-bridge-codex-status-line {
   display: flex;
   align-items: flex-start;
@@ -1300,73 +1300,50 @@
   color: color-mix(in srgb, var(--text-muted) 70%, var(--interactive-accent));
 }
 
-/* Completed follow-up: trailing user-message chip — clearer than muted process rows */
-.llm-bridge-codex-status-line.is-tone-append,
-.llm-bridge-codex-status-line.is-trailing {
-  justify-content: flex-end;
-  align-items: center;
+/* Completed follow-up: Cursor-style ↳ prefix — clearer than muted process rows, not a pill */
+.llm-bridge-codex-status-line.is-tone-append {
+  justify-content: flex-start;
+  align-items: flex-start;
   width: 100%;
-  margin: 8px 0 6px;
+  margin: 6px 0;
   color: var(--text-normal);
 }
 
-.llm-bridge-codex-append-chip {
-  display: inline-flex;
-  align-items: flex-start;
-  gap: 7px;
-  max-width: min(85%, 42rem);
-  padding: 7px 10px 7px 9px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--interactive-accent) 22%, var(--background-modifier-border));
-  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
-  box-shadow: none;
-}
-
 .llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-icon {
-  color: color-mix(in srgb, var(--interactive-accent) 55%, var(--text-muted));
+  color: color-mix(in srgb, var(--text-muted) 55%, var(--text-normal));
   opacity: 1;
   margin-top: 2px;
+}
+
+.llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-icon svg {
+  width: 13px;
+  height: 13px;
 }
 
 .llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-main {
   flex: 1 1 auto;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: center;
-  gap: 2px;
-  text-align: right;
+  gap: 0;
+  text-align: left;
   min-width: 0;
-}
-
-.llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-label {
-  color: color-mix(in srgb, var(--interactive-accent) 48%, var(--text-muted));
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  opacity: 1;
 }
 
 .llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-body {
   display: block;
   max-width: 100%;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre-wrap;
+  word-break: break-word;
   opacity: 1;
   color: var(--text-normal);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 500;
   line-height: 1.4;
 }
 
-.llm-bridge-codex-status-line.is-tone-append.is-failed .llm-bridge-codex-append-chip {
-  border-color: color-mix(in srgb, var(--text-error) 35%, var(--background-modifier-border));
-  background: color-mix(in srgb, var(--text-error) 8%, var(--background-primary));
-}
-
 .llm-bridge-codex-status-line.is-tone-append.is-failed .llm-bridge-codex-status-icon,
-.llm-bridge-codex-status-line.is-tone-append.is-failed .llm-bridge-codex-status-label,
 .llm-bridge-codex-status-line.is-tone-append.is-failed .llm-bridge-codex-status-body {
   color: var(--text-error);
   opacity: 1;
@@ -1377,6 +1354,6 @@
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-status-line.is-tone-append {
-  margin: 8px 0 6px;
+  margin: 6px 0;
 }
 

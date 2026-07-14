@@ -2546,57 +2546,7 @@
   animation: llm-bridge-pulse 1.2s infinite;
 }
 
-/* ===== V17-APPEND: 持久追加时间线项（正在追加 → 已追加 → 追加失败） ===== */
-.llm-bridge-tl-append {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 3px 6px;
-  border-radius: 4px;
-  background: var(--background-secondary);
-  margin-bottom: 2px;
-  font-size: 12px;
-}
-.llm-bridge-tl-append::before { display: none; }
-.llm-bridge-tl-append-icon.is-spinning {
-  animation: llm-bridge-spin 1s linear infinite;
-}
-.llm-bridge-tl-append.is-pending .llm-bridge-tl-append-icon { color: var(--text-muted); }
-.llm-bridge-tl-append.is-completed .llm-bridge-tl-append-icon { color: var(--text-success, #4caf50); }
-.llm-bridge-tl-append.is-failed .llm-bridge-tl-append-icon { color: var(--text-error, #f44336); }
-.llm-bridge-tl-append.is-failed {
-  /* V17-APPEND-UI: 不使用红色大背景卡片，只染红图标和文字 */
-}
-.llm-bridge-tl-append-label {
-  font-weight: 600;
-  color: var(--text-normal);
-}
-.llm-bridge-tl-append.is-pending .llm-bridge-tl-append-label { color: var(--text-muted); }
-.llm-bridge-tl-append.is-completed .llm-bridge-tl-append-label { color: var(--text-success, #4caf50); }
-.llm-bridge-tl-append.is-failed .llm-bridge-tl-append-label { color: var(--text-error, #f44336); }
-.llm-bridge-tl-append-time {
-  color: var(--text-faint);
-  font-family: var(--font-monospace);
-  font-size: 10px;
-  margin-left: auto;
-}
-.llm-bridge-tl-append-text {
-  display: block;
-  color: var(--text-normal);
-  word-break: break-word;
-  white-space: pre-wrap;
-}
-.llm-bridge-tl-append-error {
-  display: block;
-  margin-top: 2px;
-  color: var(--text-error, #f44336);
-  font-size: 11px;
-}
-@keyframes llm-bridge-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-/* V17-RESUME-DEGRADED: Resume 降级持久状态横幅 */
+/* ===== V17-RESUME-DEGRADED: Resume 降级持久状态横幅 ===== */
 .llm-bridge-resume-degraded-banner {
   display: flex;
   align-items: center;
@@ -11070,8 +11020,7 @@
 
 .llm-bridge-composer-tool-btn,
 .llm-bridge-model-effort-chip,
-.llm-bridge-send-btn,
-.llm-bridge-stop-btn {
+.llm-bridge-send-btn {
   height: 28px;
   min-width: 28px;
   border-radius: 8px;
@@ -13592,15 +13541,14 @@
   background: var(--background-modifier-active-hover);
 }
 
-/* ===== Send / Stop：可发送 vs 不可发送一眼可辨；运行中停止钮独立红色 ===== */
+/* ===== 单一主操作按钮：空闲发送，运行中原位切换为停止 ===== */
 .llm-bridge-action-col {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.llm-bridge-send-btn,
-.llm-bridge-stop-btn {
+.llm-bridge-send-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -13636,20 +13584,15 @@
   transform: none;
 }
 
-.llm-bridge-send-btn svg,
-.llm-bridge-stop-btn svg {
+.llm-bridge-send-btn svg {
   width: 16px;
   height: 16px;
   stroke-width: 2.25;
 }
 
-.llm-bridge-stop-btn {
-  background: color-mix(in srgb, var(--text-error, #e74c3c) 88%, #000);
-  color: #fff;
-}
-
-.llm-bridge-stop-btn:hover:not(:disabled) {
-  filter: brightness(1.08);
+.llm-bridge-send-btn.is-stop-mode {
+  background: var(--text-normal);
+  color: var(--background-primary);
 }
 
 .llm-bridge-stop-icon {
@@ -13665,18 +13608,18 @@
   color: inherit;
 }
 
-/* ===== Pending follow-up list (above composer — primary in-flight append UI) ===== */
+/* ===== Pending follow-up prefix (above composer — Cursor / code-agent style) ===== */
 .llm-bridge-composer-pending-send {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin: 0 0 8px;
-  padding: 0;
+  gap: 2px;
+  margin: 0 0 4px;
+  padding: 0 2px;
   border: none;
   background: transparent;
   font-family: var(--font-interface);
   font-size: var(--font-ui-small, 13px);
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .llm-bridge-composer-pending-send[hidden] {
@@ -13686,14 +13629,12 @@
 .llm-bridge-composer-pending-send-item {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
-  border-left: 3px solid color-mix(in srgb, var(--interactive-accent) 72%, transparent);
-  background: color-mix(in srgb, var(--interactive-accent) 11%, var(--background-primary));
-  color: var(--text-normal);
+  padding: 1px 0 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
 }
 
 .llm-bridge-composer-pending-send-icon {
@@ -13702,9 +13643,8 @@
   height: 14px;
   margin-top: 2px;
   flex: 0 0 auto;
-  opacity: 1;
-  color: color-mix(in srgb, var(--interactive-accent) 70%, var(--text-muted));
-  animation: llm-bridge-codex-working-shimmer 2.4s ease-in-out infinite;
+  color: var(--text-faint);
+  opacity: 0.95;
 }
 
 .llm-bridge-composer-pending-send-icon svg {
@@ -13712,33 +13652,16 @@
   height: 14px;
 }
 
-.llm-bridge-composer-pending-send-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.llm-bridge-composer-pending-send-text {
   min-width: 0;
   flex: 1 1 auto;
-}
-
-.llm-bridge-composer-pending-send-label {
-  color: color-mix(in srgb, var(--interactive-accent) 42%, var(--text-muted));
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-}
-
-.llm-bridge-composer-pending-send-text {
-  color: var(--text-normal);
-  font-size: 13px;
-  font-weight: 500;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 450;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 4.8em;
+  max-height: 4.2em;
   overflow: hidden;
-}
-
-.llm-bridge-composer-bar.is-pending-send {
-  border-color: color-mix(in srgb, var(--interactive-accent) 32%, var(--background-modifier-border));
 }
 
 .llm-bridge-input.is-pending-send {
@@ -14905,7 +14828,7 @@
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-thinking-line,
-.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-status-line:not(.is-trailing),
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-status-line,
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-feed-entry {
   margin-left: 0;
   margin-right: 0;
@@ -15949,7 +15872,7 @@
   white-space: pre-wrap;
 }
 
-/* ===== Quiet status rows: context compaction + trailing follow-up ===== */
+/* ===== Quiet status rows: context compaction + follow-up prefix ===== */
 .llm-bridge-codex-status-line {
   display: flex;
   align-items: flex-start;
@@ -16027,73 +15950,50 @@
   color: color-mix(in srgb, var(--text-muted) 70%, var(--interactive-accent));
 }
 
-/* Completed follow-up: trailing user-message chip — clearer than muted process rows */
-.llm-bridge-codex-status-line.is-tone-append,
-.llm-bridge-codex-status-line.is-trailing {
-  justify-content: flex-end;
-  align-items: center;
+/* Completed follow-up: Cursor-style ↳ prefix — clearer than muted process rows, not a pill */
+.llm-bridge-codex-status-line.is-tone-append {
+  justify-content: flex-start;
+  align-items: flex-start;
   width: 100%;
-  margin: 8px 0 6px;
+  margin: 6px 0;
   color: var(--text-normal);
 }
 
-.llm-bridge-codex-append-chip {
-  display: inline-flex;
-  align-items: flex-start;
-  gap: 7px;
-  max-width: min(85%, 42rem);
-  padding: 7px 10px 7px 9px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--interactive-accent) 22%, var(--background-modifier-border));
-  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
-  box-shadow: none;
-}
-
 .llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-icon {
-  color: color-mix(in srgb, var(--interactive-accent) 55%, var(--text-muted));
+  color: color-mix(in srgb, var(--text-muted) 55%, var(--text-normal));
   opacity: 1;
   margin-top: 2px;
+}
+
+.llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-icon svg {
+  width: 13px;
+  height: 13px;
 }
 
 .llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-main {
   flex: 1 1 auto;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   justify-content: center;
-  gap: 2px;
-  text-align: right;
+  gap: 0;
+  text-align: left;
   min-width: 0;
-}
-
-.llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-label {
-  color: color-mix(in srgb, var(--interactive-accent) 48%, var(--text-muted));
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-  opacity: 1;
 }
 
 .llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-body {
   display: block;
   max-width: 100%;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre-wrap;
+  word-break: break-word;
   opacity: 1;
   color: var(--text-normal);
-  font-size: 12.5px;
+  font-size: 13px;
   font-weight: 500;
   line-height: 1.4;
 }
 
-.llm-bridge-codex-status-line.is-tone-append.is-failed .llm-bridge-codex-append-chip {
-  border-color: color-mix(in srgb, var(--text-error) 35%, var(--background-modifier-border));
-  background: color-mix(in srgb, var(--text-error) 8%, var(--background-primary));
-}
-
 .llm-bridge-codex-status-line.is-tone-append.is-failed .llm-bridge-codex-status-icon,
-.llm-bridge-codex-status-line.is-tone-append.is-failed .llm-bridge-codex-status-label,
 .llm-bridge-codex-status-line.is-tone-append.is-failed .llm-bridge-codex-status-body {
   color: var(--text-error);
   opacity: 1;
@@ -16104,7 +16004,7 @@
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-status-line.is-tone-append {
-  margin: 8px 0 6px;
+  margin: 6px 0;
 }
 
 

@@ -2543,57 +2543,7 @@
   animation: llm-bridge-pulse 1.2s infinite;
 }
 
-/* ===== V17-APPEND: 持久追加时间线项（正在追加 → 已追加 → 追加失败） ===== */
-.llm-bridge-tl-append {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 3px 6px;
-  border-radius: 4px;
-  background: var(--background-secondary);
-  margin-bottom: 2px;
-  font-size: 12px;
-}
-.llm-bridge-tl-append::before { display: none; }
-.llm-bridge-tl-append-icon.is-spinning {
-  animation: llm-bridge-spin 1s linear infinite;
-}
-.llm-bridge-tl-append.is-pending .llm-bridge-tl-append-icon { color: var(--text-muted); }
-.llm-bridge-tl-append.is-completed .llm-bridge-tl-append-icon { color: var(--text-success, #4caf50); }
-.llm-bridge-tl-append.is-failed .llm-bridge-tl-append-icon { color: var(--text-error, #f44336); }
-.llm-bridge-tl-append.is-failed {
-  /* V17-APPEND-UI: 不使用红色大背景卡片，只染红图标和文字 */
-}
-.llm-bridge-tl-append-label {
-  font-weight: 600;
-  color: var(--text-normal);
-}
-.llm-bridge-tl-append.is-pending .llm-bridge-tl-append-label { color: var(--text-muted); }
-.llm-bridge-tl-append.is-completed .llm-bridge-tl-append-label { color: var(--text-success, #4caf50); }
-.llm-bridge-tl-append.is-failed .llm-bridge-tl-append-label { color: var(--text-error, #f44336); }
-.llm-bridge-tl-append-time {
-  color: var(--text-faint);
-  font-family: var(--font-monospace);
-  font-size: 10px;
-  margin-left: auto;
-}
-.llm-bridge-tl-append-text {
-  display: block;
-  color: var(--text-normal);
-  word-break: break-word;
-  white-space: pre-wrap;
-}
-.llm-bridge-tl-append-error {
-  display: block;
-  margin-top: 2px;
-  color: var(--text-error, #f44336);
-  font-size: 11px;
-}
-@keyframes llm-bridge-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
-/* V17-RESUME-DEGRADED: Resume 降级持久状态横幅 */
+/* ===== V17-RESUME-DEGRADED: Resume 降级持久状态横幅 ===== */
 .llm-bridge-resume-degraded-banner {
   display: flex;
   align-items: center;

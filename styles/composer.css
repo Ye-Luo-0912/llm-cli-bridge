@@ -365,8 +365,7 @@
 
 .llm-bridge-composer-tool-btn,
 .llm-bridge-model-effort-chip,
-.llm-bridge-send-btn,
-.llm-bridge-stop-btn {
+.llm-bridge-send-btn {
   height: 28px;
   min-width: 28px;
   border-radius: 8px;
@@ -2887,15 +2886,14 @@
   background: var(--background-modifier-active-hover);
 }
 
-/* ===== Send / Stop：可发送 vs 不可发送一眼可辨；运行中停止钮独立红色 ===== */
+/* ===== 单一主操作按钮：空闲发送，运行中原位切换为停止 ===== */
 .llm-bridge-action-col {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 
-.llm-bridge-send-btn,
-.llm-bridge-stop-btn {
+.llm-bridge-send-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -2931,20 +2929,15 @@
   transform: none;
 }
 
-.llm-bridge-send-btn svg,
-.llm-bridge-stop-btn svg {
+.llm-bridge-send-btn svg {
   width: 16px;
   height: 16px;
   stroke-width: 2.25;
 }
 
-.llm-bridge-stop-btn {
-  background: color-mix(in srgb, var(--text-error, #e74c3c) 88%, #000);
-  color: #fff;
-}
-
-.llm-bridge-stop-btn:hover:not(:disabled) {
-  filter: brightness(1.08);
+.llm-bridge-send-btn.is-stop-mode {
+  background: var(--text-normal);
+  color: var(--background-primary);
 }
 
 .llm-bridge-stop-icon {
@@ -2960,18 +2953,18 @@
   color: inherit;
 }
 
-/* ===== Pending follow-up list (above composer — primary in-flight append UI) ===== */
+/* ===== Pending follow-up prefix (above composer — Cursor / code-agent style) ===== */
 .llm-bridge-composer-pending-send {
   display: flex;
   flex-direction: column;
-  gap: 5px;
-  margin: 0 0 8px;
-  padding: 0;
+  gap: 2px;
+  margin: 0 0 4px;
+  padding: 0 2px;
   border: none;
   background: transparent;
   font-family: var(--font-interface);
   font-size: var(--font-ui-small, 13px);
-  line-height: 1.35;
+  line-height: 1.4;
 }
 
 .llm-bridge-composer-pending-send[hidden] {
@@ -2981,14 +2974,12 @@
 .llm-bridge-composer-pending-send-item {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--interactive-accent) 28%, var(--background-modifier-border));
-  border-left: 3px solid color-mix(in srgb, var(--interactive-accent) 72%, transparent);
-  background: color-mix(in srgb, var(--interactive-accent) 11%, var(--background-primary));
-  color: var(--text-normal);
+  padding: 1px 0 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
 }
 
 .llm-bridge-composer-pending-send-icon {
@@ -2997,9 +2988,8 @@
   height: 14px;
   margin-top: 2px;
   flex: 0 0 auto;
-  opacity: 1;
-  color: color-mix(in srgb, var(--interactive-accent) 70%, var(--text-muted));
-  animation: llm-bridge-codex-working-shimmer 2.4s ease-in-out infinite;
+  color: var(--text-faint);
+  opacity: 0.95;
 }
 
 .llm-bridge-composer-pending-send-icon svg {
@@ -3007,33 +2997,16 @@
   height: 14px;
 }
 
-.llm-bridge-composer-pending-send-meta {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.llm-bridge-composer-pending-send-text {
   min-width: 0;
   flex: 1 1 auto;
-}
-
-.llm-bridge-composer-pending-send-label {
-  color: color-mix(in srgb, var(--interactive-accent) 42%, var(--text-muted));
-  font-size: 11px;
-  font-weight: 650;
-  letter-spacing: 0.02em;
-}
-
-.llm-bridge-composer-pending-send-text {
-  color: var(--text-normal);
-  font-size: 13px;
-  font-weight: 500;
+  color: var(--text-muted);
+  font-size: 12.5px;
+  font-weight: 450;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 4.8em;
+  max-height: 4.2em;
   overflow: hidden;
-}
-
-.llm-bridge-composer-bar.is-pending-send {
-  border-color: color-mix(in srgb, var(--interactive-accent) 32%, var(--background-modifier-border));
 }
 
 .llm-bridge-input.is-pending-send {
