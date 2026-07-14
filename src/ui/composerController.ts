@@ -45,6 +45,7 @@ export interface ComposerAttachmentTokenDeps {
     options: { allowRemove: boolean; allowOpen: boolean },
   ) => void;
   closeAttachmentContextMenu: () => void;
+  removeMessageFileRef: (id: string) => void;
 }
 
 export interface ComposerAttachmentMenuDeps {
@@ -477,6 +478,23 @@ export function renderComposerAttachmentToken(
     deps.closeAttachmentContextMenu();
     deps.openFileRefPreview(ref);
   });
+  if (allowRemove) {
+    const removeBtn = token.createEl("button", {
+      cls: "llm-bridge-attachment-token-remove",
+      attr: {
+        type: "button",
+        title: "移除附件",
+        "aria-label": `移除 ${ref.displayName}`,
+      },
+    });
+    setIcon(removeBtn, "x");
+    removeBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      deps.closeAttachmentContextMenu();
+      fadeOutAttachmentTokenThen(ref.id, () => deps.removeMessageFileRef(ref.id));
+    });
+  }
   token.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     event.stopPropagation();

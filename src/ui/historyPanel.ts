@@ -53,9 +53,13 @@ export function renderHistoryList(container: HTMLElement, deps: HistoryListDeps)
     }
     const list = container.createDiv({ cls: "llm-bridge-history-list" });
     for (const item of filtered) {
+      const branchSource = item.branchInfo?.forkedFromTimestamp
+        ? formatHistoryTime(item.branchInfo.forkedFromTimestamp)
+        : "旧会话";
+      const branchHint = item.branchInfo ? ` · 分支 ${item.branchInfo.depth} · 源自 ${branchSource}` : "";
       const row = list.createDiv({
-        cls: `llm-bridge-history-item is-${item.status}${item.id === deps.currentSessionId ? " is-current" : ""}`,
-        attr: { title: `${item.title} · ${item.messageCount} 条消息 · ${item.savedAt}` },
+        cls: `llm-bridge-history-item is-${item.status}${item.id === deps.currentSessionId ? " is-current" : ""}${item.branchInfo ? " is-branch" : ""}`,
+        attr: { title: `${item.title}${branchHint} · ${item.messageCount} 条消息 · ${item.savedAt}` },
       });
       const selectWrap = row.createEl("label", { cls: "llm-bridge-history-select" });
       const checkbox = selectWrap.createEl("input", {
@@ -70,24 +74,43 @@ export function renderHistoryList(container: HTMLElement, deps: HistoryListDeps)
         deps.updateHistoryBulkControls(filtered);
       });
       const icon = row.createDiv({ cls: "llm-bridge-history-row-icon" });
-      setIcon(icon.createEl("span", { cls: "llm-bridge-icon" }), item.id === deps.currentSessionId ? "circle-dot" : "history");
+      setIcon(
+        icon.createEl("span", { cls: "llm-bridge-icon" }),
+        item.branchInfo ? "git-branch" : (item.id === deps.currentSessionId ? "circle-dot" : "history"),
+      );
       // 主信息（点击恢复）
       const main = row.createEl("button", { cls: "llm-bridge-history-main" });
       const titleRow = main.createDiv({ cls: "llm-bridge-history-title-row" });
       titleRow.createEl("span", { cls: "llm-bridge-history-title", text: item.title });
+      if (item.branchInfo) {
+        titleRow.createEl("span", {
+          cls: "llm-bridge-history-branch-badge",
+          text: `分支 ${item.branchInfo.depth}`,
+          attr: { title: `源自 ${branchSource}` },
+        });
+      }
       const meta = `${formatHistoryTime(item.savedAt)} · ${item.messageCount} 条`;
       titleRow.createEl("span", { cls: "llm-bridge-history-inline-meta", text: meta });
-      // UI-03: 分开显示首条请求 + 最后答复（而非单一 preview）
-      const firstUser = item.firstUserSummary || "";
-      const lastReply = item.lastAssistantSummary || "";
+      // UI-03: 短单行预览（首条 + 最后答复），过长截断，避免重叠
+      const firstUser = shortHistoryPreview(item.firstUserSummary);
+      const lastReply = shortHistoryPreview(item.lastAssistantSummary);
+      const previews = main.createDiv({ cls: "llm-bridge-history-previews" });
       if (firstUser) {
-        main.createEl("span", { cls: "llm-bridge-history-preview llm-bridge-history-first-user", text: `首条：${firstUser}`, attr: { title: firstUser } });
+        previews.createEl("span", {
+          cls: "llm-bridge-history-preview llm-bridge-history-first-user",
+          text: `首条：${firstUser}`,
+          attr: { title: item.firstUserSummary || firstUser },
+        });
       }
       if (lastReply) {
-        main.createEl("span", { cls: "llm-bridge-history-preview llm-bridge-history-last-reply", text: `答复：${lastReply}`, attr: { title: lastReply } });
+        previews.createEl("span", {
+          cls: "llm-bridge-history-preview llm-bridge-history-last-reply",
+          text: `答复：${lastReply}`,
+          attr: { title: item.lastAssistantSummary || lastReply },
+        });
       }
       if (!firstUser && !lastReply) {
-        main.createEl("span", { cls: "llm-bridge-history-preview", text: "无摘要" });
+        previews.createEl("span", { cls: "llm-bridge-history-preview", text: "无摘要" });
       }
       main.addEventListener("click", () => deps.onRestore(item.id));
       const status = row.createDiv({ cls: "llm-bridge-history-status" });
@@ -122,6 +145,13 @@ export function renderHistoryList(container: HTMLElement, deps: HistoryListDeps)
   } catch (e) {
     deps.renderListError(container, "history", e);
   }
+}
+
+/** 列表行预览：单行短截断（完整内容放 title） */
+export function shortHistoryPreview(value: string | undefined | null, maxLen = 40): string {
+  const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  if (!text) return "";
+  return text.length > maxLen ? `${text.slice(0, maxLen - 1)}…` : text;
 }
 
 /** 会话状态 → 显示文本（纯函数） */

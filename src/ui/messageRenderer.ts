@@ -162,15 +162,18 @@ export function renderMessageContent(
     content.setAttribute("hidden", "");
     return;
   }
-  if (msg.role === "user" && msg.fileRefs && msg.fileRefs.length > 0) {
-    deps.renderFileRefs(content, msg.fileRefs);
+  if (msg.role === "user") {
+    const hasAttachments = !!(msg.fileRefs && msg.fileRefs.length > 0);
+    const hasText = !!text.trim();
+    if (!hasAttachments && !hasText) return;
+    // Attachments + text share one bubble chrome (not floating outside).
+    const bubble = content.createDiv({ cls: "llm-bridge-user-bubble" });
+    if (hasAttachments) deps.renderFileRefs(bubble, msg.fileRefs!);
+    if (hasText) renderUserMessageContent(bubble, text);
+    return;
   }
   if (!text) {
     // P4-D: 不显示 "正在等待首次输出..."，spinner + currentActivity 已提供反馈
-    return;
-  }
-  if (msg.role !== "assistant") {
-    renderUserMessageContent(content, text);
     return;
   }
 

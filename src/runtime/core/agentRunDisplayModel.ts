@@ -25,10 +25,14 @@ export type AgentRunCardKind =
   | "file-change"
   | "approval"
   | "user-input"
+  | "status"
   | "warning"
   | "error"
   | "final-answer"
   | "debug-raw-event";
+
+/** Quiet process-row tones for compaction / queued follow-up / generic status. */
+export type AgentRunStatusTone = "compaction" | "append" | "generic";
 
 export type AgentRunCardStatus = "running" | "completed" | "failed" | "pending" | "idle";
 export type FinalAnswerDisposition = "completed" | "needs-input" | "needs-approval" | "answered" | "failed";
@@ -120,6 +124,13 @@ export interface UserInputCard extends AgentRunCardBase {
   pending: boolean;
 }
 
+export interface StatusCard extends AgentRunCardBase {
+  kind: "status";
+  tone: AgentRunStatusTone;
+  /** Optional body (e.g. queued follow-up text). */
+  text?: string;
+}
+
 export interface WarningCard extends AgentRunCardBase {
   kind: "warning";
   message: string;
@@ -146,6 +157,7 @@ export type AgentRunCard =
   | FileChangeCard
   | ApprovalCard
   | UserInputCard
+  | StatusCard
   | WarningCard
   | ErrorCard
   | FinalAnswerCard
@@ -264,6 +276,18 @@ function buildTimelineToolLabel(node: TurnTimelineNode): string {
   return node.tool ?? node.title;
 }
 
+/** User follow-up / steer rows keep kind "status" but must stay visible in quiet UI. */
+export function isUserFollowUpStatusNode(node: TurnTimelineNode): boolean {
+  if (node.kind !== "status") return false;
+  if (node.id.startsWith("append-")) return true;
+  const hay = `${node.title}\n${node.summary ?? ""}\n${node.detail ?? ""}`;
+  return /追加|follow-?up|queued follow-?up|steer/i.test(hay);
+}
+
+function isLifecycleNoiseText(value: string): boolean {
+  return /^(started|completed|failed|pending|running|idle|in[_-]?progress|done)$/i.test(value.trim());
+}
+
 function mapTurnTimelineNodeToCard(node: TurnTimelineNode, developerMode: boolean): AgentRunCard {
   const status = mapTimelineStatus(node.status);
   const summary = node.summary ?? node.text?.slice(0, 120) ?? node.detail ?? node.title;
@@ -288,13 +312,38 @@ function mapTurnTimelineNodeToCard(node: TurnTimelineNode, developerMode: boolea
     };
   }
 
-  if (node.kind === "reasoning" || node.kind === "plan" || node.kind === "contextCompaction" || node.kind === "reviewMode") {
+  if (node.kind === "contextCompaction") {
+    const active = status === "running" || status === "pending";
+    return {
+      ...base,
+      kind: "status",
+      tone: "compaction",
+      title: active ? "Compressing context" : "Context compressed",
+      summary: active ? "Compressing context" : "Context compressed",
+      text: "",
+    };
+  }
+
+  if (node.kind === "status" && isUserFollowUpStatusNode(node)) {
+    const active = status === "running" || status === "pending";
+    const failed = status === "failed";
+    const followUpText = (node.summary || node.detail || "").trim();
+    return {
+      ...base,
+      kind: "status",
+      tone: "append",
+      title: failed ? "Follow-up failed" : active ? "Queuing follow-up" : "Follow-up sent",
+      summary: followUpText || (failed ? "Follow-up failed" : active ? "Queuing follow-up" : "Follow-up sent"),
+      text: followUpText,
+    };
+  }
+
+  if (node.kind === "reasoning" || node.kind === "plan" || node.kind === "reviewMode") {
     // detail 常为生命周期占位（started/completed），不能当作思考正文展示
     const rawText = (node.text || "").trim();
     const rawDetail = (node.detail || "").trim();
-    const lifecycleNoise = /^(started|completed|failed|pending|running|idle|in[_-]?progress|done)$/i;
-    const usableDetail = rawDetail && !lifecycleNoise.test(rawDetail) ? rawDetail : "";
-    const usableSummary = summary && !lifecycleNoise.test(summary.trim()) ? summary : "";
+    const usableDetail = rawDetail && !isLifecycleNoiseText(rawDetail) ? rawDetail : "";
+    const usableSummary = summary && !isLifecycleNoiseText(summary.trim()) ? summary : "";
     const text = rawText || usableDetail || usableSummary || "";
     return {
       ...base,
@@ -674,7 +723,7 @@ export function buildAgentRunDisplayModel(
   if (hasProviderTimeline) {
     const visibleProviderTimeline = options.developerMode === true
       ? providerTimeline
-      : providerTimeline.filter((node) => node.kind !== "status");
+      : providerTimeline.filter((node) => node.kind !== "status" || isUserFollowUpStatusNode(node));
     timelineCards.push(...visibleProviderTimeline.map((node) => mapTurnTimelineNodeToCard(node, options.developerMode === true)));
   }
   const legacyTools = hasProviderTimeline ? [] : turnView.tools;

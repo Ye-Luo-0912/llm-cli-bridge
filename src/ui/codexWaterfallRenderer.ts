@@ -271,7 +271,24 @@ function formatClusterTitle(clusterKind: CodexClusterKind, items: ReadonlyArray<
   return formatExecutionClusterTitle(items);
 }
 
-function clusterGroupIcon(clusterKind: CodexClusterKind): string {
+function clusterGroupStatus(items: ReadonlyArray<CodexRunFeedItem>): "running" | "failed" | "completed" {
+  const hasActive = items.some((item) => item.status === "running" || item.status === "pending");
+  const hasFailed = items.some((item) => item.status === "failed");
+  return hasActive ? "running" : hasFailed ? "failed" : "completed";
+}
+
+/** Code-agent style status glyphs: running / success / failed */
+function statusGlyphIcon(status: "running" | "failed" | "completed" | "pending" | string): string {
+  if (status === "running" || status === "pending") return "loader-circle";
+  if (status === "failed") return "circle-x";
+  return "circle-check";
+}
+
+function clusterGroupIcon(
+  clusterKind: CodexClusterKind,
+  groupStatus: "running" | "failed" | "completed" = "completed",
+): string {
+  if (clusterKind === "execution") return statusGlyphIcon(groupStatus);
   if (clusterKind === "image") return "image";
   if (clusterKind === "web") return "globe";
   if (clusterKind === "file") return "pencil";
@@ -279,10 +296,9 @@ function clusterGroupIcon(clusterKind: CodexClusterKind): string {
   return "terminal";
 }
 
-function clusterGroupStatus(items: ReadonlyArray<CodexRunFeedItem>): "running" | "failed" | "completed" {
-  const hasActive = items.some((item) => item.status === "running" || item.status === "pending");
-  const hasFailed = items.some((item) => item.status === "failed");
-  return hasActive ? "running" : hasFailed ? "failed" : "completed";
+function feedItemDisplayIcon(item: CodexRunFeedItem): string {
+  if (item.kind === "command") return statusGlyphIcon(item.status);
+  return item.icon || "circle";
 }
 
 // ---------- 单 item 渲染（独立行：thinking/assistant/approval 等）----------
@@ -329,6 +345,23 @@ function formatCommandRowTitle(item: CodexRunFeedItem): string {
 
 function formatCodexFeedItemLabel(item: CodexRunFeedItem): string {
   const loc = resolveUiLocale() === "en" ? "en" : "zh";
+  if (item.kind === "status") {
+    const tone = item.statusTone;
+    const active = item.status === "running" || item.status === "pending";
+    const failed = item.status === "failed";
+    if (tone === "compaction") {
+      if (loc === "zh") return active ? "正在压缩上下文" : "上下文已压缩";
+      return active ? "Compressing context" : "Context compressed";
+    }
+    if (tone === "append") {
+      if (loc === "zh") {
+        if (failed) return "追加失败";
+        return active ? "正在追加" : "追加消息";
+      }
+      if (failed) return "Follow-up failed";
+      return active ? "Queuing follow-up" : "Follow-up";
+    }
+  }
   if (item.kind === "command") return formatCommandRowTitle(item);
   if (item.change) {
     if (loc === "zh") {
@@ -349,6 +382,60 @@ function formatCodexFeedItemLabel(item: CodexRunFeedItem): string {
     return active ? "Viewing image" : "Viewed image";
   }
   return item.label;
+}
+
+/**
+ * Quiet agent-style status row: compaction chip / completed follow-up.
+ * Append rows are trailing (right-aligned) user-follow-up chips — more prominent
+ * than muted process chrome. Pending appends live above the composer.
+ */
+function renderCodexFeedStatus(
+  parent: HTMLElement,
+  item: CodexRunFeedItem,
+): void {
+  const tone = item.statusTone || "generic";
+  const isLive = item.status === "running" || item.status === "pending";
+  const failed = item.status === "failed";
+  const isAppend = tone === "append";
+  // Defense: pending appends belong above the composer, not in the process feed.
+  if (isAppend && isLive) return;
+
+  const row = parent.createDiv({
+    cls: [
+      "llm-bridge-codex-status-line",
+      `is-${item.status}`,
+      `is-tone-${tone}`,
+      isLive ? "is-status-live" : "is-status-done",
+      isAppend ? "is-trailing" : "",
+      failed ? "is-failed" : "",
+    ].filter(Boolean).join(" "),
+  });
+  row.setAttribute("data-step-kind", "status");
+  if (item.sourceRef?.itemId) row.setAttribute("data-item-id", item.sourceRef.itemId);
+
+  const shell = isAppend
+    ? row.createDiv({ cls: "llm-bridge-codex-append-chip" })
+    : row;
+
+  const icon = shell.createEl("span", { cls: "llm-bridge-codex-status-icon" });
+  setIcon(icon, item.icon || "circle");
+
+  const main = shell.createDiv({ cls: "llm-bridge-codex-status-main" });
+  const label = formatCodexFeedItemLabel(item);
+  main.createEl("span", {
+    cls: `llm-bridge-codex-status-label${isLive ? " llm-bridge-run-glow" : ""}`,
+    text: label,
+  });
+
+  const body = (item.summary || "").trim();
+  // Follow-up: show user text prominently inside the trailing chip
+  if (isAppend && body) {
+    main.createEl("span", {
+      cls: "llm-bridge-codex-status-body",
+      text: body.length > 96 ? `${body.slice(0, 95)}…` : body,
+      attr: { title: body },
+    });
+  }
 }
 
 function feedItemHasExpandableDetail(item: CodexRunFeedItem): boolean {
@@ -442,6 +529,7 @@ function renderCodexFeedNarrative(
 /**
  * 渲染单个 feed item：
  * - thinking/assistant：安静过程行
+ * - status（compaction）：安静状态 chip 行；append 完成后右侧 trailing 状态
  * - 命令/文件/工具：可点击展开的 details（折叠态单行简介，展开后看 shell/diff）
  */
 export function renderCodexFeedItem(
@@ -450,6 +538,10 @@ export function renderCodexFeedItem(
   developerMode: boolean,
   deps: CodexFeedItemRenderDeps,
 ): void {
+  if (item.kind === "status" && !developerMode) {
+    renderCodexFeedStatus(parent, item);
+    return;
+  }
   if (item.kind === "thinking" && !developerMode) {
     renderCodexFeedThinking(parent, item, deps);
     return;
@@ -475,8 +567,10 @@ export function renderCodexFeedItem(
     ? row.createEl("summary", { cls: "llm-bridge-codex-event-summary llm-bridge-codex-feed-summary-row" })
     : row;
 
-  const icon = summaryHost.createEl("span", { cls: "llm-bridge-codex-feed-icon llm-bridge-codex-step-icon" });
-  setIcon(icon, item.icon);
+  const icon = summaryHost.createEl("span", {
+    cls: `llm-bridge-codex-feed-icon llm-bridge-codex-step-icon is-${item.status}`,
+  });
+  setIcon(icon, feedItemDisplayIcon(item));
 
   const main = summaryHost.createDiv({ cls: "llm-bridge-codex-feed-main" });
   const title = main.createDiv({ cls: "llm-bridge-codex-feed-title" });
@@ -649,7 +743,9 @@ export function patchCodexFeedEntryItem(
   }
 
   const renderedKey = entry.dataset.renderItemKey;
-  const nextRenderKey = `${item.id}|${item.kind}|${answerRole}`;
+  const nextRenderKey = item.kind === "status"
+    ? `${item.id}|${item.kind}|${item.status}|${item.statusTone || ""}|${(item.summary || "").slice(0, 80)}`
+    : `${item.id}|${item.kind}|${answerRole}`;
   if (renderedKey !== nextRenderKey || entry.childElementCount === 0) {
     entry.empty();
     entry.dataset.renderItemKey = nextRenderKey;
@@ -814,6 +910,11 @@ function updateMemberTextInPlace(
     statusEl.className = `llm-bridge-codex-step-status is-${item.status}`;
     if (statusEl.textContent !== item.status) statusEl.textContent = item.status;
   }
+  const iconEl = node.querySelector<HTMLElement>(".llm-bridge-codex-feed-icon");
+  if (iconEl) {
+    iconEl.className = `llm-bridge-codex-feed-icon llm-bridge-codex-step-icon is-${item.status}`;
+    setIcon(iconEl, feedItemDisplayIcon(item));
+  }
   const feedItem = node.querySelector<HTMLElement>(".llm-bridge-codex-feed-item") || node;
   feedItem.classList.toggle("is-running", item.status === "running");
   feedItem.classList.toggle("is-failed", item.status === "failed");
@@ -854,11 +955,11 @@ export function patchCodexFeedEntryCluster(
   if (!group) {
     group = entry.createEl("details", { cls: `llm-bridge-codex-tool-group is-${groupStatus}` });
     const summary = group.createEl("summary", { cls: "llm-bridge-codex-tool-group-summary" });
-    const icon = summary.createEl("span", { cls: "llm-bridge-codex-tool-group-icon" });
-    setIcon(icon, clusterGroupIcon(clusterKind));
+    const icon = summary.createEl("span", { cls: `llm-bridge-codex-tool-group-icon is-${groupStatus}` });
+    setIcon(icon, clusterGroupIcon(clusterKind, groupStatus));
     const main = summary.createDiv({ cls: "llm-bridge-codex-tool-group-main" });
     main.createEl("span", { cls: "llm-bridge-codex-tool-group-title", text: "" });
-    // 状态指示器：运行中"正在思考"+光效，完成"· {duration}"，失败"· 失败"
+    // 状态指示器：运行中文案+光效；完成/失败仅显示用时（失败由图标+成员行表达）
     main.createEl("span", { cls: "llm-bridge-codex-tool-group-status" });
     // V19: 展开箭头 ">" 放在文字右侧，通过旋转表现展开状态
     main.createEl("span", { cls: "llm-bridge-codex-tool-group-chevron", text: "›" });
@@ -881,7 +982,10 @@ export function patchCodexFeedEntryCluster(
     });
   } else {
     const icon = group.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-icon");
-    if (icon) setIcon(icon, clusterGroupIcon(clusterKind));
+    if (icon) {
+      icon.className = `llm-bridge-codex-tool-group-icon is-${groupStatus}`;
+      setIcon(icon, clusterGroupIcon(clusterKind, groupStatus));
+    }
   }
   group.className = `llm-bridge-codex-tool-group is-${groupStatus}`;
   if (wasOpen) group.open = true;
@@ -894,7 +998,7 @@ export function patchCodexFeedEntryCluster(
     titleEl.setAttribute("title", title);
   }
 
-  // 更新状态指示器
+  // 更新状态指示器（折叠批头不写「失败」——失败看图标与成员行）
   const statusIndicator = group.querySelector<HTMLElement>(".llm-bridge-codex-tool-group-status");
   if (statusIndicator) {
     const totalDuration = sumCodexEventDuration(items);
@@ -905,9 +1009,6 @@ export function patchCodexFeedEntryCluster(
         ? (resolveUiLocale() === "en" ? "Running" : "正在运行")
         : (resolveUiLocale() === "en" ? "Thinking" : "正在思考");
       statusCls = "llm-bridge-codex-tool-group-status is-running llm-bridge-run-glow";
-    } else if (groupStatus === "failed") {
-      statusText = resolveUiLocale() === "en" ? "· failed" : "· 失败";
-      statusCls = "llm-bridge-codex-tool-group-status is-failed";
     } else {
       statusText = totalDuration ? `· ${deps.formatDurationMs(totalDuration)}` : "";
       statusCls = "llm-bridge-codex-tool-group-status is-done";

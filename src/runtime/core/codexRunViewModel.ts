@@ -124,6 +124,8 @@ export interface CodexRunFeedItem {
    * - candidate：当前终端回答节点；流式为纯文本，turn 完成后原地升级 Markdown
    */
   readonly answerRole?: "candidate" | "process";
+  /** Quiet status-row tone (compaction / follow-up). */
+  readonly statusTone?: "compaction" | "append" | "generic";
 }
 
 export interface CodexRunViewModel {
@@ -255,6 +257,14 @@ function normalizeActivity(
     if (runningStep.kind === "command") return { label: "Running command", kind: "running" };
     if (runningStep.kind === "file") return { label: "Applying patch", kind: "running" };
     if (runningStep.kind === "thinking") return { label: "Thinking", kind: "running" };
+    if (runningStep.kind === "status") {
+      if (/compress|compact|压缩/i.test(runningStep.label)) {
+        return { label: "Compressing context", kind: "running" };
+      }
+      if (/follow-?up|queued|追加|append/i.test(runningStep.label)) {
+        return { label: "Queuing follow-up", kind: "running" };
+      }
+    }
     return { label: runningStep.label, kind: "running" };
   }
 
@@ -287,6 +297,7 @@ function stepIcon(kind: CodexRunStepKind): string {
     case "dynamic": return "wrench";
     case "approval": return "shield";
     case "user-input": return "message-square";
+    case "status": return "loader";
     default: return "circle";
   }
 }
@@ -339,7 +350,7 @@ function hasSubsequentProcessEvents(
 ): boolean {
   for (let i = fromIndex + 1; i < cards.length; i++) {
     const card = cards[i];
-    if (card.kind === "tool-call" || card.kind === "file-change" || card.kind === "approval" || card.kind === "user-input") {
+    if (card.kind === "tool-call" || card.kind === "file-change" || card.kind === "approval" || card.kind === "user-input" || card.kind === "status") {
       return true;
     }
     if (card.kind === "final-answer" && assistantNarrativeText(card).length > 0) return true;
@@ -641,6 +652,31 @@ function buildFeedItems(
       });
       continue;
     }
+    if (card.kind === "status") {
+      // Pending follow-ups are owned by the composer pending list; only
+      // completed/failed appends appear as quiet trailing rows in the process feed.
+      if (card.tone === "append" && (card.status === "running" || card.status === "pending")) {
+        continue;
+      }
+      const icon = card.tone === "compaction"
+        ? "minimize-2"
+        : card.tone === "append"
+          ? "corner-down-left"
+          : stepIcon("status");
+      feed.push({
+        id: `feed-${card.id}`,
+        kind: "status",
+        icon,
+        label: card.title,
+        status: card.status,
+        summary: card.text || card.summary,
+        detail: card.detail,
+        timestamp: card.timestamp,
+        sourceRef: card.sourceRef,
+        statusTone: card.tone,
+      });
+      continue;
+    }
     if (card.kind === "tool-call") {
       const step = stepFromToolCard(card);
       feed.push({
@@ -743,6 +779,21 @@ function buildStepGroups(model: AgentRunDisplayModel): CodexRunStepGroup[] {
         kind: "thinking",
         icon: stepIcon("thinking"),
         label: card.text ? "Reasoning" : card.title,
+        status: card.status,
+        sourceRef: card.sourceRef,
+      });
+      continue;
+    }
+    if (card.kind === "status") {
+      steps.push({
+        id: card.id,
+        kind: "status",
+        icon: card.tone === "compaction"
+          ? "minimize-2"
+          : card.tone === "append"
+            ? "corner-down-left"
+            : stepIcon("status"),
+        label: card.title,
         status: card.status,
         sourceRef: card.sourceRef,
       });

@@ -205,6 +205,9 @@ export function mapRunningActivityToStatusLine(label: string, locale: "zh" | "en
   if (/compact|压缩|context.*compress|compressing context/.test(lower)) {
     return locale === "zh" ? "正在压缩上下文" : "Compressing context";
   }
+  if (/queuing follow-up|follow-up|追加|queued/.test(lower)) {
+    return locale === "zh" ? "正在追加" : "Queuing follow-up";
+  }
   if (/imageview|viewing image|analyzing image|分析图片|查看图片|图片/.test(lower) || /\bimage\b/.test(lower)) {
     return locale === "zh" ? "正在分析图片" : "Analyzing image";
   }

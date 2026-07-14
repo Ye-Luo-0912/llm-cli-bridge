@@ -39,6 +39,9 @@ export function renderAgentRunCard(parent: HTMLElement, card: AgentRunCard, deps
     case "user-input":
       renderUserInputCard(parent, card);
       break;
+    case "status":
+      renderStatusCard(parent, card);
+      break;
     case "warning":
       renderWarningCard(parent, card);
       break;
@@ -219,6 +222,19 @@ export function renderUserInputCard(parent: HTMLElement, card: Extract<AgentRunC
   if (!card.pending && card.response?.type === "submit") {
     const responseText = card.inputType === "secret" ? "Response submitted" : card.response.value;
     content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(responseText, 180) });
+  }
+}
+
+/** Quiet status card (compaction / queued follow-up) for legacy timeline path. */
+export function renderStatusCard(parent: HTMLElement, card: Extract<AgentRunCard, { kind: "status" }>): void {
+  const node = parent.createDiv({
+    cls: `llm-bridge-tl-node llm-bridge-tl-status is-${card.status} is-tone-${card.tone}`,
+  });
+  node.createDiv({ cls: "llm-bridge-tl-dot" });
+  const content = node.createDiv({ cls: "llm-bridge-tl-content" });
+  content.createEl("div", { cls: "llm-bridge-tl-title", text: card.title });
+  if (card.text) {
+    content.createEl("div", { cls: "llm-bridge-tl-detail", text: truncateText(card.text, 240) });
   }
 }
 
