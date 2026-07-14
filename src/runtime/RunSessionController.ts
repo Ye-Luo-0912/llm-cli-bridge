@@ -201,6 +201,9 @@ export class RunSessionController {
   private _lifecycleState: "idle" | "preparing" | "running" | "finalizing" = "idle";
   /** V18-APPEND: 当前运行的 turnBuilder，steerCurrentTurn 通过它注入追加节点 */
   private _turnBuilder: AssistantTurnViewBuilder | null = null;
+  /** V19-FORK: 静默 native action（fork）的完成回调，使 runNativeAction 能 await RPC 结果 */
+  private _nativeActionResolve?: () => void;
+  private _nativeActionReject?: (e: Error) => void;
 
   constructor(host: RunSessionHost) {
     this.host = host;
@@ -374,8 +377,14 @@ export class RunSessionController {
 
   async run(nativeAction?: NativeRunAction): Promise<void> {
     // P0: 生命周期锁——仅在 idle 时允许新一轮，覆盖 preparing/running/finalizing 全程
-    if (this._lifecycleState !== "idle") return;
+    // V19-FORK: fork 需要抛异常使调用方 catch 能感知，而非静默返回导致误调 beginLocalSessionFork
+    const isSilentFork = nativeAction?.kind === "fork";
+    if (this._lifecycleState !== "idle") {
+      if (isSilentFork) throw new Error("当前仍有运行中的任务");
+      return;
+    }
     this._lifecycleState = "preparing";
+    // V19-FORK: fork 是静默菜单操作——不生成用户气泡和 assistant 占位
     const composerInput = this.host.getComposerInput().trim();
     const userInput = nativeAction ? this.nativeActionLabel(nativeAction) : composerInput;
     // V20: 允许附件-only 消息——有文字或有本轮附件任一成立即可发送
@@ -390,7 +399,8 @@ export class RunSessionController {
 
     // V20.8: 发送前 readiness 检查（统一走 runtimeRouter 链路）。
     // 缺配置/缺 Key 时不创建 assistant 失败消息，只弹 Notice。
-    const vaultPathForGuard = this.host.getVaultPath();
+    // V19-FORK: fork 不发送新 prompt，只是对已有 session 做 RPC，跳过 readiness 检查
+    const vaultPathForGuard = isSilentFork ? "" : this.host.getVaultPath();
     if (vaultPathForGuard) {
       const { checkRuntimeReadiness } = await import("./config/runtimeRouter");
       const readiness = checkRuntimeReadiness(vaultPathForGuard);
@@ -423,8 +433,13 @@ export class RunSessionController {
     });
 
     // P0: 用户消息 + assistant 占位在第一段同步逻辑中立刻写入 UI（目标 <150ms）
-    this.host.appendUserMessage(userInput, messageRefsForRun);
-    const assistantId = this.host.appendAssistantPlaceholder();
+    // V19-FORK: fork 不生成用户气泡和 assistant 占位——使用 dummy ID，updateAssistantMessage 对不存在的 ID 为 no-op
+    if (!isSilentFork) {
+      this.host.appendUserMessage(userInput, messageRefsForRun);
+    }
+    const assistantId = isSilentFork
+      ? `native-fork-${Date.now()}`
+      : this.host.appendAssistantPlaceholder();
     if (!nativeAction) {
       this.host.clearComposerInput();
       this.host.autoGrowInput();
@@ -433,7 +448,7 @@ export class RunSessionController {
       this.host.clearRuntimeCapabilitySelection();
     }
 
-    if (this.host.sessionState.messageCount === 0) {
+    if (!isSilentFork && this.host.sessionState.messageCount === 0) {
       // V20: 附件-only 消息用首个附件名作为会话标题
       const titleSource = userInput || messageRefsForRun[0]?.displayName || "";
       this.host.sessionState = updateSession(this.host.sessionState, {
@@ -484,6 +499,15 @@ export class RunSessionController {
     let sawStderr = false;
     let promptLength = 0;
     let vaultPath = "";
+
+    // V19-FORK: fork 需要 await RPC 结果，创建完成 Promise；其他 action 保持 fire-and-forget
+    let forkCompletion: Promise<void> | undefined;
+    if (isSilentFork) {
+      forkCompletion = new Promise<void>((resolve, reject) => {
+        this._nativeActionResolve = resolve;
+        this._nativeActionReject = reject;
+      });
+    }
 
     void (async () => {
       const host = this.host;
@@ -739,6 +763,23 @@ export class RunSessionController {
         }
       } finally {
         if (watchdogTimer) clearInterval(watchdogTimer);
+        // V19-FORK: fork 是静默操作——跳过 onRunFinished（不保存会话/不更新消息/不做文件 diff），
+        // 直接解析/拒绝完成 Promise，让调用方（view.ts forkFromMessage）决定后续行为
+        if (isSilentFork) {
+          this._lifecycleState = "idle";
+          this._runHandle = null;
+          this._turnBuilder = null;
+          // terminalStatus 由 onTerminal 回调设置（TS 无法追踪回调内赋值），需用 as 绕过收窄
+          const status: RunStatus | null = terminalStatus as RunStatus | null;
+          if (status === "completed") {
+            this._nativeActionResolve?.();
+          } else {
+            this._nativeActionReject?.(new Error(terminalResult?.stderr || "分叉失败"));
+          }
+          this._nativeActionResolve = undefined;
+          this._nativeActionReject = undefined;
+          return;
+        }
         // 进入收尾阶段：_runHandle 保留至 onRunFinished 全部完成，防止下一轮覆盖共享状态
         this._lifecycleState = "finalizing";
         if (!terminalStatus) {
@@ -768,6 +809,11 @@ export class RunSessionController {
         }
       }
     })();
+
+    // V19-FORK: fork 返回完成 Promise，使调用方能 await RPC 结果；其他 action 保持 fire-and-forget
+    if (forkCompletion) {
+      return forkCompletion;
+    }
   }
 
   private nativeActionLabel(action: NativeRunAction): string {

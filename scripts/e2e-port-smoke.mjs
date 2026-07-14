@@ -128,7 +128,7 @@ async function spawnAndInitialize(vaultDir) {
   const selected = models.find((m) => m?.isDefault && (m.model || m.id)) || models.find((m) => m?.model || m?.id);
   const model = selected?.model || selected?.id || "gpt-5.5";
 
-  return { proc, client, model, stderr };
+  return { proc, client, model, stderr, modelInfo: selected || null };
 }
 
 function killProc(proc) {
@@ -248,8 +248,18 @@ async function testReasoning() {
   rmSync(vaultDir, { recursive: true, force: true });
   mkdirSync(vaultDir, { recursive: true });
 
-  const { proc, client, model } = await spawnAndInitialize(vaultDir);
+  const { proc, client, model, modelInfo } = await spawnAndInitialize(vaultDir);
   try {
+    // V19-REASONING: 检查模型是否支持 reasoning summary。
+    // supportedReasoningEfforts 包含 "high" 时模型应发 reasoning 事件；
+    // 不支持时缺失事件是预期行为，记为 skip 而非 fail。
+    const supportedEfforts = Array.isArray(modelInfo?.supportedReasoningEfforts)
+      ? modelInfo.supportedReasoningEfforts.map((e) => e?.reasoningEffort)
+      : [];
+    const modelSupportsReasoning = supportedEfforts.includes("high")
+      || supportedEfforts.includes("medium")
+      || supportedEfforts.length > 0;
+
     const thread = await client.request("thread/start", {
       model,
       cwd: vaultDir,
@@ -285,8 +295,17 @@ async function testReasoning() {
     const hasAnyReasoning = hasSummaryDelta || hasTextDelta || hasSummaryPartAdded || hasReasoningCompleted;
     const turnOk = reason === "completed";
 
-    record("思考：捕获 reasoning 事件", hasAnyReasoning ? "pass" : "fail",
-      `summaryDelta=${hasSummaryDelta}, textDelta=${hasTextDelta}, partAdded=${hasSummaryPartAdded}, reasoningCompleted=${hasReasoningCompleted}, turnReason=${reason}` + (hasAnyReasoning ? "" : ` | events=[${events.map(e => e.method).join(",")}]`));
+    // V19-REASONING: 区分"模型明确不支持推理摘要"和"runtime 丢失事件"
+    if (hasAnyReasoning) {
+      record("思考：捕获 reasoning 事件", "pass",
+        `summaryDelta=${hasSummaryDelta}, textDelta=${hasTextDelta}, partAdded=${hasSummaryPartAdded}, reasoningCompleted=${hasReasoningCompleted}, turnReason=${reason}`);
+    } else if (!modelSupportsReasoning) {
+      record("思考：捕获 reasoning 事件", "skip",
+        `模型不支持 reasoning summary（supportedReasoningEfforts=[${supportedEfforts.join(",")}]），缺失事件属预期行为`);
+    } else {
+      record("思考：捕获 reasoning 事件", "fail",
+        `模型支持 reasoning（efforts=[${supportedEfforts.join(",")}]）但 runtime 丢失事件：summaryDelta=${hasSummaryDelta}, textDelta=${hasTextDelta}, partAdded=${hasSummaryPartAdded}, reasoningCompleted=${hasReasoningCompleted}, turnReason=${reason} | events=[${events.map(e => e.method).join(",")}]`);
+    }
     record("思考：turn/completed 到达", turnOk ? "pass" : "fail", `reason=${reason}`);
   } catch (e) {
     record("思考：捕获 reasoning 事件", "fail", e?.message || String(e));
@@ -738,7 +757,7 @@ async function main() {
   const failed = results.filter((r) => r.status === "fail").length;
   const skipped = results.filter((r) => r.status === "skip").length;
 
-  console.log(`\n=== 汇总: ${passed} passed, ${failed} failed, ${skipped} skipped (manual required) ===\n`);
+  console.log(`\n=== 汇总: ${passed} passed, ${failed} failed, ${skipped} skipped ===\n`);
 
   // 写报告
   writeReport(passed, failed, skipped);
@@ -760,7 +779,7 @@ function writeReport(passed, failed, skipped) {
   lines.push(`- **测试时间**: ${new Date().toISOString()}`);
   lines.push(`- **Passed**: ${passed}`);
   lines.push(`- **Failed**: ${failed}`);
-  lines.push(`- **Skipped (manual required)**: ${skipped}`);
+  lines.push(`- **Skipped**: ${skipped}`);
   lines.push(`- **Managed Runtime**: ${RUNTIME_PATH}`);
   lines.push("");
   lines.push("## 测试项");
@@ -776,7 +795,7 @@ function writeReport(passed, failed, skipped) {
   lines.push("");
   lines.push("- **窄栏**：纯 UI 布局，需在 Obsidian 内人工验收（narrow column / 窄屏布局渲染）。");
   lines.push("- **附件**：turn/start input 含 localImage 条目，验证 codex 接受并处理图片附件。");
-  lines.push("- **思考**：捕获 reasoning 事件（summaryTextDelta / textDelta / item/completed reasoning），验证 Task 1 多段合并路径。");
+  lines.push("- **思考**：捕获 reasoning 事件（summaryTextDelta / textDelta / item/completed reasoning），验证 Task 1 多段合并路径。V19: 当模型 supportedReasoningEfforts 不含 high/medium 时记为 skip（模型不支持），含 high 但无事件记为 fail（runtime 丢失）。");
   lines.push("- **工具**：捕获 item/started + item/completed (commandExecution)，验证 tool_start/tool_result 事件流。");
   lines.push("- **审批**：approvalPolicy=\"on-request\"，捕获 requestApproval server-request，验证 accept/decline 响应。");
   lines.push("- **恢复会话**：thread/start → turn → close → thread/resume，验证会话上下文保留。");

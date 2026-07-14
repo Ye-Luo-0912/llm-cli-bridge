@@ -4244,8 +4244,14 @@ export class LLMBridgeView extends ItemView {
       new Notice("该回答缺少 nativeTurnId，无法定位分叉点（旧会话不支持分叉）");
       return;
     }
-    this.beginLocalSessionFork();
-    await this.runSession.runNativeAction({ kind: "fork", lastTurnId });
+    // V19-FORK: 先 RPC 成功再切换本地会话；失败则保持当前会话完全不变，不生成对话消息
+    try {
+      await this.runSession.runNativeAction({ kind: "fork", lastTurnId });
+      this.beginLocalSessionFork();
+    } catch (e) {
+      const reason = (e as Error)?.message || String(e);
+      new Notice(`分叉失败 · ${reason}`);
+    }
   }
 
   private renderMessageContent(content: HTMLElement, msg: ChatMessage): void {

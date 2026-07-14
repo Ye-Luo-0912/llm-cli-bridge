@@ -904,16 +904,13 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     const forkedSessionId = result.thread.sessionId;
     this.currentThreadId = forkedThreadId;
     this.sessionMapper.register(ctx.bridgeSessionId ?? ctx.runId, forkedThreadId, forkedSessionId);
+    // V19-FORK: 只推送 session_bound（绑定新 thread）+ completed（终态），不推送 message 事件，
+    // 避免生成"已创建当前会话的独立分支。"的红色回答气泡。分叉是菜单操作，成功应静默切换。
     push(eventMapper.mapNativeSessionBound(this.providerId, forkedThreadId, forkedSessionId));
     push({
       providerId: this.providerId,
       timestamp: new Date().toISOString(),
-      payload: { kind: "message", role: "assistant", text: "已创建当前会话的独立分支。" },
-    });
-    push({
-      providerId: this.providerId,
-      timestamp: new Date().toISOString(),
-      payload: { kind: "completed", text: "已创建当前会话的独立分支。", sessionId: forkedSessionId },
+      payload: { kind: "completed", text: "", sessionId: forkedSessionId },
     });
     signalDone();
     return null;

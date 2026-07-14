@@ -13950,8 +13950,16 @@
 }
 
 .llm-bridge-msg-user {
-  margin-left: auto;
+  /* V19-ALIGN: 用 align-self 替代 margin-left:auto，避免父容器+消息双重右侧 padding 导致右边缘不齐 */
+  align-self: flex-end;
   max-width: min(560px, 72%);
+  /* 取消自身右侧 padding，使时间/附件/气泡右边缘共用容器 gutter 同一基线 */
+  padding-right: 0;
+}
+
+/* V19-ALIGN: 用户消息头部（时间）右对齐，与气泡右边缘共线 */
+.llm-bridge-msg-user .llm-bridge-msg-head {
+  justify-content: flex-end;
 }
 
 .llm-bridge-msg-assistant {
