@@ -29,3 +29,196 @@
 .llm-bridge-session-dropdown-actions .llm-bridge-session-dropdown-history {
   margin-top: 0;
 }
+
+/*
+ * History list row — 唯一布局 owner。
+ * !important：覆盖 legacy.css 中多层重复补丁（含 -webkit-box / overflow:hidden）。
+ */
+.llm-bridge-history-list {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+}
+
+.llm-bridge-history-item {
+  display: grid !important;
+  grid-template-columns: 18px 34px minmax(0, 1fr) auto auto !important;
+  align-items: start !important;
+  gap: 8px 10px !important;
+  min-height: 0 !important;
+  padding: 8px 6px !important;
+  overflow: visible !important;
+  border: 0 !important;
+  border-radius: 10px !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.llm-bridge-history-item.is-branch {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--interactive-accent) 28%, transparent) !important;
+}
+
+.llm-bridge-history-item::before {
+  display: none !important;
+}
+
+.llm-bridge-history-item:hover,
+.llm-bridge-history-item.is-current {
+  background: color-mix(in srgb, var(--background-modifier-hover) 42%, transparent) !important;
+  outline: none !important;
+}
+
+.llm-bridge-history-select {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding-top: 6px !important;
+}
+
+.llm-bridge-history-row-icon {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: 30px !important;
+  height: 30px !important;
+  margin-top: 2px !important;
+  border-radius: 9px !important;
+  background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-modifier-hover)) !important;
+  color: color-mix(in srgb, var(--interactive-accent) 74%, var(--text-muted)) !important;
+}
+
+.llm-bridge-history-row-icon .llm-bridge-icon,
+.llm-bridge-history-row-icon svg {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.llm-bridge-history-main {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: stretch !important;
+  gap: 3px !important;
+  min-width: 0 !important;
+  width: 100% !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  text-align: left !important;
+  cursor: pointer !important;
+}
+
+.llm-bridge-history-title-row {
+  display: flex !important;
+  align-items: baseline !important;
+  gap: 7px !important;
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+.llm-bridge-history-title {
+  flex: 1 1 auto !important;
+  min-width: 0 !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  color: var(--text-normal) !important;
+  font-size: 13px !important;
+  font-weight: 650 !important;
+  line-height: 1.3 !important;
+}
+
+.llm-bridge-history-branch-badge {
+  display: inline-flex !important;
+  flex: 0 0 auto !important;
+  align-items: center !important;
+  padding: 1px 5px !important;
+  border-radius: 999px !important;
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent) !important;
+  color: color-mix(in srgb, var(--interactive-accent) 62%, var(--text-muted)) !important;
+  font-size: 10px !important;
+  font-weight: 560 !important;
+  line-height: 1.3 !important;
+}
+
+.llm-bridge-history-inline-meta {
+  flex: 0 0 auto !important;
+  margin-left: 0 !important;
+  color: var(--text-faint) !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  white-space: nowrap !important;
+}
+
+.llm-bridge-history-previews {
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 2px !important;
+  min-width: 0 !important;
+  width: 100% !important;
+}
+
+.llm-bridge-history-preview,
+.llm-bridge-history-first-user,
+.llm-bridge-history-last-reply {
+  display: block !important;
+  min-width: 0 !important;
+  max-width: 100% !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  white-space: nowrap !important;
+  -webkit-line-clamp: unset !important;
+  line-clamp: unset !important;
+  -webkit-box-orient: unset !important;
+  line-height: 1.35 !important;
+  font-size: 11px !important;
+}
+
+.llm-bridge-history-first-user {
+  color: var(--text-normal) !important;
+}
+
+.llm-bridge-history-last-reply,
+.llm-bridge-history-preview {
+  color: var(--text-muted) !important;
+}
+
+.llm-bridge-history-status {
+  min-width: 58px !important;
+  padding-top: 6px !important;
+  text-align: right !important;
+}
+
+.llm-bridge-history-status-text {
+  color: var(--text-faint) !important;
+  font-size: 11px !important;
+  font-weight: 560 !important;
+}
+
+.llm-bridge-history-status-text.is-current,
+.llm-bridge-history-status-text.is-running {
+  color: color-mix(in srgb, var(--interactive-accent) 78%, var(--text-muted)) !important;
+}
+
+.llm-bridge-history-status-text.is-completed {
+  color: color-mix(in srgb, #2ca64d 84%, var(--text-muted)) !important;
+}
+
+.llm-bridge-history-status-text.is-failed,
+.llm-bridge-history-status-text.is-stopped {
+  color: color-mix(in srgb, #e53935 72%, var(--text-muted)) !important;
+}
+
+.llm-bridge-history-actions {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 2px !important;
+  padding-top: 4px !important;
+  opacity: 0 !important;
+  transform: none !important;
+}
+
+.llm-bridge-history-item:hover .llm-bridge-history-actions,
+.llm-bridge-history-item:focus-within .llm-bridge-history-actions {
+  opacity: 1 !important;
+}

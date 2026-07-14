@@ -78,6 +78,67 @@
   min-width: 0;
 }
 
+/* ===== 会话分支状态：标题保持稳定，状态使用紧凑 chip ===== */
+.llm-bridge-session-selector {
+  min-width: 0;
+}
+
+.llm-bridge-session-branch-chip,
+.llm-bridge-session-restore-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 3px;
+  min-height: 18px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--interactive-accent) 9%, transparent);
+  color: color-mix(in srgb, var(--interactive-accent) 64%, var(--text-muted));
+  font-size: 10px;
+  font-weight: 560;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.llm-bridge-session-branch-chip[hidden],
+.llm-bridge-session-restore-chip[hidden] {
+  display: none;
+}
+
+.llm-bridge-session-branch-chip-icon,
+.llm-bridge-session-branch-chip-icon svg {
+  width: 11px;
+  height: 11px;
+}
+
+.llm-bridge-session-branch-chip-label {
+  overflow: hidden;
+  max-width: 128px;
+  text-overflow: ellipsis;
+}
+
+.llm-bridge-session-branch-chip.is-creating {
+  background: color-mix(in srgb, var(--interactive-accent) 13%, transparent);
+  color: var(--text-accent);
+}
+
+.llm-bridge-session-branch-chip.is-creating .llm-bridge-session-branch-chip-icon {
+  animation: llm-bridge-branch-spin 0.9s linear infinite;
+}
+
+.llm-bridge-session-restore-chip {
+  background: color-mix(in srgb, var(--text-muted) 8%, transparent);
+  color: var(--text-muted);
+}
+
+.llm-bridge-session-dropdown-item.is-branch {
+  box-shadow: inset 2px 0 0 color-mix(in srgb, var(--interactive-accent) 30%, transparent);
+}
+
+@keyframes llm-bridge-branch-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* 第二排工具行：左侧审查/压缩，右侧设置 + runtime 状态 */
 .llm-bridge-topbar-row-tools {
   flex-wrap: wrap;

@@ -148,6 +148,48 @@
   stroke-width: 1.75;
 }
 
+.llm-bridge-msg-action-btn:disabled {
+  cursor: wait;
+  opacity: 0.42;
+}
+
+.llm-bridge-msg-action-btn.is-loading {
+  color: var(--text-accent);
+  opacity: 1;
+}
+
+.llm-bridge-msg-action-btn.is-loading svg {
+  animation: llm-bridge-branch-action-spin 0.9s linear infinite;
+}
+
+.llm-bridge-msg.is-branch-origin {
+  border-left-color: color-mix(in srgb, var(--interactive-accent) 30%, transparent);
+}
+
+.llm-bridge-branch-origin-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--interactive-accent) 8%, transparent);
+  color: color-mix(in srgb, var(--interactive-accent) 62%, var(--text-muted));
+  font-size: 10px;
+  font-weight: 560;
+  line-height: 1.35;
+}
+
+.llm-bridge-branch-origin-icon,
+.llm-bridge-branch-origin-icon svg {
+  width: 10px;
+  height: 10px;
+}
+
+@keyframes llm-bridge-branch-action-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* 消息附件：预览 + hover 复制 */
 .llm-bridge-msg-attachments {
   display: flex;
@@ -283,13 +325,27 @@
   gap: 6px;
 }
 
-.llm-bridge-msg-user .llm-bridge-user-message-text {
-  display: inline-block;
+/* Single bubble chrome wraps attachments + text */
+.llm-bridge-msg-user .llm-bridge-user-bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
   max-width: 100%;
-  padding: 8px 12px;
+  padding: 8px 10px;
   border-radius: 14px 14px 4px 14px;
   background: color-mix(in srgb, var(--background-modifier-hover) 55%, var(--background-secondary));
   border: 1px solid color-mix(in srgb, var(--text-muted) 10%, transparent);
+  box-sizing: border-box;
+}
+
+.llm-bridge-msg-user .llm-bridge-user-message-text {
+  display: block;
+  max-width: 100%;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
   color: var(--text-normal);
   font-size: 14px;
   line-height: 1.5;
@@ -297,6 +353,19 @@
   word-break: break-word;
   user-select: text;
   -webkit-user-select: text;
+}
+
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-msg-attachments {
+  order: -1;
+  align-self: stretch;
+  justify-content: flex-end;
+  margin: 0;
+  gap: 6px;
+}
+
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-user-message-text {
+  align-self: stretch;
+  padding: 2px 2px 0;
 }
 
 .llm-bridge-msg.is-running .llm-bridge-msg-status-line,
@@ -610,12 +679,14 @@
   text-align: right;
 }
 
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-msg-attachments,
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachments {
   order: -1;
-  align-self: flex-end;
+  align-self: stretch;
   align-items: flex-start;
 }
 
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-msg-attachment-chip,
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip {
   appearance: none;
   box-sizing: border-box;
@@ -624,6 +695,7 @@
   line-height: 1;
 }
 
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-msg-attachment-chip.has-preview,
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-preview {
   grid-template-columns: 42px minmax(0, 1fr);
   align-items: center;
@@ -665,6 +737,10 @@
   margin-left: 0;
 }
 
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-msg-attachment-chip,
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-msg-attachment-chip.is-preview-only,
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-msg-attachment-chip.has-document-preview,
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only,
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-preview-only,
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.has-document-preview,
@@ -674,6 +750,7 @@
   box-shadow: none;
 }
 
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-msg-attachment-chip:hover,
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:hover {
   border-color: color-mix(in srgb, var(--text-muted) 18%, transparent);
   background: color-mix(in srgb, var(--background-secondary) 54%, var(--background-primary));
@@ -754,7 +831,11 @@
   border-radius: 7px;
 }
 
-.llm-bridge-msg-user .llm-bridge-msg-content > :not(.llm-bridge-msg-attachments) {
+.llm-bridge-msg-user .llm-bridge-msg-content > :not(.llm-bridge-msg-attachments):not(.llm-bridge-user-bubble) {
+  align-self: flex-end;
+}
+
+.llm-bridge-msg-user .llm-bridge-msg-content > .llm-bridge-user-bubble {
   align-self: flex-end;
 }
 
@@ -763,6 +844,9 @@
   display: none;
 }
 
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-msg-attachment-chip,
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-msg-attachment-chip:not(.is-preview-only),
+.llm-bridge-msg-user .llm-bridge-user-bubble .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only,
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip,
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip:not(.is-preview-only),
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-chip.is-image.has-preview.is-preview-only {
@@ -822,6 +906,12 @@
 
 .llm-bridge-msg-user .llm-bridge-msg-content .llm-bridge-msg-attachment-doc-line:nth-child(4) {
   width: 56%;
+}
+
+.llm-bridge-msg-user .llm-bridge-user-bubble.has-attachments,
+.llm-bridge-msg-user .llm-bridge-msg-content.has-attachments,
+.llm-bridge-msg-user .llm-bridge-user-bubble:has(.llm-bridge-msg-attachments) {
+  gap: 6px;
 }
 
 .llm-bridge-msg-user .llm-bridge-msg-content.has-attachments {

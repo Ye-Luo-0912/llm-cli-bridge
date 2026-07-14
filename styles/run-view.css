@@ -100,16 +100,17 @@
   display: none !important;
 }
 
-/* Processed：Fig.2 — 左对齐灰字 + 用时 + ›，底部分割线 */
+/* Processed：Fig.2 — 左对齐灰字 + 用时 + ›，底部分割线（贴内容左缘，不居中） */
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head,
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head.is-collapsible {
-  display: inline-flex !important;
+  display: flex !important;
   align-items: center;
   justify-content: flex-start;
   gap: 6px;
   width: 100%;
   max-width: 100%;
   margin: 0 0 10px;
+  margin-inline: 0;
   padding: 2px 0 8px !important;
   border: 0 !important;
   border-bottom: 1px solid color-mix(in srgb, var(--background-modifier-border) 70%, transparent) !important;
@@ -120,6 +121,7 @@
   user-select: none;
   color: var(--text-faint);
   box-sizing: border-box;
+  text-align: left;
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-quiet-title,
@@ -131,6 +133,7 @@
   border: 0 !important;
   box-shadow: none !important;
   padding: 0 !important;
+  text-align: left;
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-toggle {
@@ -141,14 +144,20 @@
   color: var(--text-faint) !important;
   font-size: 12px;
   opacity: 0.85;
+  text-align: left;
+  margin-left: 0;
+  margin-right: auto;
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-head .llm-bridge-codex-section-title-row {
   display: inline-flex;
   align-items: center;
+  justify-content: flex-start;
   gap: 6px;
   min-width: 0;
+  flex: 0 1 auto;
   margin: 0;
+  margin-right: 0;
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-process-quiet-title,
@@ -165,6 +174,18 @@
   line-height: 1.45;
   color: var(--text-muted);
   margin: 2px 0 6px;
+  text-align: left;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-thinking-line,
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-status-line:not(.is-trailing),
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-feed-entry {
+  margin-left: 0;
+  margin-right: 0;
+  padding-left: 0;
+  padding-right: 0;
+  text-align: left;
+  justify-content: flex-start;
 }
 
 .llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-thinking-line {
@@ -296,6 +317,42 @@
 .llm-bridge-codex-tool-group-icon svg {
   width: 15px;
   height: 15px;
+}
+
+/* Code-agent status glyphs on cluster + command rows */
+.llm-bridge-codex-tool-group-icon.is-running,
+.llm-bridge-codex-feed-icon.is-running,
+.llm-bridge-codex-feed-icon.is-pending {
+  color: color-mix(in srgb, var(--interactive-accent) 55%, var(--text-muted));
+}
+
+.llm-bridge-codex-tool-group-icon.is-completed,
+.llm-bridge-codex-feed-icon.is-completed {
+  color: var(--text-success, #3d9a5f);
+}
+
+.llm-bridge-codex-tool-group-icon.is-failed,
+.llm-bridge-codex-feed-icon.is-failed {
+  color: var(--text-error, #e05252);
+}
+
+.llm-bridge-codex-tool-group-icon.is-running svg,
+.llm-bridge-codex-feed-icon.is-running svg,
+.llm-bridge-codex-feed-icon.is-pending svg {
+  animation: llm-bridge-spin 1s linear infinite;
+}
+
+@keyframes llm-bridge-spin {
+  to { transform: rotate(360deg); }
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-item.is-completed .llm-bridge-codex-feed-icon {
+  color: var(--text-success, #3d9a5f);
+}
+
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-item.is-running .llm-bridge-codex-feed-icon,
+.llm-bridge-codex-tool-group-body .llm-bridge-codex-feed-item.is-pending .llm-bridge-codex-feed-icon {
+  color: color-mix(in srgb, var(--interactive-accent) 55%, var(--text-muted));
 }
 
 .llm-bridge-codex-tool-group-main {
@@ -933,7 +990,7 @@
   min-width: 14px;
   color: var(--text-faint);
   font-size: 11px;
-  text-align: right;
+  text-align: left;
 }
 
 .llm-bridge-codex-feed-list {
@@ -1011,10 +1068,6 @@
 .llm-bridge-codex-tool-group-status.is-running {
   color: var(--text-muted);
   font-weight: 500;
-}
-
-.llm-bridge-codex-tool-group-status.is-failed {
-  color: var(--text-error, #e05252);
 }
 
 .llm-bridge-codex-tool-group-status.is-done {
@@ -1167,5 +1220,163 @@
 .llm-bridge-codex-thinking-summary {
   display: inline;
   white-space: pre-wrap;
+}
+
+/* ===== Quiet status rows: context compaction + trailing follow-up ===== */
+.llm-bridge-codex-status-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 0 6px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--text-muted);
+  font-family: var(--font-interface);
+  font-size: 12px;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.llm-bridge-codex-status-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  margin-top: 1px;
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--text-faint) 88%, transparent);
+  opacity: 0.85;
+}
+
+.llm-bridge-codex-status-icon svg {
+  width: 12px;
+  height: 12px;
+}
+
+.llm-bridge-codex-status-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.llm-bridge-codex-status-label {
+  color: color-mix(in srgb, var(--text-faint) 90%, transparent);
+  font-weight: 450;
+  letter-spacing: 0.01em;
+}
+
+.llm-bridge-codex-status-line.is-status-live .llm-bridge-codex-status-label {
+  color: color-mix(in srgb, var(--interactive-accent) 42%, var(--text-muted));
+}
+
+.llm-bridge-codex-status-line.is-status-done .llm-bridge-codex-status-label {
+  color: var(--text-faint);
+}
+
+.llm-bridge-codex-status-line.is-failed .llm-bridge-codex-status-label {
+  color: var(--text-error);
+}
+
+.llm-bridge-codex-status-body {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-width: 100%;
+  opacity: 0.92;
+}
+
+.llm-bridge-codex-status-line.is-status-done .llm-bridge-codex-status-body {
+  color: var(--text-faint);
+  opacity: 0.78;
+}
+
+.llm-bridge-codex-status-line.is-tone-compaction .llm-bridge-codex-status-icon {
+  color: color-mix(in srgb, var(--text-muted) 70%, var(--interactive-accent));
+}
+
+/* Completed follow-up: trailing user-message chip — clearer than muted process rows */
+.llm-bridge-codex-status-line.is-tone-append,
+.llm-bridge-codex-status-line.is-trailing {
+  justify-content: flex-end;
+  align-items: center;
+  width: 100%;
+  margin: 8px 0 6px;
+  color: var(--text-normal);
+}
+
+.llm-bridge-codex-append-chip {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 7px;
+  max-width: min(85%, 42rem);
+  padding: 7px 10px 7px 9px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--interactive-accent) 22%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--interactive-accent) 10%, var(--background-primary));
+  box-shadow: none;
+}
+
+.llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-icon {
+  color: color-mix(in srgb, var(--interactive-accent) 55%, var(--text-muted));
+  opacity: 1;
+  margin-top: 2px;
+}
+
+.llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-main {
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 2px;
+  text-align: right;
+  min-width: 0;
+}
+
+.llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-label {
+  color: color-mix(in srgb, var(--interactive-accent) 48%, var(--text-muted));
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  opacity: 1;
+}
+
+.llm-bridge-codex-status-line.is-tone-append .llm-bridge-codex-status-body {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  opacity: 1;
+  color: var(--text-normal);
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.llm-bridge-codex-status-line.is-tone-append.is-failed .llm-bridge-codex-append-chip {
+  border-color: color-mix(in srgb, var(--text-error) 35%, var(--background-modifier-border));
+  background: color-mix(in srgb, var(--text-error) 8%, var(--background-primary));
+}
+
+.llm-bridge-codex-status-line.is-tone-append.is-failed .llm-bridge-codex-status-icon,
+.llm-bridge-codex-status-line.is-tone-append.is-failed .llm-bridge-codex-status-label,
+.llm-bridge-codex-status-line.is-tone-append.is-failed .llm-bridge-codex-status-body {
+  color: var(--text-error);
+  opacity: 1;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-status-line {
+  margin: 2px 0 6px;
+}
+
+.llm-bridge-codex-run-view.is-process-quiet:not(.is-developer) .llm-bridge-codex-status-line.is-tone-append {
+  margin: 8px 0 6px;
 }
 

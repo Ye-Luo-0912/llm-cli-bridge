@@ -9248,7 +9248,8 @@
 
 .llm-bridge-history-item {
   position: relative !important;
-  overflow: hidden !important;
+  /* overflow 由 secondary.css 管；此处勿裁切多行预览 */
+  overflow: visible !important;
   border: 0 !important;
   border-radius: 11px !important;
   background: transparent !important;
@@ -9293,17 +9294,7 @@
   white-space: nowrap !important;
 }
 
-.llm-bridge-history-preview {
-  display: -webkit-box !important;
-  overflow: hidden !important;
-  -webkit-box-orient: vertical !important;
-  -webkit-line-clamp: 2 !important;
-  line-clamp: 2 !important;
-}
-
-.llm-bridge-history-preview {
-  color: var(--text-muted) !important;
-}
+/* history-preview / first-user / last-reply 布局已收口到 styles/secondary.css */
 
 .llm-bridge-session-dropdown {
   width: min(264px, calc(100% - 184px)) !important;
@@ -9608,23 +9599,7 @@
   color: var(--interactive-accent);
 }
 
-/* UI-03: History 首条请求 + 最后答复分行 */
-.llm-bridge-history-first-user,
-.llm-bridge-history-last-reply {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.llm-bridge-history-first-user {
-  color: var(--text-normal);
-}
-
-.llm-bridge-history-last-reply {
-  color: var(--text-muted);
-  font-size: var(--font-smallest);
-}
+/* UI-03 History 首条/答复分行样式已收口到 styles/secondary.css */
 
 .llm-bridge-approval-card-row-risk,
 
@@ -10400,132 +10375,7 @@
   opacity: 0.42 !important;
 }
 
-.llm-bridge-history-list {
-  gap: 0 !important;
-}
-
-.llm-bridge-history-item {
-  display: grid !important;
-  grid-template-columns: 18px 34px minmax(0, 1fr) auto auto !important;
-  align-items: center !important;
-  gap: 10px !important;
-  min-height: 58px !important;
-  padding: 6px 6px !important;
-  border: 0 !important;
-  border-radius: 10px !important;
-  background: transparent !important;
-  box-shadow: none !important;
-}
-
-.llm-bridge-history-item::before {
-  display: none !important;
-}
-
-.llm-bridge-history-item:hover,
-.llm-bridge-history-item.is-current {
-  background: color-mix(in srgb, var(--background-modifier-hover) 42%, transparent) !important;
-  outline: none !important;
-}
-
-.llm-bridge-history-select {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-}
-
-.llm-bridge-history-row-icon {
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  width: 30px !important;
-  height: 30px !important;
-  border-radius: 9px !important;
-  background: color-mix(in srgb, var(--interactive-accent) 8%, var(--background-modifier-hover)) !important;
-  color: color-mix(in srgb, var(--interactive-accent) 74%, var(--text-muted)) !important;
-}
-
-.llm-bridge-history-row-icon .llm-bridge-icon,
-.llm-bridge-history-row-icon svg {
-  width: 16px !important;
-  height: 16px !important;
-}
-
-.llm-bridge-history-main {
-  display: grid !important;
-  min-width: 0 !important;
-  gap: 2px !important;
-  padding: 0 !important;
-  border: 0 !important;
-  background: transparent !important;
-  box-shadow: none !important;
-  text-align: left !important;
-}
-
-.llm-bridge-history-title-row {
-  display: flex !important;
-  align-items: baseline !important;
-  gap: 7px !important;
-  min-width: 0 !important;
-}
-
-.llm-bridge-history-title {
-  color: var(--text-normal) !important;
-  font-size: 13.5px !important;
-  font-weight: 700 !important;
-}
-
-.llm-bridge-history-inline-meta {
-  margin-left: 0 !important;
-  color: var(--text-faint) !important;
-  font-size: 11px !important;
-  font-weight: 500 !important;
-}
-
-.llm-bridge-history-preview {
-  color: color-mix(in srgb, var(--text-muted) 80%, transparent) !important;
-  font-size: 11.5px !important;
-  line-height: 1.35 !important;
-  -webkit-line-clamp: 1 !important;
-  line-clamp: 1 !important;
-}
-
-.llm-bridge-history-status {
-  min-width: 58px !important;
-  text-align: right !important;
-}
-
-.llm-bridge-history-status-text {
-  color: var(--text-faint) !important;
-  font-size: 11px !important;
-  font-weight: 560 !important;
-}
-
-.llm-bridge-history-status-text.is-current,
-.llm-bridge-history-status-text.is-running {
-  color: color-mix(in srgb, var(--interactive-accent) 78%, var(--text-muted)) !important;
-}
-
-.llm-bridge-history-status-text.is-completed {
-  color: color-mix(in srgb, #2ca64d 84%, var(--text-muted)) !important;
-}
-
-.llm-bridge-history-status-text.is-failed,
-.llm-bridge-history-status-text.is-stopped {
-  color: color-mix(in srgb, #e53935 72%, var(--text-muted)) !important;
-}
-
-.llm-bridge-history-actions {
-  display: inline-flex !important;
-  align-items: center !important;
-  gap: 2px !important;
-  opacity: 0 !important;
-  transform: none !important;
-}
-
-.llm-bridge-history-item:hover .llm-bridge-history-actions,
-.llm-bridge-history-item:focus-within .llm-bridge-history-actions {
-  opacity: 1 !important;
-}
+/* History list row 布局已收口到 styles/secondary.css（删除此处 dual path） */
 
 /* ===== 任务D: 会话框风格选择器统一抽象（层级 / 收窄 / 风格统一 / 权限配色 / 溢出） ===== */
 
