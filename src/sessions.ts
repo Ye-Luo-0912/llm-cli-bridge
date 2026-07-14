@@ -13,7 +13,11 @@ import * as os from "os";
 import * as path from "path";
 import type { ChatMessage, RunStatus } from "./types";
 import { redactSecrets } from "./workflowEvent";
-import { SessionState } from "./session";
+import {
+  SessionState,
+  splitLegacyBranchTitle,
+  type SessionBranchInfo,
+} from "./session";
 import type { NativeSessionRef } from "./runtime/core/types";
 
 /**
@@ -70,7 +74,7 @@ function resolveSessionsDir(vaultPath: string): string {
 }
 
 /** session 文件 schema 版本（升级时递增，配合迁移逻辑） */
-export const SESSION_SCHEMA_VERSION = 2;
+export const SESSION_SCHEMA_VERSION = 3;
 
 /** 历史会话列表上限（超过时按 savedAt 升序淘汰最旧；防止目录膨胀） */
 export const MAX_SESSIONS_KEPT = 50;
@@ -92,6 +96,8 @@ export interface PersistedSession {
   savedAt: string;
   agentType: string;
   messages: ChatMessage[];
+  /** v3: 会话分支来源；主会话不写该字段 */
+  branchInfo?: SessionBranchInfo;
   // V2.16-D: 运行时状态持久化（v2 新增，可选字段；v1 文件迁移时填充默认值）
   /** Legacy working set refs（兼容旧 session 文件；新版本优先使用 pinnedContextRefs） */
   workingSetRefs?: unknown[];
@@ -130,6 +136,8 @@ export interface SessionListItem {
   startedAt: string | null;
   savedAt: string;
   agentType: string;
+  /** v3: 最近会话与 History 面板使用的轻量分支来源 */
+  branchInfo?: SessionBranchInfo;
   /** 首条用户请求摘要，用于最近会话下拉辨识 */
   firstUserSummary: string;
   /** 最后一条 assistant 回复摘要，用于最近会话下拉辨识 */
@@ -178,16 +186,73 @@ export function generateSessionId(): string {
   return `s-${ts}-${rand}`;
 }
 
-function summarizeSessionText(value: unknown, maxLen = 96): string {
+const LEGACY_FORK_ASSISTANT_MESSAGE = "已创建当前会话的独立分支。";
+
+/** 旧版本把 fork 成功提示写成 assistant 消息；加载/复制分支时应忽略该合成消息。 */
+export function isLegacyForkSyntheticMessage(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const msg = value as { role?: unknown; content?: unknown };
+  return msg.role === "assistant" && msg.content === LEGACY_FORK_ASSISTANT_MESSAGE;
+}
+
+function coerceNullableString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function resolveBranchInfo(
+  value: unknown,
+  legacyDepth: number,
+  savedAt: string,
+): SessionBranchInfo | undefined {
+  if (value && typeof value === "object") {
+    const raw = value as Record<string, unknown>;
+    const depth = typeof raw.depth === "number" && Number.isFinite(raw.depth)
+      ? Math.max(1, Math.floor(raw.depth))
+      : Math.max(1, legacyDepth);
+    return {
+      rootSessionId: coerceNullableString(raw.rootSessionId),
+      parentSessionId: coerceNullableString(raw.parentSessionId),
+      forkedFromMessageId: coerceNullableString(raw.forkedFromMessageId),
+      forkedFromTurnId: coerceNullableString(raw.forkedFromTurnId),
+      forkedFromTimestamp: coerceNullableString(raw.forkedFromTimestamp),
+      depth,
+      createdAt: coerceNullableString(raw.createdAt) ?? savedAt,
+    };
+  }
+  if (legacyDepth <= 0) return undefined;
+  return {
+    rootSessionId: null,
+    parentSessionId: null,
+    forkedFromMessageId: null,
+    forkedFromTurnId: null,
+    forkedFromTimestamp: null,
+    depth: legacyDepth,
+    createdAt: savedAt,
+  };
+}
+
+function summarizeSessionText(value: unknown, maxLen = 48): string {
   const text = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
   if (!text) return "";
   return text.length > maxLen ? `${text.slice(0, maxLen - 1)}…` : text;
 }
 
+function countPersistedUserMessages(messages: unknown, fallback: number): number {
+  if (!Array.isArray(messages)) return fallback;
+  return messages.filter((msg) => (
+    msg && typeof msg === "object" && (msg as { role?: unknown }).role === "user"
+  )).length;
+}
+
 function extractSessionSummaries(messages: unknown): { firstUserSummary: string; lastAssistantSummary: string } {
   if (!Array.isArray(messages)) return { firstUserSummary: "", lastAssistantSummary: "" };
   const firstUser = messages.find((msg) => msg && typeof msg === "object" && (msg as { role?: unknown }).role === "user") as { content?: unknown } | undefined;
-  const assistantMessages = messages.filter((msg) => msg && typeof msg === "object" && (msg as { role?: unknown }).role === "assistant") as Array<{ content?: unknown }>;
+  const assistantMessages = messages.filter((msg) => (
+    msg
+    && typeof msg === "object"
+    && (msg as { role?: unknown }).role === "assistant"
+    && !isLegacyForkSyntheticMessage(msg)
+  )) as Array<{ content?: unknown }>;
   const lastAssistant = assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1] : undefined;
   return {
     firstUserSummary: summarizeSessionText(firstUser?.content),
@@ -274,16 +339,20 @@ export async function saveSession(
     const fileName = `${id}.json`;
     const tmpPath = path.join(dirPath, `${fileName}.tmp`);
 
+    const savedAt = new Date().toISOString();
+    const legacyTitle = splitLegacyBranchTitle(state.title);
+    const branchInfo = state.branchInfo ?? resolveBranchInfo(undefined, legacyTitle.depth, savedAt);
     const session: PersistedSession = {
       version: SESSION_SCHEMA_VERSION,
       id,
-      title: state.title,
+      title: legacyTitle.title,
       status: state.status,
       messageCount: state.messageCount,
       startedAt: state.startedAt,
-      savedAt: new Date().toISOString(),
+      savedAt,
       agentType,
       messages: redactSessionMessages(messages),
+      ...(branchInfo ? { branchInfo } : {}),
       // V2.16-D: 运行时状态快照（可选；存在则恢复时还原）
       ...(extras?.workingSetRefs ? { workingSetRefs: extras.workingSetRefs } : {}),
       ...(extras?.pinnedContextRefs ? { pinnedContextRefs: extras.pinnedContextRefs } : {}),
@@ -346,15 +415,19 @@ export async function listSessions(vaultPath: string): Promise<SessionListItem[]
       // 基本字段校验：JSON 内部 id 必须与文件名一致，否则跳过（防止被篡改的 JSON 注入危险 id）
       if (!parsed.id || typeof parsed.messageCount !== "number") continue;
       if (parsed.id !== fileId) continue;
+      const savedAt = parsed.savedAt || new Date(stat.mtimeMs).toISOString();
+      const legacyTitle = splitLegacyBranchTitle(parsed.title || "新会话");
+      const branchInfo = resolveBranchInfo(parsed.branchInfo, legacyTitle.depth, savedAt);
       const summaries = extractSessionSummaries(parsed.messages);
       items.push({
         id: fileId,
-        title: parsed.title || "新会话",
+        title: legacyTitle.title,
         status: parsed.status || "idle",
-        messageCount: parsed.messageCount,
+        messageCount: countPersistedUserMessages(parsed.messages, parsed.messageCount),
         startedAt: parsed.startedAt || null,
-        savedAt: parsed.savedAt || new Date(stat.mtimeMs).toISOString(),
+        savedAt,
         agentType: parsed.agentType || "claude",
+        ...(branchInfo ? { branchInfo } : {}),
         firstUserSummary: summaries.firstUserSummary,
         lastAssistantSummary: summaries.lastAssistantSummary,
         sizeBytes: stat.size,
@@ -401,16 +474,21 @@ export function migrateSession(parsed: unknown): PersistedSession | null {
   if (typeof p.id !== "string" || !p.id) return null;
   if (!Array.isArray(p.messages)) return null;
   if (typeof p.messageCount !== "number") return null;
+  const savedAt = typeof p.savedAt === "string" ? p.savedAt : new Date().toISOString();
+  const legacyTitle = splitLegacyBranchTitle(typeof p.title === "string" ? p.title : "新会话");
+  const branchInfo = resolveBranchInfo(p.branchInfo, legacyTitle.depth, savedAt);
+  const messages = (p.messages as ChatMessage[]).filter((msg) => !isLegacyForkSyntheticMessage(msg));
   return {
     version: SESSION_SCHEMA_VERSION,
     id: p.id,
-    title: typeof p.title === "string" ? p.title : "新会话",
+    title: legacyTitle.title,
     status: (typeof p.status === "string" ? p.status : "idle") as RunStatus,
-    messageCount: p.messageCount,
+    messageCount: countPersistedUserMessages(messages, p.messageCount),
     startedAt: typeof p.startedAt === "string" ? p.startedAt : null,
-    savedAt: typeof p.savedAt === "string" ? p.savedAt : new Date().toISOString(),
+    savedAt,
     agentType: typeof p.agentType === "string" ? p.agentType : "claude",
-    messages: p.messages as ChatMessage[],
+    messages,
+    ...(branchInfo ? { branchInfo } : {}),
     // V2.16-D: 可选运行时状态字段（v1 文件无此字段，留空；恢复时若缺失则保留当前设置）
     ...(Array.isArray(p.workingSetRefs) ? { workingSetRefs: p.workingSetRefs } : {}),
     ...(Array.isArray(p.pinnedContextRefs) ? { pinnedContextRefs: p.pinnedContextRefs } : {}),

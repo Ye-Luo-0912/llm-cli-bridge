@@ -385,8 +385,10 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       if (turnSubmitted && isMeaningfulCodexRuntimeEvent(ev)) {
         turnRuntimeEventCount += 1;
       }
-      // 任务1: 无 meaningful 事件时，turn/completed(empty) 必须转 failed
-      if (turnSubmitted && payload.kind === "completed" && turnRuntimeEventCount === 0) {
+      // 无 meaningful 事件时，普通 turn 的 completed(empty) 必须转 failed。
+      // thread/fork 是静默原生动作：RPC 成功后会主动推送空 completed 作为内部终态，
+      // 不能套用对话轮次的无输出守卫，否则成功分叉会被误报为失败。
+      if (turnSubmitted && ctx.nativeAction?.kind !== "fork" && payload.kind === "completed" && turnRuntimeEventCount === 0) {
         const text = typeof payload.text === "string" ? payload.text.trim() : "";
         if (!text) {
           next = buildNoOpFailedEvent(ev, this.providerId, developerMode);
@@ -647,8 +649,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
       if (turnSubmitted && isMeaningfulCodexRuntimeEvent(ev)) {
         turnRuntimeEventCount += 1;
       }
-      // 任务1: 无 meaningful 事件时，turn/completed(empty) 必须转 failed
-      if (turnSubmitted && payload.kind === "completed" && turnRuntimeEventCount === 0) {
+      // 与 run() 保持一致：静默 fork 的空 completed 只是内部终态，不是无输出失败。
+      if (turnSubmitted && ctx.nativeAction?.kind !== "fork" && payload.kind === "completed" && turnRuntimeEventCount === 0) {
         const text = typeof payload.text === "string" ? payload.text.trim() : "";
         if (!text) {
           next = buildNoOpFailedEvent(ev, this.providerId, developerMode);

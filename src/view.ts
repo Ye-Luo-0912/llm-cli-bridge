@@ -35,12 +35,21 @@ import { WorkflowEvent, PermissionEvent, truncateText, redactSecrets } from "./w
 import { computeTimelineStats, formatCompletedSummary, formatFailedSummary, extractToolPath, extractToolParams, pathBasename, countLines, isInternalFilePath, type TimelineNode, type TimelineNodeKind } from "./timelineAdapter";
 import { RunStateAggregator, aggregateEventsToTimeline } from "./runtimeTranscript";
 import { computeContextMetrics, formatTokens, formatCompressionRatio, type ContextMetrics, type CompressionInfo } from "./contextMetrics";
-import { SessionState, createNewSession, sessionStatusClass, updateSession } from "./session";
+import {
+  SessionState,
+  createNewSession,
+  sessionStatusClass,
+  splitLegacyBranchTitle,
+  updateSession,
+  type SessionBranchInfo,
+} from "./session";
 import {
   PersistedSession,
   SessionListItem,
   listSessions,
   loadSession,
+  saveSession,
+  isLegacyForkSyntheticMessage,
   deleteSessionWithProviderArtifacts,
   clearSessionsWithProviderArtifacts,
   renameSession,
@@ -331,6 +340,14 @@ export class LLMBridgeView extends ItemView {
   private runFlowToggle: HTMLElement | null = null;
   // V2.0: 会话标题展示
   private sessionTitleEl!: HTMLElement;
+  /** 当前分支或分叉进行中状态，常驻在会话标题旁。 */
+  private sessionBranchChipEl!: HTMLElement;
+  private sessionBranchChipIconEl!: HTMLElement;
+  private sessionBranchChipLabelEl!: HTMLElement;
+  /** 恢复状态与分支状态正交展示，不再拼接进标题。 */
+  private sessionRestoreChipEl!: HTMLElement;
+  /** 正在创建分支的来源消息；非 null 时锁定所有 fork 操作。 */
+  private forkingMessageId: string | null = null;
   // V2.13.0-F / V17-G71: Agent Skills 是 runtime capability；composer 只显示轻量选择 chip。
   private agentSkills: AgentSkillRecord[] = [];
   // V20.12: Runtime skills/list 发现的 skill name 集合（由 getCachedSkills 同步读取）
@@ -419,6 +436,9 @@ export class LLMBridgeView extends ItemView {
   private inputEl!: HTMLTextAreaElement;
   private composerEl!: HTMLElement;
   private composerBarEl!: HTMLElement;
+  /** Queued follow-up chip shown above the input while turn/steer is in flight. */
+  private composerPendingSendEl!: HTMLElement;
+  private composerPendingSend = false;
   private sendBtn!: HTMLButtonElement;
   private stopBtn!: HTMLButtonElement;
   private clearBtn!: HTMLButtonElement;
@@ -541,6 +561,18 @@ export class LLMBridgeView extends ItemView {
     setIcon(sessionIcon, "history");
     sessionPreview.createEl("span", { cls: "llm-bridge-session-kicker", text: "Session" });
     this.sessionTitleEl = sessionPreview.createEl("span", { cls: "llm-bridge-sb-session-title", text: this.sessionState.title });
+    this.sessionBranchChipEl = sessionPreview.createEl("span", {
+      cls: "llm-bridge-session-branch-chip",
+      attr: { "aria-live": "polite" },
+    });
+    this.sessionBranchChipEl.setAttribute("hidden", "");
+    this.sessionBranchChipIconEl = this.sessionBranchChipEl.createEl("span", { cls: "llm-bridge-session-branch-chip-icon" });
+    this.sessionBranchChipLabelEl = this.sessionBranchChipEl.createEl("span", { cls: "llm-bridge-session-branch-chip-label" });
+    this.sessionRestoreChipEl = sessionPreview.createEl("span", {
+      cls: "llm-bridge-session-restore-chip",
+      text: "已恢复",
+    });
+    this.sessionRestoreChipEl.setAttribute("hidden", "");
     const sessionCaret = sessionPreview.createEl("span", { cls: "llm-bridge-session-caret" });
     setIcon(sessionCaret, "chevron-down");
     const sessionDropdown = topbarRow1.createDiv({ cls: "llm-bridge-session-dropdown" });
@@ -980,6 +1012,10 @@ export class LLMBridgeView extends ItemView {
     this.composerRuntimeCapabilitiesEl = composerBar.createDiv({ cls: "llm-bridge-composer-runtime-capabilities" });
     this.composerRuntimeCapabilitiesEl.setAttribute("hidden", "");
     const inputSurface = composerBar.createDiv({ cls: "llm-bridge-input-surface" });
+    this.composerPendingSendEl = inputSurface.createDiv({
+      cls: "llm-bridge-composer-pending-send",
+      attr: { hidden: "", "aria-live": "polite" },
+    });
     this.composerFileRefsEl = inputSurface.createDiv({
       cls: "llm-bridge-composer-file-refs llm-bridge-attachment-tokens",
     });
@@ -2019,6 +2055,9 @@ export class LLMBridgeView extends ItemView {
           view.renderComposerFileRefs();
         }
       },
+      setComposerInput: (text) => {
+        view.inputEl.value = text;
+      },
       clearRuntimeCapabilitySelection: () => {
         view.selectedRuntimeCapabilities = [];
         view.renderComposerRuntimeCapabilityChips();
@@ -2071,6 +2110,7 @@ export class LLMBridgeView extends ItemView {
       closeMentionPicker: () => view.closeMentionPicker(),
       clearMessageContext: () => view.clearMessageContext(),
       renderComposerRuntimeCapabilityChips: () => view.renderComposerRuntimeCapabilityChips(),
+      setComposerPendingSend: (pending, text) => view.setComposerPendingSend(pending, text),
       buildRuntimeCapabilities: (providerId, settings) => view.buildRuntimeCapabilities(providerId, settings),
       buildUserInputWithRuntimeCapabilityHints: (text) => view.buildUserInputWithRuntimeCapabilityHints(text),
       buildSdkStreamingInput: (userPrompt, refs) => view.buildSdkStreamingInput(userPrompt, refs),
@@ -2182,6 +2222,14 @@ export class LLMBridgeView extends ItemView {
   private refreshSendButtonState(runningOverride?: boolean): void {
     if (!this.sendBtn) return;
     const running = runningOverride ?? (this.sessionState?.status === "running");
+    if (this.composerPendingSend) {
+      this.sendBtn.disabled = true;
+      this.sendBtn.classList.add("is-unsendable", "is-pending-send");
+      this.sendBtn.setAttribute("title", "正在追加到当前任务…");
+      this.sendBtn.setAttribute("aria-label", "正在追加");
+      return;
+    }
+    this.sendBtn.classList.remove("is-pending-send");
     if (running) {
       const hasText = !!(this.inputEl && this.inputEl.value.trim().length > 0);
       const canSteer = hasText && this.messageFileRefs.length === 0;
@@ -2198,6 +2246,43 @@ export class LLMBridgeView extends ItemView {
     this.sendBtn.classList.toggle("is-unsendable", !canSend);
     this.sendBtn.setAttribute("title", canSend ? "发送 (Enter)" : "输入内容后发送");
     this.sendBtn.setAttribute("aria-label", canSend ? "发送" : "不可发送");
+  }
+
+  /**
+   * Pending follow-up list above the composer textarea (code-agent style).
+   * Cleared when steer completes or fails; completed feedback lives in the process feed.
+   */
+  private setComposerPendingSend(pending: boolean, text?: string): void {
+    this.composerPendingSend = pending;
+    this.composerBarEl?.toggleClass("is-pending-send", pending);
+    this.inputEl?.toggleClass("is-pending-send", pending);
+    if (this.inputEl) this.inputEl.readOnly = pending;
+    if (this.composerPendingSendEl) {
+      this.composerPendingSendEl.empty();
+      if (pending) {
+        const loc = resolveUiLocale();
+        const item = this.composerPendingSendEl.createDiv({ cls: "llm-bridge-composer-pending-send-item" });
+        const pendingIcon = item.createEl("span", { cls: "llm-bridge-composer-pending-send-icon" });
+        setIcon(pendingIcon, "loader");
+        const meta = item.createDiv({ cls: "llm-bridge-composer-pending-send-meta" });
+        meta.createEl("span", {
+          cls: "llm-bridge-composer-pending-send-label",
+          text: loc === "en" ? "Sending follow-up" : "正在追加",
+        });
+        const body = (text || "").trim();
+        if (body) {
+          meta.createEl("span", {
+            cls: "llm-bridge-composer-pending-send-text",
+            text: body.length > 160 ? `${body.slice(0, 159)}…` : body,
+            attr: { title: body },
+          });
+        }
+        this.composerPendingSendEl.removeAttribute("hidden");
+      } else {
+        this.composerPendingSendEl.setAttribute("hidden", "");
+      }
+    }
+    this.refreshSendButtonState();
   }
 
   /**
@@ -2575,6 +2660,13 @@ export class LLMBridgeView extends ItemView {
       "Viewing image": "正在查看图片",
       "Applying patch": "正在应用补丁",
       "Editing file": "正在编辑文件",
+      "Compressing context": "正在压缩上下文",
+      "Context compressed": "上下文已压缩",
+      "Queuing follow-up": "正在追加",
+      "Follow-up": "追加消息",
+      "Follow-up sent": "已追加",
+      "Follow-up failed": "追加失败",
+      "Queued follow-up": "待追加",
     };
     return map[text] ?? text;
   }
@@ -3337,6 +3429,7 @@ export class LLMBridgeView extends ItemView {
       openFileRefPreview: (r) => { void this.openFileRefPreview(r); },
       showAttachmentContextMenu: (event, r, options) => this.showAttachmentContextMenu(event, r, options),
       closeAttachmentContextMenu: () => this.closeAttachmentContextMenu(),
+      removeMessageFileRef: (id) => this.removeMessageFileRef(id),
     });
   }
 
@@ -4150,6 +4243,26 @@ export class LLMBridgeView extends ItemView {
       runtimeLabel: this.actualRuntimeLabel,
     });
     renderMessageDom(this.messagesEl, msg, presentation, this.messageRendererDeps());
+    this.decorateBranchOrigin(msg.id);
+  }
+
+  /** 在当前分支来源回答上保留轻量、持久的定位标记。 */
+  private decorateBranchOrigin(messageId: string): void {
+    const branch = this.sessionState.branchInfo;
+    if (!branch?.forkedFromMessageId || branch.forkedFromMessageId !== messageId) return;
+    const block = Array.from(this.messagesEl.querySelectorAll<HTMLElement>("[data-msg-id]"))
+      .find((element) => element.dataset.msgId === messageId);
+    if (!block || block.querySelector(".llm-bridge-branch-origin-badge")) return;
+    block.classList.add("is-branch-origin");
+    const head = block.querySelector<HTMLElement>(".llm-bridge-msg-head") ?? block;
+    const badge = head.createEl("span", {
+      cls: "llm-bridge-branch-origin-badge",
+      text: "当前分支起点",
+      attr: { title: "后续上下文从这条回答开始分叉" },
+    });
+    const icon = badge.createEl("span", { cls: "llm-bridge-branch-origin-icon" });
+    setIcon(icon, "git-branch");
+    badge.prepend(icon);
   }
 
   private renderMessageActions(block: HTMLElement, msg: ChatMessage, presentation: MessagePresentation): void {
@@ -4223,6 +4336,10 @@ export class LLMBridgeView extends ItemView {
 
   /** V17-FORK: 从指定回答分叉会话（仅 codex-app-server 支持 native fork）。 */
   private async forkFromMessage(msg: ChatMessage): Promise<void> {
+    if (this.forkingMessageId) {
+      new Notice("正在创建分支，请稍候");
+      return;
+    }
     if (this.runSession.runHandle) {
       new Notice("当前仍有运行中的任务");
       return;
@@ -4244,14 +4361,46 @@ export class LLMBridgeView extends ItemView {
       new Notice("该回答缺少 nativeTurnId，无法定位分叉点（旧会话不支持分叉）");
       return;
     }
-    // V19-FORK: 先 RPC 成功再切换本地会话；失败则保持当前会话完全不变，不生成对话消息
+    const parentSessionId = this.currentSessionId ?? session.activeNativeSessionRef.threadId;
+    const parentBranchInfo = this.sessionState.branchInfo;
+    const baseTitle = splitLegacyBranchTitle(this.sessionState.title || "新会话").title;
+    this.setForkUiState(msg.id);
+    // 先 RPC 成功再切换本地会话；失败则保持当前会话完全不变，不生成对话消息。
     try {
       await this.runSession.runNativeAction({ kind: "fork", lastTurnId });
-      this.beginLocalSessionFork();
+      const branch = await this.beginLocalSessionFork(msg, {
+        parentSessionId,
+        parentBranchInfo,
+        baseTitle,
+      });
+      const source = branch.forkedFromTimestamp
+        ? formatHistoryTimeFn(branch.forkedFromTimestamp)
+        : "所选回答";
+      new Notice(`已创建分支 · 源自 ${source}`, 3000);
     } catch (e) {
       const reason = (e as Error)?.message || String(e);
       new Notice(`分叉失败 · ${reason}`);
+    } finally {
+      this.setForkUiState(null);
     }
+  }
+
+  /** 同步分叉按钮与顶部会话标签的进行中状态。 */
+  private setForkUiState(messageId: string | null): void {
+    this.forkingMessageId = messageId;
+    const buttons = this.messagesEl?.querySelectorAll<HTMLButtonElement>('[data-action="fork"]') ?? [];
+    for (const button of Array.from(buttons)) {
+      const block = button.closest<HTMLElement>("[data-msg-id]");
+      const isSource = !!messageId && block?.dataset.msgId === messageId;
+      button.disabled = !!messageId;
+      button.classList.toggle("is-loading", isSource);
+      button.empty();
+      setIcon(button, isSource ? "loader-circle" : "git-branch");
+      const label = isSource ? "正在创建分支" : "分叉";
+      button.setAttribute("title", label);
+      button.setAttribute("aria-label", label);
+    }
+    this.refreshSessionState();
   }
 
   private renderMessageContent(content: HTMLElement, msg: ChatMessage): void {
@@ -6052,12 +6201,34 @@ export class LLMBridgeView extends ItemView {
 
   // V2.0: 刷新会话状态展示（标题 + 状态 + 消息数 + 上下文指标）
   private refreshSessionState(): void {
-    // P3: 恢复的会话在标题后追加标记，让用户持久感知当前是恢复上下文而非新会话
-    const displayTitle = this.sessionResumed
-      ? `${this.sessionState.title}（恢复的会话）`
-      : this.sessionState.title;
+    // 标题只承载主题；分支与恢复状态使用独立 chip，避免标题不断累加状态后缀。
+    const displayTitle = splitLegacyBranchTitle(this.sessionState.title).title;
     if (this.sessionTitleEl) {
       this.sessionTitleEl.textContent = displayTitle;
+    }
+    const branch = this.sessionState.branchInfo;
+    if (this.sessionBranchChipEl && this.sessionBranchChipIconEl && this.sessionBranchChipLabelEl) {
+      const creating = !!this.forkingMessageId;
+      this.sessionBranchChipEl.toggleAttribute("hidden", !creating && !branch);
+      this.sessionBranchChipEl.classList.toggle("is-creating", creating);
+      if (creating) {
+        this.sessionBranchChipIconEl.empty();
+        setIcon(this.sessionBranchChipIconEl, "loader-circle");
+        this.sessionBranchChipLabelEl.textContent = "创建分支…";
+        this.sessionBranchChipEl.setAttribute("title", "正在等待 Codex 创建独立分支");
+      } else if (branch) {
+        const source = branch.forkedFromTimestamp
+          ? formatHistoryTimeFn(branch.forkedFromTimestamp)
+          : "旧会话";
+        this.sessionBranchChipIconEl.empty();
+        setIcon(this.sessionBranchChipIconEl, "git-branch");
+        this.sessionBranchChipLabelEl.textContent = `分支 ${branch.depth} · ${source}`;
+        const parentHint = branch.parentSessionId ? `\n父会话：${branch.parentSessionId}` : "";
+        this.sessionBranchChipEl.setAttribute("title", `当前为第 ${branch.depth} 层分支 · 源自 ${source}${parentHint}`);
+      }
+    }
+    if (this.sessionRestoreChipEl) {
+      this.sessionRestoreChipEl.toggleAttribute("hidden", !this.sessionResumed);
     }
     const shadowTitle = this.statusBarEl?.querySelector(".llm-bridge-sb-session-title-shadow");
     if (shadowTitle) {
@@ -6066,8 +6237,14 @@ export class LLMBridgeView extends ItemView {
     const sessionSelector = this.sessionTitleEl?.closest(".llm-bridge-session-selector");
     if (sessionSelector) {
       sessionSelector.className = `llm-bridge-session-selector ${sessionStatusClass(this.sessionState.status)}`;
-      // V2.16-D: title 属性显示完整 session title（hover 查看截断的完整内容）
-      (sessionSelector as HTMLElement).setAttribute("title", displayTitle || "当前会话");
+      const stateHints = [
+        branch ? `分支 ${branch.depth}` : "",
+        this.sessionResumed ? "已恢复" : "",
+      ].filter(Boolean);
+      (sessionSelector as HTMLElement).setAttribute(
+        "title",
+        stateHints.length > 0 ? `${displayTitle}\n${stateHints.join(" · ")}` : (displayTitle || "当前会话"),
+      );
     }
     // 会话标题行着色（按状态）
     const titleRow = this.statusBarEl.querySelector(".llm-bridge-sb-title-row");
@@ -6261,7 +6438,9 @@ export class LLMBridgeView extends ItemView {
       const useTurnStatus = !!turnStatus && (turnStatus.isActive || turnStatus.isContextCompaction);
       state = {
         kind: useTurnStatus ? turnStatus!.kind : "compressed",
-        label: useTurnStatus ? turnStatus!.label : compressionText ?? "",
+        label: useTurnStatus
+          ? this.localizeRunStatus(turnStatus!.label)
+          : compressionText ?? "",
         stepText: useTurnStatus ? turnStatus!.stepText : "",
       };
     }
@@ -6289,7 +6468,13 @@ export class LLMBridgeView extends ItemView {
 
   private getComposerTurnStatus(turn: AssistantTurnView): { label: string; stepText: string; kind: string; isActive: boolean; isContextCompaction: boolean } | null {
     const nodes = this.flattenTurnTimeline(turn.turnTimeline)
-      .filter((node) => node.kind !== "status" && node.kind !== "agentMessage");
+      .filter((node) => {
+        if (node.kind === "agentMessage") return false;
+        if (node.kind === "status") {
+          return /追加|follow-?up|queued|append-/i.test(`${node.title}\n${node.id}`);
+        }
+        return true;
+      });
     if (nodes.length === 0) return null;
 
     // V20: 终态 turn 具有最高优先级——只要 turn 已结束，就不再显示 active composer 状态。
@@ -6320,8 +6505,11 @@ export class LLMBridgeView extends ItemView {
     active: boolean,
     contextCompaction: boolean,
   ): string {
-    if (active) return `${Math.max(1, currentIndex + 1)}/${total} · ${label}`;
-    if (contextCompaction) return `Context compressed · ${total} steps`;
+    const loc = resolveUiLocale() === "en" ? "en" : "zh";
+    if (active) return `${Math.max(1, currentIndex + 1)}/${total} · ${this.localizeRunStatus(label)}`;
+    if (contextCompaction) {
+      return loc === "zh" ? `上下文已压缩 · ${total} 步` : `Context compressed · ${total} steps`;
+    }
     return "";
   }
 
@@ -6329,6 +6517,12 @@ export class LLMBridgeView extends ItemView {
     switch (node.kind) {
       case "contextCompaction":
         return active ? "Compressing context" : "Context compressed";
+      case "status":
+        if (/追加|follow-?up|queued|append-/i.test(`${node.title}\n${node.id}`)) {
+          if (node.status === "failed") return "Follow-up failed";
+          return active ? "Queuing follow-up" : "Follow-up sent";
+        }
+        return active ? "Processing" : "Processed";
       case "reasoning":
       case "plan":
         return active ? "Thinking" : "Thought";
@@ -6358,7 +6552,9 @@ export class LLMBridgeView extends ItemView {
   private getContextCompressionStatusText(): string | null {
     const comp = this.lastContextMetrics?.compression;
     if (!comp) return null;
-    return `Context compressed ${formatTokens(comp.beforeTokens)} → ${formatTokens(comp.afterTokens)}`;
+    const loc = resolveUiLocale() === "en" ? "en" : "zh";
+    const range = `${formatTokens(comp.beforeTokens)} → ${formatTokens(comp.afterTokens)}`;
+    return loc === "zh" ? `上下文已压缩 ${range}` : `Context compressed ${range}`;
   }
 
   // Agent Skills panel: runtime capabilities only; no composer insertion.
@@ -6541,7 +6737,12 @@ export class LLMBridgeView extends ItemView {
       dropdown.createEl("div", { cls: "llm-bridge-session-dropdown-empty", text: "暂无历史会话" });
     } else {
       for (const item of recent) {
-        const meta = `${formatHistoryTimeFn(item.savedAt)} · ${item.messageCount} 条`;
+        const branchMeta = item.branchInfo
+          ? `分支 ${item.branchInfo.depth} · 源自 ${item.branchInfo.forkedFromTimestamp ? formatHistoryTimeFn(item.branchInfo.forkedFromTimestamp) : "旧会话"}`
+          : "";
+        const meta = [branchMeta, formatHistoryTimeFn(item.savedAt), `${item.messageCount} 条`]
+          .filter(Boolean)
+          .join(" · ");
         const row = this.createComposerMenuItem(dropdown, {
           className: "llm-bridge-session-dropdown-item",
           title: item.title,
@@ -6549,6 +6750,7 @@ export class LLMBridgeView extends ItemView {
           badge: item.id === this.currentSessionId ? "当前" : undefined,
           active: item.id === this.currentSessionId,
         });
+        row.classList.toggle("is-branch", !!item.branchInfo);
         row.setAttribute("title", `${item.title}\n${item.messageCount} 条消息 · ${item.savedAt}`);
         row.addEventListener("click", async () => {
           dropdown.setAttribute("hidden", "");
@@ -6575,15 +6777,116 @@ export class LLMBridgeView extends ItemView {
     });
   }
 
-  /** 为 native thread/fork 切换到新的本地历史 id，保留原会话快照不被后续保存覆盖。 */
-  private beginLocalSessionFork(): void {
-    this.currentSessionId = null;
+  /**
+   * 将成功的 native fork 落为独立本地会话。
+   * UI transcript 必须与 app-server 的 lastTurnId 边界一致，因此只继承到来源回答。
+   */
+  private async beginLocalSessionFork(
+    sourceMessage: ChatMessage,
+    parent: {
+      parentSessionId: string;
+      parentBranchInfo: SessionBranchInfo | null;
+      baseTitle: string;
+    },
+  ): Promise<SessionBranchInfo> {
+    const activeNativeRef = this.runSession.getSession().activeNativeSessionRef;
+    const childSessionId = activeNativeRef?.threadId;
+    if (!childSessionId || childSessionId === parent.parentSessionId) {
+      throw new Error("分支已返回，但没有绑定新的 native thread");
+    }
+
+    const sourceIndex = this.messages.findIndex((message) => message.id === sourceMessage.id);
+    if (sourceIndex < 0) {
+      throw new Error("找不到分叉来源消息");
+    }
+    const inheritedMessages = this.messages
+      .slice(0, sourceIndex + 1)
+      .filter((message) => !isLegacyForkSyntheticMessage(message));
+    const createdAt = new Date().toISOString();
+    const branchInfo: SessionBranchInfo = {
+      rootSessionId: parent.parentBranchInfo?.rootSessionId ?? parent.parentSessionId,
+      parentSessionId: parent.parentSessionId,
+      forkedFromMessageId: sourceMessage.id,
+      forkedFromTurnId: sourceMessage.assistantTurnView?.nativeTurnId ?? null,
+      forkedFromTimestamp: sourceMessage.timestamp || null,
+      depth: Math.max(0, parent.parentBranchInfo?.depth ?? 0) + 1,
+      createdAt,
+    };
+
+    this.messages = inheritedMessages;
+    this.currentAssistantId = null;
+    this.currentSessionId = childSessionId;
+    this.messagesFoldExpanded = false;
+    this.sessionResumed = false;
     this.sessionState = updateSession(this.sessionState, {
-      title: `${this.sessionState.title || "新会话"} · 分支`,
-      startedAt: new Date().toISOString(),
+      title: parent.baseTitle,
+      messageCount: inheritedMessages.filter((message) => message.role === "user").length,
+      startedAt: createdAt,
       status: "idle",
+      branchInfo,
     });
+    this.renderMessagesFromHistory();
     this.refreshSessionState();
+    this.refreshStatusBar();
+
+    const persisted = await this.persistForkSessionSnapshot();
+    if (!persisted) {
+      new Notice("分支已创建，但本地历史暂未保存；发送下一条消息时会再次保存", 5000);
+    }
+    return branchInfo;
+  }
+
+  /** 分叉成功后立即保存 child session，避免尚未发送新消息时重启导致分支状态丢失。 */
+  private async persistForkSessionSnapshot(): Promise<boolean> {
+    try {
+      const settings = this.plugin.settings;
+      const approvalProfile = this.displayApprovalProfile() === "full-access"
+        ? "ask"
+        : this.displayApprovalProfile();
+      const savedId = await saveSession(
+        this.getVaultPath(),
+        this.sessionState,
+        this.messages,
+        settings.agentType,
+        this.currentSessionId ?? undefined,
+        {
+          pinnedContextRefs: this.pinnedFileRefs.map((ref) => ({
+            id: ref.id,
+            kind: ref.kind,
+            displayName: ref.displayName,
+            requestedPath: ref.requestedPath,
+            resolvedPath: ref.resolvedPath,
+            pathKind: ref.pathKind,
+            fileType: ref.fileType,
+            previewText: ref.previewText,
+            source: ref.source,
+            grantScope: ref.grantScope,
+            scope: ref.scope,
+            createdAt: ref.createdAt,
+            status: ref.status,
+          })),
+          sessionMode: settings.sessionMode,
+          model: settings.model,
+          effortLevel: settings.effortLevel,
+          backendMode: settings.backendMode,
+          approvalProfile,
+          permissionMode: approvalProfile === "ask"
+            ? mapAgentApprovalProfileToClaudePermissionMode("ask")
+            : settings.claudePermissionMode,
+          nativeSessionRef: this.runSession.getSession().activeNativeSessionRef,
+        },
+      );
+      if (!savedId) return false;
+      this.currentSessionId = savedId;
+      if (settings.keepLastSession) {
+        settings.lastActiveSessionId = savedId;
+        await this.plugin.saveSettings();
+      }
+      await this.refreshHistory(true);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   // V2.5: 从 .llm-bridge/sessions/ 加载历史会话列表并渲染
@@ -6698,6 +7001,7 @@ export class LLMBridgeView extends ItemView {
       status: session.status,
       messageCount: session.messageCount,
       startedAt: session.startedAt,
+      branchInfo: session.branchInfo ?? null,
     };
     // V2.16-D/V2.17-A: 还原运行时状态 + pinned context（保留类型）+ 重算 message 附件 snippet
     const s = this.plugin.settings;
@@ -6929,6 +7233,7 @@ export class LLMBridgeView extends ItemView {
       status: session.status,
       messageCount: session.messageCount,
       startedAt: session.startedAt,
+      branchInfo: session.branchInfo ?? null,
     };
     // V2.16-D/V2.17-A: 还原运行时状态 + pinned context（保留类型）+ 重算 message 附件 snippet
     if (session.model) s.model = session.model;

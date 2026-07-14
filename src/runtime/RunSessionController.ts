@@ -154,6 +154,10 @@ export interface RunSessionHost {
   closeMentionPicker(): void;
   clearMessageContext(): void;
   renderComposerRuntimeCapabilityChips(): void;
+  /** Mark composer as pending-send (queued follow-up) until steer completes. */
+  setComposerPendingSend(pending: boolean, text?: string): void;
+  /** Restore composer textarea text (e.g. after a failed steer). */
+  setComposerInput(text: string): void;
 
   // --- Runtime capabilities ---
   buildRuntimeCapabilities(providerId: string, settings: LLMBridgeSettings): ProviderCapabilityInfo;
@@ -201,6 +205,8 @@ export class RunSessionController {
   private _lifecycleState: "idle" | "preparing" | "running" | "finalizing" = "idle";
   /** V18-APPEND: 当前运行的 turnBuilder，steerCurrentTurn 通过它注入追加节点 */
   private _turnBuilder: AssistantTurnViewBuilder | null = null;
+  /** True while turn/steer RPC is in flight (composer stays as pending queue). */
+  private _steerPending = false;
   /** V19-FORK: 静默 native action（fork）的完成回调，使 runNativeAction 能 await RPC 结果 */
   private _nativeActionResolve?: () => void;
   private _nativeActionReject?: (e: Error) => void;
@@ -320,6 +326,10 @@ export class RunSessionController {
       new Notice("当前没有可追加指令的运行");
       return;
     }
+    if (this._steerPending) {
+      new Notice("上一条追加仍在发送中");
+      return;
+    }
     const text = this.host.getComposerInput().trim();
     if (!text) {
       new Notice("请输入要追加的指令");
@@ -342,11 +352,16 @@ export class RunSessionController {
     }
     const appendId = `append-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
     const now = new Date().toISOString();
+    this._steerPending = true;
+    // Pending follow-up lives above the composer input until steer finishes.
+    this.host.setComposerPendingSend(true, text);
+    this.host.clearComposerInput();
+    this.host.autoGrowInput();
     tb.appendCustomTimelineNode({
       id: appendId,
       kind: "status",
       status: "running",
-      title: "追加指令",
+      title: "Queued follow-up",
       summary: text,
       startedAt: now,
     });
@@ -355,23 +370,27 @@ export class RunSessionController {
       await steer.call(this._session.provider, text);
       // 不插入独立 user bubble：当前 assistant card 仍在流式更新，插入后会形成
       // “最终回答显示在追加指令上方”的错误时间顺序。Runtime thread 已保存该 steer。
-      this.host.clearComposerInput();
-      this.host.autoGrowInput();
       tb.updateCustomTimelineNode(appendId, {
         status: "completed",
+        title: "Follow-up sent",
         endedAt: new Date().toISOString(),
       });
       this.host.patchRunningStatusLine(this.host.currentAssistantId ?? "");
-      new Notice("已追加到当前运行");
     } catch (error) {
       const errMsg = (error as Error).message;
       tb.updateCustomTimelineNode(appendId, {
         status: "failed",
+        title: "Follow-up failed",
         detail: errMsg,
         endedAt: new Date().toISOString(),
       });
       this.host.patchRunningStatusLine(this.host.currentAssistantId ?? "");
+      this.host.setComposerInput(text);
+      this.host.autoGrowInput();
       new Notice(`追加指令失败：${errMsg}`);
+    } finally {
+      this._steerPending = false;
+      this.host.setComposerPendingSend(false);
     }
   }
 
@@ -456,9 +475,12 @@ export class RunSessionController {
         startedAt: new Date().toISOString(),
       });
     }
-    this.host.sessionState = updateSession(this.host.sessionState, {
-      messageCount: this.host.sessionState.messageCount + 1,
-    });
+    // 静默 fork 不产生用户消息，不应污染会话消息计数。
+    if (!isSilentFork) {
+      this.host.sessionState = updateSession(this.host.sessionState, {
+        messageCount: this.host.sessionState.messageCount + 1,
+      });
+    }
 
     const startedAt = new Date().toISOString();
     const startedAtMs = Date.now();
