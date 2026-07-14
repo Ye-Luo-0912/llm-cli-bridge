@@ -12,6 +12,7 @@ const __dirname = resolve(__filename, "..");
 const PROJECT_ROOT = resolve(__dirname, "..");
 const OUT = join(PROJECT_ROOT, "docs", "test-report-ui-03-smoke.md");
 const VIEW_SRC = readFileSync(join(PROJECT_ROOT, "src", "view.ts"), "utf8");
+const HISTORY_PANEL_SRC = readFileSync(join(PROJECT_ROOT, "src", "ui", "historyPanel.ts"), "utf8");
 const STYLES_SRC = readFileSync(join(PROJECT_ROOT, "styles.css"), "utf8");
 
 function gitSha() {
@@ -54,17 +55,20 @@ function add(name, ok, detail = "") {
 
 // === 4. History 分开显示首条请求 + 最后答复 ===
 {
-  const hasSplitDisplay = VIEW_SRC.includes("// UI-03: 分开显示首条请求 + 最后答复（而非单一 preview）")
-    && VIEW_SRC.includes("llm-bridge-history-first-user")
-    && VIEW_SRC.includes("llm-bridge-history-last-reply")
-    && VIEW_SRC.includes('text: `首条：${firstUser}`')
-    && VIEW_SRC.includes('text: `答复：${lastReply}`');
+  const hasSplitDisplay = HISTORY_PANEL_SRC.includes("// UI-03: 短单行预览（首条 + 最后答复），过长截断，避免重叠")
+    && HISTORY_PANEL_SRC.includes("llm-bridge-history-first-user")
+    && HISTORY_PANEL_SRC.includes("llm-bridge-history-last-reply")
+    && HISTORY_PANEL_SRC.includes("llm-bridge-history-previews")
+    && HISTORY_PANEL_SRC.includes('text: `首条：${firstUser}`')
+    && HISTORY_PANEL_SRC.includes('text: `答复：${lastReply}`')
+    && HISTORY_PANEL_SRC.includes("shortHistoryPreview");
   add("UI-03 History 首条+最后答复: 分开显示而非单一 preview", hasSplitDisplay, hasSplitDisplay ? "ok" : "分行显示不完整");
 }
 
 // === 5. History 不再使用 sessionSummaryText 单一 preview ===
 {
-  const noSinglePreview = !VIEW_SRC.includes("const preview = this.sessionSummaryText(item);");
+  const noSinglePreview = !VIEW_SRC.includes("const preview = this.sessionSummaryText(item);")
+    && !HISTORY_PANEL_SRC.includes("const preview = this.sessionSummaryText(item);");
   add("UI-03 History 无单一 preview: 移除 sessionSummaryText 调用", noSinglePreview, noSinglePreview ? "ok" : "仍存在单一 preview 变量");
 }
 
@@ -72,8 +76,10 @@ function add(name, ok, detail = "") {
 {
   const hasHistoryCSS = STYLES_SRC.includes(".llm-bridge-history-first-user,")
     && STYLES_SRC.includes(".llm-bridge-history-last-reply {")
-    && STYLES_SRC.includes("display: block;")
-    && STYLES_SRC.includes("text-overflow: ellipsis;");
+    && STYLES_SRC.includes(".llm-bridge-history-previews {")
+    && STYLES_SRC.includes("display: block !important;")
+    && STYLES_SRC.includes("text-overflow: ellipsis !important;")
+    && STYLES_SRC.includes("white-space: nowrap !important;");
   add("UI-03 CSS History 分行: block + ellipsis 样式", hasHistoryCSS, hasHistoryCSS ? "ok" : "History 分行 CSS 不完整");
 }
 
