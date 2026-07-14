@@ -82,7 +82,7 @@ export function selectProvider(
   }
   // V17-F0 任务 C：codex-app-server-external 为高级/开发者 fallback（不作为普通用户主线）
   if (mode === "codex-app-server-external") {
-    const codex = new CodexExternalAppServerProvider(false, settings.codexCommand || "codex");
+    const codex = new CodexExternalAppServerProvider(false, settings.codexCommand || "codex", "codex-app-server", "Codex app-server (external)", ["app-server"], pluginDir || "");
     if (codex.isAvailable(cwd)) {
       return { provider: codex, label: "Codex app-server (external)" };
     }
@@ -155,7 +155,7 @@ function createManagedProvider(pluginDir?: string): {
   const resolvedPluginDir = pluginDir || g.__dirname || "";
   const manifestPath = resolveManifestPath(resolvedPluginDir);
   const resolver = resolveManagedRuntime(manifestPath);
-  const provider = new CodexManagedAppServerProvider(resolver, resolver.appServerArgs);
+  const provider = new CodexManagedAppServerProvider(resolver, resolver.appServerArgs, resolvedPluginDir);
   return { provider, resolver, fixture: resolver.fixture };
 }
 

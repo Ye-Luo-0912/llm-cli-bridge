@@ -117,6 +117,41 @@ export default class LLMBridgePlugin extends Plugin {
     if (mode === "pi-sdk" || mode === "pi-rpc") {
       void this.preloadPiSdk(this.pluginDir);
     }
+
+    // V20-RG: 首次运行自动检查托管 rg，缺失时静默安装并校验 rg --version
+    void this.ensureManagedToolOnload();
+  }
+
+  /** V20-RG: onload 时自动检查托管 rg，缺失则静默安装 + 校验 rg --version */
+  private async ensureManagedToolOnload(): Promise<void> {
+    try {
+      const status = this.getManagedToolInstallStatus();
+      if (!status.required) return;
+      console.log("[llm-cli-bridge] 托管 rg 缺失，正在自动安装...");
+      const result = await this.ensureManagedToolInstalled({ confirm: false });
+      if (result.status === "installed" || result.status === "already-installed") {
+        // 安装后执行真实 rg --version 验证
+        const { resolveManagedTool, resolveRgManifestPath } = await import("./src/runtime/managed-tools/rg/rgManagedResolver");
+        const resolved = resolveManagedTool(resolveRgManifestPath(this.pluginDir));
+        if (resolved.available && resolved.toolPath) {
+          try {
+            const { execFileSync } = await import("child_process");
+            const output = execFileSync(resolved.toolPath, ["--version"], {
+              timeout: 5000,
+              stdio: ["ignore", "pipe", "ignore"],
+              encoding: "utf8",
+            });
+            console.log(`[llm-cli-bridge] 托管 rg 安装成功: ${output.trim()}`);
+          } catch (e) {
+            console.warn(`[llm-cli-bridge] 托管 rg 安装成功但 --version 验证失败:`, (e as Error).message);
+          }
+        }
+      } else {
+        console.warn(`[llm-cli-bridge] 托管 rg 自动安装未完成: ${result.status} ${result.error || ""}`);
+      }
+    } catch (e) {
+      console.warn("[llm-cli-bridge] 托管 rg onload 检查失败:", e);
+    }
   }
 
   /** V17-D 任务 B：异步预加载 Pi SDK 到 probeCache（传入插件真实目录，不用 renderer __dirname） */

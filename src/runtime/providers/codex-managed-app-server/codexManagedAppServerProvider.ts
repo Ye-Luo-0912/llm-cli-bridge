@@ -36,6 +36,7 @@ export class CodexManagedAppServerProvider extends CodexExternalAppServerProvide
   constructor(
     resolverResult: ManagedRuntimeResolverResult,
     appServerArgs: string[] = ["app-server"],
+    pluginDir: string = "",
   ) {
     // V17-F1.1 任务 B：通过 super() 参数注入 providerId/displayName/appServerArgs
     // 父类 constructor 用这些参数创建 mappers，确保 approvalMapper 捕获正确的 providerId
@@ -47,6 +48,7 @@ export class CodexManagedAppServerProvider extends CodexExternalAppServerProvide
       "codex-managed-app-server" as ProviderId, // providerId
       "Codex managed app-server", // displayName
       appServerArgs.length > 0 ? appServerArgs : ["app-server"], // appServerArgs
+      pluginDir, // V20-RG: 传入真实插件目录
     );
     this.resolverResult = resolverResult;
   }

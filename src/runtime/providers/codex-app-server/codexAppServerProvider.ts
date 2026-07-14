@@ -247,6 +247,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
   private readonly codexCommand: string;
   /** V17-F1.1 任务 B：app-server 启动参数（由 constructor 接收，子类不再需要 override） */
   private readonly appServerArgs: string[];
+  /** V20-RG: 真实插件目录，用于 buildEnhancedPath 构造托管 rg PATH */
+  protected readonly pluginDir: string;
   /** V20.10: skills 缓存（skills/changed 通知时自动刷新） */
   private cachedSkills: SkillsListResponse | null = null;
   /** V20.10: permissionProfile 缓存（首次 getCachedPermissionProfiles 时拉取） */
@@ -258,6 +260,7 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     providerId: ProviderId = "codex-app-server",
     displayName: string = "Codex app-server (external)",
     appServerArgs: string[] = ["app-server"],
+    pluginDir: string = "",
   ) {
     // V17-F1.1 任务 B：用参数赋值 readonly 字段，确保 mappers 捕获正确 providerId
     this.providerId = providerId;
@@ -267,6 +270,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
     this.userInputMapper = new CodexAppServerUserInputMapper(providerId);
     this.sessionMapper = new CodexAppServerSessionMapper();
     this.codexCommand = codexCommand || "codex";
+    // V20-RG: 保存真实插件目录，使 buildSpawnEnv 的 PATH 构造不依赖 globalThis.__dirname
+    this.pluginDir = pluginDir || (globalThis as { __dirname?: string }).__dirname || "";
   }
 
   isAvailable(cwd: string): boolean {
@@ -326,8 +331,8 @@ export class CodexExternalAppServerProvider implements RuntimeProvider {
    */
   private buildSpawnEnv(cwd: string, pluginDir?: string): NodeJS.ProcessEnv {
     const env: NodeJS.ProcessEnv = { ...process.env };
-    // V17-RG: pluginDir 优先取参数，其次 globalThis.__dirname（与 managed runtime resolver 一致）
-    const resolvedPluginDir = pluginDir ?? (globalThis as { __dirname?: string }).__dirname ?? undefined;
+    // V20-RG: pluginDir 优先取参数，其次 this.pluginDir（constructor 注入），最后 globalThis.__dirname 兜底
+    const resolvedPluginDir = pluginDir || this.pluginDir || (globalThis as { __dirname?: string }).__dirname || undefined;
     try {
       const extraPath = buildEnhancedPath(cwd, resolvedPluginDir);
       if (extraPath) {
